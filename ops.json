@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"session":"3f0b7319-e877-405d-b2f5-7180819578af","ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"dir","value":"plugins/long-running/dashboard"},"oid":"78e7a1ea433090d4909e79595f8bcfa723f2a9fe"}],"verified_commit":"f1907b22ef30e90237de99a9202eafa15208eb24"}]}
