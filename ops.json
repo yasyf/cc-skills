@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"session":"12476ccb-3f20-4442-85a1-52c952aa859d","ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"path","value":"plugins/repo-bootstrap/skills/repo-bootstrap/templates/base/github/workflows/guides.yml"},"oid":"fd36cea7b790a8c3a2bf7685000be722caaa0a99"}],"verified_commit":"36108d02480b63b45e2c6dab0d82ada31892a1bf"}]}
