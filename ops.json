@@ -1,1 +1,0 @@
-{"v":1,"lamport":11,"ops":[{"kind":"set_status","status":"done"},{"kind":"add_comment","body":"All acceptance gates verified: actual installed fixed CLI hydration plus deferred0 and both historical task reads. No source checkout changes or service activation."}]}
