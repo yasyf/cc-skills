@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"dir","value":"plugins/codex"},"oid":"057a7f48911eedb234d62cb72311cad78c0aaac5"}],"verified_commit":"f3c968ea6fcb1620d998946c214e8c3cf58d567a"}]}
