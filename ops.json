@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"session":"72c2336c-375c-42d0-af9f-356b617fc964","ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"dir","value":"plugins/long-running/lr/internal/grading"},"oid":"55b95a2c9782d81a7a805fdb35796be36cd717a4"}],"verified_commit":"df5cfa1b95026cd4755078e102b08e41b08fc62b"}]}
