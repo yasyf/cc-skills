@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"session":"12476ccb-3f20-4442-85a1-52c952aa859d","ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"dir","value":"tools/gd-build"},"oid":"82412f114db10f39767ed1a97e8b8d63270d52be"}],"verified_commit":"7de02a24cbef3cfcf5b9ad36bf46842ef04a91e7"}]}
