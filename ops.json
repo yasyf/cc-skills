@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"commit","value":"dcb46193e36b67d161441e87722a823a8d3827e9"},"oid":"dcb46193e36b67d161441e87722a823a8d3827e9"},{"anchor":{"kind":"dir","value":"plugins/repo-bootstrap"},"oid":"f9081f9ae01c48f1f1a8e80eb71c13bb6775fac5"}],"verified_commit":"dcb46193e36b67d161441e87722a823a8d3827e9"}]}
