@@ -1,1 +1,0 @@
-{"v":1,"lamport":2,"ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"commit","value":"c36bb0e78642b21e47df69376086987150a2e14f"},"oid":"c36bb0e78642b21e47df69376086987150a2e14f"}],"verified_commit":"aaf84f234cbf1d3f268be78f25922e99e4921efa"}]}
