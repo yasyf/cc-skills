@@ -1,0 +1,11 @@
+{
+  "name": "slop-cop",
+  "description": "Run the slop-cop CLI on a file (or stdin) to detect LLM-generated prose tells, and report the violations. Bootstraps the prebuilt binary on first use.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "homepage": "https://github.com/yasyf/slop-cop",
+  "license": "MIT"
+}

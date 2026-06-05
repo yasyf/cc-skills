@@ -1,0 +1,19 @@
+{
+  "name": "skills",
+  "owner": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "plugins": [
+    {
+      "name": "slop-cop",
+      "source": "./plugins/slop-cop",
+      "description": "Run slop-cop on a file to catch LLM-generated prose tells."
+    },
+    {
+      "name": "codex",
+      "source": "./plugins/codex",
+      "description": "Get a second opinion from OpenAI Codex CLI on hard debugging, analysis, or architecture problems."
+    }
+  ]
+}
