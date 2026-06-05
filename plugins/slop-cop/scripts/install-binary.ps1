@@ -1,26 +1,23 @@
 #requires -version 5.1
 <#
 .SYNOPSIS
-  Fetches the prebuilt slop-cop binary for the current host into
-  $PluginRoot\bin\slop-cop.exe. Called by the slop-cop-prose skill on
-  first use from Claude Code or Cursor on Windows; safe to re-run.
+  Fetches the prebuilt slop-cop binary for the current host into the plugin's
+  persistent data directory ($env:CLAUDE_PLUGIN_DATA\bin\slop-cop.exe) and
+  writes its path to stdout. Run by the plugin's SessionStart hook and, as a
+  fallback, by the slop-cop skill on Windows. Idempotent; safe to re-run.
 #>
 
 $ErrorActionPreference = 'Stop'
 
-function Resolve-PluginRoot {
-    if ($env:CLAUDE_PLUGIN_ROOT) { return $env:CLAUDE_PLUGIN_ROOT }
-    if ($env:CURSOR_PLUGIN_ROOT) { return $env:CURSOR_PLUGIN_ROOT }
-    return (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-}
-
-$pluginRoot = Resolve-PluginRoot
-$binDir = Join-Path $pluginRoot 'bin'
+# Persistent home for the binary (survives plugin updates). Fall back to a
+# cache dir when CLAUDE_PLUGIN_DATA is unset.
+$dataDir = if ($env:CLAUDE_PLUGIN_DATA) { $env:CLAUDE_PLUGIN_DATA } else { Join-Path $env:LOCALAPPDATA 'slop-cop' }
+$binDir = Join-Path $dataDir 'bin'
 $binPath = Join-Path $binDir 'slop-cop.exe'
 
 # Fast path: binary already works.
 if (Test-Path $binPath) {
-    try { & $binPath version | Out-Null; exit 0 } catch { }
+    try { & $binPath version | Out-Null; Write-Output $binPath; exit 0 } catch { }
 }
 
 switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -30,8 +27,8 @@ switch ($env:PROCESSOR_ARCHITECTURE) {
 }
 
 $zip = "slop-cop_windows_${arch}.zip"
-# /releases/latest/download/<asset> is GitHub's native redirect to the
-# newest release's asset. Invoke-WebRequest follows the 302 by default.
+# /releases/latest/download/<asset> is GitHub's native redirect to the newest
+# release's asset. Invoke-WebRequest follows the 302 by default.
 $url = "https://github.com/yasyf/slop-cop/releases/latest/download/$zip"
 
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
@@ -45,6 +42,7 @@ try {
     Move-Item -Force -Path $src -Destination $binPath
     & $binPath version | Out-Null
     Write-Host "install-binary.ps1: installed $binPath"
+    Write-Output $binPath
 }
 finally {
     Remove-Item -Recurse -Force $tmp.FullName -ErrorAction SilentlyContinue

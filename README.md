@@ -7,7 +7,7 @@ focused skills. Each plugin installs independently.
 
 | Plugin     | What it does                                                                 | Prerequisites |
 | ---------- | ---------------------------------------------------------------------------- | ------------- |
-| `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; it bootstraps its prebuilt binary on first use. |
+| `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; a `SessionStart` hook bootstraps its prebuilt binary. |
 | `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems. | The `codex` CLI on `PATH`. |
 
 ## Install
@@ -31,9 +31,10 @@ To try it from a local checkout before publishing:
 Wraps the [`slop-cop`](https://github.com/yasyf/slop-cop) CLI. Ask the agent to
 "check this file for slop" (or name a path) and it runs `slop-cop check`,
 auto-detecting the input language and masking non-prose regions, then reports
-the violations grouped by category. It only rewrites the file if you ask. The
-host-matched binary is fetched from the latest `yasyf/slop-cop` release on first
-run, so no Go toolchain is needed.
+the violations grouped by category. It only rewrites the file if you ask. A
+`SessionStart` hook fetches the host-matched binary from the latest
+`yasyf/slop-cop` release into the plugin's persistent data dir, so no Go
+toolchain is needed and there is no first-call download stall.
 
 ## codex
 

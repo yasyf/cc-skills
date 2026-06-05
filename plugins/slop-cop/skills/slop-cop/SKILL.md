@@ -14,28 +14,31 @@ rewrite the file unless the user asks.
 
 ## Resolve the binary
 
-Before each run, pick the first option that works:
+The plugin's `SessionStart` hook normally bootstraps the binary into the
+plugin's persistent data dir before you run, so resolution is usually instant.
+Pick the first option that works:
 
 ```bash
-# 1. Pre-installed on PATH.
+# 1. Pre-installed on PATH (the user already has slop-cop).
 if command -v slop-cop >/dev/null 2>&1; then
   SLOP_COP=slop-cop
-# 2. Bundled inside the plugin (after a prior bootstrap).
-elif [ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/slop-cop" ]; then
-  SLOP_COP="${CLAUDE_PLUGIN_ROOT}/bin/slop-cop"
-# 3. First run: bootstrap the prebuilt binary into the plugin dir, then use it.
+# 2. Bootstrapped into the plugin's persistent data dir (normal path).
+elif [ -x "${CLAUDE_PLUGIN_DATA}/bin/slop-cop" ]; then
+  SLOP_COP="${CLAUDE_PLUGIN_DATA}/bin/slop-cop"
+# 3. Not yet present (hook skipped/offline): bootstrap now. The installer is
+#    idempotent and prints the absolute binary path on stdout.
 else
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh"
-  SLOP_COP="${CLAUDE_PLUGIN_ROOT}/bin/slop-cop"
+  SLOP_COP="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh")"
 fi
 ```
 
-The bootstrap downloads the host-matched binary from the latest
-[`yasyf/slop-cop`](https://github.com/yasyf/slop-cop) release into
-`${CLAUDE_PLUGIN_ROOT}/bin/`. It is idempotent — a no-op once the binary is
-present. On Windows, run
-`pwsh "$env:CLAUDE_PLUGIN_ROOT\scripts\install-binary.ps1"` and point
-`SLOP_COP` at `bin\slop-cop.exe`. No Go toolchain is required.
+`${CLAUDE_PLUGIN_DATA}` and `${CLAUDE_PLUGIN_ROOT}` are substituted to real
+paths in this skill's text. The installer downloads the host-matched binary
+from the latest [`yasyf/slop-cop`](https://github.com/yasyf/slop-cop) release
+into `${CLAUDE_PLUGIN_DATA}/bin/` (a location that survives plugin updates); no
+Go toolchain is required. On Windows, run
+`pwsh "${CLAUDE_PLUGIN_ROOT}\scripts\install-binary.ps1"` instead — it prints
+the `slop-cop.exe` path the same way.
 
 ## Run
 
