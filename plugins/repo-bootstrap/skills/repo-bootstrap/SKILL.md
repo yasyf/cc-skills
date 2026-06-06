@@ -66,7 +66,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/check-pypi-name.sh" DI
 | `LICENSE_ID` | SPDX id | `PolyForm-Noncommercial-1.0.0` |
 | `DIST_NAME` | PyPI dist == CLI command (python) | `capt-hook` |
 | `PACKAGE` | Import package (python) | `captain_hook` |
-| `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.12` / `3.13` |
+| `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.13` / `3.14` |
 
 Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`, `YEAR`.
 
@@ -81,7 +81,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/scaffold.py" \
   --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
   --var LICENSE_ID=PolyForm-Noncommercial-1.0.0 \
   --var DIST_NAME=... --var PACKAGE=... \
-  --var PYTHON_MIN=3.12 --var PYTHON_PIN=3.13
+  --var PYTHON_MIN=3.13 --var PYTHON_PIN=3.14
 ```
 
 Rules:
