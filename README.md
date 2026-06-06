@@ -9,6 +9,7 @@ focused skills. Each plugin installs independently.
 | ---------- | ---------------------------------------------------------------------------- | ------------- |
 | `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; a `SessionStart` hook bootstraps its prebuilt binary. |
 | `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems. | The `codex` CLI on `PATH`. |
+| `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended. |
 
 ## Install
 
@@ -18,6 +19,7 @@ Add the marketplace, then install the plugins you want:
 /plugin marketplace add yasyf/skills
 /plugin install slop-cop@skills
 /plugin install codex@skills
+/plugin install repo-bootstrap@skills
 ```
 
 To try it from a local checkout before publishing:
@@ -42,6 +44,19 @@ A second-opinion escape hatch for when you're stuck after a couple of failed
 attempts. The skill gathers full context, hands it to `codex exec`, and returns
 a structured summary you can verify. It needs the OpenAI Codex CLI installed and
 authenticated on your machine.
+
+## repo-bootstrap
+
+Bootstraps a new project or repo from battle-tested conventions, distilled from
+[captain-hook](https://github.com/yasyf/captain-hook)'s setup history. A base
+layer every repo gets (AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README skeleton,
+Claude Code settings, [semble](https://pypi.org/project/semble/) code search,
+[capt-hook](https://github.com/yasyf/captain-hook) guard hooks) plus an optional
+Python layer (uv with the `uv_build` backend, Click CLI, loguru, pytest, pyright
+strict, [Great Docs](https://posit-dev.github.io/great-docs/) on GitHub Pages,
+and tag-driven PyPI releases via trusted publishing). Templates render through a
+deterministic scaffold script; the agent fills in naming, prose, and follow-up
+edits. Say "bootstrap a new repo" or "scaffold a new Python package".
 
 ## License
 

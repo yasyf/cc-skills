@@ -1,0 +1,75 @@
+[project]
+name = "{{DIST_NAME}}"
+version = "0.1.0"
+description = "{{DESCRIPTION}}"
+readme = "README.md"
+license = "{{LICENSE_ID}}"
+license-files = ["LICENSE"]
+authors = [{ name = "{{AUTHOR_NAME}}", email = "{{AUTHOR_EMAIL}}" }]
+keywords = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Typing :: Typed",
+]
+requires-python = ">={{PYTHON_MIN}}"
+dependencies = [
+    "click>=8",
+    "loguru>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyright>=1.1",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+{{DIST_NAME}} = "{{PACKAGE}}.cli:main"
+
+[project.urls]
+Homepage = "{{REPO_URL}}"
+Documentation = "{{DOCS_URL}}"
+Repository = "{{REPO_URL}}"
+Issues = "{{REPO_URL}}/issues"
+Changelog = "{{REPO_URL}}/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "{{PACKAGE}}"
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]
+markers = [
+    "unit: Pure unit tests",
+    "integration: Integration tests",
+]
+
+[tool.pyright]
+pythonVersion = "{{PYTHON_MIN}}"
+typeCheckingMode = "strict"
+include = ["{{PACKAGE}}"]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 120
+target-version = "{{PY_TARGET}}"
+src = [".", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[dependency-groups]
+docs = [
+    "great-docs>=0.13,<0.14",
+]

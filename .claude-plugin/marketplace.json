@@ -1,5 +1,6 @@
 {
   "name": "skills",
+  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), and repo scaffolding (repo-bootstrap).",
   "owner": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
@@ -14,6 +15,11 @@
       "name": "codex",
       "source": "./plugins/codex",
       "description": "Get a second opinion from OpenAI Codex CLI on hard debugging, analysis, or architecture problems."
+    },
+    {
+      "name": "repo-bootstrap",
+      "source": "./plugins/repo-bootstrap",
+      "description": "Bootstrap new projects and repos with base conventions plus an opinionated Python packaging layer."
     }
   ]
 }

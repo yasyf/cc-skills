@@ -1,0 +1,12 @@
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local environment
+.env*
+
+# Claude Code
+.context/
+.claude/settings.local.json

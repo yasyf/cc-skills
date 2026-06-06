@@ -1,0 +1,58 @@
+# Great Docs configuration — https://posit-dev.github.io/great-docs/
+# Build: uv run great-docs build · Preview: uv run great-docs preview
+
+module: {{PACKAGE}}
+display_name: {{PROJECT_NAME}}
+parser: google
+dynamic: true
+repo: {{REPO_URL}}
+site_url: "{{DOCS_URL}}"
+pypi: true
+github_style: widget
+jupyter: python3
+
+navbar_style: lilac
+content_style: lilac
+# TODO(bootstrap): pick accent colors that fit the project
+accent_color:
+  light: "#ffb300"
+  dark: "#ffca28"
+dark_mode_toggle: true
+back_to_top: true
+keyboard_nav: true
+
+hero:
+  name: {{PROJECT_NAME}}
+  tagline: "{{DESCRIPTION}}"
+  starfield: true
+
+# Narrative doc sections are optional — dynamic mode generates the API reference
+# from docstrings without them. Uncomment and point at docs/ dirs as they appear.
+# sections:
+#   - title: Getting Started
+#     dir: docs/getting-started
+#     index: true
+#   - title: Guide
+#     dir: docs/guide
+#     navbar_after: Getting Started
+#     index: true
+
+cli:
+  enabled: true
+  module: {{PACKAGE}}.cli
+  name: cli
+
+authors:
+  - name: {{AUTHOR_NAME}}
+    role: Maintainer
+    github: {{GITHUB_USER}}
+    email: {{AUTHOR_EMAIL}}
+
+# Curated symbol reference (public API only). Optional — without it, dynamic
+# mode documents everything in {{PACKAGE}}.__all__.
+# reference:
+#   - title: Core
+#     desc: The main entry points.
+#     contents:
+#       - SomePublicClass
+#       - some_public_function
