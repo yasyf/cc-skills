@@ -21,8 +21,8 @@ PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 PY_VERSION_RE = re.compile(r"^3\.\d+$")
 
-REQUIRED_BASE = ("PROJECT_NAME", "DESCRIPTION", "AUTHOR_NAME", "GITHUB_USER", "LICENSE_ID")
-REQUIRED_PYTHON = ("DIST_NAME", "PACKAGE", "AUTHOR_EMAIL", "PYTHON_PIN", "PYTHON_MIN")
+REQUIRED_BASE = ("PROJECT_NAME", "DESCRIPTION", "AUTHOR_NAME", "AUTHOR_EMAIL", "GITHUB_USER", "LICENSE_ID")
+REQUIRED_PYTHON = ("DIST_NAME", "PACKAGE", "PYTHON_PIN", "PYTHON_MIN")
 KNOWN_VARS = frozenset(REQUIRED_BASE) | frozenset(REQUIRED_PYTHON)
 DERIVED_VARS = ("REPO_URL", "DOCS_URL", "PY_TARGET", "YEAR")
 
@@ -34,6 +34,7 @@ BASE_FILES = {
     "CHANGELOG.md": "base/CHANGELOG.md",
     ".mcp.json": "base/mcp.json",
     ".claude/settings.json": "base/claude/settings.json",
+    ".claude/jj-config.toml": "base/claude/jj-config.toml",
     ".claude/hooks/__init__.py": "base/claude/hooks/__init__.py",
     ".claude/hooks/audit.py": "base/claude/hooks/audit.py",
     ".claude/hooks/commands.py": "base/claude/hooks/commands.py",
@@ -63,7 +64,6 @@ PYTHON_FILES = {
 }
 
 EXTRA_FILES = {
-    "jj": {".claude/jj-config.toml": "extras/jj-config.toml"},
     "superset": {".superset/config.json": "extras/superset-config.json"},
     "env": {".env.local": "extras/env.local"},
 }
@@ -89,8 +89,6 @@ def parse_vars(pairs: list[str]) -> dict[str, str]:
 
 def validate(variables: dict[str, str], layer: str, extras: list[str]) -> None:
     required = set(REQUIRED_BASE) | (set(REQUIRED_PYTHON) if layer == "python" else set())
-    if set(extras) & {"jj", "superset"}:
-        required |= {"AUTHOR_EMAIL"}
     if missing := sorted(required - variables.keys()):
         raise ScaffoldError(f"missing required vars: {', '.join(missing)}")
     if (package := variables.get("PACKAGE")) and not package.isidentifier():
@@ -120,12 +118,6 @@ def render(src: str, variables: dict[str, str]) -> str:
     if leftover := sorted({m.group(0) for m in PLACEHOLDER.finditer(text)}):
         raise ScaffoldError(f"unrendered placeholders in {src}: {', '.join(leftover)}")
     return text
-
-
-def inject_jj_env(settings: str) -> str:
-    parsed = json.loads(settings)
-    parsed["env"]["JJ_CONFIG"] = ".claude/jj-config.toml"
-    return json.dumps(parsed, indent=2) + "\n"
 
 
 def strip_uv_setup(config: str) -> str:
@@ -160,8 +152,6 @@ def build_plan(layer: str, extras: list[str], variables: dict[str, str]) -> dict
             f"curl -fsS https://raw.githubusercontent.com/spdx/license-list-data/main/text/{license_id}.txt > LICENSE"
         )
 
-    if "jj" in extras:
-        plan[".claude/settings.json"] = inject_jj_env(plan[".claude/settings.json"])
     if "superset" in extras and layer == "base":
         plan[".superset/config.json"] = strip_uv_setup(plan[".superset/config.json"])
 

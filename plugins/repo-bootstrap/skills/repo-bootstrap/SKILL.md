@@ -40,7 +40,7 @@ Then ask the user (one `AskUserQuestion` round) for anything not already clear f
 their request:
 
 - **All layers**: project name, one-line description, layer, license (default MIT),
-  extras (`jj`, `superset`, `env` — see the table below; default none).
+  extras (`superset`, `env` — see the table below; default none).
 - **Python additionally**: dist name, package name, Python floor + pin versions.
 
 **Naming rule (python):** the PyPI dist name must equal the CLI command — short and
@@ -60,7 +60,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/check-pypi-name.sh" DI
 | `PROJECT_NAME` | Repo name | `captain-hook` |
 | `DESCRIPTION` | One-line description | `Declarative hook framework for Claude Code.` |
 | `AUTHOR_NAME` | From resolve-identity.sh | — |
-| `AUTHOR_EMAIL` | From resolve-identity.sh (python, or extras `jj`/`superset`) | — |
+| `AUTHOR_EMAIL` | From resolve-identity.sh | — |
 | `GITHUB_USER` | GitHub login | `yasyf` |
 | `LICENSE_ID` | SPDX id | `MIT` |
 | `DIST_NAME` | PyPI dist == CLI command (python) | `capt-hook` |
@@ -101,14 +101,14 @@ Rules:
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered |
 | `.mcp.json` | base | semble code search via uvx |
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/skills` marketplace and enables `codex@skills` |
+| `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/hooks/{__init__,audit,commands,stewardship}.py` | base | guard hooks (see `reference/hooks.md`) |
 | `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
 | `pyproject.toml`, `.python-version`, `great-docs.yml` | python | |
 | `.github/workflows/{ci,docs,release-pypi}.yml` | python | CI, Pages docs, trusted publishing |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
-| `.claude/jj-config.toml` | extra `jj` | also injects `JJ_CONFIG` into settings env |
-| `.superset/config.json` | extra `superset` | worktree bootstrap |
+| `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env.local` | extra `env` | `DEBUG=1` |
 
 For python, follow the scaffold with `uv sync --extra dev` (creates `uv.lock` —

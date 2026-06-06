@@ -84,6 +84,16 @@ fetches it on first use. The AGENTS.md Code Search section and the General Rules
 "Search before writing" rule both assume this server exists; if you remove
 `.mcp.json`, rewrite those sections too.
 
+## .superset/config.json (extra `superset`)
+
+Worktree bootstrap for the superset tool, scaffolded when the `superset` extra is
+chosen: its `setup` commands run when a new worktree is cloned — copy `.env*`
+from the root checkout, append `DEBUG=1` to `.env.local`, `direnv allow`,
+`uv sync --extra dev --inexact` (python layer only; the scaffold strips uv lines
+on base), then `jj git init` and the jj user identity (rendered from the author
+name/email supplied at scaffold time). `teardown` and `run` stay empty until
+needed.
+
 ## README.md
 
 Fixed structure, each section with a `TODO(bootstrap)` describing what good looks
@@ -143,11 +153,20 @@ section in sync with the chosen ID.
 
 Field by field:
 
-- `"effortLevel": "max"`, `"ultracode": true`, `"alwaysThinkingEnabled": true` —
-  maximum reasoning effort on every turn. Keep unless the project is trivial.
-- `"env"`: `"ENABLE_TOOL_SEARCH": "true"` (deferred-tool discovery) and
+- `"effortLevel": "max"`, `"ultracode": true`, `"alwaysThinkingEnabled": true`,
+  `"showThinkingSummaries": true` — maximum reasoning effort on every turn, with
+  thinking summaries surfaced. Keep unless the project is trivial.
+- `"includeGitInstructions": false` — drop the built-in git boilerplate; AGENTS.md
+  § General Rules carries the git conventions instead.
+- `"env"`: `"ENABLE_TOOL_SEARCH": "true"` (deferred-tool discovery),
   `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Code Search routes
-  structural queries to). Both values are strings; `ENABLE_LSP_TOOL` is `"1"`.
+  structural queries to), `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"` (enables
+  `TeamCreate` for the Parallelize Independent Work section),
+  `"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"` (always think at full depth),
+  `"TY_OUTPUT_FORMAT": "concise"` (trims ty LSP diagnostics if that plugin is
+  installed), and `"JJ_CONFIG": ".claude/jj-config.toml"` — points jj at the
+  scaffolded repo-local config (user identity, `difft` diffs, `mergiraf` merges,
+  watchman snapshot triggers off).
 - `"permissions"`: `"allow"` lists only read-only commands (`cat`, `find`,
   `gh api`, `gh pr diff`, `gh pr view`, `git log`, `git status`, `head`, `jq`,
   `ls`, `rg`, `wc` — each as `Bash(cmd:*)`). Philosophy: the checked-in allowlist
