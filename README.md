@@ -25,7 +25,7 @@ Add the marketplace, then install the plugins you want:
 To try it from a local checkout before publishing:
 
 ```
-/plugin marketplace add ~/Code/skills
+/plugin marketplace add ~/Code/cc-skills
 ```
 
 ## slop-cop
