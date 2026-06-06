@@ -152,6 +152,13 @@ Field by field:
   `gh api`, `gh pr diff`, `gh pr view`, `git log`, `git status`, `head`, `jq`,
   `ls`, `rg`, `wc` — each as `Bash(cmd:*)`). Philosophy: the checked-in allowlist
   never grants writes; anything mutating still prompts. `"defaultMode": "auto"`.
+- `"extraKnownMarketplaces"` + `"enabledPlugins"`: registers the
+  [yasyf/skills](https://github.com/yasyf/skills) plugin marketplace (with
+  `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` — the
+  second-opinion skill that the `commands.py` failure nudge points at. Anyone who
+  trusts the folder gets the marketplace registered and the plugin enabled after a
+  one-time consent prompt. Removing the codex nudge from `commands.py`? Remove
+  these two keys in the same edit.
 - `"hooks"`: four events — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
   `Stop` — each running `uvx capt-hook run <Event>`. capt-hook discovers the hook
   definitions in `.claude/hooks/`: `audit.py` (event audit log), `commands.py`

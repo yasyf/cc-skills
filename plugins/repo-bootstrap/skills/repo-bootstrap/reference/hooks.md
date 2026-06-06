@@ -40,10 +40,13 @@ disable logging entirely.
   `CustomCondition` still allows the stream-filter idiom (`… | grep`) and `git log --grep`;
   it blocks grep used for file searching, whether standalone, heading a pipe, or in a
   `&&`/`;` chain.
-- Nudges `/codex` after 2+ tool failures in a turn without a codex invocation. **Requires
-  the codex plugin** (`/plugin install codex@skills`); the `UsedSkill("codex|codex:codex")`
-  alternation covers both the bare and plugin-namespaced skill name. Delete this nudge if
-  the project doesn't use Codex.
+- Nudges `/codex` after 2+ tool failures in a turn without a codex invocation. Requires
+  the codex plugin — the scaffolded `.claude/settings.json` already registers the
+  `yasyf/skills` marketplace and enables `codex@skills`, so it activates when the folder
+  is trusted (no manual `/plugin install`). The `UsedSkill("codex|codex:codex")`
+  alternation covers both the bare and plugin-namespaced skill name. If the project
+  doesn't use Codex, delete this nudge and the `enabledPlugins`/`extraKnownMarketplaces`
+  keys in settings together.
 
 ### `.claude/hooks/stewardship.py` (base layer)
 

@@ -100,7 +100,7 @@ Rules:
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | |
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered |
 | `.mcp.json` | base | semble code search via uvx |
-| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>` |
+| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/skills` marketplace and enables `codex@skills` |
 | `.claude/hooks/{__init__,audit,commands,stewardship}.py` | base | guard hooks (see `reference/hooks.md`) |
 | `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
 | `pyproject.toml`, `.python-version`, `great-docs.yml` | python | |
@@ -187,7 +187,8 @@ repo done.
 - **No capt-hook hooks wanted**: delete `.claude/hooks/` and the `"hooks"` block
   from `.claude/settings.json`.
 - **No Codex**: delete the second-opinion nudge at the bottom of
-  `.claude/hooks/commands.py` (it expects the `codex@skills` plugin).
+  `.claude/hooks/commands.py`, plus the `"enabledPlugins"` entry (and
+  `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.
 - **Monorepos**: out of scope — this skill scaffolds single-package repos.
 
 ## Reference map
