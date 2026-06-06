@@ -88,7 +88,7 @@ fetches it on first use. The AGENTS.md Code Search section and the General Rules
 
 Worktree bootstrap for the superset tool, scaffolded when the `superset` extra is
 chosen: its `setup` commands run when a new worktree is cloned — copy `.env*`
-from the root checkout, append `DEBUG=1` to `.env.local`, `direnv allow`,
+from the root checkout, append `DEBUG=1` to `.env`, `direnv allow`,
 `uv sync --extra dev --inexact` (python layer only; the scaffold strips uv lines
 on base), then `jj git init` and the jj user identity (rendered from the author
 name/email supplied at scaffold time). `teardown` and `run` stay empty until

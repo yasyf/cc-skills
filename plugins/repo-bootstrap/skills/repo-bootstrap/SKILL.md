@@ -111,7 +111,7 @@ Rules:
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
-| `.env.local` | extra `env` | `DEBUG=1` |
+| `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
 
 For python, follow the scaffold with `uv sync --extra dev` (creates `uv.lock` —
 commit it) and `uv run pytest`.

@@ -65,7 +65,7 @@ PYTHON_FILES = {
 
 EXTRA_FILES = {
     "superset": {".superset/config.json": "extras/superset-config.json"},
-    "env": {".env.local": "extras/env.local"},
+    "env": {".env": "extras/env"},
 }
 
 
