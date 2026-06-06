@@ -58,7 +58,7 @@ hook(
     },
 )
 
-# Requires the codex plugin (/plugin install codex@skills from yasyf/skills).
+# Requires the codex plugin (/plugin install codex@skills from yasyf/cc-skills).
 # Delete this nudge if you don't use Codex.
 nudge(
     """

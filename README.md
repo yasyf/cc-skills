@@ -16,7 +16,7 @@ focused skills. Each plugin installs independently.
 Add the marketplace, then install the plugins you want:
 
 ```
-/plugin marketplace add yasyf/skills
+/plugin marketplace add yasyf/cc-skills
 /plugin install slop-cop@skills
 /plugin install codex@skills
 /plugin install repo-bootstrap@skills

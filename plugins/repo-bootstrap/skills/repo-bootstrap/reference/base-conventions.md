@@ -174,7 +174,7 @@ Field by field:
   `ls`, `rg`, `wc` — each as `Bash(cmd:*)`). Philosophy: the checked-in allowlist
   never grants writes; anything mutating still prompts. `"defaultMode": "auto"`.
 - `"extraKnownMarketplaces"` + `"enabledPlugins"`: registers the
-  [yasyf/skills](https://github.com/yasyf/skills) plugin marketplace (with
+  [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace (with
   `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` — the
   second-opinion skill that the `commands.py` failure nudge points at. Anyone who
   trusts the folder gets the marketplace registered and the plugin enabled after a

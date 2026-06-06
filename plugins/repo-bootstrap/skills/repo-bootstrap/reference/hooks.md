@@ -15,9 +15,9 @@ with `uvx capt-hook test` from the repo root.
 
 ## IMPORTANT: minimum version
 
-These hook files target **capt-hook >= 0.3**: `style.py` imports the styleguide Matcher DSL
-(`from captain_hook.primitives.styleguide import Matcher as M`), which does not exist in
-older releases. Against an older version, `style.py` fails to import with
+These hook files target **capt-hook >= 0.3**: `style.py` imports the styleguide matchers DSL
+(`from captain_hook.style import StyleRule, matchers as M, styleguide`), which does not exist
+in older releases. Against an older version, `style.py` fails to import with
 `ModuleNotFoundError`. If `uvx` resolves a stale cached version, force resolution with:
 
 ```bash
@@ -42,7 +42,7 @@ disable logging entirely.
   `&&`/`;` chain.
 - Nudges `/codex` after 2+ tool failures in a turn without a codex invocation. Requires
   the codex plugin — the scaffolded `.claude/settings.json` already registers the
-  `yasyf/skills` marketplace and enables `codex@skills`, so it activates when the folder
+  `yasyf/cc-skills` marketplace and enables `codex@skills`, so it activates when the folder
   is trusted (no manual `/plugin install`). The `UsedSkill("codex|codex:codex")`
   alternation covers both the bare and plugin-namespaced skill name. If the project
   doesn't use Codex, delete this nudge and the `enabledPlugins`/`extraKnownMarketplaces`
@@ -76,8 +76,8 @@ If the project's test command differs, change the `RanCommand` pattern and both 
 
 ### `.claude/hooks/style.py` (python layer)
 
-Seven rules enforcing STYLEGUIDE.md, built on the Matcher DSL and registered with
-`styleguide(...)`:
+Seven rules enforcing STYLEGUIDE.md, built on the matchers DSL (`captain_hook.style.matchers`,
+imported `as M`) and registered with `styleguide(...)`:
 
 - `NoUnderscorePrefixes` — no underscore-prefixed classes or module constants; use
   `__all__` instead.
@@ -89,7 +89,8 @@ Seven rules enforcing STYLEGUIDE.md, built on the Matcher DSL and registered wit
 - `NoQuotedAnnotations` — no quoted annotations under `from __future__ import annotations`.
 - `NoWeakeningToAny` — a `StyleDiffRule`: fires only when the diff *introduces* `Any` into
   a previously typed slot (`*args: Any`, `dict[str, Any]` aliases, and pre-existing `Any`
-  are allowed).
+  are allowed). It overrides `check()` to diff by a custom node identity (`any_label`)
+  instead of the default unparsed-source identity.
 
 Plus a `gate(...)` Stop hook demanding a STYLEGUIDE.md review before stopping when package
 code changed. The gate's glob is `**/<package>/**/*.py` where `<package>` is the package
@@ -165,7 +166,7 @@ entry point under uvx would run a stale published version against its own hooks.
 
 - **First hook event is slow.** `uvx` cold-starts by resolving and installing capt-hook into
   a fresh environment on first use; subsequent events hit the cache.
-- **`ModuleNotFoundError: captain_hook.primitives.styleguide`.** Stale cached version; see
+- **`ModuleNotFoundError: captain_hook.style`.** Stale cached version; see
   the version note above — `uvx capt-hook@latest test`.
 - **Hooks silently not firing.** capt-hook discovers hooks in `.claude/hooks` by default;
   if files were moved, pass `--hooks <dir>` to `capt-hook` commands and keep the

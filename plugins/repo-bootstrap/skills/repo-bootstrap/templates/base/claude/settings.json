@@ -33,7 +33,7 @@
     "skills": {
       "source": {
         "source": "github",
-        "repo": "yasyf/skills"
+        "repo": "yasyf/cc-skills"
       },
       "autoUpdate": true
     }
