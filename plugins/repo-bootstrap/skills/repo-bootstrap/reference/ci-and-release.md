@@ -17,9 +17,11 @@ waste minutes and clutter checks.
 Steps, in order:
 
 1. `actions/checkout@v6`
-2. `astral-sh/setup-uv@v8` with `python-version: ${{ matrix.python-version }}` and
+2. `astral-sh/setup-uv@v8.2.0` with `python-version: ${{ matrix.python-version }}` and
    `cache-dependency-glob: uv.lock` — caching keys off the lockfile, so commit `uv.lock`
-   in the first push or this step warns and the cache never hits.
+   in the first push or this step warns and the cache never hits. setup-uv publishes no
+   floating major tag past `v7`, so the pin is exact-semver — at scaffold time, check the
+   latest release (`gh api repos/astral-sh/setup-uv/releases/latest`) and bump if newer.
 3. `uv sync --extra dev`
 4. `uv run pytest`
 5. Wheel smoke test:
@@ -50,7 +52,7 @@ Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency grou
 **`build-docs`** (runs on PRs too, so docs breakage blocks merge):
 
 1. `actions/checkout@v6` with `fetch-depth: 0` (great-docs reads git history)
-2. `astral-sh/setup-uv@v8` pinned to the scaffold-time pin version, same
+2. `astral-sh/setup-uv@v8.2.0` pinned to the scaffold-time pin version, same
    `cache-dependency-glob: uv.lock`
 3. `quarto-dev/quarto-actions/setup@v2` — great-docs renders via Quarto
 4. `uv sync --group docs` — docs deps live in `[dependency-groups] docs` in `pyproject.toml`
