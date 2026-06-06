@@ -1,7 +1,7 @@
 {
   "name": "repo-bootstrap",
   "description": "Scaffold new repos with proven conventions: agent docs (AGENTS.md/STYLEGUIDE.md), Claude Code settings, semble code search, capt-hook guard hooks, and an opinionated Python layer (uv, Click, pytest, pyright strict, Great Docs, tag-driven PyPI trusted publishing).",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

@@ -132,14 +132,16 @@ examples from captain-hook:
 
 ## License
 
-- **MIT** (default): the scaffold renders `LICENSE` from its template, filling
-  the year and author name supplied at scaffold time.
-- **PolyForm-Noncommercial-1.0.0**: source-available, noncommercial use only —
-  what captain-hook itself uses.
+- **PolyForm-Noncommercial-1.0.0** (default): source-available, noncommercial
+  use only — what captain-hook itself uses. The scaffold renders `LICENSE` from
+  its bundled template, prepending a `Required Notice:` line with the author
+  name and repo URL supplied at scaffold time.
+- **MIT**: for permissive open source. Also rendered from a bundled template,
+  filling the year and author name.
 - **Apache-2.0**: when an explicit patent grant matters.
 
-For any non-MIT ID the scaffold writes nothing and prints a `MANUAL` line; fetch
-the text from the SPDX license list using the exact SPDX id:
+For any ID without a bundled template the scaffold writes nothing and prints a
+`MANUAL` line; fetch the text from the SPDX license list using the exact SPDX id:
 
 ```bash
 curl -fsS https://raw.githubusercontent.com/spdx/license-list-data/main/text/<SPDX-ID>.txt > LICENSE

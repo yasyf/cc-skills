@@ -143,10 +143,11 @@ def build_plan(layer: str, extras: list[str], variables: dict[str, str]) -> dict
         gitignore += "\n" + render("python/gitignore", variables)
     plan[".gitignore"] = gitignore
 
-    if variables["LICENSE_ID"] == "MIT":
-        plan["LICENSE"] = render("base/LICENSE-MIT", variables)
+    license_id = variables["LICENSE_ID"]
+    license_src = f"base/LICENSE-{license_id}"
+    if (TEMPLATES / license_src).exists():
+        plan["LICENSE"] = render(license_src, variables)
     else:
-        license_id = variables["LICENSE_ID"]
         print(
             f"MANUAL  LICENSE — fetch it yourself: "
             f"curl -fsS https://raw.githubusercontent.com/spdx/license-list-data/main/text/{license_id}.txt > LICENSE"

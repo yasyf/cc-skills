@@ -39,7 +39,8 @@ and `gh`. Any value it reports as `MISSING` must come from the user — ask, don
 Then ask the user (one `AskUserQuestion` round) for anything not already clear from
 their request:
 
-- **All layers**: project name, one-line description, layer, license (default MIT),
+- **All layers**: project name, one-line description, layer, license (default
+  PolyForm-Noncommercial-1.0.0; MIT for permissive open source),
   extras (`superset`, `env` — see the table below; default none).
 - **Python additionally**: dist name, package name, Python floor + pin versions.
 
@@ -62,7 +63,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/check-pypi-name.sh" DI
 | `AUTHOR_NAME` | From resolve-identity.sh | — |
 | `AUTHOR_EMAIL` | From resolve-identity.sh | — |
 | `GITHUB_USER` | GitHub login | `yasyf` |
-| `LICENSE_ID` | SPDX id | `MIT` |
+| `LICENSE_ID` | SPDX id | `PolyForm-Noncommercial-1.0.0` |
 | `DIST_NAME` | PyPI dist == CLI command (python) | `capt-hook` |
 | `PACKAGE` | Import package (python) | `captain_hook` |
 | `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.12` / `3.13` |
@@ -78,7 +79,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/scaffold.py" \
   --target . --layer python --extras env \
   --var PROJECT_NAME=... --var "DESCRIPTION=..." \
   --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
-  --var LICENSE_ID=MIT \
+  --var LICENSE_ID=PolyForm-Noncommercial-1.0.0 \
   --var DIST_NAME=... --var PACKAGE=... \
   --var PYTHON_MIN=3.12 --var PYTHON_PIN=3.13
 ```
@@ -89,7 +90,8 @@ Rules:
   repo. The script renders, validates inputs, and fails loudly on leftovers.
 - The script is idempotent: identical files are `SKIP`ped; differing files are
   reported as `CONFLICT` and nothing is written (resolve per-file, or `--force`).
-- Non-MIT licenses print a `MANUAL` line — fetch the text from the SPDX list:
+- Licenses without a bundled template (bundled: `PolyForm-Noncommercial-1.0.0`,
+  `MIT`) print a `MANUAL` line — fetch the text from the SPDX list:
   `curl -fsS https://raw.githubusercontent.com/spdx/license-list-data/main/text/<SPDX-ID>.txt > LICENSE`.
 - `--dry-run` previews without writing.
 
@@ -181,9 +183,10 @@ repo done.
 - **Python app not destined for PyPI**: delete
   `.github/workflows/release-pypi.yml`; drop the PyPI badge from README; keep
   everything else.
-- **Non-MIT license**: fetch from the SPDX list (see Step 2), set the SPDX id in
-  `pyproject.toml`. For source-available-noncommercial, PolyForm-Noncommercial-1.0.0
-  is the precedent (see `reference/base-conventions.md`).
+- **Other licenses**: PolyForm-Noncommercial-1.0.0 (default) and MIT render from
+  bundled templates; any other SPDX id is fetched from the SPDX list (see Step 2)
+  and set in `pyproject.toml`. MIT is the choice for permissive open source
+  (see `reference/base-conventions.md`).
 - **No capt-hook hooks wanted**: delete `.claude/hooks/` and the `"hooks"` block
   from `.claude/settings.json`.
 - **No Codex**: delete the second-opinion nudge at the bottom of
