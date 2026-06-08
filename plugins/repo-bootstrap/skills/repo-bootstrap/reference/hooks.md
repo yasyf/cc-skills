@@ -81,15 +81,42 @@ activate when the folder is trusted (no manual `/plugin install`). To remove the
 delete this file and the `llm-prompts@skills`/`slop-cop@skills` keys from
 `enabledPlugins`. Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
 
+### `.claude/hooks/tasks.py` (base layer)
+
+End-of-turn task discipline, built entirely from declarative primitives + local
+`CustomCondition`s — task state reads from `evt.tasks` (Claude Code's native task store, the
+source of truth that also reflects subagent/teammate/resumed updates), never from counting
+transcript tool uses.
+
+- A Stop `gate(...)` that blocks while the session has open tasks
+  (`only_if=[TasksIncomplete()]`), so the agent must mark each finished task
+  `status='completed'` (or defer with a note) before stopping. `skip_if=[Waiting(),
+  Acknowledged(OVERRIDE_TOKEN)]` — it never fires on a turn that ends waiting on the user
+  (e.g. an `AskUserQuestion`), and emitting `REMAINING_TASKS_ACKNOWLEDGED` is the deliberate
+  escape (invalidated by further edits). Completion-only: a session with no tasks never
+  blocks — it never forces task creation.
+- A PostToolUse `nudge(...)` (`only_if=[Tool("Edit|Write"), DriftedFromTasks()]`) that warns
+  when there are open tasks and many exploration/action calls have happened since the last
+  task interaction (`TASK_DRIFT_THRESHOLD`).
+- Two more `nudge(...)`s: on `ExitPlanMode` ("break the plan into tasks") and on a
+  multi-request `UserPromptSubmit` (numbered/bulleted/imperative `Signals`, skipped in plan
+  mode).
+
+All messages cite CLAUDE.md § Task Tracking. Inline tests inject task state via
+`Input(tasks=[...])`, exercising the real block/warn paths. Tailor `OVERRIDE_TOKEN` /
+`TASK_DRIFT_THRESHOLD`, or delete the file to drop task enforcement.
+
 ### `.claude/hooks/testing.py` (python layer)
 
 - Nudges isolating the minimal failing test case (node-id suffix, `-k`, `--last-failed`)
   when editing a test file, instead of broad re-runs.
-- `commit_test_gate`: a `@on(Event.PreToolUse, ...)` hook that blocks `git commit` of
-  Python changes without a prior `uv run pytest` in the session
-  (`skip_if=[RanCommand(r"uv run pytest")]`). Exempt: edits entirely under `docs/`,
-  `.claude/`, `.github/`; an explicit user "commit"/"just commit"; non-`.py` commits get a
-  warn rather than a block.
+- A `git commit` test gate, expressed declaratively as a `gate(...)` (block) + `nudge(...)`
+  (warn) pair sharing `only_if=[Tool("Bash"), Command(r"git\s+commit")]` and
+  `skip_if=[RanCommand(r"uv run pytest"), UserSaid("commit", "just commit"),
+  AllEditsUnder("docs/", ".claude/", ".github/")]`. Three local `CustomCondition`s carry the
+  logic: `UserSaid`, `AllEditsUnder`, and `CommitsPython` (the command names a `.py` path).
+  A `.py` commit without a prior `uv run pytest` blocks; a non-`.py` commit warns; the skip
+  conditions exempt both.
 
 If the project's test command differs, change the `RanCommand` pattern and both messages.
 
@@ -133,9 +160,10 @@ Hook messages cite doc sections by exact heading:
 
 - `stewardship.py`: **AGENTS.md § Code Stewardship**
 - `toolchain.py`: **AGENTS.md § Mechanical Linting**
+- `tasks.py`: **CLAUDE.md § Task Tracking**
 - `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
 
-If you rename or remove those sections while tailoring the scaffolded AGENTS.md or
+If you rename or remove those sections while tailoring the scaffolded AGENTS.md, CLAUDE.md, or
 STYLEGUIDE.md, update the hook messages in the same edit — a citation pointing at a
 nonexistent section sends future agents on a dead-end lookup.
 

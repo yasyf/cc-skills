@@ -53,9 +53,16 @@ The single canonical agent-conventions doc. Section by section:
 
 ## CLAUDE.md
 
-Exactly one line: `@AGENTS.md`. Rationale: every agent tool reads a different
-filename, so AGENTS.md is the single source of truth and CLAUDE.md is a pointer.
-Never add content here; it would fork the conventions.
+`@AGENTS.md` (so AGENTS.md stays the single, tool-agnostic source of conventions) followed by
+a short **Claude-only** block — guidance that names Claude-specific tools and so doesn't
+belong in the shared AGENTS.md:
+
+- `## Claude-Specific Rules` — one bullet mandating `AskUserQuestion` for the clarifying
+  questions AGENTS.md § Ask Before Assuming calls for (concrete picks beat inline prose).
+- `## Task Tracking` — the `pending → in_progress → completed` flow via `TaskCreate`/
+  `TaskUpdate`; cited by the `tasks.py` Stop gate (keep the heading in sync with that hook).
+
+Keep both terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 
 ## STYLEGUIDE.md
 

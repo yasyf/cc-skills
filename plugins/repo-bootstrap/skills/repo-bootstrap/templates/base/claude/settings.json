@@ -44,6 +44,16 @@
     "llm-prompts@skills": true
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx capt-hook run UserPromptSubmit"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
