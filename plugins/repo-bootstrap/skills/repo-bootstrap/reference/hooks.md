@@ -181,4 +181,4 @@ entry point under uvx would run a stale published version against its own hooks.
   uvx --from capt-hook python -c "from captain_hook.util.model_cache import ensure_spacy_model; ensure_spacy_model()"
   ```
 
-  `verify.sh` runs this automatically before the hook tests.
+  `bootstrap.py verify` runs this automatically before the hook tests.
