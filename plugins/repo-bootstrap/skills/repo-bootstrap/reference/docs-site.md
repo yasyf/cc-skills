@@ -3,10 +3,17 @@
 ## What it is
 
 [Great Docs](https://posit-dev.github.io/great-docs/) is a Quarto-based docs generator,
-installed from PyPI as `great-docs` via the `[dependency-groups].docs` group in
-`pyproject.toml` (`great-docs>=0.13`). It was chosen over mkdocs/Read the Docs because it
-generates the API reference dynamically from docstrings with zero nav maintenance, takes a
-single YAML config, and deploys to GitHub Pages.
+installed via the `[dependency-groups].docs` group in `pyproject.toml`. It was chosen over
+mkdocs/Read the Docs because it generates the API reference dynamically from docstrings with
+zero nav maintenance, takes a single YAML config, and deploys to GitHub Pages.
+
+The docs group pins **great-docs to git `main`**, not the PyPI release, plus `griffelib>=2.0`.
+Two reasons: `main` carries build-time GitHub widget stats (embedded at build time via the CI
+`GITHUB_TOKEN`, so the navbar widget makes no client-side API calls — the latest PyPI release,
+0.13.0, instead fires unauthenticated `api.github.com` calls that 403 on the live site); and
+`griffelib` is the modern griffe 2.x distribution that great-docs' module layout needs,
+overriding the stale `griffe<2` pin great-docs still declares. A `TODO(bootstrap)` marks the
+revert to a PyPI pin once a release newer than 0.13.0 ships.
 
 Commands (Quarto CLI must be on PATH; CI installs it via `quarto-dev/quarto-actions/setup@v2`):
 
@@ -31,15 +38,20 @@ at scaffold time (worked example: project `captain-hook`, package `captain_hook`
 | `dynamic` | `true` | Auto-generate the API reference from the module's docstrings |
 | `repo` / `site_url` | the repo URL / docs URL | Source links and canonical URL |
 | `pypi` | `true` | Renders the install widget |
-| `github_style` | `widget` | GitHub repo widget in the navbar |
+| `github_style` | `widget` | GitHub repo widget in the navbar (stars/forks; needs the git-`main` pin + CI `GITHUB_TOKEN` to avoid 403s) |
 | `jupyter` | `python3` | Kernel for executable code blocks |
-| `navbar_style` / `content_style` | `lilac` | Theme presets |
-| `accent_color` | `light: "#ffb300"` / `dark: "#ffca28"` | Marked `TODO(bootstrap)` — replace with colors that fit the project's brand |
+| `navbar_color` | `"#1e293b"` | Solid navbar color, marked `TODO(bootstrap)` — text contrast is auto-chosen |
+| `accent_color` | `"#3b82f6"` | Single accent (both modes), marked `TODO(bootstrap)` — replace with a brand color |
 | `dark_mode_toggle` / `back_to_top` / `keyboard_nav` | `true` | UX toggles, leave on |
 
-**`hero`** — landing-page banner: `name` (project name), `tagline` (the one-line description
+These are **conservative defaults on purpose**: a solid navbar and one accent, no gradient
+presets (`navbar_style`/`content_style`) and no hero `starfield`. The gradient/starfield extras
+read as busy, and the starfield's full-viewport canvas intercepts homepage clicks — leave them
+off unless a project explicitly wants the flair.
+
+**`hero`** — landing-page banner: `name` (project name) and `tagline` (the one-line description
 supplied at scaffold time, e.g. captain-hook's "Declarative hooks for Claude Code — rules as
-data, tested inline."), and `starfield: true`. Tighten the tagline when the README pitch firms up.
+data, tested inline."). Tighten the tagline when the README pitch firms up.
 
 **`cli`** — renders `--help` docs for the click CLI:
 
@@ -108,11 +120,22 @@ surface; internal helpers get none. Consequences for editing:
 ## Publishing
 
 `.github/workflows/docs.yml` builds on every push to `main` and every pull request
-(`uv sync --group docs` → `uv run great-docs build` → upload `great-docs/_site` with
-`include-hidden-files: true`), then a `publish-docs` job gated on
-`if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to the
+(`uv sync --group docs` → `uv run great-docs build` → `docs/scripts/fix_color_swatch.py` →
+upload `great-docs/_site` with `include-hidden-files: true`), then a `publish-docs` job gated
+on `if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to the
 `github-pages` environment. Enable Pages in the repo settings with source "GitHub Actions"
 or the deploy job fails.
+
+Two non-obvious build details:
+
+- The build step sets `env: GITHUB_TOKEN: ${{ github.token }}` — great-docs embeds the navbar
+  widget's star/fork counts at build time using it, so visitors' browsers never hit the
+  GitHub API. Drop the token and the widget falls back to client-side calls that 403.
+- `docs/scripts/fix_color_swatch.py` runs after the build. great-docs' runtime `color-swatch.js`
+  loader resolves its own URL by stripping two path segments from the canonical URL, which 404s
+  on any page not exactly one directory deep (e.g. the homepage). The script rewrites the loader
+  to a depth-correct static `<script src>` on every built page. The bug is present in PyPI 0.13.0
+  and `main` alike; remove the script only once upstream fixes the loader.
 
 The site lives at `https://<user>.github.io/<repo>/` (captain-hook:
 `https://yasyf.github.io/captain-hook/`). Three places point there and must agree:

@@ -50,9 +50,12 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
 - `dev = ["pytest>=8.0", "pyright>=1.1", "ruff>=0.8"]` is an *extra*: it ships in dist
   metadata, so contributors and CI install it with `uv sync --extra dev` and consumers
   could `pip install <dist>[dev]`.
-- `docs = ["great-docs>=0.13"]` is a PEP 735 *dependency group*: uv-local, invisible to
-  PyPI consumers. Install with `uv sync --group docs`; build with `uv run great-docs build`,
-  preview with `uv run great-docs preview`.
+- `docs = ["griffelib>=2.0", "great-docs @ git+...@main"]` is a PEP 735 *dependency group*:
+  uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with
+  `uv run great-docs build`, preview with `uv run great-docs preview`. great-docs is pinned to
+  git `main` (build-time GitHub widget stats; avoids the live-site 403s) with `griffelib>=2.0`
+  forcing griffe 2.x — see `reference/docs-site.md`. A `TODO(bootstrap)` marks the revert to a
+  PyPI pin once a release newer than 0.13.0 ships.
 Tooling that consumers might want goes in the extra; pure repo plumbing goes in a group.
 
 **`[project.scripts]`** — `capt-hook = "captain_hook.cli:main"`: dist name on the left,

@@ -123,7 +123,7 @@ reference before editing:
 
 - `README.md` (pitch, quickstart, why-bullets) and `AGENTS.md` (repository
   structure tree) → read `reference/base-conventions.md` first.
-- `great-docs.yml` (hero styling, accent colors) → read `reference/docs-site.md` first.
+- `great-docs.yml` (navbar color, accent color, hero tagline) → read `reference/docs-site.md` first.
 - `<PACKAGE>/cli.py` `hello` command → replace with the first real command (and
   update `tests/test_cli.py` to match).
 

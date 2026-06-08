@@ -49,6 +49,7 @@ PYTHON_FILES = {
     "pyproject.toml": "python/pyproject.toml",
     ".python-version": "python/python-version",
     "great-docs.yml": "python/great-docs.yml",
+    "docs/scripts/fix_color_swatch.py": "python/docs/scripts/fix_color_swatch.py",
     ".claude/hooks/testing.py": "python/claude/hooks/testing.py",
     ".claude/hooks/style.py": "python/claude/hooks/style.py",
     ".claude/hooks/toolchain.py": "python/claude/hooks/toolchain.py",

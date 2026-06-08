@@ -57,8 +57,12 @@ Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency grou
 3. `quarto-dev/quarto-actions/setup@v2` — great-docs renders via Quarto
 4. `uv sync --group docs` — docs deps live in `[dependency-groups] docs` in `pyproject.toml`
    (note: dependency *group*, not the `dev` extra)
-5. `uv run great-docs build`
-6. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and
+5. `uv run great-docs build` with `env: GITHUB_TOKEN: ${{ github.token }}` — the token lets
+   great-docs embed the navbar widget's star/fork counts at build time, so visitors' browsers
+   never hit (and 403 on) the GitHub API
+6. `uv run python docs/scripts/fix_color_swatch.py` — rewrites great-docs' broken runtime
+   `color-swatch.js` loader to depth-correct static tags (see `reference/docs-site.md`)
+7. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and
    `include-hidden-files: true` (the site contains dotfiles that Pages needs)
 
 **`publish-docs`**: `needs: build-docs`, gated `if: github.ref == 'refs/heads/main'`,

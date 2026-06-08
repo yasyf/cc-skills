@@ -71,5 +71,14 @@ select = ["E", "F", "I", "UP"]
 
 [dependency-groups]
 docs = [
-    "great-docs>=0.13,<0.14",
+    # great-docs imports griffe's 2.x module layout; griffelib is the modern
+    # griffe (2.x) distribution, overriding the legacy griffe<2 pin great-docs
+    # itself still declares.
+    "griffelib>=2.0",
+    # Tracking great-docs main until a release newer than 0.13.0: main carries
+    # build-time GitHub widget stats (embedded via the CI GITHUB_TOKEN), which
+    # drop the navbar widget's client-side API calls — the source of GitHub 403
+    # errors on the published site.
+    # TODO(bootstrap): revert to a PyPI pin (`great-docs>=0.14`) once released.
+    "great-docs @ git+https://github.com/posit-dev/great-docs@main",
 ]
