@@ -28,6 +28,9 @@ jobs:
       - name: Sync (dev)
         run: uv sync --extra dev
 
+      - name: Type check (ty)
+        run: uv run ty check {{PACKAGE}}
+
       - name: Test (pytest)
         run: uv run pytest
 

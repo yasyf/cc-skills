@@ -1,6 +1,6 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, pyright strict) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
@@ -238,7 +238,7 @@ Read these on demand — each is self-contained:
 - `reference/base-conventions.md` — AGENTS/CLAUDE/STYLEGUIDE/README/CHANGELOG
   anatomy, commit conventions, license guidance, `.claude` settings explained.
 - `reference/python-stack.md` — every python-layer choice with rationale
-  (uv/uv_build, flat layout, Click, loguru, pytest, ruff, pyright, naming triad),
+  (uv/uv_build, flat layout, Click, loguru, pytest, ruff, ty + pyright, naming triad),
   pyproject walkthrough.
 - `reference/hooks.md` — what each scaffolded hook does, testing with
   `uvx capt-hook test`, tailoring and removal, version requirements.

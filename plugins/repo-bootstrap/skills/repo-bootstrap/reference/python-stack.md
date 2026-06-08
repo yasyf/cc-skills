@@ -13,7 +13,7 @@ Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 | loguru | Zero-config structured logging, one import | stdlib `logging` — handler/formatter boilerplate before the first log line |
 | pytest, `--strict-markers` | Typo'd markers fail instead of silently passing; strict assertions are the house style | unittest — class ceremony, weak parametrize, no fixtures |
 | ruff `E,F,I,UP` @ line-length 120 | Mechanical layer only; CI and hooks own it — never run it manually mid-task | flake8+isort+pyupgrade — three tools for what one does |
-| pyright `strict` | Catches what tests don't; pairs with the "type everything" rule in STYLEGUIDE.md | mypy — slower, weaker inference on modern syntax |
+| ty (default) + pyright (basic, secondary) | ty is fast, handles modern syntax, and skips the strict-pyright false positives on pydantic/beanie dynamic defaults and PK-type overrides; pyright stays for editors. Pairs with "type everything" in STYLEGUIDE.md | strict pyright — noisy on dynamic defaults / PK-type overrides; mypy — slower, weaker inference on modern syntax |
 | Great Docs | API reference generated from Google-style docstrings via one YAML file; publishes to GitHub Pages | mkdocs — nav/plugin config sprawl; Read the Docs — second platform to wire when Pages is already there |
 
 ## The Naming Triad
@@ -47,9 +47,10 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
 (`>=`), no upper bounds: upper-capping libraries causes resolver gridlock downstream.
 
 **`[project.optional-dependencies].dev`** vs **`[dependency-groups].docs`** — deliberate split:
-- `dev = ["pytest>=8.0", "pyright>=1.1", "ruff>=0.8"]` is an *extra*: it ships in dist
+- `dev = ["pytest>=8.0", "ruff>=0.8", "ty>=0.0.44"]` is an *extra*: it ships in dist
   metadata, so contributors and CI install it with `uv sync --extra dev` and consumers
-  could `pip install <dist>[dev]`.
+  could `pip install <dist>[dev]`. ty is the installed type checker; pyright is config-only
+  (run on demand via `uvx pyright` or an editor extension).
 - `docs = ["griffelib>=2.0", "great-docs @ git+...@main"]` is a PEP 735 *dependency group*:
   uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with
   `uv run great-docs build`, preview with `uv run great-docs preview`. great-docs is pinned to
@@ -89,10 +90,19 @@ deleting either breaks `uv build`. The backend is the one place with an upper bo
 typo into an error. Add `asyncio_mode = "auto"` (plus `pytest-asyncio` in the dev extra)
 only when async tests appear, as captain-hook does.
 
-**`[tool.pyright]`** — `typeCheckingMode = "strict"`, `pythonVersion` set to the floor,
-`include` scoped to the package (tests deliberately excluded — test code mocks freely),
-`venvPath = "."` / `venv = ".venv"` so pyright finds uv's environment without a config dance.
-Don't downgrade to `basic` to silence errors; fix types or follow STYLEGUIDE.md's noise rule.
+**`[tool.ty.rules]` + `[tool.pyright]`** — **ty (Astral) is the default type checker**; CI runs
+`uv run ty check <package>`. ty is fast, handles modern syntax, and avoids the strict-pyright
+false positives that pydantic/beanie patterns provoke — dynamic defaults
+(`Field(default_factory=list)` → `list[Unknown]`) and PK-type overrides (`id: UUID` on a beanie
+`Document` → `reportIncompatibleVariableOverride`). `[tool.ty.rules]` only silences
+`unused-type-ignore-comment` so cross-checker `# pyright: ignore` comments don't trip ty. pyright
+stays as a secondary (editors / `uvx pyright`) in `typeCheckingMode = "basic"` with the
+`reportUnknown*` and `reportIncompatibleVariableOverride` family set to `none` — pure noise on
+typed pydantic code. `pythonVersion` is the floor; `include` scopes to the package (tests excluded
+— test code mocks freely); `venvPath`/`venv` point pyright at uv's env. Fix real type errors;
+don't reach for `Any`. (bioqa disables a longer list — `reportMissingImports`,
+`reportAttributeAccessIssue`, … — because its monorepo pulls many untyped scientific deps; a clean
+package needs only the override/unknown-type silences.)
 
 **`[tool.ruff]`** — `line-length = 120`, `target-version` matching the floor (e.g. `py312`),
 `src = [".", "tests"]` for import-order resolution, and `select = ["E", "F", "I", "UP"]`:
