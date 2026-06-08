@@ -114,7 +114,7 @@ Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `
 
 **Don't contort code to satisfy a checker.** The type checker and linter serve the code, not the other way around. Don't reshape a data model, widen a type, or bolt on a `cast(...)` / narrowing-only `assert isinstance(...)` / blanket ignore just to silence a diagnostic. If a clean fix isn't obvious, leave the diagnostic — a visible diagnostic is preferable to scar tissue. (Most checker noise isn't worth acting on at all; act only when it flags a real bug.)
 
-**Mechanical linting.** CI and hooks handle formatting and import order. Leave `ruff` to them and fix only what needs human judgment. When reviewing code, don't flag mechanical lint violations (line length, whitespace, import order, trailing commas).
+**Mechanical linting.** The pre-commit hook (prek + ruff) auto-formats and fixes import order on every `git commit` — run `uvx prek install` once to activate it. Leave `ruff` to the hook and fix only what needs human judgment; clean everything up-front with `uvx prek run --all-files` if you want. When reviewing code, don't flag mechanical lint violations (line length, whitespace, import order, trailing commas).
 
 **Testing.** The suite lives in `tests/`; run it with `uv run pytest`. Use strict assertions and mock external dependencies while leaving the code under test real. Databases and other stateful services are not mock boundaries — when a test needs one, run a real ephemeral instance via `testcontainers` instead of mocking the driver.
 

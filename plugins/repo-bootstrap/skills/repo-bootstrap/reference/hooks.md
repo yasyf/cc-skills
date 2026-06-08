@@ -13,16 +13,34 @@ environment, so nothing is added to `pyproject.toml` and there is zero install s
 files live in `.claude/hooks/*.py` — the default `--hooks` directory — and you verify them
 with `uvx capt-hook test` from the repo root.
 
-## IMPORTANT: minimum version
+## Two hook systems: don't conflate them
 
-These hook files target **capt-hook >= 0.3**: `style.py` imports the styleguide matchers DSL
-(`from captain_hook.style import StyleRule, matchers as M, styleguide`), which does not exist
-in older releases. Against an older version, `style.py` fails to import with
-`ModuleNotFoundError`. If `uvx` resolves a stale cached version, force resolution with:
+The python layer ships **two** unrelated hook systems that both go by "hooks":
+
+- **capt-hook** (everything else in this doc) — gates *Claude-session* tool events
+  (`PreToolUse`, `Stop`, …) from `.claude/hooks/*.py`. It never touches git.
+- **The git commit hook** (next section) — runs ruff on `git commit` from
+  `.pre-commit-config.yaml`. It has nothing to do with Claude sessions.
+
+## Git-level commit hook (prek + ruff)
+
+`.pre-commit-config.yaml` pins
+[`astral-sh/ruff-pre-commit`](https://github.com/astral-sh/ruff-pre-commit) and runs
+`ruff check --fix` + `ruff format` on staged files at every `git commit`. It is driven by
+[prek](https://github.com/j178/prek) — a fast Rust drop-in for pre-commit that reads
+`.pre-commit-config.yaml` unchanged and ships as a single binary, so running it through
+`uvx prek` adds nothing to `pyproject.toml`. Activate it once per clone:
 
 ```bash
-uvx capt-hook@latest test
+uvx prek install
 ```
+
+After that, every commit auto-fixes mechanical issues. When ruff **rewrites** a file the commit
+aborts (prek exits non-zero so you can review the change) — re-`git add` the fixed files and
+commit again. To clean everything up-front instead, run `uvx prek run --all-files` (allowed by
+`toolchain.py`'s ruff guard). The pinned `rev` is the single source of truth for the hook's ruff
+version across every clone — bump it with `uvx prek autoupdate`. CI does **not** run ruff; this
+commit hook is the only mechanical-lint enforcement. To drop it, delete `.pre-commit-config.yaml`.
 
 ## Hook inventory
 
@@ -146,8 +164,8 @@ name supplied at scaffold time (e.g. `captain_hook`); test files are exempt via
 ### `.claude/hooks/toolchain.py` (python layer)
 
 - Blocks manual `ruff` (`block_command(r"^ruff\b", ...)`) — "mechanical linting is
-  auto-fixed by tooling", hint cites AGENTS.md § Mechanical Linting. `pre-commit run
-  --hook ruff` stays allowed.
+  auto-fixed by tooling", hint cites AGENTS.md § Mechanical Linting. `prek run
+  --all-files` (the sanctioned pre-commit cleanup) stays allowed.
 - Nudges `uv sync --extra dev` on `ModuleNotFoundError`/`ImportError`, explicitly telling
   the agent not to make imports lazy or restructure code to avoid the import. Capped at
   `max_fires=2`. Update the text if the project's dev extra is named differently.
@@ -213,8 +231,6 @@ entry point under uvx would run a stale published version against its own hooks.
 
 - **First hook event is slow.** `uvx` cold-starts by resolving and installing capt-hook into
   a fresh environment on first use; subsequent events hit the cache.
-- **`ModuleNotFoundError: captain_hook.style`.** Stale cached version; see
-  the version note above — `uvx capt-hook@latest test`.
 - **Hooks silently not firing.** capt-hook discovers hooks in `.claude/hooks` by default;
   if files were moved, pass `--hooks <dir>` to `capt-hook` commands and keep the
   settings commands in sync.

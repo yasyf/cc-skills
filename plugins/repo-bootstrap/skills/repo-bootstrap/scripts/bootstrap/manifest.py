@@ -79,6 +79,7 @@ FILES = (
     FileSpec(".claude/hooks/style.py", "python/claude/hooks/style.py", "python"),
     FileSpec(".claude/hooks/toolchain.py", "python/claude/hooks/toolchain.py", "python"),
     FileSpec(".github/workflows/ci.yml", "python/github/workflows/ci.yml", "python"),
+    FileSpec(".pre-commit-config.yaml", "python/pre-commit-config.yaml", "python"),
     FileSpec("{{PACKAGE}}/__init__.py", "python/package/__init__.py", "python"),
     FileSpec("{{PACKAGE}}/__main__.py", "python/package/__main__.py", "python"),
     FileSpec("{{PACKAGE}}/cli.py", "python/package/cli.py", "python"),

@@ -75,6 +75,9 @@ def test_end_to_end_python(tmp_path, features):
         pytest.skip("uv not installed")
     # Don't let the test-runner's own venv leak into the scaffolded project's uv runs.
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    # Phase 0 precondition: a bootstrapped project is a git repo on main, which the
+    # prek hook-config check (`uvx prek prepare-hooks`) needs to find a git root.
+    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
     scaffold = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "scaffold", "--target", str(tmp_path),
          "--layer", "python", "--features", features, *PY_VARS],

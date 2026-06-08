@@ -1,0 +1,10 @@
+# Mechanical linting (ruff format + import/lint --fix) on every commit.
+# Run by prek — a fast Rust drop-in for pre-commit that reads this file unchanged.
+# Activate once per clone:  uvx prek install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

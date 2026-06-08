@@ -110,8 +110,10 @@ package needs only the override/unknown-type silences.)
 **`[tool.ruff]`** — `line-length = 120`, `target-version` matching the floor (e.g. `py312`),
 `src = [".", "tests"]` for import-order resolution, and `select = ["E", "F", "I", "UP"]`:
 pycodestyle errors, pyflakes, import sort, and pyupgrade. Deliberately small — style
-judgment lives in STYLEGUIDE.md and review, not lint rules. Per AGENTS.md: CI and hooks own
-ruff; never run it manually during a task.
+judgment lives in STYLEGUIDE.md and review, not lint rules. Per AGENTS.md: the prek commit
+hook (`.pre-commit-config.yaml`, `astral-sh/ruff-pre-commit`) owns ruff — it auto-formats and
+fixes import order on every commit; never run ruff manually during a task. CI does not run
+ruff; the commit hook is the only mechanical-lint gate.
 
 ## .python-version vs requires-python
 
