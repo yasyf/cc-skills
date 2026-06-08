@@ -47,16 +47,16 @@ authenticated on your machine.
 
 ## repo-bootstrap
 
-Bootstraps a new project or repo from battle-tested conventions, distilled from
-[captain-hook](https://github.com/yasyf/captain-hook)'s setup history. A base
-layer every repo gets (AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README skeleton,
-Claude Code settings, [semble](https://pypi.org/project/semble/) code search,
-[capt-hook](https://github.com/yasyf/captain-hook) guard hooks) plus an optional
-Python layer (uv with the `uv_build` backend, Click CLI, loguru, pytest, pyright
-strict, [Great Docs](https://posit-dev.github.io/great-docs/) on GitHub Pages,
-and tag-driven PyPI releases via trusted publishing). Templates render through a
-deterministic scaffold script; the agent fills in naming, prose, and follow-up
-edits. Say "bootstrap a new repo" or "scaffold a new Python package".
+Scaffolds a new repo with conventions that work out of the box, so you skip the
+first day of setup. Every repo gets a base layer: agent docs
+(AGENTS.md/CLAUDE.md/STYLEGUIDE.md), a README skeleton, Claude Code settings,
+[semble](https://pypi.org/project/semble/) code search, and
+[capt-hook](https://github.com/yasyf/captain-hook) guard hooks. Python projects
+also get an opinionated packaging layer: uv with the `uv_build` backend, a Click
+CLI, loguru, pytest, strict pyright, [Great
+Docs](https://posit-dev.github.io/great-docs/) published to GitHub Pages, and
+tag-driven PyPI releases via trusted publishing. Say "bootstrap a new repo" or
+"scaffold a new Python package".
 
 ## License
 
