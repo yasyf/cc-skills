@@ -20,6 +20,16 @@
       "name": "repo-bootstrap",
       "source": "./plugins/repo-bootstrap",
       "description": "Bootstrap new projects and repos with base conventions plus an opinionated Python packaging layer."
+    },
+    {
+      "name": "llm-prompts",
+      "source": "./plugins/llm-prompts",
+      "description": "Guidance for writing effective LLM prompts and agent instructions, with current per-provider model notes."
+    },
+    {
+      "name": "writing-docs",
+      "source": "./plugins/writing-docs",
+      "description": "Apply Diataxis modes, documentation craft, and a slop-cop prose-lint pass when writing project documentation, READMEs, tutorials, how-tos, or reference."
     }
   ]
 }

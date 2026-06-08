@@ -62,6 +62,25 @@ Tailor `threshold`/`window`, or extend `TypeCheckerContext.PATTERN` for other su
 contexts. **Note:** `NlpSignal` needs the spaCy `en_core_web_sm` model and the wn
 `oewn:2025` lexicon provisioned at runtime and test time.
 
+### `.claude/hooks/prompts.py` (base layer)
+
+Non-blocking nudge that fires when an Edit/Write's content looks like an LLM prompt:
+semantic XML tags (`<instruction>`, `<system>`, `<examples>`, `<success_criteria>`, …),
+classic system-prompt openers (`You are a…`, `Your task is to…`), prompt-ish identifiers
+(`def …prompt(`, "system/developer prompt"), and chat-message shapes (`messages = [`,
+`"role": "system"|"user"|"assistant"|"developer"`). The `PROMPT_MARKERS` regex is
+language-agnostic — `Content(..., project_only=False)` matches the new content of any file,
+not just Python. The message points at the `llm-prompts` skill (positive framing, XML
+structure, per-provider model behavior) and a follow-up `/slop-cop-check` on the edited
+file. `skip_if` suppresses the nudge once the `llm-prompts` or `slop-cop` skill has been
+used in the session.
+
+Needs the `llm-prompts@skills` and `slop-cop@skills` plugins — the scaffolded
+`.claude/settings.json` already enables both from the `yasyf/cc-skills` marketplace, so they
+activate when the folder is trusted (no manual `/plugin install`). To remove the nudge,
+delete this file and the `llm-prompts@skills`/`slop-cop@skills` keys from
+`enabledPlugins`. Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
+
 ### `.claude/hooks/testing.py` (python layer)
 
 - Nudges isolating the minimal failing test case (node-id suffix, `-k`, `--last-failed`)

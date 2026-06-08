@@ -1,0 +1,10 @@
+{
+  "name": "llm-prompts",
+  "description": "Guidelines for writing effective LLM prompts and agent instructions: positive framing, XML structure, model-appropriate complexity, and current per-provider model behaviors (Claude Opus 4.x, GPT-5.x, Gemini 3). Use when writing or improving system prompts, agent or tool instructions, or few-shot examples.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}

@@ -61,6 +61,8 @@ FILES = (
     FileSpec(".claude/hooks/audit.py", "base/claude/hooks/audit.py", "base"),
     FileSpec(".claude/hooks/commands.py", "base/claude/hooks/commands.py", "base"),
     FileSpec(".claude/hooks/stewardship.py", "base/claude/hooks/stewardship.py", "base"),
+    FileSpec(".claude/hooks/prompts.py", "base/claude/hooks/prompts.py", "base"),
+    FileSpec(".claude/hooks/docs.py", "base/claude/hooks/docs.py", "base"),
     # synthesized base files (no single template src)
     FileSpec(".gitignore", None, "base", transform="gitignore"),
     FileSpec("LICENSE", None, "base", transform="license"),

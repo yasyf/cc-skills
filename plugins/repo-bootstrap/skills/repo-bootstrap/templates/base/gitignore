@@ -10,5 +10,7 @@
 # Claude Code
 .context/
 .claude/settings.local.json
-# Guard hooks are Python; ignore their bytecode even in non-Python repos
-.claude/hooks/__pycache__/
+
+# Python bytecode (guard hooks are Python even in non-Python repos)
+__pycache__/
+*.py[cod]

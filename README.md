@@ -10,6 +10,7 @@ focused skills. Each plugin installs independently.
 | `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; a `SessionStart` hook bootstraps its prebuilt binary. |
 | `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems. | The `codex` CLI on `PATH`. |
 | `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended. |
+| `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
 
 ## Install
 
@@ -57,6 +58,14 @@ CLI, loguru, pytest, strict pyright, [Great
 Docs](https://posit-dev.github.io/great-docs/) published to GitHub Pages, and
 tag-driven PyPI releases via trusted publishing. Say "bootstrap a new repo" or
 "scaffold a new Python package".
+
+## llm-prompts
+
+Packages the team's prompt-writing guidance as a skill: positive framing,
+contrastive examples, XML tag structure, reasoning-first output, and the current
+per-provider knobs (effort/verbosity/thinking) for Claude, GPT-5.x, and Gemini.
+Deeper per-provider notes live under its `reference/` folder. `repo-bootstrap`
+installs a companion capt-hook nudge that points prompt edits back at this skill.
 
 ## License
 

@@ -142,9 +142,9 @@ commit it) and `uv run pytest`.
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered |
 | `.mcp.json` | base | semble code search via uvx |
-| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills` |
+| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
-| `.claude/hooks/{__init__,audit,commands,stewardship}.py` | base | guard hooks (see `reference/hooks.md`) |
+| `.claude/hooks/{__init__,audit,commands,stewardship,prompts}.py` | base | guard hooks (see `reference/hooks.md`) |
 | `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py` | python + feature `docs` | omitted entirely without `docs` |
@@ -229,6 +229,9 @@ feature's one-time setup done (or explicitly deferred with the user).
 - **No Codex**: delete the second-opinion nudge at the bottom of
   `.claude/hooks/commands.py`, plus the `"enabledPlugins"` entry (and
   `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.
+- **No prompt-writing nudge**: delete `.claude/hooks/prompts.py` and the
+  `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`
+  `enabledPlugins`.
 - **Monorepos**: out of scope — this skill scaffolds single-package repos.
 
 ## Reference map
