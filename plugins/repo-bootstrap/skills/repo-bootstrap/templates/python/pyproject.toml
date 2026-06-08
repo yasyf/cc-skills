@@ -33,7 +33,9 @@ dev = [
 
 [project.urls]
 Homepage = "{{REPO_URL}}"
+{{#FEATURE_DOCS}}
 Documentation = "{{DOCS_URL}}"
+{{/FEATURE_DOCS}}
 Repository = "{{REPO_URL}}"
 Issues = "{{REPO_URL}}/issues"
 Changelog = "{{REPO_URL}}/blob/main/CHANGELOG.md"
@@ -68,6 +70,7 @@ src = [".", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+{{#FEATURE_DOCS}}
 
 [dependency-groups]
 docs = [
@@ -82,3 +85,4 @@ docs = [
     # TODO(bootstrap): revert to a PyPI pin (`great-docs>=0.14`) once released.
     "great-docs @ git+https://github.com/posit-dev/great-docs@main",
 ]
+{{/FEATURE_DOCS}}

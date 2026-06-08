@@ -23,6 +23,8 @@ coverage.xml
 
 # CI wheel smoke test
 .wheel-smoke/
+{{#FEATURE_DOCS}}
 
 # Great Docs build output
 great-docs/
+{{/FEATURE_DOCS}}

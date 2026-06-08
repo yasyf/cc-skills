@@ -18,8 +18,19 @@ from pathlib import Path
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+# Mustache-style conditional sections, gated on python features (docs/pypi).
+# Block form consumes the whole tag line (and its newline); inline form stays
+# on one line. {{#NAME}} keeps the body when NAME is enabled, {{^NAME}} when not.
+SECTION_BLOCK = re.compile(
+    r"^[ \t]*\{\{([#^])([A-Z_]+)\}\}[ \t]*\n(.*?)^[ \t]*\{\{/\2\}\}[ \t]*\n",
+    re.DOTALL | re.MULTILINE,
+)
+SECTION_INLINE = re.compile(r"\{\{([#^])([A-Z_]+)\}\}(.*?)\{\{/\2\}\}")
+SECTION_LEFTOVER = re.compile(r"\{\{[#^/][A-Z_]+\}\}")
 DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 PY_VERSION_RE = re.compile(r"^3\.\d+$")
+
+PYTHON_FEATURES = ("docs", "pypi")
 
 REQUIRED_BASE = ("PROJECT_NAME", "DESCRIPTION", "AUTHOR_NAME", "AUTHOR_EMAIL", "GITHUB_USER", "LICENSE_ID")
 REQUIRED_PYTHON = ("DIST_NAME", "PACKAGE", "PYTHON_PIN", "PYTHON_MIN")
@@ -62,6 +73,16 @@ PYTHON_FILES = {
     "{{PACKAGE}}/py.typed": "python/package/py.typed",
     "tests/__init__.py": "python/tests/__init__.py",
     "tests/test_cli.py": "python/tests/test_cli.py",
+}
+
+# Python files that exist only when a feature is enabled. Everything else in
+# PYTHON_FILES is always written; content-level differences live in the
+# templates as {{#FEATURE_*}} sections.
+FEATURE_FILES = {
+    "docs": frozenset(
+        {"great-docs.yml", "docs/scripts/fix_color_swatch.py", ".github/workflows/docs.yml"}
+    ),
+    "pypi": frozenset({".github/workflows/release-pypi.yml"}),
 }
 
 EXTRA_FILES = {
@@ -112,8 +133,23 @@ def derive(variables: dict[str, str]) -> dict[str, str]:
     return variables | derived
 
 
-def render(src: str, variables: dict[str, str]) -> str:
-    text = (TEMPLATES / src).read_text()
+def render_sections(text: str, enabled: frozenset[str]) -> str:
+    def repl(match: re.Match[str]) -> str:
+        kind, name, body = match.group(1), match.group(2), match.group(3)
+        keep = (name in enabled) if kind == "#" else (name not in enabled)
+        return body if keep else ""
+
+    for pattern in (SECTION_BLOCK, SECTION_INLINE):
+        prev = None
+        while prev != text:
+            prev, text = text, pattern.sub(repl, text)
+    return text
+
+
+def render(src: str, variables: dict[str, str], enabled: frozenset[str]) -> str:
+    text = render_sections((TEMPLATES / src).read_text(), enabled)
+    if leftover := sorted({m.group(0) for m in SECTION_LEFTOVER.finditer(text)}):
+        raise ScaffoldError(f"unbalanced feature sections in {src}: {', '.join(leftover)}")
     for key, value in variables.items():
         text = text.replace("{{" + key + "}}", value)
     if leftover := sorted({m.group(0) for m in PLACEHOLDER.finditer(text)}):
@@ -127,27 +163,32 @@ def strip_uv_setup(config: str) -> str:
     return json.dumps(parsed, indent=2) + "\n"
 
 
-def build_plan(layer: str, extras: list[str], variables: dict[str, str]) -> dict[str, str]:
+def build_plan(layer: str, extras: list[str], features: list[str], variables: dict[str, str]) -> dict[str, str]:
+    enabled = frozenset(f"FEATURE_{f.upper()}" for f in features) if layer == "python" else frozenset()
+
     sources = dict(BASE_FILES)
     if layer == "python":
         sources |= PYTHON_FILES
+        for feature, paths in FEATURE_FILES.items():
+            if feature not in features:
+                sources = {dest: src for dest, src in sources.items() if dest not in paths}
     for extra in extras:
         sources |= EXTRA_FILES[extra]
 
     plan = {
-        dest.replace("{{PACKAGE}}", variables.get("PACKAGE", "")): render(src, variables)
+        dest.replace("{{PACKAGE}}", variables.get("PACKAGE", "")): render(src, variables, enabled)
         for dest, src in sources.items()
     }
 
-    gitignore = render("base/gitignore", variables)
+    gitignore = render("base/gitignore", variables, enabled)
     if layer == "python":
-        gitignore += "\n" + render("python/gitignore", variables)
+        gitignore += "\n" + render("python/gitignore", variables, enabled)
     plan[".gitignore"] = gitignore
 
     license_id = variables["LICENSE_ID"]
     license_src = f"base/LICENSE-{license_id}"
     if (TEMPLATES / license_src).exists():
-        plan["LICENSE"] = render(license_src, variables)
+        plan["LICENSE"] = render(license_src, variables, enabled)
     else:
         print(
             f"MANUAL  LICENSE — fetch it yourself: "
@@ -188,6 +229,12 @@ def main() -> int:
     parser.add_argument("--target", type=Path, default=Path("."))
     parser.add_argument("--layer", choices=("base", "python"), default="base")
     parser.add_argument("--extras", default="", help=f"comma-separated: {', '.join(EXTRA_FILES)}")
+    parser.add_argument(
+        "--features",
+        default="docs,pypi",
+        help=f"python-only, comma-separated (default all): {', '.join(PYTHON_FEATURES)}. "
+        "Pass a subset (or empty) to drop docs site / PyPI release.",
+    )
     parser.add_argument("--var", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--force", action="store_true", help="overwrite conflicting files")
     parser.add_argument("--dry-run", action="store_true")
@@ -197,9 +244,13 @@ def main() -> int:
     if unknown := sorted(set(extras) - EXTRA_FILES.keys()):
         raise ScaffoldError(f"unknown extras: {', '.join(unknown)}; known: {', '.join(EXTRA_FILES)}")
 
+    features = [f for f in args.features.split(",") if f] if args.layer == "python" else []
+    if unknown := sorted(set(features) - set(PYTHON_FEATURES)):
+        raise ScaffoldError(f"unknown features: {', '.join(unknown)}; known: {', '.join(PYTHON_FEATURES)}")
+
     variables = parse_vars(args.var)
     validate(variables, args.layer, extras)
-    plan = build_plan(args.layer, extras, derive(variables))
+    plan = build_plan(args.layer, extras, features, derive(variables))
     return apply_plan(plan, args.target, args.force, args.dry_run)
 
 

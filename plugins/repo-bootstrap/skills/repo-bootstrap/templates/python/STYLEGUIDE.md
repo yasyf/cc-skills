@@ -265,12 +265,15 @@ Code documents itself through names, types, and organization. No comments except
 TODOs, non-obvious workarounds, or disabled code.
 
 Docstrings are the one exception, scoped by surface. Public API surfaces and
-user-facing classes carry Google-style docstrings; Great Docs renders them into
-the docs site, so they earn their place. Internal helpers get none, and a
-docstring that restates the signature is clutter to delete.
+user-facing classes carry Google-style docstrings, so they earn their place.
+Internal helpers get none, and a docstring that restates the signature is
+clutter to delete.
+{{#FEATURE_DOCS}}
+Great Docs renders these docstrings into the published docs site.
+{{/FEATURE_DOCS}}
 
 ```python
-# Good — public class, documented; example renders on the docs site
+# Good — public class, documented{{#FEATURE_DOCS}}; example renders on the docs site{{/FEATURE_DOCS}}
 @dataclass(frozen=True, slots=True)
 class Matcher:
     """Matches a record against a regex pattern.

@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} Development Guide
 
-{{DESCRIPTION}} Published to PyPI as `{{DIST_NAME}}`; the CLI is `{{DIST_NAME}}`, run as `uvx {{DIST_NAME}}`.
+{{#FEATURE_PYPI}}{{DESCRIPTION}} Published to PyPI as `{{DIST_NAME}}`; the CLI is `{{DIST_NAME}}`, run as `uvx {{DIST_NAME}}`.{{/FEATURE_PYPI}}{{^FEATURE_PYPI}}{{DESCRIPTION}} The CLI is `{{DIST_NAME}}`, run with `uv run {{DIST_NAME}}`.{{/FEATURE_PYPI}}
 
 ## Repository Structure
 
@@ -8,7 +8,7 @@
 {{PROJECT_NAME}}/
 ├── {{PACKAGE}}/      # The package — TODO(bootstrap): name the key modules
 ├── tests/            # Pytest suite
-├── .github/          # CI, docs, and PyPI release workflows
+├── .github/          # GitHub Actions workflows
 ├── AGENTS.md         # This file — shared conventions
 └── README.md         # Project overview
 ```
@@ -74,7 +74,7 @@ Reach for **`Grep`** only for material neither tool indexes: literal *content* o
 
 Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `uv build`.
 
-**Docstrings on the public API only.** User-facing surfaces carry Google-style docstrings; they render into the docs site via Great Docs. Internal helpers get none. No comments except TODOs, non-obvious workarounds, or disabled code.
+**Docstrings on the public API only.** User-facing surfaces carry Google-style docstrings{{#FEATURE_DOCS}}; they render into the docs site via Great Docs{{/FEATURE_DOCS}}. Internal helpers get none. No comments except TODOs, non-obvious workarounds, or disabled code.
 
 @STYLEGUIDE.md
 
@@ -98,8 +98,12 @@ Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `
 
 **Testing.** The suite lives in `tests/`; run it with `uv run pytest`. Use strict assertions and mock external dependencies while leaving the code under test real.
 
+{{#FEATURE_DOCS}}
 **Docs.** Any public API change must keep `uv run great-docs build` green; run `uv sync --group docs` first.
 
+{{/FEATURE_DOCS}}
 **Git.** Commits should be atomic and scoped. One logical change per commit.
+{{#FEATURE_PYPI}}
 
 **Releases.** Tagging `v*` triggers `.github/workflows/release-pypi.yml`, which builds, publishes to PyPI via trusted publishing, and cuts a GitHub release. The version comes from the tag.
+{{/FEATURE_PYPI}}
