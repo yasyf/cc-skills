@@ -41,6 +41,8 @@ a doc comment that restates the signature is clutter to delete.
 
 Write strict assertions against specific expected values; a test that can't fail
 uncovers nothing. Mock the boundaries your code talks to, such as the network,
-filesystem, and clock, and leave the function under test real. Parameterize
-repeated test bodies, giving each case a descriptive id and its own expected
-values.
+filesystem, and clock, and leave the function under test real. A database (or any
+stateful service) is not a mock boundary: when a test needs one, start a real
+ephemeral instance with testcontainers rather than mocking the driver or using an
+in-memory fake. Parameterize repeated test bodies, giving each case a descriptive
+id and its own expected values.

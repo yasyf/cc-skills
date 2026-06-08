@@ -154,6 +154,12 @@ The scaffolded tests model the house rules (full statement in STYLEGUIDE.md):
   `id` and its own expected values.
 - **Mock boundaries only** — network, filesystem, clock. The code under test stays real;
   a test exercising a mock of the function proves nothing.
+- **Databases use testcontainers, not mocks.** A database (or any stateful service: Mongo,
+  Postgres, Redis, …) is *not* a boundary to mock. When a test needs one, start a real ephemeral
+  instance with `testcontainers[<backend>]` (add it to the dev extra) and point the code under
+  test at the container via a fixture. In-memory fakes and mocked drivers drift from real
+  behaviour — they pass while production breaks. GitHub's Linux runners ship Docker, so
+  testcontainers works in CI with no extra setup.
 - **Mark tests** `unit` or `integration` (the registered markers); add new markers to
   `[tool.pytest.ini_options].markers` first or `--strict-markers` fails the run.
 
