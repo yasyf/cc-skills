@@ -1,5 +1,9 @@
 # Great Docs: the scaffolded docs site
 
+This whole layer is the **`docs` feature** — it exists only when the repo was scaffolded with
+`--features docs` (the default includes it). Without that feature there is no `great-docs.yml`,
+no `docs.yml` workflow, and no `docs` dependency group; skip this reference.
+
 ## What it is
 
 [Great Docs](https://posit-dev.github.io/great-docs/) is a Quarto-based docs generator,

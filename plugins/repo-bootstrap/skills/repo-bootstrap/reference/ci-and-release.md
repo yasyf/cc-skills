@@ -1,8 +1,9 @@
 # CI and Release Pipelines
 
-Three workflows land in `.github/workflows/`: `ci.yml` (tests + wheel smoke), `docs.yml`
-(great-docs to GitHub Pages), and `release-pypi.yml` (tag-driven trusted publishing). Three
-one-time browser setups make releases and docs deploys work; everything else is automatic.
+Up to three workflows land in `.github/workflows/`: `ci.yml` (tests + wheel smoke, **always**),
+`docs.yml` (great-docs to GitHub Pages, **feature `docs`**), and `release-pypi.yml` (tag-driven
+trusted publishing, **feature `pypi`**). The one-time browser setups below only matter for the
+features you enabled — skip the Pages setup without `docs`, skip the PyPI setup without `pypi`.
 
 ## ci.yml
 
