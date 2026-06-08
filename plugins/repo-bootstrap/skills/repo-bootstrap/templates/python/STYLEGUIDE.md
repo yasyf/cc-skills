@@ -236,6 +236,21 @@ class JobSpec:
 No leading underscores on classes, constants, or module-level helpers. Reserve a
 leading underscore for a private instance attribute.
 
+`__init__.py` exposes only the public API surface, re-exported with plain regular
+imports. No redundant `as` aliases, no `__all__`: name a symbol here to make it
+public, omit it to keep it internal. F401 stays active in every other module, so
+unused imports outside `__init__.py` are still deleted.
+
+```python
+# Good — public API, plain re-export
+from {{PACKAGE}}.matcher import Matcher
+from {{PACKAGE}}.runner import Runner
+
+# Bad — redundant-alias / __all__ ceremony
+from {{PACKAGE}}.matcher import Matcher as Matcher
+__all__ = ["Matcher", "Runner"]
+```
+
 Frozen dataclasses for immutable and config data. Every mutable default needs a
 factory such as `field(default_factory=list)`; a bare `[]` or `{}` is a bug.
 

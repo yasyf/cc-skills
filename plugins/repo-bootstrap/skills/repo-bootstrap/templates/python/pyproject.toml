@@ -89,6 +89,11 @@ src = [".", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py re-exports the public API via plain imports (`from .foo import
+# Bar`; no `as` alias, no __all__). F401 stays active in every other module.
+"__init__.py" = ["F401"]
 {{#FEATURE_DOCS}}
 
 [dependency-groups]
