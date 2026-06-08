@@ -100,7 +100,10 @@ stays as a secondary (editors / `uvx pyright`) in `typeCheckingMode = "basic"` w
 `reportUnknown*` and `reportIncompatibleVariableOverride` family set to `none` — pure noise on
 typed pydantic code. `pythonVersion` is the floor; `include` scopes to the package (tests excluded
 — test code mocks freely); `venvPath`/`venv` point pyright at uv's env. Fix real type errors;
-don't reach for `Any`. (bioqa disables a longer list — `reportMissingImports`,
+don't reach for `Any`. Inside Claude Code sessions `.claude/settings.json` sets
+`TY_CONFIG_FILE = .claude/ty-quiet.toml` (`[rules] all = "ignore"`), so ty emits zero diagnostics
+and the agent can't thrash on noise; CI (`uv run ty check`) and editors run without that session
+env and see the real config above. (bioqa disables a longer list — `reportMissingImports`,
 `reportAttributeAccessIssue`, … — because its monorepo pulls many untyped scientific deps; a clean
 package needs only the override/unknown-type silences.)
 

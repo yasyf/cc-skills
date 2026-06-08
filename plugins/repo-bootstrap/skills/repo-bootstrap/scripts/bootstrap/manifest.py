@@ -71,6 +71,7 @@ FILES = (
     FileSpec("STYLEGUIDE.md", "python/STYLEGUIDE.md", "python"),
     FileSpec("README.md", "python/README.md", "python"),
     FileSpec(".claude/settings.json", "python/claude/settings.json", "python"),
+    FileSpec(".claude/ty-quiet.toml", "python/claude/ty-quiet.toml", "python"),
     FileSpec("pyproject.toml", "python/pyproject.toml", "python"),
     FileSpec(".python-version", "python/python-version", "python"),
     FileSpec(".claude/hooks/testing.py", "python/claude/hooks/testing.py", "python"),

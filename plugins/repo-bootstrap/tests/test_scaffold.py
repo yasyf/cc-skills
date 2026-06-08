@@ -25,7 +25,7 @@ BASE_DESTS = {
     ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml",
     ".claude/hooks/__init__.py", ".claude/hooks/audit.py",
     ".claude/hooks/commands.py", ".claude/hooks/stewardship.py",
-    ".claude/hooks/docs.py",
+    ".claude/hooks/prompts.py", ".claude/hooks/docs.py",
     ".gitignore", "LICENSE",
 }
 
@@ -42,6 +42,7 @@ def test_base_ignores_features(base_var_pairs):
 def test_python_both_features_substitutes_package(py_var_pairs):
     got = dests("python", py_var_pairs)
     assert "demo_proj/cli.py" in got and "demo_proj/__init__.py" in got
+    assert ".claude/ty-quiet.toml" in got  # python-only ty silence config (absent from BASE_DESTS)
     assert "great-docs.yml" in got  # docs
     assert ".github/workflows/release-pypi.yml" in got  # pypi
     assert got >= BASE_DESTS  # python implies base
