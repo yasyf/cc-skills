@@ -37,8 +37,7 @@ class UnpipedGrep(CustomCondition):
         if not (cl := evt.command_line):
             return False
         return any(
-            cmd.matches(r"^grep\b") and (i == 0 or cl.parts[i - 1][1] != "|")
-            for i, (cmd, _) in enumerate(cl.parts)
+            cmd.matches(r"^grep\b") and (i == 0 or cl.parts[i - 1][1] != "|") for i, (cmd, _) in enumerate(cl.parts)
         )
 
 

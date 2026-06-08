@@ -25,7 +25,7 @@ BASE_DESTS = {
     ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml",
     ".claude/hooks/__init__.py", ".claude/hooks/audit.py",
     ".claude/hooks/commands.py", ".claude/hooks/stewardship.py",
-    ".claude/hooks/prompts.py", ".claude/hooks/docs.py",
+    ".claude/hooks/prompts.py", ".claude/hooks/docs.py", ".claude/hooks/tasks.py",
     ".gitignore", "LICENSE",
 }
 

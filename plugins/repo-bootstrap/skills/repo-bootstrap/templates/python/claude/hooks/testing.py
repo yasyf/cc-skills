@@ -56,7 +56,11 @@ class CommitsPython(CustomCondition):
 gate(
     "No `uv run pytest` execution found. Run tests before committing Python changes.",
     only_if=[Tool("Bash"), CommandCondition(r"git\s+commit"), CommitsPython()],
-    skip_if=[RanCommand(r"uv run pytest"), UserSaid("commit", "just commit"), AllEditsUnder("docs/", ".claude/", ".github/")],
+    skip_if=[
+        RanCommand(r"uv run pytest"),
+        UserSaid("commit", "just commit"),
+        AllEditsUnder("docs/", ".claude/", ".github/"),
+    ],
     events=Event.PreToolUse,
     tests={
         Input(command="git status"): Allow(),

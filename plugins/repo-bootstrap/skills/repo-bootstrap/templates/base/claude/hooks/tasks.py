@@ -88,7 +88,10 @@ nudge(
             content="x = 1\n",
             tasks=[{"id": "1", "subject": "a", "status": "in_progress"}],
             transcript=[
-                {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {}, "id": "t1"}]}},
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {}, "id": "t1"}]},
+                },
                 {
                     "type": "assistant",
                     "message": {

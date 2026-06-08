@@ -24,7 +24,9 @@ nudge(
         UsedSkill("slop-cop:slop-cop-check|slop-cop:slop-cop-prose|slop-cop-check|slop-cop-prose"),
     ],
     tests={
-        Input(file="agent.py", content='messages = [{"role": "system", "content": "You are a helpful assistant."}]\n'): Warn(),
+        Input(
+            file="agent.py", content='messages = [{"role": "system", "content": "You are a helpful assistant."}]\n'
+        ): Warn(),
         Input(file="prompt.md", content="<instruction>\nSummarize the document.\n</instruction>\n"): Warn(),
         Input(file="util.py", content="def add(a, b):\n    return a + b\n"): Allow(),
     },
