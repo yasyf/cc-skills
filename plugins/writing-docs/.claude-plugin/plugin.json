@@ -1,0 +1,10 @@
+{
+  "name": "writing-docs",
+  "description": "Apply Diataxis modes and proven documentation craft (voice, runnable code samples, quickstart design, README anatomy, accessibility) plus a required slop-cop prose-lint pass when writing or revising project documentation, READMEs, tutorials, how-tos, or reference.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}
