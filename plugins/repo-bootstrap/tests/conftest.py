@@ -20,6 +20,11 @@ TEMPLATES = SCRIPTS.parent / "templates"
 
 
 @pytest.fixture
+def templates_dir() -> Path:
+    return TEMPLATES
+
+
+@pytest.fixture
 def fixed_date() -> datetime.date:
     return datetime.date(2026, 6, 8)
 

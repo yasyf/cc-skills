@@ -70,6 +70,18 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
         assert gated not in got
 
 
+# --- release gate: tag must be on main ---
+
+
+def test_release_workflow_gates_build_on_tag_on_main(templates_dir):
+    wf = (templates_dir / "python/github/workflows/release-pypi.yml").read_text()
+    # the gate job exists and checks the tagged commit's ancestry against main
+    assert "verify-tag-on-main:" in wf
+    assert "git merge-base --is-ancestor" in wf
+    # build (and therefore the whole publish chain) depends on the gate
+    assert "  build:\n    needs: verify-tag-on-main\n" in wf
+
+
 def test_extras_gating(base_var_pairs):
     assert ".env" not in dests("base", base_var_pairs)
     assert ".env" in dests("base", base_var_pairs, extras=["env"])

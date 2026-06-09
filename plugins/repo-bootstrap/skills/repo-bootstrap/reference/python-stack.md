@@ -183,6 +183,8 @@ The version is **never hand-edited**. The flow:
 
 1. `pyproject.toml` carries the inert `0.1.0` placeholder forever on `main`.
 2. Pushing a `v*` tag (e.g. `v0.3.0`) triggers `.github/workflows/release-pypi.yml`.
+   Its first job, `verify-tag-on-main`, fails the release unless the tagged commit is on
+   `main` (`git merge-base --is-ancestor`), so an unmerged commit can't be published.
 3. The workflow runs `uv version --frozen "${GITHUB_REF_NAME#v}"` — version derived from the
    tag at build time — then `uv build`, publishes via PyPI trusted publishing (the `pypi`
    environment, `id-token: write`), and cuts a GitHub release with `--generate-notes`.

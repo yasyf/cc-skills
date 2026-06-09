@@ -207,7 +207,8 @@ Then, optionally, publish and wire one-time setups:
 - *(feature docs)* set the GitHub Pages source to **GitHub Actions**
   (`reference/ci-and-release.md`).
 - *(feature pypi)* register the PyPI **pending trusted publisher** for `DIST_NAME`,
-  then run the first release: CHANGELOG entry → tag `v0.1.0` → push tag
+  then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on
+  `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
 
 **Exit criteria:** commits made; for a published repo, remote created and any enabled

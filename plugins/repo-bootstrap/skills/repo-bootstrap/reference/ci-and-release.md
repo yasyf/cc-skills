@@ -73,9 +73,19 @@ permissions `pages: write` + `id-token: write`, environment `github-pages` with
 ## release-pypi.yml
 
 Triggers on `push` of tags matching `v*`. Concurrency group `release-pypi` with
-`cancel-in-progress: false` — never kill a half-finished publish. Three chained jobs:
+`cancel-in-progress: false` — never kill a half-finished publish. Four chained jobs:
 
-**`build`**:
+**`verify-tag-on-main`** (the gate): checks out with `fetch-depth: 0`, fetches `main`,
+and runs `git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD`. The job fails if the
+tagged commit is not reachable from `main`. `build` has `needs: verify-tag-on-main`, so
+nothing builds, publishes, or releases unless the tag points at a commit already on
+`main`. Tags are not covered by branch protection, so without this gate anyone who can
+push a tag could ship an unmerged commit to PyPI under the project's identity. A commit
+is its own ancestor, so tagging main's exact tip passes; squash-merge repos must tag the
+squashed commit on `main` (e.g. `git tag vX.Y.Z origin/main`), not the pre-squash branch
+commit.
+
+**`build`** (`needs: verify-tag-on-main`):
 
 1. Checkout + setup-uv (pin version, lockfile cache glob)
 2. `uv version --frozen "${GITHUB_REF_NAME#v}"` — strips the `v` and writes the tag's
@@ -135,8 +145,11 @@ Without this, `deploy-pages` fails on the first main push.
 
 1. Update `CHANGELOG.md`: move `[Unreleased]` entries into a new `## [X.Y.Z] - <date>` section
    and add the version's link reference at the bottom.
-2. Commit, then `git tag vX.Y.Z` and `git push --tags` (push the commit too).
-3. Watch the **Release (PyPI)** workflow run: build → publish → github-release.
+2. Commit and push to `main` first, then tag a commit that is on `main` — e.g.
+   `git tag vX.Y.Z origin/main` after pulling — and `git push --tags`. The
+   `verify-tag-on-main` gate fails the release if the tag points anywhere off `main`.
+3. Watch the **Release (PyPI)** workflow run: verify-tag-on-main → build → publish →
+   github-release.
 4. Verify the version on PyPI (`https://pypi.org/project/<dist-name>/`) and the new GitHub
    release with generated notes and `dist/*` assets.
 
@@ -145,6 +158,10 @@ the tag at build time.
 
 ## Common Failures
 
+- **Tag not on main** — the `verify-tag-on-main` job fails before any build runs because
+  the tagged commit isn't reachable from `main`. Delete the tag (`git tag -d vX.Y.Z &&
+  git push origin :refs/tags/vX.Y.Z`), merge the commit to `main`, re-tag the merged
+  commit, and push the tag again.
 - **Tag pushed before the pending publisher was registered** — the `publish` job 403s
   ("invalid-publisher"). Register the publisher on PyPI, then re-run just the failed job from
   the workflow run page; no need to re-tag.
