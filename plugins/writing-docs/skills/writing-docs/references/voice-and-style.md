@@ -20,6 +20,13 @@ Distilled from the Google developer documentation style guide, the Microsoft Wri
 - Put conditions before instructions. Write "If X, do Y", not "Do Y if X".
 - Keep paragraphs to three to seven lines. Use numbered lists for sequences and bulleted lists otherwise. Use parallel structure for parallel items.
 
+## Get to the point
+
+- Open on substance, not an announcement. Never begin a page or section by naming what it does, as in "This page explains", "This section covers", "In this guide", "What to learn", or "The rest of this page". The title states the topic; lead with the first real sentence.
+- Do not pre-announce structure. Cut "three properties follow", "there are four steps", and the like. The headings and lists already announce themselves.
+- Do not pre-emptively admonish the reader. State behavior and its consequences as fact. Reserve a warning for real data-loss or security stakes, not a generic "be careful", "make sure", or "don't forget".
+- Keep internals and history out of task and reference pages. Drop docs-generation, packaging, and build mechanics, internal module paths, and private symbols a reader never touches. Drop former names, legacy or deprecated fallbacks, and "used to"; state what is. History belongs on an explanation page or in the changelog.
+
 ## Words
 
 - Prefer short, common words over long ones. Write "start", not "commence". Define any unavoidable jargon on first use, and expand acronyms on first use.

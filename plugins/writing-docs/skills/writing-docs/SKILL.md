@@ -49,6 +49,7 @@ These are enforceable. slop-cop catches most of them.
 - Use sentence-case headings with no end punctuation, the Oxford comma, and conditions before instructions.
 - Use inclusive, bias-free language. Replace any generic he or she with you, a role, or singular they, use people-first phrasing, and pick non-biased technical terms.
 - Code font carries meaning. Use backticks for filenames, paths, commands, function and class names, keywords, types, and placeholder variables, but not for product names or browsable URLs.
+- Open on substance. Cut self-referential intros such as "This page explains" or "What to learn", structure pre-announcements such as "three properties follow", and pre-emptive admonishment. State behavior as fact, and keep internals, packaging, and history out of task and reference pages.
 
 See `references/voice-and-style.md` for the full list.
 
@@ -95,7 +96,7 @@ Use `--markdown=on` for `.md`, `.mdx`, and `.qmd` so code blocks, links, heading
 
 ## Anti-patterns to forbid
 
-Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; we or our for the reader; fillers like "simply" and "just"; "click here" links; missing alt text; skipped heading levels; generic he or she; and biased technical terms.
+Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; we or our for the reader; fillers like "simply" and "just"; "click here" links; missing alt text; skipped heading levels; generic he or she; biased technical terms; self-referential page or section intros such as "This page explains" or "What to learn"; pre-announced structure such as "three properties follow"; pre-emptive nannying such as "be careful", "make sure", or "don't forget" without real stakes; internal, packaging, or docs-generation detail on task or reference pages; and gratuitous history or legacy references outside explanation pages and the changelog.
 
 ## Pre-merge docs checklist
 
