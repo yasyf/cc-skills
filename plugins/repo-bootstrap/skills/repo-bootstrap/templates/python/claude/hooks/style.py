@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 
-from captain_hook import Allow, Input, Warn, gate
+from captain_hook import Allow, Input, Waiting, Warn, gate
 from captain_hook.style import StyleDiffRule, StyleRule, Violation, styleguide
 from captain_hook.style import matchers as M
 
@@ -144,6 +144,7 @@ gate(
     when=lambda evt: any(
         f.matches("**/{{PACKAGE}}/**/*.py") and not f.is_test for f in evt.ctx.t.extract_files(["Edit", "Write"])
     ),
+    skip_if=[Waiting()],
 )
 
 styleguide(

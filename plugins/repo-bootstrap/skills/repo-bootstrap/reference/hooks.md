@@ -124,6 +124,12 @@ All messages cite CLAUDE.md § Task Tracking. Inline tests inject task state via
 `Input(tasks=[...])`, exercising the real block/warn paths. Tailor `OVERRIDE_TOKEN` /
 `TASK_DRIFT_THRESHOLD`, or delete the file to drop task enforcement.
 
+Stop gates are wait-aware by default: any `gate(...)` / `llm_gate(...)` on `Stop` with no
+`skip_if` automatically skips while the agent waits on background work such as a running
+`Workflow`, an async sub-agent, or a `ScheduleWakeup` loop, and re-fires once it resumes. The
+moment you pass your own `skip_if` that default switches off, so include `Waiting()` in the
+list yourself, as the task gate above does.
+
 ### `.claude/hooks/testing.py` (python layer)
 
 - Nudges isolating the minimal failing test case (node-id suffix, `-k`, `--last-failed`)
@@ -159,7 +165,8 @@ imported `as M`) and registered with `styleguide(...)`:
 Plus a `gate(...)` Stop hook demanding a STYLEGUIDE.md review before stopping when package
 code changed. The gate's glob is `**/<package>/**/*.py` where `<package>` is the package
 name supplied at scaffold time (e.g. `captain_hook`); test files are exempt via
-`not f.is_test`.
+`not f.is_test`. It carries `skip_if=[Waiting()]` so it stays quiet while the agent waits on
+background work and re-fires once that work resumes.
 
 ### `.claude/hooks/toolchain.py` (python layer)
 
