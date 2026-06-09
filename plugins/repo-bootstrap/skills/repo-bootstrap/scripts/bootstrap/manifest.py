@@ -58,7 +58,6 @@ FILES = (
     FileSpec(".claude/settings.json", "base/claude/settings.json", "base"),
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
     FileSpec(".claude/hooks/__init__.py", "base/claude/hooks/__init__.py", "base"),
-    FileSpec(".claude/hooks/audit.py", "base/claude/hooks/audit.py", "base"),
     FileSpec(".claude/hooks/commands.py", "base/claude/hooks/commands.py", "base"),
     FileSpec(".claude/hooks/stewardship.py", "base/claude/hooks/stewardship.py", "base"),
     FileSpec(".claude/hooks/prompts.py", "base/claude/hooks/prompts.py", "base"),

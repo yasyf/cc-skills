@@ -146,7 +146,7 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uv run ty check`) and editors run without that env and keep the real `[tool.ty]` config |
-| `.claude/hooks/{__init__,audit,commands,stewardship,prompts,docs,tasks}.py` | base | guard hooks (see `reference/hooks.md`) |
+| `.claude/hooks/{__init__,commands,stewardship,prompts,docs,tasks}.py` | base | guard hooks (see `reference/hooks.md`) |
 | `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py` | python + feature `docs` | omitted entirely without `docs` |

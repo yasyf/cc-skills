@@ -44,12 +44,6 @@ commit hook is the only mechanical-lint enforcement. To drop it, delete `.pre-co
 
 ## Hook inventory
 
-### `.claude/hooks/audit.py` (base layer)
-
-One line of substance: `audit(Event.PreToolUse | Event.PostToolUse | Event.Stop)` — keeps an
-audit log of tool events. Tailor by dropping events from the union, or delete the file to
-disable logging entirely.
-
 ### `.claude/hooks/commands.py` (base layer)
 
 - Blocks `git stash` — reason "git stash is not allowed", hint "Commit your changes to a

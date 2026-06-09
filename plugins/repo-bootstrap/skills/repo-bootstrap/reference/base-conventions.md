@@ -190,7 +190,7 @@ Field by field:
   these two keys in the same edit.
 - `"hooks"`: four events — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
   `Stop` — each running `uvx capt-hook run <Event>`. capt-hook discovers the hook
-  definitions in `.claude/hooks/`: `audit.py` (event audit log), `commands.py`
+  definitions in `.claude/hooks/`: `commands.py`
   (blocks `git stash` and unpiped `grep`, nudges toward `/codex` after 2
   failures — delete that nudge if the codex plugin isn't installed), and
   `stewardship.py` (NLP nudge against dismissing issues as "pre-existing").
