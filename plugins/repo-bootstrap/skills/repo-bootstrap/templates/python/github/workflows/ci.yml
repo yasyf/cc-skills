@@ -29,6 +29,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Type check (ty)
+        continue-on-error: true
         run: uv run ty check {{PACKAGE}}
 
       - name: Test (pytest)

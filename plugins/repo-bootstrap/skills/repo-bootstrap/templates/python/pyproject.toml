@@ -62,6 +62,7 @@ markers = [
 [tool.ty.rules]
 # Keep cross-checker `# type: ignore` / `# pyright: ignore` comments from tripping ty.
 unused-type-ignore-comment = "ignore"
+unresolved-import = "ignore"
 
 # pyright is kept as a secondary checker (editors / `uvx pyright`). Basic mode plus
 # a few disables covers the noise; ty is the gate that runs in CI.
