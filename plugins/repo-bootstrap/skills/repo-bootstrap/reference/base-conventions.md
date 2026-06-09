@@ -29,10 +29,11 @@ The single canonical agent-conventions doc. Section by section:
   edits), inline every comment verbatim with anchors, cluster >5 comments into
   themes, end with a `# | file:line | verbatim | cluster` mapping table, and never
   implement before `ExitPlanMode`.
-- **Parallelize Independent Work.** Keep verbatim. Dispatch table: dynamic
-  workflow for substantive multi-step work, parallel subagent calls in one message
-  for ad-hoc investigations, `TeamCreate` for long-running peers; single-step
-  exception allows one subagent call.
+- **Parallelize Independent Work.** Keep verbatim. Stance: sequential is the
+  exception — when unsure, fan out. Dispatch ladder, cheapest first: batch
+  independent tool calls in one message, parallel subagent calls for ad-hoc
+  investigations, dynamic workflow for substantive multi-step work, `TeamCreate`
+  for long-running peers; single-step exception acts directly.
 - **Code Search.** Keep verbatim; it depends on `.mcp.json` (below). The decision
   table: `semble.search` for intent/symbol questions ("How do we do X?",
   "Where is `Foo` defined?"), `semble.find_related` for "code like this", LSP
