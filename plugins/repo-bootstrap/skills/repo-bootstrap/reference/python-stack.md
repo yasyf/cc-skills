@@ -15,6 +15,7 @@ Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 | ruff `E,F,I,UP` @ line-length 120 | Mechanical layer only; CI and hooks own it — never run it manually mid-task | flake8+isort+pyupgrade — three tools for what one does |
 | ty (default) + pyright (basic, secondary) | ty is fast, handles modern syntax, and skips the strict-pyright false positives on pydantic/beanie dynamic defaults and PK-type overrides; pyright stays for editors. Pairs with "type everything" in STYLEGUIDE.md | strict pyright — noisy on dynamic defaults / PK-type overrides; mypy — slower, weaker inference on modern syntax |
 | Great Docs | API reference generated from Google-style docstrings via one YAML file; publishes to GitHub Pages | mkdocs — nav/plugin config sprawl; Read the Docs — second platform to wire when Pages is already there |
+| Async-native from day 1 | All I/O is `async`; use native-async drivers so the event loop never blocks | sync driver + `asyncio.to_thread` — leaks the sync boundary into every caller, caps throughput at the thread pool |
 
 ## The Naming Triad
 
@@ -47,7 +48,7 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
 (`>=`), no upper bounds: upper-capping libraries causes resolver gridlock downstream.
 
 **`[project.optional-dependencies].dev`** vs **`[dependency-groups].docs`** — deliberate split:
-- `dev = ["pytest>=8.0", "ruff>=0.8", "ty>=0.0.44"]` is an *extra*: it ships in dist
+- `dev = ["anyio>=4", "pytest>=8.0", "ruff>=0.8", "ty>=0.0.44"]` is an *extra*: it ships in dist
   metadata, so contributors and CI install it with `uv sync --extra dev` and consumers
   could `pip install <dist>[dev]`. ty is the installed type checker; pyright is config-only
   (run on demand via `uvx pyright` or an editor extension).
@@ -87,8 +88,10 @@ deleting either breaks `uv build`. The backend is the one place with an upper bo
 **`[tool.pytest.ini_options]`** — `testpaths = ["tests"]`,
 `addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]`, and registered markers
 `unit` / `integration`. `--strict-markers` turns an unregistered `@pytest.mark.integraton`
-typo into an error. Add `asyncio_mode = "auto"` (plus `pytest-asyncio` in the dev extra)
-only when async tests appear, as captain-hook does.
+typo into an error. `anyio_mode = "auto"` ships in the generated config, `anyio` (which
+bundles the pytest plugin) in the dev extra, and `tests/conftest.py` pins the asyncio
+backend — so async tests run with no extra wiring. This house is async-native and
+centralizes on `anyio`, not `pytest-asyncio` (see § Async by Default).
 
 **`[tool.ty.rules]` + `[tool.pyright]`** — **ty (Astral) is the default type checker**; CI runs
 `uv run ty check <package>`. ty is fast, handles modern syntax, and avoids the strict-pyright
@@ -128,6 +131,37 @@ Two different knobs, both filled at scaffold time:
 
 Pin ≥ floor, always. Raising the floor is a breaking change: bump all three keys together
 and note it in CHANGELOG.md.
+
+## Async by Default
+
+Async from day 1 means the *library* is async, not a blocking call shoved onto a thread.
+Write `async def` for anything that touches I/O and pick a driver with a native async API.
+`asyncio.to_thread` / `run_in_executor` is an escape hatch for libraries with no async
+equivalent, never the default — the thread-pool wrapper leaks a sync boundary into every
+caller and caps throughput at the pool size. Structured concurrency goes through `anyio`
+(`TaskGroup`s over hand-rolled `asyncio.gather` lifecycles), and tests use `anyio`'s bundled
+pytest plugin — the scaffold ships `anyio` with `anyio_mode = "auto"` and a `tests/conftest.py`
+pinning the asyncio backend, so the first async test runs unwired.
+
+The house defaults, pulled from bioqa:
+
+| Boundary | Async-native | Blocking alternative it replaces |
+|---|---|---|
+| HTTP client | `httpx` | `requests` |
+| SQLite | `aiosqlite` | `sqlite3` + `asyncio.to_thread` |
+| Postgres | `asyncpg` | `psycopg2` |
+| MongoDB | `pymongo` `AsyncMongoClient` (4.13+) | `motor`, sync `pymongo` |
+| Redis | `redis.asyncio` (`redis[hiredis]`) | `aioredis`, sync `redis` |
+| Elasticsearch | `elasticsearch[async]` | sync `elasticsearch` |
+| AWS / S3 | `aioboto3` | `boto3` |
+| Filesystem | `aiofiles` | blocking `open()` on the event loop |
+
+`motor` (folded into `pymongo`'s `AsyncMongoClient`) and `aioredis` (folded into
+`redis.asyncio`) are retired — reach for the in-driver async API, not the legacy split
+package. Structured concurrency and the test harness both run through `anyio`: use `anyio`
+`TaskGroup`s over hand-rolled `asyncio.gather`, and the bundled `anyio` pytest plugin
+(`anyio_mode = "auto"`) over `pytest-asyncio`. Pair with `uvloop` for a faster event loop
+(`anyio` runs on it via the asyncio backend) when the project needs it.
 
 ## Starter Package Anatomy
 

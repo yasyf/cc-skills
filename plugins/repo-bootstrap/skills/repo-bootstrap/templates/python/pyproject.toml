@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "anyio>=4",
     "pytest>=8.0",
     "ruff>=0.8",
     "ty>=0.0.44",
@@ -50,6 +51,7 @@ module-root = ""
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+anyio_mode = "auto"
 addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]
 markers = [
     "unit: Pure unit tests",

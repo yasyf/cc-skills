@@ -85,6 +85,7 @@ FILES = (
     FileSpec("{{PACKAGE}}/cli.py", "python/package/cli.py", "python"),
     FileSpec("{{PACKAGE}}/py.typed", "python/package/py.typed", "python"),
     FileSpec("tests/__init__.py", "python/tests/__init__.py", "python"),
+    FileSpec("tests/conftest.py", "python/tests/conftest.py", "python"),
     FileSpec("tests/test_cli.py", "python/tests/test_cli.py", "python"),
     # feature-gated python files (content-level feature diffs live in templates)
     FileSpec("great-docs.yml", "python/great-docs.yml", "python", feature="docs"),

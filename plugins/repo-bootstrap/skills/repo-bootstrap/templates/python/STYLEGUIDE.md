@@ -22,6 +22,9 @@ The concrete style rules for `{{PACKAGE}}/`. Target Python {{PYTHON_MIN}}+.
    then the module. If surrounding code violates this guide, fix it.
 8. **Flat over nested.** Early returns and flat control flow. Nesting deeper than
    three levels is a smell.
+9. **Async-native I/O.** Anything that touches I/O is `async def`, backed by a
+   library with a native async API (e.g. `aiosqlite`) — never a blocking call
+   wrapped in `asyncio.to_thread`. See § Async.
 
 ## Functional Style
 
@@ -195,6 +198,35 @@ demonstrated need, not just in case.
 Types reflect user concepts, not implementation internals. A public signature built
 from internal metadata types leaks the implementation; expose the objects users
 think in.
+
+## Async
+
+I/O is async from day 1. Anything that hits the network, filesystem, or a database is
+an `async def`, and the library doing it has a native async API. Reach for the
+async-native driver instead of wrapping a blocking one in `asyncio.to_thread` — the
+wrapper leaks a sync boundary into every caller and caps throughput at the thread pool.
+Keep `to_thread` / `run_in_executor` for libraries with no async equivalent. Run
+concurrent work through `anyio` `TaskGroup`s rather than juggling bare `asyncio.gather`.
+
+```python
+# Good — async-native driver
+import aiosqlite
+
+async def load(db_path: str, key: str) -> Row | None:
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("select * from t where k = ?", (key,)) as cur:
+            return await cur.fetchone()
+
+# Bad — blocking driver shoved onto a thread
+import asyncio
+import sqlite3
+
+async def load(db_path: str, key: str) -> Row | None:
+    def _q() -> Row | None:
+        with sqlite3.connect(db_path) as db:
+            return db.execute("select * from t where k = ?", (key,)).fetchone()
+    return await asyncio.to_thread(_q)
+```
 
 ## Error Handling
 
