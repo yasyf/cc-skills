@@ -133,8 +133,11 @@ and note it in CHANGELOG.md.
 
 For package `captain_hook`, the scaffold generates:
 
-- `captain_hook/__init__.py` — docstring is the project description; `__all__: list[str] = []`
-  is the export-control surface (STYLEGUIDE.md mandates `__all__`). Grow it as public API appears.
+- `captain_hook/__init__.py` — docstring is the project description, then
+  `from __future__ import annotations`. No `__all__`: as public API appears, re-export it here
+  with plain imports (`from captain_hook.matcher import Matcher`; no `as` alias), per
+  STYLEGUIDE.md § Code Organization. F401 is disabled for `__init__.py` (see `[tool.ruff]`) so
+  those re-exports aren't flagged as unused.
 - `captain_hook/cli.py` — a `@click.group()` function named `main` with
   `@click.version_option(package_name="capt-hook")`. `package_name` is the **dist** name, not
   the package: Click reads the version from installed distribution metadata. The `hello`
