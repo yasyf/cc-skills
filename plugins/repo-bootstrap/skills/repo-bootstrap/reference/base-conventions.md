@@ -46,7 +46,7 @@ The single canonical agent-conventions doc. Section by section:
   sentences.` Keep the stock rules (Minimal changes; Match surrounding code; No
   defensive coding; Search before writing; Code stewardship; Observe, don't
   infer; Don't use external failures as an excuse to stop; Mechanical linting;
-  Git). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
+  Writing docs; Git). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
   lives and the exact command (captain-hook: "The suite lives in `tests/`; run it
   with `uv run pytest`"). Add project-specific rules in the same format — e.g.
   captain-hook adds a **Docs** rule ("Any public API change must keep
@@ -105,7 +105,9 @@ needed.
 ## README.md
 
 Fixed structure, each section with a `TODO(bootstrap)` describing what good looks
-like:
+like. Write the section prose through the `writing-docs` skill — its
+technical-builder voice governs the pitch and why-bullets; procedure steps stay
+imperative.
 
 1. **Badges row** — CI shield pointing at `actions/workflows/ci.yml` on `main`,
    and a license badge, both built from the values supplied at scaffold time
@@ -183,17 +185,22 @@ Field by field:
   never grants writes; anything mutating still prompts. `"defaultMode": "auto"`.
 - `"extraKnownMarketplaces"` + `"enabledPlugins"`: registers the
   [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace (with
-  `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` — the
-  second-opinion skill that the `commands.py` failure nudge points at. Anyone who
-  trusts the folder gets the marketplace registered and the plugin enabled after a
-  one-time consent prompt. Removing the codex nudge from `commands.py`? Remove
-  these two keys in the same edit.
+  `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` (the
+  `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
+  `prompts.py` nudge), and `writing-docs@skills` (the `docs.py` nudge). Anyone who
+  trusts the folder gets the marketplace registered and the plugins enabled after a
+  one-time consent prompt. Removing a nudge from its hook file? Remove its plugin
+  keys in the same edit (n.b. `slop-cop@skills` is shared by `prompts.py` and
+  `docs.py`).
 - `"hooks"`: four events — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
   `Stop` — each running `uvx capt-hook run <Event>`. capt-hook discovers the hook
   definitions in `.claude/hooks/`: `commands.py`
   (blocks `git stash` and unpiped `grep`, nudges toward `/codex` after 2
-  failures — delete that nudge if the codex plugin isn't installed), and
-  `stewardship.py` (NLP nudge against dismissing issues as "pre-existing").
+  failures — delete that nudge if the codex plugin isn't installed),
+  `stewardship.py` (NLP nudge against dismissing issues as "pre-existing"),
+  `prompts.py` (llm-prompts nudge on prompt-shaped edits), `docs.py`
+  (writing-docs nudge on doc edits), and `tasks.py` (end-of-turn task
+  discipline) — see `reference/hooks.md` for each.
   Add project rules as new files in `.claude/hooks/`; each carries inline
   `tests = {...}` runnable with `uvx capt-hook test`.
 

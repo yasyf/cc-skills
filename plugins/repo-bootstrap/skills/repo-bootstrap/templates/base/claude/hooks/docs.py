@@ -6,13 +6,13 @@ from captain_hook import Allow, FilePath, Input, Tool, UsedSkill, Warn, nudge
 # editing documentation. Fires once per session on the first doc edit and stands
 # down once the skill has been used. Advisory only, so it never blocks an edit.
 #
-# Install the skill once so the skip_if check can fire:
-#   /plugin marketplace add yasyf/cc-skills
-#   /plugin install writing-docs@skills
+# The scaffolded .claude/settings.json registers the yasyf/cc-skills marketplace
+# and enables writing-docs@skills, so the skill (and the skip_if check) activates
+# when the folder is trusted — no manual /plugin install.
 nudge(
     "You're editing documentation. Consult the writing-docs skill first for the "
     "Diataxis modes, voice rules, and code-sample rules, then run "
-    "`slop-cop check <file> --markdown=on` to catch prose tells before you finish.",
+    "`slop-cop check <file> --lang=markdown` to catch prose tells before you finish.",
     only_if=[Tool("Write|Edit"), FilePath("**/*.md", "**/*.qmd", "docs/**", "README.md")],
     skip_if=[UsedSkill("writing-docs|writing-docs:writing-docs")],
     max_fires=1,

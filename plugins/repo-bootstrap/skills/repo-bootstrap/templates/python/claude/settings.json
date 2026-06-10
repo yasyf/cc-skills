@@ -47,7 +47,8 @@
   "enabledPlugins": {
     "codex@skills": true,
     "slop-cop@skills": true,
-    "llm-prompts@skills": true
+    "llm-prompts@skills": true,
+    "writing-docs@skills": true
   },
   "hooks": {
     "UserPromptSubmit": [

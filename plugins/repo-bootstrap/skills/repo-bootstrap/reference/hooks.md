@@ -91,7 +91,23 @@ Needs the `llm-prompts@skills` and `slop-cop@skills` plugins — the scaffolded
 `.claude/settings.json` already enables both from the `yasyf/cc-skills` marketplace, so they
 activate when the folder is trusted (no manual `/plugin install`). To remove the nudge,
 delete this file and the `llm-prompts@skills`/`slop-cop@skills` keys from
-`enabledPlugins`. Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
+`enabledPlugins` (keep `slop-cop@skills` if `docs.py` remains — its nudge runs slop-cop
+too). Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
+
+### `.claude/hooks/docs.py` (base layer)
+
+Advisory nudge on the first Edit/Write to documentation (`**/*.md`, `**/*.qmd`,
+`docs/**`, `README.md`): consult the `writing-docs` skill — Diataxis modes, the
+technical-builder voice, runnable code-sample rules — then run
+`slop-cop check <file> --lang=markdown`. `max_fires=1` per session, and
+`skip_if=[UsedSkill("writing-docs|writing-docs:writing-docs")]` stands it down once
+the skill has been used. Advisory only; it never blocks an edit.
+
+Needs the `writing-docs@skills` plugin — the scaffolded `.claude/settings.json`
+already enables it from the `yasyf/cc-skills` marketplace, so it activates when the
+folder is trusted (no manual `/plugin install`). To remove the nudge, delete this
+file and the `writing-docs@skills` key from `enabledPlugins` (keep `slop-cop@skills`
+if `prompts.py` remains).
 
 ### `.claude/hooks/tasks.py` (base layer)
 

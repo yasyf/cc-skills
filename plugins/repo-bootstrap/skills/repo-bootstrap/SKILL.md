@@ -145,7 +145,7 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered |
 | `.mcp.json` | base | semble code search via uvx |
-| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills` |
+| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uv run ty check`) and editors run without that env and keep the real `[tool.ty]` config |
 | `.claude/hooks/{__init__,commands,stewardship,prompts,docs,tasks}.py` | base | guard hooks (see `reference/hooks.md`) |
@@ -168,10 +168,15 @@ succeeded and `uv.lock` is committed.
 ## Phase 3 — Replace TODO(bootstrap) markers
 
 Every `TODO(bootstrap):` marker is judgment work for you. Find them all with
-`rg -n 'TODO\(bootstrap\)'`, and read the matching reference before editing:
+`rg -n 'TODO\(bootstrap\)'`, and read the matching reference before editing.
+For prose markers — anything a human reads rather than a tool parses — apply the
+`writing-docs` skill before drafting: its technical-builder voice governs the
+README pitch and why-bullets and the great-docs hero tagline. Run
+`slop-cop check <file> --lang=markdown` on each prose file you fill.
 
 - `README.md` (pitch, quickstart, why-bullets) and `AGENTS.md` (repository
-  structure tree) → read `reference/base-conventions.md` first.
+  structure tree) → read `reference/base-conventions.md` first; write the
+  README prose through the `writing-docs` skill.
 - `great-docs.yml` (navbar color, accent color, hero tagline) → read
   `reference/docs-site.md` first. *(Only present with feature `docs`.)*
 - `<PACKAGE>/cli.py` `hello` command → replace with the first real command (and
@@ -243,7 +248,10 @@ Then, optionally, publish and wire one-time setups:
   `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.
 - **No prompt-writing nudge**: delete `.claude/hooks/prompts.py` and the
   `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`
-  `enabledPlugins`.
+  `enabledPlugins` (keep `slop-cop@skills` if you keep the docs nudge).
+- **No docs nudge**: delete `.claude/hooks/docs.py` and the `writing-docs@skills`
+  entry from `.claude/settings.json` `enabledPlugins` (keep `slop-cop@skills` if
+  the prompt-writing nudge remains).
 - **Monorepos**: out of scope — this skill scaffolds single-package repos.
 
 ## Reference map
