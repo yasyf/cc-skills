@@ -1,13 +1,13 @@
 ---
 name: writing-docs
-description: Use when writing or revising project documentation of any kind, including a README, docs site, tutorial, quickstart, how-to guide, reference page, API doc, or changelog. Applies the Diataxis framework (one mode per page), enforceable voice and style rules, runnable code-sample rules, quickstart and README anatomy, accessibility, and a required slop-cop prose-lint pass before you finish. Triggers on "write/rewrite/improve the docs", "write a README", "write a tutorial", "document this", "getting-started page", or any natural-language documentation task.
+description: Use when writing or revising project documentation of any kind, including a README, docs site, tutorial, quickstart, how-to guide, reference page, API doc, or changelog. Applies the Diataxis framework (one mode per page), a technical-builder voice (first-person, confident, hands-on), runnable code-sample rules, quickstart and README anatomy, accessibility, and a required slop-cop prose-lint pass before you finish. Triggers on "write/rewrite/improve the docs", "write a README", "write a tutorial", "document this", "getting-started page", or any natural-language documentation task.
 ---
 
 # Writing Docs
 
 This skill is opinionated and checklist-driven. Documentation is not one thing. It is four kinds of page that serve four different reader needs, and the largest source of bad docs is letting those kinds bleed into each other. Pick the mode first, write to its rules, then run the pre-merge checklist at the end. A wrong doc is worse than a missing one, because readers trust and act on it.
 
-Run `slop-cop check <file> --markdown=on` on every page you touch and revise until it is clean. This is not optional.
+Run `slop-cop check <file> --lang=markdown` on every page you touch and triage every finding: fix the genuine tells, keep deliberate voice moves. This is not optional.
 
 ## The process, five gates in order
 
@@ -38,18 +38,18 @@ See `references/diataxis.md` for the required sections per page type.
 
 ## Voice and style
 
-These are enforceable. slop-cop catches most of them.
+Write as a technical builder: someone who has already built the thing, explains it clearly, and has opinions about what's good and what's a mess. The voice governs narrative prose — the README pitch and why-sections, explanation pages, and the framing around tutorial and how-to steps. Procedure steps stay imperative, and reference pages stay neutral facts (see the Diataxis table above). slop-cop flags some of these devices deliberately — see the slop-cop section for how to triage.
 
-- Address the reader as you and your. Never use we or our for the reader. Write procedure steps in the imperative: "Run the command."
-- Use active voice with an explicit actor. Use present tense; ban "will" and "would" for general behavior.
-- One idea per sentence, around 20 words, under 26. Keep subject, verb, and object near the start.
-- Front-load every level. Put the topic sentence first.
-- Use exactly one term per concept everywhere, with identical capitalization. Keep a project term map.
-- Be conversational without being frivolous. Use contractions. Ban exclamation marks, slang, and the fillers "simply", "just", "easy", and "quickly".
-- Use sentence-case headings with no end punctuation, the Oxford comma, and conditions before instructions.
-- Use inclusive, bias-free language. Replace any generic he or she with you, a role, or singular they, use people-first phrasing, and pick non-biased technical terms.
-- Code font carries meaning. Use backticks for filenames, paths, commands, function and class names, keywords, types, and placeholder variables, but not for product names or browsable URLs.
-- Open on substance. Cut self-referential intros such as "This page explains" or "What to learn", structure pre-announcements such as "three properties follow", and pre-emptive admonishment. State behavior as fact, and keep internals, packaging, and history out of task and reference pages.
+- Use "I" freely: "I built", "I found", "I wasn't satisfied with this." Address the reader as "you" when walking them through tradeoffs. Use "we" only for a shared technical reality, never as editorial we.
+- State the point, then elaborate; never build toward a conclusion that could have led. Open sentences with the subject acting, and front-load every level.
+- Vary sentence length aggressively: a 3-5 word fragment lands a verdict, a 30-40 word technical explanation follows when precision demands it. Anchor paragraphs with a short declarative, expand with mechanics, close with judgment or implication.
+- Default to confident assertion, not hedging; scope any real uncertainty narrowly. Criticize bluntly, grounded in a specific technical failure. Enthusiasm comes through word choice, not exclamation points.
+- Reach for hands-on vocabulary ("wrapping", "porting", "bolt on", "swap out") and casual intensifiers without apology ("pretty solid", "neat"). "YMMV," "n.b.," and "AFAIK" are natural register markers. Humor is dry and brief, in parentheticals or sentence-final fragments.
+- Em-dashes carry interruptions and sharp asides; colons introduce technical specifics; rhetorical questions voice the skeptic before answering.
+- Use active voice with an explicit actor and present tense; ban "will" and "would" for general behavior. Write procedure steps in the imperative: "Run the command."
+- Use exactly one term per concept everywhere, with identical capitalization. Backtick any library, method, or tool name inline, plus filenames, paths, commands, and types — but not product names or browsable URLs.
+- Use sentence-case headings with no end punctuation, the Oxford comma, conditions before instructions, and inclusive, bias-free language (no generic he or she, people-first phrasing, non-biased technical terms).
+- Open on substance. Cut self-referential intros such as "This page explains" or "What to learn", structure pre-announcements such as "three properties follow", and pre-emptive admonishment. State behavior as fact, and keep internals, packaging, and history out of task and reference pages. Cut "simply", "just", and "easy" from procedure steps.
 
 See `references/voice-and-style.md` for the full list.
 
@@ -82,21 +82,21 @@ Order the README broad to specific, by cognitive funnel. Lead with the title, ba
 - Keep a CHANGELOG by hand in Keep a Changelog format, latest first, grouped Added, Changed, Deprecated, Removed, Fixed, Security, with an Unreleased section on top. Never dump a git log.
 - Deprecate with an in-docs notice, at least one minor release of overlap, and a migration path.
 - Make accessibility lint-able. Use exactly one h1, no skipped heading levels, descriptive link text and never "click here", alt text on every image, a text equivalent for every diagram, tables introduced in prose with header cells, no color-only signaling, and acronyms expanded on first use. Avoid directional words like "above".
-- Lint prose in CI with slop-cop, and Vale where configured, and check links.
+- Run slop-cop in CI as a report (the voice keeps some flagged devices on purpose, so it's not a hard gate), run Vale where configured, and check links.
 
 ## Run slop-cop (required)
 
-Before you call any doc done, run it through slop-cop and fix what it flags.
+Before you call any doc done, run it through slop-cop and triage every finding.
 
 ```bash
-slop-cop check path/to/page.md --markdown=on
+slop-cop check path/to/page.md --lang=markdown
 ```
 
-Use `--markdown=on` for `.md`, `.mdx`, and `.qmd` so code blocks, links, headings, and front matter are masked, since `.qmd` is not auto-detected. Cut the tells it reports. Split em-dash pivots into two sentences or use a comma, drop filler adverbs such as "rather", "simply", and "just", and drop overused intensifiers, negation pivots, and dramatic fragments. Replace unicode arrows with words, and strip the leading bold from bold-first-bullet walls. A colon before a code block is fine, and table-cell and Quarto-div false positives are acceptable to leave. Wire `slop-cop` into CI so a regression fails the build.
+Use `--lang=markdown` for `.md`, `.mdx`, and `.qmd` so code blocks, links, headings, and front matter are masked, since `.qmd` is not auto-detected. Cut the genuine tells: throat-clearing, hedge stacks, negation pivots, filler adverbs in procedure steps, unicode arrows (replace with words), and the leading bold from bold-first-bullet walls. The builder voice deliberately uses em-dashes, casual intensifiers, and short fragments — when slop-cop flags one, keep it if it's doing voice work and rewrite it if it's reflex. The tell isn't the device; it's the device used formulaically. A colon before a code block is fine, and table-cell and Quarto-div false positives are acceptable to leave. Run `slop-cop` in CI as a report, not a hard gate.
 
 ## Anti-patterns to forbid
 
-Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; we or our for the reader; fillers like "simply" and "just"; "click here" links; missing alt text; skipped heading levels; generic he or she; biased technical terms; self-referential page or section intros such as "This page explains" or "What to learn"; pre-announced structure such as "three properties follow"; pre-emptive nannying such as "be careful", "make sure", or "don't forget" without real stakes; internal, packaging, or docs-generation detail on task or reference pages; and gratuitous history or legacy references outside explanation pages and the changelog.
+Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; editorial we with no shared technical reality; hedged, buildup-first prose that buries the verdict; fillers like "simply" and "just" in procedure steps; "click here" links; missing alt text; skipped heading levels; generic he or she; biased technical terms; self-referential page or section intros such as "This page explains" or "What to learn"; pre-announced structure such as "three properties follow"; pre-emptive nannying such as "be careful", "make sure", or "don't forget" without real stakes; internal, packaging, or docs-generation detail on task or reference pages; and gratuitous history or legacy references outside explanation pages and the changelog.
 
 ## Pre-merge docs checklist
 
@@ -107,13 +107,13 @@ Run this before merging any docs change. The full version is in `references/chec
 - [ ] A quickstart or tutorial is single-path, under ten steps, states a destination, and ends in a shown, verifiable outcome.
 - [ ] Every code sample is complete, copy-pasteable, and uses safe placeholders, with omissions marked by a real comment.
 - [ ] Example code is single-sourced and embedded, not retyped, and passes in CI; shown output is generated by running it.
-- [ ] Voice pass covers second person, imperative steps, active voice, present tense, one term per concept, and no fillers.
+- [ ] Voice pass covers the builder voice in narrative prose (first person, confident assertion, varied sentence length), imperative procedure steps, active voice, present tense, one term per concept, and neutral reference pages.
 - [ ] Inclusive-language pass covers no generic he or she, people-first phrasing, and non-biased technical terms.
 - [ ] Accessibility pass covers one h1, no skipped levels, descriptive link text, alt text, and diagrams with a text equivalent.
 - [ ] Links resolve, both internal relative paths and external URLs.
 - [ ] The README is still a front door with a pitch, install, one working example, and a docs link, and no duplicated API content.
 - [ ] The CHANGELOG is updated in Keep a Changelog format.
-- [ ] `slop-cop check <file> --markdown=on` is clean, leaving only table-cell or Quarto-div false positives.
+- [ ] `slop-cop check <file> --lang=markdown` findings are triaged: genuine tells fixed, deliberate voice moves consciously kept.
 - [ ] The docs site builds green.
 
 ## Great Docs and Quarto projects

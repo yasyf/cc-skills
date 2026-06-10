@@ -17,10 +17,10 @@ Run this before merging any documentation change. The enforcement hook points th
 
 ## Prose
 
-- [ ] The voice pass holds second person, imperative steps, active voice, present tense, ~20-word sentences, front-loaded phrasing, one term per concept, and no fillers such as "simply", "just", or "easy".
+- [ ] The voice pass holds the technical-builder voice in narrative prose — first person ("I built", "I found"), you for tradeoffs, we only for shared technical reality, confident assertion, aggressively varied sentence length — plus imperative procedure steps, active voice, present tense, front-loaded phrasing, one term per concept, and no fillers such as "simply", "just", or "easy" in steps.
 - [ ] Every page and section opens on a substantive sentence, with no self-referential intro such as "This page" or "What to learn", no structure pre-announcement, no pre-emptive admonishment, and no internal, packaging, or history detail leaking into a task or reference page.
 - [ ] The inclusive-language pass drops generic he or she in favor of you, a role, or singular they, keeps people-first phrasing, and uses non-biased technical terms.
-- [ ] `slop-cop check <file> --markdown=on` is clean; only table-cell or fenced-div false positives remain.
+- [ ] `slop-cop check <file> --lang=markdown` findings are triaged: genuine tells fixed, deliberate voice moves (em-dash asides, intensifiers, verdict fragments) consciously kept.
 
 ## Accessibility and links
 

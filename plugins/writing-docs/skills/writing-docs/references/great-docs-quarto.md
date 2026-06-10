@@ -19,7 +19,7 @@ Stack specifics for a project documented with Great Docs, which renders a Quarto
 - Every `.qmd` starts with front matter holding at least a `title`.
 - Each section's `index.qmd` states which Diataxis mode its pages are.
 - End a how-to or tutorial with a "Next steps" or "See also" list of relative links.
-- `.qmd` is not auto-detected by slop-cop, so always pass `--markdown=on`.
+- `.qmd` is not auto-detected by slop-cop, so always pass `--lang=markdown`.
 
 ## Single-source example code with gd-embed
 
