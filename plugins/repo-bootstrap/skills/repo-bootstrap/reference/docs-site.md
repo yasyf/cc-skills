@@ -127,8 +127,8 @@ surface; internal helpers get none. Consequences for editing:
 (`uv sync --group docs` → `uv run great-docs build` → `docs/scripts/fix_color_swatch.py` →
 upload `great-docs/_site` with `include-hidden-files: true`), then a `publish-docs` job gated
 on `if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to the
-`github-pages` environment. Enable Pages in the repo settings with source "GitHub Actions"
-or the deploy job fails.
+`github-pages` environment. Enable Pages with the Actions build first
+(`gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`) or the deploy job fails.
 
 Two non-obvious build details:
 

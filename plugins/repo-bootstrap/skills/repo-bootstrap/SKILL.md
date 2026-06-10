@@ -208,7 +208,8 @@ Then, optionally, publish and wire one-time setups:
 - `gh repo create --public --source . --push --description "$DESCRIPTION"` to create
   the GitHub remote — always set the description; *(feature docs)* also pass
   `--homepage "$DOCS_URL"`. For an existing remote, `gh repo edit` with the same flags.
-- *(feature docs)* set the GitHub Pages source to **GitHub Actions**
+- *(feature docs)* enable GitHub Pages with the Actions build type:
+  `gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`
   (`reference/ci-and-release.md`).
 - *(feature pypi)* register the PyPI **pending trusted publisher** for `DIST_NAME`,
   then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on

@@ -2,7 +2,7 @@
 
 Up to three workflows land in `.github/workflows/`: `ci.yml` (tests + wheel smoke, **always**),
 `docs.yml` (great-docs to GitHub Pages, **feature `docs`**), and `release-pypi.yml` (tag-driven
-trusted publishing, **feature `pypi`**). The one-time browser setups below only matter for the
+trusted publishing, **feature `pypi`**). The one-time setups below only matter for the
 features you enabled — skip the Pages setup without `docs`, skip the PyPI setup without `pypi`.
 
 ## ci.yml
@@ -114,9 +114,10 @@ gh release create "${GITHUB_REF_NAME}" \
 with `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. Release notes are auto-generated from merged PRs;
 the built sdist and wheel attach as release assets.
 
-## One-Time Setup (walk the user through these in a browser)
+## One-Time Setup
 
-These cannot be done from the CLI without elevated credentials; do them before the first tag.
+Do these before the first tag. Walk the user through the PyPI steps (a–b) in a browser;
+the Pages step (c) runs from the CLI.
 
 ### a. PyPI pending publisher
 
@@ -138,9 +139,15 @@ Optionally add required reviewers so a human approves each publish.
 
 ### c. GitHub Pages source
 
-Repo → **Settings** → **Pages** → **Source** = **GitHub Actions** (not "Deploy from a branch").
-Without this, `deploy-pages` fails on the first main push. While here, point the repo
-homepage at the docs site — this one works from the CLI: `gh repo edit --homepage "$DOCS_URL"`.
+```bash
+gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow ||
+  gh api repos/{owner}/{repo}/pages -X PUT -f build_type=workflow
+```
+
+POST creates the site; on 409 (already enabled) the PUT flips it to the Actions build.
+Browser fallback: Repo → **Settings** → **Pages** → **Source** = **GitHub Actions** (not
+"Deploy from a branch"). Without this, `deploy-pages` fails on the first main push. While
+here, point the repo homepage at the docs site: `gh repo edit --homepage "$DOCS_URL"`.
 
 ## Cutting a Release
 
@@ -167,7 +174,7 @@ the tag at build time.
   ("invalid-publisher"). Register the publisher on PyPI, then re-run just the failed job from
   the workflow run page; no need to re-tag.
 - **Pages source not set to GitHub Actions** — `publish-docs` fails at `deploy-pages` with a
-  "Not Found" / pages-not-enabled error. Flip the setting, re-run the job.
+  "Not Found" / pages-not-enabled error. Run the Pages `gh api` command above, re-run the job.
 - **`uv.lock` missing from the first commit** — `setup-uv` warns that `cache-dependency-glob:
   uv.lock` matched nothing and every CI run resolves from scratch. Run `uv sync` locally and
   commit the lockfile.
