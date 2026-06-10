@@ -139,7 +139,8 @@ Optionally add required reviewers so a human approves each publish.
 ### c. GitHub Pages source
 
 Repo → **Settings** → **Pages** → **Source** = **GitHub Actions** (not "Deploy from a branch").
-Without this, `deploy-pages` fails on the first main push.
+Without this, `deploy-pages` fails on the first main push. While here, point the repo
+homepage at the docs site — this one works from the CLI: `gh repo edit --homepage "$DOCS_URL"`.
 
 ## Cutting a Release
 

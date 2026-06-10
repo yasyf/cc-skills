@@ -205,7 +205,9 @@ layer and features actually scaffolded:
 
 Then, optionally, publish and wire one-time setups:
 
-- `gh repo create --public --source . --push` to create the GitHub remote.
+- `gh repo create --public --source . --push --description "$DESCRIPTION"` to create
+  the GitHub remote — always set the description; *(feature docs)* also pass
+  `--homepage "$DOCS_URL"`. For an existing remote, `gh repo edit` with the same flags.
 - *(feature docs)* set the GitHub Pages source to **GitHub Actions**
   (`reference/ci-and-release.md`).
 - *(feature pypi)* register the PyPI **pending trusted publisher** for `DIST_NAME`,
@@ -213,8 +215,9 @@ Then, optionally, publish and wire one-time setups:
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
 
-**Exit criteria:** commits made; for a published repo, remote created and any enabled
-feature's one-time setup done (or explicitly deferred with the user).
+**Exit criteria:** commits made; for a published repo, remote created with description
+(and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
+(or explicitly deferred with the user).
 
 ## Escape hatches
 
