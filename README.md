@@ -11,6 +11,7 @@ focused skills. Each plugin installs independently.
 | `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems. | The `codex` CLI on `PATH`. |
 | `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended. |
 | `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
+| `writing-docs` | Write docs in Diataxis modes with a technical-builder voice, runnable code-sample rules, and a slop-cop prose pass. | None; `slop-cop` recommended for the prose pass. |
 
 ## Install
 
@@ -66,6 +67,15 @@ contrastive examples, XML tag structure, reasoning-first output, and the current
 per-provider knobs (effort/verbosity/thinking) for Claude, GPT-5.x, and Gemini.
 Deeper per-provider notes live under its `reference/` folder. `repo-bootstrap`
 installs a companion capt-hook nudge that points prompt edits back at this skill.
+
+## writing-docs
+
+Turns any documentation task — README, tutorial, how-to, reference page,
+changelog — into a checklist-driven process: pick one Diataxis mode per page,
+write narrative prose in a technical-builder voice (first-person, confident,
+hands-on), keep every code sample runnable, and finish with a triaged
+`slop-cop` pass. `repo-bootstrap` enables it in scaffolded repos and applies it
+when filling in README and docs-site prose at bootstrap time.
 
 ## License
 

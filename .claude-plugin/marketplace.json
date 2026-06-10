@@ -29,7 +29,7 @@
     {
       "name": "writing-docs",
       "source": "./plugins/writing-docs",
-      "description": "Apply Diataxis modes, documentation craft, and a slop-cop prose-lint pass when writing project documentation, READMEs, tutorials, how-tos, or reference."
+      "description": "Apply Diataxis modes, a technical-builder voice, and a slop-cop prose-lint pass when writing project documentation, READMEs, tutorials, how-tos, or reference."
     }
   ]
 }
