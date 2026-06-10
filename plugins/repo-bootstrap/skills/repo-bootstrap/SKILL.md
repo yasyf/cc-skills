@@ -61,7 +61,8 @@ example of a complete layer.
 
 - **All layers**: project name, one-line description, license (default
   PolyForm-Noncommercial-1.0.0; MIT for permissive open source), extras (`superset`,
-  `env` — see the table in Phase 2; `multiSelect`, default none).
+  `env` — see the table in Phase 2; `multiSelect`, default none). The scaffold
+  requires `--extras` explicitly — pass `none` when no extras are chosen.
 - **Python additionally**: dist name, package name, Python floor + pin versions, and
   the two **features** as a `multiSelect` "Optional Python features" — `docs` (Great
   Docs on GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default
@@ -119,7 +120,8 @@ $BOOTSTRAP scaffold \
 
 Set `--features` from Phase 1: `docs,pypi` (both), `pypi` or `docs` (one), or `""`
 (neither). Omitting the flag equals `docs,pypi`. For base layer, drop the python-only
-`--var`s and `--features`.
+`--var`s and `--features`. `--extras` is always required; pass `--extras none` if
+none were chosen.
 
 Rules:
 

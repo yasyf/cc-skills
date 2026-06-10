@@ -141,6 +141,21 @@ def test_unknown_feature(py_var_pairs):
         scaffold.resolve("python", [], ["telemetry"], py_var_pairs, DATE)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("none", []), ("superset,env", ["superset", "env"]), ("env", ["env"])],
+    ids=["none", "both", "single"],
+)
+def test_parse_extras(raw, expected):
+    assert scaffold.parse_extras(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", ",", "none,superset"], ids=["empty", "only-commas", "none-mixed"])
+def test_parse_extras_rejects(raw):
+    with pytest.raises(ScaffoldError):
+        scaffold.parse_extras(raw)
+
+
 # --- derive (clock injected) ---
 
 def test_derive_vars_uses_injected_clock(base_var_pairs):

@@ -54,6 +54,15 @@ def parse_vars(pairs: list[str]) -> dict[str, str]:
     return out
 
 
+def parse_extras(raw: str) -> list[str]:
+    if raw == "none":
+        return []
+    extras = [e for e in raw.split(",") if e]
+    if not extras or "none" in extras:
+        raise ScaffoldError(f"--extras must be 'none' or a comma-separated subset of: {', '.join(EXTRAS)}")
+    return extras
+
+
 def validate_vars(variables: dict[str, str], layer: str) -> None:
     required = {v.name for v in VARS if layer in v.required_in}
     if missing := sorted(required - variables.keys()):
@@ -235,7 +244,7 @@ def template_exists(src: str) -> bool:
 
 
 def run(args: argparse.Namespace) -> int:
-    extras = [e for e in args.extras.split(",") if e]
+    extras = parse_extras(args.extras)
     features = [f for f in args.features.split(",") if f]
     r = resolve(args.layer, extras, features, args.var, datetime.date.today())
     items = select_files(r)

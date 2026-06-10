@@ -32,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("scaffold", help="render templates into a repo")
     sc.add_argument("--target", type=Path, default=Path("."))
     sc.add_argument("--layer", choices=("base", "python"), default="base")
-    sc.add_argument("--extras", default="", help=f"comma-separated: {', '.join(EXTRAS)}")
+    sc.add_argument("--extras", required=True, help=f"comma-separated: {', '.join(EXTRAS)}; or 'none' for no extras")
     sc.add_argument(
         "--features",
         default=",".join(f.name for f in FEATURES),

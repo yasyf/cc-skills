@@ -80,7 +80,7 @@ def test_end_to_end_python(tmp_path, features):
     subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
     scaffold = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "scaffold", "--target", str(tmp_path),
-         "--layer", "python", "--features", features, *PY_VARS],
+         "--layer", "python", "--extras", "none", "--features", features, *PY_VARS],
         capture_output=True, text=True, env=env,
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
