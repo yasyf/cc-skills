@@ -1,5 +1,7 @@
 # {{PROJECT_NAME}}
 
+![{{PROJECT_NAME}} banner]({{#FEATURE_PYPI}}{{REPO_URL}}/raw/main/{{/FEATURE_PYPI}}docs/assets/readme-banner.png)
+
 {{#FEATURE_PYPI}}
 [![PyPI](https://img.shields.io/pypi/v/{{DIST_NAME}}.svg)](https://pypi.org/project/{{DIST_NAME}}/)
 [![Python](https://img.shields.io/pypi/pyversions/{{DIST_NAME}}.svg)](https://pypi.org/project/{{DIST_NAME}}/)

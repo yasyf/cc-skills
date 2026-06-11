@@ -45,7 +45,7 @@ at scaffold time (worked example: project `captain-hook`, package `captain_hook`
 | `github_style` | `widget` | GitHub repo widget in the navbar (stars/forks; needs the git-`main` pin + CI `GITHUB_TOKEN` to avoid 403s) |
 | `jupyter` | `python3` | Kernel for executable code blocks |
 | `navbar_color` | `"#1e293b"` | Solid navbar color, marked `TODO(bootstrap)` — text contrast is auto-chosen |
-| `accent_color` | `"#3b82f6"` | Single accent (both modes), marked `TODO(bootstrap)` — replace with a brand color |
+| `accent_color` | `"#3b82f6"` | Single accent (both modes), marked `TODO(bootstrap)` — replace with a brand color; the mascot's dominant color is a good source |
 | `dark_mode_toggle` / `back_to_top` / `keyboard_nav` | `true` | UX toggles, leave on |
 
 These are **conservative defaults on purpose**: a solid navbar and one accent, no gradient
@@ -73,6 +73,18 @@ rename the group) for an exact match.
 
 **`authors`** — `name`/`role: Maintainer`/`github`/`email` from the values supplied at
 scaffold time.
+
+## Logo & favicon (auto-detected)
+
+Bootstrap drops the generated mascot at `docs/assets/logo.png` (SKILL.md Brand
+images phase), which Great Docs auto-detects — no `great-docs.yml` key needed.
+Detection priority: `logo.svg|png` in the repo root → `assets/logo.*` →
+`docs/assets/logo.*` → `{package}_logo.*`. A `logo-dark.*` sibling supplies a
+dark-mode variant, favicons are generated from the logo automatically, and the
+hero auto-enables once a logo is detected (`logo-hero.*` in the root or `assets/`
+overrides the hero image specifically). Keep the logo transparent — the navbar is
+a solid dark color. Don't leave a stray `logo.*` in the repo root or `assets/`;
+it would shadow the mascot.
 
 ## The two commented-out optional blocks
 

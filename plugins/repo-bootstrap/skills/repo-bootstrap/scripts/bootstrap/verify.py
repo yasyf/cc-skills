@@ -63,6 +63,22 @@ def _license_check(no_license: bool) -> tuple[bool, str]:
     return ok, "" if ok else "LICENSE is missing or empty"
 
 
+def _missing_banner_note() -> str | None:
+    """NOTE when the README references the banner Phase 3 generates but it's absent.
+
+    Keyed off the README reference so it stays silent after the no-brand-images
+    escape hatch removes the line."""
+    readme = Path("README.md")
+    if not readme.is_file() or "readme-banner.png" not in readme.read_text():
+        return None
+    if Path("docs/assets/readme-banner.png").is_file():
+        return None
+    return (
+        "README references docs/assets/readme-banner.png but the file is missing"
+        " — generate it (brand-images phase, scripts/genimages.py) or remove the reference"
+    )
+
+
 def _hook_tests() -> tuple[bool, str]:
     if not shutil.which("uvx"):
         return False, "uvx not found — install uv: https://docs.astral.sh/uv/"
@@ -136,6 +152,9 @@ def main(layer: str, target: str, no_license: bool) -> int:
         print("NOTE  TODO(bootstrap) markers remain (replace them with real prose):")
         for hit in todos:
             print(f"      {hit}")
+
+    if banner_note := _missing_banner_note():
+        print(f"NOTE  {banner_note}")
 
     if layer == "python":
         check("pre-commit hook config (uvx prek prepare-hooks)", _prek_config)

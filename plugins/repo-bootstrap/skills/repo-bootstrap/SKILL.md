@@ -1,6 +1,6 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo and README banner, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
@@ -61,7 +61,7 @@ example of a complete layer.
 
 - **All layers**: project name, one-line description, **visibility** (public or
   private GitHub repo — it sets the license and feature defaults below and the
-  `gh repo create` flag in Phase 5), license (first option "default for
+  `gh repo create` flag in Phase 6), license (first option "default for
   visibility": PolyForm-Noncommercial-1.0.0 if public, `none` if private; MIT for
   permissive open source), extras (`superset`, `env` — see the table in Phase 2;
   `multiSelect`, default none). The scaffold requires `--extras` explicitly — pass
@@ -169,12 +169,57 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
+| `docs/assets/{logo,readme-banner}.png` | base | **generated, not scaffolded** — Phase 3 creates them via `scripts/genimages.py` (OpenAI Images API); the README banner line and Great Docs logo auto-detection point here |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
 `uv sync --extra dev` succeeded and `uv.lock` is committed.
 
-## Phase 3 — Replace TODO(bootstrap) markers
+## Phase 3 — Brand images (mascot + banner)
+
+Every repo gets two generated brand assets, created by the bundled `genimages.py`
+script via the OpenAI Images API (requires `OPENAI_API_KEY`):
+
+- `docs/assets/logo.png` — square 1024x1024 mascot character, transparent
+  background. With feature `docs`, Great Docs auto-detects it as the navbar logo
+  and favicon — zero config (`reference/docs-site.md`).
+- `docs/assets/readme-banner.png` — wide 1536x512 dark banner: project name and
+  tagline on the left, the same mascot on the right. The scaffolded README
+  already references it.
+
+`OPENAI_API_KEY` not in the environment? Fetch it from 1Password first:
+
+```bash
+export OPENAI_API_KEY=$(op read "op://OpenClaw/OpenAI API Key/notesPlain")
+```
+
+Default-on for every layer. Skip only when the user declines or no key is
+available (neither the environment nor 1Password) — then apply the **No brand
+images** escape hatch instead of leaving a dangling README reference.
+
+Pick the mascot concept first: a cute character that puns on the project's name or
+purpose (a crab for a fleet tool, an octopus for an orchestrator). Then, from the
+repo root:
+
+```bash
+uv run ${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/genimages.py \
+  --name PROJECT_NAME --tagline "DESCRIPTION" --concept "MASCOT_CONCEPT" \
+  --out-dir docs/assets
+```
+
+The script generates the mascot first, then composes the banner from it through
+the images-edits endpoint so the character matches, and center-crops the banner
+to its middle 1536x512 band. It prints both output paths.
+
+**View both files with Read** — re-run with a refined `--concept` if the mascot
+misses, or regenerate if the in-image name/tagline text is wrong. On a re-run
+where both files already exist, skip unless the user asked for a regeneration.
+
+**Exit criteria:** `docs/assets/logo.png` (square, transparent) and
+`docs/assets/readme-banner.png` (1536x512) exist and look right when viewed with
+Read — or the escape hatch was applied and the README banner line removed.
+
+## Phase 4 — Replace TODO(bootstrap) markers
 
 Every `TODO(bootstrap):` marker is judgment work for you. Find them all with
 `rg -n 'TODO\(bootstrap\)'`, and read the matching reference before editing.
@@ -193,7 +238,7 @@ README pitch and why-bullets and the great-docs hero tagline. Run
 
 **Exit criteria:** `rg -n 'TODO\(bootstrap\)'` returns nothing.
 
-## Phase 4 — Verify
+## Phase 5 — Verify
 
 ```bash
 $BOOTSTRAP verify --layer python --target .
@@ -204,11 +249,13 @@ require the file absent. Runs every check and reports `PASS`/`FAIL` per check:
 leftover-token scan, LICENSE presence (or absence), hook inline tests, and (python)
 `uv sync` → `pytest` → `uv build` → wheel smoke test. Fix failures and re-run; **never skip a `FAIL`.** Remaining
 `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling the repo
-done. For base layer, drop `--layer python`.
+done — and so is a README banner reference whose image is missing (Phase 3 was
+dropped: generate the images, or apply the escape hatch). For base layer, drop
+`--layer python`.
 
 **Exit criteria:** `verify` prints `All checks passed`.
 
-## Phase 5 — Commit & publish
+## Phase 6 — Commit & publish
 
 Atomic, conventional-prefix commits — one logical change each, conditioned on the
 layer and features actually scaffolded:
@@ -217,6 +264,7 @@ layer and features actually scaffolded:
 2. `feat: initial <package> package and CLI skeleton` *(python)*
 3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
+5. `docs: add mascot logo and README banner` *(skip if Phase 3 was skipped)*
 
 Then, optionally, publish and wire one-time setups:
 
@@ -232,6 +280,8 @@ Then, optionally, publish and wire one-time setups:
   then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
+- Suggest the user set the repo's social preview to `docs/assets/readme-banner.png`
+  (repo Settings → Social preview) — it's a manual upload; GitHub has no API for it.
 
 **Exit criteria:** commits made; for a published repo, remote created with description
 (and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
@@ -261,6 +311,10 @@ Then, optionally, publish and wire one-time setups:
 - **No Codex**: delete the second-opinion nudge at the bottom of
   `.claude/hooks/commands.py`, plus the `"enabledPlugins"` entry (and
   `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.
+- **No brand images**: skip Phase 3 (user declined, or no `OPENAI_API_KEY`) and
+  delete the `![<project> banner](...)` line under the README H1. Nothing else to
+  clean up — Great Docs simply auto-detects no logo, and `verify` only NOTEs a
+  banner the README still references.
 - **No prompt-writing nudge**: delete `.claude/hooks/prompts.py` and the
   `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`
   `enabledPlugins` (keep `slop-cop@skills` if you keep the docs nudge).

@@ -21,6 +21,8 @@ dark_mode_toggle: true
 back_to_top: true
 keyboard_nav: true
 
+# Navbar logo + favicon are auto-detected from docs/assets/logo.png (the
+# generated mascot); no logo key is needed here.
 hero:
   name: {{PROJECT_NAME}}
   tagline: "{{DESCRIPTION}}"

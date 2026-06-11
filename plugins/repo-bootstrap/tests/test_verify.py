@@ -78,6 +78,24 @@ def test_license_check_no_license(tmp_path, monkeypatch):
     assert not verify._license_check(True)[0]  # dangling symlink is still a LICENSE entry
 
 
+def test_missing_banner_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert verify._missing_banner_note() is None  # no README at all
+    (tmp_path / "README.md").write_text("# demo\n\n![demo banner](docs/assets/readme-banner.png)\n")
+    note = verify._missing_banner_note()
+    assert note is not None
+    assert "docs/assets/readme-banner.png" in note
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "readme-banner.png").write_bytes(b"\x89PNG")
+    assert verify._missing_banner_note() is None  # banner present
+
+
+def test_missing_banner_note_no_reference(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("# demo\n\nno banner reference\n")
+    assert verify._missing_banner_note() is None  # escape hatch removed the line
+
+
 # --- opt-in end-to-end (needs the uv toolchain + network for capt-hook) ---
 
 @pytest.mark.uv

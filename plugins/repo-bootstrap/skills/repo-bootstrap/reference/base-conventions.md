@@ -109,20 +109,26 @@ like. Write the section prose through the `writing-docs` skill — its
 technical-builder voice governs the pitch and why-bullets; procedure steps stay
 imperative.
 
-1. **Badges row** — CI shield pointing at `actions/workflows/ci.yml` on `main`,
+1. **Banner** — `![{PROJECT_NAME} banner](docs/assets/readme-banner.png)` directly
+   under the H1, generated during bootstrap by the skill's `genimages.py`
+   (project name + tagline left, mascot right, dark background).
+   With feature `pypi` the python template renders an absolute
+   `{REPO_URL}/raw/main/` prefix so PyPI shows it too — relative paths never
+   render on PyPI. Delete the line if image generation was skipped.
+2. **Badges row** — CI shield pointing at `actions/workflows/ci.yml` on `main`,
    and a license badge (omitted with license `none`), both built from the values
    supplied at scaffold time (GitHub user, project name, license ID). Add more
    (PyPI, docs) as they exist. On a private repo, shields.io can't read workflow
    status — drop the CI/docs badges or expect them broken.
-2. **Pitch** — expand the one-line description into two sentences: what it is,
+3. **Pitch** — expand the one-line description into two sentences: what it is,
    and the one property that makes it worth using.
-3. **Install** — the shortest path from zero to running, one copy-pasteable
+4. **Install** — the shortest path from zero to running, one copy-pasteable
    command (captain-hook: `uvx capt-hook`).
-4. **Quickstart** — a complete working example runnable in under 30 seconds,
+5. **Quickstart** — a complete working example runnable in under 30 seconds,
    with expected output shown. Not a feature tour.
-5. **What problems does this solve?** — 3-4 bullets, each naming a concrete pain
+6. **What problems does this solve?** — 3-4 bullets, each naming a concrete pain
    and how this addresses it. Pains, not features.
-6. **License** — license ID + link to `LICENSE` on the repo. Omitted with
+7. **License** — license ID + link to `LICENSE` on the repo. Omitted with
    license `none`.
 
 ## CHANGELOG.md
