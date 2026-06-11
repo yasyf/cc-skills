@@ -8,7 +8,7 @@ focused skills. Each plugin installs independently.
 | Plugin     | What it does                                                                 | Prerequisites |
 | ---------- | ---------------------------------------------------------------------------- | ------------- |
 | `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; a `SessionStart` hook bootstraps its prebuilt binary. |
-| `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems. | The `codex` CLI on `PATH`. |
+| `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems, or generate images with its `$imagegen` skill. | The `codex` CLI on `PATH`. |
 | `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended. |
 | `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
 | `writing-docs` | Write docs in Diataxis modes with a technical-builder voice, runnable code-sample rules, and a slop-cop prose pass. | None; `slop-cop` recommended for the prose pass. |
@@ -44,14 +44,17 @@ toolchain is needed and there is no first-call download stall.
 
 A second-opinion escape hatch for when you're stuck after a couple of failed
 attempts. The skill gathers full context, hands it to `codex exec`, and returns
-a structured summary you can verify. It needs the OpenAI Codex CLI installed and
-authenticated on your machine.
+a structured summary you can verify. It also covers image generation through
+Codex's built-in `$imagegen` skill — logos, mascots, banners, illustrations —
+including the chroma-key workaround for transparent backgrounds. It needs the
+OpenAI Codex CLI installed and authenticated on your machine.
 
 ## repo-bootstrap
 
 Scaffolds a new repo with conventions that work out of the box, so you skip the
 first day of setup. Every repo gets a base layer: agent docs
-(AGENTS.md/CLAUDE.md/STYLEGUIDE.md), a README skeleton, Claude Code settings,
+(AGENTS.md/CLAUDE.md/STYLEGUIDE.md), a README skeleton, a generated mascot logo
+and README banner (OpenAI Images API), Claude Code settings,
 [semble](https://pypi.org/project/semble/) code search, and
 [capt-hook](https://github.com/yasyf/captain-hook) guard hooks. Python projects
 also get an opinionated packaging layer: uv with the `uv_build` backend, a Click

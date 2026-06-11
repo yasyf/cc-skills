@@ -14,7 +14,7 @@
     {
       "name": "codex",
       "source": "./plugins/codex",
-      "description": "Get a second opinion from OpenAI Codex CLI on hard debugging, analysis, or architecture problems."
+      "description": "Get a second opinion from OpenAI Codex CLI on hard debugging, analysis, or architecture problems, or generate images with its $imagegen skill."
     },
     {
       "name": "repo-bootstrap",
