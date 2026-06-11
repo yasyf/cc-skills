@@ -55,8 +55,8 @@ first day of setup. Every repo gets a base layer: agent docs
 [semble](https://pypi.org/project/semble/) code search, and
 [capt-hook](https://github.com/yasyf/captain-hook) guard hooks. Python projects
 also get an opinionated packaging layer: uv with the `uv_build` backend, a Click
-CLI, loguru, pytest, strict pyright, [Great
-Docs](https://posit-dev.github.io/great-docs/) published to GitHub Pages, and
+CLI, loguru, pytest, ruff, ty type-checking, plus two opt-in features — [Great
+Docs](https://posit-dev.github.io/great-docs/) published to GitHub Pages and
 tag-driven PyPI releases via trusted publishing. Say "bootstrap a new repo" or
 "scaffold a new Python package".
 
