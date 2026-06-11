@@ -41,7 +41,7 @@ at scaffold time (worked example: project `captain-hook`, package `captain_hook`
 | `parser` | `google` | Docstring style — matches the STYLEGUIDE's Google-style mandate |
 | `dynamic` | `true` | Auto-generate the API reference from the module's docstrings |
 | `repo` / `site_url` | the repo URL / docs URL | Source links and canonical URL |
-| `pypi` | `true` | Renders the install widget |
+| `pypi` | follows feature `pypi` | Renders the install widget; `false` without a PyPI release |
 | `github_style` | `widget` | GitHub repo widget in the navbar (stars/forks; needs the git-`main` pin + CI `GITHUB_TOKEN` to avoid 403s) |
 | `jupyter` | `python3` | Kernel for executable code blocks |
 | `navbar_color` | `"#1e293b"` | Solid navbar color, marked `TODO(bootstrap)` — text contrast is auto-chosen |

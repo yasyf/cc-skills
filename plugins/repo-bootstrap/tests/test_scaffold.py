@@ -315,6 +315,11 @@ def test_real_templates_render_manual_license(py_var_pairs):
     assert 'license-files = ["LICENSE"]' in plan["pyproject.toml"]
 
 
+def test_great_docs_pypi_widget_follows_feature(py_var_pairs):
+    assert "pypi: true" in _real_plan("python", py_var_pairs)[0]["great-docs.yml"]
+    assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0]["great-docs.yml"]
+
+
 def test_render_plan_unrendered_placeholder_raises():
     r = scaffold.resolve("base", [], [], [
         "PROJECT_NAME=demo", "DESCRIPTION=d", "AUTHOR_NAME=a",

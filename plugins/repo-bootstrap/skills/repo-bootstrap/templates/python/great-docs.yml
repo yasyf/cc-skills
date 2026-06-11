@@ -7,7 +7,7 @@ parser: google
 dynamic: true
 repo: {{REPO_URL}}
 site_url: "{{DOCS_URL}}"
-pypi: true
+pypi: {{#FEATURE_PYPI}}true{{/FEATURE_PYPI}}{{^FEATURE_PYPI}}false{{/FEATURE_PYPI}}
 github_style: widget
 jupyter: python3
 
