@@ -77,6 +77,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be a valid PyPI project name, got {value!r}")
         if kind == "py_version" and not PY_VERSION_RE.match(value):
             raise ScaffoldError(f"{name} must look like 3.X, got {value!r}")
+        if kind == "license_id" and value.lower() == "none" and value != "none":
+            raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
 
 
 def derive_vars(variables: dict[str, str], now: date) -> dict[str, str]:
@@ -105,11 +107,14 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
     validate_vars(variables, layer)
     variables = derive_vars(variables, now)
 
-    enabled = frozenset(f"FEATURE_{f.upper()}" for f in features) if layer == "python" else frozenset()
+    enabled = {f"FEATURE_{f.upper()}" for f in features} if layer == "python" else set()
+    # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.
+    if variables["LICENSE_ID"] != "none":
+        enabled.add("HAS_LICENSE")
     return ResolveResult(
         layers=expand_layers(layer),
         features=tuple(features),
-        enabled_sections=enabled,
+        enabled_sections=frozenset(enabled),
         extras=tuple(extras),
         variables=variables,
     )
@@ -148,7 +153,7 @@ def render_plan(
     def render_src(src: str) -> str:
         text = _render.render(read_template(src), r.variables, r.enabled_sections)
         if leftover := _render.find_unrendered_sections(text):
-            raise ScaffoldError(f"unbalanced feature sections in {src}: {', '.join(leftover)}")
+            raise ScaffoldError(f"unbalanced conditional sections in {src}: {', '.join(leftover)}")
         if leftover := _render.find_unrendered_placeholders(text):
             raise ScaffoldError(f"unrendered placeholders in {src}: {', '.join(leftover)}")
         return text
@@ -181,6 +186,8 @@ def gitignore_concat(ctx: TransformCtx, content: str | None) -> str:
 
 def license_or_notice(ctx: TransformCtx, content: str | None) -> str | Notice:
     license_id = ctx.variables["LICENSE_ID"]
+    if license_id == "none":
+        return Notice("NONE    LICENSE — none chosen; delete any existing LICENSE file")
     src = f"base/LICENSE-{license_id}"
     if ctx.template_exists(src):
         return ctx.render(src)

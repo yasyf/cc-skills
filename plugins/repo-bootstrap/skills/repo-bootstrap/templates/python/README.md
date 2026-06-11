@@ -7,7 +7,9 @@
 {{#FEATURE_DOCS}}
 [![Docs](https://img.shields.io/github/actions/workflow/status/{{GITHUB_USER}}/{{PROJECT_NAME}}/docs.yml?branch=main&label=docs)]({{DOCS_URL}})
 {{/FEATURE_DOCS}}
+{{#HAS_LICENSE}}
 [![License: {{LICENSE_ID}}](https://img.shields.io/badge/License-{{LICENSE_ID}}-blue.svg)]({{REPO_URL}}/blob/main/LICENSE)
+{{/HAS_LICENSE}}
 
 {{DESCRIPTION}}
 

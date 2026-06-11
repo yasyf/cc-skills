@@ -1,7 +1,9 @@
 # {{PROJECT_NAME}}
 
 [![CI](https://img.shields.io/github/actions/workflow/status/{{GITHUB_USER}}/{{PROJECT_NAME}}/ci.yml?branch=main&label=CI)]({{REPO_URL}}/actions/workflows/ci.yml)
+{{#HAS_LICENSE}}
 [![License: {{LICENSE_ID}}](https://img.shields.io/badge/License-{{LICENSE_ID}}-blue.svg)]({{REPO_URL}}/blob/main/LICENSE)
+{{/HAS_LICENSE}}
 
 {{DESCRIPTION}}
 
@@ -20,7 +22,9 @@ with the expected output shown.
 ## What problems does this solve?
 
 TODO(bootstrap): 3-4 bullets, each naming a concrete pain and how this addresses it.
+{{#HAS_LICENSE}}
 
 ## License
 
 {{LICENSE_ID}}. See [LICENSE]({{REPO_URL}}/blob/main/LICENSE).
+{{/HAS_LICENSE}}

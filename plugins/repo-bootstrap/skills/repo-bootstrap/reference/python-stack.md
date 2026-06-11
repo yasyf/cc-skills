@@ -35,7 +35,10 @@ decide it before scaffolding, since the dist name threads through `pyproject.tom
 
 ## pyproject.toml Walkthrough
 
-Scaffolded with the values supplied at scaffold time; every table below exists in the generated file.
+Scaffolded with the values supplied at scaffold time. Everything below exists in the
+generated file except the gated pieces: the `docs` dependency group and `Documentation`
+URL appear only with feature `docs`, and the `license`/`license-files` lines are
+dropped with license `none`.
 
 **`[project]`** — `version = "0.1.0"` is a placeholder, never the real version: the release
 workflow overwrites it from the git tag (see Versioning below). `requires-python = ">=<min>"`

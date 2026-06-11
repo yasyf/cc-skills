@@ -110,8 +110,10 @@ technical-builder voice governs the pitch and why-bullets; procedure steps stay
 imperative.
 
 1. **Badges row** — CI shield pointing at `actions/workflows/ci.yml` on `main`,
-   and a license badge, both built from the values supplied at scaffold time
-   (GitHub user, project name, license ID). Add more (PyPI, docs) as they exist.
+   and a license badge (omitted with license `none`), both built from the values
+   supplied at scaffold time (GitHub user, project name, license ID). Add more
+   (PyPI, docs) as they exist. On a private repo, shields.io can't read workflow
+   status — drop the CI/docs badges or expect them broken.
 2. **Pitch** — expand the one-line description into two sentences: what it is,
    and the one property that makes it worth using.
 3. **Install** — the shortest path from zero to running, one copy-pasteable
@@ -120,7 +122,8 @@ imperative.
    with expected output shown. Not a feature tour.
 5. **What problems does this solve?** — 3-4 bullets, each naming a concrete pain
    and how this addresses it. Pains, not features.
-6. **License** — license ID + link to `LICENSE` on the repo.
+6. **License** — license ID + link to `LICENSE` on the repo. Omitted with
+   license `none`.
 
 ## CHANGELOG.md
 
@@ -142,13 +145,16 @@ examples from captain-hook:
 
 ## License
 
-- **PolyForm-Noncommercial-1.0.0** (default): source-available, noncommercial
+- **PolyForm-Noncommercial-1.0.0** (default for public repos): source-available, noncommercial
   use only — what captain-hook itself uses. The scaffold renders `LICENSE` from
   its bundled template, prepending a `Required Notice:` line with the author
   name and repo URL supplied at scaffold time.
 - **MIT**: for permissive open source. Also rendered from a bundled template,
   filling the year and author name.
 - **Apache-2.0**: when an explicit patent grant matters.
+- **none** (default for private repos): pass `LICENSE_ID=none` — no LICENSE file,
+  no README badge or License section, no `license` field in `pyproject.toml`.
+  Unlicensed means all rights reserved.
 
 For any ID without a bundled template the scaffold writes nothing and prints a
 `MANUAL` line; fetch the text from the SPDX license list using the exact SPDX id:

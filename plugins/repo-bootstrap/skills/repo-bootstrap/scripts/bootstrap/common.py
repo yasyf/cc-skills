@@ -16,7 +16,8 @@ from datetime import date
 # --- Regexes (single source of truth, shared by render/validate/check-name/verify) ---
 
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
-# Mustache-style conditional sections, gated on python features (docs/pypi).
+# Mustache-style conditional sections, gated on enabled tokens (FEATURE_* from
+# python features; HAS_LICENSE derived from LICENSE_ID, active in every layer).
 # Block form consumes the whole tag line (and its newline); inline form stays
 # on one line. {{#NAME}} keeps the body when NAME is enabled, {{^NAME}} when not.
 SECTION_BLOCK = re.compile(
@@ -77,7 +78,7 @@ class Feature:
 class VarSpec:
     name: str
     required_in: tuple[str, ...]
-    validate: str | None = None  # one of: identifier, dist_name, py_version
+    validate: str | None = None  # one of: identifier, dist_name, py_version, license_id
 
 
 @dataclass(frozen=True)

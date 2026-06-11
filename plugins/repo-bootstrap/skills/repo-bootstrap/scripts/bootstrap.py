@@ -4,7 +4,7 @@
     bootstrap.py identity                       resolve author/git identity
     bootstrap.py check-name NAME                 check a PyPI distribution name
     bootstrap.py scaffold  [flags]               render templates into a repo
-    bootstrap.py verify    [--layer] [--target]  verify a scaffolded repo
+    bootstrap.py verify    [--layer] [--target] [--no-license]  verify a scaffolded repo
 
 STDLIB ONLY. identity / check-name / scaffold all run before ``uv`` exists, so
 neither this file nor the ``bootstrap`` package may import third-party modules.
@@ -46,6 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
     vf = sub.add_parser("verify", help="verify a scaffolded repo")
     vf.add_argument("--layer", choices=("base", "python"), default="base")
     vf.add_argument("--target", default=".")
+    vf.add_argument("--no-license", action="store_true", help="license `none` was chosen: require LICENSE absent")
 
     return parser
 
@@ -59,7 +60,7 @@ def main() -> int:
     if args.command == "scaffold":
         return scaffold.run(args)
     if args.command == "verify":
-        return verify.main(args.layer, args.target)
+        return verify.main(args.layer, args.target, args.no_license)
     return 2  # unreachable: subparser is required
 
 

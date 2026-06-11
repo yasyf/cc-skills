@@ -141,6 +141,26 @@ def test_unknown_feature(py_var_pairs):
         scaffold.resolve("python", [], ["telemetry"], py_var_pairs, DATE)
 
 
+def test_resolve_enables_has_license(base_var_pairs, py_var_pairs):
+    # base previously hardcoded empty sections; HAS_LICENSE must apply in both layers
+    assert "HAS_LICENSE" in scaffold.resolve("base", [], [], base_var_pairs, DATE).enabled_sections
+    assert "HAS_LICENSE" in scaffold.resolve("python", [], ["docs"], py_var_pairs, DATE).enabled_sections
+    # non-bundled SPDX ids (the MANUAL path) still carry license references
+    manual = [p for p in base_var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=Apache-2.0"]
+    assert "HAS_LICENSE" in scaffold.resolve("base", [], [], manual, DATE).enabled_sections
+
+
+def test_resolve_license_none_disables_has_license(base_var_pairs):
+    pairs = [p for p in base_var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=none"]
+    assert "HAS_LICENSE" not in scaffold.resolve("base", [], [], pairs, DATE).enabled_sections
+
+
+def test_resolve_rejects_license_none_case_variants(base_var_pairs):
+    pairs = [p for p in base_var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=None"]
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("base", [], [], pairs, DATE)
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [("none", []), ("superset,env", ["superset", "env"]), ("env", ["env"])],
@@ -221,6 +241,12 @@ def test_license_returns_notice_when_absent():
     assert "Apache-2.0.txt" in out.text
 
 
+def test_license_none_returns_notice():
+    out = scaffold.license_or_notice(_ctx(("base",), variables={"LICENSE_ID": "none"}), None)
+    assert isinstance(out, Notice)
+    assert out.text.startswith("NONE    LICENSE")
+
+
 # --- render_plan with injected templates (no filesystem) ---
 
 def test_render_plan_injected(monkeypatch):
@@ -243,6 +269,50 @@ def test_render_plan_injected(monkeypatch):
     assert plan[".gitignore"] == "node_modules\n"
     assert plan["LICENSE"] == "MIT for demo\n"
     assert notices == []
+
+
+def _real_plan(layer, var_pairs, *, features=None):
+    r = scaffold.resolve(layer, [], features if features is not None else ["docs", "pypi"], var_pairs, DATE)
+    items = scaffold.select_files(r)
+    return scaffold.render_plan(items, r, scaffold.read_template, scaffold.template_exists)
+
+
+def _license_none(var_pairs):
+    return [p for p in var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=none"]
+
+
+def test_real_templates_render_license_references(base_var_pairs, py_var_pairs):
+    plan, notices = _real_plan("python", py_var_pairs)
+    assert "MIT License" in plan["LICENSE"]
+    assert "License: MIT" in plan["README.md"]
+    assert "## License" in _real_plan("base", base_var_pairs)[0]["README.md"]
+    assert 'license = "MIT"' in plan["pyproject.toml"]
+    assert 'license-files = ["LICENSE"]' in plan["pyproject.toml"]
+    assert notices == []
+
+
+def test_real_templates_render_license_none(base_var_pairs, py_var_pairs):
+    plan, notices = _real_plan("python", _license_none(py_var_pairs))
+    assert "LICENSE" not in plan
+    assert len(notices) == 1 and notices[0].text.startswith("NONE    LICENSE")
+    assert "License" not in plan["README.md"]
+    assert "license" not in plan["pyproject.toml"]
+
+    base_plan, _ = _real_plan("base", _license_none(base_var_pairs))
+    assert "License" not in base_plan["README.md"]
+    assert base_plan["README.md"].endswith("addresses it.\n")  # no trailing blank section
+
+
+def test_real_templates_render_manual_license(py_var_pairs):
+    # non-bundled SPDX id: MANUAL notice instead of a LICENSE file, but every
+    # license reference stays — this is what separates Apache-2.0 from none
+    pairs = [p for p in py_var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=Apache-2.0"]
+    plan, notices = _real_plan("python", pairs)
+    assert "LICENSE" not in plan
+    assert len(notices) == 1 and notices[0].text.startswith("MANUAL  LICENSE")
+    assert "License: Apache-2.0" in plan["README.md"]
+    assert 'license = "Apache-2.0"' in plan["pyproject.toml"]
+    assert 'license-files = ["LICENSE"]' in plan["pyproject.toml"]
 
 
 def test_render_plan_unrendered_placeholder_raises():

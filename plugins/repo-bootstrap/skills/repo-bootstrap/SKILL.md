@@ -59,15 +59,22 @@ example of a complete layer.
 
 **Then gather everything else in one `AskUserQuestion` round:**
 
-- **All layers**: project name, one-line description, license (default
-  PolyForm-Noncommercial-1.0.0; MIT for permissive open source), extras (`superset`,
-  `env` — see the table in Phase 2; `multiSelect`, default none). The scaffold
-  requires `--extras` explicitly — pass `none` when no extras are chosen.
+- **All layers**: project name, one-line description, **visibility** (public or
+  private GitHub repo — it sets the license and feature defaults below and the
+  `gh repo create` flag in Phase 5), license (first option "default for
+  visibility": PolyForm-Noncommercial-1.0.0 if public, `none` if private; MIT for
+  permissive open source), extras (`superset`, `env` — see the table in Phase 2;
+  `multiSelect`, default none). The scaffold requires `--extras` explicitly — pass
+  `none` when no extras are chosen.
 - **Python additionally**: dist name, package name, Python floor + pin versions, and
   the two **features** as a `multiSelect` "Optional Python features" — `docs` (Great
   Docs on GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default
-  both selected**, matching the engine's omit-flag default. A private/internal package
-  or a one-off script usually wants neither.
+  both selected for a public repo, neither for private** — PyPI publishing is
+  inherently public, and Pages on a private repo needs a paid plan.
+
+Before Phase 2, reconcile the answers into concrete flags: a "default for
+visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
+(public) or `LICENSE_ID=none` (private); the feature picks become `--features`.
 
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
 (`docs,pypi`, `docs`, or `pypi`); deselect both → `--features ""`. Omitting the flag
@@ -94,7 +101,7 @@ $BOOTSTRAP check-name DIST_NAME
 | `AUTHOR_NAME` | From `bootstrap.py identity` | — |
 | `AUTHOR_EMAIL` | From `bootstrap.py identity` | — |
 | `GITHUB_USER` | GitHub login | `yasyf` |
-| `LICENSE_ID` | SPDX id | `PolyForm-Noncommercial-1.0.0` |
+| `LICENSE_ID` | SPDX id, or `none` for no license | `PolyForm-Noncommercial-1.0.0` |
 | `DIST_NAME` | PyPI dist == CLI command (python) | `capt-hook` |
 | `PACKAGE` | Import package (python) | `captain_hook` |
 | `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.13` / `3.14` |
@@ -103,8 +110,8 @@ Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`, `YEAR
 Features are independent of `--var`: they gate files and template sections, not
 placeholder values.
 
-**Exit criteria:** layer chosen; names, license, and extras chosen; for python, the
-two features chosen and the dist name `check-name`d.
+**Exit criteria:** layer and visibility chosen; names, license, and extras chosen;
+for python, the two features chosen and the dist name `check-name`d.
 
 ## Phase 2 — Scaffold
 
@@ -129,8 +136,10 @@ Rules:
   repo. The CLI renders, validates inputs, and fails loudly on leftovers.
 - Idempotent: identical files are `SKIP`ped; differing files are reported as
   `CONFLICT` and nothing is written (resolve per-file, or re-run with `--force`).
-- Licenses without a bundled template (bundled: `PolyForm-Noncommercial-1.0.0`,
-  `MIT`) print a `MANUAL` line — fetch the text from the SPDX list:
+- `LICENSE_ID=none` writes no LICENSE and drops every license reference (README
+  badge and License section, pyproject `license`/`license-files`). Licenses without
+  a bundled template (bundled: `PolyForm-Noncommercial-1.0.0`, `MIT`) print a
+  `MANUAL` line — fetch the text from the SPDX list:
   `curl -fsS https://raw.githubusercontent.com/spdx/license-list-data/main/text/<SPDX-ID>.txt > LICENSE`.
 - `--dry-run` previews without writing.
 
@@ -143,7 +152,7 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | Destination | Layer | Notes |
 |---|---|---|
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
-| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered |
+| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered; `LICENSE` omitted with license `none` |
 | `.mcp.json` | base | semble code search via uvx |
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
@@ -162,8 +171,8 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
-LICENSE present (or `MANUAL` line resolved); for python, `uv sync --extra dev`
-succeeded and `uv.lock` is committed.
+LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
+`uv sync --extra dev` succeeded and `uv.lock` is committed.
 
 ## Phase 3 — Replace TODO(bootstrap) markers
 
@@ -190,9 +199,10 @@ README pitch and why-bullets and the great-docs hero tagline. Run
 $BOOTSTRAP verify --layer python --target .
 ```
 
-Runs every check and reports `PASS`/`FAIL` per check: leftover-token scan, LICENSE
-presence, hook inline tests, and (python) `uv sync` → `pytest` → `uv build` → wheel
-smoke test. Fix failures and re-run; **never skip a `FAIL`.** Remaining
+Add `--no-license` when license `none` was chosen — the LICENSE check inverts to
+require the file absent. Runs every check and reports `PASS`/`FAIL` per check:
+leftover-token scan, LICENSE presence (or absence), hook inline tests, and (python)
+`uv sync` → `pytest` → `uv build` → wheel smoke test. Fix failures and re-run; **never skip a `FAIL`.** Remaining
 `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling the repo
 done. For base layer, drop `--layer python`.
 
@@ -210,9 +220,11 @@ layer and features actually scaffolded:
 
 Then, optionally, publish and wire one-time setups:
 
-- `gh repo create --public --source . --push --description "$DESCRIPTION"` to create
-  the GitHub remote — always set the description; *(feature docs)* also pass
-  `--homepage "$DOCS_URL"`. For an existing remote, `gh repo edit` with the same flags.
+- `gh repo create --source . --push --description "$DESCRIPTION"` plus `--public`
+  or `--private` per the Phase 1 visibility — always set the description; *(feature
+  docs)* also pass `--homepage "$DOCS_URL"` (Pages on a private repo requires a
+  paid GitHub plan). For an existing remote, `gh repo edit` with the same flags
+  (visibility via `--visibility public|private --accept-visibility-change-consequences`).
 - *(feature docs)* enable GitHub Pages with the Actions build type:
   `gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`
   (`reference/ci-and-release.md`).
@@ -231,14 +243,17 @@ Then, optionally, publish and wire one-time setups:
   writing; resolve each conflict deliberately (merge by hand, then re-run — it will
   `SKIP` everything that matches).
 - **No PyPI / no docs site**: don't hand-strip — re-scaffold with the feature off.
-  `--features docs` drops PyPI (release workflow, badges, `uvx` install — README
-  falls back to clone + `uv run`); `--features pypi` drops the docs site (great-docs
+  `--features docs` drops PyPI (release workflow, badges, `uvx` install, the docs-site
+  install widget — README falls back to clone + `uv run`); `--features pypi` drops the docs site (great-docs
   config, Pages workflow, docs badge/section, `docs` dependency group); `--features ""`
   drops both.
-- **Other licenses**: PolyForm-Noncommercial-1.0.0 (default) and MIT render from
-  bundled templates; any other SPDX id prints a `MANUAL` line to fetch from the SPDX
+- **Other licenses**: PolyForm-Noncommercial-1.0.0 (the public-repo default) and MIT
+  render from bundled templates; any other SPDX id prints a `MANUAL` line to fetch from the SPDX
   list (see Phase 2) and is set in `pyproject.toml`. MIT is the choice for permissive
-  open source (see `reference/base-conventions.md`).
+  open source (see `reference/base-conventions.md`). `none` (the private-repo
+  default) scaffolds no license at all; when retrofitting with `none`, delete any
+  existing LICENSE by hand — the scaffold never deletes, and `verify --no-license`
+  fails while it remains.
 - **No capt-hook hooks wanted**: delete `.claude/hooks/` and the `"hooks"` block
   from `.claude/settings.json`.
 - **No ruff commit hook wanted**: delete `.pre-commit-config.yaml` (and skip

@@ -3,8 +3,10 @@ name = "{{DIST_NAME}}"
 version = "0.1.0"
 description = "{{DESCRIPTION}}"
 readme = "README.md"
+{{#HAS_LICENSE}}
 license = "{{LICENSE_ID}}"
 license-files = ["LICENSE"]
+{{/HAS_LICENSE}}
 authors = [{ name = "{{AUTHOR_NAME}}", email = "{{AUTHOR_EMAIL}}" }]
 keywords = []
 classifiers = [

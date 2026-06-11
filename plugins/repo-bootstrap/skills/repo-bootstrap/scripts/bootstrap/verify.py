@@ -54,8 +54,11 @@ def _no_leftover_tokens() -> tuple[bool, str]:
     return not hits, "\n".join(hits)
 
 
-def _license_present() -> tuple[bool, str]:
+def _license_check(no_license: bool) -> tuple[bool, str]:
     path = Path("LICENSE")
+    if no_license:
+        ok = not (path.exists() or path.is_symlink())
+        return ok, "" if ok else "LICENSE exists but license `none` was chosen — delete it, or re-scaffold with a real SPDX id"
     ok = path.is_file() and path.stat().st_size > 0
     return ok, "" if ok else "LICENSE is missing or empty"
 
@@ -108,7 +111,7 @@ def _wheel_smoke() -> tuple[bool, str]:
         shutil.rmtree(".wheel-smoke", ignore_errors=True)
 
 
-def main(layer: str, target: str) -> int:
+def main(layer: str, target: str, no_license: bool) -> int:
     os.chdir(target)
     failures = 0
 
@@ -124,7 +127,8 @@ def main(layer: str, target: str) -> int:
         failures += 1
 
     check("no unrendered {{...}} tokens", _no_leftover_tokens)
-    check("LICENSE present", _license_present)
+    license_label = "LICENSE absent (license none)" if no_license else "LICENSE present"
+    check(license_label, lambda: _license_check(no_license))
     check("hook inline tests (uvx capt-hook test)", _hook_tests)
 
     todos = _grep({".git"}, lambda line: _TODO_MARKER in line)

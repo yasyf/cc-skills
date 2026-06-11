@@ -32,7 +32,7 @@ VARS = (
     VarSpec("AUTHOR_NAME", ("base", "python")),
     VarSpec("AUTHOR_EMAIL", ("base", "python")),
     VarSpec("GITHUB_USER", ("base", "python")),
-    VarSpec("LICENSE_ID", ("base", "python")),
+    VarSpec("LICENSE_ID", ("base", "python"), validate="license_id"),
     # PACKAGE is validated before DIST_NAME to match the legacy check order.
     VarSpec("PACKAGE", ("python",), validate="identifier"),
     VarSpec("DIST_NAME", ("python",), validate="dist_name"),
