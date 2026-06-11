@@ -1,14 +1,15 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems. Use when stuck after multiple attempts.
-allowed-tools: Bash(cat:*, codex:*, echo:*), Read, Grep, Glob
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, or generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill. Use when stuck after multiple attempts, or when asked to generate an image.
+allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
 ---
 
-# Codex Second Opinion
+# Codex CLI
 
-Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems.
+Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
+or use its built-in `$imagegen` skill to generate images.
 
 ## When to Use
 
@@ -17,6 +18,8 @@ Get a second perspective from OpenAI's Codex CLI when stuck on difficult problem
 - Analyzing complex algorithms against specifications
 - Understanding unfamiliar code patterns, protocols, or file formats
 - When a fresh perspective would break a deadlock
+- Generating images -- logos, mascots, banners, illustrations -- via `$imagegen`
+  (see Generating Images below)
 
 ## Workflow
 
@@ -55,12 +58,12 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --full-auto
+cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --sandbox workspace-write
 ```
 
 For harder problems, use a stronger model:
 ```bash
-cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --full-auto -m o3
+cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --sandbox workspace-write -m o3
 ```
 
 ### Step 3: Evaluate the Reply
@@ -75,7 +78,7 @@ Evaluate suggestions critically. Codex is helpful but not infallible -- it can o
 
 For shorter questions:
 ```bash
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec --full-auto
+echo "Explain the JPEG progressive AC refinement algorithm" | codex exec --sandbox workspace-write
 ```
 
 The file-based pattern is better for debugging because you can refine the question and keep a record.
@@ -98,6 +101,68 @@ Return a structured summary:
 **Confidence:** <high/medium/low based on how well Codex understood the problem>
 ```
 
+## Generating Images ($imagegen)
+
+Codex ships a built-in `$imagegen` skill backed by a hosted `image_gen` tool
+(model gpt-image-2). Mentioning `$imagegen` anywhere in the prompt loads the
+skill; it works with non-interactive `codex exec`.
+
+**Availability:** the hosted tool mounts only when codex is signed in with a
+ChatGPT plan -- check `codex login status`. With API-key auth it never mounts,
+and codex will quietly fake the image by drawing it with PIL/ImageMagick instead.
+Two defenses, use both:
+
+1. **Pass `--disable shell_tool`** so codex cannot draw -- with no shell it
+   either calls `image_gen` or reports the tool missing.
+2. **Tell it to fail loudly**: "If the image_gen tool is unavailable, reply
+   IMAGE_GEN_UNAVAILABLE and stop."
+
+With the shell disabled, codex cannot write into your repo. Generations land in
+`$CODEX_HOME/generated_images/` (default `~/.codex/generated_images/`); have the
+reply list the saved paths, then copy and post-process the files yourself.
+
+```bash
+cat <<'PROMPT' > /tmp/imagegen.txt
+Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
+illustration, bold clean shapes, on a solid bright-green background (it will be
+chroma-keyed out locally). If the image_gen tool is unavailable, reply
+IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
+saved file on its own line.
+PROMPT
+
+cat /tmp/imagegen.txt | codex exec -o /tmp/codex_reply.txt --disable shell_tool --sandbox workspace-write
+```
+
+Then place and post-process yourself (read the path from `/tmp/codex_reply.txt`):
+
+```bash
+uv run --with pillow "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py" \
+  --input <saved path> --out assets/logo.png --auto-key border --soft-matte --despill
+```
+
+Confirm with `ls`, then view each file with Read (it renders images) and iterate
+with a refined prompt if needed.
+
+Model limits to design around:
+
+1. **No native transparency** -- gpt-image-2 always paints a background. Generate
+   on a solid chroma-key background and remove it locally with the bundled
+   `remove_chroma_key.py` helper (as above; it needs only Pillow, hence
+   `uv run --with pillow`).
+2. **Fixed native sizes** -- 1024x1024, 1536x1024 (landscape), 1024x1536
+   (portrait). For other ratios, ask for the content composed in a known band
+   and crop locally: `sips -c H W <src> --out <dst>` on macOS, or ImageMagick
+   `magick <src> -gravity center -crop WxH+0+0 +repage <dst>`.
+3. **Text renders accurately** -- names and taglines inside images come out
+   right; quote the exact strings in the prompt.
+4. **Style drifts across sessions** -- generate related images in ONE codex
+   session so characters and palette stay consistent.
+5. **Fallback CLI for API-key machines** --
+   `${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/image_gen.py`
+   (requires `OPENAI_API_KEY`) offers explicit sizes and
+   `gpt-image-1.5 --background transparent` for native transparency. Run it
+   directly; no codex session needed.
+
 ## Tips
 
 1. **Provide complete code** -- don't truncate functions. Codex needs full context.
@@ -112,4 +177,12 @@ Return a structured summary:
 
 **No output**: Check that `-o` flag has a valid path
 
-**Timeout**: For complex questions, Codex may take time. The `--full-auto` flag avoids interactive prompts that would block.
+**Timeout**: For complex questions, Codex may take time. Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval. (`--full-auto` is the deprecated spelling of the same thing.)
+
+**"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass `--skip-git-repo-check`.
+
+**IMAGE_GEN_UNAVAILABLE**: codex is signed in with an API key (`codex login status`), not a ChatGPT plan — the hosted tool never mounts. Use the fallback CLI from Generating Images instead.
+
+**Images not in the repo**: expected — with `--disable shell_tool` codex can't write into the workspace; generations stay in `$CODEX_HOME/generated_images/` and copying them in is your job.
+
+**Solid box behind a "transparent" logo**: chroma-key removal was skipped -- gpt-image-2 has no native transparency; use the `remove_chroma_key.py` step.

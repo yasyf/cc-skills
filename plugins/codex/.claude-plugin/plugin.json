@@ -1,7 +1,7 @@
 {
   "name": "codex",
-  "description": "Get a second opinion from OpenAI's Codex CLI when stuck on difficult debugging, code analysis, or architecture problems. Requires the `codex` CLI on PATH.",
-  "version": "0.1.0",
+  "description": "Get a second opinion from OpenAI's Codex CLI when stuck on difficult debugging, code analysis, or architecture problems, or generate images with Codex's $imagegen skill. Requires the `codex` CLI on PATH.",
+  "version": "0.2.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
