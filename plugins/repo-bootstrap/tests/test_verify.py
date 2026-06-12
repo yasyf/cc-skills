@@ -78,15 +78,16 @@ def test_license_check_no_license(tmp_path, monkeypatch):
     assert not verify._license_check(True)[0]  # dangling symlink is still a LICENSE entry
 
 
-def test_missing_banner_note(tmp_path, monkeypatch):
+@pytest.mark.parametrize("ext", ["webp", "png"], ids=["webp", "legacy-png"])
+def test_missing_banner_note(tmp_path, monkeypatch, ext):
     monkeypatch.chdir(tmp_path)
     assert verify._missing_banner_note() is None  # no README at all
-    (tmp_path / "README.md").write_text("# demo\n\n![demo banner](docs/assets/readme-banner.png)\n")
+    (tmp_path / "README.md").write_text(f"# demo\n\n![demo banner](docs/assets/readme-banner.{ext})\n")
     note = verify._missing_banner_note()
     assert note is not None
-    assert "docs/assets/readme-banner.png" in note
+    assert "docs/assets/readme-banner" in note
     (tmp_path / "docs" / "assets").mkdir(parents=True)
-    (tmp_path / "docs" / "assets" / "readme-banner.png").write_bytes(b"\x89PNG")
+    (tmp_path / "docs" / "assets" / f"readme-banner.{ext}").write_bytes(b"\x89PNG")
     assert verify._missing_banner_note() is None  # banner present
 
 
@@ -94,6 +95,19 @@ def test_missing_banner_note_no_reference(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "README.md").write_text("# demo\n\nno banner reference\n")
     assert verify._missing_banner_note() is None  # escape hatch removed the line
+
+
+def test_missing_social_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert verify._missing_social_note() is None  # no banner: escape hatch stays silent
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "readme-banner.webp").write_bytes(b"RIFF")
+    note = verify._missing_social_note()
+    assert note is not None
+    assert "docs/assets/social-preview.jpg" in note
+    assert "--from-logo" in note
+    (tmp_path / "docs" / "assets" / "social-preview.jpg").write_bytes(b"\xff\xd8")
+    assert verify._missing_social_note() is None  # both present
 
 
 # --- opt-in end-to-end (needs the uv toolchain + network for capt-hook) ---

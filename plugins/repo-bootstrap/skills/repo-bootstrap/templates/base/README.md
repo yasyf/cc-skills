@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}}
 
-![{{PROJECT_NAME}} banner](docs/assets/readme-banner.png)
+![{{PROJECT_NAME}} banner](docs/assets/readme-banner.webp)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/{{GITHUB_USER}}/{{PROJECT_NAME}}/ci.yml?branch=main&label=CI)]({{REPO_URL}}/actions/workflows/ci.yml)
 {{#HAS_LICENSE}}

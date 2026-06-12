@@ -63,19 +63,43 @@ def _license_check(no_license: bool) -> tuple[bool, str]:
     return ok, "" if ok else "LICENSE is missing or empty"
 
 
+def _banner_file() -> Path | None:
+    """The on-disk banner, whichever extension this repo has (webp, or legacy png)."""
+    for name in ("readme-banner.webp", "readme-banner.png"):
+        path = Path("docs/assets") / name
+        if path.is_file():
+            return path
+    return None
+
+
 def _missing_banner_note() -> str | None:
     """NOTE when the README references the banner Phase 3 generates but it's absent.
 
     Keyed off the README reference so it stays silent after the no-brand-images
     escape hatch removes the line."""
     readme = Path("README.md")
-    if not readme.is_file() or "readme-banner.png" not in readme.read_text():
+    if not readme.is_file() or "readme-banner." not in readme.read_text():
         return None
-    if Path("docs/assets/readme-banner.png").is_file():
+    if _banner_file() is not None:
         return None
     return (
-        "README references docs/assets/readme-banner.png but the file is missing"
+        "README references docs/assets/readme-banner but the file is missing"
         " — generate it (brand-images phase, scripts/genimages.py) or remove the reference"
+    )
+
+
+def _missing_social_note() -> str | None:
+    """NOTE when the banner exists but the social card doesn't (pre-social-card repo).
+
+    Keyed off the banner file so it stays silent after the no-brand-images
+    escape hatch."""
+    if _banner_file() is None:
+        return None
+    if Path("docs/assets/social-preview.jpg").is_file():
+        return None
+    return (
+        "docs/assets/social-preview.jpg is missing — generate it"
+        " (scripts/genimages.py --from-logo) so the GitHub social preview can be set"
     )
 
 
@@ -155,6 +179,9 @@ def main(layer: str, target: str, no_license: bool) -> int:
 
     if banner_note := _missing_banner_note():
         print(f"NOTE  {banner_note}")
+
+    if social_note := _missing_social_note():
+        print(f"NOTE  {social_note}")
 
     if layer == "python":
         check("pre-commit hook config (uvx prek prepare-hooks)", _prek_config)

@@ -122,7 +122,7 @@ like. Write the section prose through the `writing-docs` skill — its
 technical-builder voice governs the pitch and why-bullets; procedure steps stay
 imperative.
 
-1. **Banner** — `![{PROJECT_NAME} banner](docs/assets/readme-banner.png)` directly
+1. **Banner** — `![{PROJECT_NAME} banner](docs/assets/readme-banner.webp)` directly
    under the H1, generated during bootstrap by the skill's `genimages.py`
    (project name + tagline left, mascot right, dark background).
    With feature `pypi` the python template renders an absolute

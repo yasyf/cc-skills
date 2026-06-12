@@ -1,6 +1,6 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo and README banner, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
@@ -170,23 +170,31 @@ whole-project type warnings — never blocking — on every commit).
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
-| `docs/assets/{logo,readme-banner}.png` | base | **generated, not scaffolded** — Phase 3 creates them via `scripts/genimages.py` (OpenAI Images API); the README banner line and Great Docs logo auto-detection point here |
+| `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via `scripts/genimages.py` (OpenAI Images API); the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
 `uv sync --extra dev` succeeded and `uv.lock` is committed.
 
-## Phase 3 — Brand images (mascot + banner)
+## Phase 3 — Brand images (mascot + banner + social card)
 
-Every repo gets two generated brand assets, created by the bundled `genimages.py`
+Every repo gets three generated brand assets, created by the bundled `genimages.py`
 script via the OpenAI Images API (requires `OPENAI_API_KEY`):
 
 - `docs/assets/logo.png` — square 1024x1024 mascot character, transparent
   background. With feature `docs`, Great Docs auto-detects it as the navbar logo
-  and favicon — zero config (`reference/docs-site.md`).
-- `docs/assets/readme-banner.png` — wide 1536x512 dark banner: project name and
+  and favicon — zero config (`reference/docs-site.md`). Stays PNG: Great Docs
+  detection only matches svg/png.
+- `docs/assets/readme-banner.webp` — wide 1536x512 dark banner: project name and
   tagline on the left, the same mascot on the right. The scaffolded README
   already references it.
+- `docs/assets/social-preview.jpg` — 1536x768 (2:1) social card cropped from the
+  same banner generation; Phase 6 uploads it as the repo's GitHub social preview
+  (GitHub accepts only PNG/JPG/GIF under 1 MB there — hence JPEG).
+
+Every output is lossy-compressed locally to under 1 MiB (quantized PNG logo,
+WebP banner, JPEG social card) — small enough for jj's snapshot limit and
+GitHub's upload cap, visually identical for flat illustration.
 
 `OPENAI_API_KEY` not in the environment? Fetch it from 1Password first:
 
@@ -208,17 +216,23 @@ uv run ${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/genimages.py \
   --out-dir docs/assets
 ```
 
-The script generates the mascot first, then composes the banner from it through
-the images-edits endpoint so the character matches, and center-crops the banner
-to its middle 1536x512 band. It prints both output paths.
+The script generates the mascot first, composes a 1536x1024 banner source from it
+through the images-edits endpoint so the character matches, then center-crops the
+source twice: the middle 1536x512 band → `readme-banner.webp`, the middle
+1536x768 band → `social-preview.jpg`. It prints every output path.
 
-**View both files with Read** — re-run with a refined `--concept` if the mascot
-misses, or regenerate if the in-image name/tagline text is wrong. On a re-run
-where both files already exist, skip unless the user asked for a regeneration.
+**View all three files with Read** — re-run with a refined `--concept` if the
+mascot misses, or regenerate if the in-image name/tagline text is wrong. On a
+re-run where all three files already exist, skip unless the user asked for a
+regeneration. Retrofitting a repo that already has a logo but no social card?
+Re-run with `--from-logo` — it reads the existing `logo.png` (re-encoding it in
+place if it exceeds 1 MiB) and regenerates only banner + social card
+(`--concept` not needed).
 
-**Exit criteria:** `docs/assets/logo.png` (square, transparent) and
-`docs/assets/readme-banner.png` (1536x512) exist and look right when viewed with
-Read — or the escape hatch was applied and the README banner line removed.
+**Exit criteria:** `docs/assets/logo.png` (square, transparent),
+`docs/assets/readme-banner.webp` (1536x512), and `docs/assets/social-preview.jpg`
+(1536x768) exist and look right when viewed with Read — or the escape hatch was
+applied and the README banner line removed.
 
 ## Phase 4 — Replace TODO(bootstrap) markers
 
@@ -251,8 +265,9 @@ leftover-token scan, LICENSE presence (or absence), hook inline tests, and (pyth
 `uv sync` → `pytest` → `uv build` → wheel smoke test. Fix failures and re-run; **never skip a `FAIL`.** Remaining
 `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling the repo
 done — and so is a README banner reference whose image is missing (Phase 3 was
-dropped: generate the images, or apply the escape hatch). For base layer, drop
-`--layer python`.
+dropped: generate the images, or apply the escape hatch), or a banner without
+`social-preview.jpg` beside it (generate it with `--from-logo`). For base layer,
+drop `--layer python`.
 
 **Exit criteria:** `verify` prints `All checks passed`.
 
@@ -265,7 +280,7 @@ layer and features actually scaffolded:
 2. `feat: initial <package> package and CLI skeleton` *(python)*
 3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
-5. `docs: add mascot logo and README banner` *(skip if Phase 3 was skipped)*
+5. `docs: add mascot logo, README banner, and social card` *(skip if Phase 3 was skipped)*
 
 Then, optionally, publish and wire one-time setups:
 
@@ -281,8 +296,15 @@ Then, optionally, publish and wire one-time setups:
   then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
-- Suggest the user set the repo's social preview to `docs/assets/readme-banner.png`
-  (repo Settings → Social preview) — it's a manual upload; GitHub has no API for it.
+- Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
+  no API for it — drive the web UI with `agent-browser` (needs a
+  GitHub-authenticated browser session): `open
+  https://github.com/{owner}/{repo}/settings`, `snapshot -i`, then `upload` the
+  file into the Social preview file input (click its **Edit** button first if
+  the input isn't in the snapshot). Verify with
+  `gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { usesCustomOpenGraphImage } }'`
+  — it flips to `true` (re-check after ~30s for cache). No authenticated
+  session? Ask the user to upload it by hand (repo Settings → Social preview).
 
 **Exit criteria:** commits made; for a published repo, remote created with description
 (and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
