@@ -8,7 +8,7 @@ in the dossier, it doesn't go on the page.**
 
 ```
 update_profile.py harvest [--login X] [--out F]
-update_profile.py update  [--readme PATH] [--sections a,b] [--check] [--login X]
+update_profile.py update  [--readme PATH] [--sections a,b] [--check] [--login X] [--summaries F]
 ```
 
 Login resolution, in order: `--login` → the owner of `$GITHUB_REPOSITORY`
@@ -55,12 +55,17 @@ new events take **30 s–6 h** to appear, and the feed only covers **90 days**.
     {"name": "Python", "count": 12}
   ],
   "recent_events": [              // deduped digest, newest first, cap 12
-    {"type": "PushEvent", "repo": "octocat/Hello-World", "created_at": "2026-06-10T09:30:00Z"}
+    {"type": "PushEvent", "repo": "octocat/Hello-World", "created_at": "2026-06-10T09:30:00Z",
+     "head": "abc123def456"}      // pushes: 12-char head sha (the summarizer's as_of token);
+                                  // PR/issue/release events may carry "title" instead.
+                                  // The events API stopped shipping commit messages — fetch
+                                  // them via repos/<repo>/commits?since=... when summarizing.
   ],
   "releases": [                   // newest 10 across the probed repos
     {"repo": "Hello-World", "tag": "v2.1.0", "name": "Warp-stable",
      "url": "https://github.com/octocat/Hello-World/releases/tag/v2.1.0",
-     "published_at": "2026-05-30T00:00:00Z"}
+     "published_at": "2026-05-30T00:00:00Z",
+     "body": "**Full Changelog**: ..."}   // truncated to 600 chars
   ],
   "contributions": {"total_last_year": 1234},
   "excluded": [                   // quality-floor drops, with reasons
@@ -121,14 +126,55 @@ ids: `featured`, `shipped`, `activity`, `languages`.
 - `--check` writes nothing: it prints the would-be unified diff and exits 1
   if dirty, 0 (`CLEAN`) if not. The refresh workflow's commit-if-changed step
   relies on the same no-op behavior: identical data in, byte-identical README
-  out.
+  out (the summaries sidecar counts as input — editing it dirties `--check`).
 - The meta comment must be **line 1**, a single JSON object:
 
   ```
-  <!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "...", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.1.0"} -->
+  <!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "...", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.2.0"} -->
   ```
 
   Only integer-valued threshold keys override the defaults; everything else
   (`intensity`, `skill_version`, ...) rides along untouched. `last_refresh`
   is bumped only when an interior actually changed — which is what makes
   `update` idempotent.
+
+## The summaries sidecar — `.github/profile-summaries.json`
+
+Claude-written one-liners the updater appends to activity and shipped lines.
+The updater only ever **reads** it; the `refresh` skill (the daily Claude
+workflow) regenerates it whole each run — regeneration is pruning, there is
+no merge logic.
+
+```jsonc
+{
+  "version": 1,
+  "generated_at": "2026-06-13T09:14:02Z",   // bumped every refresh run
+  "activity": {                              // key: <EventType>:<owner/repo>
+    "PushEvent:octocat/Hello-World": {"as_of": "abc123def456", "summary": "built the warp-stable release pipeline"}
+  },
+  "shipped": {                               // key: <repo>@<tag> (immutable)
+    "Hello-World@v2.1.0": {"summary": "warp-stable orbital mechanics"}
+  }
+}
+```
+
+Render semantics, all enforced by the updater:
+
+- A summary renders as a ` — summary` suffix when its key matches a current
+  line **and** `generated_at` is within 10 days. The whole file ages out
+  together: a dead Claude workflow degrades every line to plain at once —
+  never stale, never lying. `as_of` is the summarizer's reuse token; the
+  renderer ignores it.
+- On shipped lines the summary **replaces** the release-name suffix
+  (precedence: summary → `name` when ≠ tag → bare).
+- Entries are sanitized before rendering: first line only, whitespace
+  collapsed, capped at 120 chars, anything containing `<!--`/`-->` dropped —
+  the sidecar can never corrupt marker splicing.
+- Missing file → plain lines, silently (the no-Claude steady state).
+  Malformed JSON → a `WARN:` on stderr, plain lines, exit code unchanged.
+- Default path: `.github/profile-summaries.json` next to the README;
+  override with `--summaries`.
+
+Summary content rules live in the `refresh` skill: every word traces to
+commit subjects, PR/issue titles, or release content — never invented; an
+uninformative payload means **no entry**, not a padded one.

@@ -3,16 +3,16 @@
 `$PROFILE render --target DIR` installs up to four workflows into
 `.github/workflows/`, plus the committed updater at
 `.github/scripts/update_profile.py` (and, with `--with claude`,
-`PROFILE_GUIDE.md` at the repo root — the Claude Action reads it there, not
-under `.github/`). Each workflow's `{{CRON_MINUTE}}` is substituted with a
-random 0–59 at render time so profile repos don't pile onto GitHub's :00
-scheduler herd — expect different minutes per file, and don't "fix" them.
+`PROFILE_GUIDE.md` at the repo root — per-user overrides only; the canonical
+rules live in this plugin). Each workflow's `{{CRON_MINUTE}}` is substituted
+with a random 0–59 at render time so profile repos don't pile onto GitHub's
+:00 scheduler herd — expect different minutes per file, and don't "fix" them.
 
 | Workflow | Installed | Schedule | Secrets |
 |---|---|---|---|
 | `profile-refresh.yml` | always (fancy+) | every 6 h + dispatch | none (`GITHUB_TOKEN`) |
 | `profile-snake.yml` | always (fancy+) | daily + dispatch | none (`GITHUB_TOKEN`) |
-| `profile-claude-refresh.yml` | `--with claude` | weekly (Mon) + dispatch | `ANTHROPIC_API_KEY` |
+| `profile-claude-refresh.yml` | `--with claude` | daily + dispatch | `ANTHROPIC_API_KEY` |
 | `profile-metrics.yml` | `--with metrics` (max) | daily + dispatch | `METRICS_TOKEN` (classic PAT) |
 
 Two platform facts govern all of them:
@@ -35,8 +35,9 @@ marker interiors, and commits as `github-actions[bot]` with
 `GITHUB_TOKEN` commits never retrigger workflows, so this cannot loop.
 
 Division of labor: this workflow owns the **numbers** (marker interiors); the
-weekly Claude pass below owns the **taste** (prose, structure). Neither edits
-the other's territory.
+daily Claude pass below owns the **words** (the summaries sidecar, prose,
+structure). The boundary is the sidecar: Claude writes it, this workflow's
+updater reads it — neither edits the other's territory.
 
 ## profile-snake.yml — the contribution snake
 
@@ -57,19 +58,33 @@ Until the first run, the `output` branch doesn't exist and both URLs 404 —
 which is why Phase 5 seeds it before the image-URL check. Each run
 force-rebuilds the branch; history there is disposable.
 
-## profile-claude-refresh.yml — the weekly taste pass (opt-in)
+## profile-claude-refresh.yml — the daily Claude pass (opt-in)
 
-`anthropics/claude-code-action@v1`, Mondays. Its prompt is short and stable
-on purpose: it defers all judgment to the committed `PROFILE_GUIDE.md` (house
-blueprint, taste budget, flattery law, marker semantics) so taste rules are
-versioned in the user's repo, not buried in YAML. The pass rewrites the "Now"
-bullets from recent activity, punches up one-liners for new repos,
-recategorizes clusters that shifted, never edits inside marker interiors, and
-commits directly to the default branch.
-`claude_args: --max-turns 30 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*)"`
-keeps the run cheap — 10 turns proved too few in practice (the pass reads the
-guide, greps the README, edits, and commits), and a missing Glob/Grep/Write
-shows up as permission denials, not a clean failure.
+`anthropics/claude-code-action@v1`, daily. The workflow is a thin shim: its
+`plugin_marketplaces`/`plugins` inputs install `gh-profile@skills` fresh from
+the cc-skills marketplace on every run, and the prompt is the single line
+`/gh-profile:refresh` — the canonical instructions live in that skill, so
+updating the skill updates every profile repo without touching their YAML.
+The pass rewrites the summaries sidecar from real commit/release data (the
+activity and shipped lines pick the summaries up on the next render),
+refreshes prose when activity warrants it, never edits inside marker
+interiors, and commits directly to the default branch.
+
+Mechanics worth knowing:
+
+- The step-level `GH_TOKEN` env is what lets the updater's `gh api`
+  subprocesses authenticate inside Bash steps.
+- `@skills` is the marketplace name from cc-skills'
+  `.claude-plugin/marketplace.json` — not `@cc-skills`.
+- The run can race the 6-hourly mechanical refresh; the refresh skill
+  rebases and re-renders once on a rejected push.
+- Cost knob: the cron line. Daily keeps push summaries current (the digest
+  churns daily on active accounts); drop to weekly and most activity lines
+  spend the week plain.
+
+`claude_args: --max-turns 50 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(python3:*),Bash(date:*)"` —
+the pass harvests, fetches commit subjects, writes the sidecar, re-renders,
+and commits; `Bash(python3:*)` is what lets it run the committed updater.
 
 ### Secret walkthrough: ANTHROPIC_API_KEY
 

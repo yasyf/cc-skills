@@ -49,6 +49,12 @@ don't advance until it holds.
   (`min_stars_badge`, `min_contributions`, `shipped_window_months`).
   Thresholds persist; verdicts are re-judged against fresh data every run —
   a star count appears by itself the day a repo crosses 30.
+- **Summaries sidecar** — `.github/profile-summaries.json`: Claude-written
+  one-line summaries keyed by event (`PushEvent:owner/repo`) and release
+  (`repo@tag`). The updater appends them to activity/shipped lines while the
+  file is fresh (≤ 10 days old); absent or stale, lines render plain. The
+  sibling `refresh` skill (the daily Claude workflow) maintains it; this
+  skill seeds it at compose time.
 
 ## Phase 0 — Preflight & mode
 
@@ -124,8 +130,10 @@ confirm-or-correct:
 - **Philosophy / footer line** — one sentence they'd put on a t-shirt.
 - **Intensity** — `polished` / **`fancy` (default)** / `max`.
 - **Claude-refresh opt-in** — default **off** (needs an `ANTHROPIC_API_KEY`
-  repo secret — real friction). Weekly taste pass via `claude-code-action@v1`;
-  `reference/actions.md`.
+  repo secret — real friction). Daily pass via `claude-code-action@v1` that
+  installs this plugin fresh from the marketplace and runs the sibling
+  `refresh` skill: commit/release summaries on the activity and shipped
+  lines, prose refresh when activity warrants it; `reference/actions.md`.
 
 **UPDATE-managed re-run:** collapse the round to one question — "refresh data
 only, or revisit voice/intensity?". Data-only means no interview and no prose
@@ -158,7 +166,7 @@ Rules:
   in their blueprint positions, even in Annex mode.
 - **Meta comment on line 1.** Choose gate thresholds now (defaults are right
   for almost everyone) and record them with intensity and skill version:
-  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.1.2", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
+  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.2.0", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
 - **Run the updater once** so the dynamic sections render — gates included —
   through the same code path as cron:
 
@@ -171,12 +179,24 @@ $UPDATER update --readme "$WORK/profile/README.md" --login "$LOGIN" --check   # 
 `WROTE` means sections populated; `NOMARKER <id>` means that pair is missing
 or typo'd — fix and re-run (nothing was touched for that id).
 
+- **Seed the summaries sidecar** so the activity and shipped lines launch
+  with real summaries instead of bare event lines: write
+  `$WORK/profile/.github/profile-summaries.json` following the sibling
+  `refresh` skill's schema and style laws
+  (`${CLAUDE_PLUGIN_ROOT}/skills/refresh/SKILL.md` steps 3–4 — fetch commit
+  subjects per push-repo, summarize releases from their real content, every
+  word traceable, omit entries with uninformative material). Then re-run the
+  updater + `--check`: the activity/shipped lines should now carry ` — `
+  suffixes and `--check` must still exit 0. Without the Claude-refresh opt-in
+  the sidecar ages out after 10 days and lines degrade to plain — by design.
+
 **Prose gates:** apply the **writing-docs** skill's voice to everything a
 human reads, then `slop-cop check README.md` and triage — widget markup is
 exempt, prose is not.
 
-**Exit criteria:** README composed with all four marker pairs; updater run
-once (`WROTE`, no `NOMARKER`) and `--check` exits 0; slop-cop triaged.
+**Exit criteria:** README composed with all four marker pairs; summaries
+sidecar seeded; updater run once (`WROTE`, no `NOMARKER`) and `--check` exits
+0; slop-cop triaged.
 
 ## Phase 4 — Assets & Actions (gated by intensity)
 
@@ -208,10 +228,13 @@ per file (no thundering herd) and failing on any leftover `{{...}}` token.
 Prints `WROTE`/`SKIP` per file; `CONFLICT` writes nothing — resolve per file
 or re-run with `--force`. Add-ons:
 
-- `--with claude` *(if opted in)* — adds `profile-claude-refresh.yml` plus
-  `PROFILE_GUIDE.md` at the repo root (the Action reads it there). Then set
-  the secret: `gh secret set ANTHROPIC_API_KEY -R "$LOGIN/$LOGIN"` (CREATE:
-  defer until the repo exists in Phase 5).
+- `--with claude` *(if opted in)* — adds `profile-claude-refresh.yml` (daily;
+  installs this plugin fresh from the `skills` marketplace each run and runs
+  `/gh-profile:refresh`, so the canonical instructions live here, not frozen
+  into the profile repo) plus `PROFILE_GUIDE.md` at the repo root (per-user
+  overrides only). Then set the secret:
+  `gh secret set ANTHROPIC_API_KEY -R "$LOGIN/$LOGIN"` (CREATE: defer until
+  the repo exists in Phase 5).
 - `--with metrics` *(max only)* — adds `profile-metrics.yml`; needs a classic
   PAT as `METRICS_TOKEN` (`reference/actions.md` walks through both secrets).
 
@@ -361,6 +384,13 @@ per workflow. Any push re-arms them too.
 **Claude refresh run fails on auth**: the `ANTHROPIC_API_KEY` secret is
 missing or expired — re-run the `gh secret set` walkthrough in
 `reference/actions.md`.
+
+**Activity/shipped lines lost their ` — summary` suffixes**: the summaries
+sidecar ages out 10 days after its last `generated_at` bump, and the
+mechanical refresh then renders plain lines — by design, so a dead Claude
+workflow degrades instead of lying. Check
+`gh run list -R "$LOGIN/$LOGIN" --workflow profile-claude-refresh.yml`;
+the usual cause is the `ANTHROPIC_API_KEY` secret.
 
 **User asks for github-readme-stats**: warn that the public instance is
 rate-limited with outages; offer a self-hosted deployment

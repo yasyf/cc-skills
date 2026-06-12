@@ -15,7 +15,7 @@ focused skills. Each plugin installs independently.
 | `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
 | `writing-docs` | Write docs in Diataxis modes with a technical-builder voice, runnable code-sample rules, and a slop-cop prose pass. | None; `slop-cop` recommended for the prose pass. |
 | `gen-image` | Generate project images — mascot logos, README banners (dark/light), social cards, illustrations — compressed locally to under 1 MiB. | `uv`; an `OPENAI_API_KEY` (the `codex` plugin's `$imagegen` is the no-key fallback). |
-| `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner. |
+| `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh and an opt-in daily Claude refresh that summarizes recent commits and releases. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner. |
 
 ## Install
 
@@ -106,9 +106,13 @@ README: AI banner, flagship projects, categorized project lists, a
 recently-shipped feed, a skill-icon grid, and a snake contribution animation.
 A small updater script committed into the repo re-renders the data sections on
 a cron Action — no Claude required — and a flattery gate hides any stat that
-doesn't impress (low star counts never show). Updates are non-destructive:
-only marker-delimited sections are regenerated, hand-written prose is never
-touched. Say "make my GitHub profile fancy" or "refresh my profile README".
+doesn't impress (low star counts never show). An opt-in daily Claude workflow
+installs this plugin fresh from the marketplace and runs its `refresh` skill,
+summarizing your recent commits and releases into the activity and shipped
+lines ("Pushed to cc-review — built the realtime inline-comment web UI").
+Updates are non-destructive: only marker-delimited sections are regenerated,
+hand-written prose is never touched. Say "make my GitHub profile fancy" or
+"refresh my profile README".
 
 ## License
 

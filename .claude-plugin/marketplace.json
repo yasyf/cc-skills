@@ -39,7 +39,7 @@
     {
       "name": "gh-profile",
       "source": "./plugins/gh-profile",
-      "description": "Create or refresh a fancy GitHub profile README from your real repos and activity — AI banner, snake animation, and cron Actions that keep it fresh."
+      "description": "Create or refresh a fancy GitHub profile README from your real repos and activity — AI banner, snake animation, cron Actions, and a daily Claude refresh that summarizes recent commits and releases."
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "name": "gh-profile",
-  "description": "Create or non-destructively refresh a fancy GitHub profile README (the <username>/<username> repo) from real data — repos, stars, languages, releases, recent activity — with marker-delimited sections kept fresh by a committed cron updater, flattery gates that hide unimpressive numbers, a snake animation, and an opt-in weekly Claude taste refresh. Requires the gh CLI authenticated with repo + workflow scopes; the AI banner comes from the gen-image plugin.",
-  "version": "0.1.3",
+  "description": "Create or non-destructively refresh a fancy GitHub profile README (the <username>/<username> repo) from real data — repos, stars, languages, releases, recent activity — with marker-delimited sections kept fresh by a committed cron updater, flattery gates that hide unimpressive numbers, a snake animation, and an opt-in daily Claude refresh that summarizes recent commits and releases into the activity/shipped lines. Requires the gh CLI authenticated with repo + workflow scopes; the AI banner comes from the gen-image plugin.",
+  "version": "0.2.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

@@ -10,7 +10,7 @@ write the empty marker pairs, then let the updater fill them.
 Line 1 of the file — before everything — is the meta comment:
 
 ```html
-<!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "2026-06-12T00:00:00Z", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.1.0"} -->
+<!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "2026-06-12T00:00:00Z", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.2.0"} -->
 ```
 
 ## 1 — Header
@@ -67,7 +67,7 @@ beneath so timestamps and event noise stay below the fold.
 <summary>Recent activity</summary>
 
 <!-- gh-profile:start:activity -->
-- `2026-06-10` Pushed to [octocat/Spoon-Knife](https://github.com/octocat/Spoon-Knife)
+- `2026-06-10` Pushed to [octocat/Spoon-Knife](https://github.com/octocat/Spoon-Knife) — rebuilt the fork flow around a single click
 - `2026-06-08` Cut a release in [octocat/Hello-World](https://github.com/octocat/Hello-World)
 <!-- gh-profile:end:activity -->
 
@@ -75,7 +75,9 @@ beneath so timestamps and event noise stay below the fold.
 ```
 
 The updater appends `**N,NNN contributions in the last year**` inside the
-markers only when the total clears `min_contributions`.
+markers only when the total clears `min_contributions`. The ` — summary`
+suffixes come from the summaries sidecar (`data.md`) while it's fresh; a
+line whose event has no summary renders plain, like the release line above.
 
 ## 4 — Start Here
 
@@ -127,10 +129,14 @@ hides the whole section — staleness is never advertised.
 ## 📦 Recently shipped
 
 <!-- gh-profile:start:shipped -->
-- `2026-05-30` [Hello-World v2.1.0](https://github.com/octocat/Hello-World/releases/tag/v2.1.0) — Warp-stable
+- `2026-05-30` [Hello-World v2.1.0](https://github.com/octocat/Hello-World/releases/tag/v2.1.0) — warp-stable orbital mechanics and a faster boot
 - `2026-04-17` [Spoon-Knife v0.9.0](https://github.com/octocat/Spoon-Knife/releases/tag/v0.9.0)
 <!-- gh-profile:end:shipped -->
 ```
+
+The ` — ` suffix prefers the sidecar summary (what the release actually
+shipped, written from its real changelog) over the bare release name; with
+neither, the line is just the dated tag.
 
 ## 7 — Toolbox
 

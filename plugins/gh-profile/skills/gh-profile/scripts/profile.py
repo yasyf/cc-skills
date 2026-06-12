@@ -164,8 +164,8 @@ TEMPLATE_FILES = (
     TemplateFile("workflows/profile-refresh.yml", ".github/workflows/profile-refresh.yml"),
     TemplateFile("workflows/profile-metrics.yml", ".github/workflows/profile-metrics.yml", requires="metrics"),
     TemplateFile("workflows/profile-claude-refresh.yml", ".github/workflows/profile-claude-refresh.yml", requires="claude"),
-    # PROFILE_GUIDE.md sits at the TARGET ROOT (the Claude Action reads it there),
-    # not under .github/ like everything else.
+    # PROFILE_GUIDE.md sits at the TARGET ROOT (the refresh skill reads per-user
+    # overrides there), not under .github/ like everything else.
     TemplateFile("PROFILE_GUIDE.md", "PROFILE_GUIDE.md", requires="claude"),
 )
 

@@ -1,17 +1,21 @@
-# Opt-in weekly taste pass (--with claude): Claude refreshes prose and
-# structure per PROFILE_GUIDE.md at the repo root. The mechanical 6-hourly
-# refresh owns the numbers (marker interiors); this pass owns the words.
+# Opt-in daily Claude refresh (--with claude): installs the gh-profile plugin
+# fresh from the cc-skills marketplace each run and runs /gh-profile:refresh —
+# Claude summarizes recent commits and releases into the activity/shipped
+# lines and refreshes prose when activity warrants it. The canonical
+# instructions live in the skill (github.com/yasyf/cc-skills), so updating the
+# skill updates every profile repo; this file is a thin shim. The mechanical
+# 6-hourly refresh owns the numbers (marker interiors); this pass owns the
+# words. Drop the schedule to weekly if daily runs cost more than you like.
 # Requires: gh secret set ANTHROPIC_API_KEY -R <login>/<login>
 name: Claude profile refresh
 
 on:
   schedule:
-    - cron: "{{CRON_MINUTE}} 9 * * 1"
+    - cron: "{{CRON_MINUTE}} 9 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   refresh:
@@ -19,17 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Refresh profile prose
+      - name: Refresh summaries and prose
         uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: |
-            Read PROFILE_GUIDE.md at the repo root, then refresh this profile
-            README's prose and structure per its rules: rewrite the "Now"
-            bullets from recent activity, punch up one-liners for new repos,
-            recategorize if the repo clusters shifted, and respect the taste
-            budget, the flattery gates, and the marker sections (never edit
-            inside gh-profile marker interiors). Commit the result directly
-            to the default branch.
-          claude_args: --max-turns 30 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*)"
+          plugin_marketplaces: |
+            https://github.com/yasyf/cc-skills
+          plugins: |
+            gh-profile@skills
+          prompt: /gh-profile:refresh
+          claude_args: --max-turns 50 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(python3:*),Bash(date:*)"

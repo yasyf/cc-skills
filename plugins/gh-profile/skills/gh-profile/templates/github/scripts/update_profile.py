@@ -2,7 +2,7 @@
 """Profile README updater — committed into the profile repo as .github/scripts/update_profile.py.
 
     update_profile.py harvest [--login X] [--out F]                      normalized dossier JSON
-    update_profile.py update  [--readme PATH] [--sections a,b] [--check] [--login X]
+    update_profile.py update  [--readme PATH] [--sections a,b] [--check] [--login X] [--summaries F]
 
 The same file serves two callers: the gh-profile skill at compose time and the
 profile repo's cron workflow (profile-refresh.yml) every 6 hours — the first
@@ -25,6 +25,18 @@ thresholds (min_stars_badge, min_contributions, shipped_window_months).
 Thresholds persist across runs; verdicts do not — gates are re-evaluated
 against fresh data every time, so a star badge appears by itself the day a
 repo crosses the threshold.
+
+Summaries sidecar (optional, Claude-maintained): ``update`` also reads
+``.github/profile-summaries.json`` next to the README (override with
+``--summaries``) and appends `` — <summary>`` to activity lines keyed
+``<EventType>:<owner/repo>`` and shipped lines keyed ``<repo>@<tag>``.
+The daily Claude workflow regenerates the file whole; this script only ever
+reads it. Summaries render only while the sidecar's top-level ``generated_at``
+is within SUMMARY_STALE_DAYS — if the Claude workflow dies, the whole file
+ages out and every line degrades to today's plain form. A missing sidecar is
+the normal no-Claude steady state; a malformed one warns and renders plain.
+Entries are sanitized (first line, comment-safe, capped) so a bad sidecar can
+never corrupt marker splicing.
 """
 
 from __future__ import annotations
@@ -49,9 +61,13 @@ EVENT_WINDOW_DAYS = 30
 EVENT_CAP = 12
 RELEASE_PROBE_REPOS = 15
 RELEASE_KEEP = 10
+RELEASE_BODY_KEEP = 600
 FEATURED_COUNT = 5
 LANGUAGE_ROWS = 8
 LANGUAGE_BAR_WIDTH = 20
+SUMMARIES_PATH = ".github/profile-summaries.json"
+SUMMARY_MAX_LEN = 120
+SUMMARY_STALE_DAYS = 10
 
 DEFAULT_GATES = {
     "min_stars_badge": 30,
@@ -201,6 +217,28 @@ def language_histogram(repos: list[dict]) -> list[dict]:
 # --- Events digest (pure) ---
 
 
+def _event_hints(event: dict) -> dict:
+    """Summarizer hints from whatever the payload still carries. The events API
+    stopped shipping commit messages, so a push contributes only its head sha
+    (the summarizer's change-detection token); titles ride along when present."""
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return {}
+
+    def sub(key: str) -> dict:
+        value = payload.get(key)
+        return value if isinstance(value, dict) else {}
+
+    hints: dict = {}
+    head = payload.get("head")
+    if event.get("type") == "PushEvent" and isinstance(head, str) and head:
+        hints["head"] = head[:12]
+    title = sub("pull_request").get("title") or sub("issue").get("title") or sub("release").get("name")
+    if isinstance(title, str) and title.strip():
+        hints["title"] = title.strip()
+    return hints
+
+
 def digest_events(raw: list[dict], now: datetime, window_days: int = EVENT_WINDOW_DAYS, cap: int = EVENT_CAP) -> list[dict]:
     """Dedupe per (type, repo) keeping the newest, drop events older than the
     window, cap the digest. Newest first."""
@@ -216,7 +254,7 @@ def digest_events(raw: list[dict], now: datetime, window_days: int = EVENT_WINDO
         if key in seen:
             continue
         seen.add(key)
-        digest.append({"type": key[0], "repo": key[1], "created_at": event["created_at"]})
+        digest.append({"type": key[0], "repo": key[1], "created_at": event["created_at"], **_event_hints(event)})
         if len(digest) >= cap:
             break
     return digest
@@ -247,6 +285,59 @@ def shipped_cutoff(now: datetime, gates: dict) -> datetime:
     return now - timedelta(days=30 * gates["shipped_window_months"])
 
 
+# --- Summaries sidecar (Claude-written one-liners; this script only reads) ---
+
+
+def load_summaries(path: Path) -> dict:
+    """The sidecar dict, or {} when absent (the normal no-Claude steady state,
+    silent) or unreadable (warned — a broken sidecar must never block a run)."""
+    try:
+        raw = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        print(f"WARN: unreadable summaries at {path}; rendering without them", file=sys.stderr)
+        return {}
+    if not isinstance(raw, dict):
+        print(f"WARN: unreadable summaries at {path}; rendering without them", file=sys.stderr)
+        return {}
+    return raw
+
+
+def summaries_fresh(summaries: dict, now: datetime) -> bool:
+    """The whole file ages out together: if the daily Claude pass stops bumping
+    generated_at, every summary degrades to a plain line at once. A naive stamp
+    counts as UTC (the sidecar is LLM-written — drift must degrade, not crash);
+    a stamp more than a day in the future counts as broken, not immortal."""
+    generated = parse_iso(summaries.get("generated_at", ""))
+    if generated is None:
+        return False
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    return timedelta(days=-1) <= now - generated <= timedelta(days=SUMMARY_STALE_DAYS)
+
+
+def _clean_summary(value: object) -> str:
+    """First line, collapsed whitespace, comment-safe, capped — the sidecar is
+    repo content anyone could edit, so it never gets to break marker splicing."""
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    line = " ".join(value.strip().splitlines()[0].split())
+    if "<!--" in line or "-->" in line:
+        return ""
+    return line[:SUMMARY_MAX_LEN].rstrip()
+
+
+def _summary_for(summaries: dict | None, group: str, key: str, now: datetime) -> str:
+    if not summaries or not summaries_fresh(summaries, now):
+        return ""
+    entries = summaries.get(group)
+    entry = entries.get(key) if isinstance(entries, dict) else None
+    if not isinstance(entry, dict):
+        return ""
+    return _clean_summary(entry.get("summary"))
+
+
 # --- Section renderers (pure; deterministic given dossier + gates + now) ---
 
 
@@ -254,7 +345,7 @@ def _star_count(stars: int) -> str:
     return f"⭐ {stars:,}"
 
 
-def render_featured(dossier: dict, gates: dict, now: datetime) -> str:
+def render_featured(dossier: dict, gates: dict, now: datetime, summaries: dict | None = None) -> str:
     """Repo cards: pinned first, then top-scored fill. Star counts are gated —
     below the threshold a card leans on description + language, no numbers."""
     by_name = {r["name"]: r for r in dossier["repos"]}
@@ -284,9 +375,11 @@ def render_featured(dossier: dict, gates: dict, now: datetime) -> str:
     return "\n".join(lines)
 
 
-def render_shipped(dossier: dict, gates: dict, now: datetime) -> str:
+def render_shipped(dossier: dict, gates: dict, now: datetime, summaries: dict | None = None) -> str:
     """Dated release lines within the shipped window. Renders EMPTY (not an
-    apology) when nothing shipped recently — staleness is never advertised."""
+    apology) when nothing shipped recently — staleness is never advertised.
+    The suffix prefers the Claude-written summary over the release name; a
+    bare ``repo vX.Y.Z`` line is the no-sidecar fallback, not the goal."""
     cutoff = shipped_cutoff(now, gates)
     lines = []
     for release in dossier.get("releases", []):
@@ -295,28 +388,36 @@ def render_shipped(dossier: dict, gates: dict, now: datetime) -> str:
             continue
         label = f"{release['repo']} {release.get('tag', '')}".strip()
         line = f"- `{release['published_at'][:10]}` [{label}]({release['url']})"
+        summary = _summary_for(summaries, "shipped", f"{release['repo']}@{release.get('tag', '')}", now)
         name = release.get("name", "")
-        if name and name != release.get("tag", ""):
+        if summary:
+            line += f" — {summary}"
+        elif name and name != release.get("tag", ""):
             line += f" — {name}"
         lines.append(line)
     return "\n".join(lines)
 
 
-def render_activity(dossier: dict, gates: dict, now: datetime) -> str:
-    """Events digest lines; the contribution total appears only when it clears
-    the gate."""
-    lines = [
-        f"- `{event['created_at'][:10]}` {EVENT_VERBS.get(event['type'], EVENT_VERB_DEFAULT)} "
-        f"[{event['repo']}](https://github.com/{event['repo']})"
-        for event in dossier.get("recent_events", [])
-    ]
+def render_activity(dossier: dict, gates: dict, now: datetime, summaries: dict | None = None) -> str:
+    """Events digest lines, each carrying its Claude-written summary when the
+    sidecar has one; the contribution total appears only when it clears the
+    gate."""
+    lines = []
+    for event in dossier.get("recent_events", []):
+        line = (
+            f"- `{event['created_at'][:10]}` {EVENT_VERBS.get(event['type'], EVENT_VERB_DEFAULT)} "
+            f"[{event['repo']}](https://github.com/{event['repo']})"
+        )
+        if summary := _summary_for(summaries, "activity", f"{event['type']}:{event['repo']}", now):
+            line += f" — {summary}"
+        lines.append(line)
     total = dossier.get("contributions", {}).get("total_last_year", 0)
     if lines and show_contributions(total, gates):
         lines += ["", f"**{total:,} contributions in the last year**"]
     return "\n".join(lines)
 
 
-def render_languages(dossier: dict, gates: dict, now: datetime) -> str:
+def render_languages(dossier: dict, gates: dict, now: datetime, summaries: dict | None = None) -> str:
     """Text-bar histogram of languages across included repos."""
     langs = dossier.get("languages", [])[:LANGUAGE_ROWS]
     if not langs:
@@ -387,13 +488,18 @@ def splice_section(text: str, section_id: str, content: str) -> str | None:
 
 
 def update_readme_text(
-    text: str, dossier: dict, now: datetime, sections: tuple[str, ...] = SECTION_IDS
+    text: str,
+    dossier: dict,
+    now: datetime,
+    sections: tuple[str, ...] = SECTION_IDS,
+    summaries: dict | None = None,
 ) -> tuple[str, list[str]]:
     """Re-render the requested marker interiors against the dossier.
 
     Returns (new_text, nomarker_ids). The meta line's last_refresh is bumped
     only when an interior actually changed, which makes the whole operation
-    idempotent: a second run with the same data is byte-identical.
+    idempotent: a second run with the same data is byte-identical (the
+    summaries sidecar is just another deterministic input).
     """
     meta = parse_meta(text)
     gates = gates_from_meta(meta)
@@ -402,7 +508,7 @@ def update_readme_text(
     for section_id in SECTION_IDS:
         if section_id not in sections:
             continue
-        content = RENDERERS[section_id](dossier, gates, now)
+        content = RENDERERS[section_id](dossier, gates, now, summaries)
         spliced = splice_section(new_text, section_id, content)
         if spliced is None:
             nomarker.append(section_id)
@@ -441,6 +547,7 @@ def harvest_releases(login: str, repos: list[dict]) -> list[dict]:
                 "name": raw.get("name") or "",
                 "url": raw.get("html_url") or "",
                 "published_at": raw.get("published_at") or "",
+                "body": (raw.get("body") or "")[:RELEASE_BODY_KEEP],
             }
         )
     releases.sort(key=lambda r: r["published_at"], reverse=True)
@@ -514,8 +621,10 @@ def cmd_update(args: argparse.Namespace) -> int:
 
     text = readme.read_text()
     now = _now()
+    summaries_path = Path(args.summaries) if args.summaries else readme.resolve().parent / SUMMARIES_PATH
+    summaries = load_summaries(summaries_path)
     dossier = harvest_dossier(resolve_login(args.login), now)
-    new_text, nomarker = update_readme_text(text, dossier, now, sections)
+    new_text, nomarker = update_readme_text(text, dossier, now, sections, summaries)
     for section_id in nomarker:
         print(f"NOMARKER {section_id}")
 
@@ -556,6 +665,7 @@ def _build_parser() -> argparse.ArgumentParser:
     update.add_argument("--sections", default="", help=f"comma-separated subset of: {', '.join(SECTION_IDS)} (default all)")
     update.add_argument("--check", action="store_true", help="print the would-be diff; exit 1 if dirty, write nothing")
     update.add_argument("--login", help="GitHub login (default: GITHUB_REPOSITORY owner, then gh api user)")
+    update.add_argument("--summaries", help=f"summaries sidecar path (default: <readme dir>/{SUMMARIES_PATH})")
 
     return parser
 
