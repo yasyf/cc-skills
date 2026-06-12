@@ -98,7 +98,7 @@ captain-hook grew into five: `docs/getting-started`, `docs/guide`, `docs/example
 **`reference:`** — curated symbol groups for the API reference. Without it, dynamic mode
 documents everything exported in the package's `__all__`, flat. With it, you control grouping,
 ordering, and descriptions — and it doubles as an exclusion mechanism: captain-hook omits
-`ContentBlock`, `InlineTests`, and `TCondition` because they are cyclic aliases that break
+`InlineTests` and `TCondition` because they are cyclic aliases that break
 dynamic introspection. The shape, from captain-hook's real config:
 
 ```yaml
