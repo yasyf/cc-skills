@@ -188,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: gautamkrishnar/blog-post-workflow@v2
+      - uses: gautamkrishnar/blog-post-workflow@v1
         with:
           feed_list: "https://octocat.dev/feed.xml"
           max_post_count: 5

@@ -158,7 +158,7 @@ Rules:
   in their blueprint positions, even in Annex mode.
 - **Meta comment on line 1.** Choose gate thresholds now (defaults are right
   for almost everyone) and record them with intensity and skill version:
-  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.1.0", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
+  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.1.1", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
 - **Run the updater once** so the dynamic sections render — gates included —
   through the same code path as cron:
 

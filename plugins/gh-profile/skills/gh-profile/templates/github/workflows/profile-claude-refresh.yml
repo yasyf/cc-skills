@@ -32,4 +32,4 @@ jobs:
             budget, the flattery gates, and the marker sections (never edit
             inside gh-profile marker interiors). Commit the result directly
             to the default branch.
-          claude_args: --max-turns 10 --allowedTools "Read,Edit,Bash(git:*),Bash(gh:*)"
+          claude_args: --max-turns 30 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*)"

@@ -64,8 +64,10 @@ versioned in the user's repo, not buried in YAML. The pass rewrites the "Now"
 bullets from recent activity, punches up one-liners for new repos,
 recategorizes clusters that shifted, never edits inside marker interiors, and
 commits directly to the default branch.
-`claude_args: --max-turns 10 --allowedTools "Read,Edit,Bash(git:*),Bash(gh:*)"`
-caps the run at cents.
+`claude_args: --max-turns 30 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*)"`
+keeps the run cheap — 10 turns proved too few in practice (the pass reads the
+guide, greps the README, edits, and commits), and a missing Glob/Grep/Write
+shows up as permission denials, not a clean failure.
 
 ### Secret walkthrough: ANTHROPIC_API_KEY
 
