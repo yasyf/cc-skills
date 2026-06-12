@@ -41,7 +41,9 @@ the other's territory.
 ## profile-snake.yml — the contribution snake
 
 Two steps: `Platane/snk/svg-only@v3` renders the user's contribution graph as
-`dist/github-snake.svg` plus a `?palette=github-dark` variant, then
+`dist/github-snake.svg` plus a dark variant whose `?color_dots=` are GitHub's
+own dark-theme level colors (snk's `github-dark` palette draws level-1 days
+nearly black, which reads as an empty graph on busy profiles), then
 `crazy-max/ghaction-github-pages@v4` publishes `dist/` to the **`output`
 branch** (`permissions: contents: write`). The README never embeds the
 workflow's output directly — it hotlinks the branch:
