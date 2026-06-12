@@ -1,0 +1,27 @@
+{
+  "data": {
+    "user": {
+      "pinnedItems": {
+        "nodes": [
+          {
+            "name": "rocket",
+            "description": "Deploy toolchain that ships straight to orbit.",
+            "url": "https://github.com/octocat/rocket",
+            "stargazerCount": 128,
+            "primaryLanguage": {"name": "Python"}
+          },
+          {
+            "name": "nebula",
+            "description": "Streaming dashboards for tiny clusters.",
+            "url": "https://github.com/octocat/nebula",
+            "stargazerCount": 42,
+            "primaryLanguage": {"name": "TypeScript"}
+          }
+        ]
+      },
+      "contributionsCollection": {
+        "contributionCalendar": {"totalContributions": 982}
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "rocket": {
+    "tag_name": "v2.1.0",
+    "name": "Orbital insertion",
+    "html_url": "https://github.com/octocat/rocket/releases/tag/v2.1.0",
+    "published_at": "2026-05-20T10:00:00Z"
+  },
+  "comet": {
+    "tag_name": "v1.0.0",
+    "name": "v1.0.0",
+    "html_url": "https://github.com/octocat/comet/releases/tag/v1.0.0",
+    "published_at": "2026-04-10T08:00:00Z"
+  },
+  "nebula": {
+    "tag_name": "v0.9.0",
+    "name": "Beta",
+    "html_url": "https://github.com/octocat/nebula/releases/tag/v0.9.0",
+    "published_at": "2025-09-15T08:00:00Z"
+  }
+}

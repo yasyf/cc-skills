@@ -1,0 +1,35 @@
+# Opt-in weekly taste pass (--with claude): Claude refreshes prose and
+# structure per PROFILE_GUIDE.md at the repo root. The mechanical 6-hourly
+# refresh owns the numbers (marker interiors); this pass owns the words.
+# Requires: gh secret set ANTHROPIC_API_KEY -R <login>/<login>
+name: Claude profile refresh
+
+on:
+  schedule:
+    - cron: "{{CRON_MINUTE}} 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refresh profile prose
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Read PROFILE_GUIDE.md at the repo root, then refresh this profile
+            README's prose and structure per its rules: rewrite the "Now"
+            bullets from recent activity, punch up one-liners for new repos,
+            recategorize if the repo clusters shifted, and respect the taste
+            budget, the flattery gates, and the marker sections (never edit
+            inside gh-profile marker interiors). Commit the result directly
+            to the default branch.
+          claude_args: --max-turns 10 --allowedTools "Read,Edit,Bash(git:*),Bash(gh:*)"
