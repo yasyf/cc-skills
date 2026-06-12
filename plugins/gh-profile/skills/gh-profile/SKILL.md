@@ -42,13 +42,13 @@ don't advance until it holds.
 - **Intensity** — how fancy: `polished`, `fancy` (default), `max`. See
   Intensity levels below.
 - **Flattery gates** — pure threshold checks: a stat renders only when it
-  impresses. Defaults: star badges at ≥ 30 stars, contribution total at
+  impresses. Defaults: star counts at ≥ 30 stars, contribution total at
   ≥ 750/yr, releases within 6 months. Hidden numbers are never explained.
 - **Meta comment** — README line 1: `<!-- gh-profile:meta {json} -->`,
   recording intensity, skill version, last refresh, and the gate thresholds
   (`min_stars_badge`, `min_contributions`, `shipped_window_months`).
   Thresholds persist; verdicts are re-judged against fresh data every run —
-  a star badge appears by itself the day a repo crosses 30.
+  a star count appears by itself the day a repo crosses 30.
 
 ## Phase 0 — Preflight & mode
 
@@ -158,7 +158,7 @@ Rules:
   in their blueprint positions, even in Annex mode.
 - **Meta comment on line 1.** Choose gate thresholds now (defaults are right
   for almost everyone) and record them with intensity and skill version:
-  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.1.1", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
+  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.1.2", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
 - **Run the updater once** so the dynamic sections render — gates included —
   through the same code path as cron:
 
@@ -284,7 +284,7 @@ per section in `reference/blueprint.md`.
 | 1 | Header — banner `<picture>` dark/light **or** typing-SVG hero, never both | gen-image / interview tagline | static |
 | 2 | Social badges — shields `for-the-badge`, max 5 | interview | static |
 | 3 | Now — current-focus bullets; recent-activity digest in `<details>` beneath | interview + dossier | managed `activity` |
-| 4 | Start Here — 3–5 flagship repos (pinned ∪ top-starred), gated star badges, punched-up one-liners | dossier | managed `featured` |
+| 4 | Start Here — 3–5 flagship repos (pinned ∪ top-starred), gated star counts, punched-up one-liners | dossier | managed `featured` |
 | 5 | More things I built — topic/language clusters, 4–8 per category | dossier | static prose |
 | 6 | Recently shipped — dated release lines | dossier | managed `shipped` |
 | 7 | Toolbox — skillicons grid (cap 16); language histogram in `<details>` beneath | dossier | managed `languages` |

@@ -250,12 +250,12 @@ def shipped_cutoff(now: datetime, gates: dict) -> datetime:
 # --- Section renderers (pure; deterministic given dossier + gates + now) ---
 
 
-def _star_badge(stars: int) -> str:
-    return f"![{stars} stars](https://img.shields.io/badge/%E2%AD%90_{stars}-1f6feb?style=flat-square)"
+def _star_count(stars: int) -> str:
+    return f"⭐ {stars:,}"
 
 
 def render_featured(dossier: dict, gates: dict, now: datetime) -> str:
-    """Repo cards: pinned first, then top-scored fill. Star badges are gated —
+    """Repo cards: pinned first, then top-scored fill. Star counts are gated —
     below the threshold a card leans on description + language, no numbers."""
     by_name = {r["name"]: r for r in dossier["repos"]}
     chosen: list[dict] = []
@@ -275,7 +275,7 @@ def render_featured(dossier: dict, gates: dict, now: datetime) -> str:
     for repo in chosen[:FEATURED_COUNT]:
         parts = [f"- **[{repo['name']}]({repo['url']})**"]
         if show_star_badge(repo["stars"], gates):
-            parts.append(_star_badge(repo["stars"]))
+            parts.append(_star_count(repo["stars"]))
         if repo["description"]:
             parts.append(f"— {repo['description']}")
         if repo["language"]:

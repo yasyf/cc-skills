@@ -80,15 +80,15 @@ markers only when the total clears `min_contributions`.
 ## 4 — Start Here
 
 The flagship list: pinned repos first, then top-scored fill, 3–5 items. The
-updater owns the interior — star badges appear per the gate, one-liners come
-from the dossier. After the first render, punch up the surrounding framing
-(not the interior) in the user's voice.
+updater owns the interior — plain-text star counts appear per the gate,
+one-liners come from the dossier. After the first render, punch up the
+surrounding framing (not the interior) in the user's voice.
 
 ```markdown
 ## 🚀 Start here
 
 <!-- gh-profile:start:featured -->
-- **[Hello-World](https://github.com/octocat/Hello-World)** ![2048 stars](https://img.shields.io/badge/%E2%AD%90_2048-1f6feb?style=flat-square) — My first repository on GitHub! `JavaScript`
+- **[Hello-World](https://github.com/octocat/Hello-World)** ⭐ 2,048 — My first repository on GitHub! `JavaScript`
 - **[Spoon-Knife](https://github.com/octocat/Spoon-Knife)** — This repo is for demonstration purposes only. `HTML`
 <!-- gh-profile:end:featured -->
 ```

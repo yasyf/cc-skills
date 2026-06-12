@@ -27,28 +27,28 @@ def test_missing_meta_means_defaults():
     assert update_profile.gates_from_meta(None) == update_profile.DEFAULT_GATES
 
 
-def test_star_badges_across_the_30_star_line(dossier, now):
+def test_star_counts_across_the_30_star_line(dossier, now):
     gates = update_profile.gates_from_meta(None)
     rendered = update_profile.render_featured(dossier, gates, now)
 
-    assert "img.shields.io" in _line_for(rendered, "rocket")  # 128 stars
-    assert "img.shields.io" in _line_for(rendered, "nebula")  # 42 stars
+    assert "⭐ 128" in _line_for(rendered, "rocket")
+    assert "⭐ 42" in _line_for(rendered, "nebula")
     comet = _line_for(rendered, "comet")  # 29 stars: just under
-    assert "img.shields.io" not in comet
+    assert "⭐" not in comet
     assert "29" not in comet  # below the gate, no numbers anywhere
 
-    # The day comet crosses the line, the badge appears with no other change.
+    # The day comet crosses the line, the count appears with no other change.
     bumped = _copy(dossier)
     for repo in bumped["repos"]:
         if repo["name"] == "comet":
             repo["stars"] = 30
-    assert "img.shields.io" in _line_for(update_profile.render_featured(bumped, gates, now), "comet")
+    assert "⭐ 30" in _line_for(update_profile.render_featured(bumped, gates, now), "comet")
 
 
 def test_meta_threshold_moves_the_star_line(dossier, now):
     gates = update_profile.gates_from_meta({"min_stars_badge": 29})
     rendered = update_profile.render_featured(dossier, gates, now)
-    assert "img.shields.io" in _line_for(rendered, "comet")
+    assert "⭐ 29" in _line_for(rendered, "comet")
 
 
 def test_contributions_hidden_below_threshold(dossier, now):

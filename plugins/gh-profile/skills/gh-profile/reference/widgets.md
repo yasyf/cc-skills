@@ -44,15 +44,9 @@ https://img.shields.io/badge/<LABEL>-<MESSAGE>-<COLOR>?style=<STYLE>
   <a href="https://octocat.dev"><img src="https://img.shields.io/badge/Blog-octocat.dev-1f6feb?style=for-the-badge" alt="Blog"></a>
   ```
 
-- **Star badges on featured cards:** the updater emits these — shown here so
-  you recognize them in diffs, not so you write them by hand:
-
-  ```
-  https://img.shields.io/badge/%E2%AD%90_2048-1f6feb?style=flat-square
-  ```
-
-  (`%E2%AD%90` is the ⭐ emoji URL-encoded; the count comes from the dossier
-  and renders only past the `min_stars_badge` gate.)
+- **Star counts on featured cards** are plain text (`⭐ 2,048`), not badge
+  images — a row of colored chips fights the page. The updater emits them
+  from the dossier, only past the `min_stars_badge` gate.
 
 - Logo'd variants exist (`style=flat-square&logo=github`) when a glyph helps;
   don't stack logo + emoji + text in one badge.
