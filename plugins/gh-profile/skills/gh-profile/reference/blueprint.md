@@ -10,7 +10,7 @@ write the empty marker pairs, then let the updater fill them.
 Line 1 of the file — before everything — is the meta comment:
 
 ```html
-<!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "2026-06-12T00:00:00Z", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.2.0"} -->
+<!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "2026-06-12T00:00:00Z", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.3.0"} -->
 ```
 
 ## 1 — Header

@@ -7,6 +7,8 @@ import re
 
 CORE = (
     ".github/scripts/update_profile.py",
+    ".github/scripts/summaries.py",
+    ".github/summaries.config.json",
     ".github/workflows/profile-snake.yml",
     ".github/workflows/profile-refresh.yml",
 )
@@ -74,9 +76,10 @@ def test_leftover_scan_catches_stray_but_not_actions_syntax(profile_mod):
 
 def test_rendered_updater_matches_template_bytes(profile_mod, tmp_path):
     assert profile_mod.main(["render", "--target", str(tmp_path)]) == 0
-    template = profile_mod.TEMPLATES / "scripts" / "update_profile.py"
-    rendered = tmp_path / ".github" / "scripts" / "update_profile.py"
-    assert rendered.read_text() == template.read_text()
+    for name in ("update_profile.py", "summaries.py"):
+        template = profile_mod.TEMPLATES / "scripts" / name
+        rendered = tmp_path / ".github" / "scripts" / name
+        assert rendered.read_text() == template.read_text(), name
 
 
 def test_skip_conflict_force_semantics(profile_mod, tmp_path, monkeypatch):

@@ -2,8 +2,11 @@
 
 `$PROFILE render --target DIR` installs up to four workflows into
 `.github/workflows/`, plus the committed updater at
-`.github/scripts/update_profile.py` (and, with `--with claude`,
-`PROFILE_GUIDE.md` at the repo root — per-user overrides only; the canonical
+`.github/scripts/update_profile.py` with its sidecar machinery —
+`.github/scripts/summaries.py` (the repo-summaries plugin's template module,
+vendored byte-identically) and `.github/summaries.config.json` (the groups
+and recipes the refresh skill follows) — and, with `--with claude`,
+`PROFILE_GUIDE.md` at the repo root (per-user overrides only; the canonical
 rules live in this plugin). Each workflow's `{{CRON_MINUTE}}` is substituted
 with a random 0–59 at render time so profile repos don't pile onto GitHub's
 :00 scheduler herd — expect different minutes per file, and don't "fix" them.
@@ -61,10 +64,13 @@ force-rebuilds the branch; history there is disposable.
 ## profile-claude-refresh.yml — the daily Claude pass (opt-in)
 
 `anthropics/claude-code-action@v1`, daily. The workflow is a thin shim: its
-`plugin_marketplaces`/`plugins` inputs install `gh-profile@skills` fresh from
-the cc-skills marketplace on every run, and the prompt is the single line
-`/gh-profile:refresh` — the canonical instructions live in that skill, so
-updating the skill updates every profile repo without touching their YAML.
+`plugin_marketplaces`/`plugins` inputs install `gh-profile@skills` and
+`repo-summaries@skills` fresh from the cc-skills marketplace on every run,
+and the prompt is the single line `/gh-profile:refresh` — a thin wrapper that
+applies the shared `/repo-summaries:refresh` choreography with gh-profile's
+config, then handles the profile-specific prose pass and commit. The
+canonical instructions live in those skills, so updating a skill updates
+every profile repo without touching their YAML.
 The pass rewrites the summaries sidecar from real commit/release data (the
 activity and shipped lines pick the summaries up on the next render),
 refreshes prose when activity warrants it, never edits inside marker

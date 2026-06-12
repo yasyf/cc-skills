@@ -130,7 +130,7 @@ ids: `featured`, `shipped`, `activity`, `languages`.
 - The meta comment must be **line 1**, a single JSON object:
 
   ```
-  <!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "...", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.2.0"} -->
+  <!-- gh-profile:meta {"intensity": "fancy", "last_refresh": "...", "min_contributions": 750, "min_stars_badge": 30, "shipped_window_months": 6, "skill_version": "0.3.0"} -->
   ```
 
   Only integer-valued threshold keys override the defaults; everything else
@@ -141,9 +141,11 @@ ids: `featured`, `shipped`, `activity`, `languages`.
 ## The summaries sidecar — `.github/profile-summaries.json`
 
 Claude-written one-liners the updater appends to activity and shipped lines.
-The updater only ever **reads** it; the `refresh` skill (the daily Claude
-workflow) regenerates it whole each run — regeneration is pruning, there is
-no merge logic.
+The updater only ever **reads** it, through the committed
+`.github/scripts/summaries.py` (the repo-summaries plugin's template module);
+the `refresh` skill (the daily Claude workflow) regenerates it whole each run
+per `.github/summaries.config.json` — regeneration is pruning, there is no
+merge logic.
 
 ```jsonc
 {
@@ -175,6 +177,7 @@ Render semantics, all enforced by the updater:
 - Default path: `.github/profile-summaries.json` next to the README;
   override with `--summaries`.
 
-Summary content rules live in the `refresh` skill: every word traces to
-commit subjects, PR/issue titles, or release content — never invented; an
+Summary content rules live in the shared `/repo-summaries:refresh` skill
+(this plugin's `refresh` skill wraps it): every word traces to commit
+subjects, PR/issue titles, or release content — never invented; an
 uninformative payload means **no entry**, not a padded one.

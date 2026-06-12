@@ -1,5 +1,6 @@
-# Opt-in daily Claude refresh (--with claude): installs the gh-profile plugin
-# fresh from the cc-skills marketplace each run and runs /gh-profile:refresh —
+# Opt-in daily Claude refresh (--with claude): installs the gh-profile and
+# repo-summaries plugins fresh from the cc-skills marketplace each run and
+# runs /gh-profile:refresh (a thin wrapper over /repo-summaries:refresh) —
 # Claude summarizes recent commits and releases into the activity/shipped
 # lines and refreshes prose when activity warrants it. The canonical
 # instructions live in the skill (github.com/yasyf/cc-skills), so updating the
@@ -34,5 +35,6 @@ jobs:
             https://github.com/yasyf/cc-skills.git
           plugins: |
             gh-profile@skills
+            repo-summaries@skills
           prompt: /gh-profile:refresh
           claude_args: --max-turns 50 --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(python3:*),Bash(date:*)"

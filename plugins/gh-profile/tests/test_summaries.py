@@ -1,11 +1,15 @@
-"""Summaries sidecar: loading, the file-level staleness gate, key matching,
-sanitizing, shipped precedence, idempotence, and default-path resolution.
-The sidecar is Claude-maintained and this script only reads it — a missing or
-broken file must render exactly today's plain lines."""
+"""Summaries sidecar as rendered by the updater: the file-level staleness
+gate, key matching, shipped precedence, idempotence, and default-path
+resolution — plus byte-parity of the vendored summaries.py against the
+repo-summaries plugin's canonical template. The sidecar is Claude-maintained
+and this script only reads it — a missing or broken file must render exactly
+today's plain lines. The module's own unit tests live in the repo-summaries
+plugin."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import update_profile
 
@@ -31,17 +35,15 @@ def test_no_sidecar_is_byte_identical_to_plain_render(dossier, now, make_readme)
     assert "burn planner" not in plain
 
 
-def test_load_summaries_missing_file_is_silent_empty(tmp_path, capsys):
-    assert update_profile.load_summaries(tmp_path / "absent.json") == {}
-    assert capsys.readouterr().err == ""
-
-
-def test_load_summaries_malformed_warns_and_returns_empty(tmp_path, capsys):
-    sidecar = tmp_path / "summaries.json"
-    for garbage in ("{not json", '[1, 2]', '"a string"'):
-        sidecar.write_text(garbage)
-        assert update_profile.load_summaries(sidecar) == {}
-        assert "WARN" in capsys.readouterr().err
+def test_vendored_summaries_module_matches_the_canonical_template():
+    """gh-profile vendors the repo-summaries template so installed plugins
+    stay self-contained; this parity gate is what makes the copy safe."""
+    plugin = Path(__file__).resolve().parent.parent
+    canonical = (
+        plugin.parent / "repo-summaries" / "skills" / "refresh" / "templates" / "scripts" / "summaries.py"
+    )
+    vendored = plugin / "skills" / "gh-profile" / "templates" / "github" / "scripts" / "summaries.py"
+    assert vendored.read_bytes() == canonical.read_bytes()
 
 
 def test_activity_summary_appends_only_on_key_match(dossier, now):
@@ -114,16 +116,6 @@ def test_shipped_summary_beats_name_beats_bare_tag(dossier, now):
     comet_line = next(line for line in enriched.splitlines() if "comet" in line)
     assert comet_line.endswith(" — fixed fuel gauge drift under sustained thrust")
     assert "nebula" not in enriched  # outside the shipped window either way
-
-
-def test_clean_summary_neutralizes_hostile_or_sloppy_values():
-    assert update_profile._clean_summary("  shipped   the\tthing  ") == "shipped the thing"
-    assert update_profile._clean_summary("first line\nsecond line") == "first line"
-    assert update_profile._clean_summary("evil --> breakout") == ""
-    assert update_profile._clean_summary("<!-- sneaky") == ""
-    assert update_profile._clean_summary("x" * 300) == "x" * update_profile.SUMMARY_MAX_LEN
-    assert update_profile._clean_summary(42) == ""
-    assert update_profile._clean_summary("   ") == ""
 
 
 def test_non_dict_entries_are_ignored(dossier, now):

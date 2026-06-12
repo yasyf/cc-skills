@@ -53,8 +53,11 @@ don't advance until it holds.
   one-line summaries keyed by event (`PushEvent:owner/repo`) and release
   (`repo@tag`). The updater appends them to activity/shipped lines while the
   file is fresh (≤ 10 days old); absent or stale, lines render plain. The
-  sibling `refresh` skill (the daily Claude workflow) maintains it; this
-  skill seeds it at compose time.
+  machinery comes from the **repo-summaries** plugin (a sibling in this
+  marketplace): its `summaries.py` template is committed next to the updater,
+  which imports it, and `.github/summaries.config.json` describes the groups.
+  The sibling `refresh` skill (the daily Claude workflow) maintains the
+  sidecar; this skill seeds it at compose time.
 
 ## Phase 0 — Preflight & mode
 
@@ -166,7 +169,7 @@ Rules:
   in their blueprint positions, even in Annex mode.
 - **Meta comment on line 1.** Choose gate thresholds now (defaults are right
   for almost everyone) and record them with intensity and skill version:
-  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.2.0", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
+  `<!-- gh-profile:meta {"intensity": "fancy", "skill_version": "0.3.0", "min_stars_badge": 30, "min_contributions": 750, "shipped_window_months": 6} -->`
 - **Run the updater once** so the dynamic sections render — gates included —
   through the same code path as cron:
 
@@ -182,13 +185,16 @@ or typo'd — fix and re-run (nothing was touched for that id).
 - **Seed the summaries sidecar** so the activity and shipped lines launch
   with real summaries instead of bare event lines: write
   `$WORK/profile/.github/profile-summaries.json` following the sibling
-  `refresh` skill's schema and style laws
-  (`${CLAUDE_PLUGIN_ROOT}/skills/refresh/SKILL.md` steps 3–4 — fetch commit
-  subjects per push-repo, summarize releases from their real content, every
-  word traceable, omit entries with uninformative material). Then re-run the
-  updater + `--check`: the activity/shipped lines should now carry ` — `
-  suffixes and `--check` must still exit 0. Without the Claude-refresh opt-in
-  the sidecar ages out after 10 days and lines degrade to plain — by design.
+  `refresh` skill (`${CLAUDE_PLUGIN_ROOT}/skills/refresh/SKILL.md`) — the
+  shared schema, style core, and flattery law it points to, with the groups
+  and raw-material recipes from
+  `${CLAUDE_PLUGIN_ROOT}/skills/gh-profile/templates/github/summaries.config.json`
+  (fetch commit subjects per push-repo, summarize releases from their real
+  content, every word traceable, omit entries with uninformative material).
+  Then re-run the updater + `--check`: the activity/shipped lines should now
+  carry ` — ` suffixes and `--check` must still exit 0. Without the
+  Claude-refresh opt-in the sidecar ages out after 10 days and lines degrade
+  to plain — by design.
 
 **Prose gates:** apply the **writing-docs** skill's voice to everything a
 human reads, then `slop-cop check README.md` and triage — widget markup is
@@ -222,17 +228,19 @@ banners with Read before accepting them.
 $PROFILE render --target "$WORK/profile"
 ```
 
-Copies the committed updater plus `profile-snake.yml` and
+Copies the committed updater (`update_profile.py` plus its `summaries.py`
+sidecar module and `summaries.config.json`) and `profile-snake.yml` and
 `profile-refresh.yml` into `.github/`, substituting a random `{{CRON_MINUTE}}`
 per file (no thundering herd) and failing on any leftover `{{...}}` token.
 Prints `WROTE`/`SKIP` per file; `CONFLICT` writes nothing — resolve per file
 or re-run with `--force`. Add-ons:
 
 - `--with claude` *(if opted in)* — adds `profile-claude-refresh.yml` (daily;
-  installs this plugin fresh from the `skills` marketplace each run and runs
-  `/gh-profile:refresh`, so the canonical instructions live here, not frozen
-  into the profile repo) plus `PROFILE_GUIDE.md` at the repo root (per-user
-  overrides only). Then set the secret:
+  installs this plugin and `repo-summaries` fresh from the `skills`
+  marketplace each run and runs `/gh-profile:refresh`, so the canonical
+  instructions live here, not frozen into the profile repo) plus
+  `PROFILE_GUIDE.md` at the repo root (per-user overrides only). Then set the
+  secret:
   `gh secret set ANTHROPIC_API_KEY -R "$LOGIN/$LOGIN"` (CREATE: defer until
   the repo exists in Phase 5).
 - `--with metrics` *(max only)* — adds `profile-metrics.yml`; needs a classic

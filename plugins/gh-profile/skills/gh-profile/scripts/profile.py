@@ -160,6 +160,11 @@ class TemplateFile:
 
 TEMPLATE_FILES = (
     TemplateFile("scripts/update_profile.py", ".github/scripts/update_profile.py"),
+    # The updater's sidecar machinery: the repo-summaries plugin's template
+    # module, vendored byte-identically (tests enforce parity) and committed
+    # next to the updater, which imports it as a sibling.
+    TemplateFile("scripts/summaries.py", ".github/scripts/summaries.py"),
+    TemplateFile("summaries.config.json", ".github/summaries.config.json"),
     TemplateFile("workflows/profile-snake.yml", ".github/workflows/profile-snake.yml"),
     TemplateFile("workflows/profile-refresh.yml", ".github/workflows/profile-refresh.yml"),
     TemplateFile("workflows/profile-metrics.yml", ".github/workflows/profile-metrics.yml", requires="metrics"),

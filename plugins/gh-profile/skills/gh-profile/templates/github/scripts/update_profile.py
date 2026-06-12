@@ -31,12 +31,14 @@ Summaries sidecar (optional, Claude-maintained): ``update`` also reads
 ``--summaries``) and appends `` — <summary>`` to activity lines keyed
 ``<EventType>:<owner/repo>`` and shipped lines keyed ``<repo>@<tag>``.
 The daily Claude workflow regenerates the file whole; this script only ever
-reads it. Summaries render only while the sidecar's top-level ``generated_at``
-is within SUMMARY_STALE_DAYS — if the Claude workflow dies, the whole file
-ages out and every line degrades to today's plain form. A missing sidecar is
-the normal no-Claude steady state; a malformed one warns and renders plain.
-Entries are sanitized (first line, comment-safe, capped) so a bad sidecar can
-never corrupt marker splicing.
+reads it, through the sibling ``summaries`` module (the repo-summaries
+plugin's template, committed next to this script). Summaries render only
+while the sidecar's top-level ``generated_at`` is within
+``summaries.SUMMARY_STALE_DAYS`` (10 days) — if the Claude workflow dies, the
+whole file ages out and every line degrades to today's plain form. A missing
+sidecar is the normal no-Claude steady state; a malformed one warns and
+renders plain. Entries are sanitized (first line, comment-safe, capped) so a
+bad sidecar can never corrupt marker splicing.
 """
 
 from __future__ import annotations
@@ -52,6 +54,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from summaries import load_summaries, parse_iso, summary_for
+
 # --- Constants ---
 
 CACHE_DEFAULT = "3600s"
@@ -66,8 +70,6 @@ FEATURED_COUNT = 5
 LANGUAGE_ROWS = 8
 LANGUAGE_BAR_WIDTH = 20
 SUMMARIES_PATH = ".github/profile-summaries.json"
-SUMMARY_MAX_LEN = 120
-SUMMARY_STALE_DAYS = 10
 
 DEFAULT_GATES = {
     "min_stars_badge": 30,
@@ -135,14 +137,6 @@ def _now() -> datetime:
 
 def _iso(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def parse_iso(stamp: str) -> datetime | None:
-    """Parse a GitHub ISO-8601 timestamp ('Z' suffix); None on garbage."""
-    try:
-        return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        return None
 
 
 def _parse_paginated(text: str) -> list[dict]:
@@ -285,59 +279,6 @@ def shipped_cutoff(now: datetime, gates: dict) -> datetime:
     return now - timedelta(days=30 * gates["shipped_window_months"])
 
 
-# --- Summaries sidecar (Claude-written one-liners; this script only reads) ---
-
-
-def load_summaries(path: Path) -> dict:
-    """The sidecar dict, or {} when absent (the normal no-Claude steady state,
-    silent) or unreadable (warned — a broken sidecar must never block a run)."""
-    try:
-        raw = json.loads(path.read_text())
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError):
-        print(f"WARN: unreadable summaries at {path}; rendering without them", file=sys.stderr)
-        return {}
-    if not isinstance(raw, dict):
-        print(f"WARN: unreadable summaries at {path}; rendering without them", file=sys.stderr)
-        return {}
-    return raw
-
-
-def summaries_fresh(summaries: dict, now: datetime) -> bool:
-    """The whole file ages out together: if the daily Claude pass stops bumping
-    generated_at, every summary degrades to a plain line at once. A naive stamp
-    counts as UTC (the sidecar is LLM-written — drift must degrade, not crash);
-    a stamp more than a day in the future counts as broken, not immortal."""
-    generated = parse_iso(summaries.get("generated_at", ""))
-    if generated is None:
-        return False
-    if generated.tzinfo is None:
-        generated = generated.replace(tzinfo=timezone.utc)
-    return timedelta(days=-1) <= now - generated <= timedelta(days=SUMMARY_STALE_DAYS)
-
-
-def _clean_summary(value: object) -> str:
-    """First line, collapsed whitespace, comment-safe, capped — the sidecar is
-    repo content anyone could edit, so it never gets to break marker splicing."""
-    if not isinstance(value, str) or not value.strip():
-        return ""
-    line = " ".join(value.strip().splitlines()[0].split())
-    if "<!--" in line or "-->" in line:
-        return ""
-    return line[:SUMMARY_MAX_LEN].rstrip()
-
-
-def _summary_for(summaries: dict | None, group: str, key: str, now: datetime) -> str:
-    if not summaries or not summaries_fresh(summaries, now):
-        return ""
-    entries = summaries.get(group)
-    entry = entries.get(key) if isinstance(entries, dict) else None
-    if not isinstance(entry, dict):
-        return ""
-    return _clean_summary(entry.get("summary"))
-
-
 # --- Section renderers (pure; deterministic given dossier + gates + now) ---
 
 
@@ -388,7 +329,7 @@ def render_shipped(dossier: dict, gates: dict, now: datetime, summaries: dict | 
             continue
         label = f"{release['repo']} {release.get('tag', '')}".strip()
         line = f"- `{release['published_at'][:10]}` [{label}]({release['url']})"
-        summary = _summary_for(summaries, "shipped", f"{release['repo']}@{release.get('tag', '')}", now)
+        summary = summary_for(summaries, "shipped", f"{release['repo']}@{release.get('tag', '')}", now)
         name = release.get("name", "")
         if summary:
             line += f" — {summary}"
@@ -408,7 +349,7 @@ def render_activity(dossier: dict, gates: dict, now: datetime, summaries: dict |
             f"- `{event['created_at'][:10]}` {EVENT_VERBS.get(event['type'], EVENT_VERB_DEFAULT)} "
             f"[{event['repo']}](https://github.com/{event['repo']})"
         )
-        if summary := _summary_for(summaries, "activity", f"{event['type']}:{event['repo']}", now):
+        if summary := summary_for(summaries, "activity", f"{event['type']}:{event['repo']}", now):
             line += f" — {summary}"
         lines.append(line)
     total = dossier.get("contributions", {}).get("total_last_year", 0)
