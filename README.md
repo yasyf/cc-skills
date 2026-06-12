@@ -1,5 +1,7 @@
 # skills
 
+![cc-skills banner](docs/assets/readme-banner.webp)
+
 A [Claude Code](https://claude.com/claude-code) plugin marketplace of small,
 focused skills. Each plugin installs independently.
 
