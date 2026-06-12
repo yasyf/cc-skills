@@ -297,14 +297,17 @@ Then, optionally, publish and wire one-time setups:
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
-  no API for it — drive the web UI with `agent-browser` (needs a
-  GitHub-authenticated browser session): `open
-  https://github.com/{owner}/{repo}/settings`, `snapshot -i`, then `upload` the
-  file into the Social preview file input (click its **Edit** button first if
-  the input isn't in the snapshot). Verify with
+  no API for it — drive the user's signed-in Chrome via the Claude in Chrome
+  tools (user runs `/chrome` to connect). `navigate` to
+  `https://github.com/{owner}/{repo}/settings`, then `javascript_tool`: fetch
+  the just-pushed card same-origin
+  (`/{owner}/{repo}/raw/main/docs/assets/social-preview.jpg`), wrap it in a
+  `DataTransfer`, assign to `#repo-image-file-input`, and dispatch a bubbling
+  `change` event — the page uploads it (the commit must be pushed first; the
+  bytes never leave the browser). Verify with
   `gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { usesCustomOpenGraphImage } }'`
-  — it flips to `true` (re-check after ~30s for cache). No authenticated
-  session? Ask the user to upload it by hand (repo Settings → Social preview).
+  — it flips to `true` (re-check after ~30s for cache). No Chrome connection?
+  Ask the user to upload it by hand (repo Settings → Social preview).
 
 **Exit criteria:** commits made; for a published repo, remote created with description
 (and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
