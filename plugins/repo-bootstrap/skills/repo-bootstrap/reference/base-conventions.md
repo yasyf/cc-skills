@@ -29,11 +29,19 @@ The single canonical agent-conventions doc. Section by section:
   edits), inline every comment verbatim with anchors, cluster >5 comments into
   themes, end with a `# | file:line | verbatim | cluster` mapping table, and never
   implement before `ExitPlanMode`.
-- **Parallelize Independent Work.** Keep verbatim. Stance: sequential is the
-  exception — when unsure, fan out. Dispatch ladder, cheapest first: batch
-  independent tool calls in one message, parallel subagent calls for ad-hoc
-  investigations, dynamic workflow for substantive multi-step work, `TeamCreate`
-  for long-running peers; single-step exception acts directly.
+- **Parallelize Independent Work.** Keep verbatim. Stance: the main session is an
+  orchestrator, not an executor — sequential is the exception; when unsure, fan
+  out. Dispatch ladder, cheapest first: batch independent tool calls in one
+  message, parallel subagent calls for ad-hoc investigations, dynamic workflow as
+  the default for substantive multi-step work (detailed in CLAUDE.md § Plan
+  Execution & Orchestration), `TeamCreate` for long-running peers; the
+  single-step exception still routes through one subagent call, never the
+  orchestrator acting directly.
+- **Writing Plans.** Keep verbatim. The five-part plan shape (Context, Approach,
+  Potential Pitfalls, Workflow Plan, Verification). The Workflow Plan part is
+  required in every plan — `Phase | Shape | Agents | Verification` table, or one
+  line saying everything stays at the main-agent level; a plan without it is
+  incomplete.
 - **Code Search.** Keep verbatim; it depends on `.mcp.json` (below). The decision
   table: `semble.search` for intent/symbol questions ("How do we do X?",
   "Where is `Foo` defined?"), `semble.find_related` for "code like this", LSP
@@ -62,8 +70,13 @@ belong in the shared AGENTS.md:
   questions AGENTS.md § Ask Before Assuming calls for (concrete picks beat inline prose).
 - `## Task Tracking` — the `pending → in_progress → completed` flow via `TaskCreate`/
   `TaskUpdate`; cited by the `tasks.py` Stop gate (keep the heading in sync with that hook).
+- `## Plan Execution & Orchestration` — keep verbatim. The session-level orchestrator
+  contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
+  authorization); only trivial edits, single reads, and single targeted lookups stay
+  at the main-agent level; every delegated agent runs at max model/effort; every plan
+  carries the `## Workflow Plan` section AGENTS.md § Writing Plans requires.
 
-Keep both terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
+Keep all three terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 
 ## STYLEGUIDE.md
 

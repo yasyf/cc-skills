@@ -152,7 +152,7 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | Destination | Layer | Notes |
 |---|---|---|
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
-| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is just `@AGENTS.md`; `.gitignore` gains python entries when layered; `LICENSE` omitted with license `none` |
+| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python entries when layered; `LICENSE` omitted with license `none` |
 | `.mcp.json` | base | semble code search via uvx |
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |

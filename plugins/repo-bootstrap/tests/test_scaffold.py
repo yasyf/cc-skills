@@ -320,6 +320,15 @@ def test_great_docs_pypi_widget_follows_feature(py_var_pairs):
     assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0]["great-docs.yml"]
 
 
+@pytest.mark.parametrize("layer", ["base", "python"])
+def test_real_templates_render_orchestrator_conventions(layer, base_var_pairs, py_var_pairs):
+    plan, _ = _real_plan(layer, base_var_pairs if layer == "base" else py_var_pairs)
+    assert "## Plan Execution & Orchestration" in plan["CLAUDE.md"]
+    assert "one subagent call is fine" in plan["AGENTS.md"]
+    assert "required in every plan" in plan["AGENTS.md"]
+    assert "act directly" not in plan["AGENTS.md"]
+
+
 def test_render_plan_unrendered_placeholder_raises():
     r = scaffold.resolve("base", [], [], [
         "PROJECT_NAME=demo", "DESCRIPTION=d", "AUTHOR_NAME=a",

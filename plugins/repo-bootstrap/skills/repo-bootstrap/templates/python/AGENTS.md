@@ -46,10 +46,10 @@ Sequential is the exception, not the default. Two steps that don't consume each 
 
 - **Batch tool calls in one message** — the cheapest parallelism and the most missed. Independent reads, greps, globs, and read-only Bash go in a *single* message, never one per turn.
 - **Parallel subagent calls in one message** — ad-hoc independent investigations: "explore X while I check Y", multi-file reviews, independent edits. One message, N `Agent` tool uses, results gathered in parallel.
-- **Dynamic workflow** — substantive multi-step work; the script holds the loop, branching, and intermediate results.
+- **Dynamic workflow** — default for substantive multi-step work; the script holds the loop, branching, and intermediate results. See CLAUDE.md `## Plan Execution & Orchestration`.
 - **Named team** — long-running peers needing agent-to-agent handoffs mid-run, via `TeamCreate`.
 
-Single-step exception: one task, no parallel sibling, no follow-on → act directly.
+Single-step exception: one task, no parallel sibling, no follow-on → one subagent call is fine.
 
 ## Writing Plans
 
@@ -58,7 +58,7 @@ When you write a plan — in plan mode, or any "here's what I'll do" before you 
 - **Context** — why this change: the problem or need, what prompted it, the intended outcome.
 - **Approach** — the recommended approach only (not every alternative you weighed), as ordered steps. Name the critical files to touch; for a pattern repeated across many files, describe it once with a few representative paths instead of listing them all. Cite existing utilities/patterns you'll reuse, with their paths.
 - **Potential Pitfalls** — the sharp edges specific to this work: ordering constraints, code that looks safe to change but isn't, prior art that must not be "fixed", state that diverges from how it's described. One bullet each — front-load the gotchas you'd otherwise hit mid-implementation.
-- **Workflow Plan** — only when the work fans out across subagents or workflows. One line on what the main agent alone does (track state, dispatch, decide, report), then a `Phase | Shape | Agents | Verification` table: Shape is `pipeline` / `parallel` / `loop`; Verification names the check that gates each phase's output.
+- **Workflow Plan** — required in every plan; a plan without it is incomplete. One line on what the main agent alone does (track state, dispatch, decide, report), then a `Phase | Shape | Agents | Verification` table covering every fan-out the plan anticipates: Shape is `pipeline` / `parallel` / `loop`; Verification names the check that gates each phase's output. When nothing fans out, one line saying everything stays at the main-agent level replaces the table.
 - **Verification** — how to prove it works end to end: the exact commands to run, tests to add, and behavior to observe.
 
 ## Code Search
