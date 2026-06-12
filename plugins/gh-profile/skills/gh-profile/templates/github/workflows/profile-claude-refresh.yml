@@ -31,7 +31,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           plugin_marketplaces: |
-            https://github.com/yasyf/cc-skills
+            https://github.com/yasyf/cc-skills.git
           plugins: |
             gh-profile@skills
           prompt: /gh-profile:refresh

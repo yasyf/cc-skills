@@ -76,6 +76,8 @@ Mechanics worth knowing:
   subprocesses authenticate inside Bash steps.
 - `@skills` is the marketplace name from cc-skills'
   `.claude-plugin/marketplace.json` — not `@cc-skills`.
+- The `plugin_marketplaces` URL must end in `.git` — the action validates
+  the suffix and fails the run otherwise.
 - The run can race the 6-hourly mechanical refresh; the refresh skill
   rebases and re-renders once on a rejected push.
 - Cost knob: the cron line. Daily keeps push summaries current (the digest
