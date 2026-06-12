@@ -123,8 +123,8 @@ technical-builder voice governs the pitch and why-bullets; procedure steps stay
 imperative.
 
 1. **Banner** — `![{PROJECT_NAME} banner](docs/assets/readme-banner.webp)` directly
-   under the H1, generated during bootstrap by the skill's `genimages.py`
-   (project name + tagline left, mascot right, dark background).
+   under the H1, generated during bootstrap by the gen-image skill's brand
+   pipeline (project name + tagline left, mascot right, dark background).
    With feature `pypi` the python template renders an absolute
    `{REPO_URL}/raw/main/` prefix so PyPI shows it too — relative paths never
    render on PyPI. Delete the line if image generation was skipped.

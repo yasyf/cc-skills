@@ -170,7 +170,7 @@ whole-project type warnings — never blocking — on every commit).
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
-| `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via `scripts/genimages.py` (OpenAI Images API); the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
+| `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
@@ -178,8 +178,11 @@ LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
 
 ## Phase 3 — Brand images (mascot + banner + social card)
 
-Every repo gets three generated brand assets, created by the bundled `genimages.py`
-script via the OpenAI Images API (requires `OPENAI_API_KEY`):
+Every repo gets three generated brand assets, produced by the **`gen-image`
+skill's** brand pipeline — apply that skill for this phase; it owns the image
+CLI, API-key resolution, model choice, and compression. If the gen-image plugin
+is not installed, install it from this marketplace (`gen-image@skills`,
+marketplace `yasyf/cc-skills`) or apply the **No brand images** escape hatch.
 
 - `docs/assets/logo.png` — square 1024x1024 mascot character, transparent
   background. With feature `docs`, Great Docs auto-detects it as the navbar logo
@@ -188,46 +191,35 @@ script via the OpenAI Images API (requires `OPENAI_API_KEY`):
 - `docs/assets/readme-banner.webp` — wide 1536x512 dark banner: project name and
   tagline on the left, the same mascot on the right. The scaffolded README
   already references it.
-- `docs/assets/social-preview.jpg` — 1536x768 (2:1) social card cropped from the
-  same banner generation; Phase 6 uploads it as the repo's GitHub social preview
+- `docs/assets/social-preview.jpg` — 1536x768 (2:1) social card from the same
+  banner generation; Phase 6 uploads it as the repo's GitHub social preview
   (GitHub accepts only PNG/JPG/GIF under 1 MB there — hence JPEG).
 
-Every output is lossy-compressed locally to under 1 MiB (quantized PNG logo,
-WebP banner, JPEG social card) — small enough for jj's snapshot limit and
-GitHub's upload cap, visually identical for flat illustration.
+gen-image compresses every output to under 1 MiB locally — small enough for
+jj's snapshot limit and GitHub's upload cap.
 
-`OPENAI_API_KEY` not in the environment? Fetch it from 1Password first:
-
-```bash
-export OPENAI_API_KEY=$(op read "op://OpenClaw/OpenAI API Key/notesPlain")
-```
-
-Default-on for every layer. Skip only when the user declines or no key is
-available (neither the environment nor 1Password) — then apply the **No brand
-images** escape hatch instead of leaving a dangling README reference.
+Default-on for every layer. Skip only when the user declines or gen-image's key
+resolution comes up empty (its SKILL.md owns the chain) — then apply the **No
+brand images** escape hatch instead of leaving a dangling README reference.
 
 Pick the mascot concept first: a cute character that puns on the project's name or
-purpose (a crab for a fleet tool, an octopus for an orchestrator). Then, from the
-repo root:
+purpose (a crab for a fleet tool, an octopus for an orchestrator). Then invoke the
+gen-image skill's `brand` pipeline from the repo root:
 
-```bash
-uv run ${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/genimages.py \
-  --name PROJECT_NAME --tagline "DESCRIPTION" --concept "MASCOT_CONCEPT" \
+```
+brand --name PROJECT_NAME --tagline "DESCRIPTION" --concept "MASCOT_CONCEPT" \
   --out-dir docs/assets
 ```
 
-The script generates the mascot first, composes a 1536x1024 banner source from it
-through the images-edits endpoint so the character matches, then center-crops the
-source twice: the middle 1536x512 band → `readme-banner.webp`, the middle
-1536x768 band → `social-preview.jpg`. It prints every output path.
+It generates the mascot first, composes the banner from it so the character
+matches, writes all three files above, and prints every output path.
 
 **View all three files with Read** — re-run with a refined `--concept` if the
 mascot misses, or regenerate if the in-image name/tagline text is wrong. On a
 re-run where all three files already exist, skip unless the user asked for a
 regeneration. Retrofitting a repo that already has a logo but no social card?
-Re-run with `--from-logo` — it reads the existing `logo.png` (re-encoding it in
-place if it exceeds 1 MiB) and regenerates only banner + social card
-(`--concept` not needed).
+Re-run with `--from-logo` — it reuses the existing `logo.png` and regenerates
+only banner + social card (`--concept` not needed).
 
 **Exit criteria:** `docs/assets/logo.png` (square, transparent),
 `docs/assets/readme-banner.webp` (1536x512), and `docs/assets/social-preview.jpg`

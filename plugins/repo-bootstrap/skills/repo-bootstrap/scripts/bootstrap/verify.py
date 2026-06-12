@@ -84,7 +84,7 @@ def _missing_banner_note() -> str | None:
         return None
     return (
         "README references docs/assets/readme-banner but the file is missing"
-        " — generate it (brand-images phase, scripts/genimages.py) or remove the reference"
+        " — generate it (brand-images phase, gen-image skill brand pipeline) or remove the reference"
     )
 
 
@@ -99,7 +99,7 @@ def _missing_social_note() -> str | None:
         return None
     return (
         "docs/assets/social-preview.jpg is missing — generate it"
-        " (scripts/genimages.py --from-logo) so the GitHub social preview can be set"
+        " (gen-image skill: brand --from-logo) so the GitHub social preview can be set"
     )
 
 
