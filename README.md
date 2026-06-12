@@ -15,7 +15,8 @@ focused skills. Each plugin installs independently.
 | `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
 | `writing-docs` | Write docs in Diataxis modes with a technical-builder voice, runnable code-sample rules, and a slop-cop prose pass. | None; `slop-cop` recommended for the prose pass. |
 | `gen-image` | Generate project images — mascot logos, README banners (dark/light), social cards, illustrations — compressed locally to under 1 MiB. | `uv`; an `OPENAI_API_KEY` (the `codex` plugin's `$imagegen` is the no-key fallback). |
-| `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh and an opt-in daily Claude refresh that summarizes recent commits and releases. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner. |
+| `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh and an opt-in daily Claude refresh that summarizes recent commits and releases. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner; `repo-summaries` for the daily Claude refresh. |
+| `repo-summaries` | Maintain a Claude-written summaries sidecar in any repo: a committed read-side module plus a config-driven daily refresh skill that turns real commit and release data into one-line suffixes. | `gh` for the raw-material recipes. |
 
 ## Install
 
@@ -111,8 +112,24 @@ installs this plugin fresh from the marketplace and runs its `refresh` skill,
 summarizing your recent commits and releases into the activity and shipped
 lines ("Pushed to cc-review — built the realtime inline-comment web UI").
 Updates are non-destructive: only marker-delimited sections are regenerated,
-hand-written prose is never touched. Say "make my GitHub profile fancy" or
-"refresh my profile README".
+hand-written prose is never touched. The summaries machinery comes from the
+`repo-summaries` plugin — gh-profile is its reference consumer. Say "make my
+GitHub profile fancy" or "refresh my profile README".
+
+## repo-summaries
+
+The sidecar pattern behind gh-profile's summary lines, packaged for any repo
+with a rendered surface that wants Claude-written one-liners. Consumers commit
+two things: the plugin's stdlib-only `summaries.py` module (their render
+script reads the sidecar through it — whole-file staleness gate, sanitizing,
+key matching, so a dead Claude workflow degrades lines to plain instead of
+lying) and a `.github/summaries.config.json` describing their groups, keys,
+raw-material recipes, and render command. The `/repo-summaries:refresh` skill
+then runs headless on a schedule: it gathers real commit and release data per
+the config, rewrites the sidecar whole (unchanged entries are reused verbatim,
+vanished keys are pruned), and re-renders. A strict flattery law governs every
+summary: each word traces to commit subjects, PR titles, or release content,
+and uninformative material gets no entry at all.
 
 ## License
 

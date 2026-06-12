@@ -1,0 +1,10 @@
+{
+  "name": "repo-summaries",
+  "description": "Maintain a Claude-written summaries sidecar in any repo: a stdlib-only template module (summaries.py — whole-file staleness gate, sanitizing, key matching) that consumer render scripts commit and read, plus a config-driven headless refresh skill that rewrites the sidecar whole from real commit/release data with reuse-before-rewrite and a strict flattery law. Consumers describe their groups, raw-material recipes, and render command in .github/summaries.config.json; the gh-profile plugin is the reference consumer.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}

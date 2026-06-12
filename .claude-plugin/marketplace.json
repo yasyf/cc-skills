@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), repo scaffolding (repo-bootstrap), image generation (gen-image), and GitHub profile READMEs (gh-profile).",
+  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), repo scaffolding (repo-bootstrap), image generation (gen-image), GitHub profile READMEs (gh-profile), and Claude-maintained summaries sidecars (repo-summaries).",
   "owner": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
@@ -40,6 +40,11 @@
       "name": "gh-profile",
       "source": "./plugins/gh-profile",
       "description": "Create or refresh a fancy GitHub profile README from your real repos and activity — AI banner, snake animation, cron Actions, and a daily Claude refresh that summarizes recent commits and releases."
+    },
+    {
+      "name": "repo-summaries",
+      "source": "./plugins/repo-summaries",
+      "description": "Maintain a Claude-written summaries sidecar in any repo — a committed read-side module plus a config-driven daily refresh skill that summarizes real commit and release data into one-line suffixes."
     }
   ]
 }
