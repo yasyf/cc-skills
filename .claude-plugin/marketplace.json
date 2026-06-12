@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), and repo scaffolding (repo-bootstrap).",
+  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), repo scaffolding (repo-bootstrap), image generation (gen-image), and GitHub profile READMEs (gh-profile).",
   "owner": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
@@ -30,6 +30,16 @@
       "name": "writing-docs",
       "source": "./plugins/writing-docs",
       "description": "Apply Diataxis modes, a technical-builder voice, and a slop-cop prose-lint pass when writing project documentation, READMEs, tutorials, how-tos, or reference."
+    },
+    {
+      "name": "gen-image",
+      "source": "./plugins/gen-image",
+      "description": "Generate project images — mascot logos, README banners (dark/light), social cards, illustrations — via the OpenAI Images API with local under-1MiB compression."
+    },
+    {
+      "name": "gh-profile",
+      "source": "./plugins/gh-profile",
+      "description": "Create or refresh a fancy GitHub profile README from your real repos and activity — AI banner, snake animation, and cron Actions that keep it fresh."
     }
   ]
 }

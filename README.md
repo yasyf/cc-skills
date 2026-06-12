@@ -11,9 +11,11 @@ focused skills. Each plugin installs independently.
 | ---------- | ---------------------------------------------------------------------------- | ------------- |
 | `slop-cop` | Check a file or text for LLM-generated prose tells and report the violations. | None; a `SessionStart` hook bootstraps its prebuilt binary. |
 | `codex`    | Get a second opinion from OpenAI's Codex CLI on hard debugging or design problems, or generate images with its `$imagegen` skill. | The `codex` CLI on `PATH`. |
-| `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended. |
+| `repo-bootstrap` | Scaffold a new repo with proven conventions: agent docs, Claude Code settings, guard hooks, plus an opinionated Python packaging layer. | `uv` (for the hooks and the Python layer); `gh` recommended; `gen-image` for brand images. |
 | `llm-prompts` | Guidance for writing effective LLM prompts and agent instructions, refreshed with current per-provider model behaviors. | None; `slop-cop` recommended for the post-edit prose check. |
 | `writing-docs` | Write docs in Diataxis modes with a technical-builder voice, runnable code-sample rules, and a slop-cop prose pass. | None; `slop-cop` recommended for the prose pass. |
+| `gen-image` | Generate project images — mascot logos, README banners (dark/light), social cards, illustrations — compressed locally to under 1 MiB. | `uv`; an `OPENAI_API_KEY` (the `codex` plugin's `$imagegen` is the no-key fallback). |
+| `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner. |
 
 ## Install
 
@@ -56,7 +58,7 @@ OpenAI Codex CLI installed and authenticated on your machine.
 Scaffolds a new repo with conventions that work out of the box, so you skip the
 first day of setup. Every repo gets a base layer: agent docs
 (AGENTS.md/CLAUDE.md/STYLEGUIDE.md), a README skeleton, a generated mascot logo
-and README banner (OpenAI Images API), Claude Code settings,
+and README banner (via the `gen-image` plugin), Claude Code settings,
 [semble](https://pypi.org/project/semble/) code search, and
 [capt-hook](https://github.com/yasyf/captain-hook) guard hooks. Python projects
 also get an opinionated packaging layer: uv with the `uv_build` backend, a Click
@@ -81,6 +83,32 @@ write narrative prose in a technical-builder voice (first-person, confident,
 hands-on), keep every code sample runnable, and finish with a triaged
 `slop-cop` pass. `repo-bootstrap` enables it in scaffolded repos and applies it
 when filling in README and docs-site prose at bootstrap time.
+
+## gen-image
+
+The marketplace's shared image generator. One CLI covers the raw primitive
+("generate this prompt at this size") and three presets: a transparent mascot
+logo, a wide README banner in dark and light variants, and the full brand
+pipeline (logo, banner, GitHub social card) that `repo-bootstrap` uses. Every
+output is lossy-compressed locally to under 1 MiB — quantized PNG for logos,
+WebP for banners, JPEG for social cards. Ask for "a logo for this project" or
+"a dark/light README banner", or let `repo-bootstrap` and `gh-profile` call it
+for you. Needs an `OPENAI_API_KEY`; without one it falls back to the `codex`
+plugin's `$imagegen`.
+
+## gh-profile
+
+Builds the special `<username>/<username>` repo whose README renders on your
+GitHub profile page. It harvests your real repos, stars, languages, pinned
+projects, releases, and recent activity into a dossier, interviews you briefly
+for voice (tagline, current focus, fun facts), then composes an opinionated
+README: AI banner, flagship projects, categorized project lists, a
+recently-shipped feed, a skill-icon grid, and a snake contribution animation.
+A small updater script committed into the repo re-renders the data sections on
+a cron Action — no Claude required — and a flattery gate hides any stat that
+doesn't impress (low star counts never show). Updates are non-destructive:
+only marker-delimited sections are regenerated, hand-written prose is never
+touched. Say "make my GitHub profile fancy" or "refresh my profile README".
 
 ## License
 
