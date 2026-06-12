@@ -1,0 +1,10 @@
+{
+  "name": "gen-image",
+  "description": "Generate project images — mascot logos, README banners (dark/light), social cards, arbitrary illustrations — via the OpenAI Images API with local <1MiB compression. Used standalone or by repo-bootstrap and gh-profile.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}

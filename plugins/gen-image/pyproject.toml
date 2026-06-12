@@ -1,0 +1,18 @@
+# Dev/test environment for the gen-image skill ITSELF.
+# The shipped CLI (skills/gen-image/scripts/genimage.py) runs standalone via its
+# uv inline-deps header — this harness exists only so pytest can import the lib.
+[project]
+name = "gen-image-dev"
+version = "0.0.0"
+description = "Test harness for the gen-image skill engine"
+requires-python = ">=3.11"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["pytest>=8", "pillow>=10", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["skills/gen-image/scripts"]
