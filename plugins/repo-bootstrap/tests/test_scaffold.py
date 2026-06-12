@@ -82,6 +82,17 @@ def test_release_workflow_gates_build_on_tag_on_main(templates_dir):
     assert "  build:\n    needs: verify-tag-on-main\n" in wf
 
 
+def test_ty_runs_via_prek_hook_warning_only(templates_dir):
+    cfg = (templates_dir / "python/pre-commit-config.yaml").read_text()
+    assert "astral-sh/ty-pre-commit" in cfg
+    assert "- id: ty" in cfg
+    ci = (templates_dir / "python/github/workflows/ci.yml").read_text()
+    assert "uvx prek run ty --all-files" in ci
+    py = (templates_dir / "python/pyproject.toml").read_text()
+    assert "ty>=" not in py  # the hook rev, not the dev extra, pins ty
+    assert 'all = "warn"' in py  # warning-only: ty never blocks
+
+
 def test_extras_gating(base_var_pairs):
     assert ".env" not in dests("base", base_var_pairs)
     assert ".env" in dests("base", base_var_pairs, extras=["env"])

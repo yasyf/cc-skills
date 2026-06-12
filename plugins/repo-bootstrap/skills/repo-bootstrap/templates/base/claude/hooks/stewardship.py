@@ -164,7 +164,7 @@ nudge(
         threshold=4,
         window=10,
     ),
-    skip_if=[RanCommand(r"(?:uv run ty check|uvx pyright)")],
+    skip_if=[RanCommand(r"(?:uv run ty check|uvx ty check|(?:uvx )?prek run (?:ty\b|--all-files)|uvx pyright)")],
     tests={
         Input(
             transcript=[

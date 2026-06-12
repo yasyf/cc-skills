@@ -28,7 +28,6 @@ dev = [
     "anyio>=4",
     "pytest>=8.0",
     "ruff>=0.8",
-    "ty>=0.0.44",
 ]
 
 [project.scripts]
@@ -60,16 +59,21 @@ markers = [
     "integration: Integration tests",
 ]
 
-# ty (Astral) is the default type checker — run `uv run ty check {{PACKAGE}}`.
+# ty (Astral) is the default type checker. It runs on every commit via the prek
+# hook (astral-sh/ty-pre-commit — the hook rev pins the ty version) and in CI,
+# warnings only, never blocking. Ad hoc: `uvx prek run ty --all-files`.
 # It is fast, understands modern syntax, and avoids the strict-pyright false
 # positives on pydantic/attrs-style dynamic defaults and PK-type overrides.
 [tool.ty.rules]
+# Every diagnostic surfaces as a warning: ty exits 0 and never blocks a commit or CI.
+all = "warn"
 # Keep cross-checker `# type: ignore` / `# pyright: ignore` comments from tripping ty.
 unused-type-ignore-comment = "ignore"
 unresolved-import = "ignore"
 
 # pyright is kept as a secondary checker (editors / `uvx pyright`). Basic mode plus
-# a few disables covers the noise; ty is the gate that runs in CI.
+# a few disables covers the noise; ty is the default checker, surfaced as warnings
+# at commit time and in CI.
 [tool.pyright]
 pythonVersion = "{{PYTHON_MIN}}"
 typeCheckingMode = "basic"

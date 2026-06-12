@@ -51,10 +51,12 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
 (`>=`), no upper bounds: upper-capping libraries causes resolver gridlock downstream.
 
 **`[project.optional-dependencies].dev`** vs **`[dependency-groups].docs`** — deliberate split:
-- `dev = ["anyio>=4", "pytest>=8.0", "ruff>=0.8", "ty>=0.0.44"]` is an *extra*: it ships in dist
+- `dev = ["anyio>=4", "pytest>=8.0", "ruff>=0.8"]` is an *extra*: it ships in dist
   metadata, so contributors and CI install it with `uv sync --extra dev` and consumers
-  could `pip install <dist>[dev]`. ty is the installed type checker; pyright is config-only
-  (run on demand via `uvx pyright` or an editor extension).
+  could `pip install <dist>[dev]`. ty is **not** in the extra: the ty-pre-commit hook rev
+  pins its version and supplies it at run time — run it ad hoc with
+  `uvx prek run ty --all-files`. pyright is config-only (run on demand via `uvx pyright`
+  or an editor extension).
 - `docs = ["griffelib>=2.0", "great-docs @ git+...@main"]` is a PEP 735 *dependency group*:
   uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with
   `uv run great-docs build`, preview with `uv run great-docs preview`. great-docs is pinned to
@@ -96,20 +98,27 @@ bundles the pytest plugin) in the dev extra, and `tests/conftest.py` pins the as
 backend — so async tests run with no extra wiring. This house is async-native and
 centralizes on `anyio`, not `pytest-asyncio` (see § Async by Default).
 
-**`[tool.ty.rules]` + `[tool.pyright]`** — **ty (Astral) is the default type checker**; CI runs
-`uv run ty check <package>`. ty is fast, handles modern syntax, and avoids the strict-pyright
-false positives that pydantic/beanie patterns provoke — dynamic defaults
-(`Field(default_factory=list)` → `list[Unknown]`) and PK-type overrides (`id: UUID` on a beanie
-`Document` → `reportIncompatibleVariableOverride`). `[tool.ty.rules]` only silences
-`unused-type-ignore-comment` so cross-checker `# pyright: ignore` comments don't trip ty. pyright
+**`[tool.ty.rules]` + `[tool.pyright]`** — **ty (Astral) is the default type checker**; it runs
+on every commit via the prek hook (`astral-sh/ty-pre-commit` in `.pre-commit-config.yaml` — the
+rev pins the ty version, `uvx prek autoupdate` bumps it) and re-runs in CI
+(`uvx prek run ty --all-files`), since prek activation is opt-in per clone. In both places it is
+**warning-only, never blocking**: `[tool.ty.rules]` sets `all = "warn"`, ty exits nonzero only on
+error-level diagnostics, so warnings print and the commit/CI step proceeds. ty is fast, handles
+modern syntax, and avoids the strict-pyright false positives that pydantic/beanie patterns
+provoke — dynamic defaults (`Field(default_factory=list)` → `list[Unknown]`) and PK-type
+overrides (`id: UUID` on a beanie `Document` → `reportIncompatibleVariableOverride`). Beyond
+`all = "warn"`, `[tool.ty.rules]` only silences `unused-type-ignore-comment` so cross-checker
+`# pyright: ignore` comments don't trip ty. pyright
 stays as a secondary (editors / `uvx pyright`) in `typeCheckingMode = "basic"` with the
 `reportUnknown*` and `reportIncompatibleVariableOverride` family set to `none` — pure noise on
 typed pydantic code. `pythonVersion` is the floor; `include` scopes to the package (tests excluded
 — test code mocks freely); `venvPath`/`venv` point pyright at uv's env. Fix real type errors;
 don't reach for `Any`. Inside Claude Code sessions `.claude/settings.json` sets
 `TY_CONFIG_FILE = .claude/ty-quiet.toml` (`[rules] all = "ignore"`), so ty emits zero diagnostics
-and the agent can't thrash on noise; CI (`uv run ty check`) and editors run without that session
-env and see the real config above. (bioqa disables a longer list — `reportMissingImports`,
+and the agent can't thrash on noise — the commit hook inherits that env too (git runs hooks from
+the repo root, so the relative path resolves), keeping in-session commits silent. Commits made
+outside Claude sessions, CI, and editors see the real config above and get the warnings. (bioqa
+disables a longer list — `reportMissingImports`,
 `reportAttributeAccessIssue`, … — because its monorepo pulls many untyped scientific deps; a clean
 package needs only the override/unknown-type silences.)
 
@@ -117,9 +126,9 @@ package needs only the override/unknown-type silences.)
 `src = [".", "tests"]` for import-order resolution, and `select = ["E", "F", "I", "UP"]`:
 pycodestyle errors, pyflakes, import sort, and pyupgrade. Deliberately small — style
 judgment lives in STYLEGUIDE.md and review, not lint rules. Per AGENTS.md: the prek commit
-hook (`.pre-commit-config.yaml`, `astral-sh/ruff-pre-commit`) owns ruff — it auto-formats and
-fixes import order on every commit; never run ruff manually during a task. CI does not run
-ruff; the commit hook is the only mechanical-lint gate.
+hooks (`.pre-commit-config.yaml`: `astral-sh/ruff-pre-commit` + `astral-sh/ty-pre-commit`) own
+ruff — auto-formatting and fixing import order on every commit; never run ruff manually during
+a task. CI does not run ruff; the commit hook is the only mechanical-lint gate.
 
 ## .python-version vs requires-python
 

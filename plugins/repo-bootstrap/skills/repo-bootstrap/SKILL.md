@@ -144,8 +144,9 @@ Rules:
 - `--dry-run` previews without writing.
 
 For python, follow the scaffold with `uv sync --extra dev` (creates `uv.lock` —
-commit it), `uv run pytest`, and `uvx prek install` to activate the ruff commit
-hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every commit).
+commit it), `uv run pytest`, and `uvx prek install` to activate the commit hooks
+(`.pre-commit-config.yaml`; ruff auto-formats and fixes import order, ty prints
+whole-project type warnings — never blocking — on every commit).
 
 ### What lands where
 
@@ -156,13 +157,13 @@ hook (`.pre-commit-config.yaml`; auto-formats and fixes import order on every co
 | `.mcp.json` | base | semble code search via uvx |
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
-| `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uv run ty check`) and editors run without that env and keep the real `[tool.ty]` config |
+| `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
 | `.claude/hooks/{__init__,commands,stewardship,prompts,docs,tasks}.py` | base | guard hooks (see `reference/hooks.md`) |
 | `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py` | python + feature `docs` | omitted entirely without `docs` |
 | `.github/workflows/ci.yml` | python | always |
-| `.pre-commit-config.yaml` | python | `ruff format` + `check --fix` on every commit via prek; activate with `uvx prek install` |
+| `.pre-commit-config.yaml` | python | `ruff format` + `check --fix` + `ty` warnings (whole-project, non-blocking) on every commit via prek; activate with `uvx prek install` |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |
 | `.github/workflows/release-pypi.yml` | python + feature `pypi` | trusted publishing |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
@@ -306,8 +307,9 @@ Then, optionally, publish and wire one-time setups:
   fails while it remains.
 - **No capt-hook hooks wanted**: delete `.claude/hooks/` and the `"hooks"` block
   from `.claude/settings.json`.
-- **No ruff commit hook wanted**: delete `.pre-commit-config.yaml` (and skip
-  `uvx prek install`).
+- **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
+  `uvx prek install`); to drop only the ty hook, delete its `repo:` block there
+  and the CI ty step.
 - **No Codex**: delete the second-opinion nudge at the bottom of
   `.claude/hooks/commands.py`, plus the `"enabledPlugins"` entry (and
   `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.

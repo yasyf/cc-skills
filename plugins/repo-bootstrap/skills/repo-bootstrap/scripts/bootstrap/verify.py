@@ -96,9 +96,9 @@ def _prek_config() -> tuple[bool, str]:
     if not shutil.which("uvx"):
         return False, "uvx not found — install uv: https://docs.astral.sh/uv/"
     # prepare-hooks parses .pre-commit-config.yaml and resolves/builds the pinned
-    # ruff-pre-commit rev — catching a malformed config or a non-existent rev (the
-    # failure that would break every contributor's commits). Needs a git repo (Phase 0
-    # guarantees one) but no tracked files or commits.
+    # ruff-pre-commit and ty-pre-commit revs — catching a malformed config or a
+    # non-existent rev (the failure that would break every contributor's commits).
+    # Needs a git repo (Phase 0 guarantees one) but no tracked files or commits.
     return _run_cmd(["uvx", "prek", "prepare-hooks"])
 
 

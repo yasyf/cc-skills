@@ -14,6 +14,7 @@ block_command(
         Input(command="ruff format ."): Block(),
         Input(command="prek run --all-files"): Allow(),
         Input(command="uvx prek run --all-files"): Allow(),
+        Input(command="uvx prek run ty --all-files"): Allow(),
     },
 )
 

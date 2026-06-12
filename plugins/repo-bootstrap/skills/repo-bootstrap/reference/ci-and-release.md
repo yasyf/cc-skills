@@ -24,8 +24,11 @@ Steps, in order:
    floating major tag past `v7`, so the pin is exact-semver — at scaffold time, check the
    latest release (`gh api repos/astral-sh/setup-uv/releases/latest`) and bump if newer.
 3. `uv sync --extra dev`
-4. `uv run pytest`
-5. Wheel smoke test:
+4. `uvx prek run ty --all-files` with `continue-on-error: true` — re-runs the ty commit hook
+   (warnings only; `[tool.ty.rules] all = "warn"` already keeps ty's exit code 0) as the
+   backstop for clones that never ran `uvx prek install`
+5. `uv run pytest`
+6. Wheel smoke test:
 
    ```bash
    uv build

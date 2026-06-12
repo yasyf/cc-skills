@@ -19,28 +19,42 @@ The python layer ships **two** unrelated hook systems that both go by "hooks":
 
 - **capt-hook** (everything else in this doc) — gates *Claude-session* tool events
   (`PreToolUse`, `Stop`, …) from `.claude/hooks/*.py`. It never touches git.
-- **The git commit hook** (next section) — runs ruff on `git commit` from
-  `.pre-commit-config.yaml`. It has nothing to do with Claude sessions.
+- **The git commit hooks** (next section) — run ruff and ty on `git commit` from
+  `.pre-commit-config.yaml`. They have nothing to do with Claude sessions.
 
-## Git-level commit hook (prek + ruff)
+## Git-level commit hooks (prek: ruff + ty)
 
-`.pre-commit-config.yaml` pins
-[`astral-sh/ruff-pre-commit`](https://github.com/astral-sh/ruff-pre-commit) and runs
-`ruff check --fix` + `ruff format` on staged files at every `git commit`. It is driven by
+`.pre-commit-config.yaml` pins two Astral hook repos and is driven by
 [prek](https://github.com/j178/prek) — a fast Rust drop-in for pre-commit that reads
 `.pre-commit-config.yaml` unchanged and ships as a single binary, so running it through
-`uvx prek` adds nothing to `pyproject.toml`. Activate it once per clone:
+`uvx prek` adds nothing to `pyproject.toml`:
+
+- [`astral-sh/ruff-pre-commit`](https://github.com/astral-sh/ruff-pre-commit) runs
+  `ruff check --fix` + `ruff format` on staged files.
+- [`astral-sh/ty-pre-commit`](https://github.com/astral-sh/ty-pre-commit) type-checks the
+  **whole project** (the hook entry is `uv check`; the rev pins the ty version). **Warnings
+  only**: `[tool.ty.rules]` sets `all = "warn"`, so diagnostics print (the hook sets
+  `verbose: true` — passing hooks hide output otherwise) and the commit always proceeds.
+  Inside Claude sessions even the warnings are silenced: the hook inherits
+  `TY_CONFIG_FILE=.claude/ty-quiet.toml` from the session env.
+
+Activate once per clone:
 
 ```bash
 uvx prek install
 ```
 
-After that, every commit auto-fixes mechanical issues. When ruff **rewrites** a file the commit
-aborts (prek exits non-zero so you can review the change) — re-`git add` the fixed files and
-commit again. To clean everything up-front instead, run `uvx prek run --all-files` (allowed by
-`toolchain.py`'s ruff guard). The pinned `rev` is the single source of truth for the hook's ruff
-version across every clone — bump it with `uvx prek autoupdate`. CI does **not** run ruff; this
-commit hook is the only mechanical-lint enforcement. To drop it, delete `.pre-commit-config.yaml`.
+After that, every commit auto-fixes mechanical issues and prints type warnings. When ruff
+**rewrites** a file the commit aborts (prek exits non-zero so you can review the change) —
+re-`git add` the fixed files and commit again. To clean everything up-front instead, run
+`uvx prek run --all-files` (allowed by `toolchain.py`'s ruff guard). The pinned `rev`s are the
+single source of truth for the hooks' ruff and ty versions across every clone — bump them with
+`uvx prek autoupdate`. The first commit after `uvx prek install` is slow (prek clones the hook
+repos and builds their envs; cached afterwards). CI does **not** run ruff — the commit hook is
+the only mechanical-lint enforcement — but it **does** re-run the ty hook
+(`uvx prek run ty --all-files`, advisory) as the backstop for clones that never ran
+`uvx prek install`. To drop both hooks, delete `.pre-commit-config.yaml`; to drop only ty,
+delete its `repo:` block and the CI ty step.
 
 ## Hook inventory
 

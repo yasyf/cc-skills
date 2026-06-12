@@ -28,9 +28,9 @@ jobs:
       - name: Sync (dev)
         run: uv sync --extra dev
 
-      - name: Type check (ty)
+      - name: Type check (ty, warnings only)
         continue-on-error: true
-        run: uv run ty check {{PACKAGE}}
+        run: uvx prek run ty --all-files
 
       - name: Test (pytest)
         run: uv run pytest
