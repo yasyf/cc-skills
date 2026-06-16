@@ -168,7 +168,7 @@ section. Tailor the `plans/`/`specs/` scope in the condition, or delete the file
 
 A `Stop` `gate(...)` demanding a correctness + STYLEGUIDE.md review before stopping when the
 session changed source. The `EditedSource` `CustomCondition` fires when any edited file is not
-a test (`is_test`), not prose/config (`NON_SOURCE_GLOBS` — `*.md`, `*.json`, `*.toml`, …), and
+a test (`is_test`), not prose/config (`NON_SOURCE_SUFFIXES` — `.md`, `.json`, `.toml`, …), and
 not under `docs/`, `.claude/`, or `.github/`. `skip_if=[Waiting()]` keeps it quiet while the
 agent waits on background work (see the wait-aware note above). It is the language-agnostic
 counterpart to the python layer's `style.py` gate, so every bootstrapped repo — not just
