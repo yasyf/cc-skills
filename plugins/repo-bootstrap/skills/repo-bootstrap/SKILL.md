@@ -163,8 +163,7 @@ whole-project type warnings — never blocking — on every commit).
 | `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/hooks/{__init__,commands,stewardship,prompts,docs,tasks}.py` | base | guard hooks (see `reference/hooks.md`) |
-| `.claude/hooks/{testing,style,toolchain}.py` | python | pytest gate, style rules, ruff/uv guards |
+| `.claude/hooks/packs.toml` | base; python **overrides** | enables capt-hook's builtin packs — `general` (base), plus `python` on the python layer; the packs ship the guard hooks (see `reference/hooks.md`) |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py` | python + feature `docs` | omitted entirely without `docs` |
 | `.github/workflows/ci.yml` | python | always |
@@ -325,22 +324,25 @@ Then, optionally, publish and wire one-time setups:
   default) scaffolds no license at all; when retrofitting with `none`, delete any
   existing LICENSE by hand — the scaffold never deletes, and `verify --no-license`
   fails while it remains.
-- **No capt-hook hooks wanted**: delete `.claude/hooks/` and the `"hooks"` block
-  from `.claude/settings.json`.
+- **No capt-hook hooks wanted**: delete `.claude/hooks/packs.toml` (or `.claude/hooks/`
+  entirely) and the `"hooks"` block from `.claude/settings.json`.
 - **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
   `uvx prek install`); to drop only the ty hook, delete its `repo:` block there
   and the CI ty step.
-- **No Codex**: delete the second-opinion nudge at the bottom of
-  `.claude/hooks/commands.py`, plus the `"enabledPlugins"` entry (and
-  `"extraKnownMarketplaces"` if nothing else uses it) in `.claude/settings.json`.
+- **No Codex**: the second-opinion nudge ships in the `general` pack — override it with a
+  local `.claude/hooks/commands.py` (a local hook shadows the pack's; see `reference/hooks.md`),
+  then remove the `"enabledPlugins"` entry (and `"extraKnownMarketplaces"` if nothing else
+  uses it) in `.claude/settings.json`.
 - **No brand images**: skip Phase 3 (user declined, or no `OPENAI_API_KEY`) and
   delete the `![<project> banner](...)` line under the README H1. Nothing else to
   clean up — Great Docs simply auto-detects no logo, and `verify` only NOTEs a
   banner the README still references.
-- **No prompt-writing nudge**: delete `.claude/hooks/prompts.py` and the
+- **No prompt-writing nudge**: the nudge ships in the `general` pack — override it with a
+  local `.claude/hooks/prompts.py` (see `reference/hooks.md`), then remove the
   `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`
   `enabledPlugins` (keep `slop-cop@skills` if you keep the docs nudge).
-- **No docs nudge**: delete `.claude/hooks/docs.py` and the `writing-docs@skills`
+- **No docs nudge**: the nudge ships in the `general` pack — override it with a local
+  `.claude/hooks/docs.py` (see `reference/hooks.md`), then remove the `writing-docs@skills`
   entry from `.claude/settings.json` `enabledPlugins` (keep `slop-cop@skills` if
   the prompt-writing nudge remains).
 - **Monorepos**: out of scope — this skill scaffolds single-package repos.

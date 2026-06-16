@@ -57,14 +57,9 @@ FILES = (
     FileSpec(".mcp.json", "base/mcp.json", "base"),
     FileSpec(".claude/settings.json", "base/claude/settings.json", "base"),
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
-    FileSpec(".claude/hooks/__init__.py", "base/claude/hooks/__init__.py", "base"),
-    FileSpec(".claude/hooks/commands.py", "base/claude/hooks/commands.py", "base"),
-    FileSpec(".claude/hooks/stewardship.py", "base/claude/hooks/stewardship.py", "base"),
-    FileSpec(".claude/hooks/prompts.py", "base/claude/hooks/prompts.py", "base"),
-    FileSpec(".claude/hooks/docs.py", "base/claude/hooks/docs.py", "base"),
-    FileSpec(".claude/hooks/tasks.py", "base/claude/hooks/tasks.py", "base"),
-    FileSpec(".claude/hooks/plans.py", "base/claude/hooks/plans.py", "base"),
-    FileSpec(".claude/hooks/review.py", "base/claude/hooks/review.py", "base"),
+    # capt-hook hooks ship as the `general` builtin pack; the project enables it
+    # via packs.toml instead of vendoring the hook files. See reference/hooks.md.
+    FileSpec(".claude/hooks/packs.toml", "base/claude/hooks/packs.toml", "base"),
     # synthesized base files (no single template src)
     FileSpec(".gitignore", None, "base", transform="gitignore"),
     FileSpec("LICENSE", None, "base", transform="license"),
@@ -76,9 +71,9 @@ FILES = (
     FileSpec(".claude/ty-quiet.toml", "python/claude/ty-quiet.toml", "python"),
     FileSpec("pyproject.toml", "python/pyproject.toml", "python"),
     FileSpec(".python-version", "python/python-version", "python"),
-    FileSpec(".claude/hooks/testing.py", "python/claude/hooks/testing.py", "python"),
-    FileSpec(".claude/hooks/style.py", "python/claude/hooks/style.py", "python"),
-    FileSpec(".claude/hooks/toolchain.py", "python/claude/hooks/toolchain.py", "python"),
+    # python layer adds the `python` builtin pack on top of `general` (overrides
+    # the base packs.toml at the same dest with both packs enabled).
+    FileSpec(".claude/hooks/packs.toml", "python/claude/hooks/packs.toml", "python"),
     FileSpec(".github/workflows/ci.yml", "python/github/workflows/ci.yml", "python"),
     FileSpec(".pre-commit-config.yaml", "python/pre-commit-config.yaml", "python"),
     FileSpec("{{PACKAGE}}/__init__.py", "python/package/__init__.py", "python"),

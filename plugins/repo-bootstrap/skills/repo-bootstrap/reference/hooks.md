@@ -9,16 +9,18 @@ run anywhere — locally, in CI if you wire them in — in the same shape they r
 production. The scaffold wires it through
 `.claude/settings.json`, which runs `uvx capt-hook run <Event>` for `PreToolUse`,
 `PostToolUse`, `PostToolUseFailure`, and `Stop`. `uvx` fetches capt-hook into a throwaway
-environment, so nothing is added to `pyproject.toml` and there is zero install step. Hook
-files live in `.claude/hooks/*.py` — the default `--hooks` directory — and you verify them
-with `uvx capt-hook test` from the repo root.
+environment, so nothing is added to `pyproject.toml` and there is zero install step. The hooks
+themselves ship inside capt-hook as two builtin **packs** — `general` (the base-layer hooks)
+and `python` — which the scaffold enables through `.claude/hooks/packs.toml`. A project can
+add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
+verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
 
 ## Two hook systems: don't conflate them
 
 The python layer ships **two** unrelated hook systems that both go by "hooks":
 
 - **capt-hook** (everything else in this doc) — gates *Claude-session* tool events
-  (`PreToolUse`, `Stop`, …) from `.claude/hooks/*.py`. It never touches git.
+  (`PreToolUse`, `Stop`, …) from capt-hook packs and `.claude/hooks/*.py`. It never touches git.
 - **The git commit hooks** (next section) — run ruff and ty on `git commit` from
   `.pre-commit-config.yaml`. They have nothing to do with Claude sessions.
 
@@ -58,7 +60,13 @@ delete its `repo:` block and the CI ty step.
 
 ## Hook inventory
 
-### `.claude/hooks/commands.py` (base layer)
+These hooks ship inside capt-hook as two builtin **packs** — `general` (the base-layer hooks)
+and `python` — enabled per repo through `.claude/hooks/packs.toml`. Their behavior is
+unchanged; only the delivery moved from vendored `.py` files to packs, so the "tailor" and
+"remove" notes below route through the pack model: override a hook with a local
+`.claude/hooks/<name>.py`, or manage packs in `packs.toml` (see *Adding and removing rules*).
+
+### `commands` (general pack)
 
 - Blocks `git stash` — reason "git stash is not allowed", hint "Commit your changes to a
   branch instead".
@@ -71,10 +79,10 @@ delete its `repo:` block and the CI ty step.
   `yasyf/cc-skills` marketplace and enables `codex@skills`, so it activates when the folder
   is trusted (no manual `/plugin install`). The `UsedSkill("codex|codex:codex")`
   alternation covers both the bare and plugin-namespaced skill name. If the project
-  doesn't use Codex, delete this nudge and the `enabledPlugins`/`extraKnownMarketplaces`
-  keys in settings together.
+  doesn't use Codex, override this nudge with a local `commands` hook and remove the
+  `enabledPlugins`/`extraKnownMarketplaces` keys in settings together.
 
-### `.claude/hooks/stewardship.py` (base layer)
+### `stewardship` (general pack)
 
 NLP-signal nudge against dismissing pre-existing issues. Fires when weighted signals cross
 `threshold=2` within a 15-message window: regex `(?i)(?:pre-existing|preexisting)` (weight
@@ -88,7 +96,7 @@ Tailor `threshold`/`window`, or extend `TypeCheckerContext.PATTERN` for other su
 contexts. **Note:** `NlpSignal` needs the spaCy `en_core_web_sm` model and the wn
 `oewn:2025` lexicon provisioned at runtime and test time.
 
-### `.claude/hooks/prompts.py` (base layer)
+### `prompts` (general pack)
 
 Non-blocking nudge that fires when an Edit/Write's content looks like an LLM prompt:
 semantic XML tags (`<instruction>`, `<system>`, `<examples>`, `<success_criteria>`, …),
@@ -104,11 +112,11 @@ used in the session.
 Needs the `llm-prompts@skills` and `slop-cop@skills` plugins — the scaffolded
 `.claude/settings.json` already enables both from the `yasyf/cc-skills` marketplace, so they
 activate when the folder is trusted (no manual `/plugin install`). To remove the nudge,
-delete this file and the `llm-prompts@skills`/`slop-cop@skills` keys from
-`enabledPlugins` (keep `slop-cop@skills` if `docs.py` remains — its nudge runs slop-cop
-too). Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
+override it with a local `prompts` hook and remove the `llm-prompts@skills`/`slop-cop@skills`
+keys from `enabledPlugins` (keep `slop-cop@skills` if the `docs` nudge remains — its nudge runs
+slop-cop too). Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
 
-### `.claude/hooks/docs.py` (base layer)
+### `docs` (general pack)
 
 Advisory nudge on the first Edit/Write to documentation (`**/*.md`, `**/*.qmd`,
 `docs/**`, `README.md`): consult the `writing-docs` skill — Diataxis modes, the
@@ -119,11 +127,11 @@ the skill has been used. Advisory only; it never blocks an edit.
 
 Needs the `writing-docs@skills` plugin — the scaffolded `.claude/settings.json`
 already enables it from the `yasyf/cc-skills` marketplace, so it activates when the
-folder is trusted (no manual `/plugin install`). To remove the nudge, delete this
-file and the `writing-docs@skills` key from `enabledPlugins` (keep `slop-cop@skills`
-if `prompts.py` remains).
+folder is trusted (no manual `/plugin install`). To remove the nudge, override it with
+a local `docs` hook and remove the `writing-docs@skills` key from `enabledPlugins` (keep
+`slop-cop@skills` if the `prompts` nudge remains).
 
-### `.claude/hooks/tasks.py` (base layer)
+### `tasks` (general pack)
 
 End-of-turn task discipline, built entirely from declarative primitives + local
 `CustomCondition`s — task state reads from `evt.tasks` (Claude Code's native task store, the
@@ -146,7 +154,7 @@ transcript tool uses.
 
 All messages cite CLAUDE.md § Task Tracking. Inline tests inject task state via
 `Input(tasks=[...])`, exercising the real block/warn paths. Tailor `OVERRIDE_TOKEN` /
-`TASK_DRIFT_THRESHOLD`, or delete the file to drop task enforcement.
+`TASK_DRIFT_THRESHOLD` in a local override, or drop the hook (see *Adding and removing rules*).
 
 Stop gates are wait-aware by default: any `gate(...)` / `llm_gate(...)` on `Stop` with no
 `skip_if` automatically skips while the agent waits on background work such as a running
@@ -154,7 +162,7 @@ Stop gates are wait-aware by default: any `gate(...)` / `llm_gate(...)` on `Stop
 moment you pass your own `skip_if` that default switches off, so include `Waiting()` in the
 list yourself, as the task gate above does.
 
-### `.claude/hooks/plans.py` (base layer)
+### `plans` (general pack)
 
 A `PreToolUse` `hook(...)` that blocks rewriting a plan with `Write` once it has already been
 written this session — use `Edit` for incremental changes instead. The `RewritingExistingPlan`
@@ -162,20 +170,22 @@ written this session — use `Edit` for incremental changes instead. The `Rewrit
 `evt.ctx.prior` (so the pending Write is never counted as the prior edit), and stands down in
 two cases: the first write of the plan (nothing to rewrite yet) and a write after a fresh
 `EnterPlanMode` (a new plan cycle may legitimately start over). The message cites no doc
-section. Tailor the `plans/`/`specs/` scope in the condition, or delete the file to drop it.
+section. Tailor the `plans/`/`specs/` scope in a local override, or drop the hook (see *Adding
+and removing rules*).
 
-### `.claude/hooks/review.py` (base layer)
+### `review` (general pack)
 
 A `Stop` `gate(...)` demanding a correctness + STYLEGUIDE.md review before stopping when the
 session changed source. The `EditedSource` `CustomCondition` fires when any edited file is not
 a test (`is_test`), not prose/config (`NON_SOURCE_SUFFIXES` — `.md`, `.json`, `.toml`, …), and
 not under `docs/`, `.claude/`, or `.github/`. `skip_if=[Waiting()]` keeps it quiet while the
 agent waits on background work (see the wait-aware note above). It is the language-agnostic
-counterpart to the python layer's `style.py` gate, so every bootstrapped repo — not just
-Python ones — gets a review-before-stop gate. Tailor `NON_SOURCE_GLOBS` / the excluded dirs to
-scope what counts as source, or delete the file to drop it.
+counterpart to the python layer's `style` gate, so every bootstrapped repo — not just
+Python ones — gets a review-before-stop gate. Tailor `NON_SOURCE_GLOBS` / the excluded dirs in
+a local override to scope what counts as source, or drop the hook (see *Adding and removing
+rules*).
 
-### `.claude/hooks/testing.py` (python layer)
+### `testing` (python pack)
 
 - Nudges isolating the minimal failing test case (node-id suffix, `-k`, `--last-failed`)
   when editing a test file, instead of broad re-runs.
@@ -189,7 +199,7 @@ scope what counts as source, or delete the file to drop it.
 
 If the project's test command differs, change the `RanCommand` pattern and both messages.
 
-### `.claude/hooks/style.py` (python layer)
+### `style` (python pack)
 
 Seven rules enforcing STYLEGUIDE.md, built on the matchers DSL (`captain_hook.style.matchers`,
 imported `as M`) and registered with `styleguide(...)`:
@@ -207,11 +217,11 @@ imported `as M`) and registered with `styleguide(...)`:
   are allowed). It overrides `check()` to diff by a custom node identity (`any_label`)
   instead of the default unparsed-source identity.
 
-The review-before-stop Stop gate is **not** in this file — it lives in the base-layer
-`review.py` (a language-agnostic gate, so it covers Python too). This file ships only the
-seven AST rules above.
+The review-before-stop Stop gate is **not** in the `style` hook — it lives in the general
+pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
+ships only the seven AST rules above.
 
-### `.claude/hooks/toolchain.py` (python layer)
+### `toolchain` (python pack)
 
 - Blocks manual `ruff` (`block_command(r"^ruff\b", ...)`) — "mechanical linting is
   auto-fixed by tooling", hint cites AGENTS.md § Mechanical Linting. `prek run
@@ -219,8 +229,6 @@ seven AST rules above.
 - Nudges `uv sync --extra dev` on `ModuleNotFoundError`/`ImportError`, explicitly telling
   the agent not to make imports lazy or restructure code to avoid the import. Capped at
   `max_fires=2`. Update the text if the project's dev extra is named differently.
-
-`.claude/hooks/__init__.py` is intentionally near-empty (just the future-annotations import).
 
 ## Cross-reference invariant
 
@@ -238,17 +246,32 @@ nonexistent section sends future agents on a dead-end lookup.
 
 ## Adding and removing rules
 
-Each `.py` in `.claude/hooks/` is independent: deleting a file drops all its rules with no
-other changes needed. Within `style.py`, a rule must be removed from both its class
-definition and the `styleguide(...)` registration call.
+The hooks ship as capt-hook packs, managed through `.claude/hooks/packs.toml` and the
+`uvx capt-hook pack` CLI:
 
-The inline tests are the regression net. After **any** edit to a hook file, run:
+- **List** the enabled packs with `uvx capt-hook pack list`.
+- **Add** a pack with `uvx capt-hook pack add <name>` — a builtin (`general`, `python`) or
+  `github:owner/repo@ref` for a third-party pack; `uvx capt-hook pack update` refreshes the
+  pinned ones.
+- **Drop** a whole pack's hooks with `uvx capt-hook pack remove <name>`, or delete its
+  `[packs.<name>]` entry from `packs.toml` by hand.
+
+To **change a pack hook's behavior**, add a local `.claude/hooks/<name>.py` that registers on
+the same event. Local modules load before packs, and dispatch returns on the first `allow` or
+`block`, so a local hook that issues a terminal decision pre-empts the pack hooks on that event
+— a `warn` (or returning `None`) falls through and the pack hook still fires, so a no-op does
+not silence anything. To drop a *single* pack hook cleanly, fork the pack and delete that hook
+file; removing a `style` rule means deleting it from both its class definition and the
+`styleguide(...)` registration call.
+
+The inline tests are the regression net — `uvx capt-hook test` runs every enabled pack's tests
+plus any local hook's. After adding, overriding, or removing a hook, run:
 
 ```bash
 uvx capt-hook test
 ```
 
-New rules should ship tests in the same shape the existing ones use — `Input(...)` keys
+New local hooks should ship tests in the same shape the packs use — `Input(...)` keys
 mapping to `Allow()`, `Block()`, or `Warn()` values:
 
 ```python
@@ -261,8 +284,8 @@ tests = {
 
 `StyleRule` tests take `file=` + `content=`; `StyleDiffRule` tests add `old=` so the rule can
 distinguish introduced violations from pre-existing ones. Command hooks take `command=`;
-transcript-driven nudges take `transcript=[...]` message dicts (see `stewardship.py` for the
-exact shape).
+transcript-driven nudges take `transcript=[...]` message dicts (see the `stewardship` hook for
+the exact shape).
 
 ## Project-local escape hatch (pin instead of uvx)
 
