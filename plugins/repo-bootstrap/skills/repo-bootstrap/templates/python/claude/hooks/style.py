@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 
-from captain_hook import Allow, Input, Waiting, Warn, gate
+from captain_hook import Allow, Input, Warn
 from captain_hook.style import StyleDiffRule, StyleRule, Violation, styleguide
 from captain_hook.style import matchers as M
 
@@ -135,18 +135,6 @@ class NoWeakeningToAny(StyleDiffRule):
     def check(self, pre: ast.Module, post: ast.Module) -> Iterator[Violation]:
         yield from M.annotated(M.ref("Any")).diff(pre, post, key=any_label, label=any_label)
 
-
-gate(
-    "You wrote new Python code but haven't done a style review. Before stopping, "
-    "review your changes against STYLEGUIDE.md (functional over imperative, no underscore "
-    "prefixes, match for type dispatch, minimal try/except, make invalid states "
-    "unrepresentable, flat over nested). Fix any violations in the code you wrote.",
-    when=lambda evt: any(
-        f.matches("**/{{PACKAGE}}/**/*.py") and not f.is_test
-        for f in evt.ctx.t.tool_calls.named("Edit|Write").files()
-    ),
-    skip_if=[Waiting()],
-)
 
 styleguide(
     NoUnderscorePrefixes,

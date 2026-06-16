@@ -154,6 +154,27 @@ Stop gates are wait-aware by default: any `gate(...)` / `llm_gate(...)` on `Stop
 moment you pass your own `skip_if` that default switches off, so include `Waiting()` in the
 list yourself, as the task gate above does.
 
+### `.claude/hooks/plans.py` (base layer)
+
+A `PreToolUse` `hook(...)` that blocks rewriting a plan with `Write` once it has already been
+written this session — use `Edit` for incremental changes instead. The `RewritingExistingPlan`
+`CustomCondition` fires only for `.md` files under a `plans/` or `specs/` directory, reads from
+`evt.ctx.prior` (so the pending Write is never counted as the prior edit), and stands down in
+two cases: the first write of the plan (nothing to rewrite yet) and a write after a fresh
+`EnterPlanMode` (a new plan cycle may legitimately start over). The message cites no doc
+section. Tailor the `plans/`/`specs/` scope in the condition, or delete the file to drop it.
+
+### `.claude/hooks/review.py` (base layer)
+
+A `Stop` `gate(...)` demanding a correctness + STYLEGUIDE.md review before stopping when the
+session changed source. The `EditedSource` `CustomCondition` fires when any edited file is not
+a test (`is_test`), not prose/config (`NON_SOURCE_GLOBS` — `*.md`, `*.json`, `*.toml`, …), and
+not under `docs/`, `.claude/`, or `.github/`. `skip_if=[Waiting()]` keeps it quiet while the
+agent waits on background work (see the wait-aware note above). It is the language-agnostic
+counterpart to the python layer's `style.py` gate, so every bootstrapped repo — not just
+Python ones — gets a review-before-stop gate. Tailor `NON_SOURCE_GLOBS` / the excluded dirs to
+scope what counts as source, or delete the file to drop it.
+
 ### `.claude/hooks/testing.py` (python layer)
 
 - Nudges isolating the minimal failing test case (node-id suffix, `-k`, `--last-failed`)
@@ -186,11 +207,9 @@ imported `as M`) and registered with `styleguide(...)`:
   are allowed). It overrides `check()` to diff by a custom node identity (`any_label`)
   instead of the default unparsed-source identity.
 
-Plus a `gate(...)` Stop hook demanding a STYLEGUIDE.md review before stopping when package
-code changed. The gate's glob is `**/<package>/**/*.py` where `<package>` is the package
-name supplied at scaffold time (e.g. `captain_hook`); test files are exempt via
-`not f.is_test`. It carries `skip_if=[Waiting()]` so it stays quiet while the agent waits on
-background work and re-fires once that work resumes.
+The review-before-stop Stop gate is **not** in this file — it lives in the base-layer
+`review.py` (a language-agnostic gate, so it covers Python too). This file ships only the
+seven AST rules above.
 
 ### `.claude/hooks/toolchain.py` (python layer)
 
@@ -211,6 +230,7 @@ Hook messages cite doc sections by exact heading:
 - `toolchain.py`: **AGENTS.md § Mechanical Linting**
 - `tasks.py`: **CLAUDE.md § Task Tracking**
 - `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
+- `review.py`: **STYLEGUIDE.md**
 
 If you rename or remove those sections while tailoring the scaffolded AGENTS.md, CLAUDE.md, or
 STYLEGUIDE.md, update the hook messages in the same edit — a citation pointing at a

@@ -224,8 +224,10 @@ Field by field:
   failures — delete that nudge if the codex plugin isn't installed),
   `stewardship.py` (NLP nudge against dismissing issues as "pre-existing"),
   `prompts.py` (llm-prompts nudge on prompt-shaped edits), `docs.py`
-  (writing-docs nudge on doc edits), and `tasks.py` (end-of-turn task
-  discipline) — see `reference/hooks.md` for each.
+  (writing-docs nudge on doc edits), `tasks.py` (end-of-turn task
+  discipline), `plans.py` (blocks `Write` rewrites of an already-written
+  plan — use `Edit`), and `review.py` (Stop gate demanding a review pass
+  when source changed) — see `reference/hooks.md` for each.
   Add project rules as new files in `.claude/hooks/`; each carries inline
   `tests = {...}` runnable with `uvx capt-hook test`.
 
