@@ -186,9 +186,9 @@ For package `captain_hook`, the scaffold generates:
   those re-exports aren't flagged as unused.
 - `captain_hook/cli.py` — a `@click.group()` function named `main` with
   `@click.version_option(package_name="capt-hook")`. `package_name` is the **dist** name, not
-  the package: Click reads the version from installed distribution metadata. The `hello`
-  command is marked `TODO(bootstrap)` — replace it (and its test) with the first real command;
-  don't ship it.
+  the package: Click reads the version from installed distribution metadata. It ships one
+  working `hello` command as a starter placeholder — bootstrapping leaves it in place;
+  building real commands is product work for after the repo exists, not part of the scaffold.
 - `captain_hook/__main__.py` — three lines enabling `python -m captain_hook`, mirroring the
   console script.
 - `captain_hook/py.typed` — empty PEP 561 marker; ships type info to downstream checkers and

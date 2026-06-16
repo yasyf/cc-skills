@@ -12,6 +12,11 @@ plus two opt-in **features** — a Great Docs site and tag-driven PyPI releases)
 Templates render deterministically through one CLI; your judgment goes into naming,
 prose, and the follow-up edits — not file copying.
 
+**Scope:** this skill scaffolds conventions and a starter skeleton only — it does
+**not** implement the project's features. Filling `TODO(bootstrap)` prose markers
+(Phase 4) is the only content work; the starter `hello` command stays as-is, and
+building the product is separate work that begins after Phase 6.
+
 The whole skill is driven by a single command:
 
 ```bash
@@ -240,8 +245,6 @@ README pitch and why-bullets and the great-docs hero tagline. Run
   README prose through the `writing-docs` skill.
 - `great-docs.yml` (navbar color, accent color, hero tagline) → read
   `reference/docs-site.md` first. *(Only present with feature `docs`.)*
-- `<PACKAGE>/cli.py` `hello` command → replace with the first real command (and
-  update `tests/test_cli.py` to match).
 
 **Exit criteria:** `rg -n 'TODO\(bootstrap\)'` returns nothing.
 

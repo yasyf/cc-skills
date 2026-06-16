@@ -12,6 +12,6 @@ def main() -> None:
 
 @main.command()
 def hello() -> None:
-    """TODO(bootstrap): replace with the first real command."""
+    """Print a greeting — the starter command."""
     logger.debug("hello invoked")
     click.echo("Hello from {{DIST_NAME}}!")
