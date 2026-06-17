@@ -156,6 +156,13 @@ commit it), `uv run pytest`, and `uvx prek install` to activate the commit hooks
 (`.pre-commit-config.yaml`; ruff auto-formats and fixes import order, ty prints
 whole-project type warnings — never blocking — on every commit).
 
+For every repo, run `uvx capt-hook review enable` to arm the **session reviewer**:
+it vendors the reviewer skills into `.claude/skills/` (commit them in Phase 6), wires
+the SessionEnd `review run` hook into `.claude/settings.local.json`, and watches the
+repo (machine-local) so ended sessions mine durable corrections into hook PRs. It
+needs an authenticated `claude` and `gh`; `uvx capt-hook review disable` turns it off.
+See `reference/hooks.md`.
+
 ### What lands where
 
 | Destination | Layer | Notes |
@@ -273,7 +280,7 @@ drop `--layer python`.
 Atomic, conventional-prefix commits — one logical change each, conditioned on the
 layer and features actually scaffolded:
 
-1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)`
+1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` — include the `.claude/skills/` vendored by `capt-hook review enable` in Phase 2
 2. `feat: initial <package> package and CLI skeleton` *(python)*
 3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*

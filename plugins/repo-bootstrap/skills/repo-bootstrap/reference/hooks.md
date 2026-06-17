@@ -15,6 +15,18 @@ and `python` — which the scaffold enables through `.claude/hooks/packs.toml`. 
 add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
 verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
 
+## The session reviewer
+
+Phase 2 runs `uvx capt-hook review enable`, which arms capt-hook's **session reviewer** for
+the repo. When a Claude Code session ends, it mines the transcript for the durable corrections
+you gave and the hooks that misfired, judges each, and — once a pattern clears its thresholds —
+opens a pull request that adds or fixes a hook. `review enable` does three things: vendors the
+reviewer's skills into `.claude/skills/` (committed in Phase 6), wires a `review run` hook onto
+`SessionEnd` in `.claude/settings.local.json` (machine-local, gitignored), and starts watching
+the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
+environment variables and turn it off per repo with `uvx capt-hook review disable`. Full guide:
+<https://yasyf.github.io/captain-hook/docs/guide/session-reviewer.html>.
+
 ## Two hook systems: don't conflate them
 
 The python layer ships **two** unrelated hook systems that both go by "hooks":
