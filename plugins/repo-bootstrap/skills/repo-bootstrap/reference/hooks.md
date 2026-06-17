@@ -55,8 +55,12 @@ single source of truth for the hooks' ruff and ty versions across every clone �
 repos and builds their envs; cached afterwards). CI does **not** run ruff — the commit hook is
 the only mechanical-lint enforcement — but it **does** re-run the ty hook
 (`uvx prek run ty --all-files`, advisory) as the backstop for clones that never ran
-`uvx prek install`. To drop both hooks, delete `.pre-commit-config.yaml`; to drop only ty,
-delete its `repo:` block and the CI ty step.
+`uvx prek install`. To drop both hooks, run `uvx prek uninstall` **and** delete
+`.pre-commit-config.yaml` — deleting the config alone leaves the installed
+`.git/hooks/pre-commit` orphaned, which aborts every commit with
+`No prek.toml or .pre-commit-config.yaml found` (recover with `uvx prek uninstall`, or a
+one-off `PREK_ALLOW_NO_CONFIG=1 git commit`). To drop only ty, delete its `repo:` block and
+the CI ty step.
 
 ## Hook inventory
 

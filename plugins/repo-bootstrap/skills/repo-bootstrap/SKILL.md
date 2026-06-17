@@ -330,8 +330,9 @@ Then, optionally, publish and wire one-time setups:
 - **No capt-hook hooks wanted**: delete `.claude/hooks/packs.toml` (or `.claude/hooks/`
   entirely) and the `"hooks"` block from `.claude/settings.json`.
 - **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
-  `uvx prek install`); to drop only the ty hook, delete its `repo:` block there
-  and the CI ty step.
+  `uvx prek install`). If you already ran `uvx prek install`, also run
+  `uvx prek uninstall` — deleting the config alone orphans the hook and aborts every
+  commit. To drop only the ty hook, delete its `repo:` block there and the CI ty step.
 - **No Codex**: the second-opinion nudge ships in the `general` pack — override it with a
   local `.claude/hooks/commands.py` (a local hook shadows the pack's; see `reference/hooks.md`),
   then remove the `"enabledPlugins"` entry (and `"extraKnownMarketplaces"` if nothing else
