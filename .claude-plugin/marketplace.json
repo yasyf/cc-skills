@@ -50,6 +50,11 @@
       "name": "cli-demo",
       "source": "./plugins/cli-demo",
       "description": "Generate animated SVG terminal demos of a CLI with evp — write a .tape, render it (native on Linux x86_64, Docker elsewhere), inspect keyframes, and refine in a loop."
+    },
+    {
+      "name": "agent-browser-with-cookies",
+      "source": "./plugins/agent-browser-with-cookies",
+      "description": "Run authenticated agent-browser sessions by reusing your local browser login — self-decrypt Chrome cookies behind one Touch ID tap, with a cross-browser @mherod/get-cookie fallback — seeded into a fresh session. macOS."
     }
   ]
 }
