@@ -82,7 +82,8 @@ copy VHS examples blindly — verified against evp 0.13.0):
   a tape without rendering — a cheap syntax check before the slow render.
 
 Typing ~45ms, sleeps 0.5–2s between commands, dimensions ~1200×600 at FontSize 22 are sane
-defaults.
+defaults. For the full verified directive matrix, CLI flags, and container/`--install`
+gotchas, see [`reference/evp-notes.md`](reference/evp-notes.md).
 
 ## 4 — Render
 
@@ -116,7 +117,8 @@ ls -la .cli-demo/demo.svg          # produced? reasonable size?
 - `f3` is a clean held frame, not mid-animation.
 - **Metrics**: keep total duration ~8–20s (estimate from the tape: sum of `Sleep`s plus
   roughly `TypingSpeed` × characters typed). SVG size reasonable — warn >1 MB, flag >2 MB →
-  trim duration, lower `Set Framerate`, or shrink `Width`/`Height`. A `wait timed out` line in
+  trim duration, lower `Set Framerate`, shrink `Width`/`Height`, or as a last resort render
+  with embedded fonts dropped (`evp-run.sh … -- --no-embed-fonts`). A `wait timed out` line in
   the render output (or an unexpected multi-second freeze in the animation) means a `Wait`
   pattern never appeared — switch that `Wait` to `Sleep` or fix the pattern.
 

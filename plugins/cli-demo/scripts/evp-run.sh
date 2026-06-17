@@ -3,6 +3,7 @@
 #
 #   evp-run.sh <tape> [--workdir DIR] [--install "CMD"]
 #                     [--mount-bin HOSTPATH[:NAME]] [--base IMAGE]
+#                     [-- <extra evp flags>]
 #
 # <tape>         Tape path, RELATIVE to --workdir (e.g. .cli-demo/demo.tape). The
 #                tape's Output/Screenshot paths are likewise relative to --workdir.
@@ -13,6 +14,8 @@
 # --mount-bin    A linux/amd64 binary on the host to mount onto the container PATH,
 #                instead of installing one. "path" or "path:name".
 # --base IMAGE   Override the base image (advanced).
+# -- ...         Everything after `--` is forwarded to evp verbatim, e.g.
+#                `-- --no-embed-fonts` (smaller SVG) or `-- -o out.gif`.
 #
 # Decision: run evp natively only on Linux/x86_64 (the one platform evp ships a
 # binary for). Everywhere else — macOS, Linux/arm64 — render inside a linux/amd64
@@ -33,12 +36,14 @@ WORKDIR="$PWD"
 INSTALL_CMD=""
 MOUNT_BIN_SPEC=""
 BASE_OVERRIDE=""
+EVP_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --workdir) WORKDIR="$2"; shift 2 ;;
     --install) INSTALL_CMD="$2"; shift 2 ;;
     --mount-bin) MOUNT_BIN_SPEC="$2"; shift 2 ;;
     --base) BASE_OVERRIDE="$2"; shift 2 ;;
+    --) shift; EVP_ARGS=("$@"); break ;;
     -*) die "unknown flag: $1" ;;
     *) [ -z "$TAPE" ] && TAPE="$1" || die "unexpected argument: $1"; shift ;;
   esac
@@ -60,7 +65,7 @@ native_ok() {
 
 if native_ok; then
   cd "$WORKDIR"
-  exec "$EVP_BIN" "$TAPE"
+  exec "$EVP_BIN" "$TAPE" "${EVP_ARGS[@]+"${EVP_ARGS[@]}"}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -108,7 +113,7 @@ docker run --rm --platform=linux/amd64 \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$WORKDIR:/work" -w /work \
   "${mount_args[@]+"${mount_args[@]}"}" \
-  "$IMAGE" evp "$TAPE"
+  "$IMAGE" evp "$TAPE" "${EVP_ARGS[@]+"${EVP_ARGS[@]}"}"
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
