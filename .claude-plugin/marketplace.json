@@ -45,6 +45,11 @@
       "name": "repo-summaries",
       "source": "./plugins/repo-summaries",
       "description": "Maintain a Claude-written summaries sidecar in any repo — a committed read-side module plus a config-driven daily refresh skill that summarizes real commit and release data into one-line suffixes."
+    },
+    {
+      "name": "cli-demo",
+      "source": "./plugins/cli-demo",
+      "description": "Generate animated SVG terminal demos of a CLI with evp — write a .tape, render it (native on Linux x86_64, Docker elsewhere), inspect keyframes, and refine in a loop."
     }
   ]
 }

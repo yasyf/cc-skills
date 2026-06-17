@@ -1,0 +1,14 @@
+# Base image for rendering evp tapes on non-Linux-x86_64 hosts (e.g. macOS/ARM).
+# Build context is ${CLAUDE_PLUGIN_DATA}/bin, which already holds the downloaded
+# `evp` binary. evp is a static musl binary, so it runs fine on a glibc Debian
+# base — no Alpine needed. We add `bash` because `Set Shell bash` in a tape spawns
+# the CONTAINER's bash (not one bundled in evp); ca-certificates + curl cover the
+# common https-based per-demo install commands layered on top of this image.
+FROM debian:stable-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends bash ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+COPY evp /usr/local/bin/evp
+RUN chmod +x /usr/local/bin/evp && evp --version
+ENTRYPOINT []

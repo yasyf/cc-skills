@@ -1,0 +1,23 @@
+{
+  "name": "cli-demo",
+  "description": "Generate a polished animated SVG terminal demo of a CLI with evp. Writes a .tape, renders it (native on Linux x86_64, Docker elsewhere), inspects keyframes, and refines in a loop. Bootstraps the evp binary into the plugin's persistent data dir on session start.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "homepage": "https://github.com/HalFrgrd/evp",
+  "license": "MIT",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh\" >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

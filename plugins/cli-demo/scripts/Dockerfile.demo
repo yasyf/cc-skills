@@ -1,0 +1,10 @@
+# Per-demo image: layers the demoed CLI onto the evp base so it is on PATH inside
+# evp's embedded shell. INSTALL_CMD comes from the user's guidance (e.g.
+# "pip install httpie", "npm i -g x", "cargo install x", "apt-get install -y x").
+# Tagged by a hash of BASE+INSTALL_CMD so loop iterations (which change only the
+# tape, not the install) reuse the cached image and never rebuild.
+ARG BASE
+FROM ${BASE}
+ARG INSTALL_CMD="true"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN bash -lc "set -euo pipefail; ${INSTALL_CMD}"
