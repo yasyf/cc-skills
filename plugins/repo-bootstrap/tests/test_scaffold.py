@@ -23,9 +23,7 @@ def dests(layer, var_pairs, *, extras=None, features=None):
 BASE_DESTS = {
     "AGENTS.md", "CLAUDE.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml",
-    ".claude/hooks/__init__.py",
-    ".claude/hooks/commands.py", ".claude/hooks/stewardship.py",
-    ".claude/hooks/prompts.py", ".claude/hooks/docs.py", ".claude/hooks/tasks.py",
+    ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
     ".gitignore", "LICENSE",
 }
 
