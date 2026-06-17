@@ -301,17 +301,19 @@ Then, optionally, publish and wire one-time setups:
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
-  no API for it — drive the user's signed-in Chrome via the Claude in Chrome
-  tools (user runs `/chrome` to connect). `navigate` to
-  `https://github.com/{owner}/{repo}/settings`, then `javascript_tool`: fetch
-  the just-pushed card same-origin
-  (`/{owner}/{repo}/raw/main/docs/assets/social-preview.jpg`), wrap it in a
-  `DataTransfer`, assign to `#repo-image-file-input`, and dispatch a bubbling
-  `change` event — the page uploads it (the commit must be pushed first; the
-  bytes never leave the browser). Verify with
+  no API for it — use the **`agent-browser-with-cookies`** skill (install
+  `agent-browser-with-cookies@skills` from this marketplace if absent) to run an
+  authenticated session from the user's existing GitHub login: it extracts the
+  github.com cookies (one Touch ID tap) and opens
+  `https://github.com/{owner}/{repo}/settings`. Upload the card straight from disk
+  into the social-preview file input:
+  `agent-browser --session abwc upload '#repo-image-file-input' docs/assets/social-preview.jpg`
+  (snapshot the page and find the input if that selector has moved; no need to push
+  the image first — the bytes go from disk to GitHub). Verify with
   `gh api graphql -f query='{ repository(owner: "{owner}", name: "{repo}") { usesCustomOpenGraphImage } }'`
-  — it flips to `true` (re-check after ~30s for cache). No Chrome connection?
-  Ask the user to upload it by hand (repo Settings → Social preview).
+  — it flips to `true` (re-check after ~30s for cache) — then
+  `agent-browser --session abwc close`. Not logged into github in any local browser
+  (or no Touch ID)? Ask the user to upload it by hand (repo Settings → Social preview).
 
 **Exit criteria:** commits made; for a published repo, remote created with description
 (and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
