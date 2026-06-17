@@ -203,7 +203,10 @@ Field by field:
   `"TY_OUTPUT_FORMAT": "concise"` (trims ty LSP diagnostics if that plugin is
   installed), and `"JJ_CONFIG": ".claude/jj-config.toml"` — points jj at the
   scaffolded repo-local config (user identity, `difft` diffs, `mergiraf` merges,
-  watchman snapshot triggers off).
+  watchman snapshot triggers off). Phase 0 creates the colocated jj repo this
+  config governs (`jj git init --git-repo .`, run right after `git init -b main`),
+  so jj is live from the first commit; jj writes its own `.jj/.gitignore`, so
+  `.jj/` needs no `.gitignore` entry.
 - `"permissions"`: `"allow"` lists only read-only commands (`cat`, `find`,
   `gh api`, `gh pr diff`, `gh pr view`, `git log`, `git status`, `head`, `jq`,
   `ls`, `rg`, `wc` — each as `Bash(cmd:*)`). Philosophy: the checked-in allowlist

@@ -49,10 +49,13 @@ $BOOTSTRAP identity
 It prints `AUTHOR_NAME=`, `AUTHOR_EMAIL=`, `GITHUB_USER=` resolved from `git config`
 and `gh`. Any value reported as `MISSING` on stderr must come from the user — ask,
 don't invent. Then make sure you're in a git repo on the default branch: if the
-directory isn't a repo yet, `git init -b main`.
+directory isn't a repo yet, `git init -b main`. Then create a colocated jj repo
+unless one already exists (`.jj/` present): `jj git init --git-repo .` — it backs
+jj onto the git repo so the scaffolded `.claude/jj-config.toml` is live from the
+first commit (see `reference/base-conventions.md`).
 
 **Exit criteria:** identity values known (resolved or supplied by the user); the
-target is a git repo on `main`.
+target is a git repo on `main` with a colocated jj repo (`.jj/`).
 
 ## Phase 1 — Decide layer & features (the only decision phase)
 
