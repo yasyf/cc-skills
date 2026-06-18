@@ -83,7 +83,7 @@ SCRIPT="uv run ${CLAUDE_PLUGIN_ROOT}/skills/agent-browser-with-cookies/scripts/c
   `--remote-debugging-port=9222` then `agent-browser --auto-connect state save ./s.json`.
 - **Keychain denied / Touch ID cancelled** — re-run; on the first run click **Always
   Allow** on the Chrome Safe Storage dialog. If it persists, the get-cookie fallback
-  still runs (`$SCRIPT extract --url "$U" --engine get-cookie`).
+  still runs (`$SCRIPT extract --url "$U" --reason "<verb phrase>" --engine get-cookie`).
 - **`AMBIGUOUS: multiple Chrome profiles match`** — re-run step 4 with `--profile`.
 
 ## Notes

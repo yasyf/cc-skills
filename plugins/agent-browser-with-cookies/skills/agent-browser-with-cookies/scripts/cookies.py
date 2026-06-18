@@ -16,7 +16,7 @@ falls back to @mherod/get-cookie across all browsers when Chrome has nothing. It
 writes a Playwright-style ``{"cookies":[...],"origins":[]}`` file (0600) and prints
 its path as the last stdout line; a human summary goes to stderr. Load it with:
 
-    agent-browser --session abwc --state "$(cookies.py extract --url <U> | tail -1)" open <U>
+    agent-browser --session abwc --state "$(cookies.py extract --url <U> --reason <why> | tail -1)" open <U>
 
 `list-profiles` only reads plaintext host_keys, so it never decrypts and never
 prompts. macOS + Chrome ``v10`` cookies; authorized local use on your own machine.
