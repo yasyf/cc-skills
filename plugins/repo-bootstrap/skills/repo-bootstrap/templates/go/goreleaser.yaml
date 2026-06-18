@@ -31,6 +31,25 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Sign + notarize the darwin binaries with our Apple Developer ID — but only when the
+# MACOS_* secrets are set, so repos without Apple creds still release (unsigned) unchanged.
+# goreleaser's built-in quill signer is pure Go and runs on the linux runner (no macOS runner).
+# Bare-binary only (we ship no .app bundle). See reference/go-ci-and-release.md.
+notarize:
+  macos:
+    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
+      ids:
+        - {{PROJECT_NAME}}
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 checksum:
   name_template: checksums.txt
 

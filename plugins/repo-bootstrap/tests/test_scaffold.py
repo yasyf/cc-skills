@@ -440,6 +440,25 @@ def test_go_goreleaser_template_tokens_survive(go_var_pairs):
     assert "owner: janedoe" in gor and "name: homebrew-tap" in gor
 
 
+def test_go_goreleaser_notarize_block(go_var_pairs):
+    gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
+    assert "notarize:" in gor
+    # the env-guard (non-empty, not isEnvSet) and all five MACOS_* env tokens pass through untouched
+    assert "enabled: '{{ if envOrDefault \"MACOS_SIGN_P12\" \"\" }}true{{ else }}false{{ end }}'" in gor
+    for tok in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
+                "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
+        assert "{{ .Env." + tok + " }}" in gor
+    # the notarize ids: list has PROJECT_NAME substituted (8-space indent, distinct from the cask binaries list)
+    assert "ids:\n        - demo-proj" in gor
+
+
+def test_go_release_workflow_passes_macos_secrets(templates_dir):
+    wf = (templates_dir / "go/github/workflows/release.yml").read_text()
+    for k in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
+              "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
+        assert f"{k}: ${{{{ secrets.{k} }}}}" in wf
+
+
 def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
     plan, _ = _real_plan("go", go_var_pairs, features=[])
     assert ".goreleaser.yaml" not in plan

@@ -20,6 +20,8 @@ The scaffolded base is **pure Go** (`CGO_ENABLED=0`), darwin/linux × amd64/arm6
 into `internal/version` via ldflags, archives + checksums, and a Homebrew **cask** pushed to the
 shared `yasyf/homebrew-tap` with a quarantine-strip post-install hook. The workflow triggers on a
 `v*` tag, gates on `verify-tag-on-main` (refuses tags not on `main`), and runs `goreleaser release`.
+The darwin binaries are Developer-ID-signed and notarized when the `MACOS_*` secrets are set
+(§ macOS signing & notarization); without them the release still runs, unsigned.
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
@@ -32,7 +34,15 @@ shared `yasyf/homebrew-tap` with a quarantine-strip post-install hook. The workf
      --body "$(op read 'op://OpenClaw/HOMEBREW_TAP_TOKEN/credential')"
    ```
 
-3. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
+3. *(optional)* The five `MACOS_*` secrets to sign + notarize the macOS binaries
+   (§ macOS signing & notarization).
+4. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
+   Watch the run to completion with the bundled helper — it resolves the release run for the tag,
+   reports per-job results, and lists the GitHub release assets (drop `--pypi` for go):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/watch-release.sh" --tag vX.Y.Z
+   ```
 
 **Install** then becomes `brew install yasyf/tap/<name>` (macOS) or `go install <module>/cmd/<name>@latest`.
 
@@ -40,8 +50,92 @@ Validate any config change locally before tagging:
 
 ```bash
 goreleaser check                              # schema (needs an origin remote)
-goreleaser release --snapshot --clean         # full build, no publish
+goreleaser release --snapshot --clean         # full build, no publish (skips notarize)
 ```
+
+## macOS signing & notarization
+
+The base `.goreleaser.yaml` carries a `notarize.macos` block that signs the darwin binaries with our
+Apple **Developer ID** and notarizes them with Apple. It uses goreleaser's built-in **quill** signer
+(pure Go, imported as a library) — so it runs on the existing **`ubuntu-latest`** runner, no macOS
+runner needed. The block is **conditional**: it fires only when `MACOS_SIGN_P12` is non-empty, so a
+repo without the secrets still releases (unsigned) unchanged.
+
+```yaml
+notarize:
+  macos:
+    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
+      ids: [<binary-id>]          # the build that produces the darwin binary — see below
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+```
+
+Notes:
+- **`ids` must reference the build that emits the darwin binary.** In the base config that's the
+  single `{{PROJECT_NAME}}` build. If a repo layers the universal-binary recipe, use the
+  `*-universal` id; with a FUSE/tagged darwin build, use that build's id.
+- **`enabled` uses `envOrDefault … non-empty`, not `isEnvSet`.** GitHub Actions exports
+  `MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}` as a *set-but-empty* var when the secret is absent,
+  which would make `isEnvSet` fire signing against an empty cert. The workflow always passes the five
+  `MACOS_*` env vars (so `{{ .Env.* }}` never hits a missing key); the guard skips them when empty.
+- **Bare binaries only** — quill signs/notarizes the Mach-O directly; do not use this for `.app`
+  bundles (macOS deems a bundle whose only the binary is signed "damaged"). We ship bare binaries.
+- The cask's `xattr -dr com.apple.quarantine` post-install hook **stays** — harmless, and it's the
+  fallback for the unsigned path (a bare binary can't be stapled, so notarized binaries still rely on
+  an online Gatekeeper check that the hook sidesteps).
+
+### Creating the credentials (one-time, reusable across all repos)
+
+Requires a paid **Apple Developer Program** membership (Developer ID certs aren't on a free Apple ID);
+the account must be Account Holder/Admin. The crypto is all `openssl` (no Keychain GUI); the two Apple
+**web** actions have no CLI bootstrap, so drive them with the **`agent-browser-with-cookies`** skill
+against the user's logged-in Apple session (fall back to a manual web step if Apple re-challenges 2FA).
+
+**Developer ID Application certificate → `MACOS_SIGN_P12` / `MACOS_SIGN_PASSWORD`:**
+
+```bash
+openssl genrsa -out DeveloperID.key 2048
+openssl req -new -key DeveloperID.key -out DeveloperID.csr \
+  -subj "/CN=Developer ID Application/emailAddress=<apple-id-email>/C=US"
+# → developer.apple.com (agent-browser-with-cookies): Certificates → + → Developer ID Application,
+#   upload DeveloperID.csr, download developer_id_application.cer. Also grab the Developer ID
+#   intermediate from https://www.apple.com/certificateauthority/ as DeveloperIDCA.pem.
+openssl x509 -inform DER -in developer_id_application.cer -out DeveloperID.pem
+openssl pkcs12 -export -inkey DeveloperID.key -in DeveloperID.pem \
+  -certfile DeveloperIDCA.pem -out DeveloperID.p12 -passout pass:<password>   # <password> = MACOS_SIGN_PASSWORD
+base64 -i DeveloperID.p12 | tr -d '\n'                                        # = MACOS_SIGN_P12
+```
+
+**App Store Connect API key → `MACOS_NOTARY_ISSUER_ID` / `MACOS_NOTARY_KEY_ID` / `MACOS_NOTARY_KEY`:**
+On `appstoreconnect.apple.com` (agent-browser-with-cookies) → Users and Access → Integrations → App
+Store Connect API → Team Keys → generate a key (the **Developer** role suffices for notarization).
+Capture the **Issuer ID** (`MACOS_NOTARY_ISSUER_ID`) and the key's **Key ID** (`MACOS_NOTARY_KEY_ID`),
+download the one-time `.p8`, then `base64 -i AuthKey_XXXXXX.p8 | tr -d '\n'` → `MACOS_NOTARY_KEY`.
+
+Store all five raw values in 1Password (e.g. `op://OpenClaw/MACOS_SIGN_P12/credential`, …) so every
+repo reuses the same credentials.
+
+### Setting the secrets per repo
+
+```bash
+for repo in <owner>/<repo> ...; do
+  for k in MACOS_SIGN_P12 MACOS_SIGN_PASSWORD MACOS_NOTARY_ISSUER_ID MACOS_NOTARY_KEY_ID MACOS_NOTARY_KEY; do
+    gh secret set "$k" -R "$repo" --body "$(op read "op://OpenClaw/$k/credential")"
+  done
+done
+```
+
+(`yasyf` is a user, not an org — there are no org-level secrets, so each repo gets its own five.)
+After the first signed release, verify on a Mac: `codesign -dv --verbose=4 "$(command -v <name>)"`
+shows `Authority=Developer ID Application: …`, and `spctl -a -t exec -vv "$(command -v <name>)"`
+reports `accepted … source=Notarized Developer ID`.
 
 ## Recipes
 
