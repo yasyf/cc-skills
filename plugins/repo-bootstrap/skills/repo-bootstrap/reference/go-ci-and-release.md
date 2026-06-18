@@ -138,9 +138,9 @@ Used by: **cc-review** (its Claude Code plugin downloads the raw binary).
 ### Extra hand-maintained cask (externally-built artifact)
 
 goreleaser builds Go binaries, not Xcode/Swift `.app` bundles. For a macOS app built by a separate
-job (xcodegen + xcodebuild + `ditto` zip), keep that job, and maintain its cask **by hand** in the
-shared tap (a small CI step that rewrites the version + sha256 and pushes). goreleaser handles the
-Go binary's cask; the app's cask lives beside it in `yasyf/homebrew-tap`.
+job (xcodegen + xcodebuild + `ditto` zip), keep that job, render its cask `.rb`, and publish it via
+the shared tap action (below) — goreleaser handles the Go binary's cask; the app's cask lives beside
+it in `yasyf/homebrew-tap`.
 
 Used by: **claude-pool** (the `cc-pool-status` widget app).
 
@@ -160,3 +160,29 @@ goreleaser: a workflow step creates and pushes the tag, then goreleaser runs wit
 
 `goreleaser release` then reads `GORELEASER_CURRENT_TAG` instead of requiring a pre-existing tag.
 Used by: **slop-cop**.
+
+## Formula repos (goreleaser can't emit formulas) → the shared publish action
+
+goreleaser v2 only emits Homebrew **casks**. A repo whose package needs **formula-only** features —
+a `service do` block for `brew services` (claude-pool/cc-pool), or a native-Linux build a cask can't
+carry (cc-notes' FUSE `mount`) — keeps its own hand-rolled build + renders its own `.rb`, then
+publishes through **one shared composite action** so the cross-repo git mechanics live in a single
+place (and can't drift or grow a per-repo bug like a `git diff` that runs before `git add`):
+
+```yaml
+# in the release job, after rendering Formula/<name>.rb (and any Casks/<name>.rb)
+# into a local staging dir mirroring the tap layout:
+- name: Publish to the tap
+  uses: yasyf/homebrew-tap/.github/actions/publish@main
+  with:
+    token: ${{ secrets.HOMEBREW_TAP_TOKEN }}   # PAT with contents:write on the tap
+    dir: tap-staging                            # contains Formula/ and/or Casks/
+    message: "<name> ${{ github.ref_name }}"
+```
+
+The action (`yasyf/homebrew-tap/.github/actions/publish`) checks out the tap, merges the staging
+dir's `Formula/`/`Casks/` files in, and does the one canonical `git add -A` → `git diff --cached
+--quiet` → commit → push. The calling repo only renders its `.rb` (formula *content* is repo-specific
+— URLs into its own releases, the service block, fuse resources). New formula repos should use this
+action rather than copy-pasting tap git bash. Used by: **cc-notes**, **claude-pool**. (Cask-only
+repos don't need it — goreleaser's `homebrew_casks` publishes for them.)
