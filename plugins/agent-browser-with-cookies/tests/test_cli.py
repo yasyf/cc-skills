@@ -82,6 +82,34 @@ def test_extract_self_decrypt(monkeypatch, capsys):
         os.unlink(path)
 
 
+@pytest.mark.parametrize(
+    "extra_argv, want_reason",
+    [
+        (["--reason", "post a tweet"], "access your app.example.com session to post a tweet"),
+        ([], "access your app.example.com session"),
+        (["--reason", "  open   a\nPR  "], "access your app.example.com session to open a PR"),
+        (["--reason", "x" * 500], "access your app.example.com session to " + "x" * 160),
+    ],
+    ids=["reason", "no-reason", "sanitized", "truncated"],
+)
+def test_touchid_reason_composition(monkeypatch, capsys, extra_argv, want_reason):
+    monkeypatch.setattr(cookies.profiles, "list_profile_dirs", lambda: ["Profile 3"])
+    monkeypatch.setattr(cookies.profiles, "count_applicable", lambda p, h: 1)
+    monkeypatch.setattr(cookies.profiles, "read_encrypted_rows", lambda p, h: [_row("sid", "tok")])
+    seen = {}
+
+    def capture(src, reason):
+        seen["reason"] = reason
+        return "ok"
+
+    monkeypatch.setattr(cookies.keychain, "touchid_gate", capture)
+    monkeypatch.setattr(cookies.keychain, "read_safe_storage_key", lambda: PASSWORD)
+
+    assert _run(monkeypatch, ["extract", "--url", "https://app.example.com", *extra_argv]) == 0
+    assert seen["reason"] == want_reason
+    os.unlink(capsys.readouterr().out.strip().splitlines()[-1])
+
+
 def test_extract_ambiguous_profiles_errors(monkeypatch):
     monkeypatch.setattr(cookies.profiles, "list_profile_dirs", lambda: ["Profile 3", "Profile 4"])
     monkeypatch.setattr(cookies.profiles, "count_applicable", lambda p, h: 10)  # tie

@@ -1,7 +1,7 @@
 {
   "name": "agent-browser-with-cookies",
   "description": "Run authenticated agent-browser sessions by extracting cookies for a target site from your local browser — self-decrypting Chrome (one Touch ID tap) with a cross-browser @mherod/get-cookie fallback — and seeding them into a fresh session. macOS.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

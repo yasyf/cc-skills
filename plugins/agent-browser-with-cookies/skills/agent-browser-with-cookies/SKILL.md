@@ -43,8 +43,13 @@ SCRIPT="uv run ${CLAUDE_PLUGIN_ROOT}/skills/agent-browser-with-cookies/scripts/c
 4. **Extract.** This is the step that prompts (Touch ID):
 
    ```bash
-   STATE=$($SCRIPT extract --url "$U" | tail -1)
+   STATE=$($SCRIPT extract --url "$U" --reason "<verb phrase: what you'll do>" | tail -1)
    ```
+
+   **Always pass `--reason`** as a concise, truthful verb phrase for the task you're about
+   to do — it completes *"access your `<host>` session to …"* in the Touch ID prompt the
+   user approves, so it must accurately describe the action (e.g.
+   `--reason "post a release-announcement tweet"`).
 
    stderr shows a summary (`engine=…`, cookie count, which browser the fallback used).
    On a nonzero exit, see **Failure handling**. `AMBIGUOUS` → re-run with `--profile`.
@@ -88,3 +93,5 @@ SCRIPT="uv run ${CLAUDE_PLUGIN_ROOT}/skills/agent-browser-with-cookies/scripts/c
 - macOS + Chrome `v10` cookies for the self-decrypt path. App-bound (`v20`) cookies and
   non-Chrome browsers go through the get-cookie fallback automatically.
 - The Touch ID prompt is a per-task consent checkpoint, not a hardware binding of the key.
+  It shows the target domain plus your `--reason` (*"access your `<host>` session to …"*),
+  so the user approves an informed, task-specific request — keep the reason short and honest.

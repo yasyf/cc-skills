@@ -7,8 +7,8 @@
 
     cookies.py list-profiles [--url U | --domain D] [--json]
     cookies.py extract (--url U | --domain D) [--profile P | --auto]
-                       [--out FILE] [--include-expired] [--no-fallback]
-                       [--engine auto|self|get-cookie]
+                       [--reason WHY] [--out FILE] [--include-expired]
+                       [--no-fallback] [--engine auto|self|get-cookie]
 
 `extract` decrypts the Chrome cookie store for the target host (one Touch ID tap;
 the underlying Safe Storage read is silent after a first-run Always Allow), and
@@ -54,6 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
     prof = ex.add_mutually_exclusive_group()
     prof.add_argument("--profile", help='Chrome profile dir, e.g. "Profile 3"')
     prof.add_argument("--auto", action="store_true", help="auto-pick the profile with the most matching cookies")
+    ex.add_argument(
+        "--reason",
+        help='why access is needed, as a verb phrase (e.g. "post a tweet"); '
+        'shown in the Touch ID prompt as "access your <host> session to …"',
+    )
     ex.add_argument("--out", help="write state JSON here instead of a private temp file")
     ex.add_argument("--include-expired", action="store_true", help="keep already-expired cookies")
     ex.add_argument("--no-fallback", action="store_true", help="do not fall back to @mherod/get-cookie")
@@ -103,13 +108,24 @@ def _select_profile(host: str) -> tuple[str | None, str | None]:
     return scored[0][1], None
 
 
-def _self_decrypt(host: str, profile: str, include_expired: bool) -> tuple[list[dict], dict]:
+def _touchid_reason(host: str, reason: str | None) -> str:
+    """Compose the Touch ID prompt: domain first, the LLM's reason as a 'to …' clause.
+
+    ``reason`` is LLM-controlled text shown in a security dialog, so collapse any
+    whitespace/newlines and cap the length to keep the prompt clean and single-line.
+    """
+    base = f"access your {host} session"
+    clean = " ".join(reason.split())[:160] if reason else ""
+    return f"{base} to {clean}" if clean else base
+
+
+def _self_decrypt(host: str, profile: str, include_expired: bool, reason: str | None) -> tuple[list[dict], dict]:
     """Decrypt applicable Chrome cookies for ``host``. Empty result ⇒ caller falls back."""
     rows = profiles.read_encrypted_rows(profile, host)
     if not rows:
         return [], {"engine": "self", "profile": profile, "found": 0, "note": "no applicable cookies"}
 
-    keychain.touchid_gate(SWIFT_SRC, reason=f"unlock your Chrome cookies for {host}")
+    keychain.touchid_gate(SWIFT_SRC, reason=_touchid_reason(host, reason))
     key = crypto.derive_key(keychain.read_safe_storage_key())
 
     now = time.time()
@@ -169,7 +185,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
             print(f"self-decrypt: {err}", file=sys.stderr)
         if profile:
             try:
-                cookies, summary = _self_decrypt(host, profile, args.include_expired)
+                cookies, summary = _self_decrypt(host, profile, args.include_expired, args.reason)
                 used = "self"
             except keychain.KeychainError as exc:
                 print(f"self-decrypt: {exc}", file=sys.stderr)

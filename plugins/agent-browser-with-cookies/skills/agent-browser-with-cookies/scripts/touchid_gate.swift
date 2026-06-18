@@ -11,7 +11,7 @@ import Foundation
 import LocalAuthentication
 
 let reason = ProcessInfo.processInfo.environment["ABWC_TOUCHID_REASON"]
-    ?? "unlock your browser cookies for agent-browser"
+    ?? "access your browser session for agent-browser"
 
 let context = LAContext()
 var policyError: NSError?
