@@ -49,3 +49,8 @@ def py_var_pairs(base_var_pairs: list[str]) -> list[str]:
         "PYTHON_PIN=3.12",
         "PYTHON_MIN=3.10",
     ]
+
+
+@pytest.fixture
+def go_var_pairs(base_var_pairs: list[str]) -> list[str]:
+    return base_var_pairs + ["GO_VERSION=1.26"]

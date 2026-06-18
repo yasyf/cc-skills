@@ -31,6 +31,7 @@ SECTION_LEFTOVER = re.compile(r"\{\{[#^/][A-Z_]+\}\}")
 PARTIAL = re.compile(r"\{\{>\s*([^}]+?)\s*\}\}")
 DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 PY_VERSION_RE = re.compile(r"^3\.\d+$")
+GO_VERSION_RE = re.compile(r"^1\.\d+(\.\d+)?$")
 
 
 class ScaffoldError(SystemExit):
@@ -75,6 +76,9 @@ class Layer:
 class Feature:
     name: str
     section: str
+    # Layers this feature is offered in. A request for a feature outside its
+    # layers is silently dropped (see scaffold.resolve), like base ignoring docs.
+    layers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

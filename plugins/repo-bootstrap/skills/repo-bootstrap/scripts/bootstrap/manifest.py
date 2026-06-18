@@ -13,31 +13,35 @@ from .common import DerivedVar, Feature, FileSpec, Layer, VarSpec
 LAYERS = (
     Layer("base"),
     Layer("python", implies=("base",)),
+    Layer("go", implies=("base",)),
 )
 LAYER_ORDER = tuple(layer.name for layer in LAYERS)
 
-# Optional python features. Each maps to a {{#FEATURE_*}} section token and may
-# gate whole files (see FILES below). Default: both enabled.
+# Optional features, each scoped to the layer(s) that offer it. Each maps to a
+# {{#FEATURE_*}} section token and may gate whole files (see FILES below). A
+# feature requested outside its layer is silently dropped (scaffold.resolve).
 FEATURES = (
-    Feature("docs", "FEATURE_DOCS"),
-    Feature("pypi", "FEATURE_PYPI"),
+    Feature("docs", "FEATURE_DOCS", layers=("python",)),
+    Feature("pypi", "FEATURE_PYPI", layers=("python",)),
+    Feature("release", "FEATURE_RELEASE", layers=("go",)),
 )
 
 # Optional extra layers, selectable in any layer via --extras.
 EXTRAS = ("superset", "env")
 
 VARS = (
-    VarSpec("PROJECT_NAME", ("base", "python")),
-    VarSpec("DESCRIPTION", ("base", "python")),
-    VarSpec("AUTHOR_NAME", ("base", "python")),
-    VarSpec("AUTHOR_EMAIL", ("base", "python")),
-    VarSpec("GITHUB_USER", ("base", "python")),
-    VarSpec("LICENSE_ID", ("base", "python"), validate="license_id"),
+    VarSpec("PROJECT_NAME", ("base", "python", "go")),
+    VarSpec("DESCRIPTION", ("base", "python", "go")),
+    VarSpec("AUTHOR_NAME", ("base", "python", "go")),
+    VarSpec("AUTHOR_EMAIL", ("base", "python", "go")),
+    VarSpec("GITHUB_USER", ("base", "python", "go")),
+    VarSpec("LICENSE_ID", ("base", "python", "go"), validate="license_id"),
     # PACKAGE is validated before DIST_NAME to match the legacy check order.
     VarSpec("PACKAGE", ("python",), validate="identifier"),
     VarSpec("DIST_NAME", ("python",), validate="dist_name"),
     VarSpec("PYTHON_PIN", ("python",), validate="py_version"),
     VarSpec("PYTHON_MIN", ("python",), validate="py_version"),
+    VarSpec("GO_VERSION", ("go",), validate="go_version"),
 )
 
 DERIVED = (
@@ -45,6 +49,12 @@ DERIVED = (
     DerivedVar("DOCS_URL", lambda v, now: f"https://{v['GITHUB_USER']}.github.io/{v['PROJECT_NAME']}/"),
     DerivedVar("YEAR", lambda v, now: str(now.year)),
     DerivedVar("PY_TARGET", lambda v, now: ("py" + v["PYTHON_MIN"].replace(".", "")) if v.get("PYTHON_MIN") else None),
+    # Go module path, e.g. github.com/yasyf/demo. Only the go layer supplies a
+    # version; derive it only when GO_VERSION is present so python/base stay clean.
+    DerivedVar(
+        "MODULE_PATH",
+        lambda v, now: f"github.com/{v['GITHUB_USER']}/{v['PROJECT_NAME']}" if v.get("GO_VERSION") else None,
+    ),
 )
 
 FILES = (
@@ -89,6 +99,28 @@ FILES = (
     FileSpec("docs/scripts/native_reference_titles.py", "python/docs/scripts/native_reference_titles.py", "python", feature="docs"),
     FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
+    # --- go layer (overrides base where dest collides) ---
+    FileSpec("AGENTS.md", "go/AGENTS.md", "go"),
+    FileSpec("STYLEGUIDE.md", "go/STYLEGUIDE.md", "go"),
+    FileSpec("README.md", "go/README.md", "go"),
+    FileSpec(".claude/settings.json", "go/claude/settings.json", "go"),
+    # go layer enables the `general` + `go` builtin packs (overrides base packs.toml).
+    FileSpec(".claude/hooks/packs.toml", "go/claude/hooks/packs.toml", "go"),
+    FileSpec("go.mod", "go/go-mod", "go"),
+    FileSpec("cmd/{{PROJECT_NAME}}/main.go", "go/cmd/main.go", "go"),
+    FileSpec("internal/cli/root.go", "go/internal/cli/root.go", "go"),
+    FileSpec("internal/cli/hello.go", "go/internal/cli/hello.go", "go"),
+    FileSpec("internal/cli/hello_test.go", "go/internal/cli/hello_test.go", "go"),
+    FileSpec("internal/version/version.go", "go/internal/version/version.go", "go"),
+    FileSpec("internal/log/log.go", "go/internal/log/log.go", "go"),
+    FileSpec("Taskfile.yml", "go/Taskfile.yml", "go"),
+    FileSpec(".golangci.yml", "go/golangci.yml", "go"),
+    FileSpec(".editorconfig", "go/editorconfig", "go"),
+    FileSpec(".github/workflows/ci.yml", "go/github/workflows/ci.yml", "go"),
+    FileSpec(".pre-commit-config.yaml", "go/pre-commit-config.yaml", "go"),
+    # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1)
+    FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
+    FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),

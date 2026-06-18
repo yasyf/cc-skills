@@ -1,0 +1,45 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  LDFLAGS: >-
+    -s -w
+    -X {{MODULE_PATH}}/internal/version.Version={{.VERSION}}
+    -X {{MODULE_PATH}}/internal/version.Commit={{.COMMIT}}
+
+tasks:
+  build:
+    desc: Build the binary into ./bin
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{PROJECT_NAME}} ./cmd/{{PROJECT_NAME}}
+
+  test:
+    desc: Run the test suite with the race detector
+    cmds:
+      - go test -race -count=1 ./...
+
+  vet:
+    desc: Vet the module
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Lint with golangci-lint
+    cmds:
+      - golangci-lint run
+
+  fmt:
+    desc: Format with gofumpt + goimports (via golangci-lint)
+    cmds:
+      - golangci-lint fmt
+
+  ci:
+    desc: Everything CI runs
+    cmds:
+      - task: vet
+      - task: lint
+      - task: test
+      - task: build

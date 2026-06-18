@@ -151,6 +151,30 @@ def _wheel_smoke() -> tuple[bool, str]:
         shutil.rmtree(".wheel-smoke", ignore_errors=True)
 
 
+def _go_binary_smoke() -> tuple[bool, str]:
+    """Build the first cmd/<name>/ binary to a temp dir and run it with --help.
+
+    The go analogue of the python wheel smoke test: it proves the starter CLI
+    compiles and runs end to end, not just that the package builds."""
+    cmd_dirs = sorted(p for p in glob.glob("cmd/*") if Path(p).is_dir())
+    if not cmd_dirs:
+        return False, "no cmd/<name>/ directory found to build"
+    name = Path(cmd_dirs[0]).name
+    shutil.rmtree(".go-smoke", ignore_errors=True)
+    output = ""
+    try:
+        Path(".go-smoke").mkdir()
+        binpath = f".go-smoke/{name}"
+        ok, captured = _run_cmd(["go", "build", "-o", binpath, f"./cmd/{name}"])
+        output += captured
+        if not ok:
+            return False, output
+        ok2, captured2 = _run_cmd([f"./{binpath}", "--help"])
+        return ok2, output + captured2
+    finally:
+        shutil.rmtree(".go-smoke", ignore_errors=True)
+
+
 def main(layer: str, target: str, no_license: bool) -> int:
     os.chdir(target)
     failures = 0
@@ -189,6 +213,16 @@ def main(layer: str, target: str, no_license: bool) -> int:
         check("uv run pytest", lambda: _run_cmd(["uv", "run", "pytest"]))
         check("uv build", lambda: _run_cmd(["uv", "build"]))
         check("wheel smoke test", _wheel_smoke)
+
+    if layer == "go":
+        check("go vet ./...", lambda: _run_cmd(["go", "vet", "./..."]))
+        if shutil.which("golangci-lint"):
+            check("golangci-lint run", lambda: _run_cmd(["golangci-lint", "run"]))
+        else:
+            print("NOTE  golangci-lint not installed — skipping lint check (CI and the commit hook run it)")
+        check("go build ./...", lambda: _run_cmd(["go", "build", "./..."]))
+        check("go test -race ./...", lambda: _run_cmd(["go", "test", "-race", "./..."]))
+        check("binary smoke test", _go_binary_smoke)
 
     if failures:
         print(f"{failures} check(s) failed")

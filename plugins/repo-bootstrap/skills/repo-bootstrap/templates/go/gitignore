@@ -1,0 +1,14 @@
+# Go build output
+/bin/
+/dist/
+
+# Test / coverage
+*.test
+*.out
+coverage.txt
+
+# go-task cache
+.task/
+
+# bootstrap verify binary smoke test
+.go-smoke/

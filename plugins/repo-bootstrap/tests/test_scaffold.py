@@ -71,6 +71,79 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
         assert gated not in got
 
 
+# --- go layer selection ---
+
+GO_DESTS = {
+    "AGENTS.md", "CLAUDE.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+    ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
+    ".pre-commit-config.yaml", ".github/workflows/ci.yml",
+    "go.mod", "cmd/demo-proj/main.go",
+    "internal/cli/root.go", "internal/cli/hello.go", "internal/cli/hello_test.go",
+    "internal/version/version.go", "internal/log/log.go",
+}
+
+
+def test_go_selection_no_release(go_var_pairs):
+    got = dests("go", go_var_pairs, features=[])
+    assert got == GO_DESTS
+    # {{PROJECT_NAME}} in the dest path is substituted, not left literal
+    assert "cmd/{{PROJECT_NAME}}/main.go" not in got
+
+
+def test_go_release_feature_gates(go_var_pairs):
+    got = dests("go", go_var_pairs, features=["release"])
+    assert got == GO_DESTS | {".goreleaser.yaml", ".github/workflows/release.yml"}
+
+
+def test_go_overrides_base_for_shared_dest(go_var_pairs):
+    r = scaffold.resolve("go", [], [], go_var_pairs, DATE)
+    items = {item.dest: item for item in scaffold.select_files(r)}
+    assert items["AGENTS.md"].src == "go/AGENTS.md"
+    assert items["README.md"].src == "go/README.md"
+    assert items["STYLEGUIDE.md"].src == "go/STYLEGUIDE.md"
+    assert items[".claude/hooks/packs.toml"].src == "go/claude/hooks/packs.toml"
+
+
+def test_go_module_path_derived(go_var_pairs):
+    assert scaffold.resolve("go", [], [], go_var_pairs, DATE).variables["MODULE_PATH"] == "github.com/janedoe/demo-proj"
+
+
+def test_module_path_absent_without_go(base_var_pairs, py_var_pairs):
+    assert "MODULE_PATH" not in scaffold.resolve("base", [], [], base_var_pairs, DATE).variables
+    assert "MODULE_PATH" not in scaffold.resolve("python", [], ["docs"], py_var_pairs, DATE).variables
+
+
+@pytest.mark.parametrize("version", ["1", "1.x", "2026"], ids=["major-only", "non-numeric", "not-go"])
+def test_bad_go_version(go_var_pairs, version):
+    pairs = [p for p in go_var_pairs if not p.startswith("GO_VERSION=")] + [f"GO_VERSION={version}"]
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("go", [], [], pairs, DATE)
+
+
+def test_go_version_patch_allowed(go_var_pairs):
+    pairs = [p for p in go_var_pairs if not p.startswith("GO_VERSION=")] + ["GO_VERSION=1.26.2"]
+    assert scaffold.resolve("go", [], [], pairs, DATE).variables["GO_VERSION"] == "1.26.2"
+
+
+def test_go_silently_drops_python_features(go_var_pairs):
+    # docs/pypi are python-only; requesting them on go drops them silently (no error)
+    r = scaffold.resolve("go", [], ["docs", "pypi", "release"], go_var_pairs, DATE)
+    assert r.features == ("release",)
+    assert r.enabled_sections == frozenset({"FEATURE_RELEASE", "HAS_LICENSE"})
+
+
+def test_python_silently_drops_go_release(py_var_pairs):
+    r = scaffold.resolve("python", [], ["docs", "pypi", "release"], py_var_pairs, DATE)
+    assert r.features == ("docs", "pypi")
+    assert "FEATURE_RELEASE" not in r.enabled_sections
+
+
+def test_unknown_feature_raises_for_go(go_var_pairs):
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("go", [], ["telemetry"], go_var_pairs, DATE)
+
+
 # --- release gate: tag must be on main ---
 
 
@@ -239,6 +312,12 @@ def test_gitignore_concat_base_plus_python():
     assert out == "BASE\nPY"
 
 
+def test_gitignore_concat_base_plus_go():
+    rendered = {"base/gitignore": "BASE", "go/gitignore": "GO"}
+    out = scaffold.gitignore_concat(_ctx(("base", "go"), render=rendered.__getitem__), None)
+    assert out == "BASE\nGO"
+
+
 def test_license_renders_when_template_exists():
     out = scaffold.license_or_notice(_ctx(("base",), exists=lambda src: True), None)
     assert out == "<base/LICENSE-MIT>"
@@ -330,6 +409,45 @@ def test_real_templates_render_manual_license(py_var_pairs):
 def test_great_docs_pypi_widget_follows_feature(py_var_pairs):
     assert "pypi: true" in _real_plan("python", py_var_pairs)[0]["great-docs.yml"]
     assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0]["great-docs.yml"]
+
+
+def test_real_templates_render_go(go_var_pairs):
+    plan, notices = _real_plan("go", go_var_pairs, features=["release"])
+    assert notices == []
+    # go.mod carries the derived module path + go version
+    assert "module github.com/janedoe/demo-proj" in plan["go.mod"]
+    assert "go 1.26" in plan["go.mod"]
+    # the cmd dir dest was substituted from {{PROJECT_NAME}}
+    assert plan["cmd/demo-proj/main.go"].startswith("// Command demo-proj")
+    assert "{{MODULE_PATH}}/internal/cli" not in plan["cmd/demo-proj/main.go"]
+    # go AGENTS.md pulls in the shared collaboration partials
+    agents = plan["AGENTS.md"]
+    assert "## Ask Before Assuming" in agents
+    assert "one subagent call is fine" in agents  # from the parallelize partial
+    assert "## Writing Plans" in agents
+    # FEATURE_RELEASE sections render with release on
+    assert "**Releases.**" in agents
+    assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
+
+
+def test_go_goreleaser_template_tokens_survive(go_var_pairs):
+    gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
+    # goreleaser Go-template tokens (spaces/dots) are NOT bootstrap placeholders — pass through
+    assert "{{ .Version }}" in gor
+    assert "{{ .Env.HOMEBREW_TAP_TOKEN }}" in gor
+    # bootstrap placeholders ARE rendered
+    assert "github.com/janedoe/demo-proj/internal/version.Version={{ .Version }}" in gor
+    assert "owner: janedoe" in gor and "name: homebrew-tap" in gor
+
+
+def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
+    plan, _ = _real_plan("go", go_var_pairs, features=[])
+    assert ".goreleaser.yaml" not in plan
+    assert ".github/workflows/release.yml" not in plan
+    assert "**Releases.**" not in plan["AGENTS.md"]
+    # README falls back to go install / task build, no brew line
+    assert "brew install" not in plan["README.md"]
+    assert "go install github.com/janedoe/demo-proj/cmd/demo-proj@latest" in plan["README.md"]
 
 
 @pytest.mark.parametrize("layer", ["base", "python"])

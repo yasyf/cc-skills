@@ -1,24 +1,27 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features — a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features (a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing), or an optional Go layer (cobra CLI, log/slog, golangci-lint + gofumpt, Taskfile, table-driven tests) with an opt-in goreleaser release to a shared Homebrew tap. Use when creating a new repo or project from scratch, scaffolding a new Python or Go package or CLI (with or without docs/PyPI/Homebrew publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
 
-Scaffold a repo from battle-tested conventions in two layers: a **base** layer every
+Scaffold a repo from battle-tested conventions in layers: a **base** layer every
 repo gets (agent docs, Claude Code settings, guard hooks, code search), and a
-**python** layer on top for Python packages (uv toolchain, starter package, CI,
-plus two opt-in **features** — a Great Docs site and tag-driven PyPI releases).
-Templates render deterministically through one CLI; your judgment goes into naming,
-prose, and the follow-up edits — not file copying.
+language layer on top — **python** for Python packages (uv toolchain, starter
+package, CI, plus opt-in **features** — a Great Docs site and tag-driven PyPI
+releases) or **go** for Go CLIs (cobra, slog, golangci-lint + gofumpt, Taskfile, CI,
+plus an opt-in `release` feature — goreleaser to a shared Homebrew tap). Templates
+render deterministically through one CLI; your judgment goes into naming, prose, and
+the follow-up edits — not file copying.
 
 **Scope:** this skill scaffolds conventions and a minimal skeleton only — it does
 **not** implement the project's features, in any language. Filling `TODO(bootstrap)`
 prose markers (Phase 4) is the only content work; the starter command stays a
-hello-world placeholder (Python's `hello`, or its hand-written equivalent on other
-layers). **STOP at the skeleton:** no business logic, real commands, services/daemons,
-or release/distribution tooling beyond basic CI. Building the product is separate work
-that begins after Phase 6.
+hello-world placeholder (the python and go layers each scaffold one; other languages
+get a hand-written equivalent). **STOP at the skeleton:** no business logic, real
+commands, services/daemons, or release/distribution tooling beyond basic CI — the go
+`release` feature (goreleaser, Homebrew tap, release workflow) ships only when the
+user selects it. Building the product is separate work that begins after Phase 6.
 
 The whole skill is driven by a single command:
 
@@ -33,13 +36,15 @@ downstream as flags.
 
 ## Terminology
 
-- **Layer** — `base` (all repos) or `python` (implies base).
-- **Feature** — a python-only opt-in toggled by `--features`: `docs` (Great Docs site
-  + Pages workflow) and `pypi` (trusted-publishing release workflow). Each gates both
-  whole files and inline sections of shared files (README, AGENTS, pyproject).
+- **Layer** — `base` (all repos), `python` (implies base), or `go` (implies base).
+- **Feature** — a layer-scoped opt-in toggled by `--features`. Python: `docs` (Great
+  Docs site + Pages workflow) and `pypi` (trusted-publishing release workflow). Go:
+  `release` (goreleaser → shared Homebrew tap). A feature requested outside its layer
+  is silently dropped. Each gates whole files and inline sections of shared files
+  (README, AGENTS, pyproject / goreleaser).
 - **Template** — a file under `templates/`; only ever rendered by `bootstrap.py scaffold`, never hand-copied.
 - **Placeholder** — a `{{NAME}}` token in a template, rendered by `bootstrap.py scaffold` from `--var` inputs.
-- **Partial** — a `{{> path}}` token that inlines a shared fragment from `templates/_partials/` at scaffold time (e.g. the VC/CI rules shared by base and python `AGENTS.md`). The fragment is render-only — it carries no `dest` in the manifest and is never written to the target repo.
+- **Partial** — a `{{> path}}` token that inlines a shared fragment from `templates/_partials/` at scaffold time (e.g. the collaboration sections and VC/CI rules shared by base, python, and go `AGENTS.md`). The fragment is render-only — it carries no `dest` in the manifest and is never written to the target repo.
 - **TODO marker** — a `TODO(bootstrap):` line in scaffolded output that you must replace with real prose afterward.
 
 ## Phase 0 — Identity & environment
@@ -63,16 +68,18 @@ target is a git repo on `main` with a colocated jj repo (`.jj/`).
 
 ## Phase 1 — Decide layer & features (the only decision phase)
 
-**First decide the layer.** Apply the python layer when the project is Python, uses
-uv, or targets PyPI; otherwise scaffold base only. Base always applies. For a
-non-Python language, scaffold base only, then hand-write a skeleton that mirrors the
-**shape** of the Python starter, not its substance: a minimal package/module layout,
-exactly **one** hello-world command that builds and runs, **one** smoke test, a CI
-workflow that builds and tests, and the language STYLEGUIDE rules. Use
-`reference/python-stack.md` for the shape of each piece (its § Starter Package Anatomy
-— the hello-world command stays a placeholder). **STOP there.** No business logic, real
-commands, services/daemons, or release/distribution tooling — goreleaser, Homebrew taps,
-and release workflows are product work, not skeleton, unless the user explicitly asks.
+**First decide the layer.** Apply the **python** layer for a Python project (uv / PyPI);
+apply the **go** layer for a Go CLI; otherwise scaffold base only. Base always applies.
+For a non-Python, non-Go language, scaffold base only, then hand-write a skeleton that
+mirrors the **shape** of a layered starter, not its substance: a minimal package/module
+layout, exactly **one** hello-world command that builds and runs, **one** smoke test, a
+CI workflow that builds and tests, and the language STYLEGUIDE rules — use
+`reference/python-stack.md` and `reference/go-stack.md` as the worked examples (the
+hello-world command stays a placeholder). **STOP at the skeleton:** no business logic,
+real commands, services/daemons, or release/distribution tooling. For the go layer,
+goreleaser / Homebrew / release workflows ship **only** via the opt-in `release` feature
+(off by default); for a hand-written language they're product work the user must
+explicitly ask for.
 
 **Then gather everything else in one `AskUserQuestion` round:**
 
@@ -88,15 +95,23 @@ and release workflows are product work, not skeleton, unless the user explicitly
   Docs on GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default
   both selected for a public repo, neither for private** — PyPI publishing is
   inherently public, and Pages on a private repo needs a paid plan.
+- **Go additionally**: the Go toolchain version (`GO_VERSION`, e.g. `1.26`), and the
+  one **feature** as a `multiSelect` "Optional Go features" — `release` (goreleaser
+  build + a Homebrew cask pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
+  regardless of visibility — release/distribution tooling is product work the user opts
+  into, and it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret.
 
 Before Phase 2, reconcile the answers into concrete flags: a "default for
 visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 (public) or `LICENSE_ID=none` (private); the feature picks become `--features`.
 
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
-(`docs,pypi`, `docs`, or `pypi`); deselect both → `--features ""`. Omitting the flag
-is the same as selecting both. Don't scaffold a docs site or release pipeline the
-user didn't ask for and then strip it by hand — that's what the flags prevent.
+(python: `docs,pypi`, `docs`, or `pypi`; go: `release`); deselect everything →
+`--features ""`. Omitting the flag selects all of the chosen layer's features — fine
+for python (defaults to both), but for **go always pass `--features` explicitly**
+(`release` when selected, else `""`), because release defaults off. Don't scaffold a
+docs site or release pipeline the user didn't ask for and then strip it by hand —
+that's what the flags prevent.
 
 **Naming rule (python):** the PyPI dist name must equal the CLI command — short and
 memorable. The import package may differ. Worked example: dist + CLI `capt-hook`,
@@ -108,6 +123,10 @@ $BOOTSTRAP check-name DIST_NAME
 
 (`AVAILABLE` → proceed; `TAKEN` → pick another; `UNKNOWN` → have the user verify;
 `INVALID` → not a valid PyPI name.)
+
+**Naming rule (go):** the binary, Go module leaf, and repo all share the project name
+(`cmd/<name>`, `module github.com/<user>/<name>`) — no dist/package split, and
+`check-name` (a PyPI check) is python-only.
 
 ### Placeholder reference
 
@@ -122,13 +141,16 @@ $BOOTSTRAP check-name DIST_NAME
 | `DIST_NAME` | PyPI dist == CLI command (python) | `capt-hook` |
 | `PACKAGE` | Import package (python) | `captain_hook` |
 | `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.13` / `3.14` |
+| `GO_VERSION` | Go toolchain version (go) | `1.26` |
 
-Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`, `YEAR`.
+Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`,
+`MODULE_PATH` (go: `github.com/<user>/<name>`), `YEAR`.
 Features are independent of `--var`: they gate files and template sections, not
 placeholder values.
 
 **Exit criteria:** layer and visibility chosen; names, license, and extras chosen;
-for python, the two features chosen and the dist name `check-name`d.
+for python, the two features chosen and the dist name `check-name`d; for go,
+`GO_VERSION` and the `release` feature chosen.
 
 ## Phase 2 — Scaffold
 
@@ -142,10 +164,21 @@ $BOOTSTRAP scaffold \
   --var PYTHON_MIN=3.13 --var PYTHON_PIN=3.14
 ```
 
-Set `--features` from Phase 1: `docs,pypi` (both), `pypi` or `docs` (one), or `""`
-(neither). Omitting the flag equals `docs,pypi`. For base layer, drop the python-only
-`--var`s and `--features`. `--extras` is always required; pass `--extras none` if
-none were chosen.
+For the **go** layer:
+
+```bash
+$BOOTSTRAP scaffold \
+  --target . --layer go --extras none --features "" \
+  --var PROJECT_NAME=... --var "DESCRIPTION=..." \
+  --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
+  --var LICENSE_ID=MIT --var GO_VERSION=1.26
+```
+
+Set `--features` from Phase 1 — python: `docs,pypi` (both), `pypi`/`docs` (one), or
+`""` (neither; omitting the flag equals both); go: `release` or `""` — **always pass
+it explicitly for go** (omitting equals `release`, but go release defaults off). For
+base layer, drop the language `--var`s and `--features`. `--extras` is always
+required; pass `--extras none` if none were chosen.
 
 Rules:
 
@@ -165,6 +198,10 @@ commit it), `uv run pytest`, and `uvx prek install` to activate the commit hooks
 (`.pre-commit-config.yaml`; ruff auto-formats and fixes import order, ty prints
 whole-project type warnings — never blocking — on every commit).
 
+For go, follow the scaffold with `go mod tidy` (resolves cobra and writes `go.sum` —
+commit it), then `go vet ./...`, `task build`, and `task test` (`go test -race ./...`);
+run `uvx prek install` to activate the gofumpt + golangci-lint commit hooks.
+
 For every repo, run `uvx capt-hook review enable` to arm the **session reviewer**:
 it registers the captain-hook plugin in `.claude/settings.json` (commit it in
 Phase 6), wires the SessionEnd `review run` hook into `.claude/settings.json`, and
@@ -183,28 +220,31 @@ gets the skill even when the binary is absent.
 
 | Destination | Layer | Notes |
 |---|---|---|
-| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
-| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python entries when layered; `LICENSE` omitted with license `none` |
+| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python/go **override** | the language versions carry feature-gated sections (docs/PyPI for python; a `release` install section for go) rendered to match `--features` |
+| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python/go entries when layered; `LICENSE` omitted with license `none` |
 | `.mcp.json` | base | semble code search via uvx |
-| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-notes@cc-notes` |
+| `.claude/settings.json` | base; python/go **override** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-notes@cc-notes`; go adds `go`/`task` allow-perms (and drops the python-only `TY_CONFIG_FILE`) |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/hooks/packs.toml` | base; python **overrides** | enables capt-hook's builtin packs — `general` (base), plus `python` on the python layer; the packs ship the guard hooks (see `reference/hooks.md`) |
+| `.claude/hooks/packs.toml` | base; python/go **override** | enables capt-hook's builtin packs — `general` (base), plus `python` on the python layer or `go` on the go layer; the packs ship the guard hooks (see `reference/hooks.md`) |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py`, `docs/scripts/native_reference_titles.py` | python + feature `docs` | omitted entirely without `docs`; `native_reference_titles.py` is a `pre_render` perf workaround (see `reference/docs-site.md`) |
-| `.github/workflows/ci.yml` | python | always |
-| `.pre-commit-config.yaml` | python | `ruff format` + `check --fix` + `ty` warnings (whole-project, non-blocking) on every commit via prek; activate with `uvx prek install` |
+| `.github/workflows/ci.yml` | python **or** go | always; the go workflow runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck |
+| `.pre-commit-config.yaml` | python **or** go | python: `ruff` + `ty`; go: gofumpt + golangci-lint — via prek, activate with `uvx prek install` |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |
 | `.github/workflows/release-pypi.yml` | python + feature `pypi` | trusted publishing |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
+| `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
+| `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds the matrix and pushes a Homebrew cask to `yasyf/homebrew-tap`; release workflow gates on `verify-tag-on-main` |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
 | `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
-`uv sync --extra dev` succeeded and `uv.lock` is committed.
+`uv sync --extra dev` succeeded and `uv.lock` is committed; for go, `go mod tidy`
+succeeded and `go build ./...` passes (`go.sum` committed).
 
 ## Phase 3 — Brand images (mascot + banner + social card)
 
@@ -279,15 +319,17 @@ README pitch and why-bullets and the great-docs hero tagline. Run
 $BOOTSTRAP verify --layer python --target .
 ```
 
-Add `--no-license` when license `none` was chosen — the LICENSE check inverts to
-require the file absent. Runs every check and reports `PASS`/`FAIL` per check:
-leftover-token scan, LICENSE presence (or absence), hook inline tests, and (python)
-`uv sync` → `pytest` → `uv build` → wheel smoke test. Fix failures and re-run; **never skip a `FAIL`.** Remaining
-`TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling the repo
-done — and so is a README banner reference whose image is missing (Phase 3 was
+Set `--layer go` for a go repo. Add `--no-license` when license `none` was chosen —
+the LICENSE check inverts to require the file absent. Runs every check and reports
+`PASS`/`FAIL` per check: leftover-token scan, LICENSE presence (or absence), hook
+inline tests, and either (python) `uv sync` → `pytest` → `uv build` → wheel smoke,
+or (go) `go vet` → golangci-lint (skipped with a NOTE if not installed) → `go build`
+→ `go test -race` → binary smoke. Fix failures and re-run; **never skip a `FAIL`.**
+Remaining `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling
+the repo done — and so is a README banner reference whose image is missing (Phase 3 was
 dropped: generate the images, or apply the escape hatch), or a banner without
 `social-preview.jpg` beside it (generate it with `--from-logo`). For base layer,
-drop `--layer python`.
+drop the `--layer` flag (it defaults to base).
 
 **Exit criteria:** `verify` prints `All checks passed`.
 
@@ -297,8 +339,8 @@ Atomic, conventional-prefix commits — one logical change each, conditioned on 
 layer and features actually scaffolded:
 
 1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` — include the `.claude/settings.json` captain-hook plugin registration written by `capt-hook review enable` in Phase 2 (and the `cc-notes init` refspecs/pack/CI when cc-notes is installed)
-2. `feat: initial <package> package and CLI skeleton` *(python)*
-3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features)*
+2. `feat: initial <package> package and CLI skeleton` *(python)* / `feat: initial CLI skeleton (cmd + internal packages)` *(go — include `go.mod`/`go.sum`)*
+3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features. go; append "and goreleaser release" with feature `release`)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
 5. `docs: add mascot logo, README banner, and social card` *(skip if Phase 3 was skipped)*
 
@@ -316,6 +358,12 @@ Then, optionally, publish and wire one-time setups:
   then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
+- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists and set a
+  `HOMEBREW_TAP_TOKEN` repo secret (a PAT with `contents:write` on the tap), then run
+  the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on `main` → push
+  tag. goreleaser builds the binaries, cuts the GitHub release, and pushes the Homebrew
+  cask; the `verify-tag-on-main` gate refuses tags off `main`. No PyPI/Pages for go
+  (`reference/go-ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
   no API for it — use the **`agent-browser-with-cookies`** skill (install
   `agent-browser-with-cookies@skills` from this marketplace if absent) to run an
@@ -345,6 +393,13 @@ Then, optionally, publish and wire one-time setups:
   install widget — README falls back to clone + `uv run`); `--features pypi` drops the docs site (great-docs
   config, Pages workflow, docs badge/section, `docs` dependency group); `--features ""`
   drops both.
+- **No release pipeline (go)**: release is off by default — `--features ""` scaffolds no
+  `.goreleaser.yaml` / `release.yml` and the README falls back to `go install` + `task
+  build`. Re-scaffold with `--features release` to add it; don't hand-add or hand-strip.
+- **Library, not a CLI (go)**: the go layer scaffolds a `cmd/<name>` binary. For a library,
+  scaffold the go layer, then delete `cmd/` and expose packages at the module root (or under
+  `<name>/`); drop the cobra dependency and the `release` feature. The starter `internal/cli`
+  becomes the example package to replace.
 - **Other licenses**: PolyForm-Noncommercial-1.0.0 (the public-repo default) and MIT
   render from bundled templates; any other SPDX id prints a `MANUAL` line to fetch from the SPDX
   list (see Phase 2) and is set in `pyproject.toml`. MIT is the choice for permissive
@@ -357,7 +412,9 @@ Then, optionally, publish and wire one-time setups:
 - **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
   `uvx prek install`). If you already ran `uvx prek install`, also run
   `uvx prek uninstall` — deleting the config alone orphans the hook and aborts every
-  commit. To drop only the ty hook, delete its `repo:` block there and the CI ty step.
+  commit. (python) To drop only the ty hook, delete its `repo:` block there and the CI
+  ty step. (go) The config runs gofumpt + golangci-lint; the `go` capt-hook pack blocks
+  manual invocation, so also relax that pack if you drop the hook.
 - **No Codex**: the second-opinion nudge ships in the `general` pack — override it with a
   local `.claude/hooks/commands.py` (a local hook shadows the pack's; see `reference/hooks.md`),
   then remove the `"enabledPlugins"` entry (and `"extraKnownMarketplaces"` if nothing else
@@ -385,9 +442,15 @@ Read these on demand — each is self-contained:
 - `reference/python-stack.md` — every python-layer choice with rationale
   (uv/uv_build, flat layout, Click, loguru, pytest, ruff, ty + pyright, naming triad),
   pyproject walkthrough.
+- `reference/go-stack.md` — every go-layer choice with rationale (cmd/+internal layout,
+  cobra, slog, golangci-lint + gofumpt, table-driven tests, version stamping, the
+  error→exit-code idiom).
 - `reference/hooks.md` — what each scaffolded hook does, testing with
   `uvx capt-hook test`, tailoring and removal, version requirements.
-- `reference/ci-and-release.md` — the three workflows, one-time PyPI trusted
+- `reference/ci-and-release.md` — the three python workflows, one-time PyPI trusted
   publisher + GitHub Pages setup, release procedure.
+- `reference/go-ci-and-release.md` — the go CI workflow and the goreleaser base
+  config + opt-in recipes (zig CGO, build tags, universal binaries, embed-prebuild,
+  `format: binary`, extra cask, auto-tag-on-push); shared-tap one-time setup.
 - `reference/docs-site.md` — Great Docs config, build/preview commands, enabling
   narrative sections and curated reference.

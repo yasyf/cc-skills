@@ -1,0 +1,58 @@
+# goreleaser v2 — the canonical base config (pure Go, CGO_ENABLED=0). Layer
+# recipes on top (zig CGO, build tags, universal binaries, embed-prebuild) per
+# reference/go-ci-and-release.md. Validate locally: goreleaser release --snapshot --clean
+version: 2
+
+project_name: {{PROJECT_NAME}}
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: {{PROJECT_NAME}}
+    main: ./cmd/{{PROJECT_NAME}}
+    binary: {{PROJECT_NAME}}
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X {{MODULE_PATH}}/internal/version.Version={{ .Version }}
+      - -X {{MODULE_PATH}}/internal/version.Commit={{ .Commit }}
+      - -X {{MODULE_PATH}}/internal/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: {{PROJECT_NAME}}
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+homebrew_casks:
+  - name: {{PROJECT_NAME}}
+    binaries:
+      - {{PROJECT_NAME}}
+    repository:
+      owner: {{GITHUB_USER}}
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "{{REPO_URL}}"
+    description: "{{DESCRIPTION}}"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/{{PROJECT_NAME}}"]
+          end
+
+release:
+  prerelease: auto
+
+changelog:
+  use: github

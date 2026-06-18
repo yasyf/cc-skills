@@ -141,3 +141,39 @@ def test_end_to_end_python(tmp_path, features, license_id):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "All checks passed" in result.stdout
+
+
+GO_VARS = BASE_VARS + ["--var", "GO_VERSION=1.26"]
+
+
+@pytest.mark.go
+def test_end_to_end_go(tmp_path):
+    if not shutil.which("go"):
+        pytest.skip("go not installed")
+    if not shutil.which("uv"):
+        pytest.skip("uv not installed (verify runs the capt-hook inline tests via uvx)")
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
+    scaffold = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "scaffold", "--target", str(tmp_path),
+         "--layer", "go", "--extras", "none", "--features", "release", *GO_VARS],
+        capture_output=True, text=True, env=env,
+    )
+    assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
+
+    # `go mod tidy` resolves cobra and writes go.sum — the scaffold ships neither.
+    tidy = subprocess.run(["go", "mod", "tidy"], cwd=tmp_path, capture_output=True, text=True, env=env)
+    assert tidy.returncode == 0, tidy.stdout + tidy.stderr
+
+    # The shipped packs.toml enables [packs.go], which only resolves once captain-hook
+    # ships that pack (Workstream B). Until then neutralize it to `general` so the
+    # hook-inline-test check runs against a released pack; the go-specific verify checks
+    # (vet / build / test -race / binary smoke) are what this test exercises.
+    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+
+    result = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "verify", "--layer", "go", "--target", str(tmp_path)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "All checks passed" in result.stdout

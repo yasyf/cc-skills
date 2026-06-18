@@ -22,6 +22,7 @@ from pathlib import Path
 from . import render as _render
 from .common import (
     DIST_NAME_RE,
+    GO_VERSION_RE,
     PARTIAL,
     PY_VERSION_RE,
     FileSpec,
@@ -79,6 +80,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be a valid PyPI project name, got {value!r}")
         if kind == "py_version" and not PY_VERSION_RE.match(value):
             raise ScaffoldError(f"{name} must look like 3.X, got {value!r}")
+        if kind == "go_version" and not GO_VERSION_RE.match(value):
+            raise ScaffoldError(f"{name} must look like 1.X or 1.X.Y, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
 
@@ -101,15 +104,19 @@ def expand_layers(layer: str) -> tuple[str, ...]:
 def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[str], now: date) -> ResolveResult:
     if unknown := sorted(set(extras) - set(EXTRAS)):
         raise ScaffoldError(f"unknown extras: {', '.join(unknown)}; known: {', '.join(EXTRAS)}")
-    features = features if layer == "python" else []
+    # An unknown feature name is an error; a known feature requested outside its
+    # layer is silently dropped — base has always ignored docs/pypi this way, so
+    # the argparse "all features" default reduces to each layer's own set.
     if unknown := sorted(set(features) - set(_FEATURE_NAMES)):
         raise ScaffoldError(f"unknown features: {', '.join(unknown)}; known: {', '.join(_FEATURE_NAMES)}")
+    applicable = {f.name for f in FEATURES if layer in f.layers}
+    features = [f for f in features if f in applicable]
 
     variables = parse_vars(var_pairs)
     validate_vars(variables, layer)
     variables = derive_vars(variables, now)
 
-    enabled = {f"FEATURE_{f.upper()}" for f in features} if layer == "python" else set()
+    enabled = {f.section for f in FEATURES if f.name in features}
     # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.
     if variables["LICENSE_ID"] != "none":
         enabled.add("HAS_LICENSE")
@@ -126,7 +133,6 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
 
 
 def select_files(r: ResolveResult) -> list[PlanItem]:
-    package = r.variables.get("PACKAGE", "")
     chosen: dict[str, tuple[int, FileSpec]] = {}
     for spec in FILES:
         if spec.layer not in r.layers:
@@ -135,7 +141,12 @@ def select_files(r: ResolveResult) -> list[PlanItem]:
             continue
         if spec.extra is not None and spec.extra not in r.extras:
             continue
-        dest = spec.dest.replace("{{PACKAGE}}", package)
+        # Resolve any {{VAR}} token in the destination path (e.g. {{PACKAGE}} for
+        # python, {{PROJECT_NAME}} for go's cmd/<name>/main.go). The {{ }} bounds
+        # mean a var name that prefixes another can't partially match.
+        dest = spec.dest
+        for key, value in r.variables.items():
+            dest = dest.replace("{{" + key + "}}", value)
         precedence = _LAYER_INDEX[spec.layer]
         # last-writer-wins by dest, ordered by explicit layer precedence
         if dest not in chosen or precedence >= chosen[dest][0]:
@@ -204,6 +215,8 @@ def gitignore_concat(ctx: TransformCtx, content: str | None) -> str:
     text = ctx.render("base/gitignore")
     if "python" in ctx.layers:
         text += "\n" + ctx.render("python/gitignore")
+    if "go" in ctx.layers:
+        text += "\n" + ctx.render("go/gitignore")
     return text
 
 
