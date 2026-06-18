@@ -358,10 +358,12 @@ Then, optionally, publish and wire one-time setups:
   then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on
   `main` → push tag. The release's `verify-tag-on-main` gate refuses tags off `main`
   (`reference/ci-and-release.md`).
-- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists and set a
-  `HOMEBREW_TAP_TOKEN` repo secret (a PAT with `contents:write` on the tap), then run
-  the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on `main` → push
-  tag. goreleaser builds the binaries, cuts the GitHub release, and pushes the Homebrew
+- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists and set the
+  `HOMEBREW_TAP_TOKEN` repo secret from 1Password (the fine-grained tap PAT lives there —
+  reuse it, don't mint a new one):
+  `gh secret set HOMEBREW_TAP_TOKEN -R <owner>/<repo> --body "$(op read 'op://OpenClaw/HOMEBREW_TAP_TOKEN/credential')"`.
+  Then run the first release: CHANGELOG entry → tag `v0.1.0` on a commit that's on `main` →
+  push tag. goreleaser builds the binaries, cuts the GitHub release, and pushes the Homebrew
   cask; the `verify-tag-on-main` gate refuses tags off `main`. No PyPI/Pages for go
   (`reference/go-ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has

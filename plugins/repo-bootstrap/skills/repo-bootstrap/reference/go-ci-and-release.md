@@ -23,8 +23,15 @@ shared `yasyf/homebrew-tap` with a quarantine-strip post-install hook. The workf
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
-2. A `HOMEBREW_TAP_TOKEN` repo secret: a PAT with `contents:write` on the tap repo. (Standardize on
-   this name everywhere — older configs used `TAP_GITHUB_TOKEN`.)
+2. A `HOMEBREW_TAP_TOKEN` repo secret — the fine-grained tap PAT lives in 1Password, so set it
+   straight from there (no need to mint a new token per repo). Standardize on this name everywhere
+   (older configs used `TAP_GITHUB_TOKEN`):
+
+   ```bash
+   gh secret set HOMEBREW_TAP_TOKEN -R <owner>/<repo> \
+     --body "$(op read 'op://OpenClaw/HOMEBREW_TAP_TOKEN/credential')"
+   ```
+
 3. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
 
 **Install** then becomes `brew install yasyf/tap/<name>` (macOS) or `go install <module>/cmd/<name>@latest`.
