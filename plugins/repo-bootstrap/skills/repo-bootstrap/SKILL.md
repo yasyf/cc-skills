@@ -12,10 +12,13 @@ plus two opt-in **features** — a Great Docs site and tag-driven PyPI releases)
 Templates render deterministically through one CLI; your judgment goes into naming,
 prose, and the follow-up edits — not file copying.
 
-**Scope:** this skill scaffolds conventions and a starter skeleton only — it does
-**not** implement the project's features. Filling `TODO(bootstrap)` prose markers
-(Phase 4) is the only content work; the starter `hello` command stays as-is, and
-building the product is separate work that begins after Phase 6.
+**Scope:** this skill scaffolds conventions and a minimal skeleton only — it does
+**not** implement the project's features, in any language. Filling `TODO(bootstrap)`
+prose markers (Phase 4) is the only content work; the starter command stays a
+hello-world placeholder (Python's `hello`, or its hand-written equivalent on other
+layers). **STOP at the skeleton:** no business logic, real commands, services/daemons,
+or release/distribution tooling beyond basic CI. Building the product is separate work
+that begins after Phase 6.
 
 The whole skill is driven by a single command:
 
@@ -62,9 +65,14 @@ target is a git repo on `main` with a colocated jj repo (`.jj/`).
 
 **First decide the layer.** Apply the python layer when the project is Python, uses
 uv, or targets PyPI; otherwise scaffold base only. Base always applies. For a
-non-Python language, scaffold base only, then write the language-specific STYLEGUIDE
-rules and test/CI setup by hand, using `reference/python-stack.md` as the worked
-example of a complete layer.
+non-Python language, scaffold base only, then hand-write a skeleton that mirrors the
+**shape** of the Python starter, not its substance: a minimal package/module layout,
+exactly **one** hello-world command that builds and runs, **one** smoke test, a CI
+workflow that builds and tests, and the language STYLEGUIDE rules. Use
+`reference/python-stack.md` for the shape of each piece (its § Starter Package Anatomy
+— the hello-world command stays a placeholder). **STOP there.** No business logic, real
+commands, services/daemons, or release/distribution tooling — goreleaser, Homebrew taps,
+and release workflows are product work, not skeleton, unless the user explicitly asks.
 
 **Then gather everything else in one `AskUserQuestion` round:**
 
