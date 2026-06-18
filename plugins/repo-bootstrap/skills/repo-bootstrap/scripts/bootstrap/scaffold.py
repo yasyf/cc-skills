@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import re
 import sys
 from collections.abc import Callable
 from datetime import date
@@ -21,6 +22,7 @@ from pathlib import Path
 from . import render as _render
 from .common import (
     DIST_NAME_RE,
+    PARTIAL,
     PY_VERSION_RE,
     FileSpec,
     Notice,
@@ -144,6 +146,26 @@ def select_files(r: ResolveResult) -> list[PlanItem]:
 # --- Phase 3: render_plan (pure given an injected template reader) ---
 
 
+def expand_partials(text: str, read: Callable[[str], str], _stack: tuple[str, ...] = ()) -> str:
+    """Inline ``{{> path}}`` directives (raw, pre-render) so a partial shares the
+    including file's variable/feature context. Recursive, cycle-guarded."""
+
+    def repl(m: re.Match[str]) -> str:
+        path = m.group(1)
+        if path in _stack:
+            raise ScaffoldError(f"partial include cycle: {' -> '.join((*_stack, path))}")
+        try:
+            body = read(path)
+        except FileNotFoundError:
+            raise ScaffoldError(f"unknown partial {path!r}")
+        expanded = expand_partials(body, read, (*_stack, path))
+        # The directive sits on its own line; drop the fragment's own trailing
+        # newline so its line break isn't doubled with the directive line's.
+        return expanded[:-1] if expanded.endswith("\n") else expanded
+
+    return PARTIAL.sub(repl, text)
+
+
 def render_plan(
     items: list[PlanItem],
     r: ResolveResult,
@@ -151,7 +173,8 @@ def render_plan(
     template_exists: Callable[[str], bool],
 ) -> tuple[dict[str, str], list[Notice]]:
     def render_src(src: str) -> str:
-        text = _render.render(read_template(src), r.variables, r.enabled_sections)
+        raw = expand_partials(read_template(src), read_template)
+        text = _render.render(raw, r.variables, r.enabled_sections)
         if leftover := _render.find_unrendered_sections(text):
             raise ScaffoldError(f"unbalanced conditional sections in {src}: {', '.join(leftover)}")
         if leftover := _render.find_unrendered_placeholders(text):

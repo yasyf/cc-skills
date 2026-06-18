@@ -127,7 +127,7 @@ Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `
 **Docs.** Any public API change must keep `uv run great-docs build` green; run `uv sync --group docs` first.
 
 {{/FEATURE_DOCS}}
-**Git.** Commits should be atomic and scoped. One logical change per commit.
+{{> _partials/version-control.md}}
 {{#FEATURE_PYPI}}
 
 **Releases.** Tagging `v*` triggers `.github/workflows/release-pypi.yml`, which builds, publishes to PyPI via trusted publishing, and cuts a GitHub release. The version comes from the tag. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch.

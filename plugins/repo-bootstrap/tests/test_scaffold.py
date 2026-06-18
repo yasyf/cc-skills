@@ -351,6 +351,55 @@ def test_render_plan_unrendered_placeholder_raises():
         scaffold.render_plan(items, r, lambda s: "{{NOPE}}", lambda s: True)
 
 
+# --- partial includes (shared fragments) ---
+
+def _missing(src):
+    raise FileNotFoundError(src)
+
+
+def test_expand_partials_inlines_and_strips_trailing_newline():
+    templates = {"_partials/p.md": "SHARED\n"}
+    out = scaffold.expand_partials("before\n{{> _partials/p.md}}\nafter\n", templates.__getitem__)
+    # the partial's own trailing newline is dropped so the directive line's newline isn't doubled
+    assert out == "before\nSHARED\nafter\n"
+
+
+def test_expand_partials_identity_without_directive():
+    assert scaffold.expand_partials("plain\n", {}.__getitem__) == "plain\n"
+
+
+def test_expand_partials_recurses():
+    templates = {"a.md": "A {{> b.md}}\n", "b.md": "B\n"}
+    assert scaffold.expand_partials("{{> a.md}}\n", templates.__getitem__) == "A B\n"
+
+
+def test_expand_partials_unknown_raises():
+    with pytest.raises(ScaffoldError):
+        scaffold.expand_partials("{{> missing.md}}", _missing)
+
+
+def test_expand_partials_cycle_raises():
+    templates = {"a.md": "{{> b.md}}", "b.md": "{{> a.md}}"}
+    with pytest.raises(ScaffoldError):
+        scaffold.expand_partials("{{> a.md}}", templates.__getitem__)
+
+
+def test_real_templates_share_version_control_partial(base_var_pairs, py_var_pairs):
+    base_plan, _ = _real_plan("base", base_var_pairs)
+    py_plan, _ = _real_plan("python", py_var_pairs)
+    for agents in (base_plan["AGENTS.md"], py_plan["AGENTS.md"]):
+        assert "**Version control.**" in agents
+        assert "**Watch CI after every push.**" in agents
+        assert "jj git push" in agents and "gh run watch" in agents
+    # the fragment is render-only — never written as a destination file
+    assert not any(d.startswith("_partials") for d in {**base_plan, **py_plan})
+    # python keeps the pypi-gated Releases rule right after the shared partial,
+    # separated by exactly one blank line (the inlined fragment's trailing newline
+    # is stripped, so it isn't doubled); base carries no Releases rule
+    assert "register before watching.)\n\n**Releases.**" in py_plan["AGENTS.md"]
+    assert "**Releases.**" not in base_plan["AGENTS.md"]
+
+
 # --- apply_plan ---
 
 def test_apply_writes_then_skips(tmp_path, capsys):

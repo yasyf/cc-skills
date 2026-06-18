@@ -36,6 +36,7 @@ downstream as flags.
   whole files and inline sections of shared files (README, AGENTS, pyproject).
 - **Template** — a file under `templates/`; only ever rendered by `bootstrap.py scaffold`, never hand-copied.
 - **Placeholder** — a `{{NAME}}` token in a template, rendered by `bootstrap.py scaffold` from `--var` inputs.
+- **Partial** — a `{{> path}}` token that inlines a shared fragment from `templates/_partials/` at scaffold time (e.g. the VC/CI rules shared by base and python `AGENTS.md`). The fragment is render-only — it carries no `dest` in the manifest and is never written to the target repo.
 - **TODO marker** — a `TODO(bootstrap):` line in scaffolded output that you must replace with real prose afterward.
 
 ## Phase 0 — Identity & environment

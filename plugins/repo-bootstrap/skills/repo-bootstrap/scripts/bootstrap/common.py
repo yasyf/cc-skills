@@ -26,6 +26,9 @@ SECTION_BLOCK = re.compile(
 )
 SECTION_INLINE = re.compile(r"\{\{([#^])([A-Z_]+)\}\}(.*?)\{\{/\2\}\}")
 SECTION_LEFTOVER = re.compile(r"\{\{[#^/][A-Z_]+\}\}")
+# Mustache-style partial: {{> path/under/templates}}, inlined at scaffold time
+# before sections/placeholders render. Partials never become a destination file.
+PARTIAL = re.compile(r"\{\{>\s*([^}]+?)\s*\}\}")
 DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 PY_VERSION_RE = re.compile(r"^3\.\d+$")
 

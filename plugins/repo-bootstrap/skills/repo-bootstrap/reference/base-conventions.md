@@ -54,7 +54,10 @@ The single canonical agent-conventions doc. Section by section:
   sentences.` Keep the stock rules (Minimal changes; Match surrounding code; No
   defensive coding; Search before writing; Code stewardship; Observe, don't
   infer; Don't use external failures as an excuse to stop; Mechanical linting;
-  Writing docs; Git). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
+  Writing docs; Version control; Watch CI after every push). The **Version
+  control** and **Watch CI** rules ship as a shared `{{> _partials/version-control.md}}`
+  partial inlined into both base and python AGENTS.md (jj-preferred; watch CI with
+  `gh run watch` after every push). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
   lives and the exact command (captain-hook: "The suite lives in `tests/`; run it
   with `uv run pytest`"). Add project-specific rules in the same format — e.g.
   captain-hook adds a **Docs** rule ("Any public API change must keep
@@ -194,7 +197,7 @@ Field by field:
   `"showThinkingSummaries": true` — maximum reasoning effort on every turn, with
   thinking summaries surfaced. Keep unless the project is trivial.
 - `"includeGitInstructions": false` — drop the built-in git boilerplate; AGENTS.md
-  § General Rules carries the git conventions instead.
+  § General Rules carries the version-control conventions instead (jj-preferred).
 - `"env"`: `"ENABLE_TOOL_SEARCH": "true"` (deferred-tool discovery),
   `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Code Search routes
   structural queries to), `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"` (enables
