@@ -175,7 +175,7 @@ See `reference/hooks.md`.
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
 | `.claude/hooks/packs.toml` | base; python **overrides** | enables capt-hook's builtin packs — `general` (base), plus `python` on the python layer; the packs ship the guard hooks (see `reference/hooks.md`) |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
-| `great-docs.yml`, `docs/scripts/fix_color_swatch.py` | python + feature `docs` | omitted entirely without `docs` |
+| `great-docs.yml`, `docs/scripts/fix_color_swatch.py`, `docs/scripts/native_reference_titles.py` | python + feature `docs` | omitted entirely without `docs`; `native_reference_titles.py` is a `pre_render` perf workaround (see `reference/docs-site.md`) |
 | `.github/workflows/ci.yml` | python | always |
 | `.pre-commit-config.yaml` | python | `ruff format` + `check --fix` + `ty` warnings (whole-project, non-blocking) on every commit via prek; activate with `uvx prek install` |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |

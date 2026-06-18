@@ -63,7 +63,10 @@ Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency grou
    (note: dependency *group*, not the `dev` extra)
 5. `uv run great-docs build` with `env: GITHUB_TOKEN: ${{ github.token }}` — the token lets
    great-docs embed the navbar widget's star/fork counts at build time, so visitors' browsers
-   never hit (and 403 on) the GitHub API
+   never hit (and 403 on) the GitHub API. The build first runs the `great-docs.yml` `pre_render`
+   scripts, including `docs/scripts/native_reference_titles.py`, which keeps a large API
+   reference's build linear (see `reference/docs-site.md`). The job carries `timeout-minutes: 30`
+   as a regression guard
 6. `uv run python docs/scripts/fix_color_swatch.py` — rewrites great-docs' broken runtime
    `color-swatch.js` loader to depth-correct static tags (see `reference/docs-site.md`)
 7. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and

@@ -50,6 +50,7 @@ def test_python_both_features_substitutes_package(py_var_pairs):
 def test_python_docs_only_drops_pypi(py_var_pairs):
     got = dests("python", py_var_pairs, features=["docs"])
     assert "great-docs.yml" in got
+    assert "docs/scripts/native_reference_titles.py" in got
     assert ".github/workflows/docs.yml" in got
     assert ".github/workflows/release-pypi.yml" not in got
 
@@ -57,13 +58,15 @@ def test_python_docs_only_drops_pypi(py_var_pairs):
 def test_python_pypi_only_drops_docs(py_var_pairs):
     got = dests("python", py_var_pairs, features=["pypi"])
     assert ".github/workflows/release-pypi.yml" in got
-    for docs_only in ("great-docs.yml", "docs/scripts/fix_color_swatch.py", ".github/workflows/docs.yml"):
+    for docs_only in ("great-docs.yml", "docs/scripts/fix_color_swatch.py",
+                      "docs/scripts/native_reference_titles.py", ".github/workflows/docs.yml"):
         assert docs_only not in got
 
 
 def test_python_no_features_drops_all_gated(py_var_pairs):
     got = dests("python", py_var_pairs, features=[])
     for gated in ("great-docs.yml", "docs/scripts/fix_color_swatch.py",
+                  "docs/scripts/native_reference_titles.py",
                   ".github/workflows/docs.yml", ".github/workflows/release-pypi.yml"):
         assert gated not in got
 

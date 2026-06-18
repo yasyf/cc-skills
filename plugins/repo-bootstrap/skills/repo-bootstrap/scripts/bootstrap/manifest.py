@@ -86,6 +86,7 @@ FILES = (
     # feature-gated python files (content-level feature diffs live in templates)
     FileSpec("great-docs.yml", "python/great-docs.yml", "python", feature="docs"),
     FileSpec("docs/scripts/fix_color_swatch.py", "python/docs/scripts/fix_color_swatch.py", "python", feature="docs"),
+    FileSpec("docs/scripts/native_reference_titles.py", "python/docs/scripts/native_reference_titles.py", "python", feature="docs"),
     FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
     # --- extras (apply in any layer) ---
