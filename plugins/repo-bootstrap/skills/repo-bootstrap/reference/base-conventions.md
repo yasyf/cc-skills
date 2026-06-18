@@ -218,11 +218,14 @@ Field by field:
   [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace (with
   `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` (the
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
-  `prompts.py` nudge), and `writing-docs@skills` (the `docs.py` nudge). Anyone who
-  trusts the folder gets the marketplace registered and the plugins enabled after a
-  one-time consent prompt. Removing a nudge from its hook file? Remove its plugin
-  keys in the same edit (n.b. `slop-cop@skills` is shared by `prompts.py` and
-  `docs.py`).
+  `prompts.py` nudge), and `writing-docs@skills` (the `docs.py` nudge). It also
+  registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) marketplace and
+  enables `cc-notes@cc-notes`, the git-native notes/tasks layer — so the
+  `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs.
+  Anyone who trusts the folder gets the marketplaces registered and the plugins
+  enabled after a one-time consent prompt. Removing a nudge from its hook file?
+  Remove its plugin keys in the same edit (n.b. `slop-cop@skills` is shared by
+  `prompts.py` and `docs.py`).
 - `"hooks"`: four events — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
   `Stop` — each running `uvx capt-hook run <Event>`. capt-hook discovers the hook
   definitions in `.claude/hooks/`: `commands.py`
@@ -239,5 +242,7 @@ Field by field:
 
 **settings.local.json pattern**: `.claude/settings.local.json` is gitignored
 (see `.gitignore`, alongside `.context/` and `.env*`). Personal, per-machine
-config goes there — typically a broader permissions allowlist; the checked-in
-`settings.json` stays conservative and shared.
+config goes there — typically a broader permissions allowlist. capt-hook wires
+its hooks into the committed `.claude/settings.json` so hook policy is shared and
+reviewed; it defers a hook to `settings.local.json` only when that file already
+carries it.

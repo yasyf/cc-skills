@@ -20,10 +20,10 @@ verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from t
 Phase 2 runs `uvx capt-hook review enable`, which arms capt-hook's **session reviewer** for
 the repo. When a Claude Code session ends, it mines the transcript for the durable corrections
 you gave and the hooks that misfired, judges each, and — once a pattern clears its thresholds —
-opens a pull request that adds or fixes a hook. `review enable` does three things: vendors the
-reviewer's skills into `.claude/skills/` (committed in Phase 6), wires a `review run` hook onto
-`SessionEnd` in `.claude/settings.local.json` (machine-local, gitignored), and starts watching
-the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
+opens a pull request that adds or fixes a hook. `review enable` does three things: registers the
+captain-hook plugin in `.claude/settings.json` (committed in Phase 6), wires a `review run` hook
+onto `SessionEnd` in `.claude/settings.local.json` (machine-local, gitignored), and starts
+watching the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
 environment variables and turn it off per repo with `uvx capt-hook review disable`. Full guide:
 <https://yasyf.github.io/captain-hook/docs/guide/session-reviewer.html>.
 

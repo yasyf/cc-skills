@@ -42,13 +42,20 @@
         "repo": "yasyf/cc-skills"
       },
       "autoUpdate": true
+    },
+    "cc-notes": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/cc-notes"
+      }
     }
   },
   "enabledPlugins": {
     "codex@skills": true,
     "slop-cop@skills": true,
     "llm-prompts@skills": true,
-    "writing-docs@skills": true
+    "writing-docs@skills": true,
+    "cc-notes@cc-notes": true
   },
   "hooks": {
     "UserPromptSubmit": [

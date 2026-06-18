@@ -1,6 +1,6 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features: a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, semble code search via .mcp.json, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features — a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing. Use when creating a new repo or project from scratch, scaffolding a new Python package or CLI (with or without docs/PyPI publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
@@ -158,11 +158,18 @@ commit it), `uv run pytest`, and `uvx prek install` to activate the commit hooks
 whole-project type warnings — never blocking — on every commit).
 
 For every repo, run `uvx capt-hook review enable` to arm the **session reviewer**:
-it vendors the reviewer skills into `.claude/skills/` (commit them in Phase 6), wires
-the SessionEnd `review run` hook into `.claude/settings.local.json`, and watches the
-repo (machine-local) so ended sessions mine durable corrections into hook PRs. It
-needs an authenticated `claude` and `gh`; `uvx capt-hook review disable` turns it off.
-See `reference/hooks.md`.
+it registers the captain-hook plugin in `.claude/settings.json` (commit it in
+Phase 6), wires the SessionEnd `review run` hook into `.claude/settings.json`, and
+watches the repo (machine-local) so ended sessions mine durable corrections into hook
+PRs. It needs an authenticated `claude` and `gh`; `uvx capt-hook review disable` turns
+it off. See `reference/hooks.md`.
+
+When `cc-notes` is installed (`command -v cc-notes`), also run `cc-notes init` to
+adopt the git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs,
+enables the cc-notes capt-hook pack in `.claude/hooks/packs.toml`, and installs the
+reconcile CI workflow under `.github/` (commit both in Phase 6). The cc-notes plugin
+is already registered by the `.claude/settings.json` template, so a bootstrapped repo
+gets the skill even when the binary is absent.
 
 ### What lands where
 
@@ -171,7 +178,7 @@ See `reference/hooks.md`.
 | `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python **overrides** | python versions carry feature-gated sections (docs badge/section, PyPI badges/install) rendered to match `--features` |
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python entries when layered; `LICENSE` omitted with license `none` |
 | `.mcp.json` | base | semble code search via uvx |
-| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` marketplace and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills` |
+| `.claude/settings.json` | base; python **overrides** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-notes@cc-notes` |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
 | `.claude/hooks/packs.toml` | base; python **overrides** | enables capt-hook's builtin packs — `general` (base), plus `python` on the python layer; the packs ship the guard hooks (see `reference/hooks.md`) |
@@ -248,7 +255,7 @@ Every `TODO(bootstrap):` marker is judgment work for you. Find them all with
 For prose markers — anything a human reads rather than a tool parses — apply the
 `writing-docs` skill before drafting: its technical-builder voice governs the
 README pitch and why-bullets and the great-docs hero tagline. Run
-`slop-cop check <file> --lang=markdown` on each prose file you fill.
+`slop-cop check <file> --lang=markdown` on each prose file you fill (slop-cop is a Go binary; if it's not on PATH, use the `/slop-cop-check` skill — never `uvx slop-cop`).
 
 - `README.md` (pitch, quickstart, why-bullets) and `AGENTS.md` (repository
   structure tree) → read `reference/base-conventions.md` first; write the
@@ -281,7 +288,7 @@ drop `--layer python`.
 Atomic, conventional-prefix commits — one logical change each, conditioned on the
 layer and features actually scaffolded:
 
-1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` — include the `.claude/skills/` vendored by `capt-hook review enable` in Phase 2
+1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` — include the `.claude/settings.json` captain-hook plugin registration written by `capt-hook review enable` in Phase 2 (and the `cc-notes init` refspecs/pack/CI when cc-notes is installed)
 2. `feat: initial <package> package and CLI skeleton` *(python)*
 3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
