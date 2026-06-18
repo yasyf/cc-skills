@@ -94,7 +94,17 @@ slop-cop check path/to/page.md --lang=markdown
 
 slop-cop is a Go binary (the `slop-cop` plugin, GitHub Releases, or `go install`), not a PyPI package — never `uvx slop-cop`. The line above about `uvx <tool>` is for *documenting* tools distributed that way, not for running slop-cop. If `slop-cop` isn't on PATH, run the `slop-cop:slop-cop-check` skill, which bootstraps the binary.
 
-Use `--lang=markdown` for `.md`, `.mdx`, and `.qmd` so code blocks, links, headings, and front matter are masked, since `.qmd` is not auto-detected. Cut the genuine tells: throat-clearing, hedge stacks, negation pivots, filler adverbs in procedure steps, unicode arrows (replace with words), and the leading bold from bold-first-bullet walls. The builder voice deliberately uses em-dashes, casual intensifiers, and short fragments — when slop-cop flags one, keep it if it's doing voice work and rewrite it if it's reflex. The tell isn't the device; it's the device used formulaically. A colon before a code block is fine, and table-cell and Quarto-div false positives are acceptable to leave. Run `slop-cop` in CI as a report, not a hard gate.
+Use `--lang=markdown` for `.md`, `.mdx`, and `.qmd` so code blocks, links, headings, and front matter are masked, since `.qmd` is not auto-detected. Cut the genuine tells: throat-clearing, hedge stacks, negation pivots, filler adverbs in procedure steps, unicode arrows (replace with words), and the leading bold from bold-first-bullet walls. The builder voice deliberately uses em-dashes, casual intensifiers, and short fragments — when slop-cop flags one, keep it if it's doing voice work and rewrite it if it's reflex. The tell isn't the device; it's the device used formulaically. A colon before a code block is fine, and table-cell and Quarto-div false positives are acceptable to leave. Run `slop-cop` in CI as a report, not a hard gate. When you edit an existing doc, fix tells only in the lines you're already changing — never reflow pre-existing untouched lines to satisfy the linter, which is scope creep over the author's deliberate voice.
+
+## Rewriting existing docs
+
+A rewrite is a different job from a first draft: the bar is cutting, not adding. Set a rough line-count reduction target before you start and check it after — a front-door README that has drifted into a marketing pitch, a quickstart, a full command reference, and an architecture deep-dive at once wants a real cut (one cc-pool README went 327 to 165). Pick the one job the page should do, relocate the rest to a sibling page, and link.
+
+Gate a large rewrite with three independent checks, not one read-through:
+
+- **Accuracy** — every command, flag, path, and claim verified against the source, especially anything the rewrite introduced or changed.
+- **Completeness** — diff against the prior version and confirm no reader-relevant fact was silently dropped. A fact may move to another page or section; it never vanishes.
+- **Prose and links** — links and anchors resolve, one h1 with no skipped levels, and the voice and cut-slop rules actually landed.
 
 ## Anti-patterns to forbid
 
