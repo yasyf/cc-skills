@@ -92,6 +92,8 @@ Before you call any doc done, run it through slop-cop and triage every finding.
 slop-cop check path/to/page.md --lang=markdown
 ```
 
+slop-cop is a Go binary (the `slop-cop` plugin, GitHub Releases, or `go install`), not a PyPI package — never `uvx slop-cop`. The line above about `uvx <tool>` is for *documenting* tools distributed that way, not for running slop-cop. If `slop-cop` isn't on PATH, run the `slop-cop:slop-cop-check` skill, which bootstraps the binary.
+
 Use `--lang=markdown` for `.md`, `.mdx`, and `.qmd` so code blocks, links, headings, and front matter are masked, since `.qmd` is not auto-detected. Cut the genuine tells: throat-clearing, hedge stacks, negation pivots, filler adverbs in procedure steps, unicode arrows (replace with words), and the leading bold from bold-first-bullet walls. The builder voice deliberately uses em-dashes, casual intensifiers, and short fragments — when slop-cop flags one, keep it if it's doing voice work and rewrite it if it's reflex. The tell isn't the device; it's the device used formulaically. A colon before a code block is fine, and table-cell and Quarto-div false positives are acceptable to leave. Run `slop-cop` in CI as a report, not a hard gate.
 
 ## Anti-patterns to forbid
