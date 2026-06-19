@@ -162,10 +162,21 @@ here, point the repo homepage at the docs site: `gh repo edit --homepage "$DOCS_
 2. Commit and push to `main` first, then tag a commit that is on `main` — e.g.
    `git tag vX.Y.Z origin/main` after pulling — and `git push --tags`. The
    `verify-tag-on-main` gate fails the release if the tag points anywhere off `main`.
-3. Watch the **Release (PyPI)** workflow run: verify-tag-on-main → build → publish →
-   github-release.
-4. Verify the version on PyPI (`https://pypi.org/project/<dist-name>/`) and the new GitHub
-   release with generated notes and `dist/*` assets.
+3. Watch the release to completion and verify it with the bundled helper — it resolves
+   the run for the tag (preferring the `Release` workflow), waits, then prints per-job
+   conclusions, the GitHub release URL + `dist/*` asset names, and (with `--pypi`)
+   confirms the version is on PyPI. It walks verify-tag-on-main → build → publish →
+   github-release and exits non-zero if the run failed:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/watch-release.sh" \
+     --tag vX.Y.Z --pypi DIST_NAME
+   ```
+
+   Drop `--pypi` for a non-PyPI release (e.g. a Homebrew formula bump — it still reports
+   the jobs and GitHub release assets); pass `--repo OWNER/REPO` when not running from
+   the repo, or an explicit run id / `--workflow NAME` to disambiguate. (The
+   `${CLAUDE_PLUGIN_ROOT}` token is substituted to a real path when this skill runs.)
 
 Do not edit `version = "0.1.0"` in `pyproject.toml` — `uv version --frozen` derives it from
 the tag at build time.
@@ -178,7 +189,7 @@ the tag at build time.
   commit, and push the tag again.
 - **Tag pushed before the pending publisher was registered** — the `publish` job 403s
   ("invalid-publisher"). Register the publisher on PyPI, then re-run just the failed job from
-  the workflow run page; no need to re-tag.
+  the workflow run page (re-check it with `watch-release.sh <run-id>`); no need to re-tag.
 - **Pages source not set to GitHub Actions** — `publish-docs` fails at `deploy-pages` with a
   "Not Found" / pages-not-enabled error. Run the Pages `gh api` command above, re-run the job.
 - **`uv.lock` missing from the first commit** — `setup-uv` warns that `cache-dependency-glob:
