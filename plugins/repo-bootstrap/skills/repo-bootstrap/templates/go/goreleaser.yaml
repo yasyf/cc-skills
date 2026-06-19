@@ -25,30 +25,20 @@ builds:
       - -X {{MODULE_PATH}}/internal/version.Commit={{ .Commit }}
       - -X {{MODULE_PATH}}/internal/version.Date={{ .CommitDate }}
     mod_timestamp: "{{ .CommitTimestamp }}"
+    # Developer ID sign + notarize the darwin binaries via Apple's own codesign +
+    # notarytool (see scripts/macos-codesign.sh). goreleaser's built-in quill signer
+    # is deliberately NOT used: its arm64 signatures get SIGKILLed on macOS 15/26
+    # (anchore/quill#566, closed "not planned"). Needs a macOS runner; no-op without
+    # the MACOS_* signing env. See reference/go-ci-and-release.md.
+    hooks:
+      post:
+        - cmd: bash scripts/macos-codesign.sh "{{ .Path }}" "{{ .Target }}"
+          output: true
 
 archives:
   - id: {{PROJECT_NAME}}
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-# Sign + notarize the darwin binaries with our Apple Developer ID — but only when the
-# MACOS_* secrets are set, so repos without Apple creds still release (unsigned) unchanged.
-# goreleaser's built-in quill signer is pure Go and runs on the linux runner (no macOS runner).
-# Bare-binary only (we ship no .app bundle). See reference/go-ci-and-release.md.
-notarize:
-  macos:
-    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
-      ids:
-        - {{PROJECT_NAME}}
-      sign:
-        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
-        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
-      notarize:
-        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
-        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
-        key: "{{ .Env.MACOS_NOTARY_KEY }}"
-        wait: true
-        timeout: 20m
 
 checksum:
   name_template: checksums.txt

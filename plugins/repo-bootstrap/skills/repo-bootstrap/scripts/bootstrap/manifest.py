@@ -121,6 +121,8 @@ FILES = (
     # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1)
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
+    # Developer ID codesign + notarytool helper, invoked from goreleaser's build post-hook.
+    FileSpec("scripts/macos-codesign.sh", "go/scripts/macos-codesign.sh", "go", feature="release"),
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),
