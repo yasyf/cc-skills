@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), repo scaffolding (repo-bootstrap), image generation (gen-image), GitHub profile READMEs (gh-profile), and Claude-maintained summaries sidecars (repo-summaries).",
+  "description": "Small, focused Claude Code skills: prose linting (slop-cop), second opinions (codex), repo scaffolding (repo-bootstrap), image generation (gen-image), GitHub profile READMEs (gh-profile), Claude-maintained summaries sidecars (repo-summaries), animated CLI demos (cli-demo), and authenticated browser sessions (agent-browser-with-cookies).",
   "owner": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

@@ -17,6 +17,8 @@ focused skills. Each plugin installs independently.
 | `gen-image` | Generate project images — mascot logos, README banners (dark/light), social cards, illustrations — compressed locally to under 1 MiB. | `uv`; an `OPENAI_API_KEY` (the `codex` plugin's `$imagegen` is the no-key fallback). |
 | `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh and an opt-in daily Claude refresh that summarizes recent commits and releases. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner; `repo-summaries` for the daily Claude refresh. |
 | `repo-summaries` | Maintain a Claude-written summaries sidecar in any repo: a committed read-side module plus a config-driven daily refresh skill that turns real commit and release data into one-line suffixes. | `gh` for the raw-material recipes. |
+| `cli-demo` | Generate an animated SVG terminal demo of a CLI with `evp`: write a `.tape`, render it, inspect the keyframes, and refine in a loop. | Docker (`linux/amd64`) on macOS/ARM; native on Linux x86_64. A `SessionStart` hook bootstraps the `evp` binary. |
+| `agent-browser-with-cookies` | Run authenticated `agent-browser` sessions by reusing your local browser login: extract a site's cookies and seed them into a fresh session. | macOS; `uv`; the `agent-browser` skill. Chrome self-decrypt needs a one-time _Always Allow_ plus a Touch ID tap (cross-browser `@mherod/get-cookie` fallback). |
 
 ## Install
 
@@ -130,6 +132,32 @@ the config, rewrites the sidecar whole (unchanged entries are reused verbatim,
 vanished keys are pruned), and re-renders. A strict flattery law governs every
 summary: each word traces to commit subjects, PR titles, or release content,
 and uninformative material gets no entry at all.
+
+## cli-demo
+
+Drives [`evp`](https://github.com/HalFrgrd/evp) to record a CLI in action as an
+animated SVG. You write a `.tape` script, render it, look at the still keyframes, and
+refine — it is a loop, not a one-shot, and most demos take a few passes. evp ships only
+a Linux x86_64 binary, so on macOS/ARM the render runs inside a `linux/amd64` Docker
+container (handled for you by `evp-run.sh`); on a native Linux x86_64 host it runs
+against the host PATH directly. Because evp executes the demoed command in its own
+embedded shell, the CLI has to be reachable in that render environment — present on the
+host PATH, or installed into the container. A `SessionStart` hook pre-fetches the `evp`
+binary into the plugin's persistent data dir, so there is no first-call download stall.
+Say "record a terminal demo of `<cli>`" or ask for a demo SVG/GIF for a README.
+
+## agent-browser-with-cookies
+
+Runs authenticated `agent-browser` tasks without re-logging-in or disturbing your
+running browser. It pulls the cookies for one site out of your local cookie store and
+seeds them into an isolated `agent-browser` session, then hands off to the normal
+`agent-browser` skill for the task itself. The primary path self-decrypts Chrome through
+Apple's signed `/usr/bin/security`, gated by a Touch ID tap — the first run also needs a
+one-time "Always Allow" you click yourself. If Chrome holds no cookies for the site, a
+`@mherod/get-cookie` fallback sweeps your other browsers (Brave, Arc, Edge, Safari,
+Firefox). The state file is deleted the moment the session picks the cookies up, so they
+live only in the browser context, never on disk. macOS only. Reach for it when a browser
+task needs you signed in — "do X on `<site>` as me", "use my session/cookies".
 
 ## License
 
