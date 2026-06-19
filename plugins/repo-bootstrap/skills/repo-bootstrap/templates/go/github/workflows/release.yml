@@ -24,14 +24,7 @@ jobs:
 
   goreleaser:
     needs: verify-tag-on-main
-    # macOS runner: codesign + notarytool (scripts/macos-codesign.sh) are macOS-only.
-    # We sign with Apple's own tooling because goreleaser's built-in quill signer
-    # produces arm64 signatures that macOS 15/26 SIGKILL (anchore/quill#566). The
-    # cheap verify-tag gate above stays on ubuntu.
-    runs-on: macos-latest
-    env:
-      # Surfaced for the `if` gate below (job env can read secrets; step `if` can't).
-      MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,29 +32,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      # Import the Developer ID cert into a throwaway keychain and resolve the signing
-      # identity + notary key for scripts/macos-codesign.sh. Skipped (→ unsigned release)
-      # when the MACOS_* secrets aren't set.
-      - name: Import Developer ID certificate
-        if: ${{ env.MACOS_SIGN_P12 != '' }}
-        env:
-          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
-          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          KP="$(openssl rand -base64 24)"
-          security create-keychain -p "$KP" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KP" "$KEYCHAIN"
-          echo -n "$MACOS_SIGN_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_SIGN_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KP" "$KEYCHAIN" >/dev/null
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/[\" ]//g')
-          rm -f "$RUNNER_TEMP/cert.p12"
-          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' '/Developer ID Application/{print $2; exit}')"
-          echo "MACOS_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          echo -n "$MACOS_NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          echo "MACOS_NOTARY_KEY_FILE=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
@@ -69,8 +39,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          # Read by scripts/macos-codesign.sh in the build post-hook (no-op when empty).
-          MACOS_SIGN_IDENTITY: ${{ env.MACOS_SIGN_IDENTITY }}
-          MACOS_NOTARY_KEY_FILE: ${{ env.MACOS_NOTARY_KEY_FILE }}
+          # Apple Developer signing + notarization (optional; the .goreleaser.yaml
+          # notarize block is a no-op when these are unset).
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}

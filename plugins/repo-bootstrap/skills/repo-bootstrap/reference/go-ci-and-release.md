@@ -50,40 +50,72 @@ Validate any config change locally before tagging:
 
 ```bash
 goreleaser check                              # schema (needs an origin remote)
-goreleaser release --snapshot --clean         # full build, no publish (sign hook no-ops locally)
+goreleaser release --snapshot --clean         # full build, no publish (skips notarize)
 ```
 
 ## macOS signing & notarization
 
-The darwin binaries are **Developer ID-signed and notarized with Apple's own `codesign` + `notarytool`**,
-run from a goreleaser **build post-hook** (`scripts/macos-codesign.sh`) on a **macOS runner**.
-
-> **Why not goreleaser's built-in `notarize`?** It signs with **quill**, whose arm64 signatures get
-> **SIGKILLed at exec by macOS 15/26** — the binary notarizes fine but the kernel kills it on launch
-> (`anchore/quill#566`, closed *not planned*; downstream: `opencode#18503`). Apple's `codesign`
-> produces a correct signature (runs, and passes `codesign --verify`), so we use it — which is why the
-> release job runs on macOS rather than Linux. (quill *is* cross-platform; that's its only advantage,
-> and it's not worth shipping binaries the kernel kills.)
-
-`.goreleaser.yaml` signs each darwin binary in a build post-hook (before archiving); no-op without the
-signing env:
+The darwin binaries are **Developer ID-signed and notarized** when the five `MACOS_*` secrets are
+set; without them the release still runs, unsigned. The **default** path is goreleaser's built-in
+**quill** signer — pure Go, so it runs on the existing **`ubuntu-latest`** runner (no macOS runner),
+via the `.goreleaser.yaml` `notarize.macos` block:
 
 ```yaml
+notarize:
+  macos:
+    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
+      ids: [<binary-id>]          # the build that emits the darwin binary — see below
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+```
+
+The workflow just passes the five `MACOS_*` env vars to `goreleaser release` on ubuntu — no keychain
+import, no macOS runner.
+
+> **⚠️ The p12 MUST carry the full chain: leaf + Developer ID intermediate + Apple Root CA.**
+> quill derives its designated requirement from certificate *chain position*. With only leaf +
+> intermediate, the Developer ID CA sits at index 0 and quill emits the **unsatisfiable**
+> `certificate root[field.1.2.840.113635.100.6.2.6]` (that marker lives on the intermediate, never on
+> the anchor) → `codesign --verify --strict` fails → **macOS SIGKILLs the binary at exec** (exit 137).
+> Adding the Apple Root CA pushes the intermediate to index 1 → quill emits the correct
+> `certificate 1[…]`. (anchore/quill#566 — quill won't fix the index logic; the full-chain p12 *is*
+> the fix. The credential recipe below bundles the root, so a p12 built that way just works.)
+
+Notes:
+- **`ids` must reference the build that emits the darwin binary** — base config: the single
+  `{{PROJECT_NAME}}` build; with a universal-binary / FUSE recipe use that build's id.
+- **`enabled` uses `envOrDefault … non-empty`, not `isEnvSet`** — GitHub Actions exports an unset
+  secret as a *set-but-empty* var, which would make `isEnvSet` sign against an empty cert. The
+  workflow always passes the five `MACOS_*` env vars; the guard skips them when empty.
+- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
+  and checked online by Gatekeeper. The cask's `xattr -dr com.apple.quarantine` hook stays.
+
+### Native codesign — when the release already runs on a macOS runner
+
+If a repo's darwin build *needs* a macOS runner anyway (cgo with native clang, universal `lipo`, a
+Swift `.app`), skip quill and sign with Apple's own `codesign` + `notarytool`: native codesign builds
+a correct DR from the resolved system chain regardless of p12 ordering, so it sidesteps the quill
+index issue entirely. Drop the `notarize` block; add a build post-hook plus a keychain-import step.
+
+```yaml
+# .goreleaser.yaml — sign each darwin binary before archiving (no-op without the signing env):
 builds:
   - id: <name>
-    # …
     hooks:
       post:
         - cmd: bash scripts/macos-codesign.sh "{{ .Path }}" "{{ .Target }}"
           output: true
 ```
 
-`scripts/macos-codesign.sh` runs, for `darwin_*` targets only and only when the env is set:
-`codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` then
-`xcrun notarytool submit … --wait`. The release workflow imports the cert into a throwaway keychain,
-derives the identity, and writes the `.p8`, then hands them to goreleaser:
-
 ```yaml
+# .github/workflows/release.yml — goreleaser job on a macOS runner:
 goreleaser:
   runs-on: macos-latest                              # codesign/notarytool are macOS-only
   env:
@@ -103,15 +135,12 @@ goreleaser:
         MACOS_NOTARY_ISSUER:   ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
 ```
 
-Notes:
-- **No-op without the secrets** — the import step is gated on `MACOS_SIGN_P12` and the script exits
-  early when `MACOS_SIGN_IDENTITY` is empty, so a repo without Apple creds releases unsigned, unchanged.
-- **Sign every build that emits a darwin binary** — the hook keys off the `darwin_*` `{{ .Target }}`.
-  A repo with a universal-binary / FUSE build signs that build's output the same way.
-- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The cask's `xattr -dr com.apple.quarantine` hook stays.
-- **App bundles** (e.g. claude-pool's `CCPoolStatus.app`) sign inside-out with `codesign --options
-  runtime`, then notarize **and `xcrun stapler staple`** the bundle (stapling works for `.app`).
+`scripts/macos-codesign.sh` (shipped in the go layer) runs for `darwin_*` targets only and no-ops
+without the env: `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` then
+`xcrun notarytool submit … --wait`. Used by: **slop-cop**, **cc-orchestrate** (cgo darwin builds),
+and the hand-rolled formula repos **cc-notes** / **claude-pool** (§ Formula repos). App bundles
+(claude-pool's `CCPoolStatus.app`) sign inside-out with hardened runtime, then notarize **and
+`xcrun stapler staple`** the bundle (stapling works for `.app`).
 
 ### Creating the credentials (one-time, reusable across all repos)
 
@@ -130,8 +159,13 @@ openssl req -new -key DeveloperID.key -out DeveloperID.csr \
 #   upload DeveloperID.csr, download developer_id_application.cer. Also grab the Developer ID
 #   intermediate from https://www.apple.com/certificateauthority/ as DeveloperIDCA.pem.
 openssl x509 -inform DER -in developer_id_application.cer -out DeveloperID.pem
+# Full chain — REQUIRED for quill (see the ⚠️ above): intermediate + Apple Root CA. Without the root,
+# quill emits a `certificate root[…6.2.6…]` DR that macOS SIGKILLs.
+curl -fsSL -o AppleRoot.cer https://www.apple.com/appleca/AppleIncRootCertificate.cer
+openssl x509 -inform DER -in AppleRoot.cer -out AppleRoot.pem
+cat DeveloperIDCA.pem AppleRoot.pem > chain.pem
 openssl pkcs12 -export -inkey DeveloperID.key -in DeveloperID.pem \
-  -certfile DeveloperIDCA.pem -out DeveloperID.p12 -passout pass:<password>   # <password> = MACOS_SIGN_PASSWORD
+  -certfile chain.pem -out DeveloperID.p12 -passout pass:<password>           # <password> = MACOS_SIGN_PASSWORD
 base64 -i DeveloperID.p12 | tr -d '\n'                                        # = MACOS_SIGN_P12
 ```
 
@@ -155,11 +189,15 @@ done
 ```
 
 (`yasyf` is a user, not an org — there are no org-level secrets, so each repo gets its own five.)
-After the first signed release, verify on a Mac: `codesign -dv --verbose=4 "$(command -v <name>)"`
-shows `Authority=Developer ID Application: …`; the binary runs (no SIGKILL); and
-`spctl -a -t install -vv "$(command -v <name>)"` reports `accepted … source=Notarized Developer ID`.
-(Use `-t install`, not `-t exec` — a bare CLI binary isn't an app bundle, so `-t exec` says "not an app"
-even when it's correctly notarized.)
+After the first signed release, verify on a Mac:
+- `codesign -d -r- "$(command -v <name>)"` → the designated requirement reads
+  `certificate 1[field.1.2.840.113635.100.6.2.6]`, **never** `certificate root[…]`. `root` means the
+  p12 lacked the Apple Root CA → the binary is SIGKILLed; re-mint the p12 with the full chain.
+- `codesign -dv --verbose=4` shows `Authority=Developer ID Application: …`, and
+  `codesign --verify --strict "$(command -v <name>)"` exits 0; the binary runs (no SIGKILL).
+- `spctl -a -t install -vv "$(command -v <name>)"` reports `accepted … source=Notarized Developer ID`.
+  (Use `-t install`, not `-t exec` — a bare CLI binary isn't an app bundle, so `-t exec` says "not an
+  app" even when it's correctly notarized.)
 
 ## Recipes
 
@@ -312,8 +350,9 @@ dir's `Formula/`/`Casks/` files in, and does the one canonical `git add -A` → 
 action rather than copy-pasting tap git bash. Used by: **cc-notes**, **claude-pool**. (Cask-only
 repos don't need it — goreleaser's `homebrew_casks` publishes for them.)
 
-**Sign the darwin binaries the same way** (§ macOS signing & notarization) — a hand-rolled formula
-build still ships Mach-O binaries macOS 15/26 will SIGKILL if they're ad-hoc/Team-less, so replace any
+**Sign the darwin binaries the same way** (§ Native codesign — when the release already runs on a
+macOS runner) — a hand-rolled formula build still ships Mach-O binaries macOS 15/26 will SIGKILL if
+they're ad-hoc/Team-less, so replace any
 `codesign --force -s -` with real Developer ID signing on the macOS build job: import the cert (same
 keychain step), then `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` each
 darwin binary and `xcrun notarytool submit … --wait`. A **cgo build that `dlopen`s a third-party dylib**

@@ -93,7 +93,7 @@ def test_go_selection_no_release(go_var_pairs):
 
 def test_go_release_feature_gates(go_var_pairs):
     got = dests("go", go_var_pairs, features=["release"])
-    assert got == GO_DESTS | {".goreleaser.yaml", ".github/workflows/release.yml", "scripts/macos-codesign.sh"}
+    assert got == GO_DESTS | {".goreleaser.yaml", ".github/workflows/release.yml"}
 
 
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
@@ -440,31 +440,23 @@ def test_go_goreleaser_template_tokens_survive(go_var_pairs):
     assert "owner: janedoe" in gor and "name: homebrew-tap" in gor
 
 
-def test_go_goreleaser_codesign_hook(go_var_pairs):
-    plan = _real_plan("go", go_var_pairs, features=["release"])[0]
-    gor = plan[".goreleaser.yaml"]
-    # goreleaser's quill `notarize` is deliberately NOT used (its arm64 signatures
-    # SIGKILL on macOS 15/26 — anchore/quill#566); darwin binaries are codesigned via
-    # a build post-hook instead.
-    assert "notarize:" not in gor
-    assert "envOrDefault" not in gor and "{{ .Env.MACOS_SIGN_P12 }}" not in gor
-    assert 'bash scripts/macos-codesign.sh "{{ .Path }}" "{{ .Target }}"' in gor
-    # the helper script ships under the release feature and uses Apple's own tooling
-    sh = plan["scripts/macos-codesign.sh"]
-    assert "codesign --force --options runtime --timestamp" in sh
-    assert "xcrun notarytool submit" in sh
+def test_go_goreleaser_notarize_block(go_var_pairs):
+    gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
+    assert "notarize:" in gor
+    # the env-guard (non-empty, not isEnvSet) and all five MACOS_* env tokens pass through untouched
+    assert "enabled: '{{ if envOrDefault \"MACOS_SIGN_P12\" \"\" }}true{{ else }}false{{ end }}'" in gor
+    for tok in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
+                "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
+        assert "{{ .Env." + tok + " }}" in gor
+    # the notarize ids: list has PROJECT_NAME substituted (8-space indent, distinct from the cask binaries list)
+    assert "ids:\n        - demo-proj" in gor
 
 
-def test_go_release_workflow_codesigns_on_macos(templates_dir):
+def test_go_release_workflow_passes_macos_secrets(templates_dir):
     wf = (templates_dir / "go/github/workflows/release.yml").read_text()
-    # the goreleaser job runs on macOS (codesign/notarytool are macOS-only)
-    assert "runs-on: macos-latest" in wf
-    # the Developer ID cert is imported into a keychain and the identity + notary key
-    # are handed to the build hook
-    assert "security import" in wf
-    assert "MACOS_SIGN_IDENTITY:" in wf and "MACOS_NOTARY_KEY_FILE:" in wf
-    assert "MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}" in wf
-    assert "MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}" in wf
+    for k in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
+              "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
+        assert f"{k}: ${{{{ secrets.{k} }}}}" in wf
 
 
 def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
