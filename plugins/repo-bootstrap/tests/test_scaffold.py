@@ -144,6 +144,19 @@ def test_unknown_feature_raises_for_go(go_var_pairs):
         scaffold.resolve("go", [], ["telemetry"], go_var_pairs, DATE)
 
 
+def test_go_ci_action_major_matches_v2_config(templates_dir):
+    # The go CI lint job and the .golangci.yml schema must stay coupled: the
+    # config is golangci-lint v2, so the action major must be one that supports
+    # v2 (>= v7). golangci-lint-action@v6 is restricted to golangci-lint v1 and
+    # cannot parse a v2 config (nor lint a modern Go module) — that mismatch is
+    # the recurring CI break this guards against.
+    ci = (templates_dir / "go/github/workflows/ci.yml").read_text()
+    cfg = (templates_dir / "go/golangci.yml").read_text()
+    assert 'version: "2"' in cfg
+    assert "golangci/golangci-lint-action@v8" in ci
+    assert "golangci-lint-action@v6" not in ci
+
+
 # --- release gate: tag must be on main ---
 
 
