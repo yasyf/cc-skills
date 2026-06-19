@@ -25,18 +25,18 @@ The darwin binaries are Developer-ID-signed and notarized when the `MACOS_*` sec
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
-2. A `HOMEBREW_TAP_TOKEN` repo secret — the fine-grained tap PAT lives in 1Password, so set it
-   straight from there (no need to mint a new token per repo). Standardize on this name everywhere
-   (older configs used `TAP_GITHUB_TOKEN`):
+2. Set the release secrets from 1Password in one shot (best-effort — skips any not in the vault,
+   never blocks):
 
    ```bash
-   gh secret set HOMEBREW_TAP_TOKEN -R <owner>/<repo> \
-     --body "$(op read 'op://OpenClaw/HOMEBREW_TAP_TOKEN/credential')"
+   bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo>
    ```
 
-3. *(optional)* The five `MACOS_*` secrets to sign + notarize the macOS binaries
-   (§ macOS signing & notarization).
-4. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
+   It pushes `HOMEBREW_TAP_TOKEN` (the fine-grained tap PAT — reused from 1Password, no per-repo
+   mint; standardize on this name, older configs used `TAP_GITHUB_TOKEN`) plus the five `MACOS_*`
+   sign/notarize secrets when present (§ macOS signing & notarization). Absent `MACOS_*` → the
+   release still runs, unsigned.
+3. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
    Watch the run to completion with the bundled helper — it resolves the release run for the tag,
    reports per-job results, and lists the GitHub release assets (drop `--pypi` for go):
 
@@ -180,15 +180,14 @@ repo reuses the same credentials.
 
 ### Setting the secrets per repo
 
+Push them all (the five `MACOS_*` plus `HOMEBREW_TAP_TOKEN`) from 1Password in one shot — accepts
+any number of repos, reads each secret from the vault once, and skips whatever isn't there:
+
 ```bash
-for repo in <owner>/<repo> ...; do
-  for k in MACOS_SIGN_P12 MACOS_SIGN_PASSWORD MACOS_NOTARY_ISSUER_ID MACOS_NOTARY_KEY_ID MACOS_NOTARY_KEY; do
-    gh secret set "$k" -R "$repo" --body "$(op read "op://OpenClaw/$k/credential")"
-  done
-done
+bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo> [<owner>/<repo> ...]
 ```
 
-(`yasyf` is a user, not an org — there are no org-level secrets, so each repo gets its own five.)
+(`yasyf` is a user, not an org — there are no org-level secrets, so each repo gets its own copies.)
 After the first signed release, verify on a Mac:
 - `codesign -d -r- "$(command -v <name>)"` → the designated requirement reads
   `certificate 1[field.1.2.840.113635.100.6.2.6]`, **never** `certificate root[…]`. `root` means the

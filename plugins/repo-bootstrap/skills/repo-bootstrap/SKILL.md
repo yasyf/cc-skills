@@ -359,19 +359,20 @@ Then, optionally, publish and wire one-time setups:
   `main` → push tag → watch it to completion with `scripts/watch-release.sh` (per-job
   results, release assets, PyPI check; see `reference/ci-and-release.md`). The release's
   `verify-tag-on-main` gate refuses tags off `main`.
-- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists and set the
-  `HOMEBREW_TAP_TOKEN` repo secret from 1Password (the fine-grained tap PAT lives there —
-  reuse it, don't mint a new one):
-  `gh secret set HOMEBREW_TAP_TOKEN -R <owner>/<repo> --body "$(op read 'op://OpenClaw/HOMEBREW_TAP_TOKEN/credential')"`.
-  Optionally, to ship Developer-ID-signed + notarized macOS binaries, set the five `MACOS_*`
-  repo secrets (`MACOS_SIGN_P12`, `MACOS_SIGN_PASSWORD`, `MACOS_NOTARY_ISSUER_ID`,
-  `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_KEY`) — reuse them from 1Password if present, else create
-  them once (`reference/go-ci-and-release.md` § macOS signing & notarization). Without them the
-  release still runs, unsigned. Then run the first release: CHANGELOG entry → tag `v0.1.0` on a
-  commit that's on `main` → push tag → watch it with `scripts/watch-release.sh` (drop `--pypi` for
-  go; see `reference/ci-and-release.md`). goreleaser builds the binaries, cuts the GitHub release, and
-  pushes the Homebrew cask; the `verify-tag-on-main` gate refuses tags off `main`. No PyPI/Pages for
-  go (`reference/go-ci-and-release.md`).
+- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists, then set the release
+  secrets from 1Password right after the repo is created:
+  `bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo>`.
+  It pushes `HOMEBREW_TAP_TOKEN` (the tap PAT — required for the cask push) plus the five
+  `MACOS_*` sign/notarize secrets (`MACOS_SIGN_P12`, `MACOS_SIGN_PASSWORD`,
+  `MACOS_NOTARY_ISSUER_ID`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_KEY`) from
+  `op://OpenClaw/<NAME>/credential`, skipping any not present (absent `MACOS_*` → the release
+  runs unsigned; mint missing macOS creds once per `reference/go-ci-and-release.md` § macOS
+  signing & notarization). It's best-effort — if 1Password is locked or absent it lists the
+  secrets to set by hand and doesn't block. Then run the first release: CHANGELOG entry → tag
+  `v0.1.0` on a commit that's on `main` → push tag → watch it with `scripts/watch-release.sh`
+  (drop `--pypi` for go; see `reference/ci-and-release.md`). goreleaser builds the binaries, cuts
+  the GitHub release, and pushes the Homebrew cask; the `verify-tag-on-main` gate refuses tags off
+  `main`. No PyPI/Pages for go (`reference/go-ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
   no API for it — use the **`agent-browser-with-cookies`** skill (install
   `agent-browser-with-cookies@skills` from this marketplace if absent) to run an
