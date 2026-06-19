@@ -311,3 +311,19 @@ dir's `Formula/`/`Casks/` files in, and does the one canonical `git add -A` → 
 — URLs into its own releases, the service block, fuse resources). New formula repos should use this
 action rather than copy-pasting tap git bash. Used by: **cc-notes**, **claude-pool**. (Cask-only
 repos don't need it — goreleaser's `homebrew_casks` publishes for them.)
+
+**Sign the darwin binaries the same way** (§ macOS signing & notarization) — a hand-rolled formula
+build still ships Mach-O binaries macOS 15/26 will SIGKILL if they're ad-hoc/Team-less, so replace any
+`codesign --force -s -` with real Developer ID signing on the macOS build job: import the cert (same
+keychain step), then `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` each
+darwin binary and `xcrun notarytool submit … --wait`. A **cgo build that `dlopen`s a third-party dylib**
+(cc-notes / claude-pool fuse → libfuse-t) must sign with an entitlements file that sets
+`com.apple.security.cs.disable-library-validation` — hardened runtime blocks loading another team's
+library otherwise. `lipo` universal binaries sign fine (codesign signs every slice); sign **after**
+the `lipo -create`. Used by: **cc-notes**, **claude-pool** (its `cc-pool` binary).
+
+For a real `.app` bundle (claude-pool's `CCPoolStatus.app`, built by xcodebuild) sign at build time with
+`CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application: …" OTHER_CODE_SIGN_FLAGS=--timestamp`
++ hardened runtime (xcodebuild signs inside-out, preserving the appex entitlements), then
+`notarytool submit` and — unlike a bare binary — **`xcrun stapler staple`** the bundle, so the cask can
+drop its `--no-quarantine` workaround.
