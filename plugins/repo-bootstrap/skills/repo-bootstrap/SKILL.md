@@ -351,6 +351,14 @@ Then, optionally, publish and wire one-time setups:
   docs)* also pass `--homepage "$DOCS_URL"` (Pages on a private repo requires a
   paid GitHub plan). For an existing remote, `gh repo edit` with the same flags
   (visibility via `--visibility public|private --accept-visibility-change-consequences`).
+- *(any layer)* if `reposync` is installed locally (`command -v reposync`), register the
+  new repo so it converges across the user's machines: `reposync repo add .` from the repo
+  root (repos live under `~/Code`, reposync's `default_location`). reposync reads the
+  freshly pushed `origin`, records the repo, propagates it to peer hosts, and clones it
+  wherever it's missing. Best-effort — skip silently when reposync isn't on `PATH`, and it
+  never blocks the bootstrap. It needs the GitHub remote to exist, so run it after
+  `gh repo create --push`; for a repo you didn't publish, either skip it (register later
+  once published) or `reposync repo add --local-only .` to track it on this host only.
 - *(feature docs)* enable GitHub Pages with the Actions build type:
   `gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`
   (`reference/ci-and-release.md`).
@@ -389,8 +397,9 @@ Then, optionally, publish and wire one-time setups:
   (or no Touch ID)? Ask the user to upload it by hand (repo Settings → Social preview).
 
 **Exit criteria:** commits made; for a published repo, remote created with description
-(and homepage, with feature `docs`) set, and any enabled feature's one-time setup done
-(or explicitly deferred with the user).
+(and homepage, with feature `docs`) set, and — when `reposync` is installed — the repo
+registered for cross-host sync, and any enabled feature's one-time setup done (or
+explicitly deferred with the user).
 
 ## Escape hatches
 
