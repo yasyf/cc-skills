@@ -42,12 +42,20 @@ The single canonical agent-conventions doc. Section by section:
   required in every plan — `Phase | Shape | Agents | Verification` table, or one
   line saying everything stays at the main-agent level; a plan without it is
   incomplete.
-- **Code Search.** Keep verbatim; it depends on `.mcp.json` (below). The decision
-  table: `semble.search` for intent/symbol questions ("How do we do X?",
-  "Where is `Foo` defined?"), `semble.find_related` for "code like this", LSP
-  (`findReferences`/`incomingCalls`/`hover`/`goToImplementation`) when the answer
-  must be exhaustive or structural, `Grep` only for literal string/comment content
-  and non-source files, `Glob` for file patterns.
+- **Compact Context (ccx).** Shared `{{> _partials/ccx.md}}` partial, inlined into
+  base, python, and go `AGENTS.md` where the old per-project `## Code Search` section
+  used to sit. It makes `cc-context` — the `ccx` CLI and the `mcp__cc-context__*`
+  MCP tools (1:1 with the CLI) — the default for reading/searching/reviewing code,
+  because it returns token-bounded output and the `ccx` capt-hook guard pack blocks
+  the token-heavy primitives. The ladder: `ccx overview` (orient), `ccx search`
+  (intent, semble-backed), `ccx symbol`/`grok` (a named symbol), `ccx grep` (literal),
+  `ccx find` (list files), `ccx outline` + `ccx read --section` (read), `ccx diff`
+  (review). LSP for exhaustive/structural answers, `Grep`/`Glob` only for literal
+  content in non-source files. The facade (semble + tilth) ships inside the
+  `cc-context@skills` plugin enabled in `.claude/settings.json`, **not** a per-project
+  `.mcp.json` server — so the `ccx` heading and the `ccx` guard pack
+  (`[packs.ccx]` in `.claude/hooks/packs.toml`) are the cross-reference invariant, not
+  `.mcp.json`. Keep the partial verbatim; edit `templates/_partials/ccx.md` to change it.
 - **Style.** Exactly `@STYLEGUIDE.md` under `## Style` — an embed, not a link.
   Don't duplicate style rules into AGENTS.md.
 - **General Rules.** Bold-bullet block: each rule is `**Name.** One or two
@@ -100,13 +108,16 @@ boundaries only.
 ## .mcp.json
 
 ```json
-{ "mcpServers": { "semble": { "command": "uvx", "args": ["--from", "semble[mcp]", "semble"] } } }
+{ "mcpServers": {} }
 ```
 
-Project-scoped MCP server giving semantic code search with zero install — `uvx`
-fetches it on first use. The AGENTS.md Code Search section and the General Rules
-"Search before writing" rule both assume this server exists; if you remove
-`.mcp.json`, rewrite those sections too.
+Empty by default. Code search no longer ships a per-project `semble` MCP server here —
+the `cc-context` facade (semble + tilth, surfaced as `ccx` and the
+`mcp__cc-context__*` MCP tools) ships inside the `cc-context@skills` plugin enabled in
+`.claude/settings.json`, so every trusted clone gets it without a project-scoped
+server. The AGENTS.md **Compact Context (ccx)** section and the General Rules
+"Search before writing" rule both point at `ccx`, not at this file; `.mcp.json` stays
+here only as the seam for any genuinely project-specific MCP server a repo later adds.
 
 ## .superset/config.json (extra `superset`)
 
@@ -218,7 +229,9 @@ Field by field:
   [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace (with
   `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` (the
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
-  `prompts.py` nudge), and `writing-docs@skills` (the `docs.py` nudge). It also
+  `prompts.py` nudge), `writing-docs@skills` (the `docs.py` nudge), and
+  `cc-context@skills` (the `ccx` code-search facade the AGENTS.md Compact Context
+  section routes to, paired with the `[packs.ccx]` guard pack). It also
   registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) marketplace and
   enables `cc-notes@cc-notes`, the git-native notes/tasks layer — so the
   `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs.

@@ -237,6 +237,22 @@ The review-before-stop Stop gate is **not** in the `style` hook — it lives in 
 pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
 ships only the seven AST rules above.
 
+### `ccx` (external pack — `github:yasyf/cc-context`)
+
+Guard pack that makes the `cc-context` facade (`ccx` / `mcp__cc-context__*`) the
+default for reading and searching code. It **blocks the token-heavy primitives** the
+facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
+Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`
+packs, `ccx` is an **external** pack: every repo enables it through a `[packs.ccx]`
+entry in `.claude/hooks/packs.toml` that carries both `source = "github:yasyf/cc-context"`
+and a pinned `commit` (external packs require both — see *Adding and removing rules*).
+The scaffolded entry ships a `commit = "REPLACE_WITH_PINNED_SHA"` placeholder because
+cc-context has not cut its first tag yet; pin it to a real SHA once it does, then
+`uvx capt-hook pack update` refreshes it. To drop the guard (e.g. a repo that wants raw
+`Read`/`Grep` back), delete the `[packs.ccx]` entry and the `cc-context@skills` plugin
+key in `.claude/settings.json` together, and replace the AGENTS.md Compact Context
+section with plain Code-Search guidance.
+
 ### `toolchain` (python pack)
 
 - Blocks manual `ruff` (`block_command(r"^ruff\b", ...)`) — "mechanical linting is
@@ -252,6 +268,7 @@ Hook messages cite doc sections by exact heading:
 
 - `stewardship.py`: **AGENTS.md § Code Stewardship**
 - `toolchain.py`: **AGENTS.md § Mechanical Linting**
+- `ccx` pack: **AGENTS.md § Compact Context (ccx)**
 - `tasks.py`: **CLAUDE.md § Task Tracking**
 - `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
 - `review.py`: **STYLEGUIDE.md**

@@ -55,6 +55,11 @@
       "name": "agent-browser-with-cookies",
       "source": "./plugins/agent-browser-with-cookies",
       "description": "Run authenticated agent-browser sessions by reusing your local browser login — self-decrypt Chrome cookies behind one Touch ID tap, with a cross-browser @mherod/get-cookie fallback — seeded into a fresh session. macOS."
+    },
+    {
+      "name": "cc-context",
+      "source": "yasyf/cc-context/plugin",
+      "description": "Compact codebase-context tools — a facade MCP + ccx CLI proxying semble (NL search) and tilth (symbol/outline/diff), with capt-hook enforcement."
     }
   ]
 }
