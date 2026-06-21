@@ -253,6 +253,32 @@ cc-context has not cut its first tag yet; pin it to a real SHA once it does, the
 key in `.claude/settings.json` together, and replace the AGENTS.md Compact Context
 section with plain Code-Search guidance.
 
+### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
+
+Nudge pack for repos that adopt [cc-notes](https://github.com/yasyf/cc-notes), the
+git-native durable tasks/notes layer (`refs/cc-notes/*`). Its hooks **only nudge,
+never gate** — they teach when to reach for native task tracking versus durable,
+git-synced cc-notes entities, float this session's open tasks and the notes relevant
+to a file you just read, and prompt `cc-notes sync`/`reconcile` after commits and
+merges. Every nudge gates on the `CcNotesAvailable` condition — exactly the `cc-notes`
+binary on PATH, with no `refs/cc-notes/*` check — so the pack is **silent on any
+machine without the binary**. Unlike the builtin `general`/`python`/`go` packs, it is
+an **external** pack tracking `@latest`: the per-repo opt-in is the `[packs.cc-notes]`
+entry's **presence** in `.claude/hooks/packs.toml`, which `cc-notes init` records (it
+also installs the `refs/cc-notes/*` refspecs and a reconcile CI workflow). capt-hook
+auto-fetches the declared pack on the next hook event, so there is no manual
+`uvx capt-hook pack update` after `init` or after a fresh clone.
+
+Because the pack is silent without the binary, adoption is **conditional on
+`cc-notes` being installed** — Phase 2 runs `cc-notes init` only when `command -v
+cc-notes` resolves. **Never declare `[packs.cc-notes]` in a template's `packs.toml`**:
+that would impose it on every bootstrapped repo, and capt-hook would auto-fetch the
+pack on the first hook event even for users who don't run cc-notes. The
+`.claude/settings.json` template registers the `cc-notes@cc-notes` plugin so the
+`using-cc-notes` skill loads on folder-trust regardless; the *pack* is the opt-in
+half, gated behind `cc-notes init`. To drop the nudges from an adopted repo, delete
+the `[packs.cc-notes]` entry from `packs.toml`.
+
 ### `toolchain` (python pack)
 
 - Blocks manual `ruff` (`block_command(r"^ruff\b", ...)`) — "mechanical linting is

@@ -211,10 +211,18 @@ it off. See `reference/hooks.md`.
 
 When `cc-notes` is installed (`command -v cc-notes`), also run `cc-notes init` to
 adopt the git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs,
-enables the cc-notes capt-hook pack in `.claude/hooks/packs.toml`, and installs the
-reconcile CI workflow under `.github/` (commit both in Phase 6). The cc-notes plugin
-is already registered by the `.claude/settings.json` template, so a bootstrapped repo
-gets the skill even when the binary is absent.
+records the `[packs.cc-notes]` entry (`source = github:yasyf/cc-notes@latest`) in
+`.claude/hooks/packs.toml`, and installs the reconcile CI workflow under `.github/`
+(commit both in Phase 6). capt-hook auto-fetches the declared pack on the next hook
+event — no `uvx capt-hook pack update` to run by hand. The pack's nudges gate on the
+`cc-notes` binary being on PATH, so they stay silent on machines without it; this is
+why adoption is **conditional** — never declare `[packs.cc-notes]` in a template's
+`packs.toml`, or capt-hook would auto-fetch it in every bootstrapped repo, including
+ones whose users don't run cc-notes (see `reference/hooks.md`). If `cc-notes` isn't
+installed, skip `init` and mention cc-notes as an optional add-on — install the binary,
+then `cc-notes init` — so the user can adopt it later. The cc-notes plugin is already
+registered by the `.claude/settings.json` template, so a bootstrapped repo gets the
+`using-cc-notes` skill even when the binary is absent.
 
 ### What lands where
 
