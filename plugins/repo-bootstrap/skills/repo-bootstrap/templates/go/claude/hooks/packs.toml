@@ -6,5 +6,5 @@
 # for the cc-context facade (ccx) first. Bump `commit` to the new tag's SHA on each
 # cc-context release, then run `uvx capt-hook pack update`.
 [packs.ccx]
-source = "github:yasyf/cc-context@v0.1.0"
-commit = "dc07671da28e0f03f64b73a3a918fc521b3b0447"
+source = "github:yasyf/cc-context@v0.1.1"
+commit = "cfa0dd9c52197f02d1e189246751684e8ff84838"
