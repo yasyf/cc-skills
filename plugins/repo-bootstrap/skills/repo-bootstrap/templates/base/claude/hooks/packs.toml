@@ -1,10 +1,8 @@
 [packs.general]
 
 # The ccx guard pack blocks the token-heavy read/search primitives so agents reach
-# for the cc-context facade (ccx) first. ACTIVATE once cc-context cuts its first
-# release: uncomment the three lines below, pin `commit` to that tag's SHA, then run
-# `uvx capt-hook pack update`. (capt-hook external packs need a resolvable
-# source+commit; an unresolvable placeholder would break every hook run here.)
-# [packs.ccx]
-# source = "github:yasyf/cc-context"
-# commit = "<pinned-sha>"
+# for the cc-context facade (ccx) first. Bump `commit` to the new tag's SHA on each
+# cc-context release, then run `uvx capt-hook pack update`.
+[packs.ccx]
+source = "github:yasyf/cc-context@v0.1.0"
+commit = "dc07671da28e0f03f64b73a3a918fc521b3b0447"
