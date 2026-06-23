@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cookiesync || uv tool install cookiesync-cli"
+          }
+        ]
+      }
+    ]
+  }
+}

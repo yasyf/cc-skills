@@ -19,9 +19,10 @@ path to track, nothing to `rm`.
 
 ## Prerequisites
 
-- **`cookiesync` installed and its daemon running** — `cookiesync install` sets up
-  the resident daemon that caches the Safe Storage key for a short TTL after a Touch
-  ID tap. If `cookiesync` isn't on `PATH`, the user needs to install it first.
+- **`cookiesync` on `PATH` with its daemon running.** The plugin's `Setup` hook
+  installs it on `claude --init`; otherwise `uv tool install cookiesync-cli`. Then
+  `cookiesync install` starts the resident daemon that caches the Safe Storage key
+  for a short TTL after a Touch ID tap.
 - **macOS.**
 - **The user is signed in via their desktop browser** (Chrome or Arc) to the site
   you'll automate.
