@@ -281,9 +281,6 @@ the `[packs.cc-notes]` entry from `packs.toml`.
 
 ### `toolchain` (python pack)
 
-- Blocks manual `ruff` (`block_command(r"^ruff\b", ...)`) — "mechanical linting is
-  auto-fixed by tooling", hint cites AGENTS.md § Mechanical Linting. `prek run
-  --all-files` (the sanctioned pre-commit cleanup) stays allowed.
 - Nudges `uv sync --extra dev` on `ModuleNotFoundError`/`ImportError`, explicitly telling
   the agent not to make imports lazy or restructure code to avoid the import. Capped at
   `max_fires=2`. Update the text if the project's dev extra is named differently.
@@ -293,7 +290,6 @@ the `[packs.cc-notes]` entry from `packs.toml`.
 Hook messages cite doc sections by exact heading:
 
 - `stewardship.py`: **AGENTS.md § Code Stewardship**
-- `toolchain.py`: **AGENTS.md § Mechanical Linting**
 - `ccx` pack: **AGENTS.md § Compact Context (ccx)**
 - `tasks.py`: **CLAUDE.md § Task Tracking**
 - `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**

@@ -64,7 +64,7 @@ Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and 
 
 **Don't contort code to satisfy a linter.** The compiler and `golangci-lint` serve the code, not the other way around. Don't widen a type to `any`, bolt on a needless type assertion, or sprinkle `//nolint` just to silence a diagnostic. If a clean fix isn't obvious, leave the diagnostic — a visible one is preferable to scar tissue.
 
-**Mechanical linting.** The pre-commit hooks (prek: gofumpt + goimports + golangci-lint) format and lint on every `git commit` — run `uvx prek install` once to activate them. Leave formatting and linting to the hook; never run `gofumpt` or `golangci-lint` by hand (the `go` capt-hook pack blocks it). When reviewing code, don't flag mechanical lint violations (gofmt, import order, line length).
+**Mechanical linting.** Running `gofumpt`/`golangci-lint` by hand is fine, and encouraged — the pre-commit hooks (prek: gofumpt + goimports + golangci-lint) also format and lint on every `git commit`; run `uvx prek install` once to activate them. Fix what needs human judgment and let the tooling own the mechanical churn. When reviewing code, don't flag mechanical lint violations (gofmt, import order, line length).
 
 **Testing.** Tests live beside the code as `*_test.go`; run them with `task test` (`go test -race ./...`). Write table-driven tests with strict assertions against specific values, mock the boundaries your code talks to (network, filesystem, clock), and leave the code under test real.
 

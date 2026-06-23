@@ -101,8 +101,8 @@ stateful service, stand up a real ephemeral instance rather than mocking the dri
 
 `golangci-lint` (v2) runs both the formatters (`gofumpt`, `goimports`) and the linter suite from
 one `.golangci.yml`. CI runs it and the prek commit hook runs it on every commit
-(`uvx prek install` to activate) — so it is **never** run by hand, and the `go` capt-hook pack
-blocks manual `gofumpt`/`golangci-lint` invocations. The enabled linter set is deliberately
+(`uvx prek install` to activate); you can also run `gofumpt`/`golangci-lint` by hand whenever
+it helps. The enabled linter set is deliberately
 broad-but-quiet (`errcheck`, `govet`, `staticcheck`, `gosec`, `revive`, `errorlint`,
 `contextcheck`, `prealloc`, `durationcheck`, `ineffassign`, `unused`); tune it in `.golangci.yml`,
 not by sprinkling `//nolint`.

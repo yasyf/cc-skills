@@ -1,5 +1,5 @@
-# golangci-lint v2 config. CI and the prek commit hook run this — never run it
-# by hand (the go capt-hook pack blocks manual invocation). `golangci-lint fmt`
+# golangci-lint v2 config. CI and the prek commit hook run this, and you can run it
+# by hand whenever it helps. `golangci-lint fmt`
 # applies the formatters; `golangci-lint run` applies the linters.
 version: "2"
 

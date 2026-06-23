@@ -12,7 +12,7 @@ Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 | Click | Groups, subcommands, `CliRunner` for tests, `version_option` from dist metadata | argparse — no test runner, manual subcommand wiring, no completion |
 | loguru | Zero-config structured logging, one import | stdlib `logging` — handler/formatter boilerplate before the first log line |
 | pytest, `--strict-markers` | Typo'd markers fail instead of silently passing; strict assertions are the house style | unittest — class ceremony, weak parametrize, no fixtures |
-| ruff `E,F,I,UP` @ line-length 120 | Mechanical layer only; CI and hooks own it — never run it manually mid-task | flake8+isort+pyupgrade — three tools for what one does |
+| ruff `E,F,I,UP` @ line-length 120 | Mechanical layer only; the prek commit hook owns enforcement, but run it by hand whenever it helps | flake8+isort+pyupgrade — three tools for what one does |
 | ty (default) + pyright (basic, secondary) | ty is fast, handles modern syntax, and skips the strict-pyright false positives on pydantic/beanie dynamic defaults and PK-type overrides; pyright stays for editors. Pairs with "type everything" in STYLEGUIDE.md | strict pyright — noisy on dynamic defaults / PK-type overrides; mypy — slower, weaker inference on modern syntax |
 | Great Docs | API reference generated from Google-style docstrings via one YAML file; publishes to GitHub Pages | mkdocs — nav/plugin config sprawl; Read the Docs — second platform to wire when Pages is already there |
 | Async-native from day 1 | All I/O is `async`; use native-async drivers so the event loop never blocks | sync driver + `asyncio.to_thread` — leaks the sync boundary into every caller, caps throughput at the thread pool |
@@ -127,8 +127,8 @@ package needs only the override/unknown-type silences.)
 pycodestyle errors, pyflakes, import sort, and pyupgrade. Deliberately small — style
 judgment lives in STYLEGUIDE.md and review, not lint rules. Per AGENTS.md: the prek commit
 hooks (`.pre-commit-config.yaml`: `astral-sh/ruff-pre-commit` + `astral-sh/ty-pre-commit`) own
-ruff — auto-formatting and fixing import order on every commit; never run ruff manually during
-a task. CI does not run ruff; the commit hook is the only mechanical-lint gate.
+ruff — auto-formatting and fixing import order on every commit; running ruff by hand is fine
+too. CI does not run ruff; the commit hook is the mechanical-lint gate.
 
 ## .python-version vs requires-python
 
