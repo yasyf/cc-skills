@@ -16,12 +16,25 @@ Runs on push to `main` and on PRs. Three jobs:
 
 ## Base release (`.goreleaser.yaml` + `.github/workflows/release.yml`) — feature `release`
 
+**The rule: goreleaser for builds, not for the brew part.** goreleaser v2 can only emit Homebrew
+*casks*, but the shared `yasyf/homebrew-tap` is formulae — so the scaffold uses goreleaser to build
+binaries, tar.gz archives, `checksums.txt`, and notarize, then hand-renders a **formula** and
+publishes it through the shared tap action. Every new Go repo is formula-by-default.
+
 The scaffolded base is **pure Go** (`CGO_ENABLED=0`), darwin/linux × amd64/arm64, version stamped
-into `internal/version` via ldflags, archives + checksums, and a Homebrew **cask** pushed to the
-shared `yasyf/homebrew-tap` with a quarantine-strip post-install hook. The workflow triggers on a
-`v*` tag, gates on `verify-tag-on-main` (refuses tags not on `main`), and runs `goreleaser release`.
-The darwin binaries are Developer-ID-signed and notarized when the `MACOS_*` secrets are set
-(§ macOS signing & notarization); without them the release still runs, unsigned.
+into `internal/version` via ldflags, archives + checksums. The workflow triggers on a `v*` tag,
+gates on `verify-tag-on-main` (refuses tags not on `main`), runs `goreleaser release`, then renders
+`Formula/<name>.rb` from the four archive checksums in `dist/checksums.txt` and publishes it to the
+shared `yasyf/homebrew-tap` via `yasyf/homebrew-tap/.github/actions/publish@main` (§ Formula repos).
+The formula installs notarized binaries, so it carries no quarantine hook. The darwin binaries are
+Developer-ID-signed and notarized when the `MACOS_*` secrets are set (§ macOS signing &
+notarization); without them the release still runs, unsigned.
+
+The formula is a two-level template. The scaffold renders the bootstrap placeholders such as
+`{{PROJECT_NAME}}`, the class name, and the license at `repo-bootstrap` time into
+`.github/formula/<name>.rb.tmpl`; the release workflow fills the `__VERSION__` and four `__SHA_*__`
+tokens at tag time. To add a runtime dependency, add a `depends_on "<tool>"` line in that template.
+cc-context does exactly this for `ast-grep`.
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
@@ -95,7 +108,9 @@ Notes:
   secret as a *set-but-empty* var, which would make `isEnvSet` sign against an empty cert. The
   workflow always passes the five `MACOS_*` env vars; the guard skips them when empty.
 - **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The cask's `xattr -dr com.apple.quarantine` hook stays.
+  and checked online by Gatekeeper. The default formula installs these notarized binaries and needs no
+  quarantine handling (a `brew install` of a formula doesn't quarantine). A cask-only fallback for an
+  unsigned bare binary would still need an `xattr -dr com.apple.quarantine` post-install hook.
 
 ### Native codesign — when the release already runs on a macOS runner
 
@@ -301,8 +316,9 @@ Used by: **cc-review** (its Claude Code plugin downloads the raw binary).
 
 goreleaser builds Go binaries, not Xcode/Swift `.app` bundles. For a macOS app built by a separate
 job (xcodegen + xcodebuild + `ditto` zip), keep that job, render its cask `.rb`, and publish it via
-the shared tap action (below) — goreleaser handles the Go binary's cask; the app's cask lives beside
-it in `yasyf/homebrew-tap`.
+the shared tap action (§ Formula repos). The Go binary ships as the rendered formula, and the app's
+cask lives beside it in `yasyf/homebrew-tap`; stage both under `tap-staging/` as `Formula/<name>.rb`
+plus `Casks/<app>.rb`.
 
 Used by: **claude-pool** (the `cc-pool-status` widget app).
 
@@ -323,17 +339,34 @@ goreleaser: a workflow step creates and pushes the tag, then goreleaser runs wit
 `goreleaser release` then reads `GORELEASER_CURRENT_TAG` instead of requiring a pre-existing tag.
 Used by: **slop-cop**.
 
-## Formula repos (goreleaser can't emit formulas) → the shared publish action
+## Formula repos (the default) → the shared publish action
 
-goreleaser v2 only emits Homebrew **casks**. A repo whose package needs **formula-only** features —
-a `service do` block for `brew services` (claude-pool/cc-pool), or a native-Linux build a cask can't
-carry (cc-notes' FUSE `mount`) — keeps its own hand-rolled build + renders its own `.rb`, then
-publishes through **one shared composite action** so the cross-repo git mechanics live in a single
-place (and can't drift or grow a per-repo bug like a `git diff` that runs before `git add`):
+This is the default path the scaffold wires for every new Go repo, not an exception. goreleaser v2
+only emits Homebrew **casks**, but the shared `yasyf/homebrew-tap` is formulae — so a repo lets
+goreleaser build + notarize, renders its own `Formula/<name>.rb`, then publishes through **one shared
+composite action** so the cross-repo git mechanics live in a single place (and can't drift or grow a
+per-repo bug like a `git diff` that runs before `git add`).
+
+The scaffold's `.github/workflows/release.yml` ships the two steps already: a render step that fills
+the formula template from `dist/checksums.txt`, and the publish step below.
 
 ```yaml
-# in the release job, after rendering Formula/<name>.rb (and any Casks/<name>.rb)
-# into a local staging dir mirroring the tap layout:
+# render Formula/<name>.rb from the release checksums:
+- name: Render the formula from release checksums
+  run: |
+    set -euo pipefail
+    version="${GITHUB_REF_NAME#v}"
+    sha() { grep -E "  <name>_${version}_$1\.tar\.gz\$" dist/checksums.txt | cut -d' ' -f1; }
+    mkdir -p tap-staging/Formula
+    sed \
+      -e "s|__VERSION__|${version}|g" \
+      -e "s|__SHA_DARWIN_ARM64__|$(sha darwin_arm64)|" \
+      -e "s|__SHA_DARWIN_AMD64__|$(sha darwin_amd64)|" \
+      -e "s|__SHA_LINUX_ARM64__|$(sha linux_arm64)|" \
+      -e "s|__SHA_LINUX_AMD64__|$(sha linux_amd64)|" \
+      .github/formula/<name>.rb.tmpl > tap-staging/Formula/<name>.rb
+
+# publish the staged Formula/ into the tap:
 - name: Publish to the tap
   uses: yasyf/homebrew-tap/.github/actions/publish@main
   with:
@@ -344,10 +377,15 @@ place (and can't drift or grow a per-repo bug like a `git diff` that runs before
 
 The action (`yasyf/homebrew-tap/.github/actions/publish`) checks out the tap, merges the staging
 dir's `Formula/`/`Casks/` files in, and does the one canonical `git add -A` → `git diff --cached
---quiet` → commit → push. The calling repo only renders its `.rb` (formula *content* is repo-specific
-— URLs into its own releases, the service block, fuse resources). New formula repos should use this
-action rather than copy-pasting tap git bash. Used by: **cc-notes**, **claude-pool**. (Cask-only
-repos don't need it — goreleaser's `homebrew_casks` publishes for them.)
+--quiet` → commit → push. The calling repo only renders its `.rb`, since formula content stays
+repo-specific — URLs into its own releases, the runtime `depends_on`, a `service do` block, and fuse
+resources. Every scaffolded Go repo uses this, along with **cc-context**, **cc-notes**, and
+**claude-pool**. cc-context adds `depends_on "ast-grep"`; claude-pool's formula carries a `service do`
+block and a native-Linux FUSE build a cask cannot express.
+
+**The cask fallback.** A cask-only artifact such as a Swift/Xcode `.app` bundle that goreleaser cannot
+build still renders a `Casks/<name>.rb` and publishes it through the same action, staged under
+`tap-staging/Casks/`. The action merges `Formula/` and `Casks/` alike.
 
 **Sign the darwin binaries the same way** (§ Native codesign — when the release already runs on a
 macOS runner) — a hand-rolled formula build still ships Mach-O binaries macOS 15/26 will SIGKILL if

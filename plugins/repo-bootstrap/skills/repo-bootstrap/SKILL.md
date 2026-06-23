@@ -97,7 +97,7 @@ explicitly ask for.
   inherently public, and Pages on a private repo needs a paid plan.
 - **Go additionally**: the Go toolchain version (`GO_VERSION`, e.g. `1.26`), and the
   one **feature** as a `multiSelect` "Optional Go features" — `release` (goreleaser
-  build + a Homebrew cask pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
+  build + a Homebrew formula pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
   regardless of visibility — release/distribution tooling is product work the user opts
   into, and it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret.
 
@@ -244,7 +244,7 @@ registered by the `.claude/settings.json` template, so a bootstrapped repo gets 
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
-| `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds the matrix and pushes a Homebrew cask to `yasyf/homebrew-tap`; release workflow gates on `verify-tag-on-main` |
+| `.goreleaser.yaml`, `.github/workflows/release.yml`, `.github/formula/<name>.rb.tmpl` | go + feature `release` | goreleaser builds the matrix; release workflow renders the formula template from the checksums and publishes it to `yasyf/homebrew-tap` via the shared action, gating on `verify-tag-on-main` |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
 | `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
@@ -378,7 +378,7 @@ Then, optionally, publish and wire one-time setups:
 - *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists, then set the release
   secrets from 1Password right after the repo is created:
   `bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo>`.
-  It pushes `HOMEBREW_TAP_TOKEN` (the tap PAT — required for the cask push) plus the five
+  It pushes `HOMEBREW_TAP_TOKEN` (the tap PAT — required for the formula push) plus the five
   `MACOS_*` sign/notarize secrets (`MACOS_SIGN_P12`, `MACOS_SIGN_PASSWORD`,
   `MACOS_NOTARY_ISSUER_ID`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_KEY`) from
   `op://OpenClaw/<NAME>/credential`, skipping any not present (absent `MACOS_*` → the release
@@ -386,8 +386,9 @@ Then, optionally, publish and wire one-time setups:
   signing & notarization). It's best-effort — if 1Password is locked or absent it lists the
   secrets to set by hand and doesn't block. Then run the first release: CHANGELOG entry → tag
   `v0.1.0` on a commit that's on `main` → push tag → watch it with `scripts/watch-release.sh`
-  (drop `--pypi` for go; see `reference/ci-and-release.md`). goreleaser builds the binaries, cuts
-  the GitHub release, and pushes the Homebrew cask; the `verify-tag-on-main` gate refuses tags off
+  (drop `--pypi` for go; see `reference/ci-and-release.md`). goreleaser builds the binaries and cuts
+  the GitHub release, then the workflow renders the formula from the checksums and publishes it to the
+  Homebrew tap via the shared action; the `verify-tag-on-main` gate refuses tags off
   `main`. No PyPI/Pages for go (`reference/go-ci-and-release.md`).
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
   no API for it — use the **`agent-browser-with-cookies`** skill (install
@@ -475,8 +476,9 @@ Read these on demand — each is self-contained:
   `uvx capt-hook test`, tailoring and removal, version requirements.
 - `reference/ci-and-release.md` — the three python workflows, one-time PyPI trusted
   publisher + GitHub Pages setup, release procedure.
-- `reference/go-ci-and-release.md` — the go CI workflow and the goreleaser base
-  config + opt-in recipes (zig CGO, build tags, universal binaries, embed-prebuild,
-  `format: binary`, extra cask, auto-tag-on-push); shared-tap one-time setup.
+- `reference/go-ci-and-release.md` — the go CI workflow, the goreleaser base config,
+  the formula-by-default Homebrew publish flow, and opt-in recipes (zig CGO, build
+  tags, universal binaries, embed-prebuild, `format: binary`, extra cask,
+  auto-tag-on-push); shared-tap one-time setup.
 - `reference/docs-site.md` — Great Docs config, build/preview commands, enabling
   narrative sections and curated reference.

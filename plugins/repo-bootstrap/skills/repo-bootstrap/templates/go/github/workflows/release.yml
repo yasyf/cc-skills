@@ -38,7 +38,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           # Apple Developer signing + notarization (optional; the .goreleaser.yaml
           # notarize block is a no-op when these are unset).
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
@@ -46,3 +45,28 @@ jobs:
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+
+      # goreleaser v2 can only emit Homebrew casks, but the shared tap is formulae —
+      # so render Formula/{{PROJECT_NAME}}.rb from the release checksums and publish
+      # it via the shared tap action. Add a runtime depends_on in the template.
+      - name: Render the formula from release checksums
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sha() { grep -E "  {{PROJECT_NAME}}_${version}_$1\.tar\.gz\$" dist/checksums.txt | cut -d' ' -f1; }
+          mkdir -p tap-staging/Formula
+          sed \
+            -e "s|__VERSION__|${version}|g" \
+            -e "s|__SHA_DARWIN_ARM64__|$(sha darwin_arm64)|" \
+            -e "s|__SHA_DARWIN_AMD64__|$(sha darwin_amd64)|" \
+            -e "s|__SHA_LINUX_ARM64__|$(sha linux_arm64)|" \
+            -e "s|__SHA_LINUX_AMD64__|$(sha linux_amd64)|" \
+            .github/formula/{{PROJECT_NAME}}.rb.tmpl > tap-staging/Formula/{{PROJECT_NAME}}.rb
+          cat tap-staging/Formula/{{PROJECT_NAME}}.rb
+
+      - name: Publish formula to the tap
+        uses: yasyf/homebrew-tap/.github/actions/publish@main
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          dir: tap-staging
+          message: "{{PROJECT_NAME}} ${{ github.ref_name }}"

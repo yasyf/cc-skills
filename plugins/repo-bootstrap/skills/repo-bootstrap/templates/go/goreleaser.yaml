@@ -55,23 +55,6 @@ notarize:
 checksum:
   name_template: checksums.txt
 
-homebrew_casks:
-  - name: {{PROJECT_NAME}}
-    binaries:
-      - {{PROJECT_NAME}}
-    repository:
-      owner: {{GITHUB_USER}}
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "{{REPO_URL}}"
-    description: "{{DESCRIPTION}}"
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/{{PROJECT_NAME}}"]
-          end
-
 release:
   prerelease: auto
 
