@@ -54,7 +54,7 @@
     {
       "name": "agent-browser-with-cookies",
       "source": "./plugins/agent-browser-with-cookies",
-      "description": "Run authenticated agent-browser sessions by reusing your local browser login — self-decrypt Chrome cookies behind one Touch ID tap, with a cross-browser @mherod/get-cookie fallback — seeded into a fresh session. macOS."
+      "description": "Run authenticated agent-browser sessions by reusing your local browser login — stream cookies for one or more hosts from the local store behind one Touch ID tap (cookiesync CLI), merged into a fresh session. macOS."
     },
     {
       "name": "cc-context",
