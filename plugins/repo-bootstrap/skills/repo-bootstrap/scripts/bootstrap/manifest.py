@@ -66,6 +66,13 @@ DERIVED = (
         if v.get("GO_VERSION")
         else None,
     ),
+    # shields.io reads single dashes as the label/message/color separators, so a
+    # license id with dashes (PolyForm-Noncommercial-1.0.0) must double them for
+    # the static badge URL. The alt text keeps the readable single-dash form.
+    DerivedVar(
+        "LICENSE_BADGE",
+        lambda v, now: v["LICENSE_ID"].replace("-", "--") if v.get("LICENSE_ID", "none") != "none" else None,
+    ),
 )
 
 FILES = (

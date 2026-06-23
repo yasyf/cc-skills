@@ -7,7 +7,7 @@
 {{/FEATURE_RELEASE}}
 [![CI](https://img.shields.io/github/actions/workflow/status/{{GITHUB_USER}}/{{PROJECT_NAME}}/ci.yml?branch=main&label=ci)]({{REPO_URL}}/actions/workflows/ci.yml)
 {{#HAS_LICENSE}}
-[![License: {{LICENSE_ID}}](https://img.shields.io/badge/License-{{LICENSE_ID}}-blue.svg)]({{REPO_URL}}/blob/main/LICENSE)
+[![License: {{LICENSE_ID}}](https://img.shields.io/badge/License-{{LICENSE_BADGE}}-blue.svg)]({{REPO_URL}}/blob/main/LICENSE)
 {{/HAS_LICENSE}}
 
 {{DESCRIPTION}}

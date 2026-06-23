@@ -419,6 +419,18 @@ def test_real_templates_render_manual_license(py_var_pairs):
     assert 'license-files = ["LICENSE"]' in plan["pyproject.toml"]
 
 
+def test_license_badge_doubles_dashes(base_var_pairs):
+    # shields.io reads single dashes as the label/message/color separators, so a
+    # dashed license id must double them in the badge URL; the alt text stays readable.
+    pairs = [p for p in base_var_pairs if not p.startswith("LICENSE_ID=")] + ["LICENSE_ID=PolyForm-Noncommercial-1.0.0"]
+    readme = _real_plan("base", pairs)[0]["README.md"]
+    assert "badge/License-PolyForm--Noncommercial--1.0.0-blue.svg" in readme
+    assert "[![License: PolyForm-Noncommercial-1.0.0]" in readme
+    # a dash-free id needs no doubling
+    mit = _real_plan("base", base_var_pairs)[0]["README.md"]
+    assert "badge/License-MIT-blue.svg" in mit
+
+
 def test_great_docs_pypi_widget_follows_feature(py_var_pairs):
     assert "pypi: true" in _real_plan("python", py_var_pairs)[0]["great-docs.yml"]
     assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0]["great-docs.yml"]
