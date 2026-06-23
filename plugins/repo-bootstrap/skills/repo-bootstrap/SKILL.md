@@ -204,27 +204,11 @@ For go, follow the scaffold with `go mod tidy` (resolves cobra and writes `go.su
 commit it), then `go vet ./...`, `task build`, and `task test` (`go test -race ./...`);
 run `uvx prek install` to activate the gofumpt + golangci-lint commit hooks.
 
-For every repo, run `uvx capt-hook review enable` to arm the **session reviewer**:
-it registers the captain-hook plugin in `.claude/settings.json` (commit it in
-Phase 6), wires the SessionEnd `review run` hook into `.claude/settings.json`, and
-watches the repo (machine-local) so ended sessions mine durable corrections into hook
-PRs. It needs an authenticated `claude` and `gh`; `uvx capt-hook review disable` turns
-it off. See `reference/hooks.md`.
-
-When `cc-notes` is installed (`command -v cc-notes`), also run `cc-notes init` to
-adopt the git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs,
-records the `[packs.cc-notes]` entry (`source = github:yasyf/cc-notes@latest`) in
-`.claude/hooks/packs.toml`, and installs the reconcile CI workflow under `.github/`
-(commit both in Phase 6). capt-hook auto-fetches the declared pack on the next hook
-event — no `uvx capt-hook pack update` to run by hand. The pack's nudges gate on the
-`cc-notes` binary being on PATH, so they stay silent on machines without it; this is
-why adoption is **conditional** — never declare `[packs.cc-notes]` in a template's
-`packs.toml`, or capt-hook would auto-fetch it in every bootstrapped repo, including
-ones whose users don't run cc-notes (see `reference/hooks.md`). If `cc-notes` isn't
-installed, skip `init` and mention cc-notes as an optional add-on — install the binary,
-then `cc-notes init` — so the user can adopt it later. The cc-notes plugin is already
-registered by the `.claude/settings.json` template, so a bootstrapped repo gets the
-`using-cc-notes` skill even when the binary is absent.
+Two integrations are armed **after** the repo is published (Phase 6), because they
+need an `origin` remote: the **session reviewer** (`uvx capt-hook review enable`) and,
+when `cc-notes` is installed, **cc-notes** (`cc-notes init`). Do not run them here —
+`capt-hook review enable` rejects a repo with no `origin`, and cc-notes' refspecs have
+nothing to target until the remote exists. See `reference/hooks.md`.
 
 ### What lands where
 
@@ -348,7 +332,7 @@ drop the `--layer` flag (it defaults to base).
 Atomic, conventional-prefix commits — one logical change each, conditioned on the
 layer and features actually scaffolded:
 
-1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` — include the `.claude/settings.json` captain-hook plugin registration written by `capt-hook review enable` in Phase 2 (and the `cc-notes init` refspecs/pack/CI when cc-notes is installed)
+1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` (the `capt-hook review enable` / `cc-notes init` registrations are committed later, in the publish step below, since they need `origin`)
 2. `feat: initial <package> package and CLI skeleton` *(python)* / `feat: initial CLI skeleton (cmd + internal packages)` *(go — include `go.mod`/`go.sum`)*
 3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features. go; append "and goreleaser release" with feature `release`)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
@@ -361,6 +345,27 @@ Then, optionally, publish and wire one-time setups:
   docs)* also pass `--homepage "$DOCS_URL"` (Pages on a private repo requires a
   paid GitHub plan). For an existing remote, `gh repo edit` with the same flags
   (visibility via `--visibility public|private --accept-visibility-change-consequences`).
+- *(any layer, only after `gh repo create` so `origin` exists)* arm the **session reviewer**:
+  `uvx capt-hook review enable`. It registers the captain-hook plugin in `.claude/settings.json`,
+  wires the SessionEnd `review run` hook, and watches the repo (machine-local) so ended sessions
+  mine durable corrections into hook PRs. It needs an authenticated `claude` and `gh` **and an
+  `origin` remote** — the reviewer opens PRs against `origin`, so an origin-less repo is rejected.
+  `uvx capt-hook review disable` turns it off. See `reference/hooks.md`.
+- *(when `cc-notes` is installed: `command -v cc-notes`)* run `cc-notes init` to adopt the
+  git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs (which target `origin`),
+  records the `[packs.cc-notes]` entry (`source = github:yasyf/cc-notes@latest`) in
+  `.claude/hooks/packs.toml`, and installs the reconcile CI workflow under `.github/`. capt-hook
+  auto-fetches the declared pack on the next hook event. The pack's nudges gate on the `cc-notes`
+  binary being on PATH, so adoption is **conditional** — never declare `[packs.cc-notes]` in a
+  template's `packs.toml`. If `cc-notes` isn't installed, skip `init` and mention it as an optional
+  add-on (install the binary, then `cc-notes init`); the cc-notes plugin is already registered by
+  the `.claude/settings.json` template, so the repo gets the `using-cc-notes` skill even without the
+  binary. See `reference/hooks.md`.
+- Commit and push what the two steps above wrote: `chore: arm session reviewer and cc-notes`
+  covering the `.claude/settings.json` plugin registration (and, when cc-notes ran, the
+  `refs/cc-notes/*` refspecs, `packs.toml` entry, and reconcile CI), then `git push`. For an
+  **unpublished** repo, skip all three steps — the reviewer and cc-notes sync have no `origin` to
+  target; adopt them later once you publish.
 - *(any layer)* if `reposync` is installed locally (`command -v reposync`), register the
   new repo so it converges across the user's machines: `reposync repo add .` from the repo
   root (repos live under `~/Code`, reposync's `default_location`). reposync reads the

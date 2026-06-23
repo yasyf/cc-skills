@@ -17,13 +17,14 @@ verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from t
 
 ## The session reviewer
 
-Phase 2 runs `uvx capt-hook review enable`, which arms capt-hook's **session reviewer** for
-the repo. When a Claude Code session ends, it mines the transcript for the durable corrections
-you gave and the hooks that misfired, judges each, and — once a pattern clears its thresholds —
-opens a pull request that adds or fixes a hook. `review enable` does three things: registers the
-captain-hook plugin in `.claude/settings.json` (committed in Phase 6), wires a `review run` hook
-onto `SessionEnd` in `.claude/settings.local.json` (machine-local, gitignored), and starts
-watching the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
+Phase 6 runs `uvx capt-hook review enable` (after `gh repo create`, since the reviewer opens PRs
+against `origin` and refuses a repo with no `origin` remote), which arms capt-hook's **session
+reviewer** for the repo. When a Claude Code session ends, it mines the transcript for the durable
+corrections you gave and the hooks that misfired, judges each, and — once a pattern clears its
+thresholds — opens a pull request that adds or fixes a hook. `review enable` does three things:
+registers the captain-hook plugin in `.claude/settings.json` (committed in the same publish step),
+wires a `review run` hook onto `SessionEnd` in `.claude/settings.local.json` (machine-local,
+gitignored), and starts watching the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
 environment variables and turn it off per repo with `uvx capt-hook review disable`. Full guide:
 <https://yasyf.github.io/captain-hook/docs/guide/session-reviewer.html>.
 
@@ -270,8 +271,8 @@ auto-fetches the declared pack on the next hook event, so there is no manual
 `uvx capt-hook pack update` after `init` or after a fresh clone.
 
 Because the pack is silent without the binary, adoption is **conditional on
-`cc-notes` being installed** — Phase 2 runs `cc-notes init` only when `command -v
-cc-notes` resolves. **Never declare `[packs.cc-notes]` in a template's `packs.toml`**:
+`cc-notes` being installed** — Phase 6 runs `cc-notes init` (after the repo is published, so its
+`refs/cc-notes/*` refspecs have an `origin` to target) only when `command -v cc-notes` resolves. **Never declare `[packs.cc-notes]` in a template's `packs.toml`**:
 that would impose it on every bootstrapped repo, and capt-hook would auto-fetch the
 pack on the first hook event even for users who don't run cc-notes. The
 `.claude/settings.json` template registers the `cc-notes@cc-notes` plugin so the
