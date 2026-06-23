@@ -122,7 +122,9 @@ $BOOTSTRAP check-name DIST_NAME
 ```
 
 (`AVAILABLE` → proceed; `TAKEN` → pick another; `UNKNOWN` → have the user verify;
-`INVALID` → not a valid PyPI name.)
+`INVALID` → not a valid PyPI name.) `check-name` checks the exact token only; PyPI's similarity
+guard also rejects names that ultranormalize (lowercase, strip `-`/`_`/`.`) to an existing project,
+so sweep separator variants too (`reference/python-stack.md` § The Naming Triad).
 
 **Naming rule (go):** the binary, Go module leaf, and repo all share the project name
 (`cmd/<name>`, `module github.com/<user>/<name>`) — no dist/package split, and

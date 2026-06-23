@@ -27,11 +27,30 @@ Three names, three placeholders filled at scaffold time, three distinct jobs:
 | the package name supplied at scaffold time | Import name (`import captain_hook`) | `captain_hook` | Valid identifier; underscores, no hyphens. May differ from the dist name. |
 | the project name supplied at scaffold time | Repo / directory / docs display name | `captain-hook` | Usually the dist name spelled out, or the same. |
 
-Before settling on a dist name, confirm it's free: check `https://pypi.org/project/<name>/` returns 404,
-and that the GitHub repo slug is available. A taken dist name forces the triad apart
-(captain-hook's PyPI name `captain-hook` was taken — hence `capt-hook`); that's fine, but
-decide it before scaffolding, since the dist name threads through `pyproject.toml`,
-`README.md` badges, the console script, and `tests/test_cli.py`.
+Before settling on a dist name, confirm it's both *unregistered* and *clear of PyPI's
+name-similarity guard*. PyPI ultranormalizes a name — lowercases it and strips every `-`, `_`,
+and `.` — and refuses registration when an existing project ultranormalizes to the same token
+("This project name is too similar to an existing project"). Checking the exact name therefore
+misses the guard; sweep the separator variants too. `check-name` covers the exact token only, so
+run the variants by hand against the JSON endpoint:
+
+```bash
+for n in cookiesync cookie-sync cookie_sync; do
+  printf '%s %s\n' "$n" "$(curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/$n/json)"
+done
+```
+
+A `200` on the name *or any same-ultranormalization variant* means pick another (for `foobar`
+also check `foo-bar`; for `foo-bar` also check `foobar` and `foo_bar`); only `404` across the
+whole set is clear. `cookiesync` was blocked this way — the existing `cookie-sync`
+ultranormalizes to the same `cookiesync` — and the fix kept the import package and console script
+as `cookiesync` while publishing the *distribution* as `cookiesync-cli`; `uv_build`'s
+`module-name` pins the module, so a distribution name that differs from the module name works.
+
+A taken-or-too-similar dist name forces the triad apart (captain-hook's PyPI name `captain-hook`
+was taken — hence `capt-hook`); that's fine, but decide it before scaffolding, since the dist name
+threads through `pyproject.toml`, `README.md` badges, the console script, and `tests/test_cli.py`.
+Confirm the GitHub repo slug is free too.
 
 ## pyproject.toml Walkthrough
 

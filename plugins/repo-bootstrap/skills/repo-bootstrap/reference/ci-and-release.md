@@ -138,6 +138,13 @@ before the project exists on PyPI):
 | Workflow name | `release-pypi.yml` | `release-pypi.yml` |
 | Environment name | `pypi` | `pypi` |
 
+Register this **before pushing the first `v*` tag**: a brand-new project name has no publisher
+yet, so the first release dies in the `publish` job with `invalid-publisher: valid token, but no
+corresponding publisher`. The **Environment name is required whenever the publish job sets
+`environment:`** — the OIDC subject GitHub presents is `repo:<owner>/<repo>:environment:<env>`, so
+a blank Environment on the PyPI side never matches. This is a manual account-owner step (PyPI
+login + 2FA); the scaffold can't automate it.
+
 ### b. GitHub `pypi` environment
 
 Repo → **Settings** → **Environments** → **New environment** → name it exactly `pypi`.
