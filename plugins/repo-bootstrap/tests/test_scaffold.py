@@ -93,7 +93,11 @@ def test_go_selection_no_release(go_var_pairs):
 
 def test_go_release_feature_gates(go_var_pairs):
     got = dests("go", go_var_pairs, features=["release"])
-    assert got == GO_DESTS | {".goreleaser.yaml", ".github/workflows/release.yml"}
+    assert got == GO_DESTS | {
+        ".goreleaser.yaml",
+        ".github/workflows/release.yml",
+        ".github/formula/demo-proj.rb.tmpl",
+    }
 
 
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
@@ -459,10 +463,10 @@ def test_go_goreleaser_template_tokens_survive(go_var_pairs):
     gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
     # goreleaser Go-template tokens (spaces/dots) are NOT bootstrap placeholders — pass through
     assert "{{ .Version }}" in gor
-    assert "{{ .Env.HOMEBREW_TAP_TOKEN }}" in gor
+    assert "{{ .Commit }}" in gor
     # bootstrap placeholders ARE rendered
     assert "github.com/janedoe/demo-proj/internal/version.Version={{ .Version }}" in gor
-    assert "owner: janedoe" in gor and "name: homebrew-tap" in gor
+    assert "project_name: demo-proj" in gor
 
 
 def test_go_goreleaser_notarize_block(go_var_pairs):
