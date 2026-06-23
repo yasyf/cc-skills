@@ -1,6 +1,6 @@
 ---
 name: writing-docs
-description: Use when writing or revising project documentation of any kind, including a README, docs site, tutorial, quickstart, how-to guide, reference page, API doc, or changelog. Applies the Diataxis framework (one mode per page), a technical-builder voice (first-person, confident, hands-on), runnable code-sample rules, quickstart and README anatomy, accessibility, and a required slop-cop prose-lint pass before you finish. Triggers on "write/rewrite/improve the docs", "write a README", "write a tutorial", "document this", "getting-started page", or any natural-language documentation task.
+description: Use when writing or revising project documentation of any kind, including a README, docs site, tutorial, quickstart, how-to guide, reference page, API doc, cheat sheet, examples catalog, limitations or FAQ page, or changelog. Applies the Diataxis framework (one mode per page), a technical-builder voice (first-person, confident, hands-on), runnable code-sample rules, quickstart and README anatomy, cheat-sheet and catalog page formats, accessibility, and a required slop-cop prose-lint pass before you finish. Triggers on "write/rewrite/improve the docs", "write a README", "write a tutorial", "document this", "getting-started page", "write a cheat sheet", "build an examples catalog", or any natural-language documentation task.
 ---
 
 # Writing Docs
@@ -34,7 +34,7 @@ Decide by the reader's goal. Learning-by-doing with guaranteed success is a tuto
 
 Map repo directories to modes. `getting-started/` is the single tutorial plus thin onboarding, `guide/` is how-to plus a few labelled concept pages, `examples/` is runnable how-to specimens, and `reference/` is generated and curated facts. Do not build empty four-folder scaffolding; assign each existing page one mode.
 
-See `references/diataxis.md` for the required sections per page type.
+See `references/diataxis.md` for the required sections per page type. A cheat sheet and an examples catalog entry are formats of reference and how-to, not new modes — `references/reference-genres.md` gives each a skeleton and the rule that keeps a cheat sheet from blurring into a reference.
 
 ## Voice and style
 
@@ -50,6 +50,7 @@ Write as a technical builder: someone who has already built the thing, explains 
 - Use exactly one term per concept everywhere, with identical capitalization. Backtick any library, method, or tool name inline, plus filenames, paths, commands, and types — but not product names or browsable URLs.
 - Use sentence-case headings with no end punctuation, the Oxford comma, conditions before instructions, and inclusive, bias-free language (no generic he or she, people-first phrasing, non-biased technical terms).
 - Open on substance. Cut self-referential intros such as "This page explains" or "What to learn", structure pre-announcements such as "three properties follow", and pre-emptive admonishment. State behavior as fact, and keep internals, packaging, and history out of task and reference pages. Cut "simply", "just", and "easy" from procedure steps.
+- Bridge an abstract concept to a familiar domain before the mechanics ("rules are CSS selectors for code"), and name where the analogy breaks. The inverse of the admonishment ban: a genuine footgun earns a warning callout, stated flat, one per real edge.
 
 See `references/voice-and-style.md` for the full list.
 
@@ -68,6 +69,8 @@ See `references/voice-and-style.md` for the full list.
 Keep example code in real source files that are under test, and embed it into the page instead of retyping. One source means the rendered page and the tested code cannot diverge. Make the examples run in CI so a stale example fails the build. If the page shows output, generate it by running the code.
 
 State the run convention once and use it verbatim everywhere. For a tool distributed through uvx or pipx, every command is the full ephemeral form such as `uvx <tool> ...`, never the bare binary, except where a config file must hold it. Leading with the ephemeral invocation is the uv and Ruff house style.
+
+Close the gap between reading and running. Give every substantial example a one-command way to run it, a copy button, or a prefilled playground link, so the reader executes it without reconstructing setup.
 
 ## Quickstart and tutorial design
 
@@ -108,7 +111,7 @@ Gate a large rewrite with three independent checks, not one read-through:
 
 ## Anti-patterns to forbid
 
-Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; editorial we with no shared technical reality; hedged, buildup-first prose that buries the verdict; fillers like "simply" and "just" in procedure steps; "click here" links; missing alt text; skipped heading levels; generic he or she; biased technical terms; self-referential page or section intros such as "This page explains" or "What to learn"; pre-announced structure such as "three properties follow"; pre-emptive nannying such as "be careful", "make sure", or "don't forget" without real stakes; internal, packaging, or docs-generation detail on task or reference pages; and gratuitous history or legacy references outside explanation pages and the changelog.
+Mode-mixing; a branchy or wall-of-text quickstart; pseudocode or paste-breaking fragments; hand-typed or stale output; bare-ellipsis omissions; retyped instead of embedded examples; untested illustrative-only code; real secrets or domains in samples; hidden credentials in a quickstart; a README that duplicates the docs site; a git-log changelog; future tense or passive that hides the actor; editorial we with no shared technical reality; hedged, buildup-first prose that buries the verdict; fillers like "simply" and "just" in procedure steps; "click here" links; missing alt text; skipped heading levels; generic he or she; biased technical terms; self-referential page or section intros such as "This page explains" or "What to learn"; pre-announced structure such as "three properties follow"; pre-emptive nannying such as "be careful", "make sure", or "don't forget" without real stakes; internal, packaging, or docs-generation detail on task or reference pages; gratuitous history or legacy references outside explanation pages and the changelog; a cheat sheet shipped as a screenshot or PDF instead of searchable text; a catalog entry whose code is a non-running fragment or whose input and output are hidden; a footgun buried in prose instead of a callout; an analogy stretched past where it holds; and a page that is half cheat sheet and half reference, labeled as one but built like the other.
 
 ## Pre-merge docs checklist
 
@@ -119,6 +122,7 @@ Run this before merging any docs change. The full version is in `references/chec
 - [ ] A quickstart or tutorial is single-path, under ten steps, states a destination, and ends in a shown, verifiable outcome.
 - [ ] Every code sample is complete, copy-pasteable, and uses safe placeholders, with omissions marked by a real comment.
 - [ ] Example code is single-sourced and embedded, not retyped, and passes in CI; shown output is generated by running it.
+- [ ] Cheat sheets are searchable text and scannable; catalog entries are copy-paste-complete with shown input and output; an abstract concept carries an analogy and a contrast table, and a footgun sits in a callout, not prose.
 - [ ] Voice pass covers the builder voice in narrative prose (first person, confident assertion, varied sentence length), imperative procedure steps, active voice, present tense, one term per concept, and neutral reference pages.
 - [ ] Inclusive-language pass covers no generic he or she, people-first phrasing, and non-biased technical terms.
 - [ ] Accessibility pass covers one h1, no skipped levels, descriptive link text, alt text, and diagrams with a text equivalent.

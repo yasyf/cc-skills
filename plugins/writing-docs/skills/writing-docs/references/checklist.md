@@ -7,6 +7,10 @@ Run this before merging any documentation change. The enforcement hook points th
 - [ ] Each new or changed page is exactly one Diataxis mode (tutorial, how-to, reference, or explanation) and does not mix modes.
 - [ ] The required sections for that mode are present (see `diataxis.md`).
 - [ ] A quickstart or tutorial stays single-path. Use one language, no branches, at most around ten steps. State a destination and time budget up front, and end in one verifiable outcome with the expected output shown.
+- [ ] A cheat sheet is searchable text, not an image, with entries grouped by workflow and each carrying one copy-paste line; it does not restate the reference's full option set.
+- [ ] An examples catalog entry is copy-paste-complete, with the input it acts on and the expected output shown and derived from the example's own tests, plus one runnable command.
+- [ ] An abstract concept is bridged with an analogy and a MATCHES / DOES-NOT-MATCH contrast table, and the analogy's limit is named.
+- [ ] A genuine footgun is surfaced in a warning callout rather than buried in prose, and a limitations or FAQ page exists where a reader would otherwise hit the boundary by trial.
 
 ## Code and examples
 

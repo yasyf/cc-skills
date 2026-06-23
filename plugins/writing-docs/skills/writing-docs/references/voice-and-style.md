@@ -50,6 +50,7 @@ The voice of a technical builder who thinks in systems and ships code. The mecha
 - "YMMV," "n.b.," and "AFAIK" are natural register markers.
 - Prefer short, common words elsewhere. Define unavoidable jargon and expand acronyms on first use.
 - Use exactly one term per concept everywhere, with identical capitalization. Keep a project term map and never introduce a synonym for the same thing.
+- Bridge an abstract concept to a familiar domain when you introduce it ("rules are CSS selectors for code"), then name where the analogy breaks. The bridge carries the reader; the caveat keeps them from over-trusting it.
 - Cut condescending fillers from procedure steps: "simply", "just", "easy", and "quickly". ("just" as a register word in narrative prose is fine; "simply click" in a step is not.) Cut placeholder phrases such as "please note" and "at this time".
 - Use contractions.
 
@@ -65,6 +66,7 @@ The voice of a technical builder who thinks in systems and ships code. The mecha
 - Open on substance, not an announcement. Never begin a page or section by naming what it does, as in "This page explains", "This section covers", "In this guide", "What to learn", or "The rest of this page". The title states the topic; lead with the first real sentence.
 - Do not pre-announce structure. Cut "three properties follow", "there are four steps", and the like. The headings and lists already announce themselves.
 - Do not pre-emptively admonish the reader. State behavior and its consequences as fact. Reserve a warning for real data-loss or security stakes, not a generic "be careful", "make sure", or "don't forget".
+- The inverse is also a rule: a real footgun earns a real callout. When a fact will bite — a marker matched case-sensitively, a default that silently drops data, an order that matters — lift it out of the prose into a warning callout and state it flat, one per genuine edge. The ban is on generic nannying, not on surfacing a sharp edge where it cuts.
 - Keep internals and history out of task and reference pages. Drop docs-generation, packaging, and build mechanics, internal module paths, and private symbols a reader never touches. Drop former names, legacy or deprecated fallbacks, and "used to"; state what is. History belongs on an explanation page or in the changelog.
 
 ## Inclusive language

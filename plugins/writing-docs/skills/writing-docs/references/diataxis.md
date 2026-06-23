@@ -43,6 +43,7 @@ From the Good Docs Project templates, trimmed to the essentials.
 
 **Explanation / concept**
 - A concrete example first, then the why
+- Bridge an abstract concept to a familiar one before the mechanics ("a meta-variable is the regex dot, but for AST nodes"; "rules are CSS selectors for code"), then show a side-by-side MATCHES / DOES-NOT-MATCH table and one explicit counter-example, and name where the analogy breaks
 - Tradeoffs, alternatives, and history are welcome
 - No step-by-step instructions, and not the first place a fact is stated
 
@@ -55,6 +56,11 @@ From the Good Docs Project templates, trimmed to the essentials.
 **Troubleshooting**
 - A diagnostic-commands card first, then named failure flows ("X happens, do Y"), then one case study
 
+**Limitations / FAQ**
+- An honest "what this does not do" list, stated upfront so the reader learns the boundary by reading, not by failing
+- Each limit names the failure a reader would otherwise hit and points to the tool that does handle it
+- Group by capability; no apology, no roadmap promises
+
 ## The rules that prevent bleed
 
 - No explanation dump inside a tutorial. Link out to a concept page.
@@ -62,3 +68,7 @@ From the Good Docs Project templates, trimmed to the essentials.
 - No concept teaching inside a how-to. Link to explanation.
 - A fact lives once, in reference. Task pages may restate a key fact (ARID) but never duplicate a whole section.
 - Each section index states which mode its pages are, so the reader knows whether to study, work, look up, or understand.
+
+## Reference genres
+
+A cheat sheet and an examples catalog entry are formats of reference and how-to, not new modes. See `references/reference-genres.md` for each one's skeleton and the rule that keeps a cheat sheet from blurring into a reference.
