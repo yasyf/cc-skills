@@ -17,7 +17,7 @@ waste minutes and clutter checks.
 
 Steps, in order:
 
-1. `actions/checkout@v6`
+1. `actions/checkout@v7`
 2. `astral-sh/setup-uv@v8.2.0` with `python-version: ${{ matrix.python-version }}` and
    `cache-dependency-glob: uv.lock` — caching keys off the lockfile, so commit `uv.lock`
    in the first push or this step warns and the cache never hits. setup-uv publishes no
@@ -55,7 +55,7 @@ Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency grou
 
 **`build-docs`** (runs on PRs too, so docs breakage blocks merge):
 
-1. `actions/checkout@v6` with `fetch-depth: 0` (great-docs reads git history)
+1. `actions/checkout@v7` with `fetch-depth: 0` (great-docs reads git history)
 2. `astral-sh/setup-uv@v8.2.0` pinned to the scaffold-time pin version, same
    `cache-dependency-glob: uv.lock`
 3. `quarto-dev/quarto-actions/setup@v2` — great-docs renders via Quarto

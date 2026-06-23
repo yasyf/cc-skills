@@ -141,7 +141,7 @@ goreleaser:
       if: ${{ env.MACOS_SIGN_P12 != '' }}
       run: |   # security create-keychain → import → set-key-partition-list → list-keychains;
         …      # then export MACOS_SIGN_IDENTITY + MACOS_NOTARY_KEY_FILE to $GITHUB_ENV
-    - uses: goreleaser/goreleaser-action@v6
+    - uses: goreleaser/goreleaser-action@v7
       with: { args: release --clean }
       env:
         MACOS_SIGN_IDENTITY:   ${{ env.MACOS_SIGN_IDENTITY }}
