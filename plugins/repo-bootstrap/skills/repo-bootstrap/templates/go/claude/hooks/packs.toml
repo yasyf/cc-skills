@@ -2,6 +2,8 @@
 
 [packs.go]
 
+[packs.steering]
+
 # The ccx guard pack blocks the token-heavy read/search primitives so agents reach
 # for the cc-context facade (ccx) first. Bump `commit` to the new tag's SHA on each
 # cc-context release, then run `uvx capt-hook pack update`.

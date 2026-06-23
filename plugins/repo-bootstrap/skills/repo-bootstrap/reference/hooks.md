@@ -10,8 +10,9 @@ production. The scaffold wires it through
 `.claude/settings.json`, which runs `uvx capt-hook run <Event>` for `PreToolUse`,
 `PostToolUse`, `PostToolUseFailure`, and `Stop`. `uvx` fetches capt-hook into a throwaway
 environment, so nothing is added to `pyproject.toml` and there is zero install step. The hooks
-themselves ship inside capt-hook as two builtin **packs** — `general` (the base-layer hooks)
-and `python` — which the scaffold enables through `.claude/hooks/packs.toml`. A project can
+themselves ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), the
+language layer (`python` or `go`), and `steering` (judgment nudges) — which the scaffold enables
+through `.claude/hooks/packs.toml`. A project can
 add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
 verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
 
@@ -77,8 +78,9 @@ the CI ty step.
 
 ## Hook inventory
 
-These hooks ship inside capt-hook as two builtin **packs** — `general` (the base-layer hooks)
-and `python` — enabled per repo through `.claude/hooks/packs.toml`. Their behavior is
+These hooks ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), the
+language layer (`python` or `go`), and `steering` (judgment nudges) — enabled per repo through
+`.claude/hooks/packs.toml`. Their behavior is
 unchanged; only the delivery moved from vendored `.py` files to packs, so the "tailor" and
 "remove" notes below route through the pack model: override a hook with a local
 `.claude/hooks/<name>.py`, or manage packs in `packs.toml` (see *Adding and removing rules*).
@@ -99,19 +101,31 @@ unchanged; only the delivery moved from vendored `.py` files to packs, so the "t
   doesn't use Codex, override this nudge with a local `commands` hook and remove the
   `enabledPlugins`/`extraKnownMarketplaces` keys in settings together.
 
-### `stewardship` (general pack)
+### Steering pack (`steering`)
 
-NLP-signal nudge against dismissing pre-existing issues. Fires when weighted signals cross
-`threshold=2` within a 15-message window: regex `(?i)(?:pre-existing|preexisting)` (weight
-2), `(?i)(?:outside|beyond) (?:the )?scope` (weight 1), plus two `NlpSignal` clause sets
-("change didn't cause/introduce", "issue is existing/present/previous").
-`skip_if=[TypeCheckerContext()]` suppresses the nudge when recent assistant text mentions
-pyright/mypy/type errors/LSP diagnostics, so trivial type-checker noise (which AGENTS.md
-explicitly excuses) doesn't trigger it. The message cites AGENTS.md § Code Stewardship.
+Three judgment nudges, all registered directly in the pack's `steering.py`. The pack exposes no
+importable building blocks — tailor a nudge by overriding it with a local `.claude/hooks/<name>.py`,
+not by importing pack internals.
 
-Tailor `threshold`/`window`, or extend `TypeCheckerContext.PATTERN` for other suppression
-contexts. **Note:** `NlpSignal` needs the spaCy `en_core_web_sm` model and the wn
-`oewn:2025` lexicon provisioned at runtime and test time.
+- **Pre-existing-issue nudge.** NLP-signal nudge against dismissing pre-existing issues. Fires
+  when weighted signals cross `threshold=2` within a 15-message window: regex
+  `(?i)(?:pre-existing|preexisting)` (weight 2), `(?i)(?:outside|beyond) (?:the )?scope`
+  (weight 1), plus two `NlpSignal` clause sets ("change didn't cause/introduce", "issue is
+  existing/present/previous"). `skip_if=[TypeCheckerContext()]` suppresses it when recent
+  assistant text mentions pyright/mypy/type errors/LSP diagnostics, so trivial type-checker
+  noise (which AGENTS.md explicitly excuses) doesn't trigger it. The message cites AGENTS.md §
+  Code Stewardship. **Note:** `NlpSignal` needs the spaCy `en_core_web_sm` model and the wn
+  `oewn:2025` lexicon provisioned at runtime and test time.
+- **Trivial-type nudge.** Stops the chase after trivial pyright/typing warnings (cached_property
+  vs property, minor override mismatches, descriptor protocol), `skip_if` the project's
+  type-check command already ran. Cites AGENTS.md § General Rules.
+- **Band-aid-plan nudge.** An `llm_nudge` on `PostToolUse` of `ExitPlanMode` (`max_fires=1`,
+  agent mode): it reads the submitted plan and the user's opening request, inspects the cited
+  code, and flags a plan that treats the symptom instead of removing the root cause — pointing
+  the agent back at a first-principles fix. Advisory only.
+
+`TypeCheckerContext` is internal to the pack (not a public import). To broaden type-noise
+suppression, copy that condition into your local override and extend its `PATTERN`.
 
 ### `prompts` (general pack)
 
@@ -290,7 +304,7 @@ the `[packs.cc-notes]` entry from `packs.toml`.
 
 Hook messages cite doc sections by exact heading:
 
-- `stewardship.py`: **AGENTS.md § Code Stewardship**
+- steering pack (pre-existing-issue nudge): **AGENTS.md § Code Stewardship**
 - `ccx` pack: **AGENTS.md § Compact Context (ccx)**
 - `tasks.py`: **CLAUDE.md § Task Tracking**
 - `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
