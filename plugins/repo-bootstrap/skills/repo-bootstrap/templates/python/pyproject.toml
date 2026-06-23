@@ -1,6 +1,6 @@
 [project]
 name = "{{DIST_NAME}}"
-version = "0.1.0"
+version = "0.0.0" # inert sentinel; the real version is set from the release tag
 description = "{{DESCRIPTION}}"
 readme = "README.md"
 {{#HAS_LICENSE}}

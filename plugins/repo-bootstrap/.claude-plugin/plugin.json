@@ -1,7 +1,7 @@
 {
   "name": "repo-bootstrap",
   "description": "Scaffold new repos with proven conventions: agent docs (AGENTS.md/STYLEGUIDE.md), Claude Code settings, semble code search, capt-hook guard hooks, a generated mascot logo + README banner + GitHub social-preview card, and an opinionated Python layer (uv, Click, pytest, ruff, ty) with optional Great Docs + PyPI features, or a Go layer (cobra, slog, golangci-lint + gofumpt, Taskfile) with an optional goreleaser + Homebrew-tap release feature.",
-  "version": "0.25.2",
+  "version": "0.25.3",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
