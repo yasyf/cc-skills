@@ -7,8 +7,6 @@ must match the template tree under ``../templates`` exactly.
 
 from __future__ import annotations
 
-import re
-
 from .common import DerivedVar, Feature, FileSpec, Layer, VarSpec
 
 # Layer precedence: earlier layers are overridden by later ones at the same dest.
@@ -56,15 +54,6 @@ DERIVED = (
     DerivedVar(
         "MODULE_PATH",
         lambda v, now: f"github.com/{v['GITHUB_USER']}/{v['PROJECT_NAME']}" if v.get("GO_VERSION") else None,
-    ),
-    # Homebrew formula class name — CamelCase of PROJECT_NAME the way Homebrew
-    # itself derives it (split on - and _, capitalize each piece), e.g.
-    # cc-notes -> CcNotes. Go-only, for the release feature's Formula template.
-    DerivedVar(
-        "FORMULA_CLASS",
-        lambda v, now: "".join(p[:1].upper() + p[1:] for p in re.split(r"[-_]", v["PROJECT_NAME"]))
-        if v.get("GO_VERSION")
-        else None,
     ),
     # shields.io reads single dashes as the label/message/color separators, so a
     # license id with dashes (PolyForm-Noncommercial-1.0.0) must double them for
@@ -136,17 +125,14 @@ FILES = (
     FileSpec(".editorconfig", "go/editorconfig", "go"),
     FileSpec(".github/workflows/ci.yml", "go/github/workflows/ci.yml", "go"),
     FileSpec(".pre-commit-config.yaml", "go/pre-commit-config.yaml", "go"),
-    # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1)
+    # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1).
+    # Default distribution is a native Homebrew cask, built and published by goreleaser
+    # itself (homebrew_casks: in .goreleaser.yaml); release.yml is a one-liner calling the
+    # shared release-go.yml@v1 reusable workflow. The formula path (render-formula + publish,
+    # or native brews:) is a documented recipe, not a scaffolded file — see
+    # reference/go-ci-and-release.md.
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
-    # The release.yml render step fills this template's __VERSION__/__SHA_*__ tokens
-    # from dist/checksums.txt and publishes it to the shared tap as a formula.
-    FileSpec(
-        ".github/formula/{{PROJECT_NAME}}.rb.tmpl",
-        "go/github/formula/{{PROJECT_NAME}}.rb.tmpl",
-        "go",
-        feature="release",
-    ),
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),

@@ -93,11 +93,13 @@ def test_go_selection_no_release(go_var_pairs):
 
 def test_go_release_feature_gates(go_var_pairs):
     got = dests("go", go_var_pairs, features=["release"])
+    # default release scaffolds only the goreleaser config + the one-liner workflow;
+    # the cask is published by goreleaser (homebrew_casks:), so there's no formula template.
     assert got == GO_DESTS | {
         ".goreleaser.yaml",
         ".github/workflows/release.yml",
-        ".github/formula/demo-proj.rb.tmpl",
     }
+    assert ".github/formula/demo-proj.rb.tmpl" not in got
 
 
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
@@ -469,6 +471,17 @@ def test_go_goreleaser_template_tokens_survive(go_var_pairs):
     assert "project_name: demo-proj" in gor
 
 
+def test_go_goreleaser_cask_block(go_var_pairs):
+    # The default distribution is a native Homebrew cask published by goreleaser itself;
+    # the HOMEBREW_TAP_TOKEN env token survives rendering and the tap owner/name are filled.
+    gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
+    assert "homebrew_casks:" in gor
+    assert "{{ .Env.HOMEBREW_TAP_TOKEN }}" in gor
+    assert "name: demo-proj" in gor  # cask name (PROJECT_NAME substituted)
+    assert "owner: janedoe" in gor  # tap repo owner (GITHUB_USER substituted)
+    assert "name: homebrew-tap" in gor
+
+
 def test_go_goreleaser_notarize_block(go_var_pairs):
     gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
     assert "notarize:" in gor
@@ -481,11 +494,15 @@ def test_go_goreleaser_notarize_block(go_var_pairs):
     assert "ids:\n        - demo-proj" in gor
 
 
-def test_go_release_workflow_passes_macos_secrets(templates_dir):
-    wf = (templates_dir / "go/github/workflows/release.yml").read_text()
-    for k in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
-              "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
-        assert f"{k}: ${{{{ secrets.{k} }}}}" in wf
+def test_go_release_workflow_uses_reusable_workflow(go_var_pairs):
+    # release.yml is a one-liner that forwards to the shared reusable workflow and inherits
+    # every secret (HOMEBREW_TAP_TOKEN + the five MACOS_*); it no longer names them inline.
+    wf = _real_plan("go", go_var_pairs, features=["release"])[0][".github/workflows/release.yml"]
+    assert "janedoe/homebrew-tap/.github/workflows/release-go.yml@v1" in wf
+    assert "secrets: inherit" in wf
+    # the old inline goreleaser job + per-secret env are gone
+    assert "MACOS_SIGN_P12" not in wf
+    assert "goreleaser/goreleaser-action" not in wf
 
 
 def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):

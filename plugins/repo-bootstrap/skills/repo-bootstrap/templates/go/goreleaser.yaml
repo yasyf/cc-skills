@@ -55,6 +55,29 @@ notarize:
 checksum:
   name_template: checksums.txt
 
+# Default distribution: a native Homebrew cask published by goreleaser itself to the
+# shared tap (no render/publish step). A cask ships the prebuilt binary as-is. Switch to a
+# formula (native `brews:`, or a rendered `.rb` via the render-formula action) only when you
+# need `brew services`, a runtime `depends_on`, or conditional install — see
+# reference/go-ci-and-release.md § Formula recipe.
+homebrew_casks:
+  - name: {{PROJECT_NAME}}
+    binaries:
+      - {{PROJECT_NAME}}
+    repository:
+      owner: {{GITHUB_USER}}
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: {{REPO_URL}}
+    description: {{DESCRIPTION}}
+    # Strip the quarantine attribute so the (notarized, or unsigned) binary runs on first launch.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/{{PROJECT_NAME}}"]
+          end
+
 release:
   prerelease: auto
 

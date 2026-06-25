@@ -3,7 +3,10 @@
 The go layer ships two workflows and (with feature `release`) a goreleaser pipeline.
 goreleaser is the **single canonical release tool** for every Go binary — documented here as a
 **base config plus opt-in recipes**, so a repo grows from the base into whatever it needs and the
-next repo inherits the pattern.
+next repo inherits the pattern. The shared release infrastructure lives in `yasyf/homebrew-tap`,
+pinned `@v1`: one reusable workflow (`release-go.yml`) and four composite actions
+(`verify-tag-on-main`, `import-developer-id`, `render-formula`, `publish`). A scaffolded repo
+forwards to it; it never vendors the mechanics.
 
 ## CI (`.github/workflows/ci.yml`) — always
 
@@ -16,25 +19,47 @@ Runs on push to `main` and on PRs. Three jobs:
 
 ## Base release (`.goreleaser.yaml` + `.github/workflows/release.yml`) — feature `release`
 
-**The rule: goreleaser for builds, not for the brew part.** goreleaser v2 can only emit Homebrew
-*casks*, but the shared `yasyf/homebrew-tap` is formulae — so the scaffold uses goreleaser to build
-binaries, tar.gz archives, `checksums.txt`, and notarize, then hand-renders a **formula** and
-publishes it through the shared tap action. Every new Go repo is formula-by-default.
+The whole `release.yml` is a **one-liner** that forwards to the shared reusable workflow:
 
-The scaffolded base is **pure Go** (`CGO_ENABLED=0`), darwin/linux × amd64/arm64, version stamped
-into `internal/version` via ldflags, archives + checksums. The workflow triggers on a `v*` tag,
-gates on `verify-tag-on-main` (refuses tags not on `main`), runs `goreleaser release`, then renders
-`Formula/<name>.rb` from the four archive checksums in `dist/checksums.txt` and publishes it to the
-shared `yasyf/homebrew-tap` via `yasyf/homebrew-tap/.github/actions/publish@main` (§ Formula repos).
-The formula installs notarized binaries, so it carries no quarantine hook. The darwin binaries are
-Developer-ID-signed and notarized when the `MACOS_*` secrets are set (§ macOS signing &
-notarization); without them the release still runs, unsigned.
+```yaml
+jobs:
+  release:
+    uses: <user>/homebrew-tap/.github/workflows/release-go.yml@v1
+    secrets: inherit
+```
 
-The formula is a two-level template. The scaffold renders the bootstrap placeholders such as
-`{{PROJECT_NAME}}`, the class name, and the license at `repo-bootstrap` time into
-`.github/formula/<name>.rb.tmpl`; the release workflow fills the `__VERSION__` and four `__SHA_*__`
-tokens at tag time. To add a runtime dependency, add a `depends_on "<tool>"` line in that template.
-cc-context does exactly this for `ast-grep`.
+`secrets: inherit` forwards `HOMEBREW_TAP_TOKEN` plus the five `MACOS_*` secrets. The reusable
+workflow runs on `ubuntu-latest`: it gates on `verify-tag-on-main`, then runs goreleaser, which
+builds + quill-signs the binaries and **publishes the cask itself**. Pass `setup-bun: true` to the
+reusable workflow when a `before` hook builds a bun/Vite asset.
+
+**The default distribution is a native Homebrew cask**, emitted by goreleaser's `homebrew_casks:`
+block straight into the shared tap — no render/publish step. (goreleaser v2 emits *both* casks and
+formulae; the casks-only premise some older docs carried is false.) The scaffolded `.goreleaser.yaml`
+is **pure Go** (`CGO_ENABLED=0`), darwin/linux × amd64/arm64, version stamped into
+`internal/version` via ldflags, tar.gz archives + checksums, the quill `notarize:` block, and:
+
+```yaml
+homebrew_casks:
+  - name: <name>
+    binaries: [<name>]
+    repository:
+      owner: <user>
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: <repo-url>
+    description: <description>
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/<name>"]
+          end
+```
+
+The `xattr -dr com.apple.quarantine` post-install hook lets the (notarized, or unsigned) binary run
+on first launch. A cask ships the prebuilt binary as-is — pick a **formula** instead only when you
+need `brew services`, a runtime `depends_on`, or conditional install (§ Formula recipe).
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
@@ -66,18 +91,65 @@ goreleaser check                              # schema (needs an origin remote)
 goreleaser release --snapshot --clean         # full build, no publish (skips notarize)
 ```
 
+## Formula recipe — `brew services`, runtime deps, or conditional install
+
+A cask can't run a `service do` block, declare a runtime `depends_on`, or branch its install. When
+the repo needs that, ship a **formula** instead of the cask. Two ways:
+
+**Native `brews:` (preferred when it's expressible).** goreleaser v2 emits a formula from a `brews:`
+block — and it supports `service:` and `dependencies:`. Drop `homebrew_casks:`, add:
+
+```yaml
+brews:
+  - name: <name>
+    repository: { owner: <user>, name: homebrew-tap, token: "{{ .Env.HOMEBREW_TAP_TOKEN }}" }
+    homepage: <repo-url>
+    description: <description>
+    dependencies: [{ name: ast-grep }]      # runtime depends_on
+    service: |                               # brew services
+      run [opt_bin/"<name>", "serve"]
+      keep_alive true
+```
+
+**Rendered `.rb.tmpl` via the render-formula action** — when the formula needs `livecheck`, a
+`head do` build-from-source block, or conditional Ruby that `brews:` can't express. Keep a
+`.github/formula/<name>.rb.tmpl` (placeholders `__VERSION__` + four `__SHA_<OS>_<ARCH>__`) and a
+**composed** `release.yml` (not the one-liner): goreleaser builds archives + notarize with **no**
+homebrew block, then two shared actions fill and publish the template:
+
+```yaml
+- uses: <user>/homebrew-tap/.github/actions/render-formula@v1
+  with:
+    template: .github/formula/<name>.rb.tmpl
+    output: Formula/<name>.rb
+    name: <name>
+- uses: <user>/homebrew-tap/.github/actions/publish@v1
+  with:
+    token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    dir: tap-staging
+    message: "<name> ${{ github.ref_name }}"
+```
+
+`render-formula` reads `dist/checksums.txt`, fills `__VERSION__` and the four `__SHA_*__` tokens, and
+writes `Formula/<name>.rb`; `publish` does the one canonical `git add -A` → `git diff --cached
+--quiet` → commit → push into the tap. In the fleet: **ccx** and **synckitd** use this render-formula
+path.
+
 ## macOS signing & notarization
 
-The darwin binaries are **Developer ID-signed and notarized** when the five `MACOS_*` secrets are
-set; without them the release still runs, unsigned. The **default** path is goreleaser's built-in
-**quill** signer — pure Go, so it runs on the existing **`ubuntu-latest`** runner (no macOS runner),
-via the `.goreleaser.yaml` `notarize.macos` block:
+Two modes. Both no-op when the `MACOS_*` secrets are unset, so a repo without Apple creds still
+releases (unsigned).
+
+### (1) quill on ubuntu — the default
+
+The scaffold's quill `notarize:` block signs the darwin binaries on the **`ubuntu-latest`** runner
+(pure Go, no macOS runner). The reusable workflow passes the five `MACOS_*` env vars to goreleaser:
 
 ```yaml
 notarize:
   macos:
     - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
-      ids: [<binary-id>]          # the build that emits the darwin binary — see below
+      ids: [<binary-id>]          # the build that emits the darwin binary
       sign:
         certificate: "{{ .Env.MACOS_SIGN_P12 }}"
         password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
@@ -89,9 +161,6 @@ notarize:
         timeout: 20m
 ```
 
-The workflow just passes the five `MACOS_*` env vars to `goreleaser release` on ubuntu — no keychain
-import, no macOS runner.
-
 > **⚠️ The p12 MUST carry the full chain: leaf + Developer ID intermediate + Apple Root CA.**
 > quill derives its designated requirement from certificate *chain position*. With only leaf +
 > intermediate, the Developer ID CA sits at index 0 and quill emits the **unsatisfiable**
@@ -102,22 +171,24 @@ import, no macOS runner.
 > the fix. The credential recipe below bundles the root, so a p12 built that way just works.)
 
 Notes:
-- **`ids` must reference the build that emits the darwin binary** — base config: the single
-  `{{PROJECT_NAME}}` build; with a universal-binary / FUSE recipe use that build's id.
+- **`ids` must reference the build that emits the darwin binary** — base config: the single `<name>`
+  build; with a universal-binary / FUSE recipe use that build's id.
 - **`enabled` uses `envOrDefault … non-empty`, not `isEnvSet`** — GitHub Actions exports an unset
   secret as a *set-but-empty* var, which would make `isEnvSet` sign against an empty cert. The
   workflow always passes the five `MACOS_*` env vars; the guard skips them when empty.
 - **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The default formula installs these notarized binaries and needs no
-  quarantine handling (a `brew install` of a formula doesn't quarantine). A cask-only fallback for an
-  unsigned bare binary would still need an `xattr -dr com.apple.quarantine` post-install hook.
+  and checked online by Gatekeeper. The default cask carries the `xattr -dr com.apple.quarantine`
+  post-install hook so an unsigned bare binary still runs on first launch.
 
-### Native codesign — when the release already runs on a macOS runner
+### (2) native codesign — when the release already runs on a macOS runner
 
 If a repo's darwin build *needs* a macOS runner anyway (cgo with native clang, universal `lipo`, a
 Swift `.app`), skip quill and sign with Apple's own `codesign` + `notarytool`: native codesign builds
 a correct DR from the resolved system chain regardless of p12 ordering, so it sidesteps the quill
-index issue entirely. Drop the `notarize` block; add a build post-hook plus a keychain-import step.
+index issue entirely. Drop the `notarize` block; instead use the shared **`import-developer-id`**
+action and a goreleaser build post-hook. The action does the keychain import, exports the signing env,
+and drops `$MACOS_CODESIGN_SCRIPT` (the canonical `macos-codesign.sh`, which now lives only in the
+action — repos must not vendor a copy):
 
 ```yaml
 # .goreleaser.yaml — sign each darwin binary before archiving (no-op without the signing env):
@@ -125,37 +196,28 @@ builds:
   - id: <name>
     hooks:
       post:
-        - cmd: bash scripts/macos-codesign.sh "{{ .Path }}" "{{ .Target }}"
+        - cmd: bash "$MACOS_CODESIGN_SCRIPT" "{{ .Path }}" "{{ .Target }}"
           output: true
 ```
 
 ```yaml
-# .github/workflows/release.yml — goreleaser job on a macOS runner:
+# .github/workflows/release.yml — composed (not the one-liner), goreleaser job on a macOS runner:
 goreleaser:
   runs-on: macos-latest                              # codesign/notarytool are macOS-only
-  env:
-    MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}     # for the `if` gate (step `if` can't read secrets)
   steps:
     - # … checkout, setup-go …
-    - name: Import Developer ID certificate
-      if: ${{ env.MACOS_SIGN_P12 != '' }}
-      run: |   # security create-keychain → import → set-key-partition-list → list-keychains;
-        …      # then export MACOS_SIGN_IDENTITY + MACOS_NOTARY_KEY_FILE to $GITHUB_ENV
+    - uses: <user>/homebrew-tap/.github/actions/import-developer-id@v1
+      # imports the cert into a keychain, exports the signing env + $MACOS_CODESIGN_SCRIPT
     - uses: goreleaser/goreleaser-action@v7
       with: { args: release --clean }
-      env:
-        MACOS_SIGN_IDENTITY:   ${{ env.MACOS_SIGN_IDENTITY }}
-        MACOS_NOTARY_KEY_FILE: ${{ env.MACOS_NOTARY_KEY_FILE }}
-        MACOS_NOTARY_KEY_ID:   ${{ secrets.MACOS_NOTARY_KEY_ID }}
-        MACOS_NOTARY_ISSUER:   ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
 ```
 
-`scripts/macos-codesign.sh` (shipped in the go layer) runs for `darwin_*` targets only and no-ops
-without the env: `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` then
+The signing script runs for `darwin_*` targets only and no-ops without the env:
+`codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` then
 `xcrun notarytool submit … --wait`. Used by: **slop-cop**, **cc-orchestrate** (cgo darwin builds),
-and the hand-rolled formula repos **cc-notes** / **claude-pool** (§ Formula repos). App bundles
-(claude-pool's `CCPoolStatus.app`) sign inside-out with hardened runtime, then notarize **and
-`xcrun stapler staple`** the bundle (stapling works for `.app`).
+and the formula repos **cc-notes** / **claude-pool**. App bundles (claude-pool's `CCPoolStatus.app`)
+sign inside-out with hardened runtime, then notarize **and `xcrun stapler staple`** the bundle
+(stapling works for `.app`).
 
 ### Creating the credentials (one-time, reusable across all repos)
 
@@ -286,7 +348,8 @@ Used by: **claude-pool**.
 ### Embed prebuild (`go:embed` assets)
 
 When the binary embeds a built asset (a Vite/bun SPA in `internal/web/dist`), build it in a global
-`before` hook so the directory exists before `go build`:
+`before` hook so the directory exists before `go build`, and pass `setup-bun: true` to the reusable
+workflow so the runner has bun:
 
 ```yaml
 before:
@@ -316,9 +379,9 @@ Used by: **cc-review** (its Claude Code plugin downloads the raw binary).
 
 goreleaser builds Go binaries, not Xcode/Swift `.app` bundles. For a macOS app built by a separate
 job (xcodegen + xcodebuild + `ditto` zip), keep that job, render its cask `.rb`, and publish it via
-the shared tap action (§ Formula repos). The Go binary ships as the rendered formula, and the app's
-cask lives beside it in `yasyf/homebrew-tap`; stage both under `tap-staging/` as `Formula/<name>.rb`
-plus `Casks/<app>.rb`.
+the shared `publish` action (§ Formula recipe). The Go binary ships as a cask (or formula), and the
+app's cask lives beside it in `yasyf/homebrew-tap`; stage both under `tap-staging/` as
+`Casks/<app>.rb` (plus `Formula/<name>.rb` if the Go side is a formula).
 
 Used by: **claude-pool** (the `cc-pool-status` widget app).
 
@@ -338,68 +401,3 @@ goreleaser: a workflow step creates and pushes the tag, then goreleaser runs wit
 
 `goreleaser release` then reads `GORELEASER_CURRENT_TAG` instead of requiring a pre-existing tag.
 Used by: **slop-cop**.
-
-## Formula repos (the default) → the shared publish action
-
-This is the default path the scaffold wires for every new Go repo, not an exception. goreleaser v2
-only emits Homebrew **casks**, but the shared `yasyf/homebrew-tap` is formulae — so a repo lets
-goreleaser build + notarize, renders its own `Formula/<name>.rb`, then publishes through **one shared
-composite action** so the cross-repo git mechanics live in a single place (and can't drift or grow a
-per-repo bug like a `git diff` that runs before `git add`).
-
-The scaffold's `.github/workflows/release.yml` ships the two steps already: a render step that fills
-the formula template from `dist/checksums.txt`, and the publish step below.
-
-```yaml
-# render Formula/<name>.rb from the release checksums:
-- name: Render the formula from release checksums
-  run: |
-    set -euo pipefail
-    version="${GITHUB_REF_NAME#v}"
-    sha() { grep -E "  <name>_${version}_$1\.tar\.gz\$" dist/checksums.txt | cut -d' ' -f1; }
-    mkdir -p tap-staging/Formula
-    sed \
-      -e "s|__VERSION__|${version}|g" \
-      -e "s|__SHA_DARWIN_ARM64__|$(sha darwin_arm64)|" \
-      -e "s|__SHA_DARWIN_AMD64__|$(sha darwin_amd64)|" \
-      -e "s|__SHA_LINUX_ARM64__|$(sha linux_arm64)|" \
-      -e "s|__SHA_LINUX_AMD64__|$(sha linux_amd64)|" \
-      .github/formula/<name>.rb.tmpl > tap-staging/Formula/<name>.rb
-
-# publish the staged Formula/ into the tap:
-- name: Publish to the tap
-  uses: yasyf/homebrew-tap/.github/actions/publish@main
-  with:
-    token: ${{ secrets.HOMEBREW_TAP_TOKEN }}   # PAT with contents:write on the tap
-    dir: tap-staging                            # contains Formula/ and/or Casks/
-    message: "<name> ${{ github.ref_name }}"
-```
-
-The action (`yasyf/homebrew-tap/.github/actions/publish`) checks out the tap, merges the staging
-dir's `Formula/`/`Casks/` files in, and does the one canonical `git add -A` → `git diff --cached
---quiet` → commit → push. The calling repo only renders its `.rb`, since formula content stays
-repo-specific — URLs into its own releases, the runtime `depends_on`, a `service do` block, and fuse
-resources. Every scaffolded Go repo uses this, along with **cc-context**, **cc-notes**, and
-**claude-pool**. cc-context adds `depends_on "ast-grep"`; claude-pool's formula carries a `service do`
-block and a native-Linux FUSE build a cask cannot express.
-
-**The cask fallback.** A cask-only artifact such as a Swift/Xcode `.app` bundle that goreleaser cannot
-build still renders a `Casks/<name>.rb` and publishes it through the same action, staged under
-`tap-staging/Casks/`. The action merges `Formula/` and `Casks/` alike.
-
-**Sign the darwin binaries the same way** (§ Native codesign — when the release already runs on a
-macOS runner) — a hand-rolled formula build still ships Mach-O binaries macOS 15/26 will SIGKILL if
-they're ad-hoc/Team-less, so replace any
-`codesign --force -s -` with real Developer ID signing on the macOS build job: import the cert (same
-keychain step), then `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` each
-darwin binary and `xcrun notarytool submit … --wait`. A **cgo build that `dlopen`s a third-party dylib**
-(cc-notes / claude-pool fuse → libfuse-t) must sign with an entitlements file that sets
-`com.apple.security.cs.disable-library-validation` — hardened runtime blocks loading another team's
-library otherwise. `lipo` universal binaries sign fine (codesign signs every slice); sign **after**
-the `lipo -create`. Used by: **cc-notes**, **claude-pool** (its `cc-pool` binary).
-
-For a real `.app` bundle (claude-pool's `CCPoolStatus.app`, built by xcodebuild) sign at build time with
-`CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application: …" OTHER_CODE_SIGN_FLAGS=--timestamp`
-+ hardened runtime (xcodebuild signs inside-out, preserving the appex entitlements), then
-`notarytool submit` and — unlike a bare binary — **`xcrun stapler staple`** the bundle, so the cask can
-drop its `--no-quarantine` workaround.
