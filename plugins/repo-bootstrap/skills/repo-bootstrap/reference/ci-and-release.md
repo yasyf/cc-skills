@@ -78,47 +78,49 @@ permissions `pages: write` + `id-token: write`, environment `github-pages` with
 
 ## release-pypi.yml
 
-Triggers on `push` of tags matching `v*`. Concurrency group `release-pypi` with
-`cancel-in-progress: false` — never kill a half-finished publish. Four chained jobs:
+A one-liner **caller** forwarding to the fleet's shared reusable workflow,
+`<owner>/homebrew-tap/.github/workflows/release-pypi.yml@pypi-v1` — the Python sibling of the
+Go `release-go.yml@v1`. The caller owns only the trigger (`push` of `v*` tags), the
+`release-pypi` concurrency group (`cancel-in-progress: false` — never kill a half-finished
+publish), the permission ceiling (`contents: write` + `id-token: write`), and `secrets:
+inherit`; everything else is `with:` inputs:
 
-**`verify-tag-on-main`** (the gate): checks out with `fetch-depth: 0`, fetches `main`,
-and runs `git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD`. The job fails if the
-tagged commit is not reachable from `main`. `build` has `needs: verify-tag-on-main`, so
-nothing builds, publishes, or releases unless the tag points at a commit already on
-`main`. Tags are not covered by branch protection, so without this gate anyone who can
-push a tag could ship an unmerged commit to PyPI under the project's identity. A commit
-is its own ancestor, so tagging main's exact tip passes; squash-merge repos must tag the
-squashed commit on `main` (e.g. `git tag vX.Y.Z origin/main`), not the pre-squash branch
-commit.
+| Input | Meaning |
+|---|---|
+| `dist-name` | PyPI project name (defaults to the repo name; set it when dist != repo, e.g. `capt-hook`, `dly`) |
+| `python-version` | the setup-uv pin |
+| `maturin` | `true` for a PyO3 native-extension repo (builds per-platform wheels); omit for pure-Python |
 
-**`build`** (`needs: verify-tag-on-main`):
+The shared workflow runs the same chain for every repo:
 
-1. Checkout + setup-uv (pin version, lockfile cache glob)
-2. `uv version --frozen "${GITHUB_REF_NAME#v}"` — strips the `v` and writes the tag's
-   version into `pyproject.toml` for this build only. The committed `version = "0.1.0"`
-   is a placeholder that is **never hand-bumped**; the tag is the single source of truth.
-3. `uv build`
-4. `actions/upload-artifact@v7` with `name: dist`, `path: dist/*`, `if-no-files-found: error`
+**`verify-tag-on-main`** (the gate): fetches `main` and runs `git merge-base --is-ancestor`,
+failing unless the tagged commit is reachable from `main`. Every build/publish job depends on
+it (transitively), so nothing ships unless the tag points at a commit already on `main`. Tags
+aren't covered by branch protection, so without this gate anyone who can push a tag could ship
+an unmerged commit to PyPI under the project's identity. A commit is its own ancestor, so
+tagging main's tip passes; squash-merge repos must tag the squashed commit (`git tag vX.Y.Z
+origin/main`), not the pre-squash branch commit.
 
-**`publish`**: `needs: build`, `environment: pypi`, `permissions: id-token: write`. Downloads
-the `dist` artifact and runs `pypa/gh-action-pypi-publish@release/v1` with no inputs. This is
-OIDC trusted publishing — there is **no API token anywhere**: no secret, no `password:` input.
-The `id-token: write` permission plus the `pypi` environment plus the PyPI-side publisher
+**build**: setup-uv → the *tag must exceed the latest published version* guard (queries the PyPI
+JSON API) → `uv version --frozen "${GITHUB_REF_NAME#v}"` to stamp the tag's version into
+`pyproject.toml` for this build only (the committed `version = "0.0.0"` is an inert sentinel,
+**never hand-bumped**; the tag is the single source of truth) → `uv build`. A `maturin: true`
+repo instead builds a per-platform native-wheel matrix (macOS arm64/x86_64, manylinux
+x86_64/aarch64) plus an sdist — per-CPython wheels, not abi3.
+
+**publish**: `environment: pypi`, `permissions: id-token: write`, `pypa/gh-action-pypi-publish`
+with no inputs. OIDC trusted publishing — **no API token anywhere**. The `id-token: write`
+permission (granted by the caller) + the `pypi` environment + the PyPI-side publisher
 registration (below) are the entire auth story.
 
-**`github-release`**: `needs: publish`, `permissions: contents: write`. Downloads `dist` and runs:
+**github-release**: downloads the built artifacts and `gh release create … --generate-notes
+--latest`, attaching the sdist + wheel(s).
 
-```bash
-gh release create "${GITHUB_REF_NAME}" \
-  --title "${GITHUB_REF_NAME}" \
-  --generate-notes \
-  --latest \
-  --repo "${{ github.repository }}" \
-  dist/*
-```
-
-with `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. Release notes are auto-generated from merged PRs;
-the built sdist and wheel attach as release assets.
+> **The trusted-publisher subject keys on the CALLER, not the shared workflow.** PyPI matches
+> the OIDC subject on the caller's workflow filename (`release-pypi.yml`) + environment (`pypi`),
+> so collapsing to the caller needs **no** pypi.org change. Keep the caller file named
+> `release-pypi.yml` and the environment `pypi`, or the subject won't match and `publish` 403s
+> with `invalid-publisher`.
 
 ## One-Time Setup
 
@@ -185,7 +187,7 @@ here, point the repo homepage at the docs site: `gh repo edit --homepage "$DOCS_
    the repo, or an explicit run id / `--workflow NAME` to disambiguate. (The
    `${CLAUDE_PLUGIN_ROOT}` token is substituted to a real path when this skill runs.)
 
-Do not edit `version = "0.1.0"` in `pyproject.toml` — `uv version --frozen` derives it from
+Do not edit `version = "0.0.0"` in `pyproject.toml` — `uv version --frozen` derives it from
 the tag at build time.
 
 ## Common Failures

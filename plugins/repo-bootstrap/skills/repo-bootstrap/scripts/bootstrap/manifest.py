@@ -23,7 +23,14 @@ LAYER_ORDER = tuple(layer.name for layer in LAYERS)
 FEATURES = (
     Feature("docs", "FEATURE_DOCS", layers=("python",)),
     Feature("pypi", "FEATURE_PYPI", layers=("python",)),
-    Feature("release", "FEATURE_RELEASE", layers=("go",)),
+    # maturin (PyO3 native wheels) is opt-in: only a native-extension repo wants it,
+    # and it merely toggles a section inside the pypi-gated release-pypi.yml caller
+    # (no extra files — the Rust crate is a recipe, like the go formula). default=False
+    # keeps it out of the omitted-`--features` set so pure-Python scaffolds stay pure.
+    Feature("maturin", "FEATURE_MATURIN", layers=("python",), default=False),
+    # release is opt-in too: an omitted `--features` must not scaffold a release pipeline
+    # (SKILL Phase 1 promises "release defaults off"). default=False makes that honest.
+    Feature("release", "FEATURE_RELEASE", layers=("go",), default=False),
 )
 
 # Optional extra layers, selectable in any layer via --extras.

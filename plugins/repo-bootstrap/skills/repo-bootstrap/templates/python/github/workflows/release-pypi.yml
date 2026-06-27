@@ -8,99 +8,19 @@ concurrency:
   group: release-pypi
   cancel-in-progress: false
 
+# The caller grants the ceiling the shared workflow's jobs need: contents:write
+# (GitHub release) + id-token:write (OIDC trusted publishing — no API token).
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
-  verify-tag-on-main:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Verify the tagged commit is on main
-        env:
-          TAG_SHA: ${{ github.sha }}
-        run: |
-          git fetch --no-tags --quiet origin main
-          if git merge-base --is-ancestor "$TAG_SHA" FETCH_HEAD; then
-            echo "✓ ${GITHUB_REF_NAME} (${TAG_SHA}) is on main."
-          else
-            echo "::error title=Tag not on main::${GITHUB_REF_NAME} points at ${TAG_SHA}, which is not on main. Versioned releases must come from main — delete this tag, merge the commit to main, then re-tag the commit that landed on main."
-            exit 1
-          fi
-
-  build:
-    needs: verify-tag-on-main
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          python-version: "{{PYTHON_PIN}}"
-          cache-dependency-glob: uv.lock
-
-      - name: Tag must exceed the latest published version
-        run: |
-          uv run --no-project --with packaging python - "$GITHUB_REF_NAME" "$PKG" <<'PY'
-          import sys, json, urllib.request
-          from packaging.version import Version
-          tag = sys.argv[1].removeprefix("v"); pkg = sys.argv[2]
-          try:
-              latest = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json"))["info"]["version"]
-          except Exception:
-              latest = "0.0.0"  # first release / never published
-          if Version(tag) <= Version(latest):
-              sys.exit(f"::error::tag {tag} ({pkg}) is not greater than latest published {latest}")
-          print(f"OK: {tag} > {latest}")
-          PY
-        env:
-          PKG: {{DIST_NAME}}
-
-      - name: Set version from tag
-        run: uv version --frozen "${GITHUB_REF_NAME#v}"
-
-      - name: Build sdist + wheel
-        run: uv build
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/*
-          if-no-files-found: error
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
-
-  github-release:
-    needs: publish
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create "${GITHUB_REF_NAME}"
-          --title "${GITHUB_REF_NAME}"
-          --generate-notes
-          --latest
-          --repo "${{ github.repository }}"
-          dist/*
+  release:
+    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-pypi.yml@pypi-v1
+    secrets: inherit
+    with:
+      dist-name: {{DIST_NAME}}
+      python-version: "{{PYTHON_PIN}}"
+{{#FEATURE_MATURIN}}
+      maturin: true
+{{/FEATURE_MATURIN}}

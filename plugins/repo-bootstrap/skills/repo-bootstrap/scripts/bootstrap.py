@@ -35,10 +35,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--extras", required=True, help=f"comma-separated: {', '.join(EXTRAS)}; or 'none' for no extras")
     sc.add_argument(
         "--features",
-        default=",".join(f.name for f in FEATURES),
-        help=f"layer-scoped, comma-separated (default all for the layer): {', '.join(f.name for f in FEATURES)}. "
-        "Features outside the chosen layer are ignored; pass a subset (or empty) to drop "
-        "the python docs site / PyPI release, or the go release pipeline.",
+        default=",".join(f.name for f in FEATURES if f.default),
+        help=f"layer-scoped, comma-separated (default = on-by-default features for the layer). "
+        f"Known: {', '.join(f.name for f in FEATURES)}. Features outside the chosen layer are "
+        "ignored; opt-in features (maturin) must be named explicitly. Pass a subset (or empty) "
+        "to drop the python docs site / PyPI release, or the go release pipeline.",
     )
     sc.add_argument("--var", action="append", default=[], metavar="KEY=VALUE")
     sc.add_argument("--force", action="store_true", help="overwrite conflicting files")

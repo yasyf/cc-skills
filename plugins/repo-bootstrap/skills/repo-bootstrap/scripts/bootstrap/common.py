@@ -79,6 +79,10 @@ class Feature:
     # Layers this feature is offered in. A request for a feature outside its
     # layers is silently dropped (see scaffold.resolve), like base ignoring docs.
     layers: tuple[str, ...] = ()
+    # Whether an omitted ``--features`` enables it. Opt-in features (default=False,
+    # e.g. maturin) are absent from the "all for the layer" default and must be
+    # named explicitly, so a plain python scaffold stays pure-Python.
+    default: bool = True
 
 
 @dataclass(frozen=True)

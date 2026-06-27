@@ -163,16 +163,61 @@ def test_go_ci_action_major_matches_v2_config(templates_dir):
     assert "golangci-lint-action@v6" not in ci
 
 
-# --- release gate: tag must be on main ---
+# --- release: pypi caller -> shared reusable workflow ---
 
 
-def test_release_workflow_gates_build_on_tag_on_main(templates_dir):
-    wf = (templates_dir / "python/github/workflows/release-pypi.yml").read_text()
-    # the gate job exists and checks the tagged commit's ancestry against main
-    assert "verify-tag-on-main:" in wf
-    assert "git merge-base --is-ancestor" in wf
-    # build (and therefore the whole publish chain) depends on the gate
-    assert "  build:\n    needs: verify-tag-on-main\n" in wf
+def test_pypi_release_workflow_uses_reusable_workflow(py_var_pairs):
+    # release-pypi.yml collapsed to a one-liner caller forwarding to the shared reusable
+    # workflow and inheriting every secret; the gate + build + publish now live in
+    # release-pypi.yml@pypi-v1, not inline.
+    wf = _real_plan("python", py_var_pairs)[0][".github/workflows/release-pypi.yml"]
+    assert "janedoe/homebrew-tap/.github/workflows/release-pypi.yml@pypi-v1" in wf
+    assert "secrets: inherit" in wf
+    assert "dist-name: demo-proj" in wf
+    assert 'python-version: "3.12"' in wf
+    # the tag-driven trigger + never-cancel concurrency stay in the caller
+    assert 'tags: ["v*"]' in wf
+    assert "cancel-in-progress: false" in wf
+    # OIDC needs id-token write granted by the caller (the ceiling for the reusable jobs)
+    assert "id-token: write" in wf
+    # the old inline jobs are gone — no gate/publish bodies inline anymore
+    assert "git merge-base" not in wf
+    assert "pypa/gh-action-pypi-publish" not in wf
+    assert "uv version --frozen" not in wf
+
+
+def test_pypi_maturin_off_by_default(py_var_pairs):
+    # default python features (docs, pypi) leave maturin off — no native-wheel input
+    wf = _real_plan("python", py_var_pairs)[0][".github/workflows/release-pypi.yml"]
+    assert "maturin: true" not in wf
+
+
+def test_pypi_maturin_feature_adds_input(py_var_pairs):
+    wf = _real_plan("python", py_var_pairs, features=["docs", "pypi", "maturin"])[0][
+        ".github/workflows/release-pypi.yml"
+    ]
+    assert "maturin: true" in wf
+
+
+def test_maturin_needs_pypi_to_have_effect(py_var_pairs):
+    # maturin only toggles a section inside the pypi-gated caller; with pypi off there is
+    # no release file to carry it (and selecting maturin alone is not an error).
+    plan, _ = _real_plan("python", py_var_pairs, features=["maturin"])
+    assert ".github/workflows/release-pypi.yml" not in plan
+
+
+def test_maturin_is_opt_in():
+    # maturin must stay out of the omitted-`--features` default so a pure-Python scaffold
+    # never silently turns on native-wheel builds; docs/pypi remain on by default.
+    from bootstrap.manifest import FEATURES
+
+    maturin = next(f for f in FEATURES if f.name == "maturin")
+    assert maturin.default is False
+    assert maturin.layers == ("python",)
+    assert maturin.section == "FEATURE_MATURIN"
+    assert all(f.default for f in FEATURES if f.name in ("docs", "pypi"))
+    # the go release feature is likewise opt-in — omitting --features must not enable it
+    assert next(f for f in FEATURES if f.name == "release").default is False
 
 
 def test_ty_runs_via_prek_hook_warning_only(templates_dir):

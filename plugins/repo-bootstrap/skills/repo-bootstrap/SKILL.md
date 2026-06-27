@@ -38,10 +38,11 @@ downstream as flags.
 
 - **Layer** — `base` (all repos), `python` (implies base), or `go` (implies base).
 - **Feature** — a layer-scoped opt-in toggled by `--features`. Python: `docs` (Great
-  Docs site + Pages workflow) and `pypi` (trusted-publishing release workflow). Go:
-  `release` (goreleaser → shared Homebrew tap). A feature requested outside its layer
+  Docs site + Pages workflow), `pypi` (trusted-publishing release workflow), and the
+  opt-in `maturin` (native PyO3 wheels — only meaningful with `pypi`, off unless named).
+  Go: `release` (goreleaser → shared Homebrew tap). A feature requested outside its layer
   is silently dropped. Each gates whole files and inline sections of shared files
-  (README, AGENTS, pyproject / goreleaser).
+  (README, AGENTS, pyproject / goreleaser / the PyPI release caller).
 - **Template** — a file under `templates/`; only ever rendered by `bootstrap.py scaffold`, never hand-copied.
 - **Placeholder** — a `{{NAME}}` token in a template, rendered by `bootstrap.py scaffold` from `--var` inputs.
 - **Partial** — a `{{> path}}` token that inlines a shared fragment from `templates/_partials/` at scaffold time (e.g. the collaboration sections and VC/CI rules shared by base, python, and go `AGENTS.md`). The fragment is render-only — it carries no `dest` in the manifest and is never written to the target repo.
@@ -91,10 +92,11 @@ explicitly ask for.
   `multiSelect`, default none). The scaffold requires `--extras` explicitly — pass
   `none` when no extras are chosen.
 - **Python additionally**: dist name, package name, Python floor + pin versions, and
-  the two **features** as a `multiSelect` "Optional Python features" — `docs` (Great
-  Docs on GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default
-  both selected for a public repo, neither for private** — PyPI publishing is
-  inherently public, and Pages on a private repo needs a paid plan.
+  the **features** as a `multiSelect` "Optional Python features" — `docs` (Great Docs on
+  GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default both
+  selected for a public repo, neither for private** — PyPI publishing is inherently
+  public, and Pages on a private repo needs a paid plan. A PyO3 native-extension repo
+  also selects `maturin` (off by default; it builds per-platform wheels and requires `pypi`).
 - **Go additionally**: the Go toolchain version (`GO_VERSION`, e.g. `1.26`), and the
   one **feature** as a `multiSelect` "Optional Go features" — `release` (goreleaser
   build + a Homebrew cask pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
@@ -106,9 +108,10 @@ visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 (public) or `LICENSE_ID=none` (private); the feature picks become `--features`.
 
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
-(python: `docs,pypi`, `docs`, or `pypi`; go: `release`); deselect everything →
-`--features ""`. Omitting the flag selects all of the chosen layer's features — fine
-for python (defaults to both), but for **go always pass `--features` explicitly**
+(python: `docs,pypi`, `docs`, or `pypi`, plus `maturin` for a native-extension repo;
+go: `release`); deselect everything → `--features ""`. Omitting the flag selects the
+layer's **on-by-default** features — fine for python (defaults to `docs,pypi`; `maturin`
+is opt-in and must be named), but for **go always pass `--features` explicitly**
 (`release` when selected, else `""`), because release defaults off. Don't scaffold a
 docs site or release pipeline the user didn't ask for and then strip it by hand —
 that's what the flags prevent.
@@ -177,8 +180,9 @@ $BOOTSTRAP scaffold \
 ```
 
 Set `--features` from Phase 1 — python: `docs,pypi` (both), `pypi`/`docs` (one), or
-`""` (neither; omitting the flag equals both); go: `release` or `""` — **always pass
-it explicitly for go** (omitting equals `release`, but go release defaults off). For
+`""` (neither; omitting the flag equals `docs,pypi` — `maturin` is opt-in, name it
+explicitly); go: `release` or `""` — **always pass it explicitly for go** (release is
+off by default, so omitting selects no go features). For
 base layer, drop the language `--var`s and `--features`. `--extras` is always
 required; pass `--extras none` if none were chosen.
 
@@ -226,7 +230,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.github/workflows/ci.yml` | python **or** go | always; the go workflow runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck |
 | `.pre-commit-config.yaml` | python **or** go | python: `ruff` + `ty`; go: gofumpt + golangci-lint — via prek, activate with `uvx prek install` |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |
-| `.github/workflows/release-pypi.yml` | python + feature `pypi` | trusted publishing |
+| `.github/workflows/release-pypi.yml` | python + feature `pypi` | one-liner caller → shared `release-pypi.yml@pypi-v1` (gate → build → OIDC publish → release); feature `maturin` adds `maturin: true` for native wheels |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
