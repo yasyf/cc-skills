@@ -167,22 +167,25 @@ def test_go_ci_action_major_matches_v2_config(templates_dir):
 
 
 def test_pypi_release_workflow_uses_reusable_workflow(py_var_pairs):
-    # release-pypi.yml collapsed to a one-liner caller forwarding to the shared reusable
-    # workflow and inheriting every secret; the gate + build + publish now live in
-    # release-pypi.yml@pypi-v1, not inline.
+    # The caller delegates the build to the shared reusable workflow, then runs the OIDC
+    # publish + github-release IN THIS repo — PyPI Trusted Publishing matches job_workflow_ref,
+    # so publish must run in the caller, not inside the reusable workflow.
     wf = _real_plan("python", py_var_pairs)[0][".github/workflows/release-pypi.yml"]
-    assert "janedoe/homebrew-tap/.github/workflows/release-pypi.yml@pypi-v1" in wf
+    assert "janedoe/homebrew-tap/.github/workflows/release-pypi-build.yml@pypi-v1" in wf
     assert "secrets: inherit" in wf
     assert "dist-name: demo-proj" in wf
     assert 'python-version: "3.12"' in wf
+    # publish runs in the caller (OIDC, in this repo's workflow context)
+    assert "pypa/gh-action-pypi-publish@release/v1" in wf
+    assert "environment: pypi" in wf
+    assert "id-token: write" in wf
+    # github-release uses the reusable workflow's tag output
+    assert "needs.build.outputs.tag" in wf
     # the tag-driven trigger + never-cancel concurrency stay in the caller
     assert 'tags: ["v*"]' in wf
     assert "cancel-in-progress: false" in wf
-    # OIDC needs id-token write granted by the caller (the ceiling for the reusable jobs)
-    assert "id-token: write" in wf
-    # the old inline jobs are gone — no gate/publish bodies inline anymore
+    # the gate + build logic live in the reusable workflow, not inline
     assert "git merge-base" not in wf
-    assert "pypa/gh-action-pypi-publish" not in wf
     assert "uv version --frozen" not in wf
 
 

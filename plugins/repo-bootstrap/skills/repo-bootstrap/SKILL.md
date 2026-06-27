@@ -230,7 +230,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.github/workflows/ci.yml` | python **or** go | always; the go workflow runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck |
 | `.pre-commit-config.yaml` | python **or** go | python: `ruff` + `ty`; go: gofumpt + golangci-lint — via prek, activate with `uvx prek install` |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |
-| `.github/workflows/release-pypi.yml` | python + feature `pypi` | one-liner caller → shared `release-pypi.yml@pypi-v1` (gate → build → OIDC publish → release); feature `maturin` adds `maturin: true` for native wheels |
+| `.github/workflows/release-pypi.yml` | python + feature `pypi` | caller: build via shared `release-pypi-build.yml@pypi-v1`, then OIDC publish + github-release in-repo (PyPI Trusted Publishing must run in the caller, not the reusable workflow); feature `maturin` adds `maturin: true` |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |

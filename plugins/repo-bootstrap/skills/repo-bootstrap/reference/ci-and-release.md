@@ -78,12 +78,16 @@ permissions `pages: write` + `id-token: write`, environment `github-pages` with
 
 ## release-pypi.yml
 
-A one-liner **caller** forwarding to the fleet's shared reusable workflow,
-`<owner>/homebrew-tap/.github/workflows/release-pypi.yml@pypi-v1` — the Python sibling of the
-Go `release-go.yml@v1`. The caller owns only the trigger (`push` of `v*` tags), the
-`release-pypi` concurrency group (`cancel-in-progress: false` — never kill a half-finished
-publish), the permission ceiling (`contents: write` + `id-token: write`), and `secrets:
-inherit`; everything else is `with:` inputs:
+The repo's `release-pypi.yml` is a **caller**: it delegates the build to the fleet's shared
+reusable workflow `<owner>/homebrew-tap/.github/workflows/release-pypi-build.yml@pypi-v1` (the
+Python sibling of the Go `release-go.yml@v1`), then runs the OIDC **publish** + **github-release**
+jobs *itself*. Publish must run in this repo's workflow, not the reusable one: PyPI Trusted
+Publishing authenticates via the OIDC `job_workflow_ref` claim, which inside a reusable workflow
+points at the homebrew-tap repo — and PyPI does **not** support reusable workflows for Trusted
+Publishing. Keeping publish in the caller makes `job_workflow_ref` this repo's `release-pypi.yml`,
+matching the repo's existing trusted publisher (no pypi.org change).
+
+The `build` job forwards `secrets: inherit` and `with:` inputs:
 
 | Input | Meaning |
 |---|---|
@@ -91,36 +95,28 @@ inherit`; everything else is `with:` inputs:
 | `python-version` | the setup-uv pin |
 | `maturin` | `true` for a PyO3 native-extension repo (builds per-platform wheels); omit for pure-Python |
 
-The shared workflow runs the same chain for every repo:
+**Reusable `release-pypi-build.yml`** runs the shared, duplicated half:
 
-**`verify-tag-on-main`** (the gate): fetches `main` and runs `git merge-base --is-ancestor`,
-failing unless the tagged commit is reachable from `main`. Every build/publish job depends on
-it (transitively), so nothing ships unless the tag points at a commit already on `main`. Tags
-aren't covered by branch protection, so without this gate anyone who can push a tag could ship
-an unmerged commit to PyPI under the project's identity. A commit is its own ancestor, so
-tagging main's tip passes; squash-merge repos must tag the squashed commit (`git tag vX.Y.Z
-origin/main`), not the pre-squash branch commit.
+- **`verify-tag-on-main`** (the gate): fetches `main` and runs `git merge-base --is-ancestor`,
+  failing unless the tagged commit is reachable from `main`. Tags aren't covered by branch
+  protection, so without this gate anyone who can push a tag could ship an unmerged commit to
+  PyPI. A commit is its own ancestor, so tagging main's tip passes; squash-merge repos must tag
+  the squashed commit (`git tag vX.Y.Z origin/main`).
+- **build**: setup-uv → the *tag must exceed the latest published version* guard (PyPI JSON API)
+  → `uv version --frozen "${GITHUB_REF_NAME#v}"` stamps the tag's version into `pyproject.toml`
+  for this build only (the committed `version = "0.0.0"` is an inert sentinel, **never
+  hand-bumped**) → `uv build`. A `maturin: true` repo instead builds a per-platform native-wheel
+  matrix (macOS arm64/x86_64, manylinux x86_64/aarch64) plus an sdist — per-CPython, not abi3.
+- Uploads `dist*` artifacts and outputs the resolved `tag` for the caller's github-release.
 
-**build**: setup-uv → the *tag must exceed the latest published version* guard (queries the PyPI
-JSON API) → `uv version --frozen "${GITHUB_REF_NAME#v}"` to stamp the tag's version into
-`pyproject.toml` for this build only (the committed `version = "0.0.0"` is an inert sentinel,
-**never hand-bumped**; the tag is the single source of truth) → `uv build`. A `maturin: true`
-repo instead builds a per-platform native-wheel matrix (macOS arm64/x86_64, manylinux
-x86_64/aarch64) plus an sdist — per-CPython wheels, not abi3.
+**Caller `publish`** (`needs: build`): `environment: pypi`, `permissions: id-token: write`,
+downloads `dist*`, runs `pypa/gh-action-pypi-publish` (no inputs). OIDC trusted publishing —
+**no API token anywhere**. **Caller `github-release`** (`needs: [build, publish]`): downloads
+`dist*` and `gh release create "${{ needs.build.outputs.tag }}" --generate-notes --latest`.
 
-**publish**: `environment: pypi`, `permissions: id-token: write`, `pypa/gh-action-pypi-publish`
-with no inputs. OIDC trusted publishing — **no API token anywhere**. The `id-token: write`
-permission (granted by the caller) + the `pypi` environment + the PyPI-side publisher
-registration (below) are the entire auth story.
-
-**github-release**: downloads the built artifacts and `gh release create … --generate-notes
---latest`, attaching the sdist + wheel(s).
-
-> **The trusted-publisher subject keys on the CALLER, not the shared workflow.** PyPI matches
-> the OIDC subject on the caller's workflow filename (`release-pypi.yml`) + environment (`pypi`),
-> so collapsing to the caller needs **no** pypi.org change. Keep the caller file named
-> `release-pypi.yml` and the environment `pypi`, or the subject won't match and `publish` 403s
-> with `invalid-publisher`.
+> **Keep the caller file named `release-pypi.yml` and the environment `pypi`.** The trusted
+> publisher matches the OIDC `job_workflow_ref` (this repo's `release-pypi.yml`) + environment
+> `pypi`; rename either and `publish` 403s with `invalid-publisher`.
 
 ## One-Time Setup
 
