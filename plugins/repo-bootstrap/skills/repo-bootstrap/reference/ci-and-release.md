@@ -106,7 +106,9 @@ The `build` job forwards `secrets: inherit` and `with:` inputs:
   → `uv version --frozen "${GITHUB_REF_NAME#v}"` stamps the tag's version into `pyproject.toml`
   for this build only (the committed `version = "0.0.0"` is an inert sentinel, **never
   hand-bumped**) → `uv build`. A `maturin: true` repo instead builds a per-platform native-wheel
-  matrix (macOS arm64/x86_64, manylinux x86_64/aarch64) plus an sdist — per-CPython, not abi3.
+  matrix (macOS arm64/x86_64, manylinux x86_64/aarch64) plus an sdist. The wheel ABI (abi3 vs
+  per-CPython) comes from the crate's pyo3 features, not the workflow — e.g. an `abi3-py313`
+  crate ships one `cp313-abi3` wheel per platform.
 - Uploads `dist*` artifacts and outputs the resolved `tag` for the caller's github-release.
 
 **Caller `publish`** (`needs: build`): `environment: pypi`, `permissions: id-token: write`,
