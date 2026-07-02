@@ -85,7 +85,9 @@ belong in the shared AGENTS.md:
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level; delegated agents are routed by the **Models** table —
-  fable-5 by default, opus-4.8 for correctness-critical depth, sonnet-5 for recon
+  fable-5 by default (including hard planning/design/diagnosis subagents — context-window
+  offload is not an escalation cue), opus-4.8 as an independent second
+  perspective/escalation, sonnet-5 for recon
   (never haiku except single-fact mechanical steps), `/codex` for second opinions,
   imagegen, and rote throwaway work; defaults, not limits — escalate when output
   misses the bar; effort `xhigh` by default, `max` only after xhigh falls short;

@@ -177,6 +177,11 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
+    # 2026-07 refinement: hard planning/design/diagnosis subagents stay on fable
+    # (context-window offload is not an escalation cue); opus narrowed to second
+    # perspective/escalation. Regressing the fable row would re-route them to opus.
+    assert "it is not an escalation cue" in claude
+    assert "Independent second perspective" in claude
 
 
 def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
