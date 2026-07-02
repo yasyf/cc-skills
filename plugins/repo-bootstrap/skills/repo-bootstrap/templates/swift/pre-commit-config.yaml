@@ -1,0 +1,20 @@
+# Commit-time checks for Swift: SwiftFormat (nicklockwood) + SwiftLint.
+# Run by prek — activate once per clone:  uvx prek install
+#
+# Deliberately `repo: local` + `language: system` against the brew-installed
+# binaries (brew install swiftformat swiftlint): the upstream repos' pre-commit
+# hooks build the tools from source via SPM on first run (minutes-long), so the
+# local-system form is the fast path. Don't "upgrade" this to the remote hooks.
+repos:
+  - repo: local
+    hooks:
+      - id: swiftformat
+        name: swiftformat
+        entry: swiftformat
+        language: system
+        types: [swift]
+      - id: swiftlint
+        name: swiftlint
+        entry: swiftlint --quiet
+        language: system
+        types: [swift]

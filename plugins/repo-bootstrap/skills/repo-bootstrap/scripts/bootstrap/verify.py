@@ -22,6 +22,9 @@ CheckFn = Callable[[], "tuple[bool, str]"]
 
 _TODO_MARKER = "TODO(bootstrap)"
 _NAME_RE = re.compile(r'^name = "(.*)"$')
+_SWIFT_EXECUTABLE_RE = re.compile(r'\.executable\(\s*name:\s*"([^"]+)"')
+# Xcode's "download the platform" refusal: an environment gap, not a code failure.
+_XCODE_PLATFORM_MISSING = "Please download and install the platform"
 
 
 def _walk_files(skip_dirs: set[str]) -> Iterator[Path]:
@@ -50,7 +53,8 @@ def _run_cmd(cmd: list[str]) -> tuple[bool, str]:
 
 
 def _no_leftover_tokens() -> tuple[bool, str]:
-    hits = _grep({".git", ".venv", "dist", "great-docs"}, lambda line: bool(PLACEHOLDER.search(line)))
+    # .build holds SPM dependency checkouts, which may legitimately contain {{...}}.
+    hits = _grep({".git", ".venv", "dist", "great-docs", ".build"}, lambda line: bool(PLACEHOLDER.search(line)))
     return not hits, "\n".join(hits)
 
 
@@ -175,6 +179,41 @@ def _go_binary_smoke() -> tuple[bool, str]:
         shutil.rmtree(".go-smoke", ignore_errors=True)
 
 
+def _swift_binary_smoke() -> tuple[bool, str]:
+    """Run the SPM executable with --help — the swift analogue of the go smoke.
+
+    ArgumentParser exits 0 on --help, so this proves the starter CLI links and
+    runs end to end, not just that the package compiles."""
+    match = _SWIFT_EXECUTABLE_RE.search(Path("Package.swift").read_text())
+    if not match:
+        return False, "could not find an .executable product in Package.swift"
+    return _run_cmd(["swift", "run", match.group(1), "--help"])
+
+
+def _xcodebuild_usable() -> bool:
+    """True when a real Xcode is selected. NOT shutil.which: CLT-only Macs ship a
+    /usr/bin/xcodebuild stub that errors 'requires Xcode'."""
+    return run(["xcodebuild", "-version"]).returncode == 0
+
+
+def _app_project_name() -> str:
+    projects = sorted(glob.glob("*.xcodeproj"))
+    return Path(projects[0]).stem if projects else ""
+
+
+def _swift_lint_checks(check: Callable[[str, CheckFn], None]) -> None:
+    """swiftformat + swiftlint, NOTE-skipped when absent (the golangci pattern:
+    CI and the commit hook still run them)."""
+    if shutil.which("swiftformat"):
+        check("swiftformat --lint .", lambda: _run_cmd(["swiftformat", "--lint", "."]))
+    else:
+        print("NOTE  swiftformat not installed — skipping format check (CI and the commit hook run it; brew install swiftformat)")
+    if shutil.which("swiftlint"):
+        check("swiftlint", lambda: _run_cmd(["swiftlint", "--quiet"]))
+    else:
+        print("NOTE  swiftlint not installed — skipping lint check (CI and the commit hook run it; brew install swiftlint)")
+
+
 def main(layer: str, target: str, no_license: bool) -> int:
     os.chdir(target)
     failures = 0
@@ -223,6 +262,38 @@ def main(layer: str, target: str, no_license: bool) -> int:
         check("go build ./...", lambda: _run_cmd(["go", "build", "./..."]))
         check("go test -race ./...", lambda: _run_cmd(["go", "test", "-race", "./..."]))
         check("binary smoke test", _go_binary_smoke)
+
+    if layer == "swift":
+        check("swift build", lambda: _run_cmd(["swift", "build"]))
+        check("swift test", lambda: _run_cmd(["swift", "test"]))
+        _swift_lint_checks(check)
+        check("binary smoke test (swift run --help)", _swift_binary_smoke)
+
+    if layer == "swift-app":
+        _swift_lint_checks(check)
+        if _xcodebuild_usable():
+            name = _app_project_name()
+            # generic simulator destination: compiles everything with no booted
+            # simulator, no named device, and no signing. Run once, then decide:
+            # a refusal because the iOS platform component isn't downloaded is an
+            # environment gap (NOTE), not a scaffold failure.
+            ok, output = _run_cmd([
+                "xcodebuild", "build",
+                "-project", f"{name}.xcodeproj", "-scheme", name,
+                "-destination", "generic/platform=iOS Simulator",
+                "CODE_SIGNING_ALLOWED=NO",
+            ])
+            if not ok and _XCODE_PLATFORM_MISSING in output:
+                print("NOTE  iOS platform not installed (Xcode Settings > Components) — skipping app build check (CI runs it)")
+            else:
+                check("xcodebuild build (generic iOS Simulator)", lambda: (ok, output))
+            print(
+                f"NOTE  simulator test suite not run by verify — run once: xcodebuild test"
+                f" -project {name}.xcodeproj -scheme {name}"
+                f" -destination 'platform=iOS Simulator,name=iPhone 17' (CI runs it on every push)"
+            )
+        else:
+            print("NOTE  Xcode not available (xcodebuild -version failed) — skipping app build check (CI runs it)")
 
     if failures:
         print(f"{failures} check(s) failed")

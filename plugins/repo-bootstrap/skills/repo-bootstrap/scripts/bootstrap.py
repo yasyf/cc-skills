@@ -33,22 +33,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("scaffold", help="render templates into a repo")
     sc.add_argument("--target", type=Path, default=Path("."))
-    sc.add_argument("--layer", choices=("base", "python", "go"), default="base")
+    sc.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app"), default="base")
     sc.add_argument("--extras", required=True, help=f"comma-separated: {', '.join(EXTRAS)}; or 'none' for no extras")
     sc.add_argument(
         "--features",
         default=",".join(f.name for f in FEATURES if f.default),
         help=f"layer-scoped, comma-separated (default = on-by-default features for the layer). "
         f"Known: {', '.join(f.name for f in FEATURES)}. Features outside the chosen layer are "
-        "ignored; opt-in features (maturin) must be named explicitly. Pass a subset (or empty) "
-        "to drop the python docs site / PyPI release, or the go release pipeline.",
+        "ignored; opt-in features (maturin, release) must be named explicitly. Pass a subset "
+        "(or empty) to drop the python docs site / PyPI release, or the go/swift release pipeline.",
     )
     sc.add_argument("--var", action="append", default=[], metavar="KEY=VALUE")
     sc.add_argument("--force", action="store_true", help="overwrite conflicting files")
     sc.add_argument("--dry-run", action="store_true")
 
     vf = sub.add_parser("verify", help="verify a scaffolded repo")
-    vf.add_argument("--layer", choices=("base", "python", "go"), default="base")
+    vf.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app"), default="base")
     vf.add_argument("--target", default=".")
     vf.add_argument("--no-license", action="store_true", help="license `none` was chosen: require LICENSE absent")
 

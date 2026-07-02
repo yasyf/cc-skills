@@ -19,7 +19,7 @@
     {
       "name": "repo-bootstrap",
       "source": "./plugins/repo-bootstrap",
-      "description": "Bootstrap new projects and repos with base conventions plus an opinionated Python packaging layer."
+      "description": "Bootstrap new projects and repos with base conventions plus opinionated Python, Go, and Swift layers (SPM package/CLI or Xcode app), each with opt-in docs/release features."
     },
     {
       "name": "llm-prompts",

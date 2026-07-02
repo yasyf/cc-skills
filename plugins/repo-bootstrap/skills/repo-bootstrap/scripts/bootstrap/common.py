@@ -32,6 +32,9 @@ PARTIAL = re.compile(r"\{\{>\s*([^}]+?)\s*\}\}")
 DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 PY_VERSION_RE = re.compile(r"^3\.\d+$")
 GO_VERSION_RE = re.compile(r"^1\.\d+(\.\d+)?$")
+SWIFT_TOOLS_VERSION_RE = re.compile(r"^\d+\.\d+$")
+IOS_VERSION_RE = re.compile(r"^\d+(\.\d+)?$")
+BUNDLE_ID_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$")
 
 
 class ScaffoldError(SystemExit):
@@ -89,7 +92,7 @@ class Feature:
 class VarSpec:
     name: str
     required_in: tuple[str, ...]
-    validate: str | None = None  # one of: identifier, dist_name, py_version, license_id
+    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bundle_id_prefix, license_id
 
 
 @dataclass(frozen=True)

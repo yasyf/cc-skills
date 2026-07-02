@@ -18,4 +18,6 @@ pythonpath = ["skills/repo-bootstrap/scripts"]
 markers = [
     "uv: end-to-end tests that need the uv toolchain (deselect with -m 'not uv')",
     "go: end-to-end tests that need the go toolchain (deselect with -m 'not go')",
+    "swift: end-to-end tests that need the swift toolchain (deselect with -m 'not swift')",
+    "xcode: end-to-end tests that need full Xcode; minutes-slow (deselect with -m 'not xcode')",
 ]

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# One job, not a matrix: everything needs the same macOS runner, and macOS
+# minutes bill 10x. macos-26 is pinned (not macos-latest) because the image
+# ships Xcode 26.x — the toolchain and iOS SDK this app targets.
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: Format (lint mode)
+        run: swiftformat --lint .
+      - name: Lint
+        run: swiftlint --quiet
+      - name: Test (iOS Simulator)
+        run: >
+          xcodebuild test
+          -project {{PROJECT_NAME}}.xcodeproj
+          -scheme {{PROJECT_NAME}}
+          -destination 'platform=iOS Simulator,name=iPhone 17'
+          CODE_SIGNING_ALLOWED=NO

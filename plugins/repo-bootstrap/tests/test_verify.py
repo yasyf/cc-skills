@@ -143,6 +143,39 @@ def test_end_to_end_python(tmp_path, features, license_id):
     assert "All checks passed" in result.stdout
 
 
+# --- swift check units ---
+
+def test_swift_executable_name_parse(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Package.swift").write_text(
+        'let package = Package(\n'
+        '    products: [\n'
+        '        .library(name: "DemoProj", targets: ["DemoProj"]),\n'
+        '        .executable(name: "demo-proj", targets: ["demo-proj"]),\n'
+        '    ],\n'
+        ')\n'
+    )
+    match = verify._SWIFT_EXECUTABLE_RE.search((tmp_path / "Package.swift").read_text())
+    assert match is not None
+    assert match.group(1) == "demo-proj"  # picks the executable, not the library
+
+
+def test_swift_executable_name_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Package.swift").write_text('let package = Package(products: [.library(name: "Lib", targets: ["Lib"])])\n')
+    ok, output = verify._swift_binary_smoke()
+    assert not ok
+    assert "executable" in output
+
+
+def test_no_leftover_tokens_skips_spm_build_dir(tmp_path, monkeypatch):
+    (tmp_path / ".build" / "checkouts").mkdir(parents=True)
+    (tmp_path / ".build" / "checkouts" / "dep.md").write_text("{{LEFT}}\n")
+    monkeypatch.chdir(tmp_path)
+    ok, _ = verify._no_leftover_tokens()
+    assert ok  # .build/ (SPM dependency checkouts) is excluded
+
+
 GO_VARS = BASE_VARS + ["--var", "GO_VERSION=1.26"]
 
 
@@ -173,6 +206,80 @@ def test_end_to_end_go(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "go", "--target", str(tmp_path)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "All checks passed" in result.stdout
+
+
+SWIFT_VARS = BASE_VARS + [
+    "--var", "MODULE_NAME=DemoProj",
+    "--var", "SWIFT_TOOLS_VERSION=6.2",
+]
+
+SWIFT_APP_VARS = BASE_VARS + [
+    "--var", "MODULE_NAME=DemoProj",
+    "--var", "BUNDLE_ID_PREFIX=com.janedoe",
+    "--var", "IOS_DEPLOYMENT_TARGET=26.0",
+]
+
+
+@pytest.mark.swift
+def test_end_to_end_swift(tmp_path):
+    if not shutil.which("swift"):
+        pytest.skip("swift not installed")
+    if not shutil.which("uv"):
+        pytest.skip("uv not installed (verify runs the capt-hook inline tests via uvx)")
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
+    scaffold = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "scaffold", "--target", str(tmp_path),
+         "--layer", "swift", "--extras", "none", "--features", "release", *SWIFT_VARS],
+        capture_output=True, text=True, env=env,
+    )
+    assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
+
+    # No packs.toml workaround needed (unlike go): the swift layer enables only
+    # general + steering + ccx, all of which are released. verify runs the full
+    # sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
+    result = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "verify", "--layer", "swift", "--target", str(tmp_path)],
+        capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "All checks passed" in result.stdout
+    # Package.resolved is written by the build — the SKILL tells users to commit it.
+    assert (tmp_path / "Package.resolved").is_file()
+
+
+@pytest.mark.xcode
+def test_end_to_end_swift_app(tmp_path):
+    """Minutes-slow on first run (simulator-platform build). Requires full Xcode;
+    with Xcode present but the iOS platform component not downloaded, verify
+    NOTE-skips the build and this test still passes (structure is validated)."""
+    if subprocess.run(["xcodebuild", "-version"], capture_output=True).returncode != 0:
+        pytest.skip("Xcode not installed (CLT-only xcodebuild stub)")
+    if not shutil.which("uv"):
+        pytest.skip("uv not installed (verify runs the capt-hook inline tests via uvx)")
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
+    scaffold = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "scaffold", "--target", str(tmp_path),
+         "--layer", "swift-app", "--extras", "none", "--features", "", *SWIFT_APP_VARS],
+        capture_output=True, text=True, env=env,
+    )
+    assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
+
+    # The committed pbxproj must parse as a real project with both targets.
+    listing = subprocess.run(
+        ["xcodebuild", "-list", "-project", "demo-proj.xcodeproj"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert listing.returncode == 0, listing.stdout + listing.stderr
+    assert "demo-proj" in listing.stdout and "demo-projTests" in listing.stdout
+
+    result = subprocess.run(
+        [sys.executable, str(BOOTSTRAP), "verify", "--layer", "swift-app", "--target", str(tmp_path)],
         capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr

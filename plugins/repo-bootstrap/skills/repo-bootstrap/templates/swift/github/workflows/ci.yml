@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# One job, not a matrix: everything needs the same macOS runner, and macOS
+# minutes bill 10x. macos-26 is pinned (not macos-latest) because the image
+# ships Xcode 26.x — the Swift 6.2 toolchain this package's tools-version needs.
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v5
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Format (lint mode)
+        run: swiftformat --lint .
+      - name: Lint
+        run: swiftlint --quiet
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test

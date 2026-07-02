@@ -54,3 +54,20 @@ def py_var_pairs(base_var_pairs: list[str]) -> list[str]:
 @pytest.fixture
 def go_var_pairs(base_var_pairs: list[str]) -> list[str]:
     return base_var_pairs + ["GO_VERSION=1.26"]
+
+
+@pytest.fixture
+def swift_var_pairs(base_var_pairs: list[str]) -> list[str]:
+    return base_var_pairs + [
+        "MODULE_NAME=DemoProj",
+        "SWIFT_TOOLS_VERSION=6.2",
+    ]
+
+
+@pytest.fixture
+def swift_app_var_pairs(base_var_pairs: list[str]) -> list[str]:
+    return base_var_pairs + [
+        "MODULE_NAME=DemoProj",
+        "BUNDLE_ID_PREFIX=com.janedoe",
+        "IOS_DEPLOYMENT_TARGET=26.0",
+    ]

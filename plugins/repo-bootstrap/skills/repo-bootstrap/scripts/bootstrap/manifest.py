@@ -10,10 +10,14 @@ from __future__ import annotations
 from .common import DerivedVar, Feature, FileSpec, Layer, VarSpec
 
 # Layer precedence: earlier layers are overridden by later ones at the same dest.
+# swift (SPM package/CLI) and swift-app (synced-folder Xcode app) are siblings —
+# expand_layers never activates both, so their relative precedence never fires.
 LAYERS = (
     Layer("base"),
     Layer("python", implies=("base",)),
     Layer("go", implies=("base",)),
+    Layer("swift", implies=("base",)),
+    Layer("swift-app", implies=("base",)),
 )
 LAYER_ORDER = tuple(layer.name for layer in LAYERS)
 
@@ -30,25 +34,38 @@ FEATURES = (
     Feature("maturin", "FEATURE_MATURIN", layers=("python",), default=False),
     # release is opt-in too: an omitted `--features` must not scaffold a release pipeline
     # (SKILL Phase 1 promises "release defaults off"). default=False makes that honest.
-    Feature("release", "FEATURE_RELEASE", layers=("go",), default=False),
+    # It spans go (goreleaser cask) and swift (release-swift.yml cask); swift-app is
+    # deliberately absent — requesting release there is silently dropped, which IS the
+    # "apps have no brew release" behavior (App Store/TestFlight is product work).
+    Feature("release", "FEATURE_RELEASE", layers=("go", "swift"), default=False),
 )
 
 # Optional extra layers, selectable in any layer via --extras.
 EXTRAS = ("superset", "env")
 
+_ALL_LAYERS = ("base", "python", "go", "swift", "swift-app")
+
 VARS = (
-    VarSpec("PROJECT_NAME", ("base", "python", "go")),
-    VarSpec("DESCRIPTION", ("base", "python", "go")),
-    VarSpec("AUTHOR_NAME", ("base", "python", "go")),
-    VarSpec("AUTHOR_EMAIL", ("base", "python", "go")),
-    VarSpec("GITHUB_USER", ("base", "python", "go")),
-    VarSpec("LICENSE_ID", ("base", "python", "go"), validate="license_id"),
+    VarSpec("PROJECT_NAME", _ALL_LAYERS),
+    VarSpec("DESCRIPTION", _ALL_LAYERS),
+    VarSpec("AUTHOR_NAME", _ALL_LAYERS),
+    VarSpec("AUTHOR_EMAIL", _ALL_LAYERS),
+    VarSpec("GITHUB_USER", _ALL_LAYERS),
+    VarSpec("LICENSE_ID", _ALL_LAYERS, validate="license_id"),
     # PACKAGE is validated before DIST_NAME to match the legacy check order.
     VarSpec("PACKAGE", ("python",), validate="identifier"),
     VarSpec("DIST_NAME", ("python",), validate="dist_name"),
     VarSpec("PYTHON_PIN", ("python",), validate="py_version"),
     VarSpec("PYTHON_MIN", ("python",), validate="py_version"),
     VarSpec("GO_VERSION", ("go",), validate="go_version"),
+    # The importable module (UpperCamelCase), distinct from the executable/repo name —
+    # mirrors python's DIST_NAME/PACKAGE split. Python's isidentifier() accepts Swift
+    # module names exactly. Must differ from PROJECT_NAME (checked in scaffold.resolve):
+    # duplicate SPM target names break `swift build` with a confusing error.
+    VarSpec("MODULE_NAME", ("swift", "swift-app"), validate="identifier"),
+    VarSpec("SWIFT_TOOLS_VERSION", ("swift",), validate="swift_tools_version"),
+    VarSpec("BUNDLE_ID_PREFIX", ("swift-app",), validate="bundle_id_prefix"),
+    VarSpec("IOS_DEPLOYMENT_TARGET", ("swift-app",), validate="ios_version"),
 )
 
 DERIVED = (
@@ -68,6 +85,12 @@ DERIVED = (
     DerivedVar(
         "LICENSE_BADGE",
         lambda v, now: v["LICENSE_ID"].replace("-", "--") if v.get("LICENSE_ID", "none") != "none" else None,
+    ),
+    # App bundle id, e.g. com.yasyf.room-scan (hyphens are legal in bundle ids).
+    # Only swift-app supplies a prefix, so python/go/swift stay clean.
+    DerivedVar(
+        "BUNDLE_ID",
+        lambda v, now: f"{v['BUNDLE_ID_PREFIX']}.{v['PROJECT_NAME']}" if v.get("BUNDLE_ID_PREFIX") else None,
     ),
 )
 
@@ -140,6 +163,65 @@ FILES = (
     # reference/go-ci-and-release.md.
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
+    # --- swift layer (SPM package/CLI; overrides base where dest collides) ---
+    FileSpec("AGENTS.md", "swift/AGENTS.md", "swift"),
+    FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift"),
+    FileSpec("README.md", "swift/README.md", "swift"),
+    # swift layers override the empty base .mcp.json with the xcodebuildmcp server.
+    FileSpec(".mcp.json", "swift/mcp.json", "swift"),
+    FileSpec(".claude/settings.json", "swift/claude/settings.json", "swift"),
+    # no swift capt-hook pack exists — general + steering + ccx only.
+    FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift"),
+    # vendored project skill: help-first discovery of the xcodebuildmcp CLI.
+    FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift"),
+    FileSpec("Package.swift", "swift/Package.swift", "swift"),
+    FileSpec("Sources/{{MODULE_NAME}}/Hello.swift", "swift/Sources/lib/Hello.swift", "swift"),
+    FileSpec("Sources/{{PROJECT_NAME}}/Main.swift", "swift/Sources/cli/Main.swift", "swift"),
+    FileSpec("Tests/{{MODULE_NAME}}Tests/HelloTests.swift", "swift/Tests/HelloTests.swift", "swift"),
+    FileSpec(".swiftformat", "swift/swiftformat", "swift"),
+    FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift"),
+    FileSpec(".pre-commit-config.yaml", "swift/pre-commit-config.yaml", "swift"),
+    FileSpec(".github/workflows/ci.yml", "swift/github/workflows/ci.yml", "swift"),
+    # feature-gated swift file (the release pipeline; off by default). One caller
+    # workflow forwarding to the shared release-swift.yml@swift-v1 reusable workflow
+    # (universal swift build + codesign/notarytool + binary cask to the shared tap) —
+    # no goreleaser config; goreleaser has no Swift builder.
+    FileSpec(".github/workflows/release.yml", "swift/github/workflows/release.yml", "swift", feature="release"),
+    # --- swift-app layer (synced-folder Xcode app; shares swift/ srcs for the
+    # language-level files so they are written once and consumed by both) ---
+    FileSpec("AGENTS.md", "swift-app/AGENTS.md", "swift-app"),
+    FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift-app"),
+    FileSpec("README.md", "swift-app/README.md", "swift-app"),
+    FileSpec(".mcp.json", "swift/mcp.json", "swift-app"),
+    FileSpec(".claude/settings.json", "swift/claude/settings.json", "swift-app"),
+    FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift-app"),
+    FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift-app"),
+    # The committed synced-folder project (objectVersion 77, fixed synthetic UUIDs):
+    # sources sync from the folders, so scaffolded .swift files need no pbxproj entry.
+    FileSpec("{{PROJECT_NAME}}.xcodeproj/project.pbxproj", "swift-app/xcodeproj/project.pbxproj", "swift-app"),
+    FileSpec(
+        "{{PROJECT_NAME}}.xcodeproj/xcshareddata/xcschemes/{{PROJECT_NAME}}.xcscheme",
+        "swift-app/xcodeproj/app.xcscheme",
+        "swift-app",
+    ),
+    FileSpec("{{PROJECT_NAME}}/App/{{MODULE_NAME}}App.swift", "swift-app/app/App.swift", "swift-app"),
+    FileSpec("{{PROJECT_NAME}}/App/ContentView.swift", "swift-app/app/ContentView.swift", "swift-app"),
+    FileSpec("{{PROJECT_NAME}}/Assets.xcassets/Contents.json", "swift-app/app/Assets.xcassets/Contents.json", "swift-app"),
+    FileSpec(
+        "{{PROJECT_NAME}}/Assets.xcassets/AccentColor.colorset/Contents.json",
+        "swift-app/app/Assets.xcassets/AccentColor.colorset/Contents.json",
+        "swift-app",
+    ),
+    FileSpec(
+        "{{PROJECT_NAME}}/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "swift-app/app/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "swift-app",
+    ),
+    FileSpec("{{PROJECT_NAME}}Tests/ScaffoldSmokeTests.swift", "swift-app/tests/ScaffoldSmokeTests.swift", "swift-app"),
+    FileSpec(".swiftformat", "swift/swiftformat", "swift-app"),
+    FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift-app"),
+    FileSpec(".pre-commit-config.yaml", "swift/pre-commit-config.yaml", "swift-app"),
+    FileSpec(".github/workflows/ci.yml", "swift-app/github/workflows/ci.yml", "swift-app"),
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),

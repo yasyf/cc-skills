@@ -21,10 +21,13 @@ from pathlib import Path
 
 from . import render as _render
 from .common import (
+    BUNDLE_ID_PREFIX_RE,
     DIST_NAME_RE,
     GO_VERSION_RE,
+    IOS_VERSION_RE,
     PARTIAL,
     PY_VERSION_RE,
+    SWIFT_TOOLS_VERSION_RE,
     FileSpec,
     Notice,
     PlanItem,
@@ -82,8 +85,19 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must look like 3.X, got {value!r}")
         if kind == "go_version" and not GO_VERSION_RE.match(value):
             raise ScaffoldError(f"{name} must look like 1.X or 1.X.Y, got {value!r}")
+        if kind == "swift_tools_version" and not SWIFT_TOOLS_VERSION_RE.match(value):
+            raise ScaffoldError(f"{name} must look like 6.2, got {value!r}")
+        if kind == "ios_version" and not IOS_VERSION_RE.match(value):
+            raise ScaffoldError(f"{name} must look like 26 or 26.0, got {value!r}")
+        if kind == "bundle_id_prefix" and not BUNDLE_ID_PREFIX_RE.match(value):
+            raise ScaffoldError(f"{name} must be a reverse-DNS prefix like com.yasyf, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
+    # Cross-var check: SPM target names must be unique, and the executable target is
+    # named PROJECT_NAME while the library is MODULE_NAME — a collision fails
+    # `swift build` with a confusing manifest error, so fail fast here instead.
+    if layer in ("swift", "swift-app") and variables.get("MODULE_NAME") == variables.get("PROJECT_NAME"):
+        raise ScaffoldError("MODULE_NAME must differ from PROJECT_NAME (they name distinct Swift targets)")
 
 
 def derive_vars(variables: dict[str, str], now: date) -> dict[str, str]:
@@ -217,6 +231,9 @@ def gitignore_concat(ctx: TransformCtx, content: str | None) -> str:
         text += "\n" + ctx.render("python/gitignore")
     if "go" in ctx.layers:
         text += "\n" + ctx.render("go/gitignore")
+    # Both swift layers share one fragment (Xcode + SwiftPM + XcodeBuildMCP state).
+    if "swift" in ctx.layers or "swift-app" in ctx.layers:
+        text += "\n" + ctx.render("swift/gitignore")
     return text
 
 

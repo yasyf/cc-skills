@@ -1,6 +1,6 @@
 ---
 name: repo-bootstrap
-description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, the cc-context facade (ccx) via the cc-context plugin, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features (a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing), or an optional Go layer (cobra CLI, log/slog, golangci-lint + gofumpt, Taskfile, table-driven tests) with an opt-in goreleaser release to a shared Homebrew tap. Use when creating a new repo or project from scratch, scaffolding a new Python or Go package or CLI (with or without docs/PyPI/Homebrew publishing), or retrofitting these conventions onto a young repo.
+description: Bootstraps a new project or repository with proven conventions — AGENTS.md/CLAUDE.md/STYLEGUIDE.md, README structure, a generated mascot logo, README banner, and GitHub social-preview card, Claude Code settings, the cc-context facade (ccx) via the cc-context plugin, and capt-hook guard hooks — plus an optional Python layer (uv with the uv_build backend and flat package layout, Click CLI, loguru, pytest, ruff, ty type-checking) with two opt-in features (a Great Docs site published to GitHub Pages and tag-driven PyPI releases via trusted publishing), an optional Go layer (cobra CLI, log/slog, golangci-lint + gofumpt, Taskfile, table-driven tests) with an opt-in goreleaser release to a shared Homebrew tap, or optional Swift layers — swift for an SPM package/CLI (swift-argument-parser, Swift Testing, SwiftFormat + SwiftLint, XcodeBuildMCP wiring, an opt-in universal-binary Homebrew-cask release) and swift-app for a SwiftUI iOS app (synced-folder Xcode project with a committed pbxproj that never needs editing). Use when creating a new repo or project from scratch, scaffolding a new Python, Go, or Swift package, CLI, or iOS app (with or without docs/PyPI/Homebrew publishing), or retrofitting these conventions onto a young repo.
 ---
 
 # Bootstrap a New Repo
@@ -9,19 +9,24 @@ Scaffold a repo from battle-tested conventions in layers: a **base** layer every
 repo gets (agent docs, Claude Code settings, guard hooks, code search), and a
 language layer on top — **python** for Python packages (uv toolchain, starter
 package, CI, plus opt-in **features** — a Great Docs site and tag-driven PyPI
-releases) or **go** for Go CLIs (cobra, slog, golangci-lint + gofumpt, Taskfile, CI,
-plus an opt-in `release` feature — goreleaser to a shared Homebrew tap). Templates
-render deterministically through one CLI; your judgment goes into naming, prose, and
-the follow-up edits — not file copying.
+releases), **go** for Go CLIs (cobra, slog, golangci-lint + gofumpt, Taskfile, CI,
+plus an opt-in `release` feature — goreleaser to a shared Homebrew tap), **swift**
+for Swift CLIs and libraries (SPM, swift-argument-parser, Swift Testing,
+SwiftFormat + SwiftLint, XcodeBuildMCP, plus the same opt-in `release` feature — a
+universal-binary cask via the shared release-swift.yml), or **swift-app** for
+SwiftUI iOS apps (synced-folder Xcode project, Swift Testing, the same lint stack
+and XcodeBuildMCP wiring; no release feature — app distribution is product work).
+Templates render deterministically through one CLI; your judgment goes into naming,
+prose, and the follow-up edits — not file copying.
 
 **Scope:** this skill scaffolds conventions and a minimal skeleton only — it does
 **not** implement the project's features, in any language. Filling `TODO(bootstrap)`
 prose markers (Phase 4) is the only content work; the starter command stays a
-hello-world placeholder (the python and go layers each scaffold one; other languages
-get a hand-written equivalent). **STOP at the skeleton:** no business logic, real
-commands, services/daemons, or release/distribution tooling beyond basic CI — the go
-`release` feature (goreleaser, Homebrew tap, release workflow) ships only when the
-user selects it. Building the product is separate work that begins after Phase 6.
+hello-world placeholder (the python, go, and swift layers each scaffold one; other
+languages get a hand-written equivalent). **STOP at the skeleton:** no business logic,
+real commands, services/daemons, or release/distribution tooling beyond basic CI — the
+go and swift `release` features (Homebrew tap release workflows) ship only when the
+user selects them. Building the product is separate work that begins after Phase 6.
 
 The whole skill is driven by a single command:
 
@@ -36,11 +41,15 @@ downstream as flags.
 
 ## Terminology
 
-- **Layer** — `base` (all repos), `python` (implies base), or `go` (implies base).
+- **Layer** — `base` (all repos), or one of `python`, `go`, `swift` (SPM package/CLI),
+  `swift-app` (Xcode iOS app) — each implies base.
 - **Feature** — a layer-scoped opt-in toggled by `--features`. Python: `docs` (Great
   Docs site + Pages workflow), `pypi` (trusted-publishing release workflow), and the
   opt-in `maturin` (native PyO3 wheels — only meaningful with `pypi`, off unless named).
-  Go: `release` (goreleaser → shared Homebrew tap). A feature requested outside its layer
+  Go and Swift: `release` (go: goreleaser → shared Homebrew tap; swift: shared
+  release-swift.yml → universal-binary cask on the same tap). Not offered on
+  `swift-app` — requesting it there is silently dropped (App Store/TestFlight
+  distribution is product work). A feature requested outside its layer
   is silently dropped. Each gates whole files and inline sections of shared files
   (README, AGENTS, pyproject / goreleaser / the PyPI release caller).
 - **Template** — a file under `templates/`; only ever rendered by `bootstrap.py scaffold`, never hand-copied.
@@ -76,15 +85,17 @@ target is a git repo on `main` with a colocated jj repo (`.jj/`).
 ## Phase 1 — Decide layer & features (the only decision phase)
 
 **First decide the layer.** Apply the **python** layer for a Python project (uv / PyPI);
-apply the **go** layer for a Go CLI; otherwise scaffold base only. Base always applies.
-For a non-Python, non-Go language, scaffold base only, then hand-write a skeleton that
+apply the **go** layer for a Go CLI; apply the **swift** layer for a Swift CLI or
+library (SPM); apply the **swift-app** layer for a SwiftUI iOS app (Xcode project);
+otherwise scaffold base only. Base always applies. For an unsupported language,
+scaffold base only, then hand-write a skeleton that
 mirrors the **shape** of a layered starter, not its substance: a minimal package/module
 layout, exactly **one** hello-world command that builds and runs, **one** smoke test, a
 CI workflow that builds and tests, and the language STYLEGUIDE rules — use
 `reference/python-stack.md` and `reference/go-stack.md` as the worked examples (the
 hello-world command stays a placeholder). **STOP at the skeleton:** no business logic,
-real commands, services/daemons, or release/distribution tooling. For the go layer,
-goreleaser / Homebrew / release workflows ship **only** via the opt-in `release` feature
+real commands, services/daemons, or release/distribution tooling. For the go and swift
+layers, Homebrew release workflows ship **only** via the opt-in `release` feature
 (off by default); for a hand-written language they're product work the user must
 explicitly ask for.
 
@@ -108,6 +119,18 @@ explicitly ask for.
   build + a Homebrew cask pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
   regardless of visibility — release/distribution tooling is product work the user opts
   into, and it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret.
+- **Swift additionally**: the library module name (`MODULE_NAME`, UpperCamelCase —
+  default the UpperCamel of the project name; it **must differ from the project
+  name**, which names the executable target), the tools version
+  (`SWIFT_TOOLS_VERSION`, default `6.2`), and the one **feature** as a `multiSelect`
+  "Optional Swift features" — `release` (a universal arm64+x86_64 binary, signed and
+  notarized when the `MACOS_*` secrets exist, published as a Homebrew cask to
+  `yasyf/homebrew-tap` via the shared `release-swift.yml@swift-v1`). **Default
+  unselected (off)**, same rationale as go.
+- **Swift app additionally**: `MODULE_NAME` (names the `<Module>App` type and the
+  test target's import), the reverse-DNS bundle prefix (`BUNDLE_ID_PREFIX`, default
+  `com.<github-user>` — the bundle id derives as `<prefix>.<project>`), and the iOS
+  floor (`IOS_DEPLOYMENT_TARGET`, default `26.0`). No features.
 
 Before Phase 2, reconcile the answers into concrete flags: a "default for
 visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
@@ -115,12 +138,13 @@ visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
 (python: `docs,pypi`, `docs`, or `pypi`, plus `maturin` for a native-extension repo;
-go: `release`); deselect everything → `--features ""`. Omitting the flag selects the
-layer's **on-by-default** features — fine for python (defaults to `docs,pypi`; `maturin`
-is opt-in and must be named), but for **go always pass `--features` explicitly**
-(`release` when selected, else `""`), because release defaults off. Don't scaffold a
-docs site or release pipeline the user didn't ask for and then strip it by hand —
-that's what the flags prevent.
+go and swift: `release`); deselect everything → `--features ""`. Omitting the flag
+selects the layer's **on-by-default** features — fine for python (defaults to
+`docs,pypi`; `maturin` is opt-in and must be named), but for **go and swift always
+pass `--features` explicitly** (`release` when selected, else `""`), because release
+defaults off. For swift-app pass `--features ""` — it offers none, and a requested
+`release` is silently dropped. Don't scaffold a docs site or release pipeline the
+user didn't ask for and then strip it by hand — that's what the flags prevent.
 
 **Naming rule (python):** the PyPI dist name must equal the CLI command — short and
 memorable. The import package may differ. Worked example: dist + CLI `capt-hook`,
@@ -139,6 +163,13 @@ so sweep separator variants too (`reference/python-stack.md` § The Naming Triad
 (`cmd/<name>`, `module github.com/<user>/<name>`) — no dist/package split, and
 `check-name` (a PyPI check) is python-only.
 
+**Naming rule (swift):** the executable and repo share the project name (`swift run
+<name>`; with feature `release` the shared workflow requires the SPM executable
+product to equal the repo name — that's the whole calling contract). `MODULE_NAME`
+is the importable library module — the same split as python's dist/package. For
+swift-app, `MODULE_NAME` names the app type (`<Module>App`) and the module tests
+import; the app bundle and folders carry the project name.
+
 ### Placeholder reference
 
 | Var | Meaning | Example |
@@ -153,15 +184,22 @@ so sweep separator variants too (`reference/python-stack.md` § The Naming Triad
 | `PACKAGE` | Import package (python) | `captain_hook` |
 | `PYTHON_MIN` / `PYTHON_PIN` | Supported floor / dev pin (python) | `3.13` / `3.14` |
 | `GO_VERSION` | Go toolchain version (go) | `1.26` |
+| `MODULE_NAME` | Library module / app type (swift, swift-app); ≠ project name | `CaptHook` |
+| `SWIFT_TOOLS_VERSION` | Package.swift tools version (swift) | `6.2` |
+| `BUNDLE_ID_PREFIX` | Reverse-DNS prefix (swift-app) | `com.yasyf` |
+| `IOS_DEPLOYMENT_TARGET` | iOS floor (swift-app) | `26.0` |
 
 Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`,
-`MODULE_PATH` (go: `github.com/<user>/<name>`), `YEAR`.
+`MODULE_PATH` (go: `github.com/<user>/<name>`), `BUNDLE_ID` (swift-app:
+`<prefix>.<name>`), `YEAR`.
 Features are independent of `--var`: they gate files and template sections, not
 placeholder values.
 
 **Exit criteria:** layer and visibility chosen; names, license, and extras chosen;
 for python, the two features chosen and the dist name `check-name`d; for go,
-`GO_VERSION` and the `release` feature chosen.
+`GO_VERSION` and the `release` feature chosen; for swift, `MODULE_NAME` /
+`SWIFT_TOOLS_VERSION` and the `release` feature chosen; for swift-app,
+`MODULE_NAME` / `BUNDLE_ID_PREFIX` / `IOS_DEPLOYMENT_TARGET` chosen.
 
 ## Phase 2 — Scaffold
 
@@ -185,10 +223,31 @@ $BOOTSTRAP scaffold \
   --var LICENSE_ID=MIT --var GO_VERSION=1.26
 ```
 
+For the **swift** layer (SPM package/CLI):
+
+```bash
+$BOOTSTRAP scaffold \
+  --target . --layer swift --extras none --features "" \
+  --var PROJECT_NAME=... --var "DESCRIPTION=..." \
+  --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
+  --var LICENSE_ID=MIT --var MODULE_NAME=... --var SWIFT_TOOLS_VERSION=6.2
+```
+
+For the **swift-app** layer (SwiftUI iOS app):
+
+```bash
+$BOOTSTRAP scaffold \
+  --target . --layer swift-app --extras none --features "" \
+  --var PROJECT_NAME=... --var "DESCRIPTION=..." \
+  --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
+  --var LICENSE_ID=none --var MODULE_NAME=... \
+  --var BUNDLE_ID_PREFIX=com.... --var IOS_DEPLOYMENT_TARGET=26.0
+```
+
 Set `--features` from Phase 1 — python: `docs,pypi` (both), `pypi`/`docs` (one), or
 `""` (neither; omitting the flag equals `docs,pypi` — `maturin` is opt-in, name it
-explicitly); go: `release` or `""` — **always pass it explicitly for go** (release is
-off by default, so omitting selects no go features). For
+explicitly); go and swift: `release` or `""` — **always pass it explicitly** (release
+is off by default, so omitting selects no features); swift-app: `""`. For
 base layer, drop the language `--var`s and `--features`. `--extras` is always
 required; pass `--extras none` if none were chosen.
 
@@ -214,6 +273,17 @@ For go, follow the scaffold with `go mod tidy` (resolves cobra and writes `go.su
 commit it), then `go vet ./...`, `task build`, and `task test` (`go test -race ./...`);
 run `uvx prek install` to activate the gofumpt + golangci-lint commit hooks.
 
+For swift, follow the scaffold with `swift build` (resolves swift-argument-parser and
+writes `Package.resolved` — **commit it**, the go.sum/uv.lock analogue), `swift test`,
+and `uvx prek install` to activate the SwiftFormat + SwiftLint commit hooks (they call
+the brew binaries — `brew install swiftformat swiftlint` once per machine).
+
+For swift-app there is no generation step — **the committed pbxproj IS the project**
+(synced folders mean new `.swift` files need no project edit, ever). Sanity-build with
+`xcodebuild build -project <name>.xcodeproj -scheme <name> -destination
+'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO`, then `uvx prek install`
+as above.
+
 Two integrations are armed **after** the repo is published (Phase 6), because they
 need an `origin` remote: the **session reviewer** (`uvx capt-hook review enable`) and,
 when `cc-notes` is installed, **cc-notes** (`cc-notes init`). Do not run them here —
@@ -224,23 +294,29 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 
 | Destination | Layer | Notes |
 |---|---|---|
-| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python/go **override** | the language versions carry feature-gated sections (docs/PyPI for python; a `release` install section for go) rendered to match `--features` |
-| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python/go entries when layered; `LICENSE` omitted with license `none` |
-| `.mcp.json` | base | empty `{"mcpServers":{}}` — code search ships via the `cc-context@skills` plugin (the `ccx` facade), not a per-project server; this is just the seam for any repo-specific MCP server added later |
-| `.claude/settings.json` | base; python/go **override** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@skills` (the `ccx` code-search facade), `cc-notes@cc-notes`; go adds `go`/`task` allow-perms (and drops the python-only `TY_CONFIG_FILE`) |
+| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python/go/swift/swift-app **override** | the language versions carry feature-gated sections (docs/PyPI for python; a `release` install section for go and swift) rendered to match `--features`; swift-app shares the swift `STYLEGUIDE.md` |
+| `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python/go/swift entries when layered; `LICENSE` omitted with license `none` |
+| `.mcp.json` | base; swift layers **override** | base ships empty `{"mcpServers":{}}` — code search ships via the `cc-context@skills` plugin (the `ccx` facade), not a per-project server. Both swift layers override it with the `xcodebuildmcp` server (`command: xcodebuildmcp, args: [mcp]`) — the sanctioned build/test/run/simulator driver |
+| `.claude/settings.json` | base; python/go/swift **override** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@skills` (the `ccx` code-search facade), `cc-notes@cc-notes`; go adds `go`/`task` allow-perms, swift adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint` (both drop the python-only `TY_CONFIG_FILE`) |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/hooks/packs.toml` | base; python/go **override** | enables capt-hook's builtin packs — `general` (base) and `steering` (judgment nudges: band-aid plans, dismissed pre-existing issues, trivial type noise), plus `python` on the python layer or `go` on the go layer — and the external `[packs.ccx]` pack (`source = github:yasyf/cc-context`, with a `REPLACE_WITH_PINNED_SHA` placeholder `commit` to pin once cc-context cuts a tag) that guards the token-heavy primitives toward `ccx`; the packs ship the guard hooks (see `reference/hooks.md`) |
+| `.claude/hooks/packs.toml` | base; python/go/swift **override** | enables capt-hook's builtin packs — `general` (base) and `steering` (judgment nudges: band-aid plans, dismissed pre-existing issues, trivial type noise), plus `python` on the python layer or `go` on the go layer (no swift pack exists — the swift layers enable general + steering only) — and the external `[packs.ccx]` pack (`source = github:yasyf/cc-context`, with a `REPLACE_WITH_PINNED_SHA` placeholder `commit` to pin once cc-context cuts a tag) that guards the token-heavy primitives toward `ccx`; the packs ship the guard hooks (see `reference/hooks.md`) |
+| `.claude/skills/xcodebuildmcp-cli/SKILL.md` | swift, swift-app | the vendored XcodeBuildMCP project skill (help-first CLI discovery); AGENTS.md mandates it before any XcodeBuildMCP call |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py`, `docs/scripts/native_reference_titles.py` | python + feature `docs` | omitted entirely without `docs`; `native_reference_titles.py` is a `pre_render` perf workaround (see `reference/docs-site.md`) |
-| `.github/workflows/ci.yml` | python **or** go | always; the go workflow runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck |
-| `.pre-commit-config.yaml` | python **or** go | python: `ruff` + `ty`; go: gofumpt + golangci-lint — via prek, activate with `uvx prek install` |
+| `.github/workflows/ci.yml` | python, go, swift, **or** swift-app | always; go runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck; swift runs one `macos-26` job (macOS minutes bill 10× — deliberately not a matrix): swiftformat --lint, swiftlint, `swift build`, `swift test` (SPM cache keyed on `Package.resolved`); swift-app the same but `xcodebuild test` on an iOS Simulator destination |
+| `.pre-commit-config.yaml` | python, go, **or** swift | python: `ruff` + `ty`; go: gofumpt + golangci-lint; swift: swiftformat + swiftlint as `repo: local` system hooks against the brew binaries (the upstream hooks build from source via SPM — minutes-long) — via prek, activate with `uvx prek install` |
+| `.swiftformat`, `.swiftlint.yml` | swift, swift-app | nicklockwood SwiftFormat (NOT Apple's swift-format), minimal SwiftLint (`force_unwrapping` opt-in, warnings never block) |
 | `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build |
 | `.github/workflows/release-pypi.yml` | python + feature `pypi` | caller: build via shared `release-pypi-build.yml@pypi-v1`, then OIDC publish + github-release in-repo (PyPI Trusted Publishing must run in the caller, not the reusable workflow); feature `maturin` adds `maturin: true` |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds the matrix and publishes a native Homebrew **cask** to `yasyf/homebrew-tap`; `release.yml` is a one-liner forwarding to the shared `release-go.yml@v1` reusable workflow (gates on `verify-tag-on-main`). A formula (services/deps) is a documented recipe, not scaffolded — see `reference/go-ci-and-release.md` |
+| `.github/workflows/release.yml` | swift + feature `release` | a zero-config one-liner forwarding to the shared `release-swift.yml@swift-v1` reusable workflow (goreleaser can't build Swift): verify-tag-on-main, universal `swift build`, codesign + notarytool, GitHub release, synthesized binary cask to the tap. No goreleaser config, no cask template — see `reference/swift-ci-and-release.md` |
+| `Package.swift`, `Sources/<Module>/`, `Sources/<name>/`, `Tests/<Module>Tests/` | swift | logic-in-library + thin ArgumentParser executable (one `hello` subcommand + Swift Testing smoke tests); `Package.resolved` comes from `swift build` |
+| `<name>.xcodeproj/{project.pbxproj, xcshareddata/xcschemes/<name>.xcscheme}` | swift-app | the committed synced-folder project (objectVersion 77, fixed synthetic UUIDs) — **never regenerate it, never let Xcode "upgrade" it**; adding source files needs no project edit |
+| `<name>/App/*.swift`, `<name>/Assets.xcassets/*`, `<name>Tests/` | swift-app | SwiftUI `@main` app + ContentView, stock asset catalog, Swift Testing smoke test (`@testable import <Module>`) |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
 | `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
@@ -248,7 +324,10 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
 `uv sync --extra dev` succeeded and `uv.lock` is committed; for go, `go mod tidy`
-succeeded and `go build ./...` passes (`go.sum` committed).
+succeeded and `go build ./...` passes (`go.sum` committed); for swift,
+`swift build` and `swift test` pass (`Package.resolved` committed); for swift-app,
+the `xcodebuild build … generic/platform=iOS Simulator` sanity build passes (or
+Xcode/the iOS platform is absent locally and CI owns it).
 
 ## Phase 3 — Brand images (mascot + banner + social card)
 
@@ -323,12 +402,18 @@ README pitch and why-bullets and the great-docs hero tagline. Run
 $BOOTSTRAP verify --layer python --target .
 ```
 
-Set `--layer go` for a go repo. Add `--no-license` when license `none` was chosen —
+Set `--layer go` for a go repo, `--layer swift` / `--layer swift-app` for the swift
+layers. Add `--no-license` when license `none` was chosen —
 the LICENSE check inverts to require the file absent. Runs every check and reports
 `PASS`/`FAIL` per check: leftover-token scan, LICENSE presence (or absence), hook
 inline tests, and either (python) `uv sync` → `pytest` → `uv build` → wheel smoke,
-or (go) `go vet` → golangci-lint (skipped with a NOTE if not installed) → `go build`
-→ `go test -race` → binary smoke. Fix failures and re-run; **never skip a `FAIL`.**
+(go) `go vet` → golangci-lint (skipped with a NOTE if not installed) → `go build`
+→ `go test -race` → binary smoke, (swift) `swift build` → `swift test` →
+swiftformat/swiftlint (NOTE-skipped if not installed) → a `swift run <name> --help`
+smoke, or (swift-app) swiftformat/swiftlint → an `xcodebuild build` against the
+generic iOS Simulator destination (NOTE-skipped without Xcode or with the iOS
+platform component not downloaded; the simulator **test** suite is CI's job and is
+NOTEd, not run). Fix failures and re-run; **never skip a `FAIL`.**
 Remaining `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling
 the repo done — and so is a README banner reference whose image is missing (Phase 3 was
 dropped: generate the images, or apply the escape hatch), or a banner without
@@ -343,8 +428,8 @@ Atomic, conventional-prefix commits — one logical change each, conditioned on 
 layer and features actually scaffolded:
 
 1. `chore: scaffold repo conventions (AGENTS, STYLEGUIDE, settings, hooks)` (the `capt-hook review enable` / `cc-notes init` registrations are committed later, in the publish step below, since they need `origin`)
-2. `feat: initial <package> package and CLI skeleton` *(python)* / `feat: initial CLI skeleton (cmd + internal packages)` *(go — include `go.mod`/`go.sum`)*
-3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features. go; append "and goreleaser release" with feature `release`)*
+2. `feat: initial <package> package and CLI skeleton` *(python)* / `feat: initial CLI skeleton (cmd + internal packages)` *(go — include `go.mod`/`go.sum`)* / `feat: initial Swift package and CLI skeleton` *(swift — include `Package.resolved`)* / `feat: initial iOS app skeleton (xcodeproj + synced folders)` *(swift-app)*
+3. `ci: add CI workflow` *(python; append "docs, and PyPI release workflows" per enabled features. go; append "and goreleaser release" with feature `release`. swift; append "and cask release" with feature `release`)*
 4. `docs: README and CHANGELOG` *(append "and Great Docs config" with feature `docs`)*
 5. `docs: add mascot logo, README banner, and social card` *(skip if Phase 3 was skipped)*
 
@@ -392,7 +477,7 @@ Then, optionally, publish and wire one-time setups:
   `main` → push tag → watch it to completion with `scripts/watch-release.sh` (per-job
   results, release assets, PyPI check; see `reference/ci-and-release.md`). The release's
   `verify-tag-on-main` gate refuses tags off `main`.
-- *(feature release, go)* ensure the `yasyf/homebrew-tap` repo exists, then set the release
+- *(feature release, go or swift)* ensure the `yasyf/homebrew-tap` repo exists, then set the release
   secrets from 1Password right after the repo is created:
   `bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo>`.
   It pushes `HOMEBREW_TAP_TOKEN` (the tap PAT — required for the cask push) plus the five
@@ -403,10 +488,13 @@ Then, optionally, publish and wire one-time setups:
   signing & notarization). It's best-effort — if 1Password is locked or absent it lists the
   secrets to set by hand and doesn't block. Then run the first release: CHANGELOG entry → tag
   `v0.1.0` on a commit that's on `main` → push tag → watch it with `scripts/watch-release.sh`
-  (drop `--pypi` for go; see `reference/ci-and-release.md`). `release.yml` forwards to the shared
+  (drop `--pypi`; see `reference/ci-and-release.md`). Go: `release.yml` forwards to the shared
   `release-go.yml@v1` reusable workflow, which gates on `verify-tag-on-main` then runs goreleaser:
   it builds the binaries, cuts the GitHub release, and publishes a native Homebrew **cask** to the
-  tap. No PyPI/Pages for go (`reference/go-ci-and-release.md`).
+  tap (`reference/go-ci-and-release.md`). Swift: `release.yml` forwards to the shared
+  `release-swift.yml@swift-v1` reusable workflow — same gate, then a universal `swift build`,
+  codesign + notarytool, the GitHub release, and a synthesized binary **cask** pushed to the tap
+  (`reference/swift-ci-and-release.md`). No PyPI/Pages for either.
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
   no API for it — use the **`agent-browser-with-cookies`** skill (install
   `agent-browser-with-cookies@skills` from this marketplace if absent) to run an
@@ -440,10 +528,24 @@ explicitly deferred with the user).
 - **No release pipeline (go)**: release is off by default — `--features ""` scaffolds no
   `.goreleaser.yaml` / `release.yml` and the README falls back to `go install` + `task
   build`. Re-scaffold with `--features release` to add it; don't hand-add or hand-strip.
+- **No release pipeline (swift)**: same shape — `--features ""` scaffolds no `release.yml`
+  and the README falls back to clone + `swift build -c release`. Re-scaffold with
+  `--features release` to add it.
+- **Release on an app**: not offered — `release` is swift-package-only; App Store /
+  TestFlight distribution is product work. (A macOS `.app` cask is a hand-composed
+  pipeline: see the sign-notarize-app recipe in `reference/go-ci-and-release.md`.)
 - **Library, not a CLI (go)**: the go layer scaffolds a `cmd/<name>` binary. For a library,
   scaffold the go layer, then delete `cmd/` and expose packages at the module root (or under
   `<name>/`); drop the cobra dependency and the `release` feature. The starter `internal/cli`
   becomes the example package to replace.
+- **Library, not a CLI (swift)**: delete the executable target (`Sources/<name>/` and its
+  `products`/`targets` entries in `Package.swift`), drop the swift-argument-parser
+  dependency and the `release` feature. The `Sources/<Module>/` library and its tests stay.
+- **App with a companion CLI/package (the room-scan shape)**: scaffold `swift-app`, then
+  add a local SPM package by hand and link its library product into the app via an
+  `XCLocalSwiftPackageReference` — recipe in `reference/swift-stack.md`.
+- **No Xcode locally (swift-app)**: verify NOTE-skips the app build (and the iOS-platform
+  component check); CI's `macos-26` job is authoritative.
 - **Other licenses**: PolyForm-Noncommercial-1.0.0 (the public-repo default) and MIT
   render from bundled templates; any other SPDX id prints a `MANUAL` line to fetch from the SPDX
   list (see Phase 2) and is set in `pyproject.toml`. MIT is the choice for permissive
@@ -498,5 +600,15 @@ Read these on demand — each is self-contained:
   workflow, the formula recipe (native `brews:` or render-formula), the two signing
   modes, and opt-in recipes (zig CGO, build tags, universal binaries, embed-prebuild,
   `format: binary`, extra cask, auto-tag-on-push); shared-tap one-time setup.
+- `reference/swift-stack.md` — every swift/swift-app choice with rationale (SPM
+  logic-in-library layout, swift-argument-parser, Swift Testing, SwiftFormat +
+  SwiftLint and the swiftformat-vs-swift-format trap, the synced-folder xcodeproj
+  anatomy, MODULE_NAME/bundle-id naming, the no-DEVELOPMENT_TEAM signing story,
+  XcodeBuildMCP wiring, the app + local-SPM-package recipe).
+- `reference/swift-ci-and-release.md` — the swift CI workflows (macos-26 rationale,
+  simulator-destination drift, SPM caching), the `release` feature flow via the shared
+  `release-swift.yml@swift-v1` reusable workflow (universal binary, codesign +
+  notarytool, synthesized cask), version stamping, one-time setup, and why apps get
+  no release feature.
 - `reference/docs-site.md` — Great Docs config, build/preview commands, enabling
   narrative sections and curated reference.
