@@ -34,7 +34,9 @@ PY_VERSION_RE = re.compile(r"^3\.\d+$")
 GO_VERSION_RE = re.compile(r"^1\.\d+(\.\d+)?$")
 SWIFT_TOOLS_VERSION_RE = re.compile(r"^\d+\.\d+$")
 IOS_VERSION_RE = re.compile(r"^\d+(\.\d+)?$")
-BUNDLE_ID_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$")
+# Reverse-DNS: the leading label is the TLD (letters only in practice); later
+# labels are org names, where digit-leading is real (com.1password, com.37signals).
+BUNDLE_ID_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$")
 
 
 class ScaffoldError(SystemExit):

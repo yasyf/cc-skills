@@ -120,8 +120,10 @@ explicitly ask for.
   regardless of visibility — release/distribution tooling is product work the user opts
   into, and it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret.
 - **Swift additionally**: the library module name (`MODULE_NAME`, UpperCamelCase —
-  default the UpperCamel of the project name; it **must differ from the project
-  name**, which names the executable target), the tools version
+  default the UpperCamel of a multi-word project name; it **must differ from the
+  project name beyond letter case** (case-insensitive filesystems merge the two
+  `Sources/` dirs), so a single-word project suffixes the module — `fusekit` →
+  `FusekitKit`, not `Fusekit`. The project name names the executable target), the tools version
   (`SWIFT_TOOLS_VERSION`, default `6.2`), and the one **feature** as a `multiSelect`
   "Optional Swift features" — `release` (a universal arm64+x86_64 binary, signed and
   notarized when the `MACOS_*` secrets exist, published as a Homebrew cask to
@@ -166,9 +168,12 @@ so sweep separator variants too (`reference/python-stack.md` § The Naming Triad
 **Naming rule (swift):** the executable and repo share the project name (`swift run
 <name>`; with feature `release` the shared workflow requires the SPM executable
 product to equal the repo name — that's the whole calling contract). `MODULE_NAME`
-is the importable library module — the same split as python's dist/package. For
-swift-app, `MODULE_NAME` names the app type (`<Module>App`) and the module tests
-import; the app bundle and folders carry the project name.
+is the importable library module — the same split as python's dist/package — and
+must differ from the project name **beyond letter case** (suffix single-word names:
+`FusekitKit`). For swift-app, `MODULE_NAME` names the app type (`<Module>App`) and
+the module tests import; the app bundle and folders carry the project name, so a
+swift-app project name allows only alphanumerics and hyphens (it becomes the
+bundle id suffix — no underscores).
 
 ### Placeholder reference
 

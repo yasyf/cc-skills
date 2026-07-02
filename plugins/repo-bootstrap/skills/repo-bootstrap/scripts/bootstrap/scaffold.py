@@ -93,11 +93,30 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be a reverse-DNS prefix like com.yasyf, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
-    # Cross-var check: SPM target names must be unique, and the executable target is
-    # named PROJECT_NAME while the library is MODULE_NAME — a collision fails
-    # `swift build` with a confusing manifest error, so fail fast here instead.
-    if layer in ("swift", "swift-app") and variables.get("MODULE_NAME") == variables.get("PROJECT_NAME"):
-        raise ScaffoldError("MODULE_NAME must differ from PROJECT_NAME (they name distinct Swift targets)")
+    # Cross-var checks for the swift layers:
+    # - SPM target names must be unique, and the executable target is named
+    #   PROJECT_NAME while the library is MODULE_NAME — a collision fails
+    #   `swift build` with a confusing manifest error. Case-INSENSITIVE, because
+    #   Sources/<MODULE_NAME>/ and Sources/<PROJECT_NAME>/ land in one physical
+    #   directory on macOS's default case-insensitive APFS (so `fusekit` /
+    #   `Fusekit` breaks exactly like an exact match).
+    if layer in ("swift", "swift-app"):
+        module = variables.get("MODULE_NAME", "")
+        project = variables.get("PROJECT_NAME", "")
+        if module.lower() == project.lower():
+            raise ScaffoldError(
+                "MODULE_NAME must differ from PROJECT_NAME beyond letter case (they name distinct "
+                "Swift targets, and case-insensitive filesystems merge their Sources/ dirs) — "
+                "for a single-word project, suffix the module (e.g. FusekitKit)"
+            )
+    # - BUNDLE_ID derives as <prefix>.<PROJECT_NAME>, and CFBundleIdentifier allows
+    #   only alphanumerics, hyphens, and periods — an underscore repo name would
+    #   scaffold an app that fails at App ID registration, long after verify.
+    if layer == "swift-app" and not re.fullmatch(r"[A-Za-z0-9-]+", variables.get("PROJECT_NAME", "")):
+        raise ScaffoldError(
+            "PROJECT_NAME must contain only alphanumerics and hyphens for swift-app "
+            "(it becomes the bundle id suffix, which forbids underscores)"
+        )
 
 
 def derive_vars(variables: dict[str, str], now: date) -> dict[str, str]:

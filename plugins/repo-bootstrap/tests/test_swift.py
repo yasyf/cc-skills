@@ -142,11 +142,41 @@ def test_module_name_must_differ_from_project_name(swift_var_pairs):
         scaffold.resolve("swift", [], [], pairs + ["MODULE_NAME=demo-proj", "PROJECT_NAME=demo-proj"], DATE)
 
 
-@pytest.mark.parametrize("prefix", ["com", "1com.x", "com.", ".com"])
+def test_module_name_case_only_difference_rejected(swift_var_pairs):
+    # Sources/Demoproj/ and Sources/demoproj/ are ONE directory on macOS's
+    # case-insensitive APFS — a case-only difference breaks `swift build` with
+    # the exact confusing error the guard exists to prevent.
+    pairs = [p for p in swift_var_pairs if not p.startswith(("MODULE_NAME=", "PROJECT_NAME="))]
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("swift", [], [], pairs + ["MODULE_NAME=Demoproj", "PROJECT_NAME=demoproj"], DATE)
+
+
+def test_swift_app_project_name_must_be_bundle_id_safe(swift_app_var_pairs):
+    # CFBundleIdentifier forbids underscores; the failure would otherwise defer
+    # to App ID registration, long after scaffold + verify both pass.
+    pairs = [p for p in swift_app_var_pairs if not p.startswith("PROJECT_NAME=")]
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("swift-app", [], [], pairs + ["PROJECT_NAME=my_app"], DATE)
+    # ...but the plain swift layer has no bundle id, so underscores stay legal there.
+    swift_pairs = [p for p in swift_app_var_pairs if not p.startswith(("PROJECT_NAME=", "BUNDLE_ID_PREFIX=", "IOS_DEPLOYMENT_TARGET="))]
+    r = scaffold.resolve("swift", [], [], swift_pairs + ["PROJECT_NAME=my_app", "SWIFT_TOOLS_VERSION=6.2"], DATE)
+    assert r.variables["PROJECT_NAME"] == "my_app"
+
+
+@pytest.mark.parametrize("prefix", ["com", "1com.x", "com.", ".com", "com._x"])
 def test_bad_bundle_id_prefix(swift_app_var_pairs, prefix):
     pairs = [p for p in swift_app_var_pairs if not p.startswith("BUNDLE_ID_PREFIX=")]
     with pytest.raises(ScaffoldError):
         scaffold.resolve("swift-app", [], [], pairs + [f"BUNDLE_ID_PREFIX={prefix}"], DATE)
+
+
+@pytest.mark.parametrize("prefix", ["com.1password", "com.37signals", "io.agile-bits"])
+def test_digit_leading_org_labels_are_valid_prefixes(swift_app_var_pairs, prefix):
+    # Real reverse-DNS prefixes have digit-leading org labels (1password.com);
+    # only the TLD label stays letter-first.
+    pairs = [p for p in swift_app_var_pairs if not p.startswith("BUNDLE_ID_PREFIX=")]
+    r = scaffold.resolve("swift-app", [], [], pairs + [f"BUNDLE_ID_PREFIX={prefix}"], DATE)
+    assert r.variables["BUNDLE_ID"] == f"{prefix}.demo-proj"
 
 
 @pytest.mark.parametrize("version", ["ios26", "26.0.1", ""])
