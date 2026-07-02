@@ -300,7 +300,7 @@ builds:
         env: [CGO_ENABLED=1, "CC=zig cc -target aarch64-linux-musl", "CXX=zig c++ -target aarch64-linux-musl"]
 ```
 
-CI installs zig with `mlugg/setup-zig@v2`. Used by: **slop-cop**, **cc-notes** (fuse builds).
+CI installs zig with `xyzzylabs/setup-zig@v1` (a maintained Node-24 fork of `mlugg/setup-zig`, which is stuck on the deprecated Node-20 runtime). Used by: **slop-cop**, **cc-notes** (fuse builds).
 
 ### Build tags (pure + tagged variant)
 

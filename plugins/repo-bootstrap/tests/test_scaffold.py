@@ -155,12 +155,14 @@ def test_go_ci_action_major_matches_v2_config(templates_dir):
     # config is golangci-lint v2, so the action major must be one that supports
     # v2 (>= v7). golangci-lint-action@v6 is restricted to golangci-lint v1 and
     # cannot parse a v2 config (nor lint a modern Go module) — that mismatch is
-    # the recurring CI break this guards against.
+    # the recurring CI break this guards against. v8 also runs on the deprecated
+    # Node-20 runtime; v9 moved to Node 24 while keeping v2-config support.
     ci = (templates_dir / "go/github/workflows/ci.yml").read_text()
     cfg = (templates_dir / "go/golangci.yml").read_text()
     assert 'version: "2"' in cfg
-    assert "golangci/golangci-lint-action@v8" in ci
+    assert "golangci/golangci-lint-action@v9" in ci
     assert "golangci-lint-action@v6" not in ci
+    assert "golangci-lint-action@v8" not in ci
 
 
 # --- release: pypi caller -> shared reusable workflow ---
