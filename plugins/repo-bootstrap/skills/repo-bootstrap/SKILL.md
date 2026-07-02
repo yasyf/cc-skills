@@ -64,6 +64,12 @@ unless one already exists (`.jj/` present): `jj git init --git-repo .` — it ba
 jj onto the git repo so the scaffolded `.claude/jj-config.toml` is live from the
 first commit (see `reference/base-conventions.md`).
 
+Now that the repo has an absolute path, mark it trusted for Claude Code so the
+first session in it skips the trust dialog: `$BOOTSTRAP trust --target .`. This
+sets `hasTrustDialogAccepted` for the repo in `~/.claude.json` (an atomic,
+machine-local side effect — not a committed file); on cc-pool machines every
+pooled account inherits the trust through the shared overlay.
+
 **Exit criteria:** identity values known (resolved or supplied by the user); the
 target is a git repo on `main` with a colocated jj repo (`.jj/`).
 

@@ -5,6 +5,7 @@
     bootstrap.py check-name NAME                 check a PyPI distribution name
     bootstrap.py scaffold  [flags]               render templates into a repo
     bootstrap.py verify    [--layer] [--target] [--no-license]  verify a scaffolded repo
+    bootstrap.py trust     [--target] [--home] [--config]  mark a repo trusted for Claude Code
 
 STDLIB ONLY. identity / check-name / scaffold all run before ``uv`` exists, so
 neither this file nor the ``bootstrap`` package may import third-party modules.
@@ -13,10 +14,11 @@ neither this file nor the ``bootstrap`` package may import third-party modules.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-from bootstrap import identity, pypi, scaffold, verify
+from bootstrap import identity, pypi, scaffold, trust, verify
 from bootstrap.manifest import EXTRAS, FEATURES
 
 
@@ -50,6 +52,11 @@ def _build_parser() -> argparse.ArgumentParser:
     vf.add_argument("--target", default=".")
     vf.add_argument("--no-license", action="store_true", help="license `none` was chosen: require LICENSE absent")
 
+    tr = sub.add_parser("trust", help="mark a repo trusted for Claude Code")
+    tr.add_argument("--target", default=".", help="repo to trust (resolved to an absolute path)")
+    tr.add_argument("--home", default=os.path.expanduser("~"), help="home dir holding ~/.claude.json and any ~/.cc-pool/accounts/*")
+    tr.add_argument("--config", default=None, help="base .claude.json path (default: <home>/.claude.json)")
+
     return parser
 
 
@@ -63,6 +70,8 @@ def main() -> int:
         return scaffold.run(args)
     if args.command == "verify":
         return verify.main(args.layer, args.target, args.no_license)
+    if args.command == "trust":
+        return trust.trust_repo(args.target, args.home, args.config)
     return 2  # unreachable: subparser is required
 
 
