@@ -165,6 +165,32 @@ def test_go_ci_action_major_matches_v2_config(templates_dir):
     assert "golangci-lint-action@v8" not in ci
 
 
+def test_claude_md_routes_models_not_max_effort(templates_dir):
+    # The blanket "max model/effort" rule was replaced (2026-07) by the Models
+    # routing table (fable default, sonnet over haiku, /codex lanes, effort
+    # xhigh); base-conventions.md and the fleet's deployed CLAUDE.md files carry
+    # the same text, and the capt-hook `models` pack enforces it — regressing to
+    # the old line would silently fork template from fleet and hooks.
+    claude = (templates_dir / "base/CLAUDE.md").read_text()
+    assert "max model/effort level" not in claude
+    assert "**Models**" in claude
+    assert "| fable-5 | 2 | 9 | 9 |" in claude
+    assert "judge the output, not the price tag" in claude
+    assert "`xhigh` by default" in claude
+
+
+def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
+    # The /codex skill must pin xhigh + the fast service tier on every codex
+    # exec invocation — without service_tier=fast, xhigh prompts run 10-30+
+    # minutes and get abandoned. No invocation may drop the flags.
+    skill = templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md"
+    execs = [line for line in skill.read_text().splitlines() if "codex exec" in line and "|" in line]
+    assert execs, "expected codex exec invocations in the codex SKILL.md"
+    for line in execs:
+        assert "-c model_reasoning_effort=xhigh" in line, line
+        assert "-c service_tier=fast" in line, line
+
+
 # --- release: pypi caller -> shared reusable workflow ---
 
 

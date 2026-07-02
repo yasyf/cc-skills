@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, or generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill. Use when stuck after multiple attempts, or when asked to generate an image.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when stuck after multiple attempts, when asked to generate an image, or for disposable bulk work.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
@@ -9,7 +9,14 @@ effort: medium
 # Codex CLI
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
-or use its built-in `$imagegen` skill to generate images.
+use its built-in `$imagegen` skill to generate images, or offload rote throwaway
+work.
+
+Every `codex exec` in this skill pins `-c model_reasoning_effort=xhigh
+-c service_tier=fast`. The fast tier is mandatory — never drop it or offer a
+non-fast variant; without it, xhigh prompts can run 10–30+ minutes and get
+abandoned. Keep questions bounded and specific: a narrow question returns in
+~2 minutes, an open-ended design essay does not.
 
 ## When to Use
 
@@ -20,6 +27,9 @@ or use its built-in `$imagegen` skill to generate images.
 - When a fresh perspective would break a deadlock
 - Generating images -- logos, mascots, banners, illustrations -- via `$imagegen`
   (see Generating Images below)
+- Rote, throwaway work -- one-off scripts, scratch harnesses, bulk data munging --
+  where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
+  plan makes this effectively free; keep the output out of production paths.
 
 ## Workflow
 
@@ -58,12 +68,7 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --sandbox workspace-write
-```
-
-For harder problems, use a stronger model:
-```bash
-cat /tmp/question.txt | codex exec -o /tmp/codex_reply.txt --sandbox workspace-write -m o3
+cat /tmp/question.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex_reply.txt --sandbox workspace-write
 ```
 
 ### Step 3: Evaluate the Reply
@@ -78,7 +83,7 @@ Evaluate suggestions critically. Codex is helpful but not infallible -- it can o
 
 For shorter questions:
 ```bash
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec --sandbox workspace-write
+echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast --sandbox workspace-write
 ```
 
 The file-based pattern is better for debugging because you can refine the question and keep a record.
@@ -130,7 +135,7 @@ IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
 
-cat /tmp/imagegen.txt | codex exec -o /tmp/codex_reply.txt --disable shell_tool --sandbox workspace-write
+cat /tmp/imagegen.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex_reply.txt --disable shell_tool --sandbox workspace-write
 ```
 
 Then place and post-process yourself (read the path from `/tmp/codex_reply.txt`):
@@ -177,7 +182,7 @@ Model limits to design around:
 
 **No output**: Check that `-o` flag has a valid path
 
-**Timeout**: For complex questions, Codex may take time. Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval. (`--full-auto` is the deprecated spelling of the same thing.)
+**Timeout**: Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval (`--full-auto` is the deprecated spelling of the same thing). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
 
 **"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass `--skip-git-repo-check`.
 

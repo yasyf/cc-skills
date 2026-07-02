@@ -101,6 +101,27 @@ unchanged; only the delivery moved from vendored `.py` files to packs, so the "t
   doesn't use Codex, override this nudge with a local `commands` hook and remove the
   `enabledPlugins`/`extraKnownMarketplaces` keys in settings together.
 
+### `models` (general pack)
+
+Enforces the CLAUDE.md **Models** routing table (§ Plan Execution & Orchestration) at
+PreToolUse. Three hooks:
+
+- **Haiku gate (block).** Denies an `Agent`/`Task` call that explicitly passes a
+  haiku-tier `model`, unless the prompt reads as single-fact mechanical work
+  (classify/label/tag one thing per item). Recovery is in the deny message: use
+  `sonnet`, or drop `model` to inherit the session model.
+- **Explore auto-upgrade (rewrite).** An `Explore` or `claude-code-guide` subagent
+  spawned without a `model` param silently runs haiku; this rewrite fills in
+  `model: sonnet` (never touching an explicit choice) and notes the upgrade in
+  context.
+- **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via
+  `scriptPath`) pins `agent()` steps to haiku gets a reminder that haiku is for
+  mechanical map/apply steps only — judgment-bearing stages inherit or route up.
+
+Remove or tailor by overriding with a local `models` hook. If a repo legitimately
+runs haiku fleets (bulk single-fact classification), the gate already allows
+prompts that say so.
+
 ### Steering pack (`steering`)
 
 Three judgment nudges, all registered directly in the pack's `steering.py`. The pack exposes no

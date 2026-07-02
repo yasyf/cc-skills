@@ -84,8 +84,13 @@ belong in the shared AGENTS.md:
 - `## Plan Execution & Orchestration` — keep verbatim. The session-level orchestrator
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
-  at the main-agent level; every delegated agent runs at max model/effort; every plan
-  carries the `## Workflow Plan` section AGENTS.md § Writing Plans requires.
+  at the main-agent level; delegated agents are routed by the **Models** table —
+  fable-5 by default, opus-4.8 for correctness-critical depth, sonnet-5 for recon
+  (never haiku except single-fact mechanical steps), `/codex` for second opinions,
+  imagegen, and rote throwaway work; defaults, not limits — escalate when output
+  misses the bar; effort `xhigh` by default, `max` only after xhigh falls short;
+  every plan carries the `## Workflow Plan` section AGENTS.md § Writing Plans
+  requires.
 
 Keep all three terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 
