@@ -19,8 +19,8 @@ One job on **`macos-26`**, not a matrix and not `macos-latest`:
   underneath a floating pin. When GitHub retires the label, the guard test in
   the plugin (`test_swift_ci_runner_and_actions`) fails and the bump is a
   deliberate edit.
-- swiftformat and swiftlint are preinstalled on GitHub's macOS images — no
-  install step.
+- The image ships swiftformat but not swiftlint (verified live on macos-26), so
+  the workflow's first step brew-installs whichever of the two is missing.
 
 Steps: `swiftformat --lint .` → `swiftlint --quiet` → build → test. The package
 workflow runs `swift build` + `swift test` with an SPM cache (`actions/cache@v5`

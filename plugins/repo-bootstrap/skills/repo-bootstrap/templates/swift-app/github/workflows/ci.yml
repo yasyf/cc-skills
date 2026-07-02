@@ -20,6 +20,11 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
+      - name: Install lint tools missing from the image
+        # macos-26 ships swiftformat but not swiftlint; guard both against image churn.
+        run: |
+          command -v swiftformat >/dev/null || brew install swiftformat
+          command -v swiftlint >/dev/null || brew install swiftlint
       - name: Format (lint mode)
         run: swiftformat --lint .
       - name: Lint

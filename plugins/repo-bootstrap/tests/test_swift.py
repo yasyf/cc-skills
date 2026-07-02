@@ -263,6 +263,10 @@ def test_swift_ci_runner_and_actions(templates_dir):
         assert "runs-on: macos-26" in ci
         assert "actions/checkout@v7" in ci
         assert "runs-on: macos-latest" not in ci
+        # macos-26 ships swiftformat but NOT swiftlint (verified live) — the
+        # install-if-missing guard is load-bearing, not belt-and-braces.
+        assert "command -v swiftlint >/dev/null || brew install swiftlint" in ci
+        assert "command -v swiftformat >/dev/null || brew install swiftformat" in ci
     assert "actions/cache@v5" in package_ci
     assert "hashFiles('Package.resolved')" in package_ci
 
