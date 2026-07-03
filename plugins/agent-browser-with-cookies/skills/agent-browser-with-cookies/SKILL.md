@@ -116,6 +116,14 @@ path to track, nothing to `rm`.
 - The Touch ID prompt is a per-task consent checkpoint, not a hardware binding of the
   key. Your `--reason` shows verbatim, so the user approves an informed, task-specific
   request — keep the reason short and honest.
+- **One session, one tap:** every `cookiesync` call in a Claude Code session shares
+  one Touch ID grant — the CLI derives the requestor from the session — so `auth`
+  (step 2), `cookies` (step 3), and any retries cost one tap total. A second tap
+  means a different requestor (new session, `COOKIESYNC_REQUESTOR` set) or an
+  expired key TTL.
+- **Outside Claude Code:** pin the requestor inline on every call —
+  `COOKIESYNC_REQUESTOR="agent-browser · $(id -un)" cookiesync auth --reason "…"` —
+  an export in a separate step doesn't persist across steps.
 - **Browsers:** omit `--browser` and one tap unions every registered browser and host.
   `--browser chrome|arc` forces a single browser as the escape hatch; `--profile`
   requires `--browser`.

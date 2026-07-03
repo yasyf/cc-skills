@@ -1,7 +1,7 @@
 {
   "name": "agent-browser-with-cookies",
   "description": "Run authenticated agent-browser sessions by streaming cookies for one or more hosts from your local browser via the cookiesync CLI — one Touch ID tap across every registered browser and host — merged into a fresh session over stdin. macOS.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
