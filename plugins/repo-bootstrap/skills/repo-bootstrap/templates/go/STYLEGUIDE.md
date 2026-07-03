@@ -82,10 +82,11 @@ underscore has no meaning in Go.
 
 ## Comments & Doc Comments
 
-Code documents itself through names, types, and organization. The only comments are
-TODOs, non-obvious workarounds, and disabled code. Exported identifiers carry a doc
-comment that begins with the identifier's name; a comment that restates the
-signature is clutter to delete.
+Comments are terse and used sparingly — the code documents itself through names, types,
+and organization. The one exception is documentation-generation comments: godoc on
+exported types, funcs, and the package, each beginning with the identifier's name;
+unexported helpers get none. Beyond godoc, comment only for TODOs, non-obvious
+workarounds, or disabled code — never to restate the signature.
 
 ```go
 // Good — exported, starts with the name, says what's not obvious from the signature

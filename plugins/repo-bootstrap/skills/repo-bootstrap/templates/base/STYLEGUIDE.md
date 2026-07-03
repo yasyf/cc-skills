@@ -33,9 +33,11 @@ conventions to hide internals.
 
 ## Comments & Docstrings
 
-Code documents itself through names, types, and organization. No comments except
-TODOs, non-obvious workarounds, or disabled code. Document the public API only;
-a doc comment that restates the signature is clutter to delete.
+Comments are terse and used sparingly — the code documents itself through names, types,
+and organization. The one exception is documentation-generation comments: the doc
+comments your language's doc tool renders for the public API, each a real description
+rather than a restatement of the signature. Beyond those, comment only for TODOs,
+non-obvious workarounds, or disabled code.
 
 ## Testing
 

@@ -30,7 +30,7 @@
 
 Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and `task lint`.
 
-**Doc comments on exported identifiers only.** Exported types, funcs, and the package itself carry a doc comment that starts with the identifier name (`// NewRootCmd builds …`). Unexported helpers get none. No other comments except TODOs, non-obvious workarounds, or disabled code.
+**Comments are terse and used sparingly — the code documents itself** through names, types, and organization. The one exception is documentation-generation comments: godoc on exported types, funcs, and the package, each starting with the identifier's name (`// NewRootCmd builds …`); unexported helpers get none. Beyond godoc, comment only for TODOs, non-obvious workarounds, or disabled code — never to restate the signature.
 
 **Errors wrap with `%w`.** Return failures up the stack with `fmt.Errorf("…: %w", err)` and inspect them with `errors.Is` / `errors.As`, never string matching. See STYLEGUIDE.md § Error Handling.
 

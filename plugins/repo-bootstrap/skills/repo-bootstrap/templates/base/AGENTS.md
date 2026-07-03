@@ -23,6 +23,8 @@
 
 ## Style
 
+**Comments are terse and used sparingly — the code documents itself** through names, types, and organization. The one exception is documentation-generation comments (the doc comments your language's doc tool renders for the public API); beyond those, comment only for TODOs, non-obvious workarounds, or disabled code — never to restate the signature.
+
 @STYLEGUIDE.md
 
 ## General Rules
