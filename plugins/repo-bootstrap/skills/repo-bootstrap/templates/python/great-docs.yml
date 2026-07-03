@@ -33,6 +33,7 @@ keyboard_nav: true
 # generated mascot); no logo key is needed here.
 hero:
   name: {{PROJECT_NAME}}
+  # Keep the tagline equal to the README opener fragment (one fragment, five surfaces).
   tagline: "{{DESCRIPTION}}"
 
 # Narrative doc sections are optional — dynamic mode generates the API reference

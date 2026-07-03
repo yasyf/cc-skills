@@ -268,7 +268,7 @@ def test_swift_readme_install_follows_release(swift_var_pairs):
     assert "brew install janedoe/tap/demo-proj" in plan_on["README.md"]
     plan_off, _ = _real_plan("swift", swift_var_pairs, features=[])
     assert "brew install" not in plan_off["README.md"]
-    assert "swift build -c release" in plan_off["README.md"]
+    assert "swift run demo-proj hello" in plan_off["README.md"]
 
 
 def test_swift_app_agents_renders(swift_app_var_pairs):

@@ -140,32 +140,27 @@ needed.
 
 ## README.md
 
-Fixed structure, each section with a `TODO(bootstrap)` describing what good looks
-like. Write the section prose through the `writing-docs` skill — its
-technical-builder voice governs the pitch and why-bullets; procedure steps stay
-imperative.
+The skeleton — section order, opener register, get-started rules, use cases,
+previews, footer — lives in the writing-docs skill's `references/readme.md`.
+Write every section through that spec; this file carries only the bootstrap
+mechanics layered on top:
 
-1. **Banner** — `![{PROJECT_NAME} banner](docs/assets/readme-banner.webp)` directly
-   under the H1, generated during bootstrap by the gen-image skill's brand
-   pipeline (project name + tagline left, mascot right, dark background).
-   With feature `pypi` the python template renders an absolute
-   `{REPO_URL}/raw/main/` prefix so PyPI shows it too — relative paths never
-   render on PyPI. Delete the line if image generation was skipped.
-2. **Badges row** — CI shield pointing at `actions/workflows/ci.yml` on `main`,
-   and a license badge (omitted with license `none`), both built from the values
-   supplied at scaffold time (GitHub user, project name, license ID). Add more
-   (PyPI, docs) as they exist. On a private repo, shields.io can't read workflow
-   status — drop the CI/docs badges or expect them broken.
-3. **Pitch** — expand the one-line description into two sentences: what it is,
-   and the one property that makes it worth using.
-4. **Install** — the shortest path from zero to running, one copy-pasteable
-   command (captain-hook: `uvx capt-hook`).
-5. **Quickstart** — a complete working example runnable in under 30 seconds,
-   with expected output shown. Not a feature tour.
-6. **What problems does this solve?** — 3-4 bullets, each naming a concrete pain
-   and how this addresses it. Pains, not features.
-7. **License** — license ID + link to `LICENSE` on the repo. Omitted with
-   license `none`.
+- **Banner path + raw-URL prefix.** The template renders the banner inside the
+  H1 from `docs/assets/readme-banner.webp`, generated in Phase 3 by the
+  gen-image skill's brand pipeline. With feature `pypi` the python template
+  prefixes `{REPO_URL}/raw/main/` on the banner and demo `src` — relative paths
+  never render on PyPI. Escape hatch: image generation skipped → strip the
+  image from the H1, leaving `# {PROJECT_NAME}`.
+- **Private-repo shields caveat.** shields.io can't read workflow status on a
+  private repo — drop the CI/docs badges or expect them broken.
+- **TODO map.** The scaffolded `TODO(bootstrap)` markers, top to bottom: the
+  opener (fragment + expansion sentence), the get-started demo (real run,
+  generator committed at `docs/scripts/demo.sh` or `.cli-demo/demo.tape`), the
+  agent block's first concrete goal, the use cases, then either the docs
+  teasers (feature `docs`) or the inline tail, and the optional `Status:` line.
+- **Feature `docs` off → inline branch.** No "More in the docs" teaser; the
+  README carries its how-to and reference content inline, per the writing-docs
+  skill's `references/standalone-readme.md`.
 
 ## CHANGELOG.md
 

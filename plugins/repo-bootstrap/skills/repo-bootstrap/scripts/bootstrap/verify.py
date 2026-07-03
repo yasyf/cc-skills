@@ -92,6 +92,36 @@ def _missing_banner_note() -> str | None:
     )
 
 
+_DEMO_REF_RE = re.compile(r"docs/assets/(demo\.[a-z0-9]+)")
+_DEMO_GENERATORS = ("docs/scripts/demo.sh", ".cli-demo/demo.tape")
+
+
+def _missing_demo_note() -> str | None:
+    """NOTE when the README's demo slot is dangling: the referenced asset is
+    missing, or the asset has no committed generator (so it can't be
+    regenerated). Keyed off the README reference so it stays silent after the
+    no-terminal-demo escape hatch replaces the img with a fenced output block."""
+    readme = Path("README.md")
+    if not readme.is_file():
+        return None
+    match = _DEMO_REF_RE.search(readme.read_text())
+    if match is None:
+        return None
+    asset = Path("docs/assets") / match.group(1)
+    if not asset.is_file():
+        return (
+            f"README references {asset} but the file is missing"
+            " — record the demo (Phase 4 demo step: freeze via docs/scripts/demo.sh, or the cli-demo skill)"
+            " or apply the no-terminal-demo escape hatch"
+        )
+    if any(Path(gen).is_file() for gen in _DEMO_GENERATORS):
+        return None
+    return (
+        f"{asset} has no committed generator — commit docs/scripts/demo.sh (freeze)"
+        " or .cli-demo/demo.tape (cli-demo) so the demo can be regenerated"
+    )
+
+
 def _missing_social_note() -> str | None:
     """NOTE when the banner exists but the social card doesn't (pre-social-card repo).
 
@@ -245,6 +275,9 @@ def main(layer: str, target: str, no_license: bool) -> int:
 
     if social_note := _missing_social_note():
         print(f"NOTE  {social_note}")
+
+    if demo_note := _missing_demo_note():
+        print(f"NOTE  {demo_note}")
 
     if layer == "python":
         check("pre-commit hook config (uvx prek prepare-hooks)", _prek_config)

@@ -28,16 +28,23 @@ Run this before merging any documentation change. The enforcement hook points th
 
 ## Accessibility and links
 
-- [ ] One h1 per page, no skipped heading levels chosen by outline, and descriptive link text that never reads "click here".
+- [ ] One h1 per page, no skipped heading levels chosen by outline, and descriptive link text that never reads "click here". A banner image inside the H1 whose alt text is the project name IS the one h1, not a violation.
 - [ ] Alt text on every image; every diagram or screenshot has a text equivalent; tables are introduced in prose with header cells; no color-only signaling; acronyms expanded on first use.
 - [ ] Every link resolves, whether an internal relative path or an external URL.
 
 ## Front door and history
 
-- [ ] The README is still a front door, holding the pitch, install, one working example, and a documentation link, with no duplicated usage or API content.
+- [ ] The README's section order matches the skeleton in `readme.md`, with no duplicated usage or API content.
+- [ ] Get started shows exactly one path.
+- [ ] The demo sits directly under the get-started command, is generated from a real run of that exact command, carries alt text, and its generator is committed.
+- [ ] The demo was regenerated if the shown output changed.
+- [ ] The agent block is present and matches the ship-surface table in `readme.md`.
+- [ ] The opener fragment, GitHub About description, package description, and docs hero tagline are identical.
 - [ ] The CHANGELOG is updated in Keep a Changelog format, with a grouped Unreleased entry. Any deprecation carries an in-docs notice and a migration path.
 
 ## Build
 
 - [ ] Public-API docstrings are present and Google-style where the reference renders them; internal helpers carry none.
+- [ ] The docs homepage shows the get-started command and the demo above the fold, before any feature grid.
+- [ ] Tutorial and walkthrough pages carry shown-output checkpoints every few steps.
 - [ ] The docs site builds green. On Great Docs that means `uv run great-docs build` after `uv sync --group docs`.

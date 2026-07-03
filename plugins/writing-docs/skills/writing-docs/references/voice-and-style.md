@@ -61,6 +61,27 @@ The voice of a technical builder who thinks in systems and ships code. The mecha
 - Enthusiasm comes through word choice, not exclamation points. When something is genuinely good, say so plainly: "the results speak for themselves."
 - Criticize bluntly, grounded in a specific technical failure — "async work on sync infrastructure will never turn out well" — never dismissiveness for its own sake.
 
+## Opener register
+
+The README opener and its sibling surfaces run one compressed register: a bold fragment of at most 80 characters, then at most one expansion sentence of at most 160. The fragment carries the bold; the expansion sentence does not, and both sit on the same line directly under the banner.
+
+Six sanctioned shapes:
+
+- **Imperative pair** — "Paste once, run once."
+- **Command-form provocation** — "Delete your HANDOFF.md." / "Stop repeating yourself to Claude." / "Never ship 'delve' again."
+- **Noun phrase plus outcome** — "Every AI coding limit, in your menu bar."
+- **Quantified delta** — "40k tokens in, 9k out."
+- **Tension pair** — "All the autonomy. None of the rm -rf." / "Compact ruthlessly. Regret nothing."
+- **Loss-framing** — name the pain the reader lives right now: "Your best training data is rotting in ~/.claude." / "Everyone swears Claude got lazier. Bring receipts."
+
+Aim the line at the reader's workflow in second person and present tense, and commit to the outcome — "Your other Mac already did the 2FA." beats a hedged description of syncing. The claim must stay true; punch never licenses overclaiming.
+
+Banned: hype adjectives (powerful, blazing, seamless, effortless, magical, revolutionary, game-changing, lightning-fast, supercharged, cutting-edge, next-generation), exclamation points, question-hooks, category-naming openers ("A CLI tool for…"), and "the easiest way to". Specificity carries the energy; an adjective is a confession you had no number.
+
+The said-aloud test: say the fragment to a colleague across a desk. If it sounds like a pitch deck, cut until it sounds like a person.
+
+Five surfaces carry the fragment verbatim: the README opener, the GitHub About description, the pyproject or module description, the Great Docs `hero.tagline`, and the gen-image `--tagline`. Write it once and propagate — `readme.md` states the contract.
+
 ## Get to the point
 
 - Open on substance, not an announcement. Never begin a page or section by naming what it does, as in "This page explains", "This section covers", "In this guide", "What to learn", or "The rest of this page". The title states the topic; lead with the first real sentence.

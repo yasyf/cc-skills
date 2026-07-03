@@ -488,7 +488,7 @@ def test_real_templates_render_license_references(base_var_pairs, py_var_pairs):
     plan, notices = _real_plan("python", py_var_pairs)
     assert "MIT License" in plan["LICENSE"]
     assert "License: MIT" in plan["README.md"]
-    assert "## License" in _real_plan("base", base_var_pairs)[0]["README.md"]
+    assert "Licensed under [MIT](LICENSE)." in _real_plan("base", base_var_pairs)[0]["README.md"]
     assert 'license = "MIT"' in plan["pyproject.toml"]
     assert 'license-files = ["LICENSE"]' in plan["pyproject.toml"]
     assert notices == []
@@ -503,7 +503,7 @@ def test_real_templates_render_license_none(base_var_pairs, py_var_pairs):
 
     base_plan, _ = _real_plan("base", _license_none(base_var_pairs))
     assert "License" not in base_plan["README.md"]
-    assert base_plan["README.md"].endswith("addresses it.\n")  # no trailing blank section
+    assert base_plan["README.md"].endswith("delete this line.\n")  # no trailing blank section
 
 
 def test_real_templates_render_manual_license(py_var_pairs):

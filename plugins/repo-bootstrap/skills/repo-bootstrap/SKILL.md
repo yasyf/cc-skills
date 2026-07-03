@@ -134,6 +134,11 @@ explicitly ask for.
   `com.<github-user>` — the bundle id derives as `<prefix>.<project>`), and the iOS
   floor (`IOS_DEPLOYMENT_TARGET`, default `26.0`). No features.
 
+Write `DESCRIPTION` in the writing-docs opener register — it becomes the README
+opener, the GitHub About description, the pyproject or module description, the
+Great Docs `hero.tagline`, and the gen-image `--tagline` (one fragment, five
+surfaces).
+
 Before Phase 2, reconcile the answers into concrete flags: a "default for
 visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 (public) or `LICENSE_ID=none` (private); the feature picks become `--features`.
@@ -180,7 +185,7 @@ bundle id suffix — no underscores).
 | Var | Meaning | Example |
 |---|---|---|
 | `PROJECT_NAME` | Repo name | `captain-hook` |
-| `DESCRIPTION` | One-line description | `Declarative hook framework for Claude Code.` |
+| `DESCRIPTION` | Opener fragment (writing-docs register) | `Claude Code hooks, one decorator each.` |
 | `AUTHOR_NAME` | From `bootstrap.py identity` | — |
 | `AUTHOR_EMAIL` | From `bootstrap.py identity` | — |
 | `GITHUB_USER` | GitHub login | `yasyf` |
@@ -299,7 +304,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 
 | Destination | Layer | Notes |
 |---|---|---|
-| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python/go/swift/swift-app **override** | the language versions carry feature-gated sections (docs/PyPI for python; a `release` install section for go and swift) rendered to match `--features`; swift-app shares the swift `STYLEGUIDE.md` |
+| `AGENTS.md`, `STYLEGUIDE.md`, `README.md` | base; python/go/swift/swift-app **override** | every README follows the writing-docs skeleton (`references/readme.md`); the language versions gate the get-started path, agent-block invocation, and docs teaser on `--features` (uvx/PyPI + docs for python; brew `release` for go and swift); swift-app shares the swift `STYLEGUIDE.md` |
 | `CLAUDE.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` is `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); `.gitignore` gains python/go/swift entries when layered; `LICENSE` omitted with license `none` |
 | `.mcp.json` | base; swift layers **override** | base ships empty `{"mcpServers":{}}` — code search ships via the `cc-context@skills` plugin (the `ccx` facade), not a per-project server. Both swift layers override it with the `xcodebuildmcp` server (`command: xcodebuildmcp, args: [mcp]`) — the sanctioned build/test/run/simulator driver |
 | `.claude/settings.json` | base; python/go/swift **override** | hooks wired to `uvx capt-hook run <Event>`; registers the `yasyf/cc-skills` and `yasyf/cc-notes` marketplaces and enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@skills` (the `ccx` code-search facade), `cc-notes@cc-notes`; go adds `go`/`task` allow-perms, swift adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint` (both drop the python-only `TY_CONFIG_FILE`) |
@@ -324,7 +329,8 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `<name>/App/*.swift`, `<name>/Assets.xcassets/*`, `<name>Tests/` | swift-app | SwiftUI `@main` app + ContentView, stock asset catalog, Swift Testing smoke test (`@testable import <Module>`) |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
-| `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner line and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
+| `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner (inside the H1) and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
+| `docs/assets/demo.png` + `docs/scripts/demo.sh` (or `.cli-demo/demo.tape`) | base | **generated, not scaffolded** — Phase 4's demo step freezes a real run of the get-started command and commits the generator beside it; `verify` NOTEs a README demo reference with no asset or no committed generator |
 
 **Exit criteria:** `scaffold` exited 0 (no `CONFLICT`s, no leftover `{{...}}`);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
@@ -390,14 +396,23 @@ Every `TODO(bootstrap):` marker is judgment work for you. Find them all with
 `rg -n 'TODO\(bootstrap\)'`, and read the matching reference before editing.
 For prose markers — anything a human reads rather than a tool parses — apply the
 `writing-docs` skill before drafting: its technical-builder voice governs the
-README pitch and why-bullets and the great-docs hero tagline. Run
+README opener and use cases and the great-docs hero tagline. Run
 `slop-cop check <file> --lang=markdown` on each prose file you fill (slop-cop is a Go binary; if it's not on PATH, use the `/slop-cop-check` skill — never `uvx slop-cop`).
 
-- `README.md` (pitch, quickstart, why-bullets) and `AGENTS.md` (repository
-  structure tree) → read `reference/base-conventions.md` first; write the
-  README prose through the `writing-docs` skill.
-- `great-docs.yml` (navbar color, accent color, hero tagline) → read
-  `reference/docs-site.md` first. *(Only present with feature `docs`.)*
+- `README.md` (opener, get-started demo, agent block, use cases, previews) →
+  read the writing-docs skill's `references/readme.md` first, then
+  `reference/base-conventions.md` for the bootstrap-only mechanics.
+- **Demo** — once the starter CLI runs, capture the get-started demo: freeze a
+  real run of the exact command the README shows and record the one-liner in
+  `docs/scripts/demo.sh` (commit both). When the tool is flow-shaped (TUI,
+  progress, multi-step), offer the cli-demo skill's animated SVG instead and
+  commit `.cli-demo/demo.tape`. No tooling → the **No terminal demo** escape
+  hatch (fenced output block).
+- `AGENTS.md` (repository structure tree) → read `reference/base-conventions.md`
+  first.
+- `great-docs.yml` (navbar color, accent color, hero tagline — keep the tagline
+  equal to the README opener fragment) → read `reference/docs-site.md` first.
+  *(Only present with feature `docs`.)*
 
 **Exit criteria:** `rg -n 'TODO\(bootstrap\)'` returns nothing.
 
@@ -421,8 +436,11 @@ platform component not downloaded; the simulator **test** suite is CI's job and 
 NOTEd, not run). Fix failures and re-run; **never skip a `FAIL`.**
 Remaining `TODO(bootstrap)` markers are listed as a `NOTE` — clear them before calling
 the repo done — and so is a README banner reference whose image is missing (Phase 3 was
-dropped: generate the images, or apply the escape hatch), or a banner without
-`social-preview.jpg` beside it (generate it with `--from-logo`). For base layer,
+dropped: generate the images, or apply the escape hatch), a banner without
+`social-preview.jpg` beside it (generate it with `--from-logo`), or a README demo
+reference whose asset or committed generator (`docs/scripts/demo.sh` /
+`.cli-demo/demo.tape`) is missing (Phase 4's demo step, or the **No terminal
+demo** escape hatch). For base layer,
 drop the `--layer` flag (it defaults to base).
 
 **Exit criteria:** `verify` prints `All checks passed`.
@@ -441,7 +459,9 @@ layer and features actually scaffolded:
 Then, optionally, publish and wire one-time setups:
 
 - `gh repo create --source . --push --description "$DESCRIPTION"` plus `--public`
-  or `--private` per the Phase 1 visibility — always set the description; *(feature
+  or `--private` per the Phase 1 visibility — always set the description, and the
+  `--description` string must equal the README opener fragment (one fragment on
+  every surface); *(feature
   docs)* also pass `--homepage "$DOCS_URL"` (Pages on a private repo requires a
   paid GitHub plan). For an existing remote, `gh repo edit` with the same flags
   (visibility via `--visibility public|private --accept-visibility-change-consequences`).
@@ -528,13 +548,15 @@ explicitly deferred with the user).
 - **No PyPI / no docs site**: don't hand-strip — re-scaffold with the feature off.
   `--features docs` drops PyPI (release workflow, badges, `uvx` install, the docs-site
   install widget — README falls back to clone + `uv run`); `--features pypi` drops the docs site (great-docs
-  config, Pages workflow, docs badge/section, `docs` dependency group); `--features ""`
+  config, Pages workflow, docs badge + teaser section — the README switches to the
+  inline tail, `docs` dependency group); `--features ""`
   drops both.
 - **No release pipeline (go)**: release is off by default — `--features ""` scaffolds no
-  `.goreleaser.yaml` / `release.yml` and the README falls back to `go install` + `task
-  build`. Re-scaffold with `--features release` to add it; don't hand-add or hand-strip.
+  `.goreleaser.yaml` / `release.yml` and the README falls back to `go install` (clone +
+  `task build` in its details block). Re-scaffold with `--features release` to add it;
+  don't hand-add or hand-strip.
 - **No release pipeline (swift)**: same shape — `--features ""` scaffolds no `release.yml`
-  and the README falls back to clone + `swift build -c release`. Re-scaffold with
+  and the README falls back to clone + `swift run`. Re-scaffold with
   `--features release` to add it.
 - **Release on an app**: not offered — `release` is swift-package-only; App Store /
   TestFlight distribution is product work. (A macOS `.app` cask is a hand-composed
@@ -571,9 +593,13 @@ explicitly deferred with the user).
   then remove the `"enabledPlugins"` entry (and `"extraKnownMarketplaces"` if nothing else
   uses it) in `.claude/settings.json`.
 - **No brand images**: skip Phase 3 (user declined, or no `OPENAI_API_KEY`) and
-  delete the `![<project> banner](...)` line under the README H1. Nothing else to
-  clean up — Great Docs simply auto-detects no logo, and `verify` only NOTEs a
-  banner the README still references.
+  strip the banner image from the README H1 (`# ![<project>](...)` →
+  `# <project>`). Nothing else to clean up — Great Docs auto-detects no logo,
+  and `verify` only NOTEs a banner the README still references.
+- **No terminal demo**: replace the README's demo `<img ...>` line with a fenced
+  output block of a real run, and commit no generator (delete
+  `docs/scripts/demo.sh` / `.cli-demo/demo.tape` if present) — `verify` only
+  NOTEs a demo asset the README still references.
 - **No prompt-writing nudge**: the nudge ships in the `general` pack — override it with a
   local `.claude/hooks/prompts.py` (see `reference/hooks.md`), then remove the
   `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`

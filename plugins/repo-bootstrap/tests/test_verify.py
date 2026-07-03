@@ -97,6 +97,40 @@ def test_missing_banner_note_no_reference(tmp_path, monkeypatch):
     assert verify._missing_banner_note() is None  # escape hatch removed the line
 
 
+def test_missing_demo_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert verify._missing_demo_note() is None  # no README at all
+    (tmp_path / "README.md").write_text('# demo\n\n<img src="docs/assets/demo.png" alt="demo run" width="700">\n')
+    note = verify._missing_demo_note()
+    assert note is not None
+    assert "docs/assets/demo.png" in note
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.png").write_bytes(b"\x89PNG")
+    note = verify._missing_demo_note()  # asset present, no committed generator
+    assert note is not None
+    assert "generator" in note
+    (tmp_path / "docs" / "scripts").mkdir(parents=True)
+    (tmp_path / "docs" / "scripts" / "demo.sh").write_text("freeze --execute 'demo --help'\n")
+    assert verify._missing_demo_note() is None  # asset + generator present
+
+
+def test_missing_demo_note_tape_generator(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("# demo\n\n![demo](docs/assets/demo.svg)\n")
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.svg").write_text("<svg/>")
+    assert verify._missing_demo_note() is not None  # no generator yet
+    (tmp_path / ".cli-demo").mkdir()
+    (tmp_path / ".cli-demo" / "demo.tape").write_text('Type "demo"\nEnter\n')
+    assert verify._missing_demo_note() is None  # tape counts as the generator
+
+
+def test_missing_demo_note_no_reference(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("# demo\n\n```text\nfenced output fallback\n```\n")
+    assert verify._missing_demo_note() is None  # escape hatch: no demo reference
+
+
 def test_missing_social_note(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert verify._missing_social_note() is None  # no banner: escape hatch stays silent

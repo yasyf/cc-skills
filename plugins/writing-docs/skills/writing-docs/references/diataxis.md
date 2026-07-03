@@ -48,7 +48,7 @@ From the Good Docs Project templates, trimmed to the essentials.
 - No step-by-step instructions, and not the first place a fact is stated
 
 **README**
-- Title, badges, one-line pitch, what and why, install, smallest working example with output, usage, docs link, contributing, license
+- The canonical skeleton lives in `readme.md`; a README carries several modes by design, so the skeleton governs it, not the compass
 
 **Release notes / changelog**
 - Keep a Changelog format: latest first, grouped Added / Changed / Deprecated / Removed / Fixed / Security, Unreleased on top

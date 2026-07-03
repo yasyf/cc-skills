@@ -1,6 +1,6 @@
-# Standalone READMEs: when the README is the only doc
+# Standalone READMEs: the inline tail when the README is the only doc
 
-The skill's README anatomy assumes a docs site behind the front door: "link to the docs site, never duplicate." A standalone README has no house behind it. The README is the project's only or primary documentation, the way most single-binary CLIs, small libraries, and plugins ship. The front-door instinct still holds, but with no site to relocate to, the compression lever changes, and the skill's "link instead" escape hatch is gone.
+The skeleton in `readme.md` ends in two branches, and this page owns the second. When no docs site exists, the feature previews and link-out ending (skeleton sections 8-9) are replaced by inline how-to and reference content, and the rules for that tail live here. The front half — banner through use cases — is identical in both branches and `readme.md` governs it; nothing here overrides it. There is no hard length ceiling on the inline branch. `<details>` blocks and the rhythm rule from `readme.md` govern length, not a line count.
 
 ## The offload target is `--help`, not a docs site
 
@@ -14,18 +14,20 @@ Go standalone when the surface is bounded and the binary documents itself:
 - One or two audiences reachable in one file, not separate learning tracks.
 - An exhaustive reference that lives in the tool, so the README carries a curated table plus one example and defers the tail.
 - No hosted docs site, with none planned. Standalone is the steady state, not a transitional gap.
-- A whole that fits in roughly 50 to 200 lines without flag-dumping.
+- A whole that fits in one file without flag-dumping.
 
 Reach for a front-door README plus a separate docs site when the surface or audience outgrows one file: a large or generated reference that would bloat or drift the README, multiple audiences each needing their own Diataxis track, reference generated from docstrings that must stay in sync mechanically, or long-form conceptual and migration material that swamps orientation.
 
 Two valid standalone models exist; pick one and commit. A front door to `--help` orients, demos, installs, then defers the exhaustive reference to `--help` and man, the way ripgrep, fd, bat, zoxide, and hyperfine do. A whole manual puts everything in one file, fronted by a table of contents that *is* the published reference, the way just does. The anti-pattern is the in-between, a thin README that mostly redirects to a half-built docs site and leaves two sources of truth to drift apart.
 
-## What changes when there's no docs site
+## The inline tail
+
+What replaces the feature previews and the link-out ending:
 
 - Carry the reference tables you cannot relocate. A curated command table and a config or env-var table are legitimate here, since no reference page exists to hold them. Keep them at reference altitude, one row per signature plus a one-line description, no narrative. The bloat is a prose paragraph re-describing the same flags, not the table itself.
 - Show one canonical invocation per surface and defer every flag to `--help`. Never enumerate every `--flag` in prose. The defining smell is a paragraph listing `--this`, `--that`, and `--budget N`, then deferring to `--help` in the same breath. The offload target is right there, so cut the enumeration and keep the deferral.
-- State each command surface exactly once. A standalone README carries every Diataxis mode in one file, so "one mode per page" is unreachable. The substitute is a headed section per mode, each at its own altitude, naming each command once. The dominant bloat is triplication: the same commands in a per-command "Why" list, again in the quickstart, and a third time in the command table. Pick one home per fact. The table is the reference, the quickstart shows one path, and the why-section motivates without re-listing. This is ARID with no "link instead" escape hatch, so the discipline is harder, not softer.
-- Keep the quickstart one single-path lifecycle with real, trimmed output. One branchless flow of at most ten steps, ending in a single shown outcome, not a feature tour of independent demos under sub-headings. Output stays real and current but trimmed. Collapse a minified JSON blob with a brittle float to its load-bearing fields, or bound it with the tool's own flag, instead of pasting a wall.
+- State each command surface exactly once. A standalone README carries every Diataxis mode in one file, so "one mode per page" is unreachable. The substitute is a headed section per mode, each at its own altitude, naming each command once. The dominant bloat is triplication: the same commands in the use cases, again in the walkthrough, and a third time in the command table. Pick one home per fact. The table is the reference, get started shows one path, and a use case motivates without re-listing. This is ARID with no "link instead" escape hatch, so the discipline is harder, not softer.
+- Keep any inline walkthrough one single-path lifecycle with real, trimmed output. One branchless flow of at most ten steps, ending in a single shown outcome, not a feature tour of independent demos under sub-headings. Output stays real and current but trimmed. Collapse a minified JSON blob with a brittle float to its load-bearing fields, or bound it with the tool's own flag, instead of pasting a wall.
 - Hold architecture to one paragraph, stated once. The absence of an architecture page does not license a long internals tour. Name the approach, attribute prior art, and stop. An internal-class walkthrough belongs in an explanation doc the standalone repo does not have, so leave it out.
 - Cut verbosity, never facts. Verify completeness against the prior version so no genuine fact is silently dropped. A load-bearing fact or gotcha survives a hard trim, whether a dependency requirement, a billing or rate-limit consequence, or a safety cap such as `--apply` or a file-count limit. A verbose multi-clause restatement goes.
 
@@ -44,4 +46,4 @@ The minimum set is still README, LICENSE, CONTRIBUTING, and CHANGELOG. In a stan
 - [just](https://github.com/casey/just) is the whole-manual model: the README *is* the complete manual, fronted by a table of contents and rendered verbatim as the published book, so no second source can drift.
 - [hyperfine](https://github.com/sharkdp/hyperfine) opens with a five-word definition and a GIF, keeps a tight example-driven Usage section, and shows the actual exported artifacts, a results table, histogram, and whisker plot.
 
-See the `README anatomy` section in `SKILL.md` for the front-door-plus-docs-site default this page is the standalone counterpart to.
+See `readme.md` for the front half and for the docs-site branch this page is the counterpart to.

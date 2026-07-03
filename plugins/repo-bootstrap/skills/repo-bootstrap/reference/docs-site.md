@@ -53,9 +53,14 @@ presets (`navbar_style`/`content_style`) and no hero `starfield`. The gradient/s
 read as busy, and the starfield's full-viewport canvas intercepts homepage clicks — leave them
 off unless a project explicitly wants the flair.
 
-**`hero`** — landing-page banner: `name` (project name) and `tagline` (the one-line description
-supplied at scaffold time, e.g. captain-hook's "Declarative hooks for Claude Code — rules as
-data, tested inline."). Tighten the tagline when the README pitch firms up.
+**`hero`** — landing-page banner: `name` (project name) and `tagline`. The tagline IS the
+README opener fragment — the writing-docs opener register (`references/readme.md`), one
+fragment on every surface — and must match what `gh repo edit --description` sets.
+
+The landing page funnels like the README: when you add an `index.qmd`, it leads with the
+get-started command and the demo above the fold. Tutorial pages follow the walkthrough
+contract in the writing-docs skill's `references/great-docs-quarto.md` — pointers, not a
+restated spec.
 
 **`cli`** — renders `--help` docs for the click CLI:
 

@@ -8,6 +8,31 @@ Stack specifics for a project documented with Great Docs, which renders a Quarto
 - The curated symbol reference comes from the package root `__init__.py` re-exports, which often carry no `__all__`. The auto-generated symbol pages live under the generated `reference/` directory; hand-written cheatsheets live under `docs/reference/`. Keep the two distinct and link between them.
 - Build green with `uv run great-docs build` after `uv sync --group docs`. Set `GITHUB_TOKEN` locally so the GitHub-Releases changelog page does not skip on rate limits. If a large API reference makes the build crawl, that is the per-page sidebar re-render cost — repo-bootstrap's `reference/docs-site.md` covers the `pre_render` fix (`native_reference_titles.py`).
 
+## Landing page
+
+- The `hero` tagline in `great-docs.yml` is the opener fragment, verbatim — one of the five surfaces in `readme.md`'s one-fragment contract.
+- `index.qmd` shows the one get-started command and the demo image above the fold, before any feature grid.
+- At most three use-case cards, each linking to a how-to.
+- The homepage funnels, never documents: every block links deeper, and none carries the full detail it points to.
+
+## Walkthrough pages
+
+The getting-started tutorial and any multi-step how-to follow one contract:
+
+- The title is a promise plus a time budget: "Write your first hook in under five minutes".
+- Show the end state first, before step 1, so the reader sees where they land.
+- Number the steps. Every two or three steps, a checkpoint shows the exact expected output at that point:
+
+  ```markdown
+  ::: {.callout-tip title="Checkpoint"}
+  `uvx tool status` now prints `3 hooks active`.
+  :::
+  ```
+
+- A checkpoint may carry at most one grounded recovery line ("An empty table means the daemon isn't running — `uvx tool up`"). This is the one scoped carve-out from the no-pre-emptive-admonishment rule: name the single likely failure and its fix, flat, and stop.
+- End with the verified outcome and next-steps links.
+- Screenshot and demo generators live in `docs/scripts/`, committed, so the shown output regenerates instead of drifting.
+
 ## Docstrings
 
 - Write Google-style docstrings on the public API only. That covers user-facing classes, primitives, and the types that render into the reference. Internal helpers get none.
