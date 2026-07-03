@@ -18,7 +18,7 @@ focused skills. Each plugin installs independently.
 | `gh-profile` | Create or refresh a fancy GitHub profile README from your real repos and activity, with cron Actions that keep it fresh and an opt-in daily Claude refresh that summarizes recent commits and releases. | `gh` authenticated with `repo` + `workflow` scopes; `gen-image` for the banner; `repo-summaries` for the daily Claude refresh. |
 | `repo-summaries` | Maintain a Claude-written summaries sidecar in any repo: a committed read-side module plus a config-driven daily refresh skill that turns real commit and release data into one-line suffixes. | `gh` for the raw-material recipes. |
 | `cli-demo` | Generate an animated SVG terminal demo of a CLI with `evp`: write a `.tape`, render it, inspect the keyframes, and refine in a loop. | Docker (`linux/amd64`) on macOS/ARM; native on Linux x86_64. A `SessionStart` hook bootstraps the `evp` binary. |
-| `agent-browser-with-cookies` | Run authenticated `agent-browser` sessions by reusing your local browser login: extract a site's cookies and seed them into a fresh session. | macOS; `uv`; the `agent-browser` skill. Chrome self-decrypt needs a one-time _Always Allow_ plus a Touch ID tap (cross-browser `@mherod/get-cookie` fallback). |
+| `agent-browser-with-cookies` | Run authenticated `agent-browser` sessions by reusing your local browser login: one Touch ID tap streams the sites' cookies into a fresh session. | macOS; the `cookiesync` CLI with its resident daemon; the `agent-browser` skill. |
 
 ## Install
 
