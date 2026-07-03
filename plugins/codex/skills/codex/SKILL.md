@@ -51,6 +51,14 @@ the relevant code, write a self-contained codex prompt (Step 1 below), run this
 codex skill, and return Codex's answer verbatim. The wrapper ferries context;
 Codex does the thinking.
 
+The wrapper never absorbs a surprise. If Codex's reply is unexpected — it
+contradicts the question's premise, says the task is different than described,
+or proposes changes outside the asked scope — the wrapper returns it verbatim,
+flagged as unexpected, with 2-4 concrete options for the orchestrator. It never
+iterates with follow-up codex calls to resolve the surprise and never picks a
+direction itself: deciding next steps after a surprise is fable work, not a
+sonnet-tier call.
+
 ## Workflow
 
 ### Step 1: Gather Context
@@ -98,6 +106,12 @@ Read /tmp/codex_reply.txt
 ```
 
 Evaluate suggestions critically. Codex is helpful but not infallible -- it can occasionally misinterpret specifications. Always verify against authoritative sources before applying.
+
+If the reply invalidates the premise of your question or changes the task's
+shape -- the bug isn't where you said, the spec means something else, the fix
+belongs in a different layer -- stop rather than improvising a detour: surface
+the finding with 2-4 concrete options and let the user (or the fable
+orchestrator that delegated to you) pick. See AGENTS.md § Ask Before Assuming.
 
 ## Alternative: Direct Piping
 

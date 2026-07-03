@@ -93,10 +93,14 @@ belong in the shared AGENTS.md:
   for recon (never haiku except single-fact mechanical steps), gpt-5.5 via the
   codex skill for code/diff review, bug diagnosis, well-scoped edits to existing
   code, second opinions, imagegen, and rote throwaway work (from subagents: a thin
-  sonnet low-effort wrapper); defaults, not limits — escalation means fable; effort
-  `xhigh` by default (fable implementation may run `high`), `max` only after xhigh
-  falls short; every plan's `## Workflow Plan` table names each phase's model and
-  effort (AGENTS.md § Writing Plans).
+  sonnet low-effort wrapper); defaults, not limits — escalation means fable;
+  the unexpected checks back — a delegated agent hitting a task-shape surprise
+  (scope change, invalidated assumption, task not as described) stops and
+  returns findings plus 2-4 options for the fable orchestrator to pick, never
+  improvising a detour or punting the decision to a cheaper model (transient
+  failures stay autonomous); effort `xhigh` by default (fable implementation may
+  run `high`), `max` only after xhigh falls short; every plan's `## Workflow
+  Plan` table names each phase's model and effort (AGENTS.md § Writing Plans).
 
 Keep all three terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 

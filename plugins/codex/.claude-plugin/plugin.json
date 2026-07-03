@@ -1,7 +1,7 @@
 {
   "name": "codex",
   "description": "Get a second opinion from OpenAI's Codex CLI when stuck on difficult debugging, code analysis, or architecture problems, hand it a well-scoped edit to existing code, generate images with Codex's $imagegen skill, or offload rote throwaway work where nothing can go wrong. Always runs gpt-5.5 at xhigh reasoning on the fast service tier. Requires the `codex` CLI on PATH.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

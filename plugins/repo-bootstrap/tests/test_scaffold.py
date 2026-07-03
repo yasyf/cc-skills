@@ -210,6 +210,23 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "model and effort per the Models table" in plans
 
 
+def test_claude_md_check_back_on_the_unexpected(templates_dir):
+    # 2026-07: delegated agents must not improvise when the unexpected changes the
+    # task's shape — they stop and return findings + 2-4 options for the fable
+    # orchestrator to pick; the decision never routes to a cheaper model. Transient
+    # failures stay autonomous (AGENTS.md § General Rules), so the carve-out phrase
+    # must survive too. base-conventions.md and the codex skill carry the same
+    # contract; regressing any copy forks template from fleet.
+    claude = (templates_dir / "base/CLAUDE.md").read_text()
+    assert "**Check back on the unexpected.**" in claude
+    assert "findings plus 2-4 concrete options" in claude
+    assert "stay autonomous" in claude
+    conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
+    assert "the unexpected checks back" in conventions
+    skill = templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md"
+    assert "never absorbs a surprise" in skill.read_text()
+
+
 def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
     # The /codex skill must pin xhigh + the fast service tier on every codex
     # exec invocation — without service_tier=fast, xhigh prompts run 10-30+
