@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
@@ -9,8 +9,9 @@ effort: medium
 # Codex CLI
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
-hand it a well-scoped edit to existing code, use its built-in `$imagegen` skill to
-generate images, or offload rote throwaway work.
+run a code/diff review or bug diagnosis, hand it a well-scoped edit to existing
+code, use its built-in `$imagegen` skill to generate images, or offload rote
+throwaway work.
 
 Every `codex exec` in this skill pins `-c model_reasoning_effort=xhigh
 -c service_tier=fast`. The fast tier is mandatory — never drop it or offer a
@@ -20,6 +21,12 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
 
 ## When to Use
 
+- Code/diff review — sweeping a diff or codebase for bugs, correctness issues, or
+  cleanups, including finder and adversarial-refuter passes. This is the review
+  lane per the Models table; the synthesis/accept-reject pass over findings stays
+  with the caller (fable).
+- Bug diagnosis — the first stop; escalate to fable only when Codex's answer
+  misses.
 - After 2+ failed approaches to the same problem
 - Debugging subtle bugs (off-by-one, race conditions, state corruption)
 - Analyzing complex algorithms against specifications

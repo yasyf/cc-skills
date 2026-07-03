@@ -85,16 +85,18 @@ belong in the shared AGENTS.md:
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level; delegated agents are routed by the **Models** table —
-  opus-4.8 `xhigh` by default (when in doubt, opus; implementation lands here),
-  fable-5 for orchestration, review, hard planning/design/diagnosis, all
-  prose/writing (never down-route writing), sensitive or error-prone implementation,
-  and as the escalation target (context-window offload is not a routing cue),
-  sonnet-5 for recon (never haiku except single-fact mechanical steps), gpt-5.5 via
-  the codex skill for well-scoped edits to existing code, second opinions, imagegen,
-  and rote throwaway work (from subagents: a thin sonnet low-effort wrapper);
-  defaults, not limits — escalation means fable; effort `xhigh` by default (fable
-  implementation may run `high`), `max` only after xhigh falls short; every plan
-  carries the `## Workflow Plan` section AGENTS.md § Writing Plans requires.
+  opus-4.8 `xhigh` by default (when in doubt, opus; implementation delegates here
+  rather than editing inline on fable), fable-5 for orchestration, design review,
+  hard planning, all prose/writing (never down-route writing), sensitive or
+  error-prone implementation, review-findings synthesis, and as the escalation
+  target for every lane (context-window pressure is not a routing cue), sonnet-5
+  for recon (never haiku except single-fact mechanical steps), gpt-5.5 via the
+  codex skill for code/diff review, bug diagnosis, well-scoped edits to existing
+  code, second opinions, imagegen, and rote throwaway work (from subagents: a thin
+  sonnet low-effort wrapper); defaults, not limits — escalation means fable; effort
+  `xhigh` by default (fable implementation may run `high`), `max` only after xhigh
+  falls short; every plan's `## Workflow Plan` table names each phase's model and
+  effort (AGENTS.md § Writing Plans).
 
 Keep all three terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 

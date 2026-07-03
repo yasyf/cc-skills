@@ -185,15 +185,29 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "when in doubt, opus" in claude
     assert "when in doubt, fable" not in claude
     assert "escalation after fable misses the bar" not in claude
+    # Implementation delegates to opus rather than fable editing inline on the
+    # main loop — direct edits are where implementation actually happens (the
+    # capt-hook main-loop nudge enforces the same directive).
+    assert "rather than editing inline on fable" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
-    # gpt-5.5 production lane: well-scoped edits to existing code via the codex
-    # skill (sonnet wrapper from workflows/subagents).
+    # gpt-5.5 lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from
+    # fable; escalation stays gpt-5.5→fable) and well-scoped edits, via the codex
+    # skill (sonnet wrapper from workflows/subagents). Fable keeps design review
+    # and the synthesis/accept-reject pass over findings.
+    assert "code/diff review" in claude
+    assert "bug diagnosis" in claude
     assert "well-scoped edits" in claude
+    assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
+    assert "synthesis/accept-reject" in claude
     # All prose/writing routes to fable (capt-hook blocks non-fable pins on
     # writing prompts). Dropping the phrase would silently re-open down-routing
     # of docs and user-facing text.
     assert "never down-route writing" in claude
+    # Plans assign model + effort per phase at authoring time; without the clause
+    # plans get authored with no assignments and execution inherits fable.
+    plans = (templates_dir / "_partials/writing-plans.md").read_text()
+    assert "model and effort per the Models table" in plans
 
 
 def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
