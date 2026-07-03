@@ -182,6 +182,10 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # perspective/escalation. Regressing the fable row would re-route them to opus.
     assert "it is not an escalation cue" in claude
     assert "Independent second perspective" in claude
+    # 2026-07 refinement: all prose/writing routes to fable (capt-hook >=5.1.0
+    # blocks non-fable pins on writing prompts). Dropping the phrase would
+    # silently re-open down-routing of docs and user-facing text.
+    assert "never down-route writing" in claude
 
 
 def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):

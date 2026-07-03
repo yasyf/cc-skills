@@ -85,7 +85,8 @@ belong in the shared AGENTS.md:
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level; delegated agents are routed by the **Models** table —
-  fable-5 by default (including hard planning/design/diagnosis subagents — context-window
+  fable-5 by default (including all prose/writing — never down-route writing — and
+  hard planning/design/diagnosis subagents — context-window
   offload is not an escalation cue), opus-4.8 as an independent second
   perspective/escalation, sonnet-5 for recon
   (never haiku except single-fact mechanical steps), `/codex` for second opinions,

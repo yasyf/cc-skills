@@ -1,7 +1,7 @@
 {
   "name": "writing-docs",
   "description": "Apply Diataxis modes and proven documentation craft (a technical-builder voice, runnable code samples, quickstart design, README anatomy, standalone-README design, cheat-sheet and examples-catalog formats, accessibility) plus a required slop-cop prose-lint pass when writing or revising project documentation, READMEs, tutorials, how-tos, reference, cheat sheets, or examples catalogs.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

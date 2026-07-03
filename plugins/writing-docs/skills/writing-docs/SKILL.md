@@ -9,6 +9,8 @@ This skill is opinionated and checklist-driven. Documentation is not one thing. 
 
 Run `slop-cop check <file> --lang=markdown` on every page you touch and triage every finding: fix the genuine tells, keep deliberate voice moves. This is not optional.
 
+Writing always runs on fable: never delegate prose to a down-routed subagent — inherit the session model or pass `model: fable`.
+
 ## The process, five gates in order
 
 1. **Understand the reader.** Name the persona, their goal, and what they already know. Do not draft until you can.

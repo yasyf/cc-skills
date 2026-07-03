@@ -26,6 +26,9 @@ construction.
 Work the phases below in order. Each ends with an **Exit criteria** line —
 don't advance until it holds.
 
+The profile's prose is writing: it always runs on fable — never delegate it
+to a down-routed subagent; inherit the session model or pass `model: fable`.
+
 ## Terminology
 
 - **Profile repo** — the public repo named exactly the user's login
