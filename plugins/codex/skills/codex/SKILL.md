@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when stuck after multiple attempts, when asked to generate an image, or for disposable bulk work.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
@@ -9,8 +9,8 @@ effort: medium
 # Codex CLI
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
-use its built-in `$imagegen` skill to generate images, or offload rote throwaway
-work.
+hand it a well-scoped edit to existing code, use its built-in `$imagegen` skill to
+generate images, or offload rote throwaway work.
 
 Every `codex exec` in this skill pins `-c model_reasoning_effort=xhigh
 -c service_tier=fast`. The fast tier is mandatory — never drop it or offer a
@@ -30,6 +30,19 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
 - Rote, throwaway work -- one-off scripts, scratch harnesses, bulk data munging --
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
+- Well-scoped edits to existing code -- the change is fully specifiable up front
+  and adds little net-new code (a refactor, a signature change, threading a
+  parameter through). Production edits are in range at xhigh; review the diff as
+  you would any other contributor's.
+
+## From Workflows and Subagents (the sonnet wrapper)
+
+The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps takes
+only Claude models, so gpt-5.5 can't be routed directly. Spawn a thin wrapper
+instead: a `model: sonnet`, `effort: low` agent whose prompt tells it to gather
+the relevant code, write a self-contained codex prompt (Step 1 below), run this
+codex skill, and return Codex's answer verbatim. The wrapper ferries context;
+Codex does the thinking.
 
 ## Workflow
 

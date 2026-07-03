@@ -167,24 +167,32 @@ def test_go_ci_action_major_matches_v2_config(templates_dir):
 
 def test_claude_md_routes_models_not_max_effort(templates_dir):
     # The blanket "max model/effort" rule was replaced (2026-07) by the Models
-    # routing table (fable default, sonnet over haiku, /codex lanes, effort
-    # xhigh); base-conventions.md and the fleet's deployed CLAUDE.md files carry
-    # the same text, and the capt-hook `models` pack enforces it — regressing to
-    # the old line would silently fork template from fleet and hooks.
+    # routing table; base-conventions.md and the fleet's deployed CLAUDE.md files
+    # carry the same text, and the capt-hook `models` pack enforces it —
+    # regressing would silently fork template from fleet and hooks.
     claude = (templates_dir / "base/CLAUDE.md").read_text()
     assert "max model/effort level" not in claude
     assert "**Models**" in claude
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
-    # 2026-07 refinement: hard planning/design/diagnosis subagents stay on fable
-    # (context-window offload is not an escalation cue); opus narrowed to second
-    # perspective/escalation. Regressing the fable row would re-route them to opus.
-    assert "it is not an escalation cue" in claude
-    assert "Independent second perspective" in claude
-    # 2026-07 refinement: all prose/writing routes to fable (capt-hook >=5.1.0
-    # blocks non-fable pins on writing prompts). Dropping the phrase would
-    # silently re-open down-routing of docs and user-facing text.
+    # 2026-07-03 flip: opus-4.8 xhigh is the delegation default — opus is ~2x
+    # cheaper AND less capable than fable, so fable→opus is a down-route and
+    # escalation flows opus→fable only. Regressing either phrase would re-route
+    # implementation subagents back to fable (or resurrect the backwards
+    # escalation direction).
+    assert "| opus-4.8 | 4 | 8 | 8 |" in claude
+    assert "when in doubt, opus" in claude
+    assert "when in doubt, fable" not in claude
+    assert "escalation after fable misses the bar" not in claude
+    # Context-window offload routes by task type, never by the fact of delegation.
+    assert "not a routing cue" in claude
+    # gpt-5.5 production lane: well-scoped edits to existing code via the codex
+    # skill (sonnet wrapper from workflows/subagents).
+    assert "well-scoped edits" in claude
+    # All prose/writing routes to fable (capt-hook blocks non-fable pins on
+    # writing prompts). Dropping the phrase would silently re-open down-routing
+    # of docs and user-facing text.
     assert "never down-route writing" in claude
 
 

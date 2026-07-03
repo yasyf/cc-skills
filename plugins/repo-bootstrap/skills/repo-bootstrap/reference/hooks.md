@@ -104,19 +104,30 @@ unchanged; only the delivery moved from vendored `.py` files to packs, so the "t
 ### `models` (general pack)
 
 Enforces the CLAUDE.md **Models** routing table (§ Plan Execution & Orchestration) at
-PreToolUse. Three hooks:
+PreToolUse. Six hooks:
 
 - **Haiku gate (block).** Denies an `Agent`/`Task` call that explicitly passes a
   haiku-tier `model`, unless the prompt reads as single-fact mechanical work
   (classify/label/tag one thing per item). Recovery is in the deny message: use
   `sonnet`, or drop `model` to inherit the session model.
+- **Prose gate (block).** Denies an `Agent`/`Task` call that pins haiku/sonnet/opus
+  on a writing-shaped prompt — all prose routes to fable; drop `model` or pass
+  `model: fable`.
 - **Explore auto-upgrade (rewrite).** An `Explore` or `claude-code-guide` subagent
   spawned without a `model` param silently runs haiku; this rewrite fills in
   `model: sonnet` (never touching an explicit choice) and notes the upgrade in
   context.
+- **Fable-implementation nudge (LLM, warn).** An `Agent`/`Task` spawn that would run
+  on fable (unpinned or `model: fable`) with an implementation-shaped prompt gets an
+  LLM-judged reminder that implementation defaults to opus `xhigh` (or the codex
+  skill via a sonnet wrapper for well-scoped edits). Judged, not pattern-matched,
+  because fable is often intentional — review, writing, hard planning, and sensitive
+  implementation stay there; when uncertain it stays silent.
 - **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via
   `scriptPath`) pins `agent()` steps to haiku gets a reminder that haiku is for
   mechanical map/apply steps only — judgment-bearing stages inherit or route up.
+- **Workflow prose nudge (warn).** A `Workflow` whose script pins a non-fable model
+  on prose-shaped stages gets the matching reminder that writing routes to fable.
 
 Remove or tailor by overriding with a local `models` hook. If a repo legitimately
 runs haiku fleets (bulk single-fact classification), the gate already allows
