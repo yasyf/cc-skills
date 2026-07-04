@@ -204,6 +204,20 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # writing prompts). Dropping the phrase would silently re-open down-routing
     # of docs and user-facing text.
     assert "never down-route writing" in claude
+    # 2026-07-03: security review/audit + verification of security-sensitive code
+    # route to gpt-5.5; implementing that code stays fable (carve-out must survive).
+    # "count as same-tier" keeps the verification-tier rule from contradicting the
+    # gpt-5.5 lanes — without it agents refuse the routing (observed live).
+    assert "security review/audit" in claude
+    assert "verification of security-sensitive code" in claude
+    assert "very sensitive or error-prone implementation" in claude
+    assert "count as same-tier" in claude
+    conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
+    assert "security review/audit" in conventions
+    assert "verification of" in conventions and "security-sensitive code" in conventions
+    codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
+    assert "security review/audit" in codex_skill
+    assert "verification of security-sensitive code" in codex_skill
     # Plans assign model + effort per phase at authoring time; without the clause
     # plans get authored with no assignments and execution inherits fable.
     plans = (templates_dir / "_partials/writing-plans.md").read_text()

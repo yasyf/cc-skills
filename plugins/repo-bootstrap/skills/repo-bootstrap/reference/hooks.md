@@ -104,7 +104,7 @@ unchanged; only the delivery moved from vendored `.py` files to packs, so the "t
 ### `models` (general pack)
 
 Enforces the CLAUDE.md **Models** routing table (§ Plan Execution & Orchestration) at
-PreToolUse. Six hooks:
+PreToolUse. Eight hooks:
 
 - **Haiku gate (block).** Denies an `Agent`/`Task` call that explicitly passes a
   haiku-tier `model`, unless the prompt reads as single-fact mechanical work
@@ -121,8 +121,16 @@ PreToolUse. Six hooks:
   on fable (unpinned or `model: fable`) with an implementation-shaped prompt gets an
   LLM-judged reminder that implementation defaults to opus `xhigh` (or the codex
   skill via a sonnet wrapper for well-scoped edits). Judged, not pattern-matched,
-  because fable is often intentional — review, writing, hard planning, and sensitive
-  implementation stay there; when uncertain it stays silent.
+  because fable is often intentional — design/prose review, writing, hard planning,
+  and sensitive implementation stay there (code/diff and security review route to
+  gpt-5.5 via their own nudges); when uncertain it stays silent.
+- **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
+  run code/diff review, a security review/audit or verification of security-sensitive
+  code, or bug diagnosis on fable gets a reminder that these route to gpt-5.5 via the
+  codex skill (sonnet low-effort wrapper). Design review, prose review, and findings
+  synthesis stay on fable; when uncertain it stays silent.
+- **Workflow review/diagnosis nudge (LLM, warn).** The same reminder for a `Workflow`
+  whose finder, refuter, security-audit, or diagnosis stages would run on fable.
 - **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via
   `scriptPath`) pins `agent()` steps to haiku gets a reminder that haiku is for
   mechanical map/apply steps only — judgment-bearing stages inherit or route up.

@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
@@ -9,9 +9,9 @@ effort: medium
 # Codex CLI
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
-run a code/diff review or bug diagnosis, hand it a well-scoped edit to existing
-code, use its built-in `$imagegen` skill to generate images, or offload rote
-throwaway work.
+run a code/diff review, security review/audit, or bug diagnosis, hand it a
+well-scoped edit to existing code, use its built-in `$imagegen` skill to generate
+images, or offload rote throwaway work.
 
 Every `codex exec` in this skill pins `-c model_reasoning_effort=xhigh
 -c service_tier=fast`. The fast tier is mandatory — never drop it or offer a
@@ -25,6 +25,11 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
   cleanups, including finder and adversarial-refuter passes. This is the review
   lane per the Models table; the synthesis/accept-reject pass over findings stays
   with the caller (fable).
+- Security review/audit and verification of security-sensitive code — auth, input
+  validation, file paths, crypto, secrets. The primary security-verification lane
+  per the Models table: implementing that code stays on fable, this lane checks
+  the result, and the synthesis/accept-reject pass over findings stays with the
+  caller (fable).
 - Bug diagnosis — the first stop; escalate to fable only when Codex's answer
   misses.
 - After 2+ failed approaches to the same problem
