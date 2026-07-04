@@ -6,6 +6,7 @@ The voice of a technical builder who thinks in systems and ships code. The mecha
 
 - Write with the authority of someone who has already built the thing, explains it clearly, and has opinions about what's good and what's a mess.
 - The writer is an expert talking to another expert, not a teacher explaining down.
+- The README's reader is a user of the tool, not its builder. Write to the person running it; send the person building it to AGENTS.md or CONTRIBUTING.
 
 ## Where the voice applies
 
@@ -33,6 +34,7 @@ The voice of a technical builder who thinks in systems and ships code. The mecha
 
 - Use active voice and make the actor the grammatical subject, as in "The server sends an acknowledgment." Allow passive only to emphasize an object or de-emphasize an irrelevant actor.
 - Use present tense for general behavior. Ban future "will" and hypothetical "would" except for time-specific events.
+- Release narration is the future-tense ban in disguise: "will be available", "goes live with", and "until then" speak from the maintainer's timeline and are stale on arrival. State what the reader can run today.
 
 ## Punctuation
 
@@ -88,7 +90,7 @@ Five surfaces carry the fragment verbatim: the README opener, the GitHub About d
 - Do not pre-announce structure. Cut "three properties follow", "there are four steps", and the like. The headings and lists already announce themselves.
 - Do not pre-emptively admonish the reader. State behavior and its consequences as fact. Reserve a warning for real data-loss or security stakes, not a generic "be careful", "make sure", or "don't forget".
 - The inverse is also a rule: a real footgun earns a real callout. When a fact will bite — a marker matched case-sensitively, a default that silently drops data, an order that matters — lift it out of the prose into a warning callout and state it flat, one per genuine edge. The ban is on generic nannying, not on surfacing a sharp edge where it cuts.
-- Keep internals and history out of task and reference pages. Drop docs-generation, packaging, and build mechanics, internal module paths, and private symbols a reader never touches. Drop former names, legacy or deprecated fallbacks, and "used to"; state what is. History belongs on an explanation page or in the changelog.
+- Keep internals and history out of task and reference pages and out of the README — `readme.md`'s dropped-sections list names the usual leaks. Drop docs-generation, packaging, and build mechanics, internal module paths, and private symbols a reader never touches. Drop former names, legacy or deprecated fallbacks, and "used to"; state what is. History belongs on an explanation page or in the changelog.
 
 ## Inclusive language
 

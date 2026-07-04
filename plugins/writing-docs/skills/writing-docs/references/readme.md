@@ -1,6 +1,6 @@
 # The README skeleton
 
-The canonical README shape for every repo, and the only place it is specified — every other page points here. The README is a front door, not the house: it converts a visitor in one screenful, demonstrates the result before explaining anything, and funnels every deeper question out — to the docs site when one exists, to the inline tail (`standalone-readme.md`) when one doesn't. Nine sections, in this order, with relative links for everything in-repo.
+The canonical README shape for every repo, and the only place it is specified — every other page points here. The README is a front door, not the house: it converts a visitor in one screenful, demonstrates the result before explaining anything, and funnels every deeper question out — to the docs site when one exists, to the inline tail (`standalone-readme.md`) when one doesn't. It addresses the person deciding to use the tool, never the person building it — contributor and maintainer material (from-clone builds, release mechanics, internal design) routes to AGENTS.md, CONTRIBUTING, or the docs. Nine sections, in this order, with relative links for everything in-repo.
 
 ## 1. Banner
 
@@ -41,7 +41,7 @@ Optional. One row, at most four: CI or docs, version, license. Drop pyversions a
 
 ## 4. Get started
 
-Exactly one path. The single-install rule in SKILL.md's "Runnable and tested docs" section governs which path and forbids stacked alternates — follow it, don't restate it. Directly under the command, demonstrate the result. A README that shows the command but not what happens sells nothing.
+Exactly one path. The single-install rule in SKILL.md's "Runnable and tested docs" section governs which path and forbids stacked alternates — follow it, don't restate it. The path shown is live today: no "goes live with the first release", no "until then, build from a clone" — if it isn't live, cut the release, and keep from-clone builds in AGENTS.md. Every command below this section runs the exact artifact this section produced, same name and same form — never `./bin/<tool>` after a `brew install` — and every prerequisite is named here or nowhere. Directly under the command, demonstrate the result. A README that shows the command but not what happens sells nothing.
 
 Media hierarchy, first match wins:
 
@@ -60,7 +60,7 @@ Still inside Get started, after the demo, with the lead-in "Driving with an agen
 | Ship surface | Agent block |
 |---|---|
 | Claude plugin / marketplace | The two commands, fenced: `/plugin marketplace add yasyf/<repo>` then `/plugin install <plugin>@<marketplace>` |
-| CLI, binary, or library — whatever the installer (`uvx`, `brew`, `go install`, a clone-and-run) | A fenced `text` prompt naming the exact invocation, the first concrete goal, and the docs URL |
+| CLI, binary, or library — whatever the installer (`uvx`, `brew`, `go install`, or — only when cloning is itself the ship surface, as in a template repo — a clone-and-run) | A fenced `text` prompt naming the exact invocation, the first concrete goal, and the docs URL |
 | GUI / app target | A fenced `text` prompt naming the open/build/run flow (open the project, build the scheme, run it) and the first concrete goal |
 | Multiple surfaces | Primary surface inline; each secondary surface in a `<details>` block |
 
@@ -85,6 +85,7 @@ Two to four, each an H3 phrased as the reader's goal ("Strip a 40k-token transcr
 ## Dropped sections
 
 - "What problems does this solve?" — absorbed by the opener and the use cases.
+- "How it works" — internals never earn a README home: build mechanics and orderings ("go:embed bakes the SPA into the binary, so the order is load-bearing"), compile and embed directives, internal event or wire taxonomies, notes on endpoints that don't exist, agent-loop exit conditions. Contributor mechanics go to AGENTS.md or CONTRIBUTING, wire and protocol detail to a contract or reference doc, concepts to the docs site; on the standalone branch, architecture gets at most one paragraph in the tail (`standalone-readme.md` owns the cap).
 - Contributing — out of the body; a CONTRIBUTING file or AGENTS.md.
 - License — the one footer line.
 - Development — AGENTS.md or the docs site.
