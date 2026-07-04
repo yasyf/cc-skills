@@ -1,0 +1,10 @@
+{
+  "name": "show",
+  "description": "Choose the right surface before delivering anything to the human — prose, AskUserQuestion, a static Artifact page, or a live cc-present board.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}

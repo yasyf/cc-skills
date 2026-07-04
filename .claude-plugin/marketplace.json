@@ -57,6 +57,11 @@
       "description": "Run authenticated agent-browser sessions by reusing your local browser login — stream cookies for one or more hosts from the local store behind one Touch ID tap (cookiesync CLI), merged into a fresh session. macOS."
     },
     {
+      "name": "show",
+      "source": "./plugins/show",
+      "description": "Choose the right surface before delivering to the human — prose, AskUserQuestion, a static Artifact page, or a live cc-present board — with a wall-of-text nudge that flags structured deliverables dumped as chat text."
+    },
+    {
       "name": "cc-context",
       "source": "yasyf/cc-context/plugin",
       "description": "Compact codebase-context tools — a facade MCP + ccx CLI proxying semble (NL search) and tilth (symbol/outline/diff), with capt-hook enforcement."
