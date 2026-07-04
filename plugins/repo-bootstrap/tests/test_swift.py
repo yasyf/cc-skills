@@ -319,13 +319,10 @@ def test_swift_release_workflow_uses_reusable_workflow(swift_var_pairs):
 
 def test_swift_packs_toml_no_swift_pack(templates_dir):
     swift_packs = (templates_dir / "swift/claude/hooks/packs.toml").read_text()
-    go_packs = (templates_dir / "go/claude/hooks/packs.toml").read_text()
     assert "[packs.general]" in swift_packs
     assert "[packs.steering]" in swift_packs
     assert "[packs.swift]" not in swift_packs
-    # the ccx pack pin must not drift from the go template's
-    pin = re.compile(r'\[packs\.ccx\]\nsource = "([^"]+)"\ncommit = "([^"]+)"')
-    assert pin.search(swift_packs).groups() == pin.search(go_packs).groups()
+    assert "ccx" not in swift_packs  # ccx ships via the cc-context plugin attach now, not a repo-scoped pin
 
 
 def test_swift_mcp_json_overrides_with_xcodebuildmcp(swift_var_pairs):

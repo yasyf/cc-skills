@@ -292,21 +292,28 @@ The review-before-stop Stop gate is **not** in the `style` hook — it lives in 
 pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
 ships only the seven AST rules above.
 
-### `ccx` (external pack — `github:yasyf/cc-context`)
+### `ccx` (plugin-attached pack — `cc-context@skills`)
 
 Guard pack that makes the `cc-context` facade (`ccx` / `mcp__cc-context__*`) the
 default for reading and searching code. It **blocks the token-heavy primitives** the
 facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
 Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`
-packs, `ccx` is an **external** pack: every repo enables it through a `[packs.ccx]`
-entry in `.claude/hooks/packs.toml` that carries both `source = "github:yasyf/cc-context"`
-and a pinned `commit` (external packs require both — see *Adding and removing rules*).
-The scaffolded entry ships a `commit = "REPLACE_WITH_PINNED_SHA"` placeholder because
-cc-context has not cut its first tag yet; pin it to a real SHA once it does, then
-`uvx capt-hook pack update` refreshes it. To drop the guard (e.g. a repo that wants raw
-`Read`/`Grep` back), delete the `[packs.ccx]` entry and the `cc-context@skills` plugin
-key in `.claude/settings.json` together, and replace the AGENTS.md Compact Context
-section with plain Code-Search guidance.
+packs, `ccx` ships inside the `cc-context@skills` plugin the scaffolded
+`.claude/settings.json` already enables. The plugin's SessionStart hook runs
+`uvx capt-hook pack attach` once to register the pack for the session, and the canonical
+`uvx capt-hook run <Event>` commands pick it up during dispatch — so a scaffolded repo
+gets the guard with no `.claude/hooks/packs.toml` entry to pin or refresh, and nothing
+skews when cc-context cuts a new release.
+
+The trade-off: an attached pack reaches only contributors who have the
+`cc-context@skills` plugin enabled. A repo that wants the guard enforced for **every**
+contributor can still pin it repo-scoped — `uvx capt-hook pack add
+github:yasyf/cc-context@<tag>` writes a pinned entry in `.claude/hooks/packs.toml` that
+every clone hydrates. A repo-scoped pin beats the ambient attach (the same-name pack
+resolves to the pin and the attach is dropped), so the two never double-fire. To drop
+the guard entirely (a repo that wants raw `Read`/`Grep` back), disable the
+`cc-context@skills` plugin in `.claude/settings.json` and replace the AGENTS.md Compact
+Context section with plain Code-Search guidance.
 
 ### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
 

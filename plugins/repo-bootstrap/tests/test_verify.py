@@ -274,7 +274,7 @@ def test_end_to_end_swift(tmp_path):
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
     # No packs.toml workaround needed (unlike go): the swift layer enables only
-    # general + steering + ccx, all of which are released. verify runs the full
+    # general + steering, both builtin. verify runs the full
     # sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "swift", "--target", str(tmp_path)],

@@ -170,7 +170,7 @@ FILES = (
     # swift layers override the empty base .mcp.json with the xcodebuildmcp server.
     FileSpec(".mcp.json", "swift/mcp.json", "swift"),
     FileSpec(".claude/settings.json", "swift/claude/settings.json", "swift"),
-    # no swift capt-hook pack exists — general + steering + ccx only.
+    # no swift capt-hook pack exists — general + steering only.
     FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift"),
     # vendored project skill: help-first discovery of the xcodebuildmcp CLI.
     FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift"),

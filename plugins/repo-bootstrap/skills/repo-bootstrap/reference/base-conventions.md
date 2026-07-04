@@ -53,9 +53,9 @@ The single canonical agent-conventions doc. Section by section:
   (review). LSP for exhaustive/structural answers, `Grep`/`Glob` only for literal
   content in non-source files. The facade (semble + tilth) ships inside the
   `cc-context@skills` plugin enabled in `.claude/settings.json`, **not** a per-project
-  `.mcp.json` server — so the `ccx` heading and the `ccx` guard pack
-  (`[packs.ccx]` in `.claude/hooks/packs.toml`) are the cross-reference invariant, not
-  `.mcp.json`. Keep the partial verbatim; edit `templates/_partials/ccx.md` to change it.
+  `.mcp.json` server — and the same plugin attaches the `ccx` guard pack per session, so
+  the `ccx` heading and the `cc-context@skills` plugin are the cross-reference invariant,
+  not `.mcp.json`. Keep the partial verbatim; edit `templates/_partials/ccx.md` to change it.
 - **Style.** Exactly `@STYLEGUIDE.md` under `## Style` — an embed, not a link.
   Don't duplicate style rules into AGENTS.md.
 - **General Rules.** Bold-bullet block: each rule is `**Name.** One or two
@@ -245,7 +245,7 @@ Field by field:
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
   `prompts.py` nudge), `writing-docs@skills` (the `docs.py` nudge), and
   `cc-context@skills` (the `ccx` code-search facade the AGENTS.md Compact Context
-  section routes to, paired with the `[packs.ccx]` guard pack). It also
+  section routes to; the same plugin also attaches the `ccx` guard pack per session). It also
   registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) marketplace and
   enables `cc-notes@cc-notes`, the git-native notes/tasks layer — so the
   `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs.
