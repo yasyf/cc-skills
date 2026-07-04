@@ -56,6 +56,14 @@ the relevant code, write a self-contained codex prompt (Step 1 below), run this
 codex skill, and return Codex's answer verbatim. The wrapper ferries context;
 Codex does the thinking.
 
+**Pass the question through `args` — the fork is blind.** This skill runs with
+`context: fork`, so the invocation does not inherit the spawning conversation.
+The wrapper's Skill call must carry the entire self-contained question in the
+`args` parameter (invoke `codex:codex`). A bare `Skill(codex)` with no `args`
+forks into an empty context and comes back asking "what's the task?", burning a
+call. So the spawning prompt must embed the full question text, and the wrapper
+must forward it verbatim as `args` — never merely reference "the question above."
+
 The wrapper never absorbs a surprise. If Codex's reply is unexpected — it
 contradicts the question's premise, says the task is different than described,
 or proposes changes outside the asked scope — the wrapper returns it verbatim,
@@ -129,7 +137,7 @@ The file-based pattern is better for debugging because you can refine the questi
 
 ## Response Format
 
-Return a structured summary:
+For diagnosis, review, and second-opinion calls, return a structured summary:
 
 ```
 ## Codex Analysis
@@ -144,6 +152,11 @@ Return a structured summary:
 
 **Confidence:** <high/medium/low based on how well Codex understood the problem>
 ```
+
+For well-scoped edits, image generation, and the sonnet-wrapper relay, skip the
+structure: return Codex's answer verbatim in the exact shape the caller asked
+for (e.g. "reply with ONLY the edited function"). Don't wrap a bare artifact in
+the Analysis boilerplate — the caller wants the artifact, not a report on it.
 
 ## Generating Images ($imagegen)
 
