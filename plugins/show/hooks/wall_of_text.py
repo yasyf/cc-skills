@@ -65,7 +65,7 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
         "If the human must decide or give per-item feedback, compose a cc-present board "
         "(the cc-present:present skill). If it is read-only, render an Artifact page (load "
         "artifact-design first). If it is a single pick among four or fewer simple options, "
-        "use AskUserQuestion. You can still present the same content now — see /show."
+        "use AskUserQuestion. You can still present the same content now — see /show:show."
     ),
     events=Event.UserPromptSubmit | Event.PostToolUse,
     max_fires=2,
