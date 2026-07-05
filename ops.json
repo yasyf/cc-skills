@@ -1,1 +1,1 @@
-{"v":1,"lamport":2,"ops":[{"kind":"remove_criterion","id":"3849d5c15228096a4581c0b5db437dcd"}]}
+{"v":1,"lamport":3,"ops":[{"kind":"add_criterion","id":"1a2e10a1e7cd9d1f1abedc9358a30621","text":"cc-sentiment: cc-notes refspecs and push config installed in the primary clone; cc-notes sync runs clean (refs publish once the first entity exists)","script":""}]}
