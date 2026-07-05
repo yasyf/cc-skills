@@ -41,7 +41,7 @@ FEATURES = (
 )
 
 # Optional extra layers, selectable in any layer via --extras.
-EXTRAS = ("superset", "env")
+EXTRAS = ("superset", "env", "plugin")
 
 _ALL_LAYERS = ("base", "python", "go", "swift", "swift-app")
 
@@ -66,6 +66,18 @@ VARS = (
     VarSpec("SWIFT_TOOLS_VERSION", ("swift",), validate="swift_tools_version"),
     VarSpec("BUNDLE_ID_PREFIX", ("swift-app",), validate="bundle_id_prefix"),
     VarSpec("IOS_DEPLOYMENT_TARGET", ("swift-app",), validate="ios_version"),
+    # Tokens for the `plugin` extra's install-binary.sh (the canonical plugin
+    # binary provisioner — see reference/go-ci-and-release.md § format: binary).
+    # required_in is empty because extras are layer-independent; a missing token
+    # still fails loudly via render_plan's unrendered-placeholder scan.
+    VarSpec("BINARY_NAME", ()),
+    VarSpec("RELEASE_REPO", ()),
+    VarSpec("BREW_PACKAGE", ()),
+    VarSpec("PLUGIN_NAME", ()),
+    # pinned (target release = plugin.json version; the default) or latest
+    # (releases/latest redirect — for plugins whose version isn't coupled to
+    # binary releases). Drives the PINNED/LATEST sections, never a placeholder.
+    VarSpec("BINARY_VERSION_MODE", (), validate="binary_version_mode"),
 )
 
 DERIVED = (
@@ -225,4 +237,8 @@ FILES = (
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),
+    # The canonical plugin binary installer: bin/<name> is only ever a symlink
+    # (brew binary, durable CLAUDE_PLUGIN_DATA payload, or dev build). Rendered
+    # copies elsewhere in the fleet sync FROM this template, never fork it.
+    FileSpec("plugin/scripts/install-binary.sh", "plugin/install-binary.sh", "base", extra="plugin"),
 )

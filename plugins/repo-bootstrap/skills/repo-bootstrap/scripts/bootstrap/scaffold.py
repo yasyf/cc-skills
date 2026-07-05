@@ -93,6 +93,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be a reverse-DNS prefix like com.yasyf, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
+        if kind == "binary_version_mode" and value not in ("pinned", "latest"):
+            raise ScaffoldError(f"{name} must be 'pinned' or 'latest', got {value!r}")
     # Cross-var checks for the swift layers:
     # - SPM target names must be unique, and the executable target is named
     #   PROJECT_NAME while the library is MODULE_NAME — a collision fails
@@ -153,6 +155,11 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
     # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.
     if variables["LICENSE_ID"] != "none":
         enabled.add("HAS_LICENSE")
+    # The plugin extra's installer resolves its target release from plugin.json
+    # (PINNED, the default) or the releases/latest redirect (LATEST). Var-derived
+    # like HAS_LICENSE — extras carry no section tokens of their own.
+    if "plugin" in extras:
+        enabled.add("LATEST" if variables.get("BINARY_VERSION_MODE") == "latest" else "PINNED")
     return ResolveResult(
         layers=expand_layers(layer),
         features=tuple(features),
