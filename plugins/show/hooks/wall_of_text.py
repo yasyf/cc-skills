@@ -68,6 +68,9 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
         "use AskUserQuestion. You can still present the same content now — see /show:show."
     ),
     events=Event.UserPromptSubmit | Event.PostToolUse,
+    # Sidechains can't present surfaces, and HookState is keyed by session_id alone,
+    # so a subagent fire would drain the main session's budget.
+    when=lambda evt: not evt.is_subagent,
     max_fires=2,
     signals=Signals(
         [
@@ -150,6 +153,23 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
                 }
             ],
             llm={"fire": False},
+        ): Allow(),
+        Input(
+            prompt="which one?",
+            agent_id="agent-1234",
+            transcript=[
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Option 1 — refactor now\nOption 2 — defer it\nlet me know which you'd prefer",
+                            }
+                        ]
+                    },
+                }
+            ],
         ): Allow(),
     },
 )
