@@ -35,10 +35,17 @@
         "repo": "yasyf/cc-skills"
       },
       "autoUpdate": true
+    },
+    "cc-notes": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/cc-notes"
+      }
     }
   },
   "enabledPlugins": {
-    "codex@skills": true
+    "codex@skills": true,
+    "cc-notes@cc-notes": true
   },
   "hooks": {
     "PermissionRequest": [
