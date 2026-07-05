@@ -106,7 +106,7 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
             ),
         ],
         threshold=3,
-        window=6,
+        window="turn",
     ),
     tests={
         Input(
