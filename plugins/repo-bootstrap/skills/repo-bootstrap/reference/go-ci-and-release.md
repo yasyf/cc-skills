@@ -383,7 +383,22 @@ the shared `publish` action (§ Formula recipe). The Go binary ships as a cask (
 app's cask lives beside it in `yasyf/homebrew-tap`; stage both under `tap-staging/` as
 `Casks/<app>.rb` (plus `Formula/<name>.rb` if the Go side is a formula).
 
-Used by: **claude-pool** (the `cc-pool-status` widget app).
+A hand-maintained app cask must strip Homebrew's download quarantine itself — the goreleaser
+template's post_install hook only covers goreleaser-built casks. Add a postflight to the `.rb.tmpl`
+(best-effort, so a headless install never fails the cask):
+
+```ruby
+postflight do
+  # Strip Homebrew's download quarantine so first launch is silent (notarized+stapled).
+  system_command "/usr/bin/xattr",
+                 args: ["-dr", "com.apple.quarantine", "#{appdir}/<App>.app"],
+                 must_succeed: false
+end
+```
+
+Skip it only when quarantine is load-bearing (e.g. `cookiesync-keyhelper` deliberately keeps it).
+
+Used by: **claude-pool** (the `cc-pool-status` widget app), **fusekit** (`fusekit-holder`).
 
 ### Auto-tag-on-push (preserve "push to main auto-releases")
 
