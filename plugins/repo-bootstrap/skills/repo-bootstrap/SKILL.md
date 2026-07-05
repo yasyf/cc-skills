@@ -105,9 +105,10 @@ explicitly ask for.
   private GitHub repo — it sets the license and feature defaults below and the
   `gh repo create` flag in Phase 6), license (first option "default for
   visibility": PolyForm-Noncommercial-1.0.0 if public, `none` if private; MIT for
-  permissive open source), extras (`superset`, `env` — see the table in Phase 2;
-  `multiSelect`, default none). The scaffold requires `--extras` explicitly — pass
-  `none` when no extras are chosen.
+  permissive open source), extras (`superset`, `env`, `plugin` — see the table in
+  Phase 2; `multiSelect`, default none; pick `plugin` when the repo ships a Claude
+  Code plugin that provisions a released binary). The scaffold requires `--extras`
+  explicitly — pass `none` when no extras are chosen.
 - **Python additionally**: dist name, package name, Python floor + pin versions, and
   the **features** as a `multiSelect` "Optional Python features" — `docs` (Great Docs on
   GitHub Pages) and `pypi` (tag-driven trusted-publishing release). **Default both
@@ -198,6 +199,11 @@ bundle id suffix — no underscores).
 | `SWIFT_TOOLS_VERSION` | Package.swift tools version (swift) | `6.2` |
 | `BUNDLE_ID_PREFIX` | Reverse-DNS prefix (swift-app) | `com.yasyf` |
 | `IOS_DEPLOYMENT_TARGET` | iOS floor (swift-app) | `26.0` |
+| `BINARY_NAME` | Released binary the plugin provisions (extra `plugin`) | `ccx` |
+| `RELEASE_REPO` | GitHub repo that releases the binary (extra `plugin`) | `yasyf/cc-context` |
+| `BREW_PACKAGE` | Fully-qualified brew formula or cask (extra `plugin`) | `yasyf/tap/ccx` |
+| `PLUGIN_NAME` | Plugin name, for the data-dir default (extra `plugin`) | `cc-context` |
+| `BINARY_VERSION_MODE` | `pinned` (plugin.json version; default) or `latest` (extra `plugin`) | `pinned` |
 
 Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`,
 `MODULE_PATH` (go: `github.com/<user>/<name>`), `BUNDLE_ID` (swift-app:
@@ -329,6 +335,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `<name>/App/*.swift`, `<name>/Assets.xcassets/*`, `<name>Tests/` | swift-app | SwiftUI `@main` app + ContentView, stock asset catalog, Swift Testing smoke test (`@testable import <Module>`) |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
+| `plugin/scripts/install-binary.sh` | extra `plugin` | the **canonical plugin binary installer** — `bin/<name>` only ever a symlink (brew binary first, sha256-verified download into `CLAUDE_PLUGIN_DATA` as fallback, dev builds never clobbered); every fleet copy is rendered from this template and stamped `# canonical: cc-skills/plugins/repo-bootstrap@<sha>` (the template keeps `@pending`; consumers' render tooling pins the sha) — see `reference/go-ci-and-release.md` § `format: binary` archive |
 | `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner (inside the H1) and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
 | `docs/assets/demo.png` + `docs/scripts/demo.sh` (or `.cli-demo/demo.tape`) | base | **generated, not scaffolded** — Phase 4's demo step freezes a real run of the get-started command and commits the generator beside it; `verify` NOTEs a README demo reference with no asset or no committed generator |
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import urllib.error
 
-import pytest
 from bootstrap import pypi
 
 

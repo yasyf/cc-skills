@@ -330,6 +330,64 @@ def test_extras_gating(base_var_pairs):
     assert ".superset/config.json" in dests("base", base_var_pairs, extras=["superset"])
 
 
+# --- plugin extra: the canonical binary installer ---
+
+
+def test_plugin_extra_gating(base_var_pairs, go_var_pairs):
+    assert "plugin/scripts/install-binary.sh" not in dests("base", base_var_pairs)
+    assert "plugin/scripts/install-binary.sh" in dests("base", base_var_pairs, extras=["plugin"])
+    # layer-independent, like every extra
+    assert "plugin/scripts/install-binary.sh" in dests("go", go_var_pairs, extras=["plugin"], features=[])
+
+
+def test_plugin_extra_mode_sections(base_var_pairs, plugin_var_pairs):
+    # exactly one of PINNED/LATEST, defaulting to pinned; absent without the extra
+    pinned = scaffold.resolve("base", ["plugin"], [], plugin_var_pairs, DATE)
+    assert "PINNED" in pinned.enabled_sections and "LATEST" not in pinned.enabled_sections
+    latest = scaffold.resolve(
+        "base", ["plugin"], [], plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], DATE
+    )
+    assert "LATEST" in latest.enabled_sections and "PINNED" not in latest.enabled_sections
+    plain = scaffold.resolve("base", [], [], base_var_pairs, DATE)
+    assert not {"PINNED", "LATEST"} & plain.enabled_sections
+
+
+def test_bad_binary_version_mode(plugin_var_pairs):
+    pairs = plugin_var_pairs + ["BINARY_VERSION_MODE=nightly"]
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("base", ["plugin"], [], pairs, DATE)
+
+
+def test_plugin_installer_renders_pinned(plugin_var_pairs):
+    plan, _ = _real_plan("base", plugin_var_pairs, extras=["plugin"])
+    sh = plan["plugin/scripts/install-binary.sh"]
+    # the canonical provenance stamp: rendered fleet copies pin a sha, the
+    # template (and a scaffold render of it) keeps @pending
+    assert sh.startswith("#!/bin/sh\n# canonical: cc-skills/plugins/repo-bootstrap@pending\n")
+    assert "{{" not in sh
+    assert 'NAME="demo-proj"' in sh
+    assert 'REPO="janedoe/demo-proj"' in sh
+    assert 'BREW_PKG="janedoe/tap/demo-proj"' in sh
+    # pinned: the target release is the plugin.json version; the latest arm is gone
+    assert '"$ROOT/.claude-plugin/plugin.json"' in sh
+    assert "releases/latest" not in sh
+
+
+def test_plugin_installer_renders_latest(plugin_var_pairs):
+    plan, _ = _real_plan("base", plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], extras=["plugin"])
+    sh = plan["plugin/scripts/install-binary.sh"]
+    assert "{{" not in sh
+    assert "releases/latest" in sh
+    assert ".claude-plugin/plugin.json" not in sh
+
+
+def test_plugin_installer_missing_tokens_fail_loudly(base_var_pairs):
+    # extras have no required-var machinery; the unrendered-placeholder scan is
+    # the loud failure that stands in for it
+    with pytest.raises(ScaffoldError):
+        _real_plan("base", base_var_pairs, extras=["plugin"])
+
+
 def test_python_overrides_base_for_shared_dest(py_var_pairs):
     # AGENTS.md exists in both layers; the python spec must win.
     r = scaffold.resolve("python", [], ["docs", "pypi"], py_var_pairs, DATE)
@@ -519,8 +577,8 @@ def test_render_plan_injected(monkeypatch):
     assert notices == []
 
 
-def _real_plan(layer, var_pairs, *, features=None):
-    r = scaffold.resolve(layer, [], features if features is not None else ["docs", "pypi"], var_pairs, DATE)
+def _real_plan(layer, var_pairs, *, features=None, extras=None):
+    r = scaffold.resolve(layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE)
     items = scaffold.select_files(r)
     return scaffold.render_plan(items, r, scaffold.read_template, scaffold.template_exists)
 

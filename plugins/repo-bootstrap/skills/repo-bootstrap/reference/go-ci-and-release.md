@@ -362,8 +362,18 @@ Used by: **cc-review**.
 
 ### `format: binary` archive (keep direct-download installers working)
 
-If something downloads a *bare binary* from the release (a plugin's `install-binary.sh` that fetches
-`app_<os>_<arch>`, not a tarball), add a binary-format archive alongside the tar.gz:
+Plugin binary provisioning has a single source of truth: `templates/plugin/install-binary.sh`,
+scaffolded by the `plugin` extra and rendered (never forked) into every consumer plugin. It keeps
+`<plugin>/bin/<name>` only ever a symlink, resolving in order to a brew-installed binary, a
+durable download under `CLAUDE_PLUGIN_DATA`, or a local dev build it refuses to clobber. The
+target release is pinned to the plugin.json version (`BINARY_VERSION_MODE=pinned`, the default)
+or floated off the `releases/latest` redirect (`latest`). Rendered copies carry a provenance stamp
+`# canonical: cc-skills/plugins/repo-bootstrap@<sha>`; the template itself keeps `@pending`, and
+the consumer's render tooling pins the sha.
+
+The installer's static-download arm fetches the *bare binary* asset `<name>_<os>_<arch>` (not a
+tarball) and verifies it against goreleaser's `checksums.txt`, so the release must publish a
+binary-format archive alongside the tar.gz:
 
 ```yaml
 archives:
@@ -373,7 +383,9 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 ```
 
-Used by: **cc-review** (its Claude Code plugin downloads the raw binary).
+`checksums.txt` (emitted by default) covers the tar.gz and bare-binary entries alike; the
+installer also expects `--version` to print the bare tag on its first line. Used by:
+**cc-context**, **cc-review** (their Claude Code plugins download the raw binary).
 
 ### Extra hand-maintained cask (externally-built artifact)
 

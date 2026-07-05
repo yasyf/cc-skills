@@ -57,6 +57,16 @@ def go_var_pairs(base_var_pairs: list[str]) -> list[str]:
 
 
 @pytest.fixture
+def plugin_var_pairs(base_var_pairs: list[str]) -> list[str]:
+    return base_var_pairs + [
+        "BINARY_NAME=demo-proj",
+        "RELEASE_REPO=janedoe/demo-proj",
+        "BREW_PACKAGE=janedoe/tap/demo-proj",
+        "PLUGIN_NAME=demo-proj",
+    ]
+
+
+@pytest.fixture
 def swift_var_pairs(base_var_pairs: list[str]) -> list[str]:
     return base_var_pairs + [
         "MODULE_NAME=DemoProj",
