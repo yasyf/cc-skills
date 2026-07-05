@@ -25,11 +25,18 @@ fire=true when the delivery is:
 - an option list (3+ alternatives) dumped as prose ending in "which one?";
 - a multi-item review or findings list where each item wants its own verdict;
 - sign-off content ("approve this", "let me know if this works") delivered as a wall of text;
+- a compact design or architecture writeup whose enumerated parts invite open-ended feedback
+  ("let me know what you think of the shape") — the invitation to react to a multi-part design
+  is the tell, not the length, so this fires even when it fits on a screen; it wants an
+  AskUserQuestion to pick a direction, or a cc-present board;
 - a long report written to a file the human is told to open.
 
-fire=false when: the content is a direct answer or short linear reasoning; it fits in about
-a screen; the user asked for plain text; an Artifact, cc-present board, or AskUserQuestion
-already carried it; or the structured text is an approved plan / plan-mode output.
+fire=false when: the content is a direct answer, or a linear explanation or diagnosis of a
+single how/why question — even one whose numbered steps close with "let me know if this looks
+right" before a proposed next step; the user asked for plain text; an Artifact, cc-present
+board, or AskUserQuestion already carried it; or the structured text is an approved plan /
+plan-mode output. Fitting on a screen keeps a plain answer or explanation off a surface, but it
+does not exempt a multi-part design that invites open-ended feedback.
 
 <examples>
 <example fire="true">
@@ -53,6 +60,20 @@ A surface already carried the deliverable.
 <example fire="false">
 The user said "just list them in chat"; the agent lists them in chat.
 The human asked for plain text.
+</example>
+<example fire="true">
+The agent answers "sketch the event-bus architecture" with a four-point numbered design —
+producers, broker fan-out, consumer acks, nightly compaction — and closes "let me know what
+you think of the shape". It fits on one screen.
+A multi-part design inviting open-ended feedback — the reaction it asks for wants an
+AskUserQuestion to choose a direction or a cc-present board; its length is beside the point.
+</example>
+<example fire="false">
+The agent answers "why is p99 latency high?" by walking four numbered steps of the request
+path, concludes the miss is at step four, and adds "let me know if this looks right and I'll
+add a lock".
+A linear diagnosis of one question — the numbered steps are sequential, not parallel design
+parts, and the close confirms a single next step, so plain chat is right.
 </example>
 </examples>
 
