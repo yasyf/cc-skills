@@ -33,6 +33,8 @@ matters at dispatch time:
   never clobbers a decision already made on it.
 - The loop is live: a rejected draft becomes an in-place redraft in the open
   tab. Do not park waiting for clicks; keep working and react to events.
+- The board clamps long prose and rewards short option labels, one-line hints,
+  and card summaries — the density rules live in the present skill.
 
 ## AskUserQuestion
 
