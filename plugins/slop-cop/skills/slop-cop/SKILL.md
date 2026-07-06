@@ -1,7 +1,7 @@
 ---
 name: slop-cop
 description: Check a file (or piece of text) for LLM-generated prose tells using the slop-cop CLI and report the violations. Use when the user asks to "check/lint/scan this file for slop", "find LLM tells in <file>", "run slop-cop on <path>", or wants a violations report for a doc, README, blog post, PR description, or commit message. Report-only by default; offers to apply fixes if asked.
-allowed-tools: Bash(slop-cop:*), Bash(bash:*), Bash(pwsh:*), Read
+allowed-tools: Bash(slop-cop:*), Bash(bash:*), Read
 ---
 
 # Slop Cop
@@ -14,31 +14,31 @@ rewrite the file unless the user asks.
 
 ## Resolve the binary
 
-The plugin's `SessionStart` hook normally bootstraps the binary into the
-plugin's persistent data dir before you run, so resolution is usually instant.
-Pick the first option that works:
+`bin/slop-cop` under the plugin root is a symlink that
+`scripts/install-binary.sh` maintains silently — pointing at a brew-installed
+binary, a durable download under the plugin data dir, or a local dev build.
+The plugin's `SessionStart` hook normally runs the installer before you do,
+so the symlink is usually already in place. Resolve the symlink first, PATH
+second:
 
 ```bash
-# 1. Pre-installed on PATH (the user already has slop-cop).
-if command -v slop-cop >/dev/null 2>&1; then
-  SLOP_COP=slop-cop
-# 2. Bootstrapped into the plugin's persistent data dir (normal path).
-elif [ -x "${CLAUDE_PLUGIN_DATA}/bin/slop-cop" ]; then
-  SLOP_COP="${CLAUDE_PLUGIN_DATA}/bin/slop-cop"
-# 3. Not yet present (hook skipped/offline): bootstrap now. The installer is
-#    idempotent and prints the absolute binary path on stdout.
+# Provision or refresh the managed symlink. Silent, idempotent, and tracks
+# the newest release — once per session is plenty.
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh" || true
+# 1. The managed symlink (normal path).
+if [ -x "${CLAUDE_PLUGIN_ROOT}/bin/slop-cop" ]; then
+  SLOP_COP="${CLAUDE_PLUGIN_ROOT}/bin/slop-cop"
+# 2. PATH fallback (CI, scripting, or a standalone install).
 else
-  SLOP_COP="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh")"
+  SLOP_COP=slop-cop
 fi
 ```
 
-`${CLAUDE_PLUGIN_DATA}` and `${CLAUDE_PLUGIN_ROOT}` are substituted to real
-paths in this skill's text. The installer downloads the host-matched binary
-from the latest [`yasyf/slop-cop`](https://github.com/yasyf/slop-cop) release
-into `${CLAUDE_PLUGIN_DATA}/bin/` (a location that survives plugin updates); no
-Go toolchain is required. On Windows, run
-`pwsh "${CLAUDE_PLUGIN_ROOT}\scripts\install-binary.ps1"` instead — it prints
-the `slop-cop.exe` path the same way.
+`${CLAUDE_PLUGIN_ROOT}` is substituted to a real path in this skill's text.
+The installer prefers a brew-installed binary; otherwise it sha256-verifies a
+download of the latest [`yasyf/slop-cop`](https://github.com/yasyf/slop-cop)
+release into the plugin data dir (a location that survives plugin updates).
+No Go toolchain is required.
 
 ## Run
 
