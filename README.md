@@ -1,6 +1,6 @@
 # ![cc-skills](docs/assets/readme-banner.webp)
 
-**The eleven skills Claude Code forgot to ship.** cc-skills is a plugin marketplace where one add covers prose linting, repo scaffolding, animated CLI demos, and image gen; each plugin installs on its own.
+**The twelve skills Claude Code forgot to ship.** cc-skills is a plugin marketplace where one add covers prose linting, repo scaffolding, animated CLI demos, and image gen; each plugin installs on its own.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -75,6 +75,7 @@ The `SKILL.md` inside each plugin dir carries prerequisites and the full flow.
 - **[repo-summaries](plugins/repo-summaries)** — a Claude-written summaries sidecar that turns real commit and release data into one-line suffixes.
 - **[cli-demo](plugins/cli-demo)** — animated SVG terminal demos via `evp`: write a tape, render, inspect keyframes, refine.
 - **[agent-browser-with-cookies](plugins/agent-browser-with-cookies)** — authenticated `agent-browser` sessions off your local browser login, one Touch ID tap; macOS only.
+- **[show](plugins/show)** — picks the right delivery surface for each deliverable: prose, AskUserQuestion, an Artifact page, or a live cc-present board; a hook flags wall-of-text dumps.
 - **[cc-context](https://github.com/yasyf/cc-context)** — compact codebase-context tools (`ccx` over semble and tilth); lives in its own repo, installs from this marketplace.
 
 ## Hack on a local checkout
