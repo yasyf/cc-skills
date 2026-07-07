@@ -58,6 +58,13 @@ The agent ran cc-present start, posted the board URL, and summarized it in one l
 A surface already carried the deliverable.
 </example>
 <example fire="false">
+The transcript entry under review is the agent's own AskUserQuestion tool call — its payload is a
+question ("which retry strategy?") and four one-word options — and the chat line above it
+introduces the same pick.
+The delivery is an AskUserQuestion call, so the surface is already in use — the options are that
+call's payload, not a plain-chat dump, and firing would nag the agent for routing it correctly.
+</example>
+<example fire="false">
 The user said "just list them in chat"; the agent lists them in chat.
 The human asked for plain text.
 </example>
@@ -74,6 +81,18 @@ path, concludes the miss is at step four, and adds "let me know if this looks ri
 add a lock".
 A linear diagnosis of one question — the numbered steps are sequential, not parallel design
 parts, and the close confirms a single next step, so plain chat is right.
+</example>
+<example fire="false">
+The user says "just dump the options in plain text here — no board, no artifact", and the agent
+lists three numbered options closing "let me know which you want".
+An option list the human explicitly asked for in plain text — the request for plain text overrides
+the surface, so firing would nag the agent for doing exactly what was asked.
+</example>
+<example fire="false">
+The agent answers "rename now or later?" with exactly two one-line options — rename the field now,
+or keep it and add an alias — each a few lines of work, and closes "let me know which".
+Exactly two trivial one-line options — below the three-or-more bar the option-list tell needs, and
+too small a pick to nag onto a surface, so plain chat fits.
 </example>
 </examples>
 
