@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(brew install:*), Read
 effort: medium
 ---
 
@@ -13,16 +13,17 @@ browser store via the `cookiesync` CLI and streams them straight into an isolate
 `agent-browser` session, then hands off to the normal `agent-browser` skill for the
 task itself.
 
-It's two commands: authorize once (`cookiesync auth`, one Touch ID tap), then pipe
-the sites' cookies into agent-browser's `--state -` (stdin). No temp file, no state
-path to track, nothing to `rm`.
+It's authorize once (`cookiesync auth`, one Touch ID tap), then stream the sites'
+cookies into the session — over a short-lived FIFO locally, straight over stdin in
+Browserbase mode. The cookie payload never lands on disk either way.
 
 ## Prerequisites
 
-- **`cookiesync` on `PATH` with its daemon running.** The plugin's `Setup` hook
-  installs it on `claude --init`; otherwise `uv tool install cookiesync-cli`. Then
-  `cookiesync install` starts the resident daemon that caches the Safe Storage key
-  for a short TTL after a Touch ID tap.
+- **`cookiesync` on `PATH`.** The plugin's `Setup` hook installs it on
+  `claude --init`; otherwise `brew install --cask yasyf/tap/cookiesync`, then a
+  one-time `cookiesync install` starts the resident daemon that caches the Safe
+  Storage key for a short TTL after a Touch ID tap. No preflight check needed —
+  `auth` and `cookies` failures name the fix in their error text.
 - **macOS.**
 - **The user is signed in via their desktop browser** to the site(s) you'll
   automate. First run auto-registers each installed browser's primary profile —
@@ -54,34 +55,43 @@ path to track, nothing to `rm`.
    sheet the first time; approving grants about an hour of silent access.
 
 3. **Launch the authenticated session.** Default is **local** (stealth Clark
-   browser): stream the sites' cookies into agent-browser via stdin — restores
-   cookies *and* localStorage, nothing touches disk. List **every** host the task
+   browser): stream the sites' cookies in over a FIFO — restores cookies *and*
+   localStorage, and the payload never lands on disk. List **every** host the task
    touches; open only the **primary** URL:
 
    ```bash
-   cookiesync cookies "$U1" "$U2" … --format playwright \
-     | agent-browser --session abwc --state - open "$U1"
+   agent-browser --session abwc open
+   d="$(mktemp -d)" && mkfifo "$d/state"
+   cookiesync cookies "$U1" "$U2" … --format playwright > "$d/state" &
+   agent-browser --session abwc state load "$d/state"; rm -rf "$d"
+   agent-browser --session abwc open "$U1"
    ```
 
-   `cookiesync cookies` emits one merged Playwright `storageState` (union across every
-   registered browser/host, newest cookie wins); `--state -` reads it from stdin. Other
-   domains' cookies activate when navigation reaches them. Single site: drop the extra
-   hosts.
+   Run the block as **one** Bash call — `$d` and the background writer don't survive
+   separate invocations. `cookiesync cookies` emits one merged Playwright
+   `storageState` (union across every registered browser/host, newest cookie wins);
+   `state load` drains the FIFO in one synchronous read, so the `rm` right after is
+   safe. `state load` exits 0 even on a bad payload — an `✗ Invalid state file` line
+   means the writer died before producing JSON (usually `cookies` wanting `auth`;
+   its error is in the same output). Other domains' cookies activate when navigation
+   reaches them. Single site: drop the extra hosts.
 
    **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so inject
-   cookies *after* opening, then reload. Uses a unique temp file, removed immediately:
+   cookies *after* opening, then reload. `cookies set --curl` parses in the foreground
+   process, so it reads straight from stdin:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb" --session abwc open "$U1"
-   TMP="$(mktemp -t abwc.XXXXXX)"
-   cookiesync cookies "$U1" … --format header > "$TMP"
-   agent-browser --session abwc cookies set --curl "$TMP"; rm -f "$TMP"
+   cookiesync cookies "$U1" --format header \
+     | agent-browser --session abwc cookies set --curl /dev/stdin
    agent-browser --session abwc reload
    ```
 
    Cookie-auth only — Browserbase can't restore localStorage logins (use the local
-   default for those). The header binds to `$U1`'s host; for another host, run its own
-   `cookies set` against that host.
+   default for those). The header format carries no domain metadata, so inject **one
+   host per call**: the piped cookies bind to `$U1`'s host; for each additional host,
+   repeat the `cookies set` line with that host's own
+   `cookiesync cookies "$U2" --format header` stream and `--domain <host>`.
 
 4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
    confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
@@ -120,9 +130,10 @@ path to track, nothing to `rm`.
   call — it merges them into a single `storageState`. Reach for this when an app calls a
   separate API host, or you read from a second dashboard. One `auth`, one pipe, one
   session; you still `open` only the primary URL.
-- The cookies stream is a Playwright `storageState` document carrying plaintext session
-  tokens. It goes process-to-process over a pipe (never a file on disk), and
-  `cookiesync` keeps the raw values out of its own logs.
+- The cookies stream carries plaintext session tokens (a Playwright `storageState`
+  locally, a cookie header in Browserbase mode). It goes process-to-process over a
+  pipe (never a file on disk), and `cookiesync` keeps the raw values out of its own
+  logs.
 - `cookiesync auth` is the one Touch ID consent checkpoint: the daemon caches the Safe
   Storage key for a short TTL so `cookies` calls inside that window need no further
   prompt. If nothing is primed yet and the session is live, the `cookies` call itself

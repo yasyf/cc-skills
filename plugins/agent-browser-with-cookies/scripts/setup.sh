@@ -7,7 +7,7 @@
 # Clark path after a Clark upgrade.
 set -eo pipefail
 
-command -v cookiesync    >/dev/null 2>&1 || uv tool install cookiesync-cli
+command -v cookiesync    >/dev/null 2>&1 || brew install --cask yasyf/tap/cookiesync
 command -v clark-browser >/dev/null 2>&1 || uv tool install clark-browser
 clark-browser fetch >/dev/null 2>&1 || true
 
