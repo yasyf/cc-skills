@@ -1,6 +1,6 @@
 ---
 name: codex-wrapper
-description: Relay lane to gpt-5.5 via the OpenAI Codex CLI, for workflows and subagents where model routing takes only Claude models. Pass one fully self-contained codex question (or file/diff pointers to gather plus the questions to answer) as the prompt; the agent runs the pinned codex exec and returns Codex's answer verbatim. Spawn this agent type instead of ever invoking Skill(codex) from a subagent.
+description: Relay lane to gpt-5.5 via the OpenAI Codex CLI, for workflows and subagents where model routing takes only Claude models. Pass one fully self-contained codex question (or file/diff pointers to gather plus the questions to answer) as the prompt; the agent runs the pinned codex exec and returns Codex's answer verbatim. Spawn this agent type when a workflow stage must route to codex by agent type (model routing takes only Claude models) or to keep a big context gather out of the caller's window; Skill(codex) itself is also safe from subagents since plugin 0.10.0.
 tools: Bash, Read, Grep, Glob
 model: sonnet
 effort: low
@@ -51,10 +51,9 @@ deciding next steps after a surprise is fable work, not a sonnet-tier call.
 
 ## Rules and failure modes
 
-- **Never invoke `Skill(codex)`.** You are the codex lane. That skill runs
-  `context: fork`, and from a schema-bound subagent the fork inherits the
-  caller's `StructuredOutput` tool; a fork ending its turn there has its answer
-  silently discarded as a bare "Skill execution completed" stub.
+- **Never invoke `Skill(codex)`.** You are the codex lane — the skill runs the
+  same pinned recipe you already embody; invoking it from here adds a hop and
+  nothing else.
 - `stdin is not a terminal`: use `codex exec`, not bare `codex`.
 - `Not inside a trusted directory`: the working tree isn't a git repo — retry
   once with `--skip-git-repo-check` appended.

@@ -1,8 +1,7 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work. From subagents and workflows, spawn the codex-wrapper agent this plugin ships instead of invoking this skill.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
-context: fork
 effort: medium
 ---
 
@@ -49,25 +48,23 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
 
 ## From Workflows and Subagents (the codex-wrapper agent)
 
-The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps takes
-only Claude models, so gpt-5.5 can't be routed directly. This plugin ships a
-wrapper agent for exactly that: spawn agent type `codex:codex-wrapper` (the
-`subagent_type` of an `Agent`/`Task` call, or `agentType` on a workflow
-`agent()` step) with the full self-contained question as the prompt — or with
-pointers to the files/diff to gather plus the questions to answer. The wrapper
-writes the question to a unique temp file, runs the pinned `codex exec`, and
-returns Codex's answer verbatim; it reports codex errors instead of improvising
-an answer, and it never absorbs a surprise (unexpected replies come back
-flagged, with 2-4 options for the orchestrator).
+Since 0.10.0 this skill runs inline — no `context: fork` — so `Skill(codex)`
+works identically from the main conversation, subagents, and workflow steps.
+(Through 0.9.0 the skill forked, and a schema-bound caller leaked its
+`StructuredOutput` tool into the fork; a fork ending its turn there had its
+answer discarded as a bare "Skill execution completed" stub — claude-code#75559.
+Inline execution removes the fork and the relay, so the failure mode is
+structurally gone.)
 
-**Never invoke `Skill(codex)` from a subagent.** This skill runs with
-`context: fork`, and a schema-bound caller (any workflow `agent(..., {schema})`
-step) leaks its `StructuredOutput` return tool into the fork. A fork that ends
-its turn on that tool leaves no trailing text for the Skill relay to harvest,
-so the caller receives a bare "Skill execution completed" stub and the real
-answer is silently discarded (observed on 15 of 18 calls in one review
-workflow). The main conversation has no such tool to leak — invoking this
-skill directly from there stays correct.
+The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps
+still takes only Claude models, so a workflow stage that should BE a codex
+call spawns agent type `codex:codex-wrapper` (the `subagent_type` of an
+`Agent`/`Task` call, or `agentType` on a workflow `agent()` step) with the
+full self-contained question — or pointers to gather plus the questions to
+answer — as the prompt. The wrapper is also the lane for keeping a big
+context gather (a large diff, many files) out of your own window: it reads,
+composes, runs the same pinned `codex exec`, and returns Codex's answer
+verbatim.
 
 ## Workflow
 
@@ -83,8 +80,14 @@ Build a comprehensive question with:
 
 ### Step 2: Write Question and Invoke Codex
 
+Use `$$`-suffixed paths — parallel codex calls sharing fixed names clobber
+each other — and write the question, run codex, and print the reply path in
+ONE Bash call so `$$` resolves consistently. Give the call a 10-minute
+timeout: xhigh on the fast tier typically returns in ~2 minutes but can run
+longer.
+
 ```bash
-cat <<'QUESTION' > /tmp/question.txt
+cat <<'QUESTION' > /tmp/codex-q-$$.txt
 I have a [component] that fails with [specific error].
 
 Here is the full function:
@@ -106,14 +109,14 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat /tmp/question.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex_reply.txt --sandbox workspace-write
+cat /tmp/codex-q-$$.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex-r-$$.txt --sandbox workspace-write
+echo "REPLY_FILE: /tmp/codex-r-$$.txt"
 ```
 
 ### Step 3: Evaluate the Reply
 
-```
-Read /tmp/codex_reply.txt
-```
+Read the reply file printed on the `REPLY_FILE:` line. The file persists as a
+durable record of the exchange.
 
 Evaluate suggestions critically. Codex is helpful but not infallible -- it can occasionally misinterpret specifications. Always verify against authoritative sources before applying.
 
@@ -176,7 +179,7 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-cat <<'PROMPT' > /tmp/imagegen.txt
+cat <<'PROMPT' > /tmp/codex-q-$$.txt
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
 chroma-keyed out locally). If the image_gen tool is unavailable, reply
@@ -184,10 +187,11 @@ IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
 
-cat /tmp/imagegen.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex_reply.txt --disable shell_tool --sandbox workspace-write
+cat /tmp/codex-q-$$.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex-r-$$.txt --disable shell_tool --sandbox workspace-write
+echo "REPLY_FILE: /tmp/codex-r-$$.txt"
 ```
 
-Then place and post-process yourself (read the path from `/tmp/codex_reply.txt`):
+Then place and post-process yourself (read the path from the `REPLY_FILE:` line):
 
 ```bash
 uv run --with pillow "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py" \
@@ -231,15 +235,13 @@ Model limits to design around:
 
 **No output**: Check that `-o` flag has a valid path
 
-**Result is a bare "Skill execution completed"**: the fork ended its turn on a
-leaked schema tool (`StructuredOutput`) and its answer was discarded — this is
-not a real reply. It happens when `Skill(codex)` is invoked from a schema-bound
-subagent; spawn the `codex:codex-wrapper` agent instead (see From Workflows and
-Subagents).
+**Result is a bare "Skill execution completed"**: you are running a stale cached
+version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
+subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
+runs inline and this cannot happen: run `claude plugin update codex@skills`.
 
-**Fork asks "what's the task?"**: `Skill(codex)` was invoked without `args`.
-The fork is blind — it inherits nothing from the spawning conversation — so the
-`args` parameter must carry the entire self-contained question.
+**Two codex calls stomped each other's files**: fixed `/tmp` names were used.
+Keep the recipe's `$$`-suffixed paths — they are unique per Bash call.
 
 **Timeout**: Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval (`--full-auto` is the deprecated spelling of the same thing). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
 
