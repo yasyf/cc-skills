@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(brew install:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(jq:*), Bash(brew install:*), Read
 effort: medium
 ---
 
@@ -14,8 +14,9 @@ browser store via the `cookiesync` CLI and streams them straight into an isolate
 task itself.
 
 It's authorize once (`cookiesync auth`, one Touch ID tap), then stream the sites'
-cookies into the session — over a short-lived FIFO locally, straight over stdin in
-Browserbase mode. The cookie payload never lands on disk either way.
+cookies **and web storage** (localStorage/sessionStorage) into the session — over a
+short-lived FIFO locally, per-origin through the wrapper in Browserbase mode. The
+payload never lands on disk either way.
 
 ## Prerequisites
 
@@ -73,25 +74,46 @@ Browserbase mode. The cookie payload never lands on disk either way.
    `state load` drains the FIFO in one synchronous read, so the `rm` right after is
    safe. `state load` exits 0 even on a bad payload — an `✗ Invalid state file` line
    means the writer died before producing JSON (usually `cookies` wanting `auth`;
-   its error is in the same output). Other domains' cookies activate when navigation
-   reaches them. Single site: drop the extra hosts.
+   its error is in the same output). Each origin's localStorage rides the `storageState`
+   too; sessionStorage does not — for the rare site that keeps auth there, seed it after
+   `state load` with the Browserbase `storage session set` loop. Other domains' cookies
+   activate when navigation reaches them. Single site: drop the extra hosts.
 
-   **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so inject
-   cookies *after* opening, then reload. `cookies set --curl` parses in the foreground
-   process, so it reads straight from stdin:
+   **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so seed the
+   session *after* opening, then reload. **Every** call goes through the wrapper — a
+   plain `agent-browser` call lands on a *local* browser, not the cloud session:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb" --session abwc open "$U1"
+   W="${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb"
+   bash "$W" --session abwc open "$U1"
+   # cookies — foreground stdin parse; header format is one host per call:
    cookiesync cookies "$U1" --format header \
-     | agent-browser --session abwc cookies set --curl /dev/stdin
-   agent-browser --session abwc reload
+     | bash "$W" --session abwc cookies set --curl /dev/stdin
+   # localStorage + sessionStorage — seed each origin on its own page, then reload:
+   cookiesync cookies "$U1" "$U2" … --format webstorage | jq -c '.origins[]' | while read -r o; do
+     ORIGIN="$(printf '%s' "$o" | jq -r '.origin')"
+     bash "$W" --session abwc open "$ORIGIN"
+     printf '%s' "$o" | jq -r '.localStorage[]?   | [.name, .value] | @tsv' \
+       | while IFS=$'\t' read -r k v; do bash "$W" --session abwc storage local   set "$k" "$v"; done
+     printf '%s' "$o" | jq -r '.sessionStorage[]? | [.name, .value] | @tsv' \
+       | while IFS=$'\t' read -r k v; do bash "$W" --session abwc storage session set "$k" "$v"; done
+   done
+   bash "$W" --session abwc open "$U1" && bash "$W" --session abwc reload
    ```
 
-   Cookie-auth only — Browserbase can't restore localStorage logins (use the local
-   default for those). The header format carries no domain metadata, so inject **one
-   host per call**: the piped cookies bind to `$U1`'s host; for each additional host,
-   repeat the `cookies set` line with that host's own
-   `cookiesync cookies "$U2" --format header` stream and `--domain <host>`.
+   This restores cookies **and** localStorage/sessionStorage on the cloud IP. `storage
+   set` writes to the current page's origin, so each origin is opened before its keys are
+   seeded (Faye's login redirect stays same-origin, so this holds). **IndexedDB can't be
+   restored on Browserbase** (agent-browser has no IndexedDB primitive) — a site whose
+   login lives only there needs the local default. The header format carries no domain
+   metadata, so cookies are **one host per call** (repeat the `cookies set` line per host
+   with `--domain <host>`); web storage carries its exact origin, so one `--format
+   webstorage` pipe covers every host.
+
+   In Browserbase mode every **later** call needs the wrapper too — run `bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb" --session abwc …` in place of plain
+   `agent-browser --session abwc` for verify (step 4), the task (step 5), and cleanup
+   (step 6), or those commands hit a local browser instead of the cloud session.
 
 4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
    confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
@@ -113,14 +135,16 @@ Browserbase mode. The cookie payload never lands on disk either way.
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Add that host as another
   `cookies` argument and re-run the pipe.
-- **Browserbase mode renders logged-out but your cookies are valid** — the site
-  likely rejects Browserbase's cloud IP, or it's localStorage auth. Fall back to the
-  **local default** (step 3) — local Clark on your own IP, full `--state`.
-- **Loaded but still logged out** (step 4) — almost always **localStorage-based auth**
-  (token in `localStorage`, not a cookie); the cookie store can't see it. Fall back to
-  agent-browser's live import: quit the browser and
-  `agent-browser --profile "<Profile>" open "$U1"`, or start the browser with
-  `--remote-debugging-port=9222` then `agent-browser --auto-connect state save ./s.json`.
+- **Browserbase renders logged-out** — cookies and web storage were seeded, so the site
+  likely rejects Browserbase's cloud IP, or its login lives in **IndexedDB** (which
+  Browserbase can't restore). Fall back to the **local default** (step 3) — local Clark
+  on your own IP.
+- **Loaded but still logged out** (step 4) — the login isn't in cookies *or*
+  localStorage/sessionStorage, so it's **IndexedDB-based auth** (e.g. Firebase), which
+  `cookiesync` can't capture. Fall back to agent-browser's live import:
+  quit the browser and `agent-browser --profile "<Profile>" open "$U1"`, or start it with
+  `--remote-debugging-port=9222` then `agent-browser --auto-connect state save ./s.json`
+  (a live browser reads IndexedDB natively).
 - **Touch ID denied / cancelled** — re-run `cookiesync auth`. The prompt may have been
   routed to another machine; make sure the user approves it there.
 
@@ -130,10 +154,10 @@ Browserbase mode. The cookie payload never lands on disk either way.
   call — it merges them into a single `storageState`. Reach for this when an app calls a
   separate API host, or you read from a second dashboard. One `auth`, one pipe, one
   session; you still `open` only the primary URL.
-- The cookies stream carries plaintext session tokens (a Playwright `storageState`
-  locally, a cookie header in Browserbase mode). It goes process-to-process over a
-  pipe (never a file on disk), and `cookiesync` keeps the raw values out of its own
-  logs.
+- The stream carries plaintext session tokens — cookies **and** localStorage/
+  sessionStorage (a Playwright `storageState` locally; a cookie header plus per-origin
+  `storage set` calls in Browserbase mode). It goes process-to-process (never a file on
+  disk), and `cookiesync` keeps the raw values out of its own logs.
 - `cookiesync auth` is the one Touch ID consent checkpoint: the daemon caches the Safe
   Storage key for a short TTL so `cookies` calls inside that window need no further
   prompt. If nothing is primed yet and the session is live, the `cookies` call itself
