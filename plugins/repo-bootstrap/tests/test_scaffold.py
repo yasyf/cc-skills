@@ -193,7 +193,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "not a routing cue" in claude
     # gpt-5.5 lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from
     # fable; escalation stays gpt-5.5→fable) and well-scoped edits, via the codex
-    # skill (sonnet wrapper from workflows/subagents). Fable keeps design review
+    # skill (inline; codex:codex-wrapper agent from workflows/subagents). Fable keeps design review
     # and the synthesis/accept-reject pass over findings.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
