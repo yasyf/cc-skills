@@ -1,0 +1,104 @@
+name: Fan out guides re-render
+
+# guides/** or fleet.json edits on main → purity gate (cc-guides lint) →
+# dispatch cc-guides-render to every fleet repo (fleet.json, cc-guides itself
+# included). Content pushes drive fleet refresh now; a cc-guides binary release
+# no longer does. Per-repo failures are loud (non-204 = job failure) but one
+# dead repo doesn't stop the rest; each repo's weekly schedule is only the belt
+# (schedules decay on inactive repos).
+#
+# Needs the FLEET_DISPATCH_TOKEN secret: fine-grained PAT, Contents r/w, all
+# owner repos (repository_dispatch). Dispatch is the primary propagation path.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "guides/**"
+      - "fleet.json"
+      - ".github/workflows/guides-fan-out.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fan-out:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install latest cc-guides
+        shell: bash
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac
+          # Resolve + download in one retry loop: a concurrent release can expose
+          # the new tag via releases/latest before its assets finish uploading
+          # (404 on download). Re-resolving each attempt also follows a release
+          # that lands mid-loop.
+          asset=""
+          for i in 1 2 3 4 5; do
+            effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+              "https://github.com/yasyf/cc-guides/releases/latest")"
+            tag="${effective##*/tag/}"
+            case "$tag" in v[0-9]*) ;; *) echo "::error::could not resolve latest cc-guides release (got '$effective')"; exit 1 ;; esac
+            asset="cc-guides_${os}_${arch}"
+            base="https://github.com/yasyf/cc-guides/releases/download/$tag"
+            mkdir -p "$RUNNER_TEMP/cc-guides-bin"
+            if curl -fsSL --retry 3 -o "$RUNNER_TEMP/cc-guides-bin/cc-guides" "$base/$asset" \
+               && curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"; then
+              break
+            fi
+            if [ "$i" = 5 ]; then
+              echo "::error::assets for $tag never became available"
+              exit 1
+            fi
+            echo "assets for $tag not yet available ($i/5) — sleeping 30s"
+            sleep 30
+          done
+          expected="$(awk -v a="$asset" '$2 == a {print $1}' "$RUNNER_TEMP/checksums.txt")"
+          actual="$(sha256sum "$RUNNER_TEMP/cc-guides-bin/cc-guides" | awk '{print $1}')"
+          if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::checksum mismatch for $asset at $tag"
+            exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/cc-guides-bin/cc-guides"
+          echo "$RUNNER_TEMP/cc-guides-bin" >> "$GITHUB_PATH"
+
+      - name: Purity gate — lint guides/
+        shell: bash
+        run: |
+          set -euo pipefail
+          # v0.1.7 (pre-v3) has no 'lint' subcommand: detect it in the command
+          # list and skip on older binaries during the transition. Once lint
+          # exists it runs for real — a nonzero exit fails the job and nothing
+          # dispatches.
+          if cc-guides --help 2>&1 | grep -qE '^[[:space:]]+lint([[:space:]]|$)'; then
+            cc-guides lint guides/
+          else
+            echo "::warning::installed cc-guides predates 'lint'; skipping purity gate (pre-v3 transition)"
+          fi
+
+      - name: Dispatch cc-guides-render to the fleet
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::FLEET_DISPATCH_TOKEN is not set — currently a gh CLI token; swap for a fine-grained PAT (Contents r/w, all owner repos) and store it as an Actions secret."
+            exit 1
+          fi
+          failed=0
+          while IFS= read -r repo; do
+            if gh api "repos/$repo/dispatches" -f event_type=cc-guides-render >/dev/null 2>&1; then
+              echo "dispatched: $repo"
+            else
+              echo "::error::dispatch failed: $repo"
+              failed=1
+            fi
+          done < <(jq -r '.[]' fleet.json)
+          exit "$failed"

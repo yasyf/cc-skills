@@ -1,0 +1,23 @@
+[
+  "yasyf/cc-guides",
+  "yasyf/captain-hook",
+  "yasyf/cc-context",
+  "yasyf/cc-factory",
+  "yasyf/cc-interact",
+  "yasyf/cc-merge",
+  "yasyf/cc-notes",
+  "yasyf/cc-pane",
+  "yasyf/cc-present",
+  "yasyf/cc-review",
+  "yasyf/cc-runtime",
+  "yasyf/cc-sentiment",
+  "yasyf/cc-squash",
+  "yasyf/cc-steer",
+  "yasyf/cc-transcript",
+  "yasyf/cookiesync",
+  "yasyf/dailies",
+  "yasyf/docker-dsl",
+  "yasyf/slop-cop",
+  "yasyf/spawnllm",
+  "yasyf/synckit"
+]
