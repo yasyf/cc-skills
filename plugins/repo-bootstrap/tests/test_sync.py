@@ -200,6 +200,63 @@ def test_no_history_when_canonical_unavailable(partials, body_at):
     assert new_text == target
 
 
+# --- prefix ambiguity between synced and repinned (longest-match disambiguation) ---
+
+
+def test_synced_vs_repinned_prefix_extension(tmp_path):
+    # OLD body is a STRICT PREFIX of NEW (two lines appended). A target already holding NEW
+    # at a stale stamp must classify repinned (bump the stamp only) — classifying synced
+    # would re-splice the current body over the prefix and DUPLICATE the appended lines. An
+    # untouched@old sibling still classifies synced.
+    old_body = "## Ext\n\nBase rule.\n"
+    new_body = "## Ext\n\nBase rule.\nAppended one.\nAppended two.\n"  # OLD == NEW[0:3]
+    d = tmp_path / "_partials"
+    d.mkdir()
+    (d / "ext.md").write_text(md_stamp("ext", stamp.PENDING) + "\n" + new_body)
+    partials = sync.discover_partials(d)
+    sha_for = {partials["ext"].path: SHA_CONV}.get
+    old_blob = md_stamp("ext", stamp.PENDING) + "\n" + old_body
+    body_at = lambda sha, path: old_blob if (sha, path) == (SHA_OLD, partials["ext"].path) else None
+
+    updated = "# Doc\n\n" + md_stamp("ext", SHA_OLD) + "\n" + new_body
+    findings, new_text = sync.sync_target("t.md", updated, partials, sha_for, body_at)
+    assert findings == [sync.SyncFinding("repinned", SHA_OLD, SHA_CONV, "t.md", "ext")]
+    assert new_text == "# Doc\n\n" + md_stamp("ext", SHA_CONV) + "\n" + new_body
+    assert new_text.count("Appended one.") == 1  # not duplicated
+
+    untouched = "# Doc\n\n" + md_stamp("ext", SHA_OLD) + "\n" + old_body
+    findings2, new_text2 = sync.sync_target("t.md", untouched, partials, sha_for, body_at)
+    assert findings2 == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "ext")]
+    assert new_text2 == "# Doc\n\n" + md_stamp("ext", SHA_CONV) + "\n" + new_body
+
+
+def test_synced_vs_repinned_suffix_shrink(tmp_path):
+    # NEW body is a STRICT PREFIX of OLD (trailing lines removed). An untouched@old target
+    # must classify synced and excise the stale tail; a naive repinned-first order would
+    # misfire here because the shorter current window matches the OLD body's prefix. A
+    # target already holding NEW classifies repinned.
+    new_body = "## Shr\n\nKept rule.\n"
+    old_body = "## Shr\n\nKept rule.\nRemoved one.\nRemoved two.\n"  # NEW == OLD[0:3]
+    d = tmp_path / "_partials"
+    d.mkdir()
+    (d / "shr.md").write_text(md_stamp("shr", stamp.PENDING) + "\n" + new_body)
+    partials = sync.discover_partials(d)
+    sha_for = {partials["shr"].path: SHA_CONV}.get
+    old_blob = md_stamp("shr", stamp.PENDING) + "\n" + old_body
+    body_at = lambda sha, path: old_blob if (sha, path) == (SHA_OLD, partials["shr"].path) else None
+
+    untouched = "# Doc\n\n" + md_stamp("shr", SHA_OLD) + "\n" + old_body + "## After\n"
+    findings, new_text = sync.sync_target("t.md", untouched, partials, sha_for, body_at)
+    assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "shr")]
+    assert "Removed one." not in new_text and "Removed two." not in new_text
+    assert new_text == "# Doc\n\n" + md_stamp("shr", SHA_CONV) + "\n" + new_body + "## After\n"
+
+    updated = "# Doc\n\n" + md_stamp("shr", SHA_OLD) + "\n" + new_body + "## After\n"
+    findings2, new_text2 = sync.sync_target("t.md", updated, partials, sha_for, body_at)
+    assert findings2 == [sync.SyncFinding("repinned", SHA_OLD, SHA_CONV, "t.md", "shr")]
+    assert new_text2 == "# Doc\n\n" + md_stamp("shr", SHA_CONV) + "\n" + new_body + "## After\n"
+
+
 # --- seed class: the same stale three-way, but body-blind at the canonical sha ---
 
 

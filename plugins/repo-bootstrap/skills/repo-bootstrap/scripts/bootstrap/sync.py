@@ -20,7 +20,11 @@ the stamp sha):
 
 The replaced window's length is the *stamped-from* body's line count, never the current
 partial's: a partial that grew or shrank between the stamp sha and canon would otherwise
-excise the wrong span. Seeds (basename ``readme*``, customized per repo) take the same
+excise the wrong span. When the stamped-from and current bodies are in a prefix relationship
+(lines appended or trailing lines dropped), a target can match BOTH windows; the longer
+matching window wins — equal lengths mean identical bodies, so a stamp-only re-pin — which
+keeps an already-updated fragment from re-splicing the current body over its own prefix and
+duplicating the appended lines. Seeds (basename ``readme*``, customized per repo) take the same
 three-way when stale — an untouched seed syncs, a customized one is ``skipped-edited``
 with its stamp left unpinned (provenance honesty) — but at the canonical sha a seed is
 always ``ok`` (its body is never checked, mirroring ``drift``).
@@ -180,12 +184,20 @@ def classify_md(
         return SyncFinding("no-history", found_sha, None, path, name), None
     original_lines = _blob_md_lines(original_blob)
     old_window = len(original_lines)
-    if normalize(fragment_body(lines, stamp_idx, old_window)) == normalize("\n".join(original_lines)):
+    cur_window = len(partial.body_lines)
+    matches_original = normalize(fragment_body(lines, stamp_idx, old_window)) == normalize("\n".join(original_lines))
+    matches_current = normalize(fragment_body(lines, stamp_idx, cur_window)) == normalize(partial.body)
+    # When the stamped-from body is a prefix of the current one (or vice versa) BOTH windows
+    # can match the target — the longer window is the true fit; a shorter one that also
+    # matches only caught the prefix. Prefer the longer; on equal lengths a double match
+    # means identical bodies, so a stamp-only re-pin. Taking the shorter ``synced`` window
+    # would splice the current body over a prefix and duplicate the appended lines.
+    if matches_original and (not matches_current or old_window > cur_window):
         return (
             SyncFinding("synced", found_sha, canonical, path, name),
             MdEdit(stamp_idx, canonical, old_window, partial.body_lines),
         )
-    if normalize(fragment_body(lines, stamp_idx, len(partial.body_lines))) == normalize(partial.body):
+    if matches_current:
         return SyncFinding("repinned", found_sha, canonical, path, name), MdEdit(stamp_idx, canonical, 0, ())
     return SyncFinding("skipped-edited", found_sha, None, path, name), None
 

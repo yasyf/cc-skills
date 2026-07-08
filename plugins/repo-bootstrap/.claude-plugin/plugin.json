@@ -1,7 +1,7 @@
 {
   "name": "repo-bootstrap",
   "description": "Scaffold new repos with proven conventions: agent docs (AGENTS.md/STYLEGUIDE.md), Claude Code settings, semble code search, capt-hook guard hooks, a generated mascot logo + README banner + GitHub social-preview card, and an opinionated Python layer (uv, Click, pytest, ruff, ty) with optional Great Docs + PyPI features, a Go layer (cobra, slog, golangci-lint + gofumpt, Taskfile) with an optional goreleaser + Homebrew-tap release feature, or Swift layers \u2014 an SPM package/CLI (swift-argument-parser, Swift Testing, SwiftFormat + SwiftLint, XcodeBuildMCP, optional universal-binary cask release) and a SwiftUI iOS app (synced-folder Xcode project).",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
