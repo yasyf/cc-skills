@@ -44,6 +44,7 @@
     }
   },
   "enabledPlugins": {
+    "cc-context@skills": true,
     "codex@skills": true,
     "cc-notes@cc-notes": true
   },
