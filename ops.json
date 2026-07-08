@@ -1,1 +1,1 @@
-{"v":1,"lamport":3,"ops":[{"kind":"add_superseded_by","id":"0120aa8372e585017d645ae8fdde07566baa5ac1"}]}
+{"v":1,"lamport":4,"ops":[{"kind":"delete_note"}]}
