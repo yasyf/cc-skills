@@ -127,7 +127,7 @@ PreToolUse. Eight hooks:
 - **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
   run code/diff review, a security review/audit or verification of security-sensitive
   code, or bug diagnosis on fable gets a reminder that these route to gpt-5.5 via the
-  codex skill (sonnet low-effort wrapper). Design review, prose review, and findings
+  codex skill (from subagents: the `codex:codex-wrapper` agent). Design review, prose review, and findings
   synthesis stay on fable; when uncertain it stays silent.
 - **Workflow review/diagnosis nudge (LLM, warn).** The same reminder for a `Workflow`
   whose finder, refuter, security-audit, or diagnosis stages would run on fable.

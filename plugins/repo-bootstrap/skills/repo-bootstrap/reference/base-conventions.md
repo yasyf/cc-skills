@@ -115,8 +115,9 @@ belong in the shared AGENTS.md:
   codex skill for code/diff review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
   it stays fable), bug diagnosis, well-scoped edits to existing code, second
-  opinions, imagegen, and rote throwaway work (from subagents: a thin sonnet
-  low-effort wrapper); defaults, not limits — escalation means fable;
+  opinions, imagegen, and rote throwaway work (from subagents: the
+  `codex:codex-wrapper` agent, never `Skill(codex)`); defaults, not limits —
+  escalation means fable;
   the unexpected checks back — a delegated agent hitting a task-shape surprise
   (scope change, invalidated assumption, task not as described) stops and
   returns findings plus 2-4 options for the fable orchestrator to pick, never
