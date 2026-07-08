@@ -41,10 +41,16 @@
         "source": "github",
         "repo": "yasyf/cc-notes"
       }
+    },
+    "cc-context": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/cc-context"
+      }
     }
   },
   "enabledPlugins": {
-    "cc-context@skills": true,
+    "cc-context@cc-context": true,
     "codex@skills": true,
     "cc-notes@cc-notes": true
   },
