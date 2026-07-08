@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work. From subagents and workflows, spawn the codex-wrapper agent this plugin ships instead of invoking this skill.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 context: fork
 effort: medium
@@ -47,30 +47,27 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
   parameter through). Production edits are in range at xhigh; review the diff as
   you would any other contributor's.
 
-## From Workflows and Subagents (the sonnet wrapper)
+## From Workflows and Subagents (the codex-wrapper agent)
 
 The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps takes
-only Claude models, so gpt-5.5 can't be routed directly. Spawn a thin wrapper
-instead: a `model: sonnet`, `effort: low` agent whose prompt tells it to gather
-the relevant code, write a self-contained codex prompt (Step 1 below), run this
-codex skill, and return Codex's answer verbatim. The wrapper ferries context;
-Codex does the thinking.
+only Claude models, so gpt-5.5 can't be routed directly. This plugin ships a
+wrapper agent for exactly that: spawn agent type `codex:codex-wrapper` (the
+`subagent_type` of an `Agent`/`Task` call, or `agentType` on a workflow
+`agent()` step) with the full self-contained question as the prompt — or with
+pointers to the files/diff to gather plus the questions to answer. The wrapper
+writes the question to a unique temp file, runs the pinned `codex exec`, and
+returns Codex's answer verbatim; it reports codex errors instead of improvising
+an answer, and it never absorbs a surprise (unexpected replies come back
+flagged, with 2-4 options for the orchestrator).
 
-**Pass the question through `args` — the fork is blind.** This skill runs with
-`context: fork`, so the invocation does not inherit the spawning conversation.
-The wrapper's Skill call must carry the entire self-contained question in the
-`args` parameter (invoke `codex:codex`). A bare `Skill(codex)` with no `args`
-forks into an empty context and comes back asking "what's the task?", burning a
-call. So the spawning prompt must embed the full question text, and the wrapper
-must forward it verbatim as `args` — never merely reference "the question above."
-
-The wrapper never absorbs a surprise. If Codex's reply is unexpected — it
-contradicts the question's premise, says the task is different than described,
-or proposes changes outside the asked scope — the wrapper returns it verbatim,
-flagged as unexpected, with 2-4 concrete options for the orchestrator. It never
-iterates with follow-up codex calls to resolve the surprise and never picks a
-direction itself: deciding next steps after a surprise is fable work, not a
-sonnet-tier call.
+**Never invoke `Skill(codex)` from a subagent.** This skill runs with
+`context: fork`, and a schema-bound caller (any workflow `agent(..., {schema})`
+step) leaks its `StructuredOutput` return tool into the fork. A fork that ends
+its turn on that tool leaves no trailing text for the Skill relay to harvest,
+so the caller receives a bare "Skill execution completed" stub and the real
+answer is silently discarded (observed on 15 of 18 calls in one review
+workflow). The main conversation has no such tool to leak — invoking this
+skill directly from there stays correct.
 
 ## Workflow
 
@@ -153,10 +150,10 @@ For diagnosis, review, and second-opinion calls, return a structured summary:
 **Confidence:** <high/medium/low based on how well Codex understood the problem>
 ```
 
-For well-scoped edits, image generation, and the sonnet-wrapper relay, skip the
-structure: return Codex's answer verbatim in the exact shape the caller asked
-for (e.g. "reply with ONLY the edited function"). Don't wrap a bare artifact in
-the Analysis boilerplate — the caller wants the artifact, not a report on it.
+For well-scoped edits and image generation, skip the structure: return Codex's
+answer verbatim in the exact shape the caller asked for (e.g. "reply with ONLY
+the edited function"). Don't wrap a bare artifact in the Analysis boilerplate —
+the caller wants the artifact, not a report on it.
 
 ## Generating Images ($imagegen)
 
@@ -233,6 +230,16 @@ Model limits to design around:
 **"stdin is not a terminal"**: Use `codex exec` not bare `codex`
 
 **No output**: Check that `-o` flag has a valid path
+
+**Result is a bare "Skill execution completed"**: the fork ended its turn on a
+leaked schema tool (`StructuredOutput`) and its answer was discarded — this is
+not a real reply. It happens when `Skill(codex)` is invoked from a schema-bound
+subagent; spawn the `codex:codex-wrapper` agent instead (see From Workflows and
+Subagents).
+
+**Fork asks "what's the task?"**: `Skill(codex)` was invoked without `args`.
+The fork is blind — it inherits nothing from the spawning conversation — so the
+`args` parameter must carry the entire self-contained question.
 
 **Timeout**: Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval (`--full-auto` is the deprecated spelling of the same thing). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
 
