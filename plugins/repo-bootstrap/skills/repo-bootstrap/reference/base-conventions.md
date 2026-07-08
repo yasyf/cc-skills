@@ -20,7 +20,13 @@ bootstrap CLI's drift subcommand — `bootstrap.py drift <target-file>…` (the
 partial by name). It prints one TSV finding per line and exits non-zero on a
 stamped verbatim-class stale/edited fragment, a stale shell stamp, or a missing
 required one; unstamped/unknown findings and seed-class (`readme*`) staleness print
-but never fail the exit — the stamp is the opt-in contract.
+but never fail the exit — the stamp is the opt-in contract. The mechanical companion
+is `bootstrap.py sync <target-file>…`, dry-run unless you pass `--write`. It moves each
+stamped fragment to its current canonical body through a three-way — synced, repinned,
+or skipped-edited — sizing the replaced window from the fragment's original body so a
+partial that grew or shrank still splices cleanly, and it never rewrites an edited
+fragment, since divergence is a decision. `sync` always exits 0 while `drift` stays the
+failing check, so `sync --write && drift` composes the fixer with the gate.
 
 ## AGENTS.md anatomy
 

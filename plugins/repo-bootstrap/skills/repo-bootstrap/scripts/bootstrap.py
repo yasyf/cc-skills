@@ -6,6 +6,8 @@
     bootstrap.py scaffold  [flags]               render templates into a repo
     bootstrap.py verify    [--layer] [--target] [--no-license]  verify a scaffolded repo
     bootstrap.py trust     [--target] [--home] [--config]  mark a repo trusted for Claude Code
+    bootstrap.py drift     TARGET… [--require PARTIAL]  check stamped partials against canon
+    bootstrap.py sync      TARGET… [--write]         update stamped partials toward canon
 
 STDLIB ONLY. identity / check-name / scaffold all run before ``uv`` exists, so
 neither this file nor the ``bootstrap`` package may import third-party modules.
@@ -18,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-from bootstrap import drift, identity, pypi, scaffold, trust, verify
+from bootstrap import drift, identity, pypi, scaffold, sync, trust, verify
 from bootstrap.manifest import EXTRAS, FEATURES
 
 
@@ -78,6 +80,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="partial name (basename without .md) whose stamp must be present; repeatable",
     )
 
+    sy = sub.add_parser(
+        "sync",
+        help="update stamped partials in target files toward their canonical source",
+        description="Scan each TARGET for self-identifying canonical stamps and mechanically "
+        "update each stamped fragment toward its current canonical partial. Per fragment a "
+        "three-way decides the move: one still matching the body it was stamped from is "
+        "rewritten to the current body and re-pinned (synced); one already holding the current "
+        "body only has its stamp re-pinned (repinned); one diverging from both is a decision, "
+        "not drift, and is left untouched (skipped-edited). The replaced window is measured from "
+        "the ORIGINAL body at the stamp sha, so a partial that grew or shrank still splices "
+        "cleanly. Dry-run by default (prints a 5-column TSV: status<TAB>old-sha<TAB>new-sha<TAB>"
+        "path<TAB>name); pass --write to apply. ALWAYS exits 0 — sync is the fixer, drift is the "
+        "gate (compose as `sync --write && drift`). Caveat: scaffold renders install-binary.sh "
+        "with {{BINARY_NAME}}/{{PLUGIN_NAME}}/{{RELEASE_REPO}}/{{BREW_PACKAGE}} substituted, so a "
+        "stale RENDERED shell copy matches neither template side and always reports "
+        "skipped-edited — sync maintains unrendered copies only.",
+    )
+    sy.add_argument(
+        "targets", nargs="+", type=Path, help="files to update (AGENTS.md, README.md, install-binary.sh copies)"
+    )
+    sy.add_argument("--write", action="store_true", help="apply the updates (default: dry-run, print findings only)")
+
     return parser
 
 
@@ -95,6 +119,8 @@ def main() -> int:
         return trust.trust_repo(args.target, args.home, args.config)
     if args.command == "drift":
         return drift.main(args.targets, args.require)
+    if args.command == "sync":
+        return sync.main(args.targets, args.write)
     return 2  # unreachable: subparser is required
 
 

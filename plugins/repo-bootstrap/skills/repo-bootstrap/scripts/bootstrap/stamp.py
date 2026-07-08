@@ -31,6 +31,8 @@ STAMP_MD = re.compile(r"<!-- canonical: " + re.escape(CANONICAL) + r"/_partials/
 STAMP_SH = re.compile(r"# canonical: " + re.escape(CANONICAL) + r"@" + SHA)
 # Every ``@pending`` under the canonical prefix, path segment (if any) preserved.
 STAMP_PENDING = re.compile(re.escape(CANONICAL) + r"(?P<seg>[^@\s]*)@" + PENDING)
+# Every canonical stamp — ``@pending`` or already pinned — path segment preserved.
+STAMP_ANY = re.compile(re.escape(CANONICAL) + r"(?P<seg>[^@\s]*)@" + SHA)
 
 
 def md_stamp(line: str) -> tuple[str, str] | None:
@@ -76,3 +78,11 @@ def pin(text: str, sha: str) -> str:
     stamp's path segment (so a self-identifying markdown stamp keeps its partial name
     while the file-level shell stamp keeps none)."""
     return STAMP_PENDING.sub(lambda m: f"{CANONICAL}{m.group('seg')}@{sha}", text)
+
+
+def repin(text: str, sha: str) -> str:
+    """Rewrite every canonical stamp's sha in ``text`` to ``@<sha>`` — ``@pending`` or
+    already pinned — preserving each stamp's path segment. Unlike ``pin`` (which only
+    touches unpinned stamps), ``repin`` re-points a stamp that already names an older
+    sha; the ``sync`` subcommand applies it per stamp line."""
+    return STAMP_ANY.sub(lambda m: f"{CANONICAL}{m.group('seg')}@{sha}", text)
