@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v cookiesync || uv tool install cookiesync-cli"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/setup.sh\" || true"
           }
         ]
       }

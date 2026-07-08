@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# agent-browser-bb — run agent-browser against Browserbase by default, resolving
+# the API key from 1Password so it never appears in the command the agent writes.
+#
+#   • default            → Browserbase cloud provider (-p browserbase)
+#   • --local (anywhere) → force local Chrome (flag stripped before hand-off)
+#   • key unresolvable   → warn on stderr, fall back to local (never hard-fails)
+#
+# Key: op://OpenClaw/BROWSERBASE_API_KEY/notesPlain (a Secure Note).
+# BROWSERBASE_PROJECT_ID is NOT required — verified against the live API.
+set -eo pipefail   # not -u: keeps macOS bash 3.2 empty-array expansion safe
+
+# Strip our own --local flag; pass everything else through untouched.
+use_local=0; args=()
+for a in "$@"; do
+  if [[ "$a" == "--local" ]]; then use_local=1; else args+=("$a"); fi
+done
+
+run_local() { exec agent-browser ${args[@]+"${args[@]}"}; }
+run_bb()    { export BROWSERBASE_API_KEY; exec agent-browser -p browserbase ${args[@]+"${args[@]}"}; }
+
+[[ "$use_local" == 1 ]] && run_local
+
+# op caches the unlock, so repeated calls within the window don't re-prompt.
+if [[ -z "${BROWSERBASE_API_KEY:-}" ]]; then
+  BROWSERBASE_API_KEY="$(op read "op://OpenClaw/BROWSERBASE_API_KEY/notesPlain" 2>/dev/null || true)"
+fi
+
+if [[ -n "${BROWSERBASE_API_KEY:-}" ]]; then
+  run_bb
+else
+  echo "agent-browser-bb: BROWSERBASE_API_KEY unavailable from 1Password (op://OpenClaw/BROWSERBASE_API_KEY); using local Chrome." >&2
+  run_local
+fi

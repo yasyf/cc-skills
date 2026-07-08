@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Read
 effort: medium
 ---
 
@@ -53,24 +53,35 @@ path to track, nothing to `rm`.
    wait for the approval to come back. That Mac's console may show one named consent
    sheet the first time; approving grants about an hour of silent access.
 
-3. **Launch the authenticated session** by streaming the sites' cookies straight into
-   agent-browser via stdin. List **every** host the task touches; open only the
-   **primary** URL:
+3. **Launch the authenticated session.** Default is **local** (stealth Clark
+   browser): stream the sites' cookies into agent-browser via stdin — restores
+   cookies *and* localStorage, nothing touches disk. List **every** host the task
+   touches; open only the **primary** URL:
 
    ```bash
-   cookiesync cookies "$U1" "$U2" … --format playwright | agent-browser --session abwc --state - open "$U1"
+   cookiesync cookies "$U1" "$U2" … --format playwright \
+     | agent-browser --session abwc --state - open "$U1"
    ```
 
-   `cookiesync cookies` emits **one merged** Playwright `storageState` document on
-   stdout: the best-effort union across every registered endpoint — all local browsers
-   and all registered hosts — with the newest cookie winning; ties prefer the local
-   machine. Endpoints that fail are skipped with warnings on stderr; the call fails
-   only when zero endpoints contribute. If nothing is primed yet and the session is
-   live, this call itself costs the one tap. `agent-browser --state -` reads the JSON
-   from stdin. You `open` only `$U1` — the other domains' cookies are present
-   in the context and become active when navigation or requests reach them. With a
-   single site it's `cookiesync cookies "$U1" …`. The cookies live only in the
-   browser context — nothing touches disk.
+   `cookiesync cookies` emits one merged Playwright `storageState` (union across every
+   registered browser/host, newest cookie wins); `--state -` reads it from stdin. Other
+   domains' cookies activate when navigation reaches them. Single site: drop the extra
+   hosts.
+
+   **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so inject
+   cookies *after* opening, then reload. Uses a unique temp file, removed immediately:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb" --session abwc open "$U1"
+   TMP="$(mktemp -t abwc.XXXXXX)"
+   cookiesync cookies "$U1" … --format header > "$TMP"
+   agent-browser --session abwc cookies set --curl "$TMP"; rm -f "$TMP"
+   agent-browser --session abwc reload
+   ```
+
+   Cookie-auth only — Browserbase can't restore localStorage logins (use the local
+   default for those). The header binds to `$U1`'s host; for another host, run its own
+   `cookies set` against that host.
 
 4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
    confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
@@ -92,6 +103,9 @@ path to track, nothing to `rm`.
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Add that host as another
   `cookies` argument and re-run the pipe.
+- **Browserbase mode renders logged-out but your cookies are valid** — the site
+  likely rejects Browserbase's cloud IP, or it's localStorage auth. Fall back to the
+  **local default** (step 3) — local Clark on your own IP, full `--state`.
 - **Loaded but still logged out** (step 4) — almost always **localStorage-based auth**
   (token in `localStorage`, not a cookie); the cookie store can't see it. Fall back to
   agent-browser's live import: quit the browser and
