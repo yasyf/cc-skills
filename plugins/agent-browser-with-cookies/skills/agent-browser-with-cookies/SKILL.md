@@ -15,8 +15,8 @@ task itself.
 
 It's authorize once (`cookiesync auth`, one Touch ID tap), then stream the sites'
 cookies **and web storage** (localStorage/sessionStorage) into the session — over a
-short-lived FIFO locally, per-origin through the wrapper in Browserbase mode. The
-payload never lands on disk either way.
+short-lived FIFO locally, per-origin via `ab` in Browserbase mode. The payload never
+lands on disk either way.
 
 ## Prerequisites
 
@@ -76,53 +76,57 @@ payload never lands on disk either way.
    means the writer died before producing JSON (usually `cookies` wanting `auth`;
    its error is in the same output). Each origin's localStorage rides the `storageState`
    too; sessionStorage does not — for the rare site that keeps auth there, seed it after
-   `state load` with the Browserbase `storage session set` loop. Other domains' cookies
-   activate when navigation reaches them. Single site: drop the extra hosts.
+   `state load` with a per-origin `agent-browser --session abwc storage session set` loop
+   (the same shape the Browserbase block uses). Other domains' cookies activate when
+   navigation reaches them. Single site: drop the extra hosts.
 
    **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so seed the
-   session *after* opening, then reload. **Every** call goes through the wrapper — a
-   plain `agent-browser` call lands on a *local* browser, not the cloud session:
+   session *after* opening, then reload. Drive **every** call through **`ab`** (the plugin's
+   `bin/ab`): it keeps one keepAlive cloud session per agent session and reconnects to it,
+   so multi-step flows share a live page. `ab` resolves the Browserbase key and session
+   itself — you never pass a provider flag or session id, and a plain `agent-browser` call
+   would hit a *local* browser instead.
 
    ```bash
-   W="${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb"
-   bash "$W" --session abwc open "$U1"
+   ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
+   "$ab" open "$U1"
    # cookies — foreground stdin parse; header format is one host per call:
-   cookiesync cookies "$U1" --format header \
-     | bash "$W" --session abwc cookies set --curl /dev/stdin
+   cookiesync cookies "$U1" --format header | "$ab" cookies set --curl /dev/stdin
    # localStorage + sessionStorage — seed each origin on its own page, then reload:
    cookiesync cookies "$U1" "$U2" … --format webstorage | jq -c '.origins[]' | while read -r o; do
      ORIGIN="$(printf '%s' "$o" | jq -r '.origin')"
-     bash "$W" --session abwc open "$ORIGIN"
+     "$ab" open "$ORIGIN"
      printf '%s' "$o" | jq -r '.localStorage[]?   | [.name, .value] | @tsv' \
-       | while IFS=$'\t' read -r k v; do bash "$W" --session abwc storage local   set "$k" "$v"; done
+       | while IFS=$'\t' read -r k v; do "$ab" storage local   set "$k" "$v"; done
      printf '%s' "$o" | jq -r '.sessionStorage[]? | [.name, .value] | @tsv' \
-       | while IFS=$'\t' read -r k v; do bash "$W" --session abwc storage session set "$k" "$v"; done
+       | while IFS=$'\t' read -r k v; do "$ab" storage session set "$k" "$v"; done
    done
-   bash "$W" --session abwc open "$U1" && bash "$W" --session abwc reload
+   "$ab" open "$U1" && "$ab" reload
    ```
 
-   This restores cookies **and** localStorage/sessionStorage on the cloud IP. `storage
-   set` writes to the current page's origin, so each origin is opened before its keys are
-   seeded (Faye's login redirect stays same-origin, so this holds). **IndexedDB can't be
-   restored on Browserbase** (agent-browser has no IndexedDB primitive) — a site whose
-   login lives only there needs the local default. The header format carries no domain
-   metadata, so cookies are **one host per call** (repeat the `cookies set` line per host
-   with `--domain <host>`); web storage carries its exact origin, so one `--format
-   webstorage` pipe covers every host.
+   This restores cookies **and** localStorage/sessionStorage on the cloud IP. `storage set`
+   writes to the current page's origin, so each origin is opened before its keys are seeded
+   (Faye's login redirect stays same-origin, so this holds). **IndexedDB can't be restored
+   on Browserbase** (agent-browser has no IndexedDB primitive) — a site whose login lives
+   only there needs the local default. The header format carries no domain metadata, so
+   cookies are **one host per call** (repeat the `cookies set` line per host with `--domain
+   <host>`); web storage carries its exact origin, so one `--format webstorage` pipe covers
+   every host.
 
-   In Browserbase mode every **later** call needs the wrapper too — run `bash
-   "${CLAUDE_PLUGIN_ROOT}/bin/agent-browser-bb" --session abwc …` in place of plain
-   `agent-browser --session abwc` for verify (step 4), the task (step 5), and cleanup
-   (step 6), or those commands hit a local browser instead of the cloud session.
+   Keep using `"$ab" …` for **every** later Browserbase call — verify (step 4), the task
+   (step 5), and cleanup. `ab close` **releases** the cloud session, so always end a
+   Browserbase run with it (a keepAlive session otherwise lingers until it times out).
 
 4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
    confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
-   affordance. If it looks logged-out, see **Failure handling**.
+   affordance. In Browserbase mode use `"$ab" snapshot -i` instead. If it looks logged-out,
+   see **Failure handling**.
 
 5. **Do the task** with normal `agent-browser --session abwc …` commands (defer to the
-   `agent-browser` skill for command mechanics).
+   `agent-browser` skill for command mechanics). In Browserbase mode run each as `"$ab" …`.
 
-6. **Clean up.** `agent-browser --session abwc close`. There's no state file to remove.
+6. **Clean up.** Local: `agent-browser --session abwc close` (no state file to remove).
+   Browserbase: `"$ab" close`, which also releases the cloud session.
 
 ## Failure handling
 

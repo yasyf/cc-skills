@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ab — run agent-browser against ONE persistent Browserbase session per caller,
+# reconnecting to it across invocations so a multi-step flow shares a live page.
+#
+#   • default            → Browserbase, reconnecting to this caller's keepAlive session
+#   • --local (anywhere) → local browser (flag stripped before hand-off)
+#   • key unresolvable   → warn on stderr, fall back to local
+#   • ab close           → release this caller's Browserbase session
+#
+# The session is keyed by `cookiesync requestor` (stable per agent session), tagged in
+# Browserbase's own registry (no local state), created with keepAlive, and released on
+# close. The API key is fed to curl over stdin so it never lands in argv; the session's
+# connectUrl still passes as `agent-browser connect` argv (no stdin form exists upstream)
+# — it is a short-lived per-session credential, released on close. Assumes sequential
+# invocation per caller (the skill drives it one command at a time).
+#
+# Key: op://OpenClaw/BROWSERBASE_API_KEY/notesPlain.
+set -uo pipefail
+
+BB_API="https://api.browserbase.com/v1"
+SESSION_TIMEOUT=1800 # seconds; a keepAlive session self-expires if `close` never runs
+
+# Stable per-caller identity + a name-safe slug for the Browserbase tag and the local
+# agent-browser session name.
+TAG="$(cookiesync requestor)"
+SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
+
+# Strip our own --local; pass everything else through. `close` is our subcommand only
+# when it leads.
+force_local=0
+args=()
+for a in "$@"; do
+  case "$a" in
+  --local) force_local=1 ;;
+  *) args+=("$a") ;;
+  esac
+done
+is_close=0
+[[ "${args[0]:-}" == "close" ]] && is_close=1
+
+run() { exec agent-browser --session "$SLUG" ${args[@]+"${args[@]}"}; }
+
+API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
+if [[ "$force_local" == 1 || -z "$API_KEY" ]]; then
+  [[ "$force_local" == 1 ]] || echo "ab: Browserbase key unavailable; using local browser." >&2
+  run
+fi
+
+# curl with the API key fed via a stdin config so it never appears in argv.
+api() { # api METHOD PATH [JSON-BODY]
+  if [[ -n "${3:-}" ]]; then
+    curl -fsS --retry 2 --retry-connrefused --config - -X "$1" "$BB_API$2" \
+      -H 'Content-Type: application/json' -d "$3" <<<"header = \"X-BB-API-Key: ${API_KEY}\""
+  else
+    curl -fsS --retry 2 --retry-connrefused --config - "$BB_API$2" \
+      <<<"header = \"X-BB-API-Key: ${API_KEY}\""
+  fi
+}
+
+find_session() { # -> RUNNING session id tagged with this caller, or empty
+  local raw q
+  raw="user_metadata['ab']:'${SLUG}'"
+  q="$(jq -rn --arg s "$raw" '$s | @uri')"
+  api GET "/sessions?status=RUNNING&q=$q" 2>/dev/null | jq -r 'if type=="array" then (.[0].id // "") else "" end'
+}
+
+connect_url() { api GET "/sessions/$1" 2>/dev/null | jq -r '.connectUrl // ""'; } # id -> connectUrl
+
+create_session() { # -> "id<TAB>connectUrl"
+  local resp
+  resp="$(api POST "/sessions" "$(jq -nc --arg t "$SLUG" --argjson to "$SESSION_TIMEOUT" \
+    '{keepAlive: true, timeout: $to, userMetadata: {ab: $t}}')")"
+  printf '%s\t%s' "$(jq -r '.id // ""' <<<"$resp")" "$(jq -r '.connectUrl // ""' <<<"$resp")"
+}
+
+release() { api POST "/sessions/$1" '{"status":"REQUEST_RELEASE"}' >/dev/null 2>&1 || true; }
+
+daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
+
+sid="$(find_session)"
+
+if [[ "$is_close" == 1 ]]; then
+  agent-browser --session "$SLUG" close >/dev/null 2>&1 || true
+  [[ -z "$sid" ]] && sid="$(find_session)" # one retry so a transient GET does not leak a live session
+  [[ -n "$sid" ]] && release "$sid"
+  exit 0
+fi
+
+# Release a session THIS run created if we fail before handing off. exec (a successful
+# hand-off) replaces the shell, so this trap never fires on success — the session
+# persists for reuse, as intended.
+created_sid=""
+trap '[[ -n "$created_sid" ]] && release "$created_sid"' EXIT INT TERM
+
+# Connect only when there is no live pairing: a fresh/dead Browserbase session gets
+# created; a live one whose local daemon dropped gets reconnected. Reusing a live pairing
+# must NOT reconnect — that would reset the page to about:blank.
+if [[ -z "$sid" ]]; then
+  IFS=$'\t' read -r sid url < <(create_session)
+  [[ -n "$sid" ]] && created_sid="$sid" # arm the release before anything else can fail
+  [[ -n "$url" ]] || {
+    echo "ab: could not create a Browserbase session" >&2
+    exit 1
+  }
+  agent-browser --session "$SLUG" connect "$url" >/dev/null 2>&1 || {
+    echo "ab: could not connect to the Browserbase session" >&2
+    exit 1
+  }
+elif ! daemon_has_session; then
+  url="$(connect_url "$sid")"
+  [[ -n "$url" ]] || {
+    echo "ab: Browserbase session has no connect url" >&2
+    exit 1
+  }
+  agent-browser --session "$SLUG" connect "$url" >/dev/null 2>&1 || {
+    echo "ab: could not reconnect to the Browserbase session" >&2
+    exit 1
+  }
+fi
+
+created_sid="" # handed off cleanly; disarm so exec does not release the live session
+run
