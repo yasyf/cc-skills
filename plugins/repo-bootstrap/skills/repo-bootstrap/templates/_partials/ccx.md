@@ -23,3 +23,4 @@ Entries 9–12 are CLI-only — the MCP mirrors the query surface (1–8) plus e
 Durable prose — plans, reviews, memory files — cites code as `path:line#hash` (e.g. `internal/render/finalize.go:31#k2fa`); any later session resolves the cite statelessly with ccx, because the hash re-anchors by content even after the file drifts.
 
 Reach for your **LSP** when the answer must be exhaustive/structural (findReferences, rename, goToImplementation). Use **Grep/Glob** only for literal content in non-source files (logs, JSON, YAML).
+<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/ccx.md -->

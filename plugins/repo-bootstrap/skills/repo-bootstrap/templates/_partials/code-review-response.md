@@ -21,3 +21,4 @@ After you write a plan, the user may respond with questions ("why this approach?
 3. **Wait for the user's choice** before editing the plan. The plan edit then reflects the user's pick, not your assumption.
 
 Editing the plan first robs the user of the choice and forces them to diff the plan to find what you decided. Surface the decision point first.
+<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/code-review-response.md -->

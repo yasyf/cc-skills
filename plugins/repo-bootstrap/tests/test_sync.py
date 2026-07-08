@@ -1,12 +1,15 @@
 """The sync updater: mechanically move stamped fragments to their canonical body.
 
-Fixtures mirror test_drift.py — current partials written ``@pending`` fed through
-``discover_partials``, fake 40-char shas, and dict-closure resolvers injected as
-callables (never a mocked subprocess for the pure-logic tests). ``CONV_OLD_BODY`` (3
-lines) vs ``CONV_BODY`` (5 lines) and the matching VC pair prove the window is measured
-from the ORIGINAL body: were the current length used, the wrong span would be excised.
-Each blob returned by ``body_at`` leads with its own ``@pending`` stamp, exactly as a
-committed template does, so ``_blob_*_body`` has a stamp to strip. Only
+Fragments are envelopes: a begin stamp and a name-matched end marker delimit the inner,
+so sync locates and replaces a fragment by its markers alone — no window is ever inferred
+from body-line counts (the v0.38.1 prefix/longest-match machinery is gone). Fixtures
+mirror test_drift.py — current partials written as closed envelopes fed through
+``discover_partials``, fake 40-char shas, and dict-closure resolvers injected as callables
+(never a mocked subprocess for the pure-logic tests). ``CONV_OLD_BODY`` (3 lines) vs
+``CONV_BODY`` (5 lines) prove a fragment that grew still syncs cleanly now that the end
+marker bounds the replacement. The blobs ``body_at`` returns lead with their own
+``@pending`` begin stamp; the conv blob is a PRE-envelope commit (no end marker) to pin
+``_blob_md_lines`` tolerance, the others are closed envelopes. Only
 ``test_git_body_at_real_repo`` shells out — to a throwaway ``git init`` repo.
 """
 
@@ -23,15 +26,13 @@ SHA_SEED = "b" * 40  # current canonical sha for readme-lead
 SHA_SHELL = "c" * 40  # current canonical sha for the shell template
 SHA_VC = "d" * 40  # current canonical sha for vc (heading-less)
 
-# conv: old 3 body lines, current 5 — different lengths, and line 3 differs so the old
-# body is never a prefix of the current one (which would make the window ambiguous).
+# conv: old 3 body lines, current 5 — a fragment that grew between shas.
 CONV_OLD_BODY = "## Conventions\n\nOld first rule.\n"
 CONV_BODY = "## Conventions\n\nNew first rule.\nNew second rule.\nNew third rule.\n"
 # vc: heading-less, old 3 lines, current 5 — the second fragment for the ordering tests.
 VC_OLD_BODY = "**Version control.** Old rule.\n\n**Watch CI.** Old CI rule.\n"
 VC_BODY = "**Version control.** New rule.\n\n**Watch CI.** New CI rule.\n\n**Extra.** Added line.\n"
-# readme-lead: a seed, old and current bodies of equal length (the seed distinction lives
-# at the canonical sha, not in the window arithmetic).
+# readme-lead: a seed.
 SEED_OLD_BODY = "## Readme Lead\n\nOld seed prose.\n"
 SEED_BODY = "## Readme Lead\n\nNew seed prose to customize.\n"
 
@@ -41,6 +42,15 @@ SHELL_OLD_BODY = "#!/bin/sh\n" + "# canonical: " + stamp.CANONICAL + "@" + stamp
 
 def md_stamp(name: str, sha: str) -> str:
     return f"<!-- canonical: {stamp.CANONICAL}/_partials/{name}.md@{sha} -->"
+
+
+def md_end(name: str) -> str:
+    return f"<!-- /canonical: {stamp.CANONICAL}/_partials/{name}.md -->"
+
+
+def frag(name: str, sha: str, body: str) -> str:
+    """A closed envelope: begin stamp, ``body`` (which ends in a newline), end marker."""
+    return md_stamp(name, sha) + "\n" + body + md_end(name) + "\n"
 
 
 def sh_stamp(sha: str) -> str:
@@ -54,9 +64,9 @@ def sh_stamp(sha: str) -> str:
 def partials_dir(tmp_path):
     d = tmp_path / "_partials"
     d.mkdir()
-    (d / "conv.md").write_text(md_stamp("conv", stamp.PENDING) + "\n" + CONV_BODY)
-    (d / "vc.md").write_text(md_stamp("vc", stamp.PENDING) + "\n" + VC_BODY)
-    (d / "readme-lead.md").write_text(md_stamp("readme-lead", stamp.PENDING) + "\n" + SEED_BODY)
+    (d / "conv.md").write_text(frag("conv", stamp.PENDING, CONV_BODY))
+    (d / "vc.md").write_text(frag("vc", stamp.PENDING, VC_BODY))
+    (d / "readme-lead.md").write_text(frag("readme-lead", stamp.PENDING, SEED_BODY))
     return d
 
 
@@ -85,92 +95,134 @@ def sha_for(partials, shell_template):
 
 @pytest.fixture
 def body_at(partials, shell_template):
-    # committed blobs at the OLD sha — each leads with its own @pending stamp
+    # committed blobs at the OLD sha, each leading with its own @pending begin stamp. The
+    # conv blob is a PRE-envelope commit (no end marker); vc and readme-lead are closed
+    # envelopes (post-envelope commits) — _blob_md_lines yields the same body either way.
     blobs = {
         (SHA_OLD, partials["conv"].path): md_stamp("conv", stamp.PENDING) + "\n" + CONV_OLD_BODY,
-        (SHA_OLD, partials["vc"].path): md_stamp("vc", stamp.PENDING) + "\n" + VC_OLD_BODY,
-        (SHA_OLD, partials["readme-lead"].path): md_stamp("readme-lead", stamp.PENDING) + "\n" + SEED_OLD_BODY,
+        (SHA_OLD, partials["vc"].path): frag("vc", stamp.PENDING, VC_OLD_BODY),
+        (SHA_OLD, partials["readme-lead"].path): frag("readme-lead", stamp.PENDING, SEED_OLD_BODY),
         (SHA_OLD, shell_template): SHELL_OLD_BODY,
     }
     return lambda sha, path: blobs.get((sha, path))
 
 
+# --- _blob_md_lines: tolerates a pre-envelope (no end marker) blob ---
+
+
+def test_blob_md_lines_tolerates_missing_end_marker():
+    pre = md_stamp("conv", stamp.PENDING) + "\n" + CONV_OLD_BODY  # pre-envelope: no end marker
+    post = frag("conv", stamp.PENDING, CONV_OLD_BODY)  # post-envelope: closed
+    assert sync._blob_md_lines(pre) == sync._blob_md_lines(post)
+    assert sync._blob_md_lines(pre) == tuple(CONV_OLD_BODY.splitlines())
+
+
 # --- markdown three-way: synced / repinned / skipped-edited / ok ---
 
 
-def test_synced_replaces_window_and_repins(partials, sha_for, body_at):
-    # a stale fragment still holding the body it was stamped from -> body swapped for the
+def test_synced_replaces_inner_and_repins(partials, sha_for, body_at):
+    # a stale fragment still holding the body it was stamped from -> inner swapped for the
     # current one and the stamp re-pinned to canonical
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "conv")]
-    assert new_text == "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY
+    assert new_text == "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY)
 
 
-def test_synced_window_length_comes_from_original(partials, sha_for, body_at):
-    # a trailing section after the OLD 3-line body must survive the sync: were the window
-    # measured from the 5-line CURRENT body, two trailing lines would be swept in and the
-    # fragment would (wrongly) mismatch
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY + "## Keep\n\nkeep me.\n"
+def test_synced_preserves_content_after_envelope(partials, sha_for, body_at):
+    # content after the end marker belongs to the enclosing file and must survive the sync
+    # untouched — the marker bounds the replacement, no body-line counting required
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY) + "## Keep\n\nkeep me.\n"
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "conv")]
-    assert new_text == "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY + "## Keep\n\nkeep me.\n"
+    assert new_text == "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY) + "## Keep\n\nkeep me.\n"
 
 
-def test_synced_window_includes_trailing_blank_line(partials, sha_for):
-    # an original body ENDING with a blank line: the excision window must span that
-    # trailing empty line, or the stale blank lingers as residue after the replacement.
-    # (A string round-trip of the body would drop the trailing element and undercount.)
+def test_synced_excises_trailing_blank_inside_envelope(partials, sha_for):
+    # an inner ENDING with a blank line before the end marker: the whole inner is excised,
+    # so no stale blank lingers as residue. (The tuple-based _blob_md_lines keeps the
+    # trailing empty element for a faithful stamped-from comparison.)
     old_body = "## Conventions\n\nOld rule.\n\n"
     blob = md_stamp("conv", stamp.PENDING) + "\n" + old_body
     body_at = lambda sha, path: blob if (sha, path) == (SHA_OLD, partials["conv"].path) else None
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + old_body + "## Next\n"
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, old_body) + "## Next\n"
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "conv")]
     assert "Old rule." not in new_text
-    # no leftover blank line between the new body and "## Next"
-    assert new_text == "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY + "## Next\n"
+    assert new_text == "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY) + "## Next\n"
 
 
 def test_repinned_rewrites_stamp_line_only(partials, sha_for, body_at):
-    # the body already equals the current one, only the stamp trails -> re-pin the stamp
-    # line alone, body untouched
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_BODY
+    # the inner already equals the current body, only the stamp trails -> re-pin the stamp
+    # line alone, inner and end marker untouched
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("repinned", SHA_OLD, SHA_CONV, "t.md", "conv")]
-    assert new_text == "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY
+    assert new_text == "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY)
 
 
 def test_skipped_edited_never_overwrites(partials, sha_for, body_at):
     # diverged from BOTH the stamped-from and the current body -> a local decision, left
     # untouched, stamp NOT re-pinned
     body = "## Conventions\n\nA custom rule nobody shipped.\n"
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + body
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, body)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("skipped-edited", SHA_OLD, None, "t.md", "conv")]
     assert new_text == target
 
 
+def test_lines_gained_inside_envelope_is_skipped(partials, sha_for, body_at):
+    # a fragment that gained a line INSIDE its envelope matches neither the stamped-from
+    # nor the current body -> skipped-edited, never clobbered or duplicated
+    body = "## Conventions\n\nOld first rule.\nSNUCK IN.\n"
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, body)
+    findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
+    assert findings == [sync.SyncFinding("skipped-edited", SHA_OLD, None, "t.md", "conv")]
+    assert new_text == target
+    assert new_text.count("SNUCK IN.") == 1
+
+
 def test_edited_at_current_sha_is_skipped(partials, sha_for, body_at):
-    # a verbatim fragment at the CURRENT sha but edited body -> nothing newer to sync to
+    # a verbatim fragment at the CURRENT sha but edited inner -> nothing newer to sync to
     body = "## Conventions\n\nLocally edited.\n"
-    target = "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + body
+    target = "# Doc\n\n" + frag("conv", SHA_CONV, body)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("skipped-edited", SHA_CONV, None, "t.md", "conv")]
     assert new_text == target
 
 
 def test_ok_noop(partials, sha_for, body_at):
-    # at the canonical sha with a matching body -> ok, nothing rewritten
-    target = "# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY
+    # at the canonical sha with a matching inner -> ok, nothing rewritten
+    target = "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("ok", SHA_CONV, SHA_CONV, "t.md", "conv")]
     assert new_text == target
 
 
+def test_unterminated_no_edit_both_classes(partials, sha_for, body_at):
+    # an open envelope (begin stamp, no matching end marker) -> unterminated, never edited,
+    # for a verbatim AND a seed fragment alike
+    conv_open = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY
+    f1, t1 = sync.sync_target("t.md", conv_open, partials, sha_for, body_at)
+    assert f1 == [sync.SyncFinding("unterminated", SHA_OLD, None, "t.md", "conv")]
+    assert t1 == conv_open
+    seed_open = "# R\n\n" + md_stamp("readme-lead", SHA_OLD) + "\n" + SEED_OLD_BODY
+    f2, t2 = sync.sync_target("r.md", seed_open, partials, sha_for, body_at)
+    assert f2 == [sync.SyncFinding("unterminated", SHA_OLD, None, "r.md", "readme-lead")]
+    assert t2 == seed_open
+
+
+def test_orphan_end_marker_ignored(partials, sha_for, body_at):
+    # an end marker with no owning begin stamp is ignored -> no finding, no edit
+    target = "# Doc\n\n" + md_end("conv") + "\n\nsome prose\n"
+    findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
+    assert findings == []
+    assert new_text == target
+
+
 def test_unknown_stamp_skipped(partials, sha_for, body_at):
     # a stamp naming no shipped partial -> unknown, never rewritten
-    target = "# Doc\n\n" + md_stamp("ghost", SHA_CONV) + "\n## Ghost\n\nbody\n"
+    target = "# Doc\n\n" + frag("ghost", SHA_CONV, "## Ghost\n\nbody\n")
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("unknown", SHA_CONV, None, "t.md", "ghost")]
     assert new_text == target
@@ -178,7 +230,7 @@ def test_unknown_stamp_skipped(partials, sha_for, body_at):
 
 def test_pending_stamp_skipped(partials, sha_for, body_at):
     # an unpinned @pending stamp (the pin never ran) -> pending, never rewritten
-    target = "# Doc\n\n" + md_stamp("conv", stamp.PENDING) + "\n" + CONV_BODY
+    target = "# Doc\n\n" + frag("conv", stamp.PENDING, CONV_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("pending", stamp.PENDING, None, "t.md", "conv")]
     assert new_text == target
@@ -186,75 +238,77 @@ def test_pending_stamp_skipped(partials, sha_for, body_at):
 
 def test_no_history_when_blob_unresolvable(partials, sha_for):
     # stale sha, but the blob at that sha can't be recovered -> no-history
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, lambda sha, path: None)
     assert findings == [sync.SyncFinding("no-history", SHA_OLD, None, "t.md", "conv")]
     assert new_text == target
 
 
 def test_no_history_when_canonical_unavailable(partials, body_at):
-    # canonical sha unavailable (installed plugin cache) -> no-history before any blob lookup
-    target = "# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY
+    # canonical sha unavailable (installed plugin cache) -> no-history before any envelope work
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, lambda path: None, body_at)
     assert findings == [sync.SyncFinding("no-history", SHA_OLD, None, "t.md", "conv")]
     assert new_text == target
 
 
-# --- prefix ambiguity between synced and repinned (longest-match disambiguation) ---
+# --- extension / shrink now classify trivially (the prefix ambiguity is structurally gone) ---
 
 
-def test_synced_vs_repinned_prefix_extension(tmp_path):
-    # OLD body is a STRICT PREFIX of NEW (two lines appended). A target already holding NEW
-    # at a stale stamp must classify repinned (bump the stamp only) — classifying synced
-    # would re-splice the current body over the prefix and DUPLICATE the appended lines. An
-    # untouched@old sibling still classifies synced.
+def test_extension_classifies_trivially(tmp_path):
+    # OLD body is a strict PREFIX of NEW (two lines appended). The end marker bounds the
+    # inner, so a target holding NEW at a stale stamp is unambiguously repinned (never
+    # re-spliced and duplicated), and an untouched@old sibling is unambiguously synced.
     old_body = "## Ext\n\nBase rule.\n"
     new_body = "## Ext\n\nBase rule.\nAppended one.\nAppended two.\n"  # OLD == NEW[0:3]
     d = tmp_path / "_partials"
     d.mkdir()
-    (d / "ext.md").write_text(md_stamp("ext", stamp.PENDING) + "\n" + new_body)
+    (d / "ext.md").write_text(frag("ext", stamp.PENDING, new_body))
     partials = sync.discover_partials(d)
     sha_for = {partials["ext"].path: SHA_CONV}.get
-    old_blob = md_stamp("ext", stamp.PENDING) + "\n" + old_body
+    old_blob = frag("ext", stamp.PENDING, old_body)
     body_at = lambda sha, path: old_blob if (sha, path) == (SHA_OLD, partials["ext"].path) else None
 
-    updated = "# Doc\n\n" + md_stamp("ext", SHA_OLD) + "\n" + new_body
+    updated = "# Doc\n\n" + frag("ext", SHA_OLD, new_body)
     findings, new_text = sync.sync_target("t.md", updated, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("repinned", SHA_OLD, SHA_CONV, "t.md", "ext")]
-    assert new_text == "# Doc\n\n" + md_stamp("ext", SHA_CONV) + "\n" + new_body
+    assert new_text == "# Doc\n\n" + frag("ext", SHA_CONV, new_body)
     assert new_text.count("Appended one.") == 1  # not duplicated
 
-    untouched = "# Doc\n\n" + md_stamp("ext", SHA_OLD) + "\n" + old_body
+    untouched = "# Doc\n\n" + frag("ext", SHA_OLD, old_body)
     findings2, new_text2 = sync.sync_target("t.md", untouched, partials, sha_for, body_at)
     assert findings2 == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "ext")]
-    assert new_text2 == "# Doc\n\n" + md_stamp("ext", SHA_CONV) + "\n" + new_body
+    assert new_text2 == "# Doc\n\n" + frag("ext", SHA_CONV, new_body)
+    # idempotent: a re-run of the synced result is a no-op
+    again, again_text = sync.sync_target("t.md", new_text2, partials, sha_for, body_at)
+    assert again == [sync.SyncFinding("ok", SHA_CONV, SHA_CONV, "t.md", "ext")]
+    assert again_text == new_text2
 
 
-def test_synced_vs_repinned_suffix_shrink(tmp_path):
-    # NEW body is a STRICT PREFIX of OLD (trailing lines removed). An untouched@old target
-    # must classify synced and excise the stale tail; a naive repinned-first order would
-    # misfire here because the shorter current window matches the OLD body's prefix. A
-    # target already holding NEW classifies repinned.
+def test_shrink_classifies_trivially(tmp_path):
+    # NEW body is a strict prefix of OLD (a shrink). The end marker bounds the inner, so an
+    # untouched@old target syncs (its whole inner, stale tail included, swapped for NEW) and
+    # a target already holding NEW repins — no shorter/longer window to disambiguate.
     new_body = "## Shr\n\nKept rule.\n"
     old_body = "## Shr\n\nKept rule.\nRemoved one.\nRemoved two.\n"  # NEW == OLD[0:3]
     d = tmp_path / "_partials"
     d.mkdir()
-    (d / "shr.md").write_text(md_stamp("shr", stamp.PENDING) + "\n" + new_body)
+    (d / "shr.md").write_text(frag("shr", stamp.PENDING, new_body))
     partials = sync.discover_partials(d)
     sha_for = {partials["shr"].path: SHA_CONV}.get
-    old_blob = md_stamp("shr", stamp.PENDING) + "\n" + old_body
+    old_blob = frag("shr", stamp.PENDING, old_body)
     body_at = lambda sha, path: old_blob if (sha, path) == (SHA_OLD, partials["shr"].path) else None
 
-    untouched = "# Doc\n\n" + md_stamp("shr", SHA_OLD) + "\n" + old_body + "## After\n"
+    untouched = "# Doc\n\n" + frag("shr", SHA_OLD, old_body) + "## After\n"
     findings, new_text = sync.sync_target("t.md", untouched, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "shr")]
     assert "Removed one." not in new_text and "Removed two." not in new_text
-    assert new_text == "# Doc\n\n" + md_stamp("shr", SHA_CONV) + "\n" + new_body + "## After\n"
+    assert new_text == "# Doc\n\n" + frag("shr", SHA_CONV, new_body) + "## After\n"
 
-    updated = "# Doc\n\n" + md_stamp("shr", SHA_OLD) + "\n" + new_body + "## After\n"
+    updated = "# Doc\n\n" + frag("shr", SHA_OLD, new_body) + "## After\n"
     findings2, new_text2 = sync.sync_target("t.md", updated, partials, sha_for, body_at)
     assert findings2 == [sync.SyncFinding("repinned", SHA_OLD, SHA_CONV, "t.md", "shr")]
-    assert new_text2 == "# Doc\n\n" + md_stamp("shr", SHA_CONV) + "\n" + new_body + "## After\n"
+    assert new_text2 == "# Doc\n\n" + frag("shr", SHA_CONV, new_body) + "## After\n"
 
 
 # --- seed class: the same stale three-way, but body-blind at the canonical sha ---
@@ -262,17 +316,17 @@ def test_synced_vs_repinned_suffix_shrink(tmp_path):
 
 def test_seed_untouched_stale_is_synced(partials, sha_for, body_at):
     # an untouched seed (still the old rendered body) at a stale sha syncs like a verbatim
-    target = "# R\n\n" + md_stamp("readme-lead", SHA_OLD) + "\n" + SEED_OLD_BODY
+    target = "# R\n\n" + frag("readme-lead", SHA_OLD, SEED_OLD_BODY)
     findings, new_text = sync.sync_target("r.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("synced", SHA_OLD, SHA_SEED, "r.md", "readme-lead")]
-    assert new_text == "# R\n\n" + md_stamp("readme-lead", SHA_SEED) + "\n" + SEED_BODY
+    assert new_text == "# R\n\n" + frag("readme-lead", SHA_SEED, SEED_BODY)
 
 
 def test_seed_customized_stale_is_skipped(partials, sha_for, body_at):
     # a customized seed at a stale sha -> skipped-edited, stamp deliberately NOT re-pinned
     # (re-pinning would falsely claim the custom body descends from the new sha)
     body = "## Readme Lead\n\nMy own custom intro.\n"
-    target = "# R\n\n" + md_stamp("readme-lead", SHA_OLD) + "\n" + body
+    target = "# R\n\n" + frag("readme-lead", SHA_OLD, body)
     findings, new_text = sync.sync_target("r.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("skipped-edited", SHA_OLD, None, "r.md", "readme-lead")]
     assert new_text == target
@@ -282,33 +336,25 @@ def test_seed_customized_stale_is_skipped(partials, sha_for, body_at):
 def test_seed_ok_at_current_sha_despite_custom_body(partials, sha_for, body_at):
     # at the canonical sha a seed is ok regardless of body (never body-checked, like drift)
     body = "## Readme Lead\n\nDivergent customized opener.\n"
-    target = "# R\n\n" + md_stamp("readme-lead", SHA_SEED) + "\n" + body
+    target = "# R\n\n" + frag("readme-lead", SHA_SEED, body)
     findings, new_text = sync.sync_target("r.md", target, partials, sha_for, body_at)
     assert findings == [sync.SyncFinding("ok", SHA_SEED, SHA_SEED, "r.md", "readme-lead")]
     assert new_text == target
 
 
-# --- ordering: bottom-up application, and a spliced inner stamp ---
+# --- ordering: bottom-up application, and a nested inner envelope ---
 
 
-def test_multiple_fragments_window_shift_bottom_up(partials, sha_for, body_at):
+def test_multiple_fragments_bottom_up(partials, sha_for, body_at):
     # two stale fragments that both grow (3 -> 5 lines): applying top-down would shift the
     # lower stamp's index out from under it, so edits must apply bottom-up
-    target = (
-        "# Doc\n\n"
-        + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY + "\n"
-        + md_stamp("vc", SHA_OLD) + "\n" + VC_OLD_BODY
-    )
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY) + "\n" + frag("vc", SHA_OLD, VC_OLD_BODY)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [
         sync.SyncFinding("synced", SHA_OLD, SHA_CONV, "t.md", "conv"),
         sync.SyncFinding("synced", SHA_OLD, SHA_VC, "t.md", "vc"),
     ]
-    expected = (
-        "# Doc\n\n"
-        + md_stamp("conv", SHA_CONV) + "\n" + CONV_BODY + "\n"
-        + md_stamp("vc", SHA_VC) + "\n" + VC_BODY
-    )
+    expected = "# Doc\n\n" + frag("conv", SHA_CONV, CONV_BODY) + "\n" + frag("vc", SHA_VC, VC_BODY)
     assert new_text == expected
     # a second pass is a total no-op: everything now classifies ok
     again, again_text = sync.sync_target("t.md", new_text, partials, sha_for, body_at)
@@ -316,30 +362,20 @@ def test_multiple_fragments_window_shift_bottom_up(partials, sha_for, body_at):
     assert all(f.status == "ok" for f in again)
 
 
-def test_spliced_stamp_inner_synced_outer_skipped(partials, sha_for, body_at):
-    # an inner stamp spliced into an outer fragment: the outer body now differs from both
-    # its stamped-from and current body -> skipped-edited (no edit); the inner stale seed
-    # still matches its own stamped-from body -> synced. The outer's skip is why the
-    # spliced inner never gets clobbered.
-    target = (
-        "# Doc\n\n"
-        + md_stamp("conv", SHA_OLD) + "\n"
-        + "## Conventions\n"
-        + md_stamp("readme-lead", SHA_OLD) + "\n"
-        + SEED_OLD_BODY
-    )
+def test_nested_envelope_inner_synced_outer_skipped(partials, sha_for, body_at):
+    # a different-name inner envelope nested inside an outer one: find_end pairs the outer
+    # begin to its OWN end marker (skipping the inner's), so the outer inner now differs
+    # from both its stamped-from and current body -> skipped-edited (no edit). The inner
+    # stale seed matches its own stamped-from -> synced, classified independently. The
+    # outer's skip is why the nested inner is never clobbered.
+    inner = frag("readme-lead", SHA_OLD, SEED_OLD_BODY)
+    target = "# Doc\n\n" + frag("conv", SHA_OLD, "## Conventions\n" + inner)
     findings, new_text = sync.sync_target("t.md", target, partials, sha_for, body_at)
     assert findings == [
         sync.SyncFinding("skipped-edited", SHA_OLD, None, "t.md", "conv"),
         sync.SyncFinding("synced", SHA_OLD, SHA_SEED, "t.md", "readme-lead"),
     ]
-    expected = (
-        "# Doc\n\n"
-        + md_stamp("conv", SHA_OLD) + "\n"  # outer stamp untouched
-        + "## Conventions\n"
-        + md_stamp("readme-lead", SHA_SEED) + "\n"  # inner re-pinned
-        + SEED_BODY
-    )
+    expected = "# Doc\n\n" + frag("conv", SHA_OLD, "## Conventions\n" + frag("readme-lead", SHA_SEED, SEED_BODY))
     assert new_text == expected
 
 
@@ -347,11 +383,7 @@ def test_spliced_stamp_inner_synced_outer_skipped(partials, sha_for, body_at):
 
 
 def _agents_doc(conv_sha: str, seed_sha: str) -> str:
-    return (
-        "# Doc\n\n"
-        + md_stamp("conv", conv_sha) + "\n" + CONV_OLD_BODY + "\n"
-        + md_stamp("readme-lead", seed_sha) + "\n" + SEED_OLD_BODY
-    )
+    return "# Doc\n\n" + frag("conv", conv_sha, CONV_OLD_BODY) + "\n" + frag("readme-lead", seed_sha, SEED_OLD_BODY)
 
 
 def test_dry_run_leaves_file_untouched_and_prints_tsv(tmp_path, partials_dir, sha_for, body_at, capsys):
@@ -377,6 +409,8 @@ def test_write_applies_edits(tmp_path, partials_dir, sha_for, body_at):
     assert md_stamp("readme-lead", SHA_SEED) in text
     assert "New first rule." in text and "Old first rule." not in text
     assert "New seed prose to customize." in text and "Old seed prose." not in text
+    # both envelopes stay closed after the write
+    assert md_end("conv") in text and md_end("readme-lead") in text
 
 
 def test_second_write_is_all_noops(tmp_path, partials_dir, sha_for, body_at, capsys):
@@ -395,13 +429,14 @@ def test_crlf_file_preserves_line_endings(tmp_path, partials_dir, sha_for, body_
     # a CRLF target with one synced fragment stays CRLF throughout (main reads/writes with
     # newline="", sync_target rebuilds in the file's own ending) and is idempotent
     doc = tmp_path / "AGENTS.md"
-    original = ("# Doc\n\n" + md_stamp("conv", SHA_OLD) + "\n" + CONV_OLD_BODY).replace("\n", "\r\n")
+    original = ("# Doc\n\n" + frag("conv", SHA_OLD, CONV_OLD_BODY)).replace("\n", "\r\n")
     doc.write_bytes(original.encode())
     sync.main([doc], write=True, partials_dir=partials_dir, sha_for=sha_for, body_at=body_at)
     updated = doc.read_bytes().decode()
     assert "\r\n" in updated
     assert "\n" not in updated.replace("\r\n", "")  # no lone LF slipped in
     assert md_stamp("conv", SHA_CONV) in updated and "New first rule." in updated
+    assert md_end("conv") in updated  # the envelope stays closed
     # a second write is a no-op and leaves the CRLF file byte-identical
     sync.main([doc], write=True, partials_dir=partials_dir, sha_for=sha_for, body_at=body_at)
     assert doc.read_bytes().decode() == updated
@@ -410,7 +445,7 @@ def test_crlf_file_preserves_line_endings(tmp_path, partials_dir, sha_for, body_
 def test_exit_zero_even_when_skipped(tmp_path, partials_dir, sha_for, body_at, capsys):
     doc = tmp_path / "AGENTS.md"
     # a customized verbatim fragment at the current sha -> skipped-edited, but exit stays 0
-    doc.write_text("# Doc\n\n" + md_stamp("conv", SHA_CONV) + "\n## Conventions\n\nHeavily customized.\n")
+    doc.write_text("# Doc\n\n" + frag("conv", SHA_CONV, "## Conventions\n\nHeavily customized.\n"))
     rc = sync.main([doc], write=True, partials_dir=partials_dir, sha_for=sha_for, body_at=body_at)
     assert rc == 0
     assert "skipped-edited\t" in capsys.readouterr().out

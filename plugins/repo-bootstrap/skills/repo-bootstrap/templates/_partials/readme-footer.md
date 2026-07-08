@@ -4,3 +4,4 @@ TODO(bootstrap): optional one-line `Status:` note (honest maturity), or delete t
 
 Licensed under [{{LICENSE_ID}}](LICENSE).
 {{/HAS_LICENSE}}
+<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-footer.md -->

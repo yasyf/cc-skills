@@ -606,7 +606,11 @@ def test_real_templates_render_license_none(base_var_pairs, py_var_pairs):
 
     base_plan, _ = _real_plan("base", _license_none(base_var_pairs))
     assert "License" not in base_plan["README.md"]
-    assert base_plan["README.md"].endswith("delete this line.\n")  # no trailing blank section
+    # the footer's TODO line, then its envelope end marker as the final line — no license
+    # section and no trailing blank
+    assert base_plan["README.md"].endswith(
+        "delete this line.\n<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-footer.md -->\n"
+    )
 
 
 def test_real_templates_render_manual_license(py_var_pairs):
@@ -772,10 +776,15 @@ def test_real_templates_share_version_control_partial(base_var_pairs, py_var_pai
         assert "jj git push" in agents and "gh run watch" in agents
     # the fragment is render-only — never written as a destination file
     assert not any(d.startswith("_partials") for d in {**base_plan, **py_plan})
-    # python keeps the pypi-gated Releases rule right after the shared partial,
-    # separated by exactly one blank line (the inlined fragment's trailing newline
-    # is stripped, so it isn't doubled); base carries no Releases rule
-    assert "register before watching.)\n\n**Releases.**" in py_plan["AGENTS.md"]
+    # python keeps the pypi-gated Releases rule right after the shared partial: the
+    # fragment closes with its envelope end marker, then one blank line, then the rule
+    # (the inlined fragment's trailing newline is stripped, so it isn't doubled); base
+    # carries no Releases rule
+    assert (
+        "register before watching.)\n"
+        "<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/version-control.md -->\n\n"
+        "**Releases.**"
+    ) in py_plan["AGENTS.md"]
     assert "**Releases.**" not in base_plan["AGENTS.md"]
 
 

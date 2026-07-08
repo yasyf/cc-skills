@@ -9,3 +9,4 @@ Sequential is the exception, not the default. Two steps that don't consume each 
 - **Named team** — long-running peers needing agent-to-agent handoffs mid-run, via `TeamCreate`.
 
 Single-step exception: one task, no parallel sibling, no follow-on → one subagent call is fine.
+<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/parallelize.md -->

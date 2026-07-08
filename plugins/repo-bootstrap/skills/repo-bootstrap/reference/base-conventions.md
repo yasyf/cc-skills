@@ -8,25 +8,30 @@ so when that layer is active, edit those four against its richer versions instea
 Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 `captain_hook`.
 
-**Partial provenance stamps.** Every `templates/_partials/*.md` carries a line-1
-self-identifying canonical stamp —
+**Partial provenance stamps.** Every `templates/_partials/*.md` is an *envelope*: a
+line-1 self-identifying begin stamp —
 `<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/<basename>.md@pending -->` —
-that names the partial it came from; `templates/plugin/install-binary.sh` carries
-the file-level shell form (`# canonical: cc-skills/plugins/repo-bootstrap@pending`).
-The template keeps `@pending`; scaffold rendering pins each stamp to the sha of the
-last cc-skills commit touching that source file, and drift is checked with the
-bootstrap CLI's drift subcommand — `bootstrap.py drift <target-file>…` (the
-`$BOOTSTRAP` alias from SKILL.md, repeatable `--require <partial>` to demand a
-partial by name). It prints one TSV finding per line and exits non-zero on a
-stamped verbatim-class stale/edited fragment, a stale shell stamp, or a missing
-required one; unstamped/unknown findings and seed-class (`readme*`) staleness print
-but never fail the exit — the stamp is the opt-in contract. The mechanical companion
-is `bootstrap.py sync <target-file>…`, dry-run unless you pass `--write`. It moves each
-stamped fragment to its current canonical body through a three-way — synced, repinned,
-or skipped-edited — sizing the replaced window from the fragment's original body so a
-partial that grew or shrank still splices cleanly, and it never rewrites an edited
-fragment, since divergence is a decision. `sync` always exits 0 while `drift` stays the
-failing check, so `sync --write && drift` composes the fixer with the gate.
+naming the partial it came from, and a matching end marker
+`<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/<basename>.md -->` as the
+final line, closing the fragment. `templates/plugin/install-binary.sh` carries the
+file-level shell form (`# canonical: cc-skills/plugins/repo-bootstrap@pending`), which is
+whole-file and has no end marker. The template keeps `@pending`; scaffold rendering pins
+each begin stamp to the sha of the last cc-skills commit touching that source file (the
+end marker carries no sha, so a repin touches one line). drift and sync locate a fragment
+by its markers alone and never infer a window from body content. drift is checked with
+the bootstrap CLI's drift subcommand — `bootstrap.py drift <target-file>…` (the
+`$BOOTSTRAP` alias from SKILL.md, repeatable `--require <partial>` to demand a partial by
+name). It prints one TSV finding per line and exits non-zero on a stamped verbatim-class
+stale, edited, or `unterminated` fragment (an open envelope with no matching end marker),
+a stale shell stamp, or a missing required one; unstamped/unknown findings and seed-class
+(`readme*`) staleness print but never fail the exit — the stamp is the opt-in contract,
+and seeds stay sha-only (their envelope is neither required nor examined). The mechanical
+companion is `bootstrap.py sync <target-file>…`, dry-run unless you pass `--write`. It
+moves each stamped fragment to its current canonical body through a three-way — synced,
+repinned, or skipped-edited — replacing the enveloped inner exactly (no window
+arithmetic, so a partial that grew or shrank still classifies trivially), and it never
+rewrites an edited fragment, since divergence is a decision. `sync` always exits 0 while
+`drift` stays the failing check, so `sync --write && drift` composes the fixer with the gate.
 
 ## AGENTS.md anatomy
 

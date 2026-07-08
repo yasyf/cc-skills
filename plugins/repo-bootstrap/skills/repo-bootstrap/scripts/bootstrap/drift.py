@@ -1,38 +1,42 @@
 """The ``drift`` subcommand: check stamped partials in target files against canon.
 
-Each shipped ``templates/_partials/*.md`` carries a line-1 self-identifying stamp
-naming the partial and a sha — ``cc-skills/plugins/repo-bootstrap/_partials/
-<basename>.md@<sha|pending>``. A rendered copy carries that same stamp inlined
-directly above the fragment it introduces, so attribution never depends on what
-follows the stamp: the checker scans a target for stamp lines *anywhere* and each
-one names the partial it belongs to. Per finding:
+Each shipped ``templates/_partials/*.md`` is an *envelope*: a line-1 self-identifying
+begin stamp naming the partial and a sha — ``cc-skills/plugins/repo-bootstrap/
+_partials/<basename>.md@<sha|pending>`` — and a matching end marker
+``<!-- /canonical: …/_partials/<basename>.md -->`` closing it. A rendered copy carries
+that same envelope inlined directly above the fragment it introduces, so attribution
+never depends on what follows: the checker scans a target for begin stamps *anywhere*,
+each naming its partial, and pairs each to its own end marker by name. Per finding:
 
-    ok         sha == canonical AND (verbatim) the fragment body matches the partial
-    stale      sha != canonical  (a target sha of ``pending`` counts as stale)
-    edited     sha == canonical but the fragment body differs (verbatim only)
-    unstamped  a known partial's ``## `` anchor heading present with no stamp naming it
-    unknown    a stamp naming no shipped partial (renamed/removed in cc-skills)
-    missing    a --require'd partial's stamp absent from the target
+    ok            sha == canonical AND (verbatim) the enveloped body matches the partial
+    stale         sha != canonical  (a target sha of ``pending`` counts as stale)
+    edited        sha == canonical but the enveloped body differs (verbatim only)
+    unterminated  a verbatim begin stamp with no matching end marker (an open envelope)
+    unstamped     a known partial's ``## `` anchor heading present with no stamp naming it
+    unknown       a stamp naming no shipped partial (renamed/removed in cc-skills)
+    missing       a --require'd partial's stamp absent from the target
 
 A partial's *class* is ``seed`` when its basename starts with ``readme`` (rendered
 once, then customized per-repo) else ``verbatim`` (a byte copy that must not drift).
-Seed fragments are sha-only: never body-checked, and their staleness never fails.
+Seed fragments are sha-only: never body-checked, their staleness never fails, and their
+envelope is neither required nor examined (legacy begin-only rendered seeds stay legal).
 
-The verbatim body check compares the ``L`` lines following the stamp (``L`` = the
-partial's own body line count) against the partial body, tolerant of trailing
-whitespace. An insertion or deletion inside a fragment shifts the window and
-surfaces as ``edited``; content appended after the fragment's last line is outside
-the window and belongs to the enclosing file, not the fragment.
+The verbatim body check compares the lines strictly between the begin stamp and its
+end marker against the partial body, tolerant of trailing whitespace. The end marker
+bounds the fragment exactly, so an insertion or deletion inside it surfaces as
+``edited`` while content after the marker belongs to the enclosing file; the tool never
+infers a window from body-line counts. A begin stamp whose end marker is missing is
+structural breakage — ``unterminated`` — and fails the exit.
 
 ``unstamped`` detection is anchor-based, so it fires only for partials that have a
 ``## `` heading; a heading-less partial (e.g. version-control) is recognized solely
 by its stamp and is never reported ``unstamped``. One TSV line per finding:
 ``status<TAB>sha-or-'-'<TAB>path<TAB>name``.
 
-Exit is non-zero when a stamped verbatim-class fragment is stale or edited, a shell
-stamp is stale, or a --require'd stamp is missing. ``unstamped``, ``unknown``, and
-seed-class staleness are informational — the stamp is the opt-in contract, and a
-seed partial is expected to diverge once a repo customizes it.
+Exit is non-zero when a stamped verbatim-class fragment is stale, edited, or
+unterminated, a shell stamp is stale, or a --require'd stamp is missing. ``unstamped``,
+``unknown``, and seed-class staleness are informational — the stamp is the opt-in
+contract, and a seed partial is expected to diverge once a repo customizes it.
 
 STDLIB ONLY — this package runs under the system ``python3`` before ``uv`` exists.
 """
@@ -54,7 +58,8 @@ ShaResolver = Callable[[Path], "str | None"]
 @dataclass(frozen=True)
 class Partial:
     """One shipped partial: its template path, drift class, section anchor, and the
-    canonical body lines (the template content with the line-1 stamp removed)."""
+    canonical body lines (the template content with the line-1 begin stamp and the
+    final end-marker line removed)."""
 
     name: str
     path: Path
@@ -83,8 +88,13 @@ def discover_partials(partials_dir: Path) -> dict[str, Partial]:
     out: dict[str, Partial] = {}
     for path in sorted(partials_dir.glob("*.md")):
         lines = path.read_text().splitlines()
-        stamped = bool(lines) and stamp.md_stamp(lines[0]) is not None
-        body_lines = lines[1:] if stamped else lines
+        # An envelope: strip the line-1 begin stamp and the final end-marker line
+        # (tolerating a partial that is missing either — after v0.39.0 all carry both).
+        if lines and stamp.md_stamp(lines[0]) is not None:
+            lines = lines[1:]
+        if lines and stamp.md_end(lines[-1]) is not None:
+            lines = lines[:-1]
+        body_lines = lines
         anchor = next((line for line in body_lines if line.startswith("## ")), None)
         out[path.stem] = Partial(
             name=path.stem,
@@ -101,24 +111,23 @@ def normalize(block: str) -> str:
     return "\n".join(line.rstrip() for line in block.splitlines()).rstrip("\n")
 
 
-def fragment_body(lines: list[str], stamp_idx: int, length: int) -> str:
-    """The ``length`` lines following ``stamp_idx`` — the target's copy of the
-    stamped fragment. A stamp line inside the window (a splice, or a following
-    fragment's stamp reached because this fragment ran short) stays in the body
-    and surfaces as ``edited`` — the correct drift signal either way."""
-    return "\n".join(lines[stamp_idx + 1 : stamp_idx + 1 + length])
-
-
 def classify_stamped(
     path: str, name: str, found_sha: str, lines: list[str], stamp_idx: int, partial: Partial, sha_for: ShaResolver
 ) -> Finding:
     canonical = sha_for(partial.path)
     stale = found_sha == stamp.PENDING or (canonical is not None and found_sha != canonical)
+    # Seeds are sha-only: never body-checked, staleness never fails, envelope ignored.
     if partial.kind == "seed":
         return Finding("stale" if stale else "ok", found_sha, path, name, fails=False)
+    # Verbatim: the fragment is the lines strictly between the begin stamp and its end
+    # marker. An open envelope is structural breakage before any sha/body question.
+    end_idx = stamp.find_end(lines, stamp_idx, name)
+    if end_idx is None:
+        return Finding("unterminated", found_sha, path, name, fails=True)
     if stale:
         return Finding("stale", found_sha, path, name, fails=True)
-    if normalize(fragment_body(lines, stamp_idx, len(partial.body_lines))) != normalize(partial.body):
+    inner = "\n".join(lines[stamp_idx + 1 : end_idx])
+    if normalize(inner) != normalize(partial.body):
         return Finding("edited", found_sha, path, name, fails=True)
     return Finding("ok", found_sha, path, name, fails=False)
 

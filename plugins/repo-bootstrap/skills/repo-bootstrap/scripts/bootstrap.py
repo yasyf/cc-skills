@@ -63,9 +63,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "drift",
         help="check stamped partials in target files against their canonical source",
         description="Scan each TARGET for self-identifying canonical stamps (and known "
-        "partial anchor headings), printing one TSV finding per line "
+        "partial anchor headings), locating each enveloped fragment by its begin/end "
+        "markers and printing one TSV finding per line "
         "(status<TAB>sha<TAB>path<TAB>name). Exits non-zero when a stamped verbatim-class "
-        "fragment is stale/edited, a shell stamp is stale, or a --require'd stamp is "
+        "fragment is stale, edited, or unterminated (an open envelope with no end marker), "
+        "a shell stamp is stale, or a --require'd stamp is "
         "missing; unstamped/unknown findings and seed-class (readme*) staleness print but "
         "never fail the exit — the stamp is the opt-in contract, and seed partials are "
         "customized per-repo.",
@@ -88,9 +90,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "three-way decides the move: one still matching the body it was stamped from is "
         "rewritten to the current body and re-pinned (synced); one already holding the current "
         "body only has its stamp re-pinned (repinned); one diverging from both is a decision, "
-        "not drift, and is left untouched (skipped-edited). The replaced window is measured from "
-        "the ORIGINAL body at the stamp sha, so a partial that grew or shrank still splices "
-        "cleanly. Dry-run by default (prints a 5-column TSV: status<TAB>old-sha<TAB>new-sha<TAB>"
+        "not drift, and is left untouched (skipped-edited). Each fragment is an envelope (begin "
+        "stamp + end marker), so sync replaces the enveloped inner exactly — no window arithmetic — "
+        "and a partial that grew or shrank still classifies trivially; an open envelope is reported "
+        "unterminated and left alone. Dry-run by default (prints a 5-column TSV: status<TAB>old-sha<TAB>new-sha<TAB>"
         "path<TAB>name); pass --write to apply. ALWAYS exits 0 — sync is the fixer, drift is the "
         "gate (compose as `sync --write && drift`). Caveat: scaffold renders install-binary.sh "
         "with {{BINARY_NAME}}/{{PLUGIN_NAME}}/{{RELEASE_REPO}}/{{BREW_PACKAGE}} substituted, so a "

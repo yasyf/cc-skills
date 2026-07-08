@@ -1,33 +1,34 @@
 """The ``sync`` subcommand: mechanically update stamped partials in target files.
 
 Where ``drift`` reports how each stamped fragment stands against canon, ``sync`` moves
-it there. For every self-identifying stamp it finds, it runs a three-way against the
-partial's current body and the body the fragment was stamped from (recovered from git at
-the stamp sha):
+it there. A markdown fragment is an *envelope* — a self-identifying begin stamp and a
+name-matched end marker — so ``sync`` locates the fragment by its markers alone: the
+inner lines are exactly those strictly between them. For every begin stamp it runs a
+three-way against the partial's current body and the body the fragment was stamped from
+(recovered from git at the stamp sha):
 
-    synced          the fragment still matches the body it was stamped from — replace
-                    that body with the current one and re-pin the stamp
-    repinned        the fragment already holds the current body, only the stamp trails —
+    synced          the inner still matches the body it was stamped from — replace the
+                    inner with the current body and re-pin the stamp
+    repinned        the inner already holds the current body, only the stamp trails —
                     re-pin the stamp line alone
-    skipped-edited  the fragment matches neither the stamped-from nor the current body —
+    skipped-edited  the inner matches neither the stamped-from nor the current body —
                     a local decision, never overwritten
-    ok              already at the canonical sha with a matching (verbatim) body, or any
+    ok              already at the canonical sha with a matching (verbatim) inner, or any
                     seed at the canonical sha — nothing to do
+    unterminated    a begin stamp with no matching end marker (an open envelope) — no edit
     pending         an unpinned ``@pending`` stamp (the pin never ran) — reported, skipped
     unknown         a stamp naming no shipped partial — reported, skipped
     no-history      the canonical sha or the stamped-from blob is unavailable (installed
                     plugin cache, or a sha with no recorded blob) — reported, skipped
 
-The replaced window's length is the *stamped-from* body's line count, never the current
-partial's: a partial that grew or shrank between the stamp sha and canon would otherwise
-excise the wrong span. When the stamped-from and current bodies are in a prefix relationship
-(lines appended or trailing lines dropped), a target can match BOTH windows; the longer
-matching window wins — equal lengths mean identical bodies, so a stamp-only re-pin — which
-keeps an already-updated fragment from re-splicing the current body over its own prefix and
-duplicating the appended lines. Seeds (basename ``readme*``, customized per repo) take the same
-three-way when stale — an untouched seed syncs, a customized one is ``skipped-edited``
-with its stamp left unpinned (provenance honesty) — but at the canonical sha a seed is
-always ``ok`` (its body is never checked, mirroring ``drift``).
+The end marker bounds the replacement exactly — ``sync`` never counts body lines to size
+a window, so the v0.38.1 corruption class (a partial that grew or shrank between shas
+excising the wrong span, and the prefix/longest-match ambiguity that guarded it) is
+structurally impossible: an extension or a shrink now classifies trivially against the
+current inner. Seeds (basename ``readme*``, customized per repo) take the same three-way
+when stale — an untouched seed syncs, a customized one is ``skipped-edited`` with its
+stamp left unpinned (provenance honesty) — but at the canonical sha a seed is always
+``ok`` (its body is never checked, mirroring ``drift``).
 
 The shell template (``install-binary.sh``) is handled whole-file: an unrendered copy still
 matching the stamped-from template (trailing-whitespace-tolerant, like the markdown
@@ -40,15 +41,15 @@ stale *rendered* copy matches neither template side and always reports ``skipped
 — ``sync`` maintains unrendered copies only; re-rendering a stale copy is out of scope.
 
 Markdown edits are applied bottom-up (descending stamp index) so an earlier splice never
-invalidates a later stamp's index; a synced window can never contain another stamp (a
-stamp-free original body wouldn't have matched), so windows never overlap. A file's CRLF
-or LF line endings and its trailing newline are preserved.
+invalidates a later stamp's index; a synced inner can never contain another begin stamp (a
+stamp-free original body wouldn't have matched), so replacements never overlap. A file's
+CRLF or LF line endings and its trailing newline are preserved.
 
 One TSV line per finding, five columns: ``status<TAB>old-sha-or-'-'<TAB>new-sha-or-'-'
 <TAB>path<TAB>name``. ``new-sha`` is the sha the stamp carries after the sync — the re-pin
 target for ``synced``/``repinned``, the confirmed current sha for ``ok``, and ``-`` for the
-statuses that leave the stamp untouched and unconfirmed (``skipped-edited``, ``unknown``,
-``pending``, ``no-history``). Dry-run by default; ``--write`` applies the edits. ``sync``
+statuses that leave the stamp untouched and unconfirmed (``skipped-edited``, ``unterminated``,
+``unknown``, ``pending``, ``no-history``). Dry-run by default; ``--write`` applies the edits. ``sync``
 ALWAYS exits 0 — it is the fixer, ``drift`` is the gate (compose as ``sync --write &&
 drift``); a ``skipped-edited`` fragment is informational, exactly like ``drift``'s
 ``unstamped``.
@@ -70,7 +71,6 @@ from .drift import (
     Partial,
     ShaResolver,
     discover_partials,
-    fragment_body,
     normalize,
 )
 
@@ -95,8 +95,9 @@ class SyncFinding:
 @dataclass(frozen=True)
 class MdEdit:
     """A markdown fragment rewrite: re-pin the stamp at ``stamp_idx`` to ``new_sha`` and
-    replace the ``window`` lines after it with ``replacement`` (``window`` 0 / empty
-    ``replacement`` for a stamp-line-only re-pin)."""
+    replace the ``window`` inner lines after it (those between the begin stamp and its
+    end marker) with ``replacement``. The end marker itself sits just past the window and
+    survives the splice. ``window`` 0 / empty ``replacement`` is a stamp-line-only re-pin."""
 
     stamp_idx: int
     new_sha: str
@@ -137,12 +138,17 @@ def git_body_at(sha: str, template_path: Path, root: Path | None = None) -> str 
 
 def _blob_md_lines(blob: str) -> tuple[str, ...]:
     """The body lines of a committed markdown-partial blob: its lines minus a line-1
-    canonical stamp (committed templates carry ``@pending`` there, so it is always the
-    stamp). Returned as a tuple, never a joined string, so a body ending in a blank line
-    keeps its trailing empty element — the excision window has to span it."""
+    canonical begin stamp and a trailing end-marker line IF PRESENT — a pre-envelope blob
+    (committed before v0.39.0) has no end marker, a post-envelope one does; both yield the
+    same body. Committed templates carry ``@pending`` on the stamp. Returned as a tuple,
+    never a joined string, so a body ending in a blank line keeps its trailing empty
+    element for a faithful comparison."""
     lines = blob.splitlines()
-    stamped = bool(lines) and stamp.md_stamp(lines[0]) is not None
-    return tuple(lines[1:] if stamped else lines)
+    if lines and stamp.md_stamp(lines[0]) is not None:
+        lines = lines[1:]
+    if lines and stamp.md_end(lines[-1]) is not None:
+        lines = lines[:-1]
+    return tuple(lines)
 
 
 def _blob_sh_body(blob: str) -> str:
@@ -161,44 +167,45 @@ def classify_md(
     sha_for: ShaResolver,
     body_at: BodyResolver,
 ) -> tuple[SyncFinding, MdEdit | None]:
-    """Classify one markdown stamp and, when it updates, the edit that realizes it."""
+    """Classify one markdown begin stamp and, when it updates, the edit that realizes it.
+    The fragment is the envelope's inner — the lines strictly between the begin stamp and
+    its name-matched end marker — so no window is ever inferred from body-line counts."""
     canonical = sha_for(partial.path)
     if found_sha == stamp.PENDING:
         return SyncFinding("pending", found_sha, None, path, name), None
     if canonical is None:
         return SyncFinding("no-history", found_sha, None, path, name), None
-    if found_sha == canonical:
-        # At the canonical sha: a seed is ``ok`` regardless of body (never body-checked,
-        # like drift); a verbatim is ``ok`` only if its body still matches, else a local
-        # edit we must not overwrite — there is nothing newer to sync toward.
-        if partial.kind == "seed" or normalize(fragment_body(lines, stamp_idx, len(partial.body_lines))) == normalize(
-            partial.body
-        ):
+    end_idx = stamp.find_end(lines, stamp_idx, name)
+    if end_idx is None:
+        # An open envelope: structural breakage that drift fails on. Sync leaves it alone.
+        return SyncFinding("unterminated", found_sha, None, path, name), None
+    inner = "\n".join(lines[stamp_idx + 1 : end_idx])
+    window = end_idx - stamp_idx - 1  # inner line count; the end marker sits just past it
+    # A seed at the canonical sha is ``ok`` regardless of body (never body-checked, mirroring
+    # drift) — its per-repo customization is expected, not drift to sync toward.
+    if partial.kind == "seed" and found_sha == canonical:
+        return SyncFinding("ok", found_sha, found_sha, path, name), None
+    if normalize(inner) == normalize(partial.body):
+        # The inner already holds the current body: ``ok`` at the canonical sha, else a
+        # stamp-line-only re-pin (window 0).
+        if found_sha == canonical:
             return SyncFinding("ok", found_sha, found_sha, path, name), None
+        return SyncFinding("repinned", found_sha, canonical, path, name), MdEdit(stamp_idx, canonical, 0, ())
+    if found_sha == canonical:
+        # At the canonical sha with a diverged inner — a local edit, nothing newer to sync to.
         return SyncFinding("skipped-edited", found_sha, None, path, name), None
     # Stale: recover the partial body as it stood at the stamp sha and run the three-way.
-    # The window is the ORIGINAL body's line count — the current length would excise the
-    # wrong span when the partial grew or shrank.
     original_blob = body_at(found_sha, partial.path)
     if original_blob is None:
         return SyncFinding("no-history", found_sha, None, path, name), None
-    original_lines = _blob_md_lines(original_blob)
-    old_window = len(original_lines)
-    cur_window = len(partial.body_lines)
-    matches_original = normalize(fragment_body(lines, stamp_idx, old_window)) == normalize("\n".join(original_lines))
-    matches_current = normalize(fragment_body(lines, stamp_idx, cur_window)) == normalize(partial.body)
-    # When the stamped-from body is a prefix of the current one (or vice versa) BOTH windows
-    # can match the target — the longer window is the true fit; a shorter one that also
-    # matches only caught the prefix. Prefer the longer; on equal lengths a double match
-    # means identical bodies, so a stamp-only re-pin. Taking the shorter ``synced`` window
-    # would splice the current body over a prefix and duplicate the appended lines.
-    if matches_original and (not matches_current or old_window > cur_window):
+    original_body = "\n".join(_blob_md_lines(original_blob))
+    if normalize(inner) == normalize(original_body):
+        # Untouched since the stamp: replace the inner with the current body and re-pin.
         return (
             SyncFinding("synced", found_sha, canonical, path, name),
-            MdEdit(stamp_idx, canonical, old_window, partial.body_lines),
+            MdEdit(stamp_idx, canonical, window, partial.body_lines),
         )
-    if matches_current:
-        return SyncFinding("repinned", found_sha, canonical, path, name), MdEdit(stamp_idx, canonical, 0, ())
+    # Diverged from both the stamped-from and the current body — a decision, left untouched.
     return SyncFinding("skipped-edited", found_sha, None, path, name), None
 
 
