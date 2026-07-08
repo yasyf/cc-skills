@@ -46,7 +46,7 @@ Swift 6 language mode. Build with `swift build`, test with `swift test`, run wit
 
 **No defensive coding.** No fallbacks, shims, or backwards-compat layers; no guards against impossible states. If unused, delete it. Crash on the unexpected.
 
-**Search before writing.** Before creating a helper, query the codebase via `ccx search` (intent) or `ccx symbol` (a named symbol). Sibling modules win over re-implementation.
+**Search before writing.** Before creating a helper, query the codebase via `ccx code search` (intent or symbol queries both work). Sibling modules win over re-implementation.
 
 **Code stewardship.** When you touch a file, fix nearby bugs, style violations, and broken tests; don't wave them off as pre-existing or out of scope.
 

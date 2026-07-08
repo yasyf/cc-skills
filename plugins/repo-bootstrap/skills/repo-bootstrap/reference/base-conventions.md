@@ -8,6 +8,20 @@ so when that layer is active, edit those four against its richer versions instea
 Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 `captain_hook`.
 
+**Partial provenance stamps.** Every `templates/_partials/*.md` carries a line-1
+self-identifying canonical stamp —
+`<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/<basename>.md@pending -->` —
+that names the partial it came from; `templates/plugin/install-binary.sh` carries
+the file-level shell form (`# canonical: cc-skills/plugins/repo-bootstrap@pending`).
+The template keeps `@pending`; scaffold rendering pins each stamp to the sha of the
+last cc-skills commit touching that source file, and drift is checked with the
+bootstrap CLI's drift subcommand — `bootstrap.py drift <target-file>…` (the
+`$BOOTSTRAP` alias from SKILL.md, repeatable `--require <partial>` to demand a
+partial by name). It prints one TSV finding per line and exits non-zero on a
+stamped verbatim-class stale/edited fragment, a stale shell stamp, or a missing
+required one; unstamped/unknown findings and seed-class (`readme*`) staleness print
+but never fail the exit — the stamp is the opt-in contract.
+
 ## AGENTS.md anatomy
 
 The single canonical agent-conventions doc. Section by section:
@@ -45,13 +59,20 @@ The single canonical agent-conventions doc. Section by section:
 - **Compact Context (ccx).** Shared `{{> _partials/ccx.md}}` partial, inlined into
   base, python, and go `AGENTS.md` where the old per-project `## Code Search` section
   used to sit. It makes `cc-context` — the `ccx` CLI and the `mcp__cc-context__*`
-  MCP tools (1:1 with the CLI) — the default for reading/searching/reviewing code,
-  because it returns token-bounded output and the `ccx` capt-hook guard pack blocks
-  the token-heavy primitives. The ladder: `ccx overview` (orient), `ccx search`
-  (intent, semble-backed), `ccx symbol`/`grok` (a named symbol), `ccx grep` (literal),
-  `ccx find` (list files), `ccx outline` + `ccx read --section` (read), `ccx diff`
-  (review). LSP for exhaustive/structural answers, `Grep`/`Glob` only for literal
-  content in non-source files. The facade (semble + tilth) ships inside the
+  MCP tools — the default for reading/searching/reviewing code, because it returns
+  token-bounded output and the `ccx` capt-hook guard pack blocks the token-heavy
+  primitives. The ladder: `ccx repo overview` (orient), `ccx code search` (intent,
+  semble-backed), `ccx code symbol`/`grok` (a named symbol), `ccx code grep`
+  (literal), `ccx repo find` (list files), `ccx code outline` + `ccx code read
+  --section` (read), `ccx code edit` (hash-verified write), `ccx vcs diff`/`show`/
+  `history` (review changes, one commit, a file's evolution), `ccx repo locate`
+  (find a repo/module/package on disk), `ccx vcs ship` (commit + push + watch CI),
+  `ccx exec` (compose/post-process), `ccx format` (re-encode JSON output). The MCP
+  covers the query surface (entries 1–8) plus exec and format (as `BashFormat`) —
+  **not** `ccx vcs ship`/`show`/`history` or `ccx repo locate`, which are CLI-only.
+  Durable prose cites code as `path:line#hash`; ccx re-anchors the cite by content
+  even after the file drifts. LSP for exhaustive/structural answers, `Grep`/`Glob`
+  only for literal content in non-source files. The facade (semble + tilth) ships inside the
   `cc-context@skills` plugin enabled in `.claude/settings.json`, **not** a per-project
   `.mcp.json` server — and the same plugin attaches the `ccx` guard pack per session, so
   the `ccx` heading and the `cc-context@skills` plugin are the cross-reference invariant,
@@ -224,7 +245,7 @@ Field by field:
 - `"includeGitInstructions": false` — drop the built-in git boilerplate; AGENTS.md
   § General Rules carries the version-control conventions instead (jj-preferred).
 - `"env"`: `"ENABLE_TOOL_SEARCH": "true"` (deferred-tool discovery),
-  `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Code Search routes
+  `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Compact Context (ccx) routes
   structural queries to), `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"` (enables
   `TeamCreate` for the Parallelize Independent Work section),
   `"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"` (always think at full depth),

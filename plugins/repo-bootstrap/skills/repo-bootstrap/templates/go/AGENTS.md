@@ -46,7 +46,7 @@ Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and 
 
 **No defensive coding.** No fallbacks, shims, or backwards-compat layers; no guards against impossible states. If unused, delete it. Crash on the unexpected.
 
-**Search before writing.** Before creating a helper, query the codebase via `ccx search` (intent) or `ccx symbol` (a named symbol). Sibling packages win over re-implementation.
+**Search before writing.** Before creating a helper, query the codebase via `ccx code search` (intent or symbol queries both work). Sibling packages win over re-implementation.
 
 **Code stewardship.** When you touch a file, fix nearby bugs, style violations, and broken tests; don't wave them off as pre-existing or out of scope.
 

@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 
 from . import render as _render
+from . import stamp
 from .common import (
     BUNDLE_ID_PREFIX_RE,
     DIST_NAME_RE,
@@ -329,12 +330,28 @@ def template_exists(src: str) -> bool:
     return (TEMPLATES / src).exists()
 
 
+def pinning_reader(read: Callable[[str], str], sha_for: Callable[[str], str | None]) -> Callable[[str], str]:
+    """Wrap a template reader so each read pins its ``@pending`` stamp (if any) to
+    that source file's own last-touch sha. Every stamped output — an AGENTS.md or
+    README that inlined a stamped partial, install-binary.sh — is pinned this way,
+    each partial to its own sha, since expand_partials reads every partial through
+    the same wrapped reader. A missing sha (no git history) leaves ``@pending``."""
+
+    def read_pinned(src: str) -> str:
+        text = read(src)
+        sha = sha_for(src)
+        return stamp.pin(text, sha) if sha is not None else text
+
+    return read_pinned
+
+
 def run(args: argparse.Namespace) -> int:
     extras = parse_extras(args.extras)
     features = [f for f in args.features.split(",") if f]
     r = resolve(args.layer, extras, features, args.var, datetime.date.today())
     items = select_files(r)
-    plan, notices = render_plan(items, r, read_template, template_exists)
+    read = pinning_reader(read_template, lambda src: stamp.canonical_sha(TEMPLATES / src))
+    plan, notices = render_plan(items, r, read, template_exists)
     code = apply_plan(plan, args.target, args.force, args.dry_run)
     for notice in notices:
         print(notice.text)

@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/parallelize.md@pending -->
 ## Parallelize Independent Work
 
 Sequential is the exception, not the default. Two steps that don't consume each other's output run at the same time; when unsure whether they're independent, assume they are and fan out. The orchestrator routes and synthesizes — it never executes work a subagent could. Pick the surface by scale:

@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-demo-todo.md@pending -->
 TODO(bootstrap): replace `hello` above with the real first command, then capture
 the demo as a real run of that exact command. Default: a static terminal
 screenshot via freeze, with the one-liner committed at `docs/scripts/demo.sh`.

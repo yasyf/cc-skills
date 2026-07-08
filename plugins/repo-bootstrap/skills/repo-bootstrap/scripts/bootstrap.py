@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-from bootstrap import identity, pypi, scaffold, trust, verify
+from bootstrap import drift, identity, pypi, scaffold, trust, verify
 from bootstrap.manifest import EXTRAS, FEATURES
 
 
@@ -57,6 +57,27 @@ def _build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--home", default=os.path.expanduser("~"), help="home dir holding ~/.claude.json and any ~/.cc-pool/accounts/*")
     tr.add_argument("--config", default=None, help="base .claude.json path (default: <home>/.claude.json)")
 
+    dr = sub.add_parser(
+        "drift",
+        help="check stamped partials in target files against their canonical source",
+        description="Scan each TARGET for self-identifying canonical stamps (and known "
+        "partial anchor headings), printing one TSV finding per line "
+        "(status<TAB>sha<TAB>path<TAB>name). Exits non-zero when a stamped verbatim-class "
+        "fragment is stale/edited, a shell stamp is stale, or a --require'd stamp is "
+        "missing; unstamped/unknown findings and seed-class (readme*) staleness print but "
+        "never fail the exit — the stamp is the opt-in contract, and seed partials are "
+        "customized per-repo.",
+    )
+    dr.add_argument("targets", nargs="+", type=Path, help="files to check (AGENTS.md, README.md, install-binary.sh copies)")
+    dr.add_argument(
+        "--require",
+        action="append",
+        default=[],
+        metavar="PARTIAL",
+        dest="require",
+        help="partial name (basename without .md) whose stamp must be present; repeatable",
+    )
+
     return parser
 
 
@@ -72,6 +93,8 @@ def main() -> int:
         return verify.main(args.layer, args.target, args.no_license)
     if args.command == "trust":
         return trust.trust_repo(args.target, args.home, args.config)
+    if args.command == "drift":
+        return drift.main(args.targets, args.require)
     return 2  # unreachable: subparser is required
 
 

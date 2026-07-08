@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/code-review-response.md@pending -->
 ## Code Review Response (Plan Re-Entry)
 
 When the user reviews code you wrote and re-enters plan mode — whether by leaving inline diff comments, pasting a numbered list of issues, or otherwise sending review-shaped feedback after a recent edit cycle — you MUST:

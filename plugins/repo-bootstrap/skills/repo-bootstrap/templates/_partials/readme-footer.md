@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-footer.md@pending -->
 TODO(bootstrap): optional one-line `Status:` note (honest maturity), or delete this line.
 {{#HAS_LICENSE}}
 

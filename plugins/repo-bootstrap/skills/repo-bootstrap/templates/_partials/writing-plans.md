@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/writing-plans.md@pending -->
 ## Writing Plans
 
 When you write a plan — in plan mode, or any "here's what I'll do" before you start editing — use this shape so it's fast to scan and complete enough to execute:

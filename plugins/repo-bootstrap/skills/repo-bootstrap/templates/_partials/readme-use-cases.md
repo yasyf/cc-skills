@@ -1,3 +1,4 @@
+<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-use-cases.md@pending -->
 ---
 
 ## Use cases
