@@ -11,15 +11,15 @@
 └── README.md         # Project overview
 ```
 
-{{> _partials/ask-before-assuming.md}}
+{{> ask-before-assuming}}
 
-{{> _partials/code-review-response.md}}
+{{> code-review-response}}
 
-{{> _partials/parallelize.md}}
+{{> parallelize}}
 
-{{> _partials/writing-plans.md}}
+{{> writing-plans}}
 
-{{> _partials/ccx.md}}
+{{> ccx}}
 
 ## Style
 
@@ -59,4 +59,4 @@
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
 
-{{> _partials/version-control.md}}
+{{> version-control}}

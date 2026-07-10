@@ -108,14 +108,18 @@ DERIVED = (
 
 FILES = (
     # --- base layer ---
-    FileSpec("AGENTS.md", "base/AGENTS.md", "base"),
-    FileSpec("CLAUDE.md", "base/CLAUDE.md", "base"),
+    # AGENTS.md / CLAUDE.md ship as cc-guides sources (X.src.<ext>); the post-write
+    # `cc-guides render` step (scaffold.render_sources) writes the sibling artifact.
+    FileSpec("AGENTS.src.md", "base/AGENTS.md", "base"),
+    FileSpec("CLAUDE.src.md", "base/CLAUDE.md", "base"),
     FileSpec("STYLEGUIDE.md", "base/STYLEGUIDE.md", "base"),
     FileSpec("README.md", "base/README.md", "base"),
     FileSpec("CHANGELOG.md", "base/CHANGELOG.md", "base"),
     FileSpec(".mcp.json", "base/mcp.json", "base"),
     FileSpec(".claude/settings.json", "base/claude/settings.json", "base"),
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
+    # The cc-guides caller stub: `check` on push/PR + `re-render` on release dispatch.
+    FileSpec(".github/workflows/guides.yml", "base/github/workflows/guides.yml", "base"),
     # capt-hook hooks ship as the `general` builtin pack; the project enables it
     # via packs.toml instead of vendoring the hook files. See reference/hooks.md.
     FileSpec(".claude/hooks/packs.toml", "base/claude/hooks/packs.toml", "base"),
@@ -123,7 +127,7 @@ FILES = (
     FileSpec(".gitignore", None, "base", transform="gitignore"),
     FileSpec("LICENSE", None, "base", transform="license"),
     # --- python layer (overrides base where dest collides) ---
-    FileSpec("AGENTS.md", "python/AGENTS.md", "python"),
+    FileSpec("AGENTS.src.md", "python/AGENTS.md", "python"),
     FileSpec("STYLEGUIDE.md", "python/STYLEGUIDE.md", "python"),
     FileSpec("README.md", "python/README.md", "python"),
     FileSpec(".claude/settings.json", "python/claude/settings.json", "python"),
@@ -149,7 +153,7 @@ FILES = (
     FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
     # --- go layer (overrides base where dest collides) ---
-    FileSpec("AGENTS.md", "go/AGENTS.md", "go"),
+    FileSpec("AGENTS.src.md", "go/AGENTS.md", "go"),
     FileSpec("STYLEGUIDE.md", "go/STYLEGUIDE.md", "go"),
     FileSpec("README.md", "go/README.md", "go"),
     FileSpec(".claude/settings.json", "go/claude/settings.json", "go"),
@@ -176,7 +180,7 @@ FILES = (
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
     # --- swift layer (SPM package/CLI; overrides base where dest collides) ---
-    FileSpec("AGENTS.md", "swift/AGENTS.md", "swift"),
+    FileSpec("AGENTS.src.md", "swift/AGENTS.md", "swift"),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift"),
     FileSpec("README.md", "swift/README.md", "swift"),
     # swift layers override the empty base .mcp.json with the xcodebuildmcp server.
@@ -201,7 +205,7 @@ FILES = (
     FileSpec(".github/workflows/release.yml", "swift/github/workflows/release.yml", "swift", feature="release"),
     # --- swift-app layer (synced-folder Xcode app; shares swift/ srcs for the
     # language-level files so they are written once and consumed by both) ---
-    FileSpec("AGENTS.md", "swift-app/AGENTS.md", "swift-app"),
+    FileSpec("AGENTS.src.md", "swift-app/AGENTS.md", "swift-app"),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift-app"),
     FileSpec("README.md", "swift-app/README.md", "swift-app"),
     FileSpec(".mcp.json", "swift/mcp.json", "swift-app"),
@@ -237,8 +241,9 @@ FILES = (
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),
-    # The canonical plugin binary installer: bin/<name> is only ever a symlink
-    # (brew binary, durable CLAUDE_PLUGIN_DATA payload, or dev build). Rendered
-    # copies elsewhere in the fleet sync FROM this template, never fork it.
-    FileSpec("plugin/scripts/install-binary.sh", "plugin/install-binary.sh", "base", extra="plugin"),
+    # The canonical plugin binary installer, as a cc-guides source: it renders to a
+    # single `{{> install-binary-pinned|latest …}}` directive line, which `cc-guides
+    # render` (the post-write step) expands into the real installer. bin/<name> is
+    # only ever a symlink (brew binary, durable CLAUDE_PLUGIN_DATA payload, or dev build).
+    FileSpec("plugin/scripts/install-binary.src.sh", "plugin/install-binary.src.sh", "base", extra="plugin"),
 )

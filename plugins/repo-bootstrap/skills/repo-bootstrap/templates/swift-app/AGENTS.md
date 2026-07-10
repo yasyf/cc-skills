@@ -22,15 +22,15 @@ it under `{{PROJECT_NAME}}/` (app) or `{{PROJECT_NAME}}Tests/` (tests) — no
 mode, complete strict concurrency). The project file uses fixed synthetic UUIDs —
 never regenerate it or accept an Xcode "upgrade" of it.
 
-{{> _partials/ask-before-assuming.md}}
+{{> ask-before-assuming}}
 
-{{> _partials/code-review-response.md}}
+{{> code-review-response}}
 
-{{> _partials/parallelize.md}}
+{{> parallelize}}
 
-{{> _partials/writing-plans.md}}
+{{> writing-plans}}
 
-{{> _partials/ccx.md}}
+{{> ccx}}
 
 ## Swift Style
 
@@ -80,4 +80,4 @@ Xcode app project, not an SPM package.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
 
-{{> _partials/version-control.md}}
+{{> version-control}}

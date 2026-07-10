@@ -152,7 +152,7 @@ def test_missing_social_note(tmp_path, monkeypatch):
     [("docs,pypi", "MIT"), ("", "none")],
     ids=["all-features-mit", "bare-no-license"],
 )
-def test_end_to_end_python(tmp_path, features, license_id):
+def test_end_to_end_python(tmp_path, features, license_id, cc_guides_stub):
     if not shutil.which("uv"):
         pytest.skip("uv not installed")
     # Don't let the test-runner's own venv leak into the scaffolded project's uv runs.
@@ -214,7 +214,7 @@ GO_VARS = BASE_VARS + ["--var", "GO_VERSION=1.26"]
 
 
 @pytest.mark.go
-def test_end_to_end_go(tmp_path):
+def test_end_to_end_go(tmp_path, cc_guides_stub):
     if not shutil.which("go"):
         pytest.skip("go not installed")
     if not shutil.which("uv"):
@@ -259,7 +259,7 @@ SWIFT_APP_VARS = BASE_VARS + [
 
 
 @pytest.mark.swift
-def test_end_to_end_swift(tmp_path):
+def test_end_to_end_swift(tmp_path, cc_guides_stub):
     if not shutil.which("swift"):
         pytest.skip("swift not installed")
     if not shutil.which("uv"):
@@ -287,7 +287,7 @@ def test_end_to_end_swift(tmp_path):
 
 
 @pytest.mark.xcode
-def test_end_to_end_swift_app(tmp_path):
+def test_end_to_end_swift_app(tmp_path, cc_guides_stub):
     """Minutes-slow on first run (simulator-platform build). Requires full Xcode;
     with Xcode present but the iOS platform component not downloaded, verify
     NOTE-skips the build and this test still passes (structure is validated)."""

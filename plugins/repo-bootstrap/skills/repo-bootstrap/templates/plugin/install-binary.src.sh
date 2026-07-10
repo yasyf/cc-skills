@@ -1,0 +1,1 @@
+{{#PINNED}}{{> install-binary-pinned binary={{BINARY_NAME}} repo={{RELEASE_REPO}} brew={{BREW_PACKAGE}} plugin={{PLUGIN_NAME}}}}{{/PINNED}}{{#LATEST}}{{> install-binary-latest binary={{BINARY_NAME}} repo={{RELEASE_REPO}} brew={{BREW_PACKAGE}} plugin={{PLUGIN_NAME}}}}{{/LATEST}}

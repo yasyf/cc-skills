@@ -16,15 +16,15 @@
 └── README.md              # Project overview
 ```
 
-{{> _partials/ask-before-assuming.md}}
+{{> ask-before-assuming}}
 
-{{> _partials/code-review-response.md}}
+{{> code-review-response}}
 
-{{> _partials/parallelize.md}}
+{{> parallelize}}
 
-{{> _partials/writing-plans.md}}
+{{> writing-plans}}
 
-{{> _partials/ccx.md}}
+{{> ccx}}
 
 ## Go Style
 
@@ -70,7 +70,7 @@ Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and 
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
 
-{{> _partials/version-control.md}}
+{{> version-control}}
 {{#FEATURE_RELEASE}}
 
 **Releases.** Tagging `v*` triggers `.github/workflows/release.yml`, which runs goreleaser to build the binaries, cut a GitHub release, and push the Homebrew cask to `{{GITHUB_USER}}/homebrew-tap`. The version comes from the tag. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch. One-time setup: a `HOMEBREW_TAP_TOKEN` repo secret with push access to the tap. The macOS binaries are Developer-ID-signed and notarized when the `MACOS_*` repo secrets are set (optional; releases unsigned without them — see `reference/go-ci-and-release.md`).

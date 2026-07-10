@@ -8,6 +8,7 @@ shipped template, not one of these).
 from __future__ import annotations
 
 import datetime
+import os
 import sys
 from pathlib import Path
 
@@ -18,10 +19,35 @@ sys.path.insert(0, str(SCRIPTS))
 
 TEMPLATES = SCRIPTS.parent / "templates"
 
+# A stub `cc-guides` binary for the post-write render step, so scaffolds run offline
+# and independent of any installed cc-guides. It proves it ran in the target dir (a
+# marker file lands in cwd) and renders each X.src.<ext> to its sibling by dropping
+# the directive lines. Tests must NOT depend on a real cc-guides on the machine.
+_STUB_CC_GUIDES = r"""#!/bin/sh
+[ "$1" = "render" ] || exit 0
+: > .cc-guides-stub
+find . \( -name '*.src.md' -o -name '*.src.sh' \) 2>/dev/null | while IFS= read -r src; do
+  dest="${src%.src.*}.${src##*.}"
+  { echo "# stub-rendered from $src"; grep -v '{{>' "$src"; } > "$dest"
+  echo "rendered $src -> $dest" >> .cc-guides-stub
+done
+echo "stub cc-guides render complete"
+"""
+
 
 @pytest.fixture
 def templates_dir() -> Path:
     return TEMPLATES
+
+
+@pytest.fixture
+def cc_guides_stub(tmp_path_factory, monkeypatch) -> Path:
+    stub_dir = tmp_path_factory.mktemp("cc-guides-bin")
+    exe = stub_dir / "cc-guides"
+    exe.write_text(_STUB_CC_GUIDES)
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ['PATH']}")
+    return stub_dir
 
 
 @pytest.fixture

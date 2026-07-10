@@ -14,13 +14,14 @@ import argparse
 import datetime
 import json
 import re
+import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
 from . import render as _render
-from . import stamp
 from .common import (
     BUNDLE_ID_PREFIX_RE,
     DIST_NAME_RE,
@@ -199,11 +200,17 @@ def select_files(r: ResolveResult) -> list[PlanItem]:
 
 
 def expand_partials(text: str, read: Callable[[str], str], _stack: tuple[str, ...] = ()) -> str:
-    """Inline ``{{> path}}`` directives (raw, pre-render) so a partial shares the
-    including file's variable/feature context. Recursive, cycle-guarded."""
+    """Inline ``{{> _partials/…}}`` directives (raw, pre-render) so a README seed
+    shares the including file's variable/feature context. Recursive, cycle-guarded.
+
+    Bare-name directives (``{{> ccx}}``, ``{{> install-binary-pinned …}}``) pass
+    through untouched — they name a cc-guides fragment, resolved by ``cc-guides
+    render`` after scaffold writes the ``.src`` file, not here."""
 
     def repl(m: re.Match[str]) -> str:
         path = m.group(1)
+        if not path.startswith("_partials/"):
+            return m.group(0)  # cc-guides fragment directive: leave for the render step
         if path in _stack:
             raise ScaffoldError(f"partial include cycle: {' -> '.join((*_stack, path))}")
         try:
@@ -330,19 +337,19 @@ def template_exists(src: str) -> bool:
     return (TEMPLATES / src).exists()
 
 
-def pinning_reader(read: Callable[[str], str], sha_for: Callable[[str], str | None]) -> Callable[[str], str]:
-    """Wrap a template reader so each read pins its ``@pending`` stamp (if any) to
-    that source file's own last-touch sha. Every stamped output — an AGENTS.md or
-    README that inlined a stamped partial, install-binary.sh — is pinned this way,
-    each partial to its own sha, since expand_partials reads every partial through
-    the same wrapped reader. A missing sha (no git history) leaves ``@pending``."""
-
-    def read_pinned(src: str) -> str:
-        text = read(src)
-        sha = sha_for(src)
-        return stamp.pin(text, sha) if sha is not None else text
-
-    return read_pinned
+def render_sources(target: Path) -> None:
+    """Render every ``X.src.<ext>`` the scaffold wrote (AGENTS.src.md, CLAUDE.src.md,
+    the plugin installer) into its sibling artifact via the ``cc-guides`` binary — the
+    canonical renderer that owns the guide fragment bodies. Hard-required: the bodies
+    live in the binary, so there is no Python fallback."""
+    exe = shutil.which("cc-guides")
+    if exe is None:
+        raise ScaffoldError("cc-guides not found on PATH; install it with `brew install yasyf/tap/cc-guides`")
+    proc = subprocess.run([exe, "render"], cwd=target, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise ScaffoldError(f"cc-guides render failed: {proc.stderr.strip() or proc.stdout.strip()}")
+    if proc.stdout.strip():
+        print(proc.stdout.strip())
 
 
 def run(args: argparse.Namespace) -> int:
@@ -350,9 +357,11 @@ def run(args: argparse.Namespace) -> int:
     features = [f for f in args.features.split(",") if f]
     r = resolve(args.layer, extras, features, args.var, datetime.date.today())
     items = select_files(r)
-    read = pinning_reader(read_template, lambda src: stamp.canonical_sha(TEMPLATES / src))
-    plan, notices = render_plan(items, r, read, template_exists)
+    plan, notices = render_plan(items, r, read_template, template_exists)
     code = apply_plan(plan, args.target, args.force, args.dry_run)
     for notice in notices:
         print(notice.text)
+    # Every X.src.<ext> just written renders to its sibling artifact in place.
+    if code == 0 and not args.dry_run:
+        render_sources(args.target)
     return code

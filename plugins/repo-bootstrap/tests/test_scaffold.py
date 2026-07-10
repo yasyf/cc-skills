@@ -3,6 +3,7 @@ transforms, and apply_plan. All pure/offline."""
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import json
 
@@ -21,9 +22,10 @@ def dests(layer, var_pairs, *, extras=None, features=None):
 # --- selection matrix ---
 
 BASE_DESTS = {
-    "AGENTS.md", "CLAUDE.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml",
     ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
+    ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
     ".gitignore", "LICENSE",
 }
 
@@ -74,8 +76,9 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
 # --- go layer selection ---
 
 GO_DESTS = {
-    "AGENTS.md", "CLAUDE.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+    ".github/workflows/guides.yml",
     ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
     "go.mod", "cmd/demo-proj/main.go",
@@ -105,7 +108,7 @@ def test_go_release_feature_gates(go_var_pairs):
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
     r = scaffold.resolve("go", [], [], go_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    assert items["AGENTS.md"].src == "go/AGENTS.md"
+    assert items["AGENTS.src.md"].src == "go/AGENTS.md"
     assert items["README.md"].src == "go/README.md"
     assert items["STYLEGUIDE.md"].src == "go/STYLEGUIDE.md"
     assert items[".claude/hooks/packs.toml"].src == "go/claude/hooks/packs.toml"
@@ -218,10 +221,8 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
     assert "security review/audit" in codex_skill
     assert "verification of security-sensitive code" in codex_skill
-    # Plans assign model + effort per phase at authoring time; without the clause
-    # plans get authored with no assignments and execution inherits fable.
-    plans = (templates_dir / "_partials/writing-plans.md").read_text()
-    assert "model and effort per the Models table" in plans
+    # The writing-plans "model and effort per phase" clause moved into the cc-guides
+    # writing-plans fragment (rendered into AGENTS.md downstream) and is pinned there.
 
 
 def test_claude_md_check_back_on_the_unexpected(templates_dir):
@@ -334,10 +335,10 @@ def test_extras_gating(base_var_pairs):
 
 
 def test_plugin_extra_gating(base_var_pairs, go_var_pairs):
-    assert "plugin/scripts/install-binary.sh" not in dests("base", base_var_pairs)
-    assert "plugin/scripts/install-binary.sh" in dests("base", base_var_pairs, extras=["plugin"])
+    assert "plugin/scripts/install-binary.src.sh" not in dests("base", base_var_pairs)
+    assert "plugin/scripts/install-binary.src.sh" in dests("base", base_var_pairs, extras=["plugin"])
     # layer-independent, like every extra
-    assert "plugin/scripts/install-binary.sh" in dests("go", go_var_pairs, extras=["plugin"], features=[])
+    assert "plugin/scripts/install-binary.src.sh" in dests("go", go_var_pairs, extras=["plugin"], features=[])
 
 
 def test_plugin_extra_mode_sections(base_var_pairs, plugin_var_pairs):
@@ -359,31 +360,28 @@ def test_bad_binary_version_mode(plugin_var_pairs):
 
 
 def test_plugin_installer_renders_pinned(plugin_var_pairs):
+    # the source is a single cc-guides directive line — `cc-guides render` (post-write)
+    # expands it into the real installer, whose body lives in the binary now.
     plan, _ = _real_plan("base", plugin_var_pairs, extras=["plugin"])
-    sh = plan["plugin/scripts/install-binary.sh"]
-    # the canonical provenance stamp: rendered fleet copies pin a sha, the
-    # template (and a scaffold render of it) keeps @pending
-    assert sh.startswith("#!/bin/sh\n# canonical: cc-skills/plugins/repo-bootstrap@pending\n")
-    assert "{{" not in sh
-    assert 'NAME="demo-proj"' in sh
-    assert 'REPO="janedoe/demo-proj"' in sh
-    assert 'BREW_PKG="janedoe/tap/demo-proj"' in sh
-    # pinned: the target release is the plugin.json version; the latest arm is gone
-    assert '"$ROOT/.claude-plugin/plugin.json"' in sh
-    assert "releases/latest" not in sh
+    src = plan["plugin/scripts/install-binary.src.sh"]
+    assert src == (
+        "{{> install-binary-pinned binary=demo-proj repo=janedoe/demo-proj "
+        "brew=janedoe/tap/demo-proj plugin=demo-proj}}\n"
+    )
 
 
 def test_plugin_installer_renders_latest(plugin_var_pairs):
     plan, _ = _real_plan("base", plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], extras=["plugin"])
-    sh = plan["plugin/scripts/install-binary.sh"]
-    assert "{{" not in sh
-    assert "releases/latest" in sh
-    assert ".claude-plugin/plugin.json" not in sh
+    src = plan["plugin/scripts/install-binary.src.sh"]
+    assert src == (
+        "{{> install-binary-latest binary=demo-proj repo=janedoe/demo-proj "
+        "brew=janedoe/tap/demo-proj plugin=demo-proj}}\n"
+    )
 
 
 def test_plugin_installer_missing_tokens_fail_loudly(base_var_pairs):
-    # extras have no required-var machinery; the unrendered-placeholder scan is
-    # the loud failure that stands in for it
+    # extras have no required-var machinery; the {{BINARY_NAME}} etc. tokens survive the
+    # section render unresolved, and the unrendered-placeholder scan fails loudly for them
     with pytest.raises(ScaffoldError):
         _real_plan("base", base_var_pairs, extras=["plugin"])
 
@@ -392,7 +390,7 @@ def test_python_overrides_base_for_shared_dest(py_var_pairs):
     # AGENTS.md exists in both layers; the python spec must win.
     r = scaffold.resolve("python", [], ["docs", "pypi"], py_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    assert items["AGENTS.md"].src == "python/AGENTS.md"
+    assert items["AGENTS.src.md"].src == "python/AGENTS.md"
     assert items["README.md"].src == "python/README.md"
 
 
@@ -606,11 +604,9 @@ def test_real_templates_render_license_none(base_var_pairs, py_var_pairs):
 
     base_plan, _ = _real_plan("base", _license_none(base_var_pairs))
     assert "License" not in base_plan["README.md"]
-    # the footer's TODO line, then its envelope end marker as the final line — no license
-    # section and no trailing blank
-    assert base_plan["README.md"].endswith(
-        "delete this line.\n<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/readme-footer.md -->\n"
-    )
+    # the README seed carries no provenance envelope anymore — with license none the
+    # footer's HAS_LICENSE block drops and the file ends on the footer's TODO line
+    assert base_plan["README.md"].endswith("delete this line.\n")
 
 
 def test_real_templates_render_manual_license(py_var_pairs):
@@ -651,12 +647,14 @@ def test_real_templates_render_go(go_var_pairs):
     # the cmd dir dest was substituted from {{PROJECT_NAME}}
     assert plan["cmd/demo-proj/main.go"].startswith("// Command demo-proj")
     assert "{{MODULE_PATH}}/internal/cli" not in plan["cmd/demo-proj/main.go"]
-    # go AGENTS.md pulls in the shared collaboration partials
-    agents = plan["AGENTS.md"]
-    assert "## Ask Before Assuming" in agents
-    assert "one subagent call is fine" in agents  # from the parallelize partial
-    assert "## Writing Plans" in agents
-    # FEATURE_RELEASE sections render with release on
+    # go AGENTS.md carries the cc-guides fragment directives verbatim (scaffold no
+    # longer inlines them — `cc-guides render` expands them post-write)
+    agents = plan["AGENTS.src.md"]
+    assert "{{> ask-before-assuming}}" in agents
+    assert "{{> parallelize}}" in agents
+    assert "{{> writing-plans}}" in agents
+    assert "{{> version-control}}" in agents
+    # FEATURE_RELEASE sections (template body, not a fragment) still render with release on
     assert "**Releases.**" in agents
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
 
@@ -709,7 +707,7 @@ def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
     plan, _ = _real_plan("go", go_var_pairs, features=[])
     assert ".goreleaser.yaml" not in plan
     assert ".github/workflows/release.yml" not in plan
-    assert "**Releases.**" not in plan["AGENTS.md"]
+    assert "**Releases.**" not in plan["AGENTS.src.md"]
     # README falls back to go install / task build, no brew line
     assert "brew install" not in plan["README.md"]
     assert "go install github.com/janedoe/demo-proj/cmd/demo-proj@latest" in plan["README.md"]
@@ -718,10 +716,11 @@ def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
 @pytest.mark.parametrize("layer", ["base", "python"])
 def test_real_templates_render_orchestrator_conventions(layer, base_var_pairs, py_var_pairs):
     plan, _ = _real_plan(layer, base_var_pairs if layer == "base" else py_var_pairs)
-    assert "## Plan Execution & Orchestration" in plan["CLAUDE.md"]
-    assert "one subagent call is fine" in plan["AGENTS.md"]
-    assert "required in every plan" in plan["AGENTS.md"]
-    assert "act directly" not in plan["AGENTS.md"]
+    # CLAUDE.md ships as CLAUDE.src.md; its Claude-only rules are template body, not a fragment
+    assert "## Plan Execution & Orchestration" in plan["CLAUDE.src.md"]
+    # the parallelize/writing-plans guidance rides cc-guides fragment directives now
+    assert "{{> parallelize}}" in plan["AGENTS.src.md"]
+    assert "{{> writing-plans}}" in plan["AGENTS.src.md"]
 
 
 def test_render_plan_unrendered_placeholder_raises():
@@ -751,41 +750,46 @@ def test_expand_partials_identity_without_directive():
     assert scaffold.expand_partials("plain\n", {}.__getitem__) == "plain\n"
 
 
+def test_expand_partials_passes_through_bare_names():
+    # bare-name directives name cc-guides fragments — scaffold leaves them for the
+    # render step, expanding only `_partials/`-prefixed README seeds.
+    for text in (
+        "before\n{{> ccx}}\nafter\n",
+        "{{> install-binary-pinned binary=x repo=y brew=z plugin=w}}\n",
+    ):
+        assert scaffold.expand_partials(text, _missing) == text
+
+
 def test_expand_partials_recurses():
-    templates = {"a.md": "A {{> b.md}}\n", "b.md": "B\n"}
-    assert scaffold.expand_partials("{{> a.md}}\n", templates.__getitem__) == "A B\n"
+    templates = {"_partials/a.md": "A {{> _partials/b.md}}\n", "_partials/b.md": "B\n"}
+    assert scaffold.expand_partials("{{> _partials/a.md}}\n", templates.__getitem__) == "A B\n"
 
 
 def test_expand_partials_unknown_raises():
     with pytest.raises(ScaffoldError):
-        scaffold.expand_partials("{{> missing.md}}", _missing)
+        scaffold.expand_partials("{{> _partials/missing.md}}", _missing)
 
 
 def test_expand_partials_cycle_raises():
-    templates = {"a.md": "{{> b.md}}", "b.md": "{{> a.md}}"}
+    templates = {"_partials/a.md": "{{> _partials/b.md}}", "_partials/b.md": "{{> _partials/a.md}}"}
     with pytest.raises(ScaffoldError):
-        scaffold.expand_partials("{{> a.md}}", templates.__getitem__)
+        scaffold.expand_partials("{{> _partials/a.md}}", templates.__getitem__)
 
 
-def test_real_templates_share_version_control_partial(base_var_pairs, py_var_pairs):
+def test_real_templates_share_version_control_directive(base_var_pairs, py_var_pairs):
+    # scaffold no longer inlines the shared collaboration guides — AGENTS.src.md carries
+    # the cc-guides directive verbatim, and `cc-guides render` expands it downstream.
     base_plan, _ = _real_plan("base", base_var_pairs)
     py_plan, _ = _real_plan("python", py_var_pairs)
-    for agents in (base_plan["AGENTS.md"], py_plan["AGENTS.md"]):
-        assert "**Version control.**" in agents
-        assert "**Watch CI after every push.**" in agents
-        assert "jj git push" in agents and "gh run watch" in agents
-    # the fragment is render-only — never written as a destination file
+    for agents in (base_plan["AGENTS.src.md"], py_plan["AGENTS.src.md"]):
+        assert "{{> version-control}}" in agents
+        assert "**Version control.**" not in agents  # body NOT inlined at scaffold time
+    # no _partials/ seed is ever written as a destination file
     assert not any(d.startswith("_partials") for d in {**base_plan, **py_plan})
-    # python keeps the pypi-gated Releases rule right after the shared partial: the
-    # fragment closes with its envelope end marker, then one blank line, then the rule
-    # (the inlined fragment's trailing newline is stripped, so it isn't doubled); base
-    # carries no Releases rule
-    assert (
-        "register before watching.)\n"
-        "<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/version-control.md -->\n\n"
-        "**Releases.**"
-    ) in py_plan["AGENTS.md"]
-    assert "**Releases.**" not in base_plan["AGENTS.md"]
+    # python keeps the pypi-gated Releases rule (template body) right after the directive;
+    # base carries no Releases rule
+    assert "{{> version-control}}\n\n**Releases.**" in py_plan["AGENTS.src.md"]
+    assert "**Releases.**" not in base_plan["AGENTS.src.md"]
 
 
 # --- apply_plan ---
@@ -822,3 +826,60 @@ def test_apply_dry_run_writes_nothing(tmp_path, capsys):
     assert scaffold.apply_plan({"a.txt": "hi\n"}, tmp_path, force=False, dry_run=True) == 0
     assert not (tmp_path / "a.txt").exists()
     assert "WOULD WRITE  a.txt" in capsys.readouterr().out
+
+
+# --- guides.yml caller stub + cc-context marketplace ---
+
+def test_base_emits_guides_yml(base_var_pairs):
+    assert ".github/workflows/guides.yml" in dests("base", base_var_pairs)
+    gy = _real_plan("base", base_var_pairs)[0][".github/workflows/guides.yml"]
+    assert "uses: yasyf/cc-guides@action-v1" in gy
+    assert "yasyf/cc-guides/.github/workflows/re-render.yml@action-v1" in gy
+    assert "types: [cc-guides-render]" in gy
+
+
+def test_settings_json_resolves_cc_context_via_own_marketplace(base_var_pairs):
+    settings = json.loads(_real_plan("base", base_var_pairs)[0][".claude/settings.json"])
+    assert settings["enabledPlugins"]["cc-context@cc-context"] is True
+    assert "cc-context@skills" not in settings["enabledPlugins"]
+    assert settings["extraKnownMarketplaces"]["cc-context"]["source"] == {
+        "source": "github",
+        "repo": "yasyf/cc-context",
+    }
+
+
+# --- run(): post-write cc-guides render (stubbed on PATH) ---
+
+def _run_args(target, *, layer="base", extras="none", features="", var_pairs, force=False, dry_run=False):
+    return argparse.Namespace(
+        target=target, layer=layer, extras=extras, features=features,
+        var=var_pairs, force=force, dry_run=dry_run,
+    )
+
+
+def test_run_invokes_cc_guides_render(tmp_path, cc_guides_stub, base_var_pairs):
+    assert scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs)) == 0
+    # the stub wrote its marker in the target dir — proof render ran there (cwd=target)
+    assert (tmp_path / ".cc-guides-stub").exists()
+    # source files were written and the stub rendered their siblings in place
+    assert (tmp_path / "AGENTS.src.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+    assert (tmp_path / "CLAUDE.md").exists()
+
+
+def test_run_missing_cc_guides_raises(tmp_path, monkeypatch, base_var_pairs, capsys):
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(ScaffoldError):
+        scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs))
+    assert "brew install yasyf/tap/cc-guides" in capsys.readouterr().err
+
+
+def test_run_dry_run_skips_render(tmp_path, monkeypatch, base_var_pairs):
+    # dry-run writes nothing, so it must not require cc-guides even when absent
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    assert scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs, dry_run=True)) == 0
+    assert not (tmp_path / "AGENTS.src.md").exists()

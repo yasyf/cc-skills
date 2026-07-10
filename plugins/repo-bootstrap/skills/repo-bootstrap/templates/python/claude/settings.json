@@ -48,6 +48,12 @@
         "source": "github",
         "repo": "yasyf/cc-notes"
       }
+    },
+    "cc-context": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/cc-context"
+      }
     }
   },
   "enabledPlugins": {
@@ -55,7 +61,7 @@
     "slop-cop@skills": true,
     "llm-prompts@skills": true,
     "writing-docs@skills": true,
-    "cc-context@skills": true,
+    "cc-context@cc-context": true,
     "cc-notes@cc-notes": true
   },
   "hooks": {

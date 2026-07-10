@@ -8,30 +8,19 @@ so when that layer is active, edit those four against its richer versions instea
 Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 `captain_hook`.
 
-**Partial provenance stamps.** Every `templates/_partials/*.md` is an *envelope*: a
-line-1 self-identifying begin stamp —
-`<!-- canonical: cc-skills/plugins/repo-bootstrap/_partials/<basename>.md@pending -->` —
-naming the partial it came from, and a matching end marker
-`<!-- /canonical: cc-skills/plugins/repo-bootstrap/_partials/<basename>.md -->` as the
-final line, closing the fragment. `templates/plugin/install-binary.sh` carries the
-file-level shell form (`# canonical: cc-skills/plugins/repo-bootstrap@pending`), which is
-whole-file and has no end marker. The template keeps `@pending`; scaffold rendering pins
-each begin stamp to the sha of the last cc-skills commit touching that source file (the
-end marker carries no sha, so a repin touches one line). drift and sync locate a fragment
-by its markers alone and never infer a window from body content. drift is checked with
-the bootstrap CLI's drift subcommand — `bootstrap.py drift <target-file>…` (the
-`$BOOTSTRAP` alias from SKILL.md, repeatable `--require <partial>` to demand a partial by
-name). It prints one TSV finding per line and exits non-zero on a stamped verbatim-class
-stale, edited, or `unterminated` fragment (an open envelope with no matching end marker),
-a stale shell stamp, or a missing required one; unstamped/unknown findings and seed-class
-(`readme*`) staleness print but never fail the exit — the stamp is the opt-in contract,
-and seeds stay sha-only (their envelope is neither required nor examined). The mechanical
-companion is `bootstrap.py sync <target-file>…`, dry-run unless you pass `--write`. It
-moves each stamped fragment to its current canonical body through a three-way — synced,
-repinned, or skipped-edited — replacing the enveloped inner exactly (no window
-arithmetic, so a partial that grew or shrank still classifies trivially), and it never
-rewrites an edited fragment, since divergence is a decision. `sync` always exits 0 while
-`drift` stays the failing check, so `sync --write && drift` composes the fixer with the gate.
+**Rendered artifacts.** `AGENTS.md` and `CLAUDE.md` are generated, never hand-edited.
+Scaffold writes an `X.src.<ext>` source (repo prose plus bare `{{> name}}` cc-guides
+directives — `{{> ccx}}`, `{{> version-control}}`, …); the post-write step runs
+`cc-guides render`, which expands each directive from a fragment body embedded in the
+`cc-guides` binary and writes the sibling `X.<ext>` with a line-1 banner
+(`cc-guides <version> src=<src> | GENERATED …`). Edit the `.src` file and re-run
+`cc-guides render`; a `Guides` GitHub workflow (`.github/workflows/guides.yml`) checks
+freshness on push and re-renders on a cc-guides release. The generic rule that
+`X.src.<ext>` renders to `X.<ext>`, the directive grammar, and the banner contract all
+live in the [cc-guides](https://github.com/yasyf/cc-guides) README — this repo keeps no
+rendering or checking machinery. The README seeds under `templates/_partials/*.md` are the one
+exception: they carry no directives and are inlined at scaffold time (scaffold-once
+material customized per repo).
 
 ## AGENTS.md anatomy
 
@@ -67,8 +56,9 @@ The single canonical agent-conventions doc. Section by section:
   required in every plan — `Phase | Shape | Agents | Verification` table, or one
   line saying everything stays at the main-agent level; a plan without it is
   incomplete.
-- **Compact Context (ccx).** Shared `{{> _partials/ccx.md}}` partial, inlined into
-  base, python, and go `AGENTS.md` where the old per-project `## Code Search` section
+- **Compact Context (ccx).** The `{{> ccx}}` cc-guides directive in every layer's
+  `AGENTS.md`, expanded by `cc-guides render` (the fragment body lives in the cc-guides
+  binary) where the old per-project `## Code Search` section
   used to sit. It makes `cc-context` — the `ccx` CLI and the `mcp__cc-context__*`
   MCP tools — the default for reading/searching/reviewing code, because it returns
   token-bounded output and the `ccx` capt-hook guard pack blocks the token-heavy
@@ -84,10 +74,10 @@ The single canonical agent-conventions doc. Section by section:
   Durable prose cites code as `path:line#hash`; ccx re-anchors the cite by content
   even after the file drifts. LSP for exhaustive/structural answers, `Grep`/`Glob`
   only for literal content in non-source files. The facade (semble + tilth) ships inside the
-  `cc-context@skills` plugin enabled in `.claude/settings.json`, **not** a per-project
+  `cc-context@cc-context` plugin enabled in `.claude/settings.json`, **not** a per-project
   `.mcp.json` server — and the same plugin attaches the `ccx` guard pack per session, so
-  the `ccx` heading and the `cc-context@skills` plugin are the cross-reference invariant,
-  not `.mcp.json`. Keep the partial verbatim; edit `templates/_partials/ccx.md` to change it.
+  the `ccx` heading and the `cc-context@cc-context` plugin are the cross-reference invariant,
+  not `.mcp.json`. The fragment body is owned by cc-guides; change it there, not here.
 - **Style.** Exactly `@STYLEGUIDE.md` under `## Style` — an embed, not a link.
   Don't duplicate style rules into AGENTS.md.
 - **General Rules.** Bold-bullet block: each rule is `**Name.** One or two
@@ -95,9 +85,9 @@ The single canonical agent-conventions doc. Section by section:
   defensive coding; Search before writing; Code stewardship; Observe, don't
   infer; Don't use external failures as an excuse to stop; Mechanical linting;
   Writing docs; Version control; Watch CI after every push). The **Version
-  control** and **Watch CI** rules ship as a shared `{{> _partials/version-control.md}}`
-  partial inlined into both base and python AGENTS.md (jj-preferred; watch CI with
-  `gh run watch` after every push). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
+  control** and **Watch CI** rules ship as the `{{> version-control}}` cc-guides
+  directive in every layer's AGENTS.md, expanded by `cc-guides render` (jj-preferred;
+  watch CI with `gh run watch` after every push). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
   lives and the exact command (captain-hook: "The suite lives in `tests/`; run it
   with `uv run pytest`"). Add project-specific rules in the same format — e.g.
   captain-hook adds a **Docs** rule ("Any public API change must keep
@@ -165,7 +155,7 @@ boundaries only.
 
 Empty by default. Code search no longer ships a per-project `semble` MCP server here —
 the `cc-context` facade (semble + tilth, surfaced as `ccx` and the
-`mcp__cc-context__*` MCP tools) ships inside the `cc-context@skills` plugin enabled in
+`mcp__cc-context__*` MCP tools) ships inside the `cc-context@cc-context` plugin enabled in
 `.claude/settings.json`, so every trusted clone gets it without a project-scoped
 server. The AGENTS.md **Compact Context (ccx)** section and the General Rules
 "Search before writing" rule both point at `ccx`, not at this file; `.mcp.json` stays
@@ -277,9 +267,10 @@ Field by field:
   `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` (the
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
   `prompts.py` nudge), `writing-docs@skills` (the `docs.py` nudge), and
-  `cc-context@skills` (the `ccx` code-search facade the AGENTS.md Compact Context
+  `cc-context@cc-context` (the `ccx` code-search facade the AGENTS.md Compact Context
   section routes to; the same plugin also attaches the `ccx` guard pack per session). It also
-  registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) marketplace and
+  registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) and
+  [yasyf/cc-context](https://github.com/yasyf/cc-context) marketplaces and
   enables `cc-notes@cc-notes`, the git-native notes/tasks layer — so the
   `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs.
   Anyone who trusts the folder gets the marketplaces registered and the plugins

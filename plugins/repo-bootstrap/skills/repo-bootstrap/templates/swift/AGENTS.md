@@ -16,15 +16,15 @@
 └── README.md                   # Project overview
 ```
 
-{{> _partials/ask-before-assuming.md}}
+{{> ask-before-assuming}}
 
-{{> _partials/code-review-response.md}}
+{{> code-review-response}}
 
-{{> _partials/parallelize.md}}
+{{> parallelize}}
 
-{{> _partials/writing-plans.md}}
+{{> writing-plans}}
 
-{{> _partials/ccx.md}}
+{{> ccx}}
 
 ## Swift Style
 
@@ -72,7 +72,7 @@ Swift 6 language mode. Build with `swift build`, test with `swift test`, run wit
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
 
-{{> _partials/version-control.md}}
+{{> version-control}}
 {{#FEATURE_RELEASE}}
 
 **Releases.** Tagging `v*` triggers `.github/workflows/release.yml`, which forwards to the shared `release-swift.yml@swift-v1` reusable workflow: a universal (arm64 + x86_64) `swift build`, a GitHub release, and a Homebrew binary cask pushed to `{{GITHUB_USER}}/homebrew-tap`. The version comes from the tag, and the executable product must keep the repo's name — that's the whole calling contract. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch. One-time setup: a `HOMEBREW_TAP_TOKEN` repo secret with push access to the tap. The binary is Developer-ID-signed and notarized when the `MACOS_*` repo secrets are set (optional; releases unsigned without them — see `reference/swift-ci-and-release.md`).
