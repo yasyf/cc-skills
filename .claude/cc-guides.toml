@@ -1,0 +1,3 @@
+name = "cc-skills"
+description = "Shared guide fragments for the fleet"
+guides = "plugin/guides"

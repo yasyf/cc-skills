@@ -1,0 +1,68 @@
+name: Guides lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugin/guides/**"
+      - ".github/workflows/guides-lint.yml"
+  pull_request:
+    paths:
+      - "plugin/guides/**"
+      - ".github/workflows/guides-lint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install latest cc-guides
+        shell: bash
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac
+          # Resolve + download in one retry loop: a concurrent release can expose
+          # the new tag via releases/latest before its assets finish uploading
+          # (404 on download). Re-resolving each attempt also follows a release
+          # that lands mid-loop.
+          asset=""
+          for i in 1 2 3 4 5; do
+            effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+              "https://github.com/yasyf/cc-guides/releases/latest")"
+            tag="${effective##*/tag/}"
+            case "$tag" in v[0-9]*) ;; *) echo "::error::could not resolve latest cc-guides release (got '$effective')"; exit 1 ;; esac
+            asset="cc-guides_${os}_${arch}"
+            base="https://github.com/yasyf/cc-guides/releases/download/$tag"
+            mkdir -p "$RUNNER_TEMP/cc-guides-bin"
+            if curl -fsSL --retry 3 -o "$RUNNER_TEMP/cc-guides-bin/cc-guides" "$base/$asset" \
+               && curl -fsSL --retry 3 -o "$RUNNER_TEMP/checksums.txt" "$base/checksums.txt"; then
+              break
+            fi
+            if [ "$i" = 5 ]; then
+              echo "::error::assets for $tag never became available"
+              exit 1
+            fi
+            echo "assets for $tag not yet available ($i/5) — sleeping 30s"
+            sleep 30
+          done
+          expected="$(awk -v a="$asset" '$2 == a {print $1}' "$RUNNER_TEMP/checksums.txt")"
+          actual="$(sha256sum "$RUNNER_TEMP/cc-guides-bin/cc-guides" | awk '{print $1}')"
+          if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::checksum mismatch for $asset at $tag"
+            exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/cc-guides-bin/cc-guides"
+          echo "$RUNNER_TEMP/cc-guides-bin" >> "$GITHUB_PATH"
+
+      - name: Lint plugin/guides/
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc-guides lint plugin/guides/
