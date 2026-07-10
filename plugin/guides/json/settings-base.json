@@ -9,7 +9,9 @@
     "ENABLE_LSP_TOOL": "1",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-    "JJ_CONFIG": ".claude/jj-config.toml"
+    "JJ_CONFIG": ".claude/jj-config.toml",
+    "TY_OUTPUT_FORMAT": "concise",
+    "TY_CONFIG_FILE": ".claude/ty-quiet.toml"
   },
   "permissions": {
     "allow": [
@@ -47,6 +49,12 @@
         "source": "github",
         "repo": "yasyf/cc-context"
       }
+    },
+    "captain-hook": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/captain-hook"
+      }
     }
   },
   "enabledPlugins": {
@@ -55,7 +63,8 @@
     "llm-prompts@skills": true,
     "writing-docs@skills": true,
     "cc-context@cc-context": true,
-    "cc-notes@cc-notes": true
+    "cc-notes@cc-notes": true,
+    "captain-hook@captain-hook": true
   },
   "hooks": {
     "UserPromptSubmit": [
@@ -104,6 +113,48 @@
           {
             "type": "command",
             "command": "uvx capt-hook run Stop"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx capt-hook run PermissionRequest"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx capt-hook review run",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx capt-hook run SessionStart --async",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx capt-hook run SubagentStop"
           }
         ]
       }

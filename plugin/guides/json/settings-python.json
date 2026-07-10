@@ -1,8 +1,4 @@
 {
-  "env": {
-    "TY_OUTPUT_FORMAT": "concise",
-    "TY_CONFIG_FILE": ".claude/ty-quiet.toml"
-  },
   "permissions": {
     "allow": [
       "Bash(.venv/bin/python:*)",
