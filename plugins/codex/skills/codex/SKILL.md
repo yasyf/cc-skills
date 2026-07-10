@@ -120,11 +120,12 @@ durable record of the exchange.
 
 Evaluate suggestions critically. Codex is helpful but not infallible -- it can occasionally misinterpret specifications. Always verify against authoritative sources before applying.
 
-If the reply invalidates the premise of your question or changes the task's
-shape -- the bug isn't where you said, the spec means something else, the fix
-belongs in a different layer -- stop rather than improvising a detour: surface
-the finding with 2-4 concrete options and let the user (or the fable
-orchestrator that delegated to you) pick. See AGENTS.md § Ask Before Assuming.
+The codex skill never absorbs a surprise. If the reply invalidates the premise
+of your question or changes the task's shape -- the bug isn't where you said,
+the spec means something else, the fix belongs in a different layer -- stop
+rather than improvising a detour: surface the finding with 2-4 concrete options
+and let the user (or the fable orchestrator that delegated to you) pick. See
+AGENTS.md § Ask Before Assuming.
 
 ## Alternative: Direct Piping
 

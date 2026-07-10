@@ -1,7 +1,7 @@
 {
   "name": "codex",
   "description": "Get a second opinion from OpenAI's Codex CLI when stuck on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder and adversarial-refuter passes), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code, generate images with Codex's $imagegen skill, or offload rote throwaway work where nothing can go wrong. Always runs gpt-5.5 at xhigh reasoning on the fast service tier. The skill runs inline (no context fork), so it is safe to invoke from the main conversation, subagents, and workflows; also ships a codex-wrapper agent for workflow stages that route to codex by agent type. Requires the `codex` CLI on PATH.",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
