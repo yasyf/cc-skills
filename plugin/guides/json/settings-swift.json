@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build:*)",
+      "Bash(swift package:*)",
+      "Bash(swift run:*)",
+      "Bash(swift test:*)",
+      "Bash(swiftformat --lint:*)",
+      "Bash(swiftlint:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(xcodebuildmcp:*)"
+    ]
+  }
+}
