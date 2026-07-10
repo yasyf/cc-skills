@@ -108,15 +108,49 @@ DERIVED = (
 
 FILES = (
     # --- base layer ---
-    # AGENTS.md / CLAUDE.md ship as cc-guides sources (X.src.<ext>); the post-write
-    # `cc-guides render` step (scaffold.render_sources) writes the sibling artifact.
-    FileSpec("AGENTS.src.md", "base/AGENTS.md", "base"),
-    FileSpec("CLAUDE.src.md", "base/CLAUDE.md", "base"),
+    # AGENTS.md, CLAUDE.md, and .claude/settings.json are cc-guides v3 artifacts:
+    # scaffold writes a `.claude/fragments/<target>/` layout dir (a layout.toml plus
+    # repo-local `*.fragment.*` prose) and the post-write `cc-guides render` step
+    # (scaffold.render_sources) composes each artifact in place — local prose plus
+    # imported shared fragments (`cc-skills:ccx`, …) for AGENTS.md, and the settings
+    # pack fragments (`cc-skills:settings-base` + a layer variant) for settings.json.
+    # A language layer overrides base at each shared fragment dest, exactly as the
+    # whole-file overrides below.
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "base/claude/fragments/AGENTS.md/layout.toml", "base"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "base/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "base",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "base/claude/fragments/AGENTS.md/style.fragment.md",
+        "base",
+    ),
+    FileSpec(".claude/fragments/CLAUDE.md/layout.toml", "base/claude/fragments/CLAUDE.md/layout.toml", "base"),
+    FileSpec(
+        ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
+        "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
+        "base",
+    ),
+    # settings.json layout dir lives at the doubly-nested .claude/fragments/.claude/
+    # settings.json/ (the target IS .claude/settings.json). The `local.fragment.json`
+    # is a placeholder-free `{}` no-op merge the repo fills in later; it ships once
+    # (base) and every layer's layout.toml composes it after the pack fragments.
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "base/claude/fragments/settings.json/layout.toml",
+        "base",
+    ),
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/local.fragment.json",
+        "base/claude/fragments/settings.json/local.fragment.json",
+        "base",
+    ),
     FileSpec("STYLEGUIDE.md", "base/STYLEGUIDE.md", "base"),
     FileSpec("README.md", "base/README.md", "base"),
     FileSpec("CHANGELOG.md", "base/CHANGELOG.md", "base"),
     FileSpec(".mcp.json", "base/mcp.json", "base"),
-    FileSpec(".claude/settings.json", "base/claude/settings.json", "base"),
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
     # The cc-guides caller stub: `check` on push/PR + `re-render` on release dispatch.
     FileSpec(".github/workflows/guides.yml", "base/github/workflows/guides.yml", "base"),
@@ -127,10 +161,32 @@ FILES = (
     FileSpec(".gitignore", None, "base", transform="gitignore"),
     FileSpec("LICENSE", None, "base", transform="license"),
     # --- python layer (overrides base where dest collides) ---
-    FileSpec("AGENTS.src.md", "python/AGENTS.md", "python"),
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "python/claude/fragments/AGENTS.md/layout.toml", "python"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "python/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "python",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "python/claude/fragments/AGENTS.md/style.fragment.md",
+        "python",
+    ),
+    # the Releases rule ships as its own fragment after the version-control import,
+    # gated on pypi (the layout.toml lists it only when FEATURE_PYPI is enabled).
+    FileSpec(
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
+        "python/claude/fragments/AGENTS.md/releases.fragment.md",
+        "python",
+        feature="pypi",
+    ),
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "python/claude/fragments/settings.json/layout.toml",
+        "python",
+    ),
     FileSpec("STYLEGUIDE.md", "python/STYLEGUIDE.md", "python"),
     FileSpec("README.md", "python/README.md", "python"),
-    FileSpec(".claude/settings.json", "python/claude/settings.json", "python"),
     FileSpec(".claude/ty-quiet.toml", "python/claude/ty-quiet.toml", "python"),
     FileSpec("pyproject.toml", "python/pyproject.toml", "python"),
     FileSpec(".python-version", "python/python-version", "python"),
@@ -153,10 +209,30 @@ FILES = (
     FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
     # --- go layer (overrides base where dest collides) ---
-    FileSpec("AGENTS.src.md", "go/AGENTS.md", "go"),
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "go/claude/fragments/AGENTS.md/layout.toml", "go"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "go/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "go",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "go/claude/fragments/AGENTS.md/style.fragment.md",
+        "go",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
+        "go/claude/fragments/AGENTS.md/releases.fragment.md",
+        "go",
+        feature="release",
+    ),
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "go/claude/fragments/settings.json/layout.toml",
+        "go",
+    ),
     FileSpec("STYLEGUIDE.md", "go/STYLEGUIDE.md", "go"),
     FileSpec("README.md", "go/README.md", "go"),
-    FileSpec(".claude/settings.json", "go/claude/settings.json", "go"),
     # go layer enables the `general` + `go` builtin packs (overrides base packs.toml).
     FileSpec(".claude/hooks/packs.toml", "go/claude/hooks/packs.toml", "go"),
     FileSpec("go.mod", "go/go-mod", "go"),
@@ -180,12 +256,32 @@ FILES = (
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
     # --- swift layer (SPM package/CLI; overrides base where dest collides) ---
-    FileSpec("AGENTS.src.md", "swift/AGENTS.md", "swift"),
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "swift/claude/fragments/AGENTS.md/layout.toml", "swift"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "swift/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "swift",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "swift/claude/fragments/AGENTS.md/style.fragment.md",
+        "swift",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
+        "swift/claude/fragments/AGENTS.md/releases.fragment.md",
+        "swift",
+        feature="release",
+    ),
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "swift/claude/fragments/settings.json/layout.toml",
+        "swift",
+    ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift"),
     FileSpec("README.md", "swift/README.md", "swift"),
     # swift layers override the empty base .mcp.json with the xcodebuildmcp server.
     FileSpec(".mcp.json", "swift/mcp.json", "swift"),
-    FileSpec(".claude/settings.json", "swift/claude/settings.json", "swift"),
     # no swift capt-hook pack exists — general + steering only.
     FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift"),
     # vendored project skill: help-first discovery of the xcodebuildmcp CLI.
@@ -205,11 +301,30 @@ FILES = (
     FileSpec(".github/workflows/release.yml", "swift/github/workflows/release.yml", "swift", feature="release"),
     # --- swift-app layer (synced-folder Xcode app; shares swift/ srcs for the
     # language-level files so they are written once and consumed by both) ---
-    FileSpec("AGENTS.src.md", "swift-app/AGENTS.md", "swift-app"),
+    # AGENTS.md prose is app-specific (xcodebuild, synced folders, os.Logger), so
+    # swift-app ships its own AGENTS fragments; the settings.json layout imports the
+    # same settings-swift variant as the swift layer.
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "swift-app/claude/fragments/AGENTS.md/layout.toml", "swift-app"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "swift-app/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "swift-app",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "swift-app/claude/fragments/AGENTS.md/style.fragment.md",
+        "swift-app",
+    ),
+    # settings.json layout is identical to the swift layer's (settings-base +
+    # settings-swift), so share the one src rather than forking a copy.
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "swift/claude/fragments/settings.json/layout.toml",
+        "swift-app",
+    ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift-app"),
     FileSpec("README.md", "swift-app/README.md", "swift-app"),
     FileSpec(".mcp.json", "swift/mcp.json", "swift-app"),
-    FileSpec(".claude/settings.json", "swift/claude/settings.json", "swift-app"),
     FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift-app"),
     FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift-app"),
     # The committed synced-folder project (objectVersion 77, fixed synthetic UUIDs):
@@ -241,9 +356,15 @@ FILES = (
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),
-    # The canonical plugin binary installer, as a cc-guides source: it renders to a
-    # single `{{> install-binary-pinned|latest …}}` directive line, which `cc-guides
-    # render` (the post-write step) expands into the real installer. bin/<name> is
-    # only ever a symlink (brew binary, durable CLAUDE_PLUGIN_DATA payload, or dev build).
-    FileSpec("plugin/scripts/install-binary.src.sh", "plugin/install-binary.src.sh", "base", extra="plugin"),
+    # The canonical plugin binary installer, as a cc-guides v3 layout dir: a
+    # layout.toml that imports `cc-skills:install-binary-pinned` (or -latest) with the
+    # binary/repo/brew/plugin args, which `cc-guides render` (the post-write step)
+    # composes into the real installer. bin/<name> is only ever a symlink (brew
+    # binary, durable CLAUDE_PLUGIN_DATA payload, or dev build).
+    FileSpec(
+        ".claude/fragments/plugin/scripts/install-binary.sh/layout.toml",
+        "plugin/install-binary-layout.toml",
+        "base",
+        extra="plugin",
+    ),
 )

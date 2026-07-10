@@ -1,0 +1,4 @@
+fragments = [{{#PINNED}}{ use = "cc-skills:install-binary-pinned", args = { binary = "{{BINARY_NAME}}", brew = "{{BREW_PACKAGE}}", plugin = "{{PLUGIN_NAME}}", repo = "{{RELEASE_REPO}}" } }{{/PINNED}}{{#LATEST}}{ use = "cc-skills:install-binary-latest", args = { binary = "{{BINARY_NAME}}", brew = "{{BREW_PACKAGE}}", plugin = "{{PLUGIN_NAME}}", repo = "{{RELEASE_REPO}}" } }{{/LATEST}}]
+
+[sources.cc-skills]
+source = "github:yasyf/cc-skills@main"

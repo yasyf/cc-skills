@@ -1,0 +1,13 @@
+fragments = [
+  "{{PROJECT_NAME}}-development-guide",
+  "cc-skills:ask-before-assuming",
+  "cc-skills:code-review-response",
+  "cc-skills:parallelize",
+  "cc-skills:writing-plans",
+  "cc-skills:ccx",
+  "{{PROJECT_NAME}}-style",
+  "cc-skills:version-control",
+]
+
+[sources.cc-skills]
+source = "github:yasyf/cc-skills@main"

@@ -21,9 +21,22 @@ def dests(layer, var_pairs, *, extras=None, features=None):
 
 # --- selection matrix ---
 
-BASE_DESTS = {
-    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml",
+# AGENTS.md, CLAUDE.md, and .claude/settings.json now scaffold as cc-guides layout
+# dirs (a layout.toml + repo-local *.fragment.* pieces); `cc-guides render` composes
+# the artifacts post-write. Shared across every layer (PROJECT_NAME=demo-proj).
+FRAGMENT_DESTS = {
+    ".claude/fragments/AGENTS.md/layout.toml",
+    ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
+    ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
+    ".claude/fragments/CLAUDE.md/layout.toml",
+    ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
+    ".claude/fragments/.claude/settings.json/layout.toml",
+    ".claude/fragments/.claude/settings.json/local.fragment.json",
+}
+
+BASE_DESTS = FRAGMENT_DESTS | {
+    "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    ".mcp.json", ".claude/jj-config.toml",
     ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
     ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
     ".gitignore", "LICENSE",
@@ -75,9 +88,9 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
 
 # --- go layer selection ---
 
-GO_DESTS = {
-    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+GO_DESTS = FRAGMENT_DESTS | {
+    "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
@@ -96,11 +109,13 @@ def test_go_selection_no_release(go_var_pairs):
 
 def test_go_release_feature_gates(go_var_pairs):
     got = dests("go", go_var_pairs, features=["release"])
-    # default release scaffolds only the goreleaser config + the one-liner workflow;
-    # the cask is published by goreleaser (homebrew_casks:), so there's no formula template.
+    # release scaffolds the goreleaser config + the one-liner workflow + the Releases
+    # AGENTS fragment; the cask is published by goreleaser (homebrew_casks:), so there's
+    # no formula template.
     assert got == GO_DESTS | {
         ".goreleaser.yaml",
         ".github/workflows/release.yml",
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
     }
     assert ".github/formula/demo-proj.rb.tmpl" not in got
 
@@ -108,7 +123,16 @@ def test_go_release_feature_gates(go_var_pairs):
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
     r = scaffold.resolve("go", [], [], go_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    assert items["AGENTS.src.md"].src == "go/AGENTS.md"
+    # the AGENTS.md layout dir + its local fragments override base at the same dests
+    assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "go/claude/fragments/AGENTS.md/layout.toml"
+    assert (
+        items[".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md"].src
+        == "go/claude/fragments/AGENTS.md/development-guide.fragment.md"
+    )
+    assert (
+        items[".claude/fragments/.claude/settings.json/layout.toml"].src
+        == "go/claude/fragments/settings.json/layout.toml"
+    )
     assert items["README.md"].src == "go/README.md"
     assert items["STYLEGUIDE.md"].src == "go/STYLEGUIDE.md"
     assert items[".claude/hooks/packs.toml"].src == "go/claude/hooks/packs.toml"
@@ -173,7 +197,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # routing table; base-conventions.md and the fleet's deployed CLAUDE.md files
     # carry the same text, and the capt-hook `models` pack enforces it —
     # regressing would silently fork template from fleet and hooks.
-    claude = (templates_dir / "base/CLAUDE.md").read_text()
+    claude = (templates_dir / "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md").read_text()
     assert "max model/effort level" not in claude
     assert "**Models**" in claude
     assert "| fable-5 | 2 | 9 | 9 |" in claude
@@ -232,7 +256,7 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
     # failures stay autonomous (AGENTS.md § General Rules), so the carve-out phrase
     # must survive too. base-conventions.md and the codex skill carry the same
     # contract; regressing any copy forks template from fleet.
-    claude = (templates_dir / "base/CLAUDE.md").read_text()
+    claude = (templates_dir / "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md").read_text()
     assert "**Check back on the unexpected.**" in claude
     assert "findings plus 2-4 concrete options" in claude
     assert "stay autonomous" in claude
@@ -335,10 +359,11 @@ def test_extras_gating(base_var_pairs):
 
 
 def test_plugin_extra_gating(base_var_pairs, go_var_pairs):
-    assert "plugin/scripts/install-binary.src.sh" not in dests("base", base_var_pairs)
-    assert "plugin/scripts/install-binary.src.sh" in dests("base", base_var_pairs, extras=["plugin"])
+    dest = ".claude/fragments/plugin/scripts/install-binary.sh/layout.toml"
+    assert dest not in dests("base", base_var_pairs)
+    assert dest in dests("base", base_var_pairs, extras=["plugin"])
     # layer-independent, like every extra
-    assert "plugin/scripts/install-binary.src.sh" in dests("go", go_var_pairs, extras=["plugin"], features=[])
+    assert dest in dests("go", go_var_pairs, extras=["plugin"], features=[])
 
 
 def test_plugin_extra_mode_sections(base_var_pairs, plugin_var_pairs):
@@ -360,22 +385,26 @@ def test_bad_binary_version_mode(plugin_var_pairs):
 
 
 def test_plugin_installer_renders_pinned(plugin_var_pairs):
-    # the source is a single cc-guides directive line — `cc-guides render` (post-write)
-    # expands it into the real installer, whose body lives in the binary now.
+    # the layout.toml imports the pinned installer fragment with the binary args;
+    # `cc-guides render` (post-write) composes it into the real installer upstream.
     plan, _ = _real_plan("base", plugin_var_pairs, extras=["plugin"])
-    src = plan["plugin/scripts/install-binary.src.sh"]
-    assert src == (
-        "{{> install-binary-pinned binary=demo-proj repo=janedoe/demo-proj "
-        "brew=janedoe/tap/demo-proj plugin=demo-proj}}\n"
+    toml = plan[".claude/fragments/plugin/scripts/install-binary.sh/layout.toml"]
+    assert toml == (
+        'fragments = [{ use = "cc-skills:install-binary-pinned", args = '
+        '{ binary = "demo-proj", brew = "janedoe/tap/demo-proj", '
+        'plugin = "demo-proj", repo = "janedoe/demo-proj" } }]\n\n'
+        '[sources.cc-skills]\nsource = "github:yasyf/cc-skills@main"\n'
     )
 
 
 def test_plugin_installer_renders_latest(plugin_var_pairs):
     plan, _ = _real_plan("base", plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], extras=["plugin"])
-    src = plan["plugin/scripts/install-binary.src.sh"]
-    assert src == (
-        "{{> install-binary-latest binary=demo-proj repo=janedoe/demo-proj "
-        "brew=janedoe/tap/demo-proj plugin=demo-proj}}\n"
+    toml = plan[".claude/fragments/plugin/scripts/install-binary.sh/layout.toml"]
+    assert toml == (
+        'fragments = [{ use = "cc-skills:install-binary-latest", args = '
+        '{ binary = "demo-proj", brew = "janedoe/tap/demo-proj", '
+        'plugin = "demo-proj", repo = "janedoe/demo-proj" } }]\n\n'
+        '[sources.cc-skills]\nsource = "github:yasyf/cc-skills@main"\n'
     )
 
 
@@ -387,10 +416,14 @@ def test_plugin_installer_missing_tokens_fail_loudly(base_var_pairs):
 
 
 def test_python_overrides_base_for_shared_dest(py_var_pairs):
-    # AGENTS.md exists in both layers; the python spec must win.
+    # the AGENTS.md layout dir exists in both layers; the python spec must win.
     r = scaffold.resolve("python", [], ["docs", "pypi"], py_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    assert items["AGENTS.src.md"].src == "python/AGENTS.md"
+    assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "python/claude/fragments/AGENTS.md/layout.toml"
+    assert (
+        items[".claude/fragments/AGENTS.md/demo-proj-style.fragment.md"].src
+        == "python/claude/fragments/AGENTS.md/style.fragment.md"
+    )
     assert items["README.md"].src == "python/README.md"
 
 
@@ -647,15 +680,17 @@ def test_real_templates_render_go(go_var_pairs):
     # the cmd dir dest was substituted from {{PROJECT_NAME}}
     assert plan["cmd/demo-proj/main.go"].startswith("// Command demo-proj")
     assert "{{MODULE_PATH}}/internal/cli" not in plan["cmd/demo-proj/main.go"]
-    # go AGENTS.md carries the cc-guides fragment directives verbatim (scaffold no
-    # longer inlines them — `cc-guides render` expands them post-write)
-    agents = plan["AGENTS.src.md"]
-    assert "{{> ask-before-assuming}}" in agents
-    assert "{{> parallelize}}" in agents
-    assert "{{> writing-plans}}" in agents
-    assert "{{> version-control}}" in agents
-    # FEATURE_RELEASE sections (template body, not a fragment) still render with release on
-    assert "**Releases.**" in agents
+    # go AGENTS.md now composes from a layout dir: the shared collaboration guides are
+    # cc-skills imports in layout.toml (`cc-guides render` composes them post-write)
+    layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+    assert '"cc-skills:ask-before-assuming"' in layout
+    assert '"cc-skills:parallelize"' in layout
+    assert '"cc-skills:writing-plans"' in layout
+    assert '"cc-skills:version-control"' in layout
+    assert 'source = "github:yasyf/cc-skills@main"' in layout
+    # release on -> the Releases rule ships as its own fragment, listed after version-control
+    assert '"releases"' in layout
+    assert "**Releases.**" in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
 
 
@@ -707,7 +742,9 @@ def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
     plan, _ = _real_plan("go", go_var_pairs, features=[])
     assert ".goreleaser.yaml" not in plan
     assert ".github/workflows/release.yml" not in plan
-    assert "**Releases.**" not in plan["AGENTS.src.md"]
+    # release off -> the Releases fragment is not scaffolded and the layout omits it
+    assert ".claude/fragments/AGENTS.md/releases.fragment.md" not in plan
+    assert '"releases"' not in plan[".claude/fragments/AGENTS.md/layout.toml"]
     # README falls back to go install / task build, no brew line
     assert "brew install" not in plan["README.md"]
     assert "go install github.com/janedoe/demo-proj/cmd/demo-proj@latest" in plan["README.md"]
@@ -716,11 +753,13 @@ def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
 @pytest.mark.parametrize("layer", ["base", "python"])
 def test_real_templates_render_orchestrator_conventions(layer, base_var_pairs, py_var_pairs):
     plan, _ = _real_plan(layer, base_var_pairs if layer == "base" else py_var_pairs)
-    # CLAUDE.md ships as CLAUDE.src.md; its Claude-only rules are template body, not a fragment
-    assert "## Plan Execution & Orchestration" in plan["CLAUDE.src.md"]
-    # the parallelize/writing-plans guidance rides cc-guides fragment directives now
-    assert "{{> parallelize}}" in plan["AGENTS.src.md"]
-    assert "{{> writing-plans}}" in plan["AGENTS.src.md"]
+    # CLAUDE.md is one local fragment (the Claude-only rules); no imports
+    rules = plan[".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md"]
+    assert "## Plan Execution & Orchestration" in rules
+    # the parallelize/writing-plans guidance rides cc-skills imports in the layout now
+    layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+    assert '"cc-skills:parallelize"' in layout
+    assert '"cc-skills:writing-plans"' in layout
 
 
 def test_render_plan_unrendered_placeholder_raises():
@@ -750,14 +789,15 @@ def test_expand_partials_identity_without_directive():
     assert scaffold.expand_partials("plain\n", {}.__getitem__) == "plain\n"
 
 
-def test_expand_partials_passes_through_bare_names():
-    # bare-name directives name cc-guides fragments — scaffold leaves them for the
-    # render step, expanding only `_partials/`-prefixed README seeds.
+def test_expand_partials_rejects_bare_names():
+    # bare-name directives are gone (shared fragments compose through cc-guides layout
+    # dirs now); any non-`_partials/` directive is a mistake and must fail loudly.
     for text in (
         "before\n{{> ccx}}\nafter\n",
         "{{> install-binary-pinned binary=x repo=y brew=z plugin=w}}\n",
     ):
-        assert scaffold.expand_partials(text, _missing) == text
+        with pytest.raises(ScaffoldError):
+            scaffold.expand_partials(text, _missing)
 
 
 def test_expand_partials_recurses():
@@ -777,19 +817,22 @@ def test_expand_partials_cycle_raises():
 
 
 def test_real_templates_share_version_control_directive(base_var_pairs, py_var_pairs):
-    # scaffold no longer inlines the shared collaboration guides — AGENTS.src.md carries
-    # the cc-guides directive verbatim, and `cc-guides render` expands it downstream.
+    # the shared collaboration guides are cc-skills imports in every AGENTS layout;
+    # their bodies live upstream and `cc-guides render` composes them downstream.
     base_plan, _ = _real_plan("base", base_var_pairs)
     py_plan, _ = _real_plan("python", py_var_pairs)
-    for agents in (base_plan["AGENTS.src.md"], py_plan["AGENTS.src.md"]):
-        assert "{{> version-control}}" in agents
-        assert "**Version control.**" not in agents  # body NOT inlined at scaffold time
+    for plan in (base_plan, py_plan):
+        layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+        style = plan[".claude/fragments/AGENTS.md/demo-proj-style.fragment.md"]
+        assert '"cc-skills:version-control"' in layout
+        assert "**Version control.**" not in layout  # body NOT inlined at scaffold time
+        assert "**Version control.**" not in style
     # no _partials/ seed is ever written as a destination file
     assert not any(d.startswith("_partials") for d in {**base_plan, **py_plan})
-    # python keeps the pypi-gated Releases rule (template body) right after the directive;
-    # base carries no Releases rule
-    assert "{{> version-control}}\n\n**Releases.**" in py_plan["AGENTS.src.md"]
-    assert "**Releases.**" not in base_plan["AGENTS.src.md"]
+    # python lists the pypi-gated Releases fragment right after version-control; base has none
+    assert '"cc-skills:version-control",\n  "releases",' in py_plan[".claude/fragments/AGENTS.md/layout.toml"]
+    assert "**Releases.**" in py_plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
+    assert ".claude/fragments/AGENTS.md/releases.fragment.md" not in base_plan
 
 
 # --- apply_plan ---
@@ -838,14 +881,16 @@ def test_base_emits_guides_yml(base_var_pairs):
     assert "types: [cc-guides-render]" in gy
 
 
-def test_settings_json_resolves_cc_context_via_own_marketplace(base_var_pairs):
-    settings = json.loads(_real_plan("base", base_var_pairs)[0][".claude/settings.json"])
-    assert settings["enabledPlugins"]["cc-context@cc-context"] is True
-    assert "cc-context@skills" not in settings["enabledPlugins"]
-    assert settings["extraKnownMarketplaces"]["cc-context"]["source"] == {
-        "source": "github",
-        "repo": "yasyf/cc-context",
-    }
+def test_settings_json_composes_from_pack_fragments(base_var_pairs):
+    # settings.json is a cc-guides artifact now: the base layout imports
+    # `cc-skills:settings-base` (which carries the cc-context marketplace + enabled
+    # plugin) plus a placeholder-free `{}` local override for repo-specific additions.
+    plan, _ = _real_plan("base", base_var_pairs)
+    layout = plan[".claude/fragments/.claude/settings.json/layout.toml"]
+    assert '"cc-skills:settings-base"' in layout
+    assert '"local"' in layout
+    assert 'source = "github:yasyf/cc-skills@main"' in layout
+    assert json.loads(plan[".claude/fragments/.claude/settings.json/local.fragment.json"]) == {}
 
 
 # --- run(): post-write cc-guides render (stubbed on PATH) ---
@@ -861,8 +906,8 @@ def test_run_invokes_cc_guides_render(tmp_path, cc_guides_stub, base_var_pairs):
     assert scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs)) == 0
     # the stub wrote its marker in the target dir — proof render ran there (cwd=target)
     assert (tmp_path / ".cc-guides-stub").exists()
-    # source files were written and the stub rendered their siblings in place
-    assert (tmp_path / "AGENTS.src.md").exists()
+    # layout dirs were written and the stub composed their artifacts in place
+    assert (tmp_path / ".claude/fragments/AGENTS.md/layout.toml").exists()
     assert (tmp_path / "AGENTS.md").exists()
     assert (tmp_path / "CLAUDE.md").exists()
 
@@ -882,4 +927,4 @@ def test_run_dry_run_skips_render(tmp_path, monkeypatch, base_var_pairs):
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
     assert scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs, dry_run=True)) == 0
-    assert not (tmp_path / "AGENTS.src.md").exists()
+    assert not (tmp_path / ".claude/fragments/AGENTS.md/layout.toml").exists()

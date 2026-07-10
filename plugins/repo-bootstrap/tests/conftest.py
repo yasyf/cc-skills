@@ -21,15 +21,19 @@ TEMPLATES = SCRIPTS.parent / "templates"
 
 # A stub `cc-guides` binary for the post-write render step, so scaffolds run offline
 # and independent of any installed cc-guides. It proves it ran in the target dir (a
-# marker file lands in cwd) and renders each X.src.<ext> to its sibling by dropping
-# the directive lines. Tests must NOT depend on a real cc-guides on the machine.
+# marker file lands in cwd) and composes each `.claude/fragments/<target>/` layout dir
+# into a stub `<target>` artifact (real composition needs the network). Tests must NOT
+# depend on a real cc-guides on the machine.
 _STUB_CC_GUIDES = r"""#!/bin/sh
 [ "$1" = "render" ] || exit 0
 : > .cc-guides-stub
-find . \( -name '*.src.md' -o -name '*.src.sh' \) 2>/dev/null | while IFS= read -r src; do
-  dest="${src%.src.*}.${src##*.}"
-  { echo "# stub-rendered from $src"; grep -v '{{>' "$src"; } > "$dest"
-  echo "rendered $src -> $dest" >> .cc-guides-stub
+find .claude/fragments -name layout.toml 2>/dev/null | while IFS= read -r lay; do
+  dir="${lay%/layout.toml}"
+  target="${dir#./}"
+  target="${target#.claude/fragments/}"
+  mkdir -p "$(dirname "$target")"
+  echo "# stub-rendered $target from $dir" > "$target"
+  echo "rendered $dir -> $target" >> .cc-guides-stub
 done
 echo "stub cc-guides render complete"
 """

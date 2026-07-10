@@ -1,48 +1,12 @@
-# {{PROJECT_NAME}} Development Guide
-
-{{DESCRIPTION}}
-
-## Repository Structure
-
-```
-{{PROJECT_NAME}}/
-├── {{PROJECT_NAME}}.xcodeproj/  # Synced-folder project — one committed project.pbxproj
-├── {{PROJECT_NAME}}/            # App sources (file-system-synchronized group)
-│   ├── App/                     # Entry point + SwiftUI views
-│   └── Assets.xcassets/         # App icon + accent color
-├── {{PROJECT_NAME}}Tests/       # Swift Testing target (synchronized group)
-├── AGENTS.md                    # This file — shared conventions
-├── README.md                    # Project overview
-└── STYLEGUIDE.md                # Swift style rules for this repo
-```
-
-Sources live in file-system-synchronized folders: add a `.swift` file by creating
-it under `{{PROJECT_NAME}}/` (app) or `{{PROJECT_NAME}}Tests/` (tests) — no
-`.pbxproj` edit. The app targets iOS {{IOS_DEPLOYMENT_TARGET}} (Swift 6 language
-mode, complete strict concurrency). The project file uses fixed synthetic UUIDs —
-never regenerate it or accept an Xcode "upgrade" of it.
-
-{{> ask-before-assuming}}
-
-{{> code-review-response}}
-
-{{> parallelize}}
-
-{{> writing-plans}}
-
-{{> ccx}}
-
 ## Swift Style
 
-Swift 6 language mode with complete strict concurrency. Build and test through
-`xcodebuild` (or XcodeBuildMCP — see General Rules), not `swift build`: this is an
-Xcode app project, not an SPM package.
+Swift 6 language mode. Build with `swift build`, test with `swift test`, run with `swift run {{PROJECT_NAME}}`.
+
+**Logic in the library, not the executable.** `Sources/{{PROJECT_NAME}}/` holds only the ArgumentParser command tree; everything it calls lives in `Sources/{{MODULE_NAME}}/`, where tests can reach it. A command body longer than argument parsing + one library call is logic in the wrong target.
 
 **Doc comments on the public API only.** Public types and functions carry a `///` summary; internals get none. No other comments except TODOs, non-obvious workarounds, or disabled code.
 
 **Typed errors, thrown.** Failures are `Error`-conforming enums thrown up the stack — no sentinel returns, no `fatalError` for recoverable conditions. See STYLEGUIDE.md § Error Handling.
-
-**Logging via `os.Logger`.** Diagnostics go through per-module `Logger` categories on the `{{BUNDLE_ID}}` subsystem (`extension Logger { static let capture = Logger(subsystem: "{{BUNDLE_ID}}", category: "Capture") }`) — never `print`. Stream them with `log stream --predicate 'subsystem == "{{BUNDLE_ID}}"'`.
 
 @STYLEGUIDE.md
 
@@ -74,10 +38,8 @@ Xcode app project, not an SPM package.
 
 **Mechanical linting.** Running `swiftformat .`/`swiftlint` by hand is fine, and encouraged — the pre-commit hooks (prek: swiftformat + swiftlint, calling the brew-installed binaries) also run on every `git commit`; run `uvx prek install` once to activate them. Fix what needs human judgment and let the tooling own the mechanical churn. When reviewing code, don't flag mechanical lint violations (whitespace, ordering, line length).
 
-**Testing.** Tests live in the `{{PROJECT_NAME}}Tests` target and use Swift Testing — free `@Test` functions with `#expect`/`#require` against specific expected values. Run them with `xcodebuild test -project {{PROJECT_NAME}}.xcodeproj -scheme {{PROJECT_NAME}} -destination 'platform=iOS Simulator,name=iPhone 17'` (use any installed simulator).
+**Testing.** Tests live in `Tests/{{MODULE_NAME}}Tests/` and use Swift Testing — free `@Test` functions with `#expect`/`#require` against specific expected values, parameterized via `@Test(arguments:)`. Run them with `swift test`. Mock the boundaries the code talks to (network, filesystem, clock) and leave the function under test real.
 
 **XcodeBuildMCP.** If using XcodeBuildMCP, use the installed `xcodebuildmcp-cli` skill before calling XcodeBuildMCP tools.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
-
-{{> version-control}}

@@ -1,28 +1,3 @@
-# {{PROJECT_NAME}} Development Guide
-
-{{#FEATURE_PYPI}}{{DESCRIPTION}} Published to PyPI as `{{DIST_NAME}}`; the CLI is `{{DIST_NAME}}`, run as `uvx {{DIST_NAME}}`.{{/FEATURE_PYPI}}{{^FEATURE_PYPI}}{{DESCRIPTION}} The CLI is `{{DIST_NAME}}`, run with `uv run {{DIST_NAME}}`.{{/FEATURE_PYPI}}
-
-## Repository Structure
-
-```
-{{PROJECT_NAME}}/
-├── {{PACKAGE}}/      # The package — TODO(bootstrap): name the key modules
-├── tests/            # Pytest suite
-├── .github/          # GitHub Actions workflows
-├── AGENTS.md         # This file — shared conventions
-└── README.md         # Project overview
-```
-
-{{> ask-before-assuming}}
-
-{{> code-review-response}}
-
-{{> parallelize}}
-
-{{> writing-plans}}
-
-{{> ccx}}
-
 ## Python Style
 
 Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `uv build`.
@@ -69,8 +44,3 @@ Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `
 **Docs.** Any public API change must keep `uv run great-docs build` green; run `uv sync --group docs` first.
 
 {{/FEATURE_DOCS}}
-{{> version-control}}
-{{#FEATURE_PYPI}}
-
-**Releases.** Tagging `v*` triggers `.github/workflows/release-pypi.yml`, which builds, publishes to PyPI via trusted publishing, and cuts a GitHub release. The version comes from the tag. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch.
-{{/FEATURE_PYPI}}

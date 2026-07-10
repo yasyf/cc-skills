@@ -1,40 +1,14 @@
-# {{PROJECT_NAME}} Development Guide
-
-{{#FEATURE_RELEASE}}{{DESCRIPTION}} Distributed via Homebrew: `brew install {{GITHUB_USER}}/tap/{{PROJECT_NAME}}`.{{/FEATURE_RELEASE}}{{^FEATURE_RELEASE}}{{DESCRIPTION}}{{/FEATURE_RELEASE}}
-
-## Repository Structure
-
-```
-{{PROJECT_NAME}}/
-├── Package.swift               # SPM manifest — targets, products, dependencies
-├── Sources/
-│   ├── {{MODULE_NAME}}/        # the library — all logic lives here
-│   └── {{PROJECT_NAME}}/       # the executable — a thin ArgumentParser shell
-├── Tests/{{MODULE_NAME}}Tests/ # Swift Testing (@Test / #expect) against the library
-├── .github/                    # GitHub Actions workflows
-├── AGENTS.md                   # This file — shared conventions
-└── README.md                   # Project overview
-```
-
-{{> ask-before-assuming}}
-
-{{> code-review-response}}
-
-{{> parallelize}}
-
-{{> writing-plans}}
-
-{{> ccx}}
-
 ## Swift Style
 
-Swift 6 language mode. Build with `swift build`, test with `swift test`, run with `swift run {{PROJECT_NAME}}`.
-
-**Logic in the library, not the executable.** `Sources/{{PROJECT_NAME}}/` holds only the ArgumentParser command tree; everything it calls lives in `Sources/{{MODULE_NAME}}/`, where tests can reach it. A command body longer than argument parsing + one library call is logic in the wrong target.
+Swift 6 language mode with complete strict concurrency. Build and test through
+`xcodebuild` (or XcodeBuildMCP — see General Rules), not `swift build`: this is an
+Xcode app project, not an SPM package.
 
 **Doc comments on the public API only.** Public types and functions carry a `///` summary; internals get none. No other comments except TODOs, non-obvious workarounds, or disabled code.
 
 **Typed errors, thrown.** Failures are `Error`-conforming enums thrown up the stack — no sentinel returns, no `fatalError` for recoverable conditions. See STYLEGUIDE.md § Error Handling.
+
+**Logging via `os.Logger`.** Diagnostics go through per-module `Logger` categories on the `{{BUNDLE_ID}}` subsystem (`extension Logger { static let capture = Logger(subsystem: "{{BUNDLE_ID}}", category: "Capture") }`) — never `print`. Stream them with `log stream --predicate 'subsystem == "{{BUNDLE_ID}}"'`.
 
 @STYLEGUIDE.md
 
@@ -66,14 +40,8 @@ Swift 6 language mode. Build with `swift build`, test with `swift test`, run wit
 
 **Mechanical linting.** Running `swiftformat .`/`swiftlint` by hand is fine, and encouraged — the pre-commit hooks (prek: swiftformat + swiftlint, calling the brew-installed binaries) also run on every `git commit`; run `uvx prek install` once to activate them. Fix what needs human judgment and let the tooling own the mechanical churn. When reviewing code, don't flag mechanical lint violations (whitespace, ordering, line length).
 
-**Testing.** Tests live in `Tests/{{MODULE_NAME}}Tests/` and use Swift Testing — free `@Test` functions with `#expect`/`#require` against specific expected values, parameterized via `@Test(arguments:)`. Run them with `swift test`. Mock the boundaries the code talks to (network, filesystem, clock) and leave the function under test real.
+**Testing.** Tests live in the `{{PROJECT_NAME}}Tests` target and use Swift Testing — free `@Test` functions with `#expect`/`#require` against specific expected values. Run them with `xcodebuild test -project {{PROJECT_NAME}}.xcodeproj -scheme {{PROJECT_NAME}} -destination 'platform=iOS Simulator,name=iPhone 17'` (use any installed simulator).
 
 **XcodeBuildMCP.** If using XcodeBuildMCP, use the installed `xcodebuildmcp-cli` skill before calling XcodeBuildMCP tools.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
-
-{{> version-control}}
-{{#FEATURE_RELEASE}}
-
-**Releases.** Tagging `v*` triggers `.github/workflows/release.yml`, which forwards to the shared `release-swift.yml@swift-v1` reusable workflow: a universal (arm64 + x86_64) `swift build`, a GitHub release, and a Homebrew binary cask pushed to `{{GITHUB_USER}}/homebrew-tap`. The version comes from the tag, and the executable product must keep the repo's name — that's the whole calling contract. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch. One-time setup: a `HOMEBREW_TAP_TOKEN` repo secret with push access to the tap. The binary is Developer-ID-signed and notarized when the `MACOS_*` repo secrets are set (optional; releases unsigned without them — see `reference/swift-ci-and-release.md`).
-{{/FEATURE_RELEASE}}

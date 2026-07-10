@@ -362,14 +362,16 @@ Used by: **cc-review**.
 
 ### `format: binary` archive (keep direct-download installers working)
 
-Plugin binary provisioning has a single source of truth: `templates/plugin/install-binary.sh`,
-scaffolded by the `plugin` extra and rendered (never forked) into every consumer plugin. It keeps
-`<plugin>/bin/<name>` only ever a symlink, resolving in order to a brew-installed binary, a
-durable download under `CLAUDE_PLUGIN_DATA`, or a local dev build it refuses to clobber. The
-target release is pinned to the plugin.json version (`BINARY_VERSION_MODE=pinned`, the default)
-or floated off the `releases/latest` redirect (`latest`). Rendered copies carry a provenance stamp
-`# canonical: cc-skills/plugins/repo-bootstrap@<sha>`; the template itself keeps `@pending`, and
-the consumer's render tooling pins the sha.
+Plugin binary provisioning has a single source of truth: the `install-binary-pinned` and
+`install-binary-latest` fragments in `cc-skills` `plugin/guides/sh/`. The `plugin` extra scaffolds a
+`.claude/fragments/plugin/scripts/install-binary.sh/layout.toml` that imports one of them (with
+`binary`/`repo`/`brew`/`plugin` args); `cc-guides render` composes it into the consumer plugin's
+`plugin/scripts/install-binary.sh` (never forked). It keeps `<plugin>/bin/<name>` only ever a
+symlink, resolving in order to a brew-installed binary, a durable download under
+`CLAUDE_PLUGIN_DATA`, or a local dev build it refuses to clobber. The target release is pinned to
+the plugin.json version (`BINARY_VERSION_MODE=pinned`, the default) or floated off the
+`releases/latest` redirect (`latest`). The composed artifact carries a `cc-guides` GENERATED marker,
+and the source sha is pinned in `.claude/fragments/cc-guides.lock`.
 
 The installer's static-download arm fetches the *bare binary* asset `<name>_<os>_<arch>` (not a
 tarball) and verifies it against goreleaser's `checksums.txt`, so the release must publish a

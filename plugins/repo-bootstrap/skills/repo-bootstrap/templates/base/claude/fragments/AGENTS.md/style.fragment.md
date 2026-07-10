@@ -1,26 +1,3 @@
-# {{PROJECT_NAME}} Development Guide
-
-{{DESCRIPTION}}
-
-## Repository Structure
-
-```
-{{PROJECT_NAME}}/
-├── TODO(bootstrap): list the top-level directories and what lives in each
-├── AGENTS.md         # This file — shared conventions
-└── README.md         # Project overview
-```
-
-{{> ask-before-assuming}}
-
-{{> code-review-response}}
-
-{{> parallelize}}
-
-{{> writing-plans}}
-
-{{> ccx}}
-
 ## Style
 
 **Comments are terse and used sparingly — the code documents itself** through names, types, and organization. The one exception is documentation-generation comments (the doc comments your language's doc tool renders for the public API); beyond those, comment only for TODOs, non-obvious workarounds, or disabled code — never to restate the signature.
@@ -58,5 +35,3 @@
 **Testing.** TODO(bootstrap): where the test suite lives and the exact command that runs it.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
-
-{{> version-control}}

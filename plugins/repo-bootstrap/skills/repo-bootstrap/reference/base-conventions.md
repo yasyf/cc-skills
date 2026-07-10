@@ -8,19 +8,21 @@ so when that layer is active, edit those four against its richer versions instea
 Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 `captain_hook`.
 
-**Rendered artifacts.** `AGENTS.md` and `CLAUDE.md` are generated, never hand-edited.
-Scaffold writes an `X.src.<ext>` source (repo prose plus bare `{{> name}}` cc-guides
-directives — `{{> ccx}}`, `{{> version-control}}`, …); the post-write step runs
-`cc-guides render`, which expands each directive from a fragment body embedded in the
-`cc-guides` binary and writes the sibling `X.<ext>` with a line-1 banner
-(`cc-guides <version> src=<src> | GENERATED …`). Edit the `.src` file and re-run
-`cc-guides render`; a `Guides` GitHub workflow (`.github/workflows/guides.yml`) checks
-freshness on push and re-renders on a cc-guides release. The generic rule that
-`X.src.<ext>` renders to `X.<ext>`, the directive grammar, and the banner contract all
-live in the [cc-guides](https://github.com/yasyf/cc-guides) README — this repo keeps no
-rendering or checking machinery. The README seeds under `templates/_partials/*.md` are the one
-exception: they carry no directives and are inlined at scaffold time (scaffold-once
-material customized per repo).
+**Rendered artifacts.** `AGENTS.md`, `CLAUDE.md`, and `.claude/settings.json` are
+generated, never hand-edited. Scaffold writes a `.claude/fragments/<target>/` layout
+dir — a `layout.toml` listing repo-local `*.fragment.*` prose pieces plus imports of
+shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:version-control`,
+`cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
+`github:yasyf/cc-skills@main` — then the post-write step runs `cc-guides render`, which
+composes each `<target>`: markdown/shell get a line-1 `GENERATED …` marker, JSON is
+deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). Edit the
+fragments and re-run `cc-guides render`; a `Guides` GitHub workflow
+(`.github/workflows/guides.yml`) checks freshness on push and re-renders daily / on a
+cc-guides release. The layout schema, composition rules, and marker contract live in
+the [cc-guides](https://github.com/yasyf/cc-guides) README — this repo keeps no
+rendering or checking machinery. The README seeds under `templates/_partials/*.md` are a
+separate mechanism: they carry no cc-guides directives and are inlined at scaffold time
+(scaffold-once material customized per repo).
 
 ## AGENTS.md anatomy
 
@@ -56,9 +58,9 @@ The single canonical agent-conventions doc. Section by section:
   required in every plan — `Phase | Shape | Agents | Verification` table, or one
   line saying everything stays at the main-agent level; a plan without it is
   incomplete.
-- **Compact Context (ccx).** The `{{> ccx}}` cc-guides directive in every layer's
-  `AGENTS.md`, expanded by `cc-guides render` (the fragment body lives in the cc-guides
-  binary) where the old per-project `## Code Search` section
+- **Compact Context (ccx).** The `cc-skills:ccx` import in every layer's
+  `AGENTS.md` layout, composed by `cc-guides render` (the fragment body lives upstream
+  in `cc-skills` `plugin/guides/md/ccx.md`) where the old per-project `## Code Search` section
   used to sit. It makes `cc-context` — the `ccx` CLI and the `mcp__cc-context__*`
   MCP tools — the default for reading/searching/reviewing code, because it returns
   token-bounded output and the `ccx` capt-hook guard pack blocks the token-heavy
@@ -77,7 +79,7 @@ The single canonical agent-conventions doc. Section by section:
   `cc-context@cc-context` plugin enabled in `.claude/settings.json`, **not** a per-project
   `.mcp.json` server — and the same plugin attaches the `ccx` guard pack per session, so
   the `ccx` heading and the `cc-context@cc-context` plugin are the cross-reference invariant,
-  not `.mcp.json`. The fragment body is owned by cc-guides; change it there, not here.
+  not `.mcp.json`. The fragment body is owned by `cc-skills`; change it there, not here.
 - **Style.** Exactly `@STYLEGUIDE.md` under `## Style` — an embed, not a link.
   Don't duplicate style rules into AGENTS.md.
 - **General Rules.** Bold-bullet block: each rule is `**Name.** One or two
@@ -85,8 +87,8 @@ The single canonical agent-conventions doc. Section by section:
   defensive coding; Search before writing; Code stewardship; Observe, don't
   infer; Don't use external failures as an excuse to stop; Mechanical linting;
   Writing docs; Version control; Watch CI after every push). The **Version
-  control** and **Watch CI** rules ship as the `{{> version-control}}` cc-guides
-  directive in every layer's AGENTS.md, expanded by `cc-guides render` (jj-preferred;
+  control** and **Watch CI** rules ship as the `cc-skills:version-control` import
+  in every layer's AGENTS.md layout, composed by `cc-guides render` (jj-preferred;
   watch CI with `gh run watch` after every push). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
   lives and the exact command (captain-hook: "The suite lives in `tests/`; run it
   with `uv run pytest`"). Add project-specific rules in the same format — e.g.
@@ -239,7 +241,13 @@ section in sync with the chosen ID.
 
 ## .claude/settings.json
 
-Field by field:
+This is a **rendered artifact**, composed by `cc-guides render` from
+`.claude/fragments/.claude/settings.json/`: `cc-skills:settings-base` deep-merged with
+the layer variant (`settings-python` / `settings-go` / `settings-swift`) and a
+placeholder-free `{}` `local.fragment.json` for repo-specific additions. Never hand-edit
+`.claude/settings.json`; the shared fields below live in the `cc-skills` pack
+(`plugin/guides/json/`) — edit them there — and per-repo overrides go in
+`local.fragment.json` (then re-run `cc-guides render`). Field by field:
 
 - `"effortLevel": "max"`, `"ultracode": true`, `"alwaysThinkingEnabled": true`,
   `"showThinkingSummaries": true` — maximum reasoning effort on every turn, with
@@ -250,9 +258,9 @@ Field by field:
   `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Compact Context (ccx) routes
   structural queries to), `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"` (enables
   `TeamCreate` for the Parallelize Independent Work section),
-  `"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"` (always think at full depth),
-  `"TY_OUTPUT_FORMAT": "concise"` (trims ty LSP diagnostics if that plugin is
-  installed), and `"JJ_CONFIG": ".claude/jj-config.toml"` — points jj at the
+  `"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"` (always think at full depth), and
+  `"JJ_CONFIG": ".claude/jj-config.toml"` (the python variant also sets
+  `"TY_OUTPUT_FORMAT": "concise"` + `"TY_CONFIG_FILE"` to quiet ty) — points jj at the
   scaffolded repo-local config (user identity, `difft` diffs, `mergiraf` merges,
   watchman snapshot triggers off). Phase 0 creates the colocated jj repo this
   config governs (`jj git init --git-repo .`, run right after `git init -b main`),

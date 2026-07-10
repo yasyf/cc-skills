@@ -203,14 +203,15 @@ def expand_partials(text: str, read: Callable[[str], str], _stack: tuple[str, ..
     """Inline ``{{> _partials/…}}`` directives (raw, pre-render) so a README seed
     shares the including file's variable/feature context. Recursive, cycle-guarded.
 
-    Bare-name directives (``{{> ccx}}``, ``{{> install-binary-pinned …}}``) pass
-    through untouched — they name a cc-guides fragment, resolved by ``cc-guides
-    render`` after scaffold writes the ``.src`` file, not here."""
+    ``_partials/`` seeds are the only partial mechanism left: shared cc-guides
+    fragments are now composed by ``cc-guides render`` through the scaffolded
+    ``.claude/fragments/<target>/`` layout dirs, never inlined here. Any other
+    ``{{> …}}`` directive is therefore a mistake and fails loudly."""
 
     def repl(m: re.Match[str]) -> str:
         path = m.group(1)
         if not path.startswith("_partials/"):
-            return m.group(0)  # cc-guides fragment directive: leave for the render step
+            raise ScaffoldError(f"unknown partial directive {{{{> {path}}}}}; only _partials/ seeds are supported")
         if path in _stack:
             raise ScaffoldError(f"partial include cycle: {' -> '.join((*_stack, path))}")
         try:
@@ -338,10 +339,12 @@ def template_exists(src: str) -> bool:
 
 
 def render_sources(target: Path) -> None:
-    """Render every ``X.src.<ext>`` the scaffold wrote (AGENTS.src.md, CLAUDE.src.md,
-    the plugin installer) into its sibling artifact via the ``cc-guides`` binary — the
-    canonical renderer that owns the guide fragment bodies. Hard-required: the bodies
-    live in the binary, so there is no Python fallback."""
+    """Compose every ``.claude/fragments/<target>/`` layout dir the scaffold wrote
+    (AGENTS.md, CLAUDE.md, .claude/settings.json, and the plugin installer) into its
+    artifact via a full ``cc-guides render``. cc-guides resolves the imported shared
+    fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact; the
+    artifacts do not exist yet, so no ``--force`` is needed. Hard-required: the shared
+    fragment bodies live upstream, so there is no Python fallback."""
     exe = shutil.which("cc-guides")
     if exe is None:
         raise ScaffoldError("cc-guides not found on PATH; install it with `brew install yasyf/tap/cc-guides`")

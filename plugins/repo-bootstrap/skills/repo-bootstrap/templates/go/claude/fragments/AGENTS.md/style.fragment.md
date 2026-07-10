@@ -1,31 +1,3 @@
-# {{PROJECT_NAME}} Development Guide
-
-{{#FEATURE_RELEASE}}{{DESCRIPTION}} Distributed via Homebrew: `brew install {{GITHUB_USER}}/tap/{{PROJECT_NAME}}`.{{/FEATURE_RELEASE}}{{^FEATURE_RELEASE}}{{DESCRIPTION}}{{/FEATURE_RELEASE}}
-
-## Repository Structure
-
-```
-{{PROJECT_NAME}}/
-├── cmd/{{PROJECT_NAME}}/   # main package — the CLI entry point
-├── internal/
-│   ├── cli/               # cobra command tree — TODO(bootstrap): name the commands
-│   ├── version/           # build version, stamped via -ldflags
-│   └── log/               # slog setup
-├── .github/               # GitHub Actions workflows
-├── AGENTS.md              # This file — shared conventions
-└── README.md              # Project overview
-```
-
-{{> ask-before-assuming}}
-
-{{> code-review-response}}
-
-{{> parallelize}}
-
-{{> writing-plans}}
-
-{{> ccx}}
-
 ## Go Style
 
 Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and `task lint`.
@@ -69,9 +41,3 @@ Target Go {{GO_VERSION}}+. Run `task build`, `task test` (`go test -race`), and 
 **Testing.** Tests live beside the code as `*_test.go`; run them with `task test` (`go test -race ./...`). Write table-driven tests with strict assertions against specific values, mock the boundaries your code talks to (network, filesystem, clock), and leave the code under test real.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
-
-{{> version-control}}
-{{#FEATURE_RELEASE}}
-
-**Releases.** Tagging `v*` triggers `.github/workflows/release.yml`, which runs goreleaser to build the binaries, cut a GitHub release, and push the Homebrew cask to `{{GITHUB_USER}}/homebrew-tap`. The version comes from the tag. The release refuses to run unless the tagged commit is on `main` — tag a merged commit (e.g. `git tag vX.Y.Z origin/main`), not a feature branch. One-time setup: a `HOMEBREW_TAP_TOKEN` repo secret with push access to the tap. The macOS binaries are Developer-ID-signed and notarized when the `MACOS_*` repo secrets are set (optional; releases unsigned without them — see `reference/go-ci-and-release.md`).
-{{/FEATURE_RELEASE}}

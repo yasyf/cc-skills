@@ -30,9 +30,21 @@ def _real_plan(layer, var_pairs, *, features=None):
 
 # --- selection matrix ---
 
-SWIFT_DESTS = {
-    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+# AGENTS.md, CLAUDE.md, and .claude/settings.json scaffold as cc-guides layout dirs
+# (layout.toml + repo-local *.fragment.* pieces); shared across every layer.
+FRAGMENT_DESTS = {
+    ".claude/fragments/AGENTS.md/layout.toml",
+    ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
+    ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
+    ".claude/fragments/CLAUDE.md/layout.toml",
+    ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
+    ".claude/fragments/.claude/settings.json/layout.toml",
+    ".claude/fragments/.claude/settings.json/local.fragment.json",
+}
+
+SWIFT_DESTS = FRAGMENT_DESTS | {
+    "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -43,9 +55,9 @@ SWIFT_DESTS = {
     ".github/workflows/ci.yml",
 }
 
-SWIFT_APP_DESTS = {
-    "AGENTS.src.md", "CLAUDE.src.md", "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/settings.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+SWIFT_APP_DESTS = FRAGMENT_DESTS | {
+    "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -75,9 +87,13 @@ def test_swift_app_selection_exact(swift_app_var_pairs):
 
 def test_swift_release_feature_gates(swift_var_pairs):
     got = dests("swift", swift_var_pairs, features=["release"])
-    # release adds exactly the one-liner caller: no goreleaser config (goreleaser
-    # cannot build Swift) and no cask template (the shared workflow synthesizes it).
-    assert got == SWIFT_DESTS | {".github/workflows/release.yml"}
+    # release adds the one-liner caller + the Releases AGENTS fragment: no goreleaser
+    # config (goreleaser cannot build Swift) and no cask template (the shared workflow
+    # synthesizes it).
+    assert got == SWIFT_DESTS | {
+        ".github/workflows/release.yml",
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
+    }
 
 
 def test_swift_app_silently_drops_release(swift_app_var_pairs):
@@ -94,7 +110,7 @@ def test_swift_silently_drops_python_features(swift_var_pairs):
 def test_swift_overrides_base_for_shared_dest(swift_var_pairs):
     r = scaffold.resolve("swift", [], [], swift_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    assert items["AGENTS.src.md"].src == "swift/AGENTS.md"
+    assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "swift/claude/fragments/AGENTS.md/layout.toml"
     assert items["README.md"].src == "swift/README.md"
     assert items[".mcp.json"].src == "swift/mcp.json"
     assert items[".claude/hooks/packs.toml"].src == "swift/claude/hooks/packs.toml"
@@ -105,11 +121,12 @@ def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
     # consumed by both layers — swift-app must not fork its own copies.
     r = scaffold.resolve("swift-app", [], [], swift_app_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    for dest in ("STYLEGUIDE.md", ".mcp.json", ".claude/settings.json",
+    for dest in ("STYLEGUIDE.md", ".mcp.json", ".claude/fragments/.claude/settings.json/layout.toml",
                  ".claude/hooks/packs.toml", ".swiftformat", ".swiftlint.yml",
                  ".pre-commit-config.yaml", ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
         assert items[dest].src.startswith("swift/"), f"{dest} forked from {items[dest].src}"
-    assert items["AGENTS.src.md"].src == "swift-app/AGENTS.md"
+    # AGENTS prose is app-specific, so swift-app ships its own AGENTS layout dir
+    assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "swift-app/claude/fragments/AGENTS.md/layout.toml"
     assert items[".github/workflows/ci.yml"].src == "swift-app/github/workflows/ci.yml"
 
 
@@ -255,14 +272,17 @@ def test_swift_app_smoke_test_imports_module(swift_app_var_pairs):
 
 def test_swift_agents_renders_directives_and_release(swift_var_pairs):
     plan, _ = _real_plan("swift", swift_var_pairs, features=["release"])
-    agents = plan["AGENTS.src.md"]
-    assert "{{> ask-before-assuming}}" in agents  # cc-guides directive, not inlined
-    assert "{{> version-control}}" in agents
-    assert "xcodebuildmcp-cli" in agents  # the XcodeBuildMCP rule (template body)
-    assert "release-swift.yml@swift-v1" in agents  # release section on (template body)
+    layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+    style = plan[".claude/fragments/AGENTS.md/demo-proj-style.fragment.md"]
+    assert '"cc-skills:ask-before-assuming"' in layout  # cc-skills import, not inlined
+    assert '"cc-skills:version-control"' in layout
+    assert "xcodebuildmcp-cli" in style  # the XcodeBuildMCP rule lives in the style fragment
+    # release on -> the Releases fragment carries the swift release caller and is listed
+    assert '"releases"' in layout
+    assert "release-swift.yml@swift-v1" in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     plan_off, _ = _real_plan("swift", swift_var_pairs, features=[])
-    assert "release-swift.yml" not in plan_off["AGENTS.src.md"]
-    assert "brew install" not in plan_off["AGENTS.src.md"]
+    assert ".claude/fragments/AGENTS.md/releases.fragment.md" not in plan_off
+    assert '"releases"' not in plan_off[".claude/fragments/AGENTS.md/layout.toml"]
 
 
 def test_swift_readme_install_follows_release(swift_var_pairs):
@@ -275,11 +295,12 @@ def test_swift_readme_install_follows_release(swift_var_pairs):
 
 def test_swift_app_agents_renders(swift_app_var_pairs):
     plan, notices = _real_plan("swift-app", swift_app_var_pairs)
-    agents = plan["AGENTS.src.md"]
-    assert "file-system-synchronized" in agents
-    assert "no\n`.pbxproj` edit" in agents or "no `.pbxproj` edit" in agents
-    assert "platform=iOS Simulator,name=iPhone 17" in agents
-    assert 'subsystem == "com.janedoe.demo-proj"' in agents
+    dev = plan[".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md"]
+    style = plan[".claude/fragments/AGENTS.md/demo-proj-style.fragment.md"]
+    assert "file-system-synchronized" in dev
+    assert "no\n`.pbxproj` edit" in dev or "no `.pbxproj` edit" in dev
+    assert "platform=iOS Simulator,name=iPhone 17" in style
+    assert 'subsystem == "com.janedoe.demo-proj"' in style
     assert notices == []
 
 
@@ -334,16 +355,16 @@ def test_swift_mcp_json_overrides_with_xcodebuildmcp(swift_var_pairs):
     assert "semble" not in mcp["mcpServers"]
 
 
-def test_swift_settings_json(swift_var_pairs):
+def test_swift_settings_layout_imports_swift_variant(swift_var_pairs):
+    # settings.json composes from pack fragments: the swift layout imports
+    # settings-base + settings-swift (swift perms; no ty/go), never the go/python
+    # variants. The composed content is verified end-to-end against `cc-guides render`.
     plan, _ = _real_plan("swift", swift_var_pairs)
-    settings = json.loads(plan[".claude/settings.json"])
-    allow = settings["permissions"]["allow"]
-    for perm in ("Bash(swift build:*)", "Bash(swift test:*)", "Bash(xcodebuild:*)",
-                 "Bash(xcodebuildmcp:*)", "Bash(swiftformat --lint:*)", "Bash(swiftlint:*)"):
-        assert perm in allow
-    assert "Bash(go build:*)" not in allow
-    assert "TY_CONFIG_FILE" not in settings["env"]
-    assert "TY_OUTPUT_FORMAT" not in settings["env"]
+    layout = plan[".claude/fragments/.claude/settings.json/layout.toml"]
+    assert '"cc-skills:settings-base"' in layout
+    assert '"cc-skills:settings-swift"' in layout
+    assert '"cc-skills:settings-go"' not in layout
+    assert '"cc-skills:settings-python"' not in layout
 
 
 def test_swift_precommit_local_system_hooks(templates_dir):
