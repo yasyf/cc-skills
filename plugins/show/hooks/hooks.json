@@ -9,26 +9,6 @@
           }
         ]
       }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uvx capt-hook run UserPromptSubmit"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uvx capt-hook run PostToolUse"
-          }
-        ]
-      }
     ]
   }
 }
