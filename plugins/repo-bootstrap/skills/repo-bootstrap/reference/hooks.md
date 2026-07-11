@@ -10,8 +10,9 @@ production. The scaffold wires it through
 `.claude/settings.json`, which runs `uvx capt-hook run <Event>` for `PreToolUse`,
 `PostToolUse`, `PostToolUseFailure`, and `Stop`. `uvx` fetches capt-hook into a throwaway
 environment, so nothing is added to `pyproject.toml` and there is zero install step. The hooks
-themselves ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), the
-language layer (`python` or `go`), and `steering` (judgment nudges) — which the scaffold enables
+themselves ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), `fixes`
+(workarounds for upstream Claude Code issues), the language layer (`python` or `go`), and
+`steering` (judgment nudges) — which the scaffold enables
 through `.claude/hooks/packs.toml`. A project can
 add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
 verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
@@ -78,8 +79,9 @@ the CI ty step.
 
 ## Hook inventory
 
-These hooks ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), the
-language layer (`python` or `go`), and `steering` (judgment nudges) — enabled per repo through
+These hooks ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), `fixes`
+(workarounds for upstream Claude Code issues), the language layer (`python` or `go`), and
+`steering` (judgment nudges) — enabled per repo through
 `.claude/hooks/packs.toml`. Their behavior is
 unchanged; only the delivery moved from vendored `.py` files to packs, so the "tailor" and
 "remove" notes below route through the pack model: override a hook with a local

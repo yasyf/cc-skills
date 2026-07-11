@@ -342,6 +342,7 @@ def test_swift_release_workflow_uses_reusable_workflow(swift_var_pairs):
 
 def test_swift_packs_toml_no_swift_pack(templates_dir):
     swift_packs = (templates_dir / "swift/claude/hooks/packs.toml").read_text()
+    assert "[packs.fixes]" in swift_packs
     assert "[packs.general]" in swift_packs
     assert "[packs.steering]" in swift_packs
     assert "[packs.swift]" not in swift_packs

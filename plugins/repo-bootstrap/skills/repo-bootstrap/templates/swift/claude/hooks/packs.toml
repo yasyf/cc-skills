@@ -1,5 +1,7 @@
+[packs.fixes]
+
 [packs.general]
 
 [packs.steering]
 
-# No swift language pack ships with capt-hook yet — general + steering only.
+# No swift language pack ships with capt-hook yet — general + fixes + steering only.
