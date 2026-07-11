@@ -110,12 +110,13 @@ FILES = (
     # --- base layer ---
     # AGENTS.md, CLAUDE.md, and .claude/settings.json are cc-guides v3 artifacts:
     # scaffold writes a `.claude/fragments/<target>/` layout dir (a layout.toml plus
-    # repo-local `*.fragment.*` prose) and the post-write `cc-guides render` step
+    # any repo-local `*.fragment.*` prose) and the post-write `cc-guides render` step
     # (scaffold.render_sources) composes each artifact in place — local prose plus
-    # imported shared fragments (`cc-skills:ccx`, …) for AGENTS.md, and the settings
-    # pack fragments (`cc-skills:settings-base` + a layer variant) for settings.json.
-    # A language layer overrides base at each shared fragment dest, exactly as the
-    # whole-file overrides below.
+    # imported shared fragments (`cc-skills:ccx`, …) for AGENTS.md, the shared
+    # `cc-skills:claude-rules` guide (import-only, no local prose) for CLAUDE.md, and
+    # the settings pack fragments (`cc-skills:settings-base` + a layer variant) for
+    # settings.json. A language layer overrides base at each shared fragment dest,
+    # exactly as the whole-file overrides below.
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "base/claude/fragments/AGENTS.md/layout.toml", "base"),
     FileSpec(
         ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
@@ -128,11 +129,6 @@ FILES = (
         "base",
     ),
     FileSpec(".claude/fragments/CLAUDE.md/layout.toml", "base/claude/fragments/CLAUDE.md/layout.toml", "base"),
-    FileSpec(
-        ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
-        "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
-        "base",
-    ),
     # settings.json layout dir lives at the doubly-nested .claude/fragments/.claude/
     # settings.json/ (the target IS .claude/settings.json). The `local.fragment.json`
     # is a placeholder-free `{}` no-op merge the repo fills in later; it ships once

@@ -37,7 +37,6 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
-    ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/local.fragment.json",
 }

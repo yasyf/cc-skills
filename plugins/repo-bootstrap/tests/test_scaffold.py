@@ -29,7 +29,6 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
-    ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/local.fragment.json",
 }
@@ -197,7 +196,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # routing table; base-conventions.md and the fleet's deployed CLAUDE.md files
     # carry the same text, and the capt-hook `models` pack enforces it —
     # regressing would silently fork template from fleet and hooks.
-    claude = (templates_dir / "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md").read_text()
+    claude = (templates_dir.parents[4] / "plugin" / "guides" / "md" / "claude-rules.md").read_text()
     assert "max model/effort level" not in claude
     assert "**Models**" in claude
     assert "| fable-5 | 2 | 9 | 9 |" in claude
@@ -256,7 +255,7 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
     # failures stay autonomous (AGENTS.md § General Rules), so the carve-out phrase
     # must survive too. base-conventions.md and the codex skill carry the same
     # contract; regressing any copy forks template from fleet.
-    claude = (templates_dir / "base/claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md").read_text()
+    claude = (templates_dir.parents[4] / "plugin" / "guides" / "md" / "claude-rules.md").read_text()
     assert "**Check back on the unexpected.**" in claude
     assert "findings plus 2-4 concrete options" in claude
     assert "stay autonomous" in claude
@@ -753,9 +752,11 @@ def test_go_no_release_drops_goreleaser_and_release_section(go_var_pairs):
 @pytest.mark.parametrize("layer", ["base", "python"])
 def test_real_templates_render_orchestrator_conventions(layer, base_var_pairs, py_var_pairs):
     plan, _ = _real_plan(layer, base_var_pairs if layer == "base" else py_var_pairs)
-    # CLAUDE.md is one local fragment (the Claude-only rules); no imports
-    rules = plan[".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md"]
-    assert "## Plan Execution & Orchestration" in rules
+    # CLAUDE.md now imports the shared cc-skills:claude-rules guide; no local fragment
+    claude_layout = plan[".claude/fragments/CLAUDE.md/layout.toml"]
+    assert '"cc-skills:claude-rules"' in claude_layout
+    assert 'source = "github:yasyf/cc-skills@main"' in claude_layout
+    assert ".claude/fragments/CLAUDE.md/claude-specific-rules.fragment.md" not in plan
     # the parallelize/writing-plans guidance rides cc-skills imports in the layout now
     layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
     assert '"cc-skills:parallelize"' in layout

@@ -11,8 +11,8 @@ Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 **Rendered artifacts.** `AGENTS.md`, `CLAUDE.md`, and `.claude/settings.json` are
 generated, never hand-edited. Scaffold writes a `.claude/fragments/<target>/` layout
 dir — a `layout.toml` listing repo-local `*.fragment.*` prose pieces plus imports of
-shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:version-control`,
-`cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
+shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:claude-rules`,
+`cc-skills:version-control`, `cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
 `github:yasyf/cc-skills@main` — then the post-write step runs `cc-guides render`, which
 composes each `<target>`: markdown/shell get a line-1 `GENERATED …` marker, JSON is
 deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). Edit the
@@ -97,9 +97,11 @@ The single canonical agent-conventions doc. Section by section:
 
 ## CLAUDE.md
 
-`@AGENTS.md` (so AGENTS.md stays the single, tool-agnostic source of conventions) followed by
-a short **Claude-only** block — guidance that names Claude-specific tools and so doesn't
-belong in the shared AGENTS.md:
+The layout imports the shared `cc-skills:claude-rules` guide instead of shipping a repo-local
+fragment, so every repo renders the identical block from one upstream source. It renders as `@AGENTS.md` (so
+AGENTS.md stays the single, tool-agnostic source of conventions) followed by a short
+**Claude-only** block — guidance that names Claude-specific tools and so doesn't belong in the
+shared AGENTS.md:
 
 - `## Claude-Specific Rules` — one bullet mandating `AskUserQuestion` for the clarifying
   questions AGENTS.md § Ask Before Assuming calls for (concrete picks beat inline prose).
