@@ -20,11 +20,13 @@ truncated snippets), what has been tried, and the specific questions to answer.
 
 ## Step 2: Run codex
 
-Write the question to a unique path — parallel sibling agents clobber shared
-names — then pipe it through `codex exec`:
+Write the question to a mktemp-unique path in your session scratchpad
+directory (listed in your system prompt) — never /tmp, which parallel
+sessions share and cross-read — then pipe it through `codex exec`:
 
 ```bash
-Q=$(mktemp /tmp/codex-q-XXXXXX); R=$(mktemp /tmp/codex-r-XXXXXX)
+S=<your scratchpad directory>  # from your system prompt; S=$(mktemp -d) if none is listed
+Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
 cat <<'QUESTION' > "$Q"
 [the question]
 QUESTION

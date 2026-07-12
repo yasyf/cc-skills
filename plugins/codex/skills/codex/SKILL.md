@@ -100,15 +100,17 @@ Build a comprehensive question with:
 
 ### Step 2: Write Question and Invoke Codex
 
-Write the question to a mktemp-unique path — /tmp is shared across sessions
-and PIDs recycle, so fixed or `$$`-suffixed names get clobbered by parallel
-codex runs — then write the question, run codex, and print the reply path in
-ONE Bash call so the variables resolve consistently. Give the call a
-10-minute timeout: xhigh on the fast tier typically returns in ~2 minutes but
-can run longer.
+Write the question to a mktemp-unique path in your session scratchpad
+directory (the path listed in your system prompt) — never /tmp, which is
+shared across sessions, so fixed or `$$`-suffixed names there get clobbered
+or cross-read by parallel codex runs — then write the question, run codex,
+and print the reply path in ONE Bash call so the variables resolve
+consistently. Give the call a 10-minute timeout: xhigh on the fast tier
+typically returns in ~2 minutes but can run longer.
 
 ```bash
-Q=$(mktemp /tmp/codex-q-XXXXXX); R=$(mktemp /tmp/codex-r-XXXXXX)
+S=<your scratchpad directory>  # from your system prompt; S=$(mktemp -d) if none is listed
+Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
 cat <<'QUESTION' > "$Q"
 I have a [component] that fails with [specific error].
 
@@ -202,7 +204,8 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-Q=$(mktemp /tmp/codex-q-XXXXXX); R=$(mktemp /tmp/codex-r-XXXXXX)
+S=<your scratchpad directory>  # from your system prompt; S=$(mktemp -d) if none is listed
+Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
 cat <<'PROMPT' > "$Q"
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
@@ -264,8 +267,10 @@ version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
 subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
 runs inline and this cannot happen: run `claude plugin update codex@skills`.
 
-**Two codex calls stomped each other's files**: fixed `/tmp` names were used.
-Keep the recipe's `$$`-suffixed paths — they are unique per Bash call.
+**Two codex calls stomped or cross-read each other's files**: the question/reply
+files were written outside the session scratchpad (`/tmp` is shared across
+sessions, and even `$$`-suffixed names there collide when PIDs are reused).
+Keep the recipe's `mktemp` paths rooted in your scratchpad directory.
 
 **Timeout**: Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval (`--full-auto` is the deprecated spelling of the same thing). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
 
