@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(jq:*), Bash(brew install:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(open:*), Bash(jq:*), Bash(brew install:*), Read
 effort: medium
 ---
 
@@ -120,7 +120,7 @@ lands on disk either way.
 4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
    confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
    affordance. In Browserbase mode use `"$ab" snapshot -i` instead. If it looks logged-out,
-   see **Failure handling**.
+   see **Failure handling** — most often **Log in and retry**.
 
 5. **Do the task** with normal `agent-browser --session abwc …` commands (defer to the
    `agent-browser` skill for command mechanics). In Browserbase mode run each as `"$ab" …`.
@@ -134,16 +134,22 @@ lands on disk either way.
   the call couldn't prompt. Run the `cookiesync auth --reason "…"` from step 2, then
   re-run the `cookies` pipe.
 - **Few or no cookies returned** — the union already covered every registered browser
-  and host, so the user isn't signed in to the site on any of them. Ask the user to
-  log in via their browser first, then retry.
+  and host, so the user isn't signed in to the site on any of them. Do **Log in and
+  retry** (below). If the pipe is still thin after a fresh login, they signed in via a
+  browser or profile `cookiesync` doesn't track: `cookiesync browser ls` to check,
+  `browser add` to register it, or redo the login in a registered browser's primary
+  profile.
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Add that host as another
   `cookies` argument and re-run the pipe.
-- **Browserbase renders logged-out** — cookies and web storage were seeded, so the site
-  likely rejects Browserbase's cloud IP, or its login lives in **IndexedDB** (which
-  Browserbase can't restore). Fall back to the **local default** (step 3) — local Clark
-  on your own IP.
-- **Loaded but still logged out** (step 4) — the login isn't in cookies *or*
+- **Browserbase renders logged-out** — cookies and web storage were seeded, but a seeded
+  cookie can still be an **expired** desktop session: do **Log in and retry** once.
+  If that doesn't fix it, the site rejects Browserbase's cloud IP, or its login lives in
+  **IndexedDB** (which Browserbase can't restore). `"$ab" close` to release the cloud
+  session, then fall back to the **local default** (step 3) — local Clark on your own IP.
+- **Loaded but still logged out** (step 4) — first suspect the desktop session itself
+  (logged out, or expired since those cookies were written): do **Log in and retry**
+  once. If a fresh login doesn't fix it, the login isn't in cookies *or*
   localStorage/sessionStorage, so it's **IndexedDB-based auth** (e.g. Firebase), which
   `cookiesync` can't capture. Fall back to agent-browser's live import:
   quit the browser and `agent-browser --profile "<Profile>" open "$U1"`, or start it with
@@ -151,6 +157,46 @@ lands on disk either way.
   (a live browser reads IndexedDB natively).
 - **Touch ID denied / cancelled** — re-run `cookiesync auth`. The prompt may have been
   routed to another machine; make sure the user approves it there.
+
+### Log in and retry
+
+The guided fix when the root cause is a missing or stale desktop session — the branches
+above that suspect one route here. Run it **once**, then return to the sending branch's
+deeper diagnosis.
+
+1. **Open the site for the user** in their own desktop browser — the primary URL, not a
+   guessed login path (the site redirects to its own login/SSO entry):
+
+   ```bash
+   open "$U1"
+   ```
+
+   The default browser is fine — `cookiesync` unions every registered browser — and so
+   is any browser the user normally uses, in its **primary profile** (what first-run
+   registration tracks). If a separately-gated additional host is the problem, `open`
+   that host too.
+
+2. **Tell them, then block.** Ask the user to sign in until the site shows them logged
+   in, and wait on explicit confirmation — `AskUserQuestion` with options like **Done** /
+   **Can't right now**. Don't poll or assume; on "can't", skip the retry and report. The
+   exchange also buys the browser time to flush the fresh cookies to disk — don't race
+   it.
+
+3. **Re-stream and reload.**
+   - **Local:** `agent-browser --session abwc close`, then re-run step 3's launch block
+     whole (one Bash call, fresh tmpdir/FIFO — the old one is gone). Closing first
+     matters: `state load` overlays a live session; it doesn't clear the logged-out
+     visit's leftover cookies/sessionStorage.
+   - **Browserbase:** re-run step 3's Browserbase block against the live `ab` session
+     as-is — `cookies set` overwrites same-name cookies and the block ends in a reload.
+     Don't `ab close`; that releases the cloud session.
+
+   If the retry's `cookies` call asks for `auth` again, the key TTL lapsed while the
+   user logged in — re-run the `cookiesync auth --reason "…"` from step 2, then continue.
+
+4. **Verify again** (step 4). If it's still logged out after a fresh login, don't loop;
+   take the sending branch's next diagnosis (unregistered browser/profile, Browserbase
+   IP, IndexedDB).
 
 ## Notes
 
