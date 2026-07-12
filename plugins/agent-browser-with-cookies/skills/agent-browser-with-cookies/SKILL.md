@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(agent-browser:*), Bash(bash:*), Bash(mktemp:*), Bash(mkfifo:*), Bash(rm:*), Bash(open:*), Bash(jq:*), Bash(brew install:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(bash:*), Bash(open:*), Bash(pkill:*), Bash(brew install:*), Read
 effort: medium
 ---
 
@@ -13,10 +13,11 @@ browser store via the `cookiesync` CLI and streams them straight into an isolate
 `agent-browser` session, then hands off to the normal `agent-browser` skill for the
 task itself.
 
-It's authorize once (`cookiesync auth`, one Touch ID tap), then stream the sites'
-cookies **and web storage** (localStorage/sessionStorage) into the session — over a
-short-lived FIFO locally, per-origin via `ab` in Browserbase mode. The payload never
-lands on disk either way.
+It's authorize once (`cookiesync auth`, one Touch ID tap), then one `abwc-seed` call
+streams the sites' cookies **and web storage** (localStorage/sessionStorage) into the
+session. The payload never lands on disk. Every browser command — launch, seed,
+verify, task, cleanup, recovery — goes through **`ab`**, the plugin's universal entry
+point; never call `agent-browser` raw.
 
 ## Prerequisites
 
@@ -55,106 +56,81 @@ lands on disk either way.
    wait for the approval to come back. That Mac's console may show one named consent
    sheet the first time; approving grants about an hour of silent access.
 
-3. **Launch the authenticated session.** Default is **local** (stealth Clark
-   browser): stream the sites' cookies in over a FIFO — restores cookies *and*
-   localStorage, and the payload never lands on disk. List **every** host the task
-   touches; open only the **primary** URL:
-
-   ```bash
-   agent-browser --session abwc open
-   d="$(mktemp -d)" && mkfifo "$d/state"
-   cookiesync cookies "$U1" "$U2" … --format playwright > "$d/state" &
-   agent-browser --session abwc state load "$d/state"; rm -rf "$d"
-   agent-browser --session abwc open "$U1"
-   ```
-
-   Run the block as **one** Bash call — `$d` and the background writer don't survive
-   separate invocations. `cookiesync cookies` emits one merged Playwright
-   `storageState` (union across every registered browser/host, newest cookie wins);
-   `state load` drains the FIFO in one synchronous read, so the `rm` right after is
-   safe. `state load` exits 0 even on a bad payload — an `✗ Invalid state file` line
-   means the writer died before producing JSON (usually `cookies` wanting `auth`;
-   its error is in the same output). Each origin's localStorage rides the `storageState`
-   too; sessionStorage does not — for the rare site that keeps auth there, seed it after
-   `state load` with a per-origin `agent-browser --session abwc storage session set` loop
-   (the same shape the Browserbase block uses). Other domains' cookies activate when
-   navigation reaches them. Single site: drop the extra hosts.
-
-   **Browserbase mode (cloud IP).** Browserbase **ignores `--state`**, so seed the
-   session *after* opening, then reload. Drive **every** call through **`ab`** (the plugin's
-   `bin/ab`): it keeps one keepAlive cloud session per agent session and reconnects to it,
-   so multi-step flows share a live page. `ab` resolves the Browserbase key and session
-   itself — you never pass a provider flag or session id, and a plain `agent-browser` call
-   would hit a *local* browser instead.
+3. **Launch the authenticated session.** `ab` picks the backend itself: Browserbase
+   (one keepAlive cloud session per agent session, reconnected across calls) when its
+   key resolves, the local stealth Clark browser otherwise. `--local` anywhere forces
+   local. Seed with the shipped helper, listing **every** host the task touches,
+   primary URL first; then open only the primary URL:
 
    ```bash
    ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
+   "${CLAUDE_PLUGIN_ROOT}/bin/abwc-seed" "$U1" "$U2" …
    "$ab" open "$U1"
-   # cookies — foreground stdin parse; header format is one host per call:
-   cookiesync cookies "$U1" --format header | "$ab" cookies set --curl /dev/stdin
-   # localStorage + sessionStorage — seed each origin on its own page, then reload:
-   cookiesync cookies "$U1" "$U2" … --format webstorage | jq -c '.origins[]' | while read -r o; do
-     ORIGIN="$(printf '%s' "$o" | jq -r '.origin')"
-     "$ab" open "$ORIGIN"
-     printf '%s' "$o" | jq -r '.localStorage[]?   | [.name, .value] | @tsv' \
-       | while IFS=$'\t' read -r k v; do "$ab" storage local   set "$k" "$v"; done
-     printf '%s' "$o" | jq -r '.sessionStorage[]? | [.name, .value] | @tsv' \
-       | while IFS=$'\t' read -r k v; do "$ab" storage session set "$k" "$v"; done
-   done
-   "$ab" open "$U1" && "$ab" reload
    ```
 
-   This restores cookies **and** localStorage/sessionStorage on the cloud IP. `storage set`
-   writes to the current page's origin, so each origin is opened before its keys are seeded
-   (Faye's login redirect stays same-origin, so this holds). **IndexedDB can't be restored
-   on Browserbase** (agent-browser has no IndexedDB primitive) — a site whose login lives
-   only there needs the local default. The header format carries no domain metadata, so
-   cookies are **one host per call** (repeat the `cookies set` line per host with `--domain
-   <host>`); web storage carries its exact origin, so one `--format webstorage` pipe covers
-   every host.
+   `abwc-seed` streams cookies **and** localStorage/sessionStorage process-to-process:
+   locally a merged Playwright `storageState` over a short-lived FIFO plus a per-origin
+   sessionStorage pass; on Browserbase (which ignores `--state`) per-host cookie
+   headers plus per-origin `storage set` calls, ending in a reload. `cookiesync` emits
+   the union across every registered browser/host, newest cookie wins. The helper
+   relays cookiesync's per-peer skip warnings on stderr and exits non-zero when the
+   payload was bad (usually `cookies` wanting `auth` — re-run step 2, then re-run it)
+   or, on Browserbase, when any seeding step failed (a summary line counts them).
+   Single site: just `"$U1"`. Other domains' cookies activate when navigation reaches
+   them.
 
-   Keep using `"$ab" …` for **every** later Browserbase call — verify (step 4), the task
-   (step 5), and cleanup. `ab close` **releases** the cloud session, so always end a
-   Browserbase run with it (a keepAlive session otherwise lingers until it times out).
+   **IndexedDB can't be restored** in either mode — `cookiesync` can't capture it and
+   agent-browser has no IndexedDB primitive. A site whose login lives only there needs
+   the live-import fallback under **Failure handling**.
 
-4. **Verify auth.** `agent-browser --session abwc snapshot -i` (and/or `get url`) —
-   confirm you landed on the app, **not** a login/SSO page. Look for an account/avatar
-   affordance. In Browserbase mode use `"$ab" snapshot -i` instead. If it looks logged-out,
-   see **Failure handling** — most often **Log in and retry**.
+4. **Verify auth.** `"$ab" snapshot -i` (and/or `"$ab" get url`) — confirm you landed
+   on the app, **not** a login/SSO page. Look for an account/avatar affordance. If it
+   looks logged-out, see **Failure handling** — most often **Log in and retry**.
 
-5. **Do the task** with normal `agent-browser --session abwc …` commands (defer to the
-   `agent-browser` skill for command mechanics). In Browserbase mode run each as `"$ab" …`.
+5. **Do the task**, running every command as `"$ab" …` (defer to the `agent-browser`
+   skill for command mechanics; substitute `"$ab"` for `agent-browser` throughout).
 
-6. **Clean up.** Local: `agent-browser --session abwc close` (no state file to remove).
-   Browserbase: `"$ab" close`, which also releases the cloud session.
+6. **Clean up.** `"$ab" close` — closes the local session, or releases the Browserbase
+   keepAlive session (which otherwise lingers until it times out). Always end a run
+   with it.
 
 ## Failure handling
 
-- **`cookies` says to run `cookiesync auth` first** — the cached key's TTL expired and
-  the call couldn't prompt. Run the `cookiesync auth --reason "…"` from step 2, then
-  re-run the `cookies` pipe.
+- **`cookies` says to run `cookiesync auth` first** (`abwc-seed` relays it and exits
+  non-zero) — the cached key's TTL expired and the call couldn't prompt. Run the
+  `cookiesync auth --reason "…"` from step 2, then re-run `abwc-seed`.
 - **Few or no cookies returned** — the union already covered every registered browser
   and host, so the user isn't signed in to the site on any of them. Do **Log in and
-  retry** (below). If the pipe is still thin after a fresh login, they signed in via a
+  retry** (below). If it's still thin after a fresh login, they signed in via a
   browser or profile `cookiesync` doesn't track: `cookiesync browser ls` to check,
   `browser add` to register it, or redo the login in a registered browser's primary
   profile.
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
-  requests 401) — you probably missed a host in step 3. Add that host as another
-  `cookies` argument and re-run the pipe.
-- **Browserbase renders logged-out** — cookies and web storage were seeded, but a seeded
-  cookie can still be an **expired** desktop session: do **Log in and retry** once.
-  If that doesn't fix it, the site rejects Browserbase's cloud IP, or its login lives in
-  **IndexedDB** (which Browserbase can't restore). `"$ab" close` to release the cloud
-  session, then fall back to the **local default** (step 3) — local Clark on your own IP.
+  requests 401) — you probably missed a host in step 3. Re-run `abwc-seed` with that
+  host added.
+- **Daemon wedged — commands hang or fail `Resource temporarily unavailable (os error
+  35)`** — the agent-browser daemon is stuck (classically a reader left blocked on a
+  FIFO by a killed writer). Kill the daemon and the stealth browser, then re-run the
+  launch step (step 3):
+
+  ```bash
+  pkill -f agent-browser; pkill -if clark
+  ```
+
+- **Browserbase renders logged-out** — cookies and web storage were seeded, but a
+  seeded cookie can still be an **expired** desktop session: do **Log in and retry**
+  once. If that doesn't fix it, the site rejects Browserbase's cloud IP, or its login
+  lives in **IndexedDB** (which Browserbase can't restore). `"$ab" close` to release
+  the cloud session, then re-run step 3 forcing local — `abwc-seed --local`, then
+  `"$ab" --local open "$U1"` and `--local` on every later call.
 - **Loaded but still logged out** (step 4) — first suspect the desktop session itself
   (logged out, or expired since those cookies were written): do **Log in and retry**
   once. If a fresh login doesn't fix it, the login isn't in cookies *or*
   localStorage/sessionStorage, so it's **IndexedDB-based auth** (e.g. Firebase), which
-  `cookiesync` can't capture. Fall back to agent-browser's live import:
-  quit the browser and `agent-browser --profile "<Profile>" open "$U1"`, or start it with
-  `--remote-debugging-port=9222` then `agent-browser --auto-connect state save ./s.json`
-  (a live browser reads IndexedDB natively).
+  `cookiesync` can't capture. Fall back to the live import — a live browser reads
+  IndexedDB natively: quit the browser and `"$ab" --local --profile "<Profile>" open
+  "$U1"`, or start it with `--remote-debugging-port=9222` then
+  `"$ab" --local --auto-connect state save ./s.json`.
 - **Touch ID denied / cancelled** — re-run `cookiesync auth`. The prompt may have been
   routed to another machine; make sure the user approves it there.
 
@@ -182,17 +158,16 @@ deeper diagnosis.
    exchange also buys the browser time to flush the fresh cookies to disk — don't race
    it.
 
-3. **Re-stream and reload.**
-   - **Local:** `agent-browser --session abwc close`, then re-run step 3's launch block
-     whole (one Bash call, fresh tmpdir/FIFO — the old one is gone). Closing first
-     matters: `state load` overlays a live session; it doesn't clear the logged-out
-     visit's leftover cookies/sessionStorage.
-   - **Browserbase:** re-run step 3's Browserbase block against the live `ab` session
-     as-is — `cookies set` overwrites same-name cookies and the block ends in a reload.
-     Don't `ab close`; that releases the cloud session.
+3. **Re-seed and reload.**
+   - **Local:** `"$ab" close` (with `--local` if you forced it), then re-run step 3
+     whole. Closing first matters: `state load` overlays a live session; it doesn't
+     clear the logged-out visit's leftover cookies/sessionStorage.
+   - **Browserbase:** re-run `abwc-seed` as-is against the live session — `cookies set`
+     overwrites same-name cookies and the seeding ends in a reload. Don't `"$ab"
+     close`; that releases the cloud session.
 
-   If the retry's `cookies` call asks for `auth` again, the key TTL lapsed while the
-   user logged in — re-run the `cookiesync auth --reason "…"` from step 2, then continue.
+   If the retry's seeding asks for `auth` again, the key TTL lapsed while the user
+   logged in — re-run the `cookiesync auth --reason "…"` from step 2, then continue.
 
 4. **Verify again** (step 4). If it's still logged out after a fresh login, don't loop;
    take the sending branch's next diagnosis (unregistered browser/profile, Browserbase
@@ -200,29 +175,39 @@ deeper diagnosis.
 
 ## Notes
 
-- **Multiple domains:** pass every host the task touches to one `cookiesync cookies`
-  call — it merges them into a single `storageState`. Reach for this when an app calls a
-  separate API host, or you read from a second dashboard. One `auth`, one pipe, one
-  session; you still `open` only the primary URL.
+- **Multiple domains:** pass every host the task touches to one `abwc-seed` call — it
+  merges them into a single seeding pass. Reach for this when an app calls a separate
+  API host, or you read from a second dashboard. One `auth`, one seed, one session;
+  you still `open` only the primary URL.
+- **Parallel per-host fan-out:** when N independent hosts are each their own task
+  (reading a balance from each of N dashboards), a coordinator primes once with one
+  `cookiesync auth --reason` naming every host, then each parallel agent seeds only
+  its own host — the shared grant (**One session, one tap**, below) keeps the whole
+  fan-out at one tap. Precondition: one browser session per agent, which `ab` cannot
+  give yet — it keys the session off the cookiesync requestor, shared across a
+  session's agents, so until it takes a session override parallel agents would share
+  one page. The boundary with merging: merge co-dependent origins of one flow (an app
+  plus its API host, an SSO chain); fan out hosts that stand alone, even when one
+  request names them together.
 - The stream carries plaintext session tokens — cookies **and** localStorage/
-  sessionStorage (a Playwright `storageState` locally; a cookie header plus per-origin
-  `storage set` calls in Browserbase mode). It goes process-to-process (never a file on
-  disk), and `cookiesync` keeps the raw values out of its own logs.
+  sessionStorage (a Playwright `storageState` over a FIFO locally; a cookie header
+  plus per-origin `storage set` calls in Browserbase mode). It goes process-to-process
+  (never a file on disk), and `cookiesync` keeps the raw values out of its own logs.
 - `cookiesync auth` is the one Touch ID consent checkpoint: the daemon caches the Safe
   Storage key for a short TTL so `cookies` calls inside that window need no further
-  prompt. If nothing is primed yet and the session is live, the `cookies` call itself
+  prompt. If nothing is primed yet and the session is live, the seeding call itself
   costs the one tap.
 - The Touch ID prompt is a per-task consent checkpoint, not a hardware binding of the
   key. Your `--reason` shows verbatim, so the user approves an informed, task-specific
   request — keep the reason short and honest.
 - **One session, one tap:** every `cookiesync` call in a Claude Code session shares
   one Touch ID grant — the CLI derives the requestor from the session — so `auth`
-  (step 2), `cookies` (step 3), and any retries cost one tap total. A second tap
+  (step 2), `abwc-seed` (step 3), and any retries cost one tap total. A second tap
   means a different requestor (new session, `COOKIESYNC_REQUESTOR` set) or an
   expired key TTL.
 - **Outside Claude Code:** pin the requestor inline on every call —
   `COOKIESYNC_REQUESTOR="agent-browser · $(id -un)" cookiesync auth --reason "…"` —
   an export in a separate step doesn't persist across steps.
-- **Browsers:** omit `--browser` and one tap unions every registered browser and host.
-  `--browser chrome|arc` forces a single browser as the escape hatch; `--profile`
-  requires `--browser`.
+- **Browsers:** `abwc-seed` unions every registered browser and host. To force a
+  single browser, drop to a direct `cookiesync cookies --browser chrome|arc …` call;
+  `--profile` requires `--browser`.

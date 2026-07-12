@@ -1,7 +1,7 @@
 {
   "name": "agent-browser-with-cookies",
-  "description": "Authenticated agent-browser sessions: stream your local browser's cookies and web storage (localStorage/sessionStorage, one Touch ID tap via cookiesync) into a session — local stealth browser by default, optional Browserbase cloud mode. macOS.",
-  "version": "0.10.0",
+  "description": "Authenticated agent-browser sessions: stream your local browser's cookies and web storage (localStorage/sessionStorage, one Touch ID tap via cookiesync) into a session via one ab entry point — Browserbase cloud when its key resolves, local stealth browser otherwise. macOS.",
+  "version": "0.11.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

@@ -54,7 +54,7 @@
     {
       "name": "agent-browser-with-cookies",
       "source": "./plugins/agent-browser-with-cookies",
-      "description": "Run authenticated agent-browser sessions by reusing your local browser login — cookies for one or more hosts behind one Touch ID tap (cookiesync CLI), into a local stealth browser by default or Browserbase cloud mode. macOS."
+      "description": "Run authenticated agent-browser sessions by reusing your local browser login — cookies for one or more hosts behind one Touch ID tap (cookiesync CLI), through one ab entry point: Browserbase cloud when its key resolves, local stealth browser otherwise. macOS."
     },
     {
       "name": "show",

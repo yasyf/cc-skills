@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# abwc-seed <url-or-host>... — seed the caller's ab session with cookies + web storage
+# (localStorage/sessionStorage) for the given hosts, streamed out of the local browser
+# store via cookiesync. First argument is the primary URL. Mode resolves exactly once
+# at entry via `ab mode` (Browserbase vs local) and is pinned for the whole run — local
+# appends --local to every child ab call, browserbase exports the resolved API key so
+# no child can re-resolve it; pass --local anywhere to force the local browser, same
+# as ab.
+#
+#   • local       → one merged Playwright storageState over a short-lived FIFO
+#                   (cookies + localStorage), then per-origin sessionStorage seeding
+#   • browserbase → per-host cookie headers + per-origin localStorage/sessionStorage
+#                   via `ab cookies set` / `ab storage … set`, then reopen + reload
+#
+# The payload never lands on disk either way. The FIFO lifecycle is a bounded
+# rendezvous: the writer's shell owns the write-open, so the reader always gets EOF
+# even when cookiesync dies without output, and both sides run under `timeout`, so a
+# missing peer can never pin the other in open(2).
+set -uo pipefail
+
+die() {
+  echo "abwc-seed: $*" >&2
+  exit 1
+}
+
+command -v cookiesync >/dev/null 2>&1 || die "cookiesync not found on PATH"
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ab="$here/ab"
+
+TMPD="$(mktemp -d)"
+# `jobs -p` sees every background child — writer and loader both, even one launched an
+# instant before its pid variable is assigned — so a signal can never orphan either.
+cleanup() {
+  local p
+  while read -r p; do kill "$p" 2>/dev/null; done < <(jobs -p)
+  rm -rf "$TMPD"
+}
+trap cleanup EXIT
+
+local_flag=()
+hosts=()
+for a in "$@"; do
+  case "$a" in
+  --local) local_flag=(--local) ;;
+  *) hosts+=("$a") ;;
+  esac
+done
+
+if [[ ${#hosts[@]} -eq 0 ]]; then
+  echo "usage: abwc-seed [--local] <url-or-host>..." >&2
+  exit 2
+fi
+primary="${hosts[0]}"
+
+run_ab() { "$ab" ${local_flag[@]+"${local_flag[@]}"} "$@"; }
+
+# Mode resolves exactly once and pins every child call: a local verdict appends
+# --local everywhere; a browserbase verdict exports the API key so no child ab can
+# re-resolve it (a transient `op read` blip mid-flow cannot switch backends).
+mode="$(run_ab mode)" || die "'ab mode' failed"
+if [[ "$mode" == "local" ]]; then
+  local_flag=(--local)
+elif [[ "$mode" == "browserbase" ]]; then
+  # Same op:// one-liner ab resolves — duplicated here so the key is captured once.
+  BROWSERBASE_API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null)}"
+  [[ -n "$BROWSERBASE_API_KEY" ]] || die "could not pin the Browserbase API key"
+  export BROWSERBASE_API_KEY
+fi
+
+bare_host() { # url-or-host -> host: scheme, userinfo, port, path/query/fragment stripped
+  # IPv6 literals are not supported.
+  local h="$1"
+  h="${h#*://}"
+  h="${h%%[/?#]*}"
+  h="${h##*@}"
+  printf '%s' "${h%%:*}"
+}
+
+# seed_storage KIND — per-origin `ab storage KIND set` for every origin that carries
+# KIND keys; each origin is opened first because `storage set` writes to the current
+# page's origin. Names and values ride base64-encoded through the shell so JSON-ish
+# values survive verbatim. Returns non-zero if any origin or entry failed.
+seed_storage() {
+  local kind="$1" origins entries o origin k v fails=0
+  origins="$(cookiesync cookies --format webstorage -- "${hosts[@]}" |
+    jq -c --arg kind "${kind}Storage" '.origins[] | select((.[$kind] // []) | length > 0)')" || {
+    echo "abwc-seed: could not extract ${kind}Storage from cookiesync" >&2
+    return 1
+  }
+  while IFS= read -r o; do
+    [[ -n "$o" ]] || continue
+    origin="$(jq -r '.origin' <<<"$o")"
+    entries="$(jq -r --arg kind "${kind}Storage" \
+      '.[$kind][] | select((.name // "") != "") | [.name, .value] | map(@base64) | join(" ")' <<<"$o")" || {
+      echo "abwc-seed: could not parse ${kind}Storage entries for $origin" >&2
+      fails=$((fails + 1))
+      continue
+    }
+    if ! run_ab open "$origin"; then
+      echo "abwc-seed: could not open $origin; skipping its ${kind}Storage" >&2
+      fails=$((fails + 1))
+      continue
+    fi
+    # $(base64 -D) strips trailing newlines and argv cannot carry NUL — storage-value
+    # shapes rare enough to accept rather than contort the bridge.
+    while read -r k v; do
+      [[ -n "$k" ]] || continue
+      run_ab storage "$kind" set "$(base64 -D <<<"$k")" "$(base64 -D <<<"$v")" || fails=$((fails + 1))
+    done <<<"$entries"
+  done <<<"$origins"
+  [[ "$fails" -eq 0 ]]
+}
+
+seed_local() {
+  local wpid lpid first fst wst lst wkilled=0
+  mkfifo "$TMPD/state"
+  # FIFO rendezvous, every open bounded. The writer's shell owns the write-open (it
+  # happens before cookiesync execs), so a cookiesync that dies without producing
+  # output still yields open → close and the reader always sees EOF; timeout wraps
+  # the open itself, so a reader that never comes cannot pin the writer. The loader
+  # runs under its own timeout, which also bounds its read-open of the FIFO.
+  # shellcheck disable=SC2016
+  timeout -k 5 60 bash -c 'f="$1"; shift; exec cookiesync cookies --format playwright -- "$@" >"$f"' \
+    seedwriter "$TMPD/state" "${hosts[@]}" 2>"$TMPD/err" &
+  wpid=$!
+  # Load concurrently so payloads larger than the pipe buffer (>64KB) drain.
+  timeout -k 5 90 "$ab" ${local_flag[@]+"${local_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
+  lpid=$!
+  # Reap whichever side finishes first (bash ≥5.1): a failed first-finisher gets the
+  # survivor killed instead of waited out — a loader that dies before ever opening
+  # the FIFO must not stall us behind the writer's write-open timeout, and a dead
+  # writer must not leave us waiting out the loader's own timeout. Each side's
+  # failure is then reported with its own captured output.
+  wait -n -p first "$wpid" "$lpid"
+  fst=$?
+  if [[ "$first" == "$wpid" ]]; then
+    wst=$fst
+    [[ "$wst" -eq 0 ]] || kill "$lpid" 2>/dev/null
+    wait "$lpid"
+    lst=$?
+  else
+    lst=$fst
+    if [[ "$lst" -ne 0 ]] && kill -0 "$wpid" 2>/dev/null; then
+      kill "$wpid" 2>/dev/null
+      wkilled=1
+    fi
+    wait "$wpid"
+    wst=$?
+  fi
+  cat "$TMPD/err" >&2
+  if [[ "$wst" -ne 0 && "$wkilled" -eq 0 ]]; then
+    die "cookiesync cookies failed or timed out (status $wst)"
+  fi
+  if [[ "$lst" -ne 0 ]] || grep -Eq 'Invalid state file|Failed to read state' "$TMPD/load"; then
+    cat "$TMPD/load" >&2
+    die "state load rejected the payload (status $lst) — see the errors above (often: run \`cookiesync auth\` first)"
+  fi
+  cat "$TMPD/load"
+
+  # storageState carries localStorage; sessionStorage rides separately.
+  seed_storage session
+}
+
+seed_browserbase() {
+  local u fails=0
+  run_ab open "$primary" || die "could not open $primary"
+  # The header format carries no domain metadata — one host per call, domain pinned.
+  for u in "${hosts[@]}"; do
+    if ! cookiesync cookies --format header -- "$u" |
+      run_ab cookies set --curl /dev/stdin --domain "$(bare_host "$u")"; then
+      echo "abwc-seed: cookie seeding failed for $u" >&2
+      fails=$((fails + 1))
+    fi
+  done
+  seed_storage local || fails=$((fails + 1))
+  seed_storage session || fails=$((fails + 1))
+  run_ab open "$primary" || fails=$((fails + 1))
+  run_ab reload || fails=$((fails + 1))
+  if [[ "$fails" -gt 0 ]]; then
+    echo "abwc-seed: seeding finished with $fails failed step(s)" >&2
+    return 1
+  fi
+}
+
+case "$mode" in
+local) seed_local ;;
+browserbase) seed_browserbase ;;
+*) die "unknown ab mode: $mode" ;;
+esac
