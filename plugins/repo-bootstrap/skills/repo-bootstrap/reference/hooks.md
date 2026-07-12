@@ -302,7 +302,7 @@ ships only the seven AST rules above.
 
 ### `ccx` (plugin-attached pack — `cc-context@skills`)
 
-Guard pack that makes the `cc-context` facade (`ccx` / `mcp__cc-context__*`) the
+Guard pack that makes the `cc-context` facade (`ccx` / its MCP tools) the
 default for reading and searching code. It **blocks the token-heavy primitives** the
 facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
 Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`

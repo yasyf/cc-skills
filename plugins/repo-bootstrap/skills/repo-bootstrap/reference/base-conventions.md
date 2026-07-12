@@ -61,7 +61,7 @@ The single canonical agent-conventions doc. Section by section:
 - **Compact Context (ccx).** The `cc-skills:ccx` import in every layer's
   `AGENTS.md` layout, composed by `cc-guides render` (the fragment body lives upstream
   in `cc-skills` `plugin/guides/md/ccx.md`) where the old per-project `## Code Search` section
-  used to sit. It makes `cc-context` — the `ccx` CLI and the `mcp__cc-context__*`
+  used to sit. It makes `cc-context` — the `ccx` CLI and its
   MCP tools — the default for reading/searching/reviewing code, because it returns
   token-bounded output and the `ccx` capt-hook guard pack blocks the token-heavy
   primitives. The ladder: `ccx repo overview` (orient), `ccx code search` (intent,
@@ -160,7 +160,7 @@ boundaries only.
 
 Empty by default. Code search no longer ships a per-project `semble` MCP server here —
 the `cc-context` facade (semble + tilth, surfaced as `ccx` and the
-`mcp__cc-context__*` MCP tools) ships inside the `cc-context@cc-context` plugin enabled in
+plugin's MCP tools) ships inside the `cc-context@cc-context` plugin enabled in
 `.claude/settings.json`, so every trusted clone gets it without a project-scoped
 server. The AGENTS.md **Compact Context (ccx)** section and the General Rules
 "Search before writing" rule both point at `ccx`, not at this file; `.mcp.json` stays
