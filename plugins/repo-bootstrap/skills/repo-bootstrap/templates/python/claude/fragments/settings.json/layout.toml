@@ -1,7 +1,7 @@
 fragments = [
   "cc-skills:settings-base",
   "cc-skills:settings-python",
-  "local",
+  "settings-overrides",
 ]
 
 [sources.cc-skills]

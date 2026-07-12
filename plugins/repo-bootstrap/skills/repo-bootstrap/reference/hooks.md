@@ -413,18 +413,19 @@ the exact shape).
 
 If the project should control its capt-hook version — or, like captain-hook itself, dogfoods
 its own checkout — pin `capt-hook` as a dev dependency, take the repo off the plugin's global
-wiring, and point it at a local launcher. Disable the captain-hook plugin for the repo by setting
-`"captain-hook@captain-hook": false` under `enabledPlugins` in `.claude/settings.json`, then wire
-a local hook launcher in `.claude/settings.local.json` (machine-local, gitignored) that resolves
-capt-hook from the project's own environment:
+wiring, and point it at the project's own environment. Disable the captain-hook plugin for the
+repo by setting `"captain-hook@captain-hook": false` under `enabledPlugins`, and wire a `"hooks"`
+block registering every event with the venv binary directly:
 
 ```
-uv run --project "$CLAUDE_PROJECT_DIR" capt-hook run <Event>
+"$CLAUDE_PROJECT_DIR"/.venv/bin/capt-hook run <Event>
 ```
 
-Disabling the plugin drops its global hook registration, so the `settings.local.json` launcher is
-the only wiring left in play. This is exactly what the captain-hook repo does with its `.venv` dev
-launcher, since gating its own hooks through the published uvx version would run stale code.
+Both live in the settings-overrides overlay fragment (then re-run `cc-guides render`). Disabling
+the plugin drops its global hook registration, so this block is the only wiring left in play.
+This is exactly what the captain-hook repo commits in its own `.claude/settings.json`: gating its
+hooks through the published uvx version would run stale code, and the venv-direct form skips the
+per-event `uv run` resolve (~55ms/event).
 
 ## Troubleshooting
 

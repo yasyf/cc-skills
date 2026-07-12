@@ -130,17 +130,18 @@ FILES = (
     ),
     FileSpec(".claude/fragments/CLAUDE.md/layout.toml", "base/claude/fragments/CLAUDE.md/layout.toml", "base"),
     # settings.json layout dir lives at the doubly-nested .claude/fragments/.claude/
-    # settings.json/ (the target IS .claude/settings.json). The `local.fragment.json`
-    # is a placeholder-free `{}` no-op merge the repo fills in later; it ships once
-    # (base) and every layer's layout.toml composes it after the pack fragments.
+    # settings.json/ (the target IS .claude/settings.json). The
+    # `settings-overrides.fragment.json` is a placeholder-free `{}` no-op merge the
+    # repo fills in later; it ships once (base) and every layer's layout.toml
+    # composes it after the pack fragments.
     FileSpec(
         ".claude/fragments/.claude/settings.json/layout.toml",
         "base/claude/fragments/settings.json/layout.toml",
         "base",
     ),
     FileSpec(
-        ".claude/fragments/.claude/settings.json/local.fragment.json",
-        "base/claude/fragments/settings.json/local.fragment.json",
+        ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
+        "base/claude/fragments/settings.json/settings-overrides.fragment.json",
         "base",
     ),
     FileSpec("STYLEGUIDE.md", "base/STYLEGUIDE.md", "base"),

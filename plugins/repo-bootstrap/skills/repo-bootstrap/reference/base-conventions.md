@@ -247,10 +247,10 @@ section in sync with the chosen ID.
 This is a **rendered artifact**, composed by `cc-guides render` from
 `.claude/fragments/.claude/settings.json/`: `cc-skills:settings-base` deep-merged with
 the layer variant (`settings-python` / `settings-go` / `settings-swift`) and a
-placeholder-free `{}` `local.fragment.json` for repo-specific additions. Never hand-edit
-`.claude/settings.json`; the shared fields below live in the `cc-skills` pack
+placeholder-free `{}` `settings-overrides.fragment.json` for repo-specific additions. Never
+hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skills` pack
 (`plugin/guides/json/`) — edit them there — and per-repo overrides go in
-`local.fragment.json` (then re-run `cc-guides render`). Field by field:
+`settings-overrides.fragment.json` (then re-run `cc-guides render`). Field by field:
 
 - `"effortLevel": "max"`, `"ultracode": true`, `"alwaysThinkingEnabled": true`,
   `"showThinkingSummaries": true` — maximum reasoning effort on every turn, with

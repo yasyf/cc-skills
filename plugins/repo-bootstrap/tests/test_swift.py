@@ -38,7 +38,7 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
-    ".claude/fragments/.claude/settings.json/local.fragment.json",
+    ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
 }
 
 SWIFT_DESTS = FRAGMENT_DESTS | {

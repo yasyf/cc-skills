@@ -30,7 +30,7 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
-    ".claude/fragments/.claude/settings.json/local.fragment.json",
+    ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
 }
 
 BASE_DESTS = FRAGMENT_DESTS | {
@@ -911,13 +911,14 @@ def test_base_emits_guides_yml(base_var_pairs):
 def test_settings_json_composes_from_pack_fragments(base_var_pairs):
     # settings.json is a cc-guides artifact now: the base layout imports
     # `cc-skills:settings-base` (which carries the cc-context marketplace + enabled
-    # plugin) plus a placeholder-free `{}` local override for repo-specific additions.
+    # plugin) plus a placeholder-free `{}` settings-overrides overlay for
+    # repo-specific additions.
     plan, _ = _real_plan("base", base_var_pairs)
     layout = plan[".claude/fragments/.claude/settings.json/layout.toml"]
     assert '"cc-skills:settings-base"' in layout
-    assert '"local"' in layout
+    assert '"settings-overrides"' in layout
     assert 'source = "github:yasyf/cc-skills@main"' in layout
-    assert json.loads(plan[".claude/fragments/.claude/settings.json/local.fragment.json"]) == {}
+    assert json.loads(plan[".claude/fragments/.claude/settings.json/settings-overrides.fragment.json"]) == {}
 
 
 # --- run(): post-write cc-guides render (stubbed on PATH) ---

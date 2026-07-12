@@ -1,6 +1,6 @@
 fragments = [
   "cc-skills:settings-base",
-  "local",
+  "settings-overrides",
 ]
 
 [sources.cc-skills]
