@@ -1,8 +1,8 @@
 # Written by 'cc-guides render' — do not edit.
 schema = 1
-version = "0.1.19"
+version = "0.1.20"
 artifacts = [".claude/settings.json", "AGENTS.md", "CLAUDE.md"]
 
 [sources.cc-skills]
 spec = "github:yasyf/cc-skills@main"
-commit = "3a4d7b8b46052230e1c00034d8b4c76d6f39a490"
+commit = "76dc4be4233c3b85c380e4a6ff7be47d44ae7038"
