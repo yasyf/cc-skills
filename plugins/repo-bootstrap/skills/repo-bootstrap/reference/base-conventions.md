@@ -116,11 +116,12 @@ shared AGENTS.md:
   hard planning, all prose/writing (never down-route writing), sensitive or
   error-prone implementation, review-findings synthesis, and as the escalation
   target for every lane (context-window pressure is not a routing cue), sonnet-5
-  for recon (never haiku except single-fact mechanical steps), gpt-5.5 via the
+  for recon (never haiku except single-fact mechanical steps), gpt-5.6-sol via the
   codex skill for code/diff review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
   it stays fable), bug diagnosis, well-scoped edits to existing code, second
-  opinions, imagegen, and rote throwaway work (from workflow routing stages: the
+  opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
+  rote/bulk lane; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
   escalation means fable;
   the unexpected checks back — a delegated agent hitting a task-shape surprise
@@ -129,7 +130,7 @@ shared AGENTS.md:
   improvising a detour or punting the decision to a cheaper model (transient
   failures stay autonomous); effort `xhigh` by default (fable implementation may
   run `high`), `max` only after xhigh falls short, verification at same-or-higher
-  tier with table-routed gpt-5.5 lanes counting as same-tier; every plan's
+  tier with table-routed gpt-5.6-sol lanes counting as same-tier; every plan's
   `## Workflow Plan` table names each phase's model and effort (AGENTS.md
   § Writing Plans).
 

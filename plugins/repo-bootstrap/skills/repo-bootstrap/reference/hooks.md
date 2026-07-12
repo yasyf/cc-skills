@@ -121,14 +121,14 @@ PreToolUse. Eight hooks:
   context.
 - **Fable-implementation nudge (LLM, warn).** An `Agent`/`Task` spawn that would run
   on fable (unpinned or `model: fable`) with an implementation-shaped prompt gets an
-  LLM-judged reminder that implementation defaults to opus `xhigh` (or gpt-5.5
+  LLM-judged reminder that implementation defaults to opus `xhigh` (or gpt-5.6-sol
   via the `codex:codex-wrapper` agent for well-scoped edits). Judged, not pattern-matched,
   because fable is often intentional — design/prose review, writing, hard planning,
   and sensitive implementation stay there (code/diff and security review route to
-  gpt-5.5 via their own nudges); when uncertain it stays silent.
+  gpt-5.6-sol via their own nudges); when uncertain it stays silent.
 - **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
   run code/diff review, a security review/audit or verification of security-sensitive
-  code, or bug diagnosis on fable gets a reminder that these route to gpt-5.5 via
+  code, or bug diagnosis on fable gets a reminder that these route to gpt-5.6-sol via
   the `codex:codex-wrapper` agent (spawn it with the self-contained question);
   `Skill(codex)` works from the main conversation. Design review, prose review, and findings
   synthesis stay on fable; when uncertain it stays silent.

@@ -12,11 +12,13 @@ run a code/diff review, security review/audit, or bug diagnosis, hand it a
 well-scoped edit to existing code, use its built-in `$imagegen` skill to generate
 images, or offload rote throwaway work.
 
-Every `codex exec` in this skill pins `-c model_reasoning_effort=xhigh
--c service_tier=fast`. The fast tier is mandatory — never drop it or offer a
-non-fast variant; without it, xhigh prompts can run 10–30+ minutes and get
-abandoned. Keep questions bounded and specific: a narrow question returns in
-~2 minutes, an open-ended design essay does not.
+Every `codex exec` in this skill pins `-c model=gpt-5.6-sol
+-c model_reasoning_effort=xhigh -c service_tier=fast`. The fast tier is
+mandatory — never drop it or offer a non-fast variant, whatever the model;
+without it, xhigh prompts can run 10–30+ minutes and get abandoned. Keep
+questions bounded and specific: a narrow question returns in ~2 minutes, an
+open-ended design essay does not. Model Variants and Escalation below covers
+the two sanctioned deviations.
 
 ## When to Use
 
@@ -45,6 +47,24 @@ abandoned. Keep questions bounded and specific: a narrow question returns in
   and adds little net-new code (a refactor, a signature change, threading a
   parameter through). Production edits are in range at xhigh; review the diff as
   you would any other contributor's.
+
+## Model Variants and Escalation
+
+`gpt-5.6-sol` is the default for every lane. Two sanctioned deviations, at
+your discretion per task; every other flag stays put either way:
+
+- **`gpt-5.6-luna`** for the rote-throwaway/bulk lane only -- one-off scripts,
+  scratch harnesses, data munging where quality doesn't matter and nothing can
+  go wrong. Swap the `-c model=` value; keep the rest of the recipe.
+- **Ultra execution mode** is the escalation rung between sol at xhigh and
+  fable: it decomposes the run across internal subagents for the hardest
+  problems. The codex CLI does not expose it yet (0.144.1: not a
+  reasoning-effort value, no feature flag), so until it does, a hard sol miss
+  escalates straight to fable. Once it lands, it is the retry rung -- slow and
+  expensive; never start a task there.
+
+`-c service_tier=fast` is non-negotiable on every exec, regardless of variant
+or effort.
 
 ## From Workflows and Subagents (the codex-wrapper agent)
 
@@ -80,14 +100,16 @@ Build a comprehensive question with:
 
 ### Step 2: Write Question and Invoke Codex
 
-Use `$$`-suffixed paths — parallel codex calls sharing fixed names clobber
-each other — and write the question, run codex, and print the reply path in
-ONE Bash call so `$$` resolves consistently. Give the call a 10-minute
-timeout: xhigh on the fast tier typically returns in ~2 minutes but can run
-longer.
+Write the question to a mktemp-unique path — /tmp is shared across sessions
+and PIDs recycle, so fixed or `$$`-suffixed names get clobbered by parallel
+codex runs — then write the question, run codex, and print the reply path in
+ONE Bash call so the variables resolve consistently. Give the call a
+10-minute timeout: xhigh on the fast tier typically returns in ~2 minutes but
+can run longer.
 
 ```bash
-cat <<'QUESTION' > /tmp/codex-q-$$.txt
+Q=$(mktemp /tmp/codex-q-XXXXXX); R=$(mktemp /tmp/codex-r-XXXXXX)
+cat <<'QUESTION' > "$Q"
 I have a [component] that fails with [specific error].
 
 Here is the full function:
@@ -109,8 +131,8 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat /tmp/codex-q-$$.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex-r-$$.txt --sandbox workspace-write
-echo "REPLY_FILE: /tmp/codex-r-$$.txt"
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -o "$R" --sandbox workspace-write
+echo "REPLY_FILE: $R"
 ```
 
 ### Step 3: Evaluate the Reply
@@ -131,7 +153,7 @@ AGENTS.md § Ask Before Assuming.
 
 For shorter questions:
 ```bash
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast --sandbox workspace-write
+echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast --sandbox workspace-write
 ```
 
 The file-based pattern is better for debugging because you can refine the question and keep a record.
@@ -180,7 +202,8 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-cat <<'PROMPT' > /tmp/codex-q-$$.txt
+Q=$(mktemp /tmp/codex-q-XXXXXX); R=$(mktemp /tmp/codex-r-XXXXXX)
+cat <<'PROMPT' > "$Q"
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
 chroma-keyed out locally). If the image_gen tool is unavailable, reply
@@ -188,8 +211,8 @@ IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
 
-cat /tmp/codex-q-$$.txt | codex exec -c model_reasoning_effort=xhigh -c service_tier=fast -o /tmp/codex-r-$$.txt --disable shell_tool --sandbox workspace-write
-echo "REPLY_FILE: /tmp/codex-r-$$.txt"
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -o "$R" --disable shell_tool --sandbox workspace-write
+echo "REPLY_FILE: $R"
 ```
 
 Then place and post-process yourself (read the path from the `REPLY_FILE:` line):

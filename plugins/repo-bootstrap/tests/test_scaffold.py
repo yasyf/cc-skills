@@ -217,8 +217,9 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "rather than editing inline on fable" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
-    # gpt-5.5 lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from
-    # fable; escalation stays gpt-5.5→fable) and well-scoped edits, via the codex
+    # gpt-5.6-sol lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from
+    # fable; escalation stays sol→fable, with ultra execution mode as the retry rung
+    # once the codex CLI exposes it) and well-scoped edits, via the codex
     # skill (inline; codex:codex-wrapper agent from workflows/subagents). Fable keeps design review
     # and the synthesis/accept-reject pass over findings.
     assert "code/diff review" in claude
@@ -231,19 +232,30 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # of docs and user-facing text.
     assert "never down-route writing" in claude
     # 2026-07-03: security review/audit + verification of security-sensitive code
-    # route to gpt-5.5; implementing that code stays fable (carve-out must survive).
+    # route to gpt-5.6-sol; implementing that code stays fable (carve-out must survive).
     # "count as same-tier" keeps the verification-tier rule from contradicting the
-    # gpt-5.5 lanes — without it agents refuse the routing (observed live).
+    # gpt-5.6-sol lanes — without it agents refuse the routing (observed live).
     assert "security review/audit" in claude
     assert "verification of security-sensitive code" in claude
     assert "very sensitive or error-prone implementation" in claude
     assert "count as same-tier" in claude
+    # 2026-07-11: gpt-5.6 family migration — sol is the codex-lane model (fast
+    # tier pinned on every variant), luna sanctioned only for rote/bulk, ultra
+    # execution mode is the future retry rung (not yet CLI-exposed). A gpt-5.5
+    # remnant means a half-migrated stamp.
+    assert "| gpt-5.6-sol | 9 | 8 | 5 |" in claude
+    assert "gpt-5.6-luna" in claude
+    assert "ultra execution mode" in claude
+    assert "gpt-5.5" not in claude
     conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
     assert "security review/audit" in conventions
     assert "verification of" in conventions and "security-sensitive code" in conventions
+    assert "gpt-5.6-sol" in conventions
+    assert "gpt-5.5" not in conventions
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
     assert "security review/audit" in codex_skill
     assert "verification of security-sensitive code" in codex_skill
+    assert "gpt-5.5" not in codex_skill
     # The writing-plans "model and effort per phase" clause moved into the cc-guides
     # writing-plans fragment (rendered into AGENTS.md downstream) and is pinned there.
 
@@ -266,13 +278,27 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
 
 
 def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
-    # The /codex skill must pin xhigh + the fast service tier on every codex
-    # exec invocation — without service_tier=fast, xhigh prompts run 10-30+
-    # minutes and get abandoned. No invocation may drop the flags.
-    skill = templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md"
-    execs = [line for line in skill.read_text().splitlines() if "codex exec" in line and "|" in line]
-    assert execs, "expected codex exec invocations in the codex SKILL.md"
+    # Every codex exec in the codex plugin (skill + wrapper agent) must pin the
+    # model (gpt-5.6-sol — local config drift must not silently reroute the
+    # lane), xhigh, and the fast service tier — without service_tier=fast,
+    # xhigh prompts run 10-30+ minutes and get abandoned. Reply files must be
+    # mktemp-unique: fixed $$-suffixed /tmp paths caused a live cross-session
+    # clobber (PIDs recycle; 2026-07-10). Luna/ultra deviations live in prose
+    # only; no example exec line may carry them.
+    plugin_root = templates_dir.parents[3] / "codex"
+    sources = [
+        plugin_root / "skills" / "codex" / "SKILL.md",
+        plugin_root / "agents" / "codex-wrapper.md",
+    ]
+    execs = []
+    for src in sources:
+        text = src.read_text()
+        assert "codex-q-$$" not in text and "codex-r-$$" not in text, src
+        assert "mktemp" in text, src
+        execs += [line for line in text.splitlines() if "codex exec" in line and "|" in line]
+    assert execs, "expected codex exec invocations in the codex plugin"
     for line in execs:
+        assert "-c model=gpt-5.6-sol" in line, line
         assert "-c model_reasoning_effort=xhigh" in line, line
         assert "-c service_tier=fast" in line, line
 
