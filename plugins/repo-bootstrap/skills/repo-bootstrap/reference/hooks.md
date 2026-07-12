@@ -102,8 +102,9 @@ unchanged; only the delivery moved from vendored `.py` files to packs, so the "t
   `yasyf/cc-skills` marketplace and enables `codex@skills`, so it activates when the folder
   is trusted (no manual `/plugin install`). The `UsedSkill("codex|codex:codex")`
   alternation covers both the bare and plugin-namespaced skill name. If the project
-  doesn't use Codex, override this nudge with a local `commands` hook and remove the
-  `enabledPlugins`/`extraKnownMarketplaces` keys in settings together.
+  doesn't use Codex, override this nudge with a local `commands` hook and set
+  `"codex@skills": false` under `enabledPlugins` in `settings-overrides.fragment.json`,
+  then re-render (`cc-guides render`).
 
 ### `models` (general pack)
 
@@ -188,9 +189,10 @@ used in the session.
 Needs the `llm-prompts@skills` and `slop-cop@skills` plugins — the scaffolded
 `.claude/settings.json` already enables both from the `yasyf/cc-skills` marketplace, so they
 activate when the folder is trusted (no manual `/plugin install`). To remove the nudge,
-override it with a local `prompts` hook and remove the `llm-prompts@skills`/`slop-cop@skills`
-keys from `enabledPlugins` (keep `slop-cop@skills` if the `docs` nudge remains — its nudge runs
-slop-cop too). Tailor by extending `PROMPT_MARKERS` for other prompt dialects.
+override it with a local `prompts` hook and set `"llm-prompts@skills"` / `"slop-cop@skills"`
+to `false` under `enabledPlugins` in `settings-overrides.fragment.json`, then re-render (keep
+`slop-cop@skills` if the `docs` nudge remains — its nudge runs slop-cop too). Tailor by
+extending `PROMPT_MARKERS` for other prompt dialects.
 
 ### `docs` (general pack)
 
@@ -204,8 +206,9 @@ the skill has been used. Advisory only; it never blocks an edit.
 Needs the `writing-docs@skills` plugin — the scaffolded `.claude/settings.json`
 already enables it from the `yasyf/cc-skills` marketplace, so it activates when the
 folder is trusted (no manual `/plugin install`). To remove the nudge, override it with
-a local `docs` hook and remove the `writing-docs@skills` key from `enabledPlugins` (keep
-`slop-cop@skills` if the `prompts` nudge remains).
+a local `docs` hook and set `"writing-docs@skills": false` under `enabledPlugins` in
+`settings-overrides.fragment.json`, then re-render (keep `slop-cop@skills` if the
+`prompts` nudge remains).
 
 ### `tasks` (general pack)
 
@@ -316,9 +319,10 @@ contributor can still pin it repo-scoped — `uvx capt-hook pack add
 github:yasyf/cc-context@<tag>` writes a pinned entry in `.claude/hooks/packs.toml` that
 every clone hydrates. A repo-scoped pin beats the ambient attach (the same-name pack
 resolves to the pin and the attach is dropped), so the two never double-fire. To drop
-the guard entirely (a repo that wants raw `Read`/`Grep` back), disable the
-`cc-context@skills` plugin in `.claude/settings.json` and replace the AGENTS.md Compact
-Context section with plain Code-Search guidance.
+the guard entirely (a repo that wants raw `Read`/`Grep` back), set
+`"cc-context@skills": false` under `enabledPlugins` in `settings-overrides.fragment.json`,
+re-render (`cc-guides render`), and replace the AGENTS.md Compact Context section with
+plain Code-Search guidance.
 
 ### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
 

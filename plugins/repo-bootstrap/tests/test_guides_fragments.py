@@ -30,12 +30,34 @@ def test_settings_fragment_has_no_hook_wiring(fragment: Path):
     assert "capt-hook" not in raw, f"{fragment.name} must not reference capt-hook"
 
 
+def test_settings_base_fragment_enables_captain_hook():
+    """The rendered-settings guard can't see fragment regressions until the next render —
+    this one reds the PR that removes captain-hook from the base fragment before the fleet
+    cron propagates it."""
+    base = json.loads((GUIDES_JSON / "settings-base.json").read_text())
+    assert base["enabledPlugins"]["captain-hook@captain-hook"] is True, (
+        "settings-base fragment must enable captain-hook@captain-hook"
+    )
+    assert (
+        base["extraKnownMarketplaces"]["captain-hook"]["source"]["repo"]
+        == "yasyf/captain-hook"
+    ), "settings-base fragment must register the captain-hook marketplace at yasyf/captain-hook"
+
+
 def test_settings_json_is_a_rendered_artifact():
     """cc-skills must render its own settings.json from the fragments it publishes —
     commit b7d2e86 showed what half-migration looks like."""
     lock = tomllib.loads(LOCK.read_text())
     assert ".claude/settings.json" in lock["artifacts"], (
         ".claude/settings.json must be a cc-guides-rendered artifact in the lock"
+    )
+    layout_dir = REPO_ROOT / ".claude" / "fragments" / ".claude" / "settings.json"
+    assert (layout_dir / "layout.toml").is_file(), (
+        "the settings.json layout.toml must exist on disk — lock membership alone "
+        "doesn't prove the layout survived"
+    )
+    assert (layout_dir / "settings-overrides.fragment.json").is_file(), (
+        "the settings-overrides overlay fragment must exist on disk next to the layout"
     )
 
 
@@ -50,3 +72,7 @@ def test_captain_hook_plugin_stays_enabled():
     assert "captain-hook" in settings["extraKnownMarketplaces"], (
         "captain-hook marketplace must stay registered"
     )
+    assert (
+        settings["extraKnownMarketplaces"]["captain-hook"]["source"]["repo"]
+        == "yasyf/captain-hook"
+    ), "captain-hook marketplace must point at yasyf/captain-hook"
