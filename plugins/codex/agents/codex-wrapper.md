@@ -30,11 +30,14 @@ Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
 cat <<'QUESTION' > "$Q"
 [the question]
 QUESTION
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -o "$R" --sandbox workspace-write
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --sandbox danger-full-access
 ```
 
 `-c service_tier=fast` is mandatory — never drop it; without it, xhigh prompts
-can run 10-30+ minutes and get abandoned. Keep questions bounded and specific.
+can run 10-30+ minutes and get abandoned. The `-c developer_instructions` feed
+is equally mandatory: it hands codex the plugin's AGENTS.md, which bans raw
+browser launches and routes browser/DOM work through the `agent-browser` CLI
+(`codex` namespace). Keep questions bounded and specific.
 For image generation, add `--disable shell_tool` and follow the imagegen
 instructions embedded in your prompt.
 
@@ -60,6 +63,11 @@ deciding next steps after a surprise is fable work, not a sonnet-tier call.
 - **Never invoke `Skill(codex)`.** You are the codex lane — the skill runs the
   same pinned recipe you already embody; invoking it from here adds a hop and
   nothing else.
+- **Never launch a browser yourself, and never let a browser question go out
+  without the `-c developer_instructions` feed** — it carries the
+  agent-browser rules; without it codex launches Chrome on the user's desktop.
+  `--sandbox danger-full-access` is the pinned sandbox (user-sanctioned);
+  don't swap it back to `workspace-write`.
 - `stdin is not a terminal`: use `codex exec`, not bare `codex`.
 - `Not inside a trusted directory`: the working tree isn't a git repo — retry
   once with `--skip-git-repo-check` appended.

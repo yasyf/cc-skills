@@ -13,7 +13,9 @@ well-scoped edit to existing code, use its built-in `$imagegen` skill to generat
 images, or offload rote throwaway work.
 
 Every `codex exec` in this skill pins `-c model=gpt-5.6-sol
--c model_reasoning_effort=xhigh -c service_tier=fast`. The fast tier is
+-c model_reasoning_effort=xhigh -c service_tier=fast`, runs
+`--sandbox danger-full-access`, and feeds the plugin's `AGENTS.md` via
+`-c developer_instructions` (see Browser Access below). The fast tier is
 mandatory — never drop it or offer a non-fast variant, whatever the model;
 without it, xhigh prompts can run 10–30+ minutes and get abandoned. Keep
 questions bounded and specific: a narrow question returns in ~2 minutes, an
@@ -65,6 +67,22 @@ your discretion per task; every other flag stays put either way:
 
 `-c service_tier=fast` is non-negotiable on every exec, regardless of variant
 or effort.
+
+## Browser Access
+
+Every exec feeds `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` to codex as developer
+instructions via `-c developer_instructions="$(cat ...)"`. That file bans raw
+browser launches (Chrome under the old `workspace-write` seatbelt died at
+`RegisterApplication`, spraying `.ips` crash reports; unsandboxed it opens
+windows on the user's desktop) and routes all browser/DOM verification through
+the `agent-browser` CLI in the `codex` namespace. Nothing for you to do —
+there is no warm-up step; the agent-browser daemon auto-starts from inside
+codex now that the sandbox is `danger-full-access`. Never drop the
+`-c developer_instructions` flag or swap the sandbox back.
+
+`--sandbox danger-full-access` means codex-generated commands run unsandboxed
+on this machine — a standing, user-sanctioned choice for these lanes; don't
+"harden" it back to `workspace-write`.
 
 ## From Workflows and Subagents (the codex-wrapper agent)
 
@@ -133,7 +151,7 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -o "$R" --sandbox workspace-write
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --sandbox danger-full-access
 echo "REPLY_FILE: $R"
 ```
 
@@ -155,7 +173,7 @@ AGENTS.md § Ask Before Assuming.
 
 For shorter questions:
 ```bash
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast --sandbox workspace-write
+echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" --sandbox danger-full-access
 ```
 
 The file-based pattern is better for debugging because you can refine the question and keep a record.
@@ -214,7 +232,7 @@ IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
 
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -o "$R" --disable shell_tool --sandbox workspace-write
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --disable shell_tool --sandbox danger-full-access
 echo "REPLY_FILE: $R"
 ```
 
@@ -272,7 +290,9 @@ files were written outside the session scratchpad (`/tmp` is shared across
 sessions, and even `$$`-suffixed names there collide when PIDs are reused).
 Keep the recipe's `mktemp` paths rooted in your scratchpad directory.
 
-**Timeout**: Exec mode never prompts; `--sandbox workspace-write` lets generated commands write files without approval (`--full-auto` is the deprecated spelling of the same thing). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
+**Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
+
+**Codex launched Chrome / browser windows appeared**: the `-c developer_instructions` feed was dropped from the invocation — it carries the browser rules (agent-browser only, `codex` namespace). Restore the flag exactly as in the Step 2 recipe.
 
 **"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass `--skip-git-repo-check`.
 
