@@ -12,10 +12,16 @@ on:
     branches: [main]
     paths:
       - "plugin/guides/**"
+      - ".claude/fragments/**"
+      - ".claude/settings.json"
+      - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
       - ".github/workflows/guides-lint.yml"
   pull_request:
     paths:
       - "plugin/guides/**"
+      - ".claude/fragments/**"
+      - ".claude/settings.json"
+      - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
       - ".github/workflows/guides-lint.yml"
   workflow_dispatch:
 
@@ -73,3 +79,13 @@ jobs:
         run: |
           set -euo pipefail
           cc-guides lint plugin/guides/
+
+  fragments-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Guard settings fragments (settings-in-lock + captain-hook enabled)
+        run: uvx pytest plugins/repo-bootstrap/tests/test_guides_fragments.py -q

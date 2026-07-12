@@ -608,8 +608,8 @@ explicitly deferred with the user).
   manual invocation, so also relax that pack if you drop the hook.
 - **No Codex**: the second-opinion nudge ships in the `general` pack — override it with a
   local `.claude/hooks/commands.py` (a local hook shadows the pack's; see `reference/hooks.md`),
-  then remove the `"enabledPlugins"` entry (and `"extraKnownMarketplaces"` if nothing else
-  uses it) in `.claude/settings.json`.
+  then set `"codex@skills": false` under `enabledPlugins` in
+  `settings-overrides.fragment.json` and re-render (`cc-guides render`).
 - **No brand images**: skip Phase 3 (user declined, or no `OPENAI_API_KEY`) and
   strip the banner image from the README H1 (`# ![<project>](...)` →
   `# <project>`). Nothing else to clean up — Great Docs auto-detects no logo,
@@ -619,13 +619,13 @@ explicitly deferred with the user).
   `docs/scripts/demo.sh` / `.cli-demo/demo.tape` if present) — `verify` only
   NOTEs a demo asset the README still references.
 - **No prompt-writing nudge**: the nudge ships in the `general` pack — override it with a
-  local `.claude/hooks/prompts.py` (see `reference/hooks.md`), then remove the
-  `slop-cop@skills` / `llm-prompts@skills` entries from `.claude/settings.json`
-  `enabledPlugins` (keep `slop-cop@skills` if you keep the docs nudge).
+  local `.claude/hooks/prompts.py` (see `reference/hooks.md`), then set
+  `"slop-cop@skills"` / `"llm-prompts@skills"` to `false` under `enabledPlugins` in
+  `settings-overrides.fragment.json` and re-render (keep `slop-cop@skills` if you keep the docs nudge).
 - **No docs nudge**: the nudge ships in the `general` pack — override it with a local
-  `.claude/hooks/docs.py` (see `reference/hooks.md`), then remove the `writing-docs@skills`
-  entry from `.claude/settings.json` `enabledPlugins` (keep `slop-cop@skills` if
-  the prompt-writing nudge remains).
+  `.claude/hooks/docs.py` (see `reference/hooks.md`), then set `"writing-docs@skills": false`
+  under `enabledPlugins` in `settings-overrides.fragment.json` and re-render (keep
+  `slop-cop@skills` if the prompt-writing nudge remains).
 - **Monorepos**: out of scope — this skill scaffolds single-package repos.
 
 ## Reference map
