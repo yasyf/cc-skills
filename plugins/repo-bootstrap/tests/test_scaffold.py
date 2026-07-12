@@ -215,6 +215,9 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # main loop — direct edits are where implementation actually happens (the
     # capt-hook main-loop nudge enforces the same directive).
     assert "rather than editing inline on fable" in claude
+    # Sustained hands-on tool-driving (browser automation, QA sweeps) delegates too,
+    # not just code edits — the capt-hook browser nudge enforces the same directive.
+    assert "hands-on tool-driving" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
     # gpt-5.6-sol lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from

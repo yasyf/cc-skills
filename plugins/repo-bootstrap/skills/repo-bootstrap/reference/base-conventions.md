@@ -111,7 +111,8 @@ shared AGENTS.md:
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level; delegated agents are routed by the **Models** table —
-  opus-4.8 `xhigh` by default (when in doubt, opus; implementation delegates here
+  opus-4.8 `xhigh` by default (when in doubt, opus; implementation — including
+  sustained hands-on tool-driving like browser automation — delegates here
   rather than editing inline on fable), fable-5 for orchestration, design review,
   hard planning, all prose/writing (never down-route writing), sensitive or
   error-prone implementation, review-findings synthesis, and as the escalation
