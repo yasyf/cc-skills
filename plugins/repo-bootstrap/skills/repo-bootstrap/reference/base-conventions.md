@@ -288,23 +288,12 @@ placeholder-free `{}` `local.fragment.json` for repo-specific additions. Never h
   enabled after a one-time consent prompt. Removing a nudge from its hook file?
   Remove its plugin keys in the same edit (n.b. `slop-cop@skills` is shared by
   `prompts.py` and `docs.py`).
-- `"hooks"`: four events — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
-  `Stop` — each running `uvx capt-hook run <Event>`. capt-hook discovers the hook
-  definitions in `.claude/hooks/`: `commands.py`
-  (blocks `git stash` and unpiped `grep`, nudges toward `/codex` after 2
-  failures — delete that nudge if the codex plugin isn't installed),
-  `stewardship.py` (NLP nudge against dismissing issues as "pre-existing"),
-  `prompts.py` (llm-prompts nudge on prompt-shaped edits), `docs.py`
-  (writing-docs nudge on doc edits), `tasks.py` (end-of-turn task
-  discipline), `plans.py` (blocks `Write` rewrites of an already-written
-  plan — use `Edit`), and `review.py` (Stop gate demanding a review pass
-  when source changed) — see `reference/hooks.md` for each.
-  Add project rules as new files in `.claude/hooks/`; each carries inline
-  `tests = {...}` runnable with `uvx capt-hook test`.
+- No `"hooks"` key: `.claude/settings.json` carries no hook wiring. Hook dispatch
+  is registered globally by the captain-hook plugin; which hooks fire per repo is
+  selected by the packs enabled in `.claude/hooks/packs.toml` (see
+  `reference/hooks.md`). Project-local rules still live in `.claude/hooks/*.py`,
+  each carrying inline `tests = {...}` runnable with `uvx capt-hook test`.
 
 **settings.local.json pattern**: `.claude/settings.local.json` is gitignored
 (see `.gitignore`, alongside `.context/` and `.env*`). Personal, per-machine
-config goes there — typically a broader permissions allowlist. capt-hook wires
-its hooks into the committed `.claude/settings.json` so hook policy is shared and
-reviewed; it defers a hook to `settings.local.json` only when that file already
-carries it.
+config goes there — typically a broader permissions allowlist.

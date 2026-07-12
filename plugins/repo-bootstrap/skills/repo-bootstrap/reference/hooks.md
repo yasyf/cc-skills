@@ -6,15 +6,16 @@
 hook framework for Claude Code: hooks are data, declared with primitives like `block_command`,
 `nudge`, `gate`, `hook`, `styleguide`, and `@on`, and each carries inline `tests = {...}` that
 run anywhere — locally, in CI if you wire them in — in the same shape they run in
-production. The scaffold wires it through
-`.claude/settings.json`, which runs `uvx capt-hook run <Event>` for `PreToolUse`,
-`PostToolUse`, `PostToolUseFailure`, and `Stop`. `uvx` fetches capt-hook into a throwaway
-environment, so nothing is added to `pyproject.toml` and there is zero install step. The hooks
-themselves ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), `fixes`
-(workarounds for upstream Claude Code issues), the language layer (`python` or `go`), and
-`steering` (judgment nudges) — which the scaffold enables
-through `.claude/hooks/packs.toml`. A project can
-add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
+production. The captain-hook Claude Code plugin registers the wiring, not the repo: it ships a
+static `hooks.json` that subscribes all 12 hook events globally, each running
+`uvx capt-hook run <Event>`. So `.claude/settings.json` carries no hook entries — the scaffolded
+settings fragment is hooks-free, and an event no enabled pack subscribes to dispatches as a clean
+no-op. `uvx` fetches capt-hook into a throwaway environment, so nothing is added to
+`pyproject.toml` and there is zero install step. The hooks themselves ship inside capt-hook as
+builtin **packs** — `general` (the base-layer hooks), `fixes` (workarounds for upstream Claude
+Code issues), the language layer (`python` or `go`), and `steering` (judgment nudges) — which the
+scaffold enables through `.claude/hooks/packs.toml`, the sole per-repo control surface. A project
+can add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
 verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
 
 ## The session reviewer
@@ -23,11 +24,12 @@ Phase 6 runs `uvx capt-hook review enable` (after `gh repo create`, since the re
 against `origin` and refuses a repo with no `origin` remote), which arms capt-hook's **session
 reviewer** for the repo. When a Claude Code session ends, it mines the transcript for the durable
 corrections you gave and the hooks that misfired, judges each, and — once a pattern clears its
-thresholds — opens a pull request that adds or fixes a hook. `review enable` does three things:
-registers the captain-hook plugin in `.claude/settings.json` (committed in the same publish step),
-wires a `review run` hook onto `SessionEnd` in `.claude/settings.local.json` (machine-local,
-gitignored), and starts watching the repo. It needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*`
-environment variables and turn it off per repo with `uvx capt-hook review disable`. Full guide:
+thresholds — opens a pull request that adds or fixes a hook. `review enable` does two things:
+registers the captain-hook plugin (committed in the same publish step) and starts watching the
+repo. It writes no settings hook — the plugin's global `SessionEnd` entry already runs
+`uvx capt-hook review run`, which self-guards by checking the watch list before doing any work. It
+needs an authenticated `claude` and `gh`. Tune it with the `HOOKS_REVIEW_*` environment variables
+and turn it off per repo with `uvx capt-hook review disable`, which stops watching. Full guide:
 <https://yasyf.github.io/captain-hook/docs/guide/session-reviewer.html>.
 
 ## Two hook systems: don't conflate them
@@ -410,26 +412,31 @@ the exact shape).
 ## Project-local escape hatch (pin instead of uvx)
 
 If the project should control its capt-hook version — or, like captain-hook itself, dogfoods
-its own checkout — pin `capt-hook` as a dev dependency and switch every hook command in
-`.claude/settings.json` from `uvx capt-hook run <Event>` to:
+its own checkout — pin `capt-hook` as a dev dependency, take the repo off the plugin's global
+wiring, and point it at a local launcher. Disable the captain-hook plugin for the repo by setting
+`"captain-hook@captain-hook": false` under `enabledPlugins` in `.claude/settings.json`, then wire
+a local hook launcher in `.claude/settings.local.json` (machine-local, gitignored) that resolves
+capt-hook from the project's own environment:
 
 ```
 uv run --project "$CLAUDE_PROJECT_DIR" capt-hook run <Event>
 ```
 
-This resolves capt-hook from the project's own environment instead of a throwaway uvx env.
-This is exactly what captain-hook's own `.claude/settings.json` does, since renaming its
-entry point under uvx would run a stale published version against its own hooks.
+Disabling the plugin drops its global hook registration, so the `settings.local.json` launcher is
+the only wiring left in play. This is exactly what the captain-hook repo does with its `.venv` dev
+launcher, since gating its own hooks through the published uvx version would run stale code.
 
 ## Troubleshooting
 
 - **First hook event is slow.** `uvx` cold-starts by resolving and installing capt-hook into
   a fresh environment on first use; subsequent events hit the cache.
 - **Hooks silently not firing.** capt-hook discovers hooks in `.claude/hooks` by default;
-  if files were moved, pass `--hooks <dir>` to `capt-hook` commands and keep the
-  settings commands in sync.
-- **Edited `.claude/settings.json` but nothing changed.** Claude Code reads hook wiring at
-  session start; settings changes need a session restart to take effect.
+  if files were moved, pass `--hooks <dir>` to `capt-hook test` and other CLI commands so
+  they find them.
+- **Changed a pack or plugin but nothing happened.** Claude Code reads hook registrations at
+  session start, so enabling a pack in `packs.toml` or toggling the captain-hook plugin needs a
+  session restart to take effect. `.claude/settings.json` carries no hook wiring to edit — the
+  registration lives in the captain-hook plugin.
 - **`stewardship.py` raises `spaCy model 'en_core_web_sm' is not installed`.** capt-hook
   refuses to silently download the model from a live hook. Provision it once per machine
   (the wn `oewn:2025` lexicon auto-downloads on first use):
