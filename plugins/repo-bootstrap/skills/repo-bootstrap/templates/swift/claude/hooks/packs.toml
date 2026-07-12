@@ -4,4 +4,10 @@
 
 [packs.steering]
 
-# No swift language pack ships with capt-hook yet — general + fixes + steering only.
+# No swift language pack ships with capt-hook yet.
+
+[packs.ccx]
+source = "github:yasyf/cc-context@latest"
+
+[packs.cc-present]
+source = "github:yasyf/cc-present@latest"

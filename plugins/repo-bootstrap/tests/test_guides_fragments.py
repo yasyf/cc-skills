@@ -44,6 +44,16 @@ def test_settings_base_fragment_enables_captain_hook():
     ), "settings-base fragment must register the captain-hook marketplace at yasyf/captain-hook"
 
 
+def test_settings_base_fragment_disables_artifact():
+    """Fragment-level guard: settings-base must hide the built-in Artifact tool
+    (disableArtifact: true) so presentation flows through chat or a cc-present live board.
+    Reds the PR that drops the key before the next render can propagate it."""
+    base = json.loads((GUIDES_JSON / "settings-base.json").read_text())
+    assert base["disableArtifact"] is True, (
+        "settings-base fragment must set disableArtifact: true"
+    )
+
+
 def test_settings_json_is_a_rendered_artifact():
     """cc-skills must render its own settings.json from the fragments it publishes —
     commit b7d2e86 showed what half-migration looks like."""

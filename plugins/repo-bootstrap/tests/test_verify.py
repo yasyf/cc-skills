@@ -168,6 +168,11 @@ def test_end_to_end_python(tmp_path, features, license_id, cc_guides_stub):
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
+    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
+    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
+    # it to `general` so the hook-inline-test check runs against a released pack.
+    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+
     verify_flags = ["--no-license"] if license_id == "none" else []
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "python", "--target", str(tmp_path), *verify_flags],
@@ -273,9 +278,11 @@ def test_end_to_end_swift(tmp_path, cc_guides_stub):
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
-    # No packs.toml workaround needed (unlike go): the swift layer enables only
-    # general + steering, both builtin. verify runs the full
-    # sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
+    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
+    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
+    # it to `general` so the hook-inline-test check runs against a released pack; verify runs
+    # the full sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
+    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "swift", "--target", str(tmp_path)],
         capture_output=True, text=True, env=env,
@@ -303,6 +310,11 @@ def test_end_to_end_swift_app(tmp_path, cc_guides_stub):
         capture_output=True, text=True, env=env,
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
+
+    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
+    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
+    # it to `general` so the hook-inline-test check runs against a released pack.
+    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
 
     # The committed pbxproj must parse as a real project with both targets.
     listing = subprocess.run(

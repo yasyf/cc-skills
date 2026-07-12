@@ -722,6 +722,22 @@ def test_real_templates_render_go(go_var_pairs):
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
 
 
+def test_packs_toml_pins_guard_packs(base_var_pairs, py_var_pairs, go_var_pairs, swift_var_pairs):
+    # Every layer's packs.toml pins the ccx and cc-present guard packs repo-scoped
+    # (alongside the plugins' session attach) so every contributor gets the guards.
+    for layer, pairs in (
+        ("base", base_var_pairs),
+        ("python", py_var_pairs),
+        ("go", go_var_pairs),
+        ("swift", swift_var_pairs),
+    ):
+        packs = _real_plan(layer, pairs)[0][".claude/hooks/packs.toml"]
+        assert "[packs.ccx]" in packs, f"{layer} packs.toml must pin the ccx guard pack"
+        assert 'source = "github:yasyf/cc-context@latest"' in packs, f"{layer} ccx pin source"
+        assert "[packs.cc-present]" in packs, f"{layer} packs.toml must pin cc-present"
+        assert 'source = "github:yasyf/cc-present@latest"' in packs, f"{layer} cc-present pin source"
+
+
 def test_go_goreleaser_template_tokens_survive(go_var_pairs):
     gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
     # goreleaser Go-template tokens (spaces/dots) are NOT bootstrap placeholders — pass through

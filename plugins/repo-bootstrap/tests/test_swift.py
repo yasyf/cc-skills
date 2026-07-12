@@ -345,7 +345,8 @@ def test_swift_packs_toml_no_swift_pack(templates_dir):
     assert "[packs.general]" in swift_packs
     assert "[packs.steering]" in swift_packs
     assert "[packs.swift]" not in swift_packs
-    assert "ccx" not in swift_packs  # ccx ships via the cc-context plugin attach now, not a repo-scoped pin
+    assert "[packs.ccx]" in swift_packs  # ccx + cc-present pin repo-scoped now, alongside the plugin attach
+    assert "[packs.cc-present]" in swift_packs
 
 
 def test_swift_mcp_json_overrides_with_xcodebuildmcp(swift_var_pairs):

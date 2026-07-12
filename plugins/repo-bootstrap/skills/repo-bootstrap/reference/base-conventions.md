@@ -258,6 +258,10 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
   thinking summaries surfaced. Keep unless the project is trivial.
 - `"includeGitInstructions": false` — drop the built-in git boilerplate; AGENTS.md
   § General Rules carries the version-control conventions instead (jj-preferred).
+- `"disableArtifact": true` — hides the built-in `Artifact` tool (static
+  claude.ai pages). Presentation goes through chat prose or, when the
+  cc-present plugin is installed, a cc-present live board — never a static
+  page the agent can't hear back from.
 - `"env"`: `"ENABLE_TOOL_SEARCH": "true"` (deferred-tool discovery),
   `"ENABLE_LSP_TOOL": "1"` (the LSP tool that AGENTS.md Compact Context (ccx) routes
   structural queries to), `"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"` (enables

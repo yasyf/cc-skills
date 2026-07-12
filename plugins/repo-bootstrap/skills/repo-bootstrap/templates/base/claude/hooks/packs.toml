@@ -3,3 +3,9 @@
 [packs.general]
 
 [packs.steering]
+
+[packs.ccx]
+source = "github:yasyf/cc-context@latest"
+
+[packs.cc-present]
+source = "github:yasyf/cc-present@latest"

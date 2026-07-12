@@ -300,7 +300,7 @@ The review-before-stop Stop gate is **not** in the `style` hook — it lives in 
 pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
 ships only the seven AST rules above.
 
-### `ccx` (plugin-attached pack — `cc-context@skills`)
+### `ccx` (pinned + plugin-attached pack — `cc-context@skills`)
 
 Guard pack that makes the `cc-context` facade (`ccx` / its MCP tools) the
 default for reading and searching code. It **blocks the token-heavy primitives** the
@@ -309,20 +309,26 @@ Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`pyth
 packs, `ccx` ships inside the `cc-context@skills` plugin the scaffolded
 `.claude/settings.json` already enables. The plugin's SessionStart hook runs
 `uvx capt-hook pack attach` once to register the pack for the session, and the canonical
-`uvx capt-hook run <Event>` commands pick it up during dispatch — so a scaffolded repo
-gets the guard with no `.claude/hooks/packs.toml` entry to pin or refresh, and nothing
-skews when cc-context cuts a new release.
+`uvx capt-hook run <Event>` commands pick it up during dispatch. Scaffolded repos also
+pin it repo-scoped (`github:yasyf/cc-context@latest` in `.claude/hooks/packs.toml`), so
+every contributor gets the guard whether or not they have the plugin enabled; the plugin
+attach covers repos that enable `cc-context@skills` but weren't scaffolded by
+repo-bootstrap.
 
-The trade-off: an attached pack reaches only contributors who have the
-`cc-context@skills` plugin enabled. A repo that wants the guard enforced for **every**
-contributor can still pin it repo-scoped — `uvx capt-hook pack add
-github:yasyf/cc-context@<tag>` writes a pinned entry in `.claude/hooks/packs.toml` that
-every clone hydrates. A repo-scoped pin beats the ambient attach (the same-name pack
-resolves to the pin and the attach is dropped), so the two never double-fire. To drop
-the guard entirely (a repo that wants raw `Read`/`Grep` back), set
-`"cc-context@skills": false` under `enabledPlugins` in `settings-overrides.fragment.json`,
-re-render (`cc-guides render`), and replace the AGENTS.md Compact Context section with
-plain Code-Search guidance.
+A repo-scoped pin beats the ambient attach (the same-name pack resolves to the pin and
+the attach is dropped), so the two never double-fire. To drop the guard entirely (a repo
+that wants raw `Read`/`Grep` back), remove the `[packs.ccx]` pin from
+`.claude/hooks/packs.toml`, set `"cc-context@skills": false` under `enabledPlugins` in
+`settings-overrides.fragment.json`, re-render (`cc-guides render`), and replace the
+AGENTS.md Compact Context section with plain Code-Search guidance.
+
+### `cc-present` (pinned pack — `github:yasyf/cc-present@latest`)
+
+One PreToolUse guard: blocks the built-in `Artifact` tool and steers
+presentation to a cc-present live board (or chat when cc-present is
+absent). Scaffolded repos pin it; the cc-present plugin also attaches it
+per session, and the repo-scoped pin beats the ambient attach, so the two
+never double-fire.
 
 ### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
 
