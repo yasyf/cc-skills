@@ -308,13 +308,33 @@ default for reading and searching code. It **blocks the token-heavy primitives**
 facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
 Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`
 packs, `ccx` ships inside the `cc-context@cc-context` plugin the scaffolded
-`.claude/settings.json` already enables. The plugin's SessionStart hook runs
-`uvx capt-hook pack attach` once to register the pack for the session, and the canonical
-`uvx capt-hook run <Event>` commands pick it up during dispatch. Scaffolded repos also
+`.claude/settings.json` already enables. The plugin follows capt-hook's **attach-only
+pack contract**: its only capt-hook hook is a SessionStart entry running
+`uvx --isolated capt-hook pack attach "${CLAUDE_PLUGIN_ROOT}"`, which registers the pack
+for the session; dispatch stays with the captain-hook plugin — the sole dispatcher — so a
+pack-shipping plugin never wires a `capt-hook run` entry. Scaffolded repos also
 pin it repo-scoped (`github:yasyf/cc-context@latest` in `.claude/hooks/packs.toml`), so
 every contributor gets the guard whether or not they have the plugin enabled; the plugin
 attach covers repos that enable `cc-context@cc-context` but weren't scaffolded by
 repo-bootstrap.
+
+The attach-only contract (capt-hook >= 9.9.0) fixes a pack-shipping plugin at exactly
+four artifacts: the pack manifest `capt-hook.toml`; the single SessionStart attach entry
+in the plugin's `hooks.json` (pass `"${CLAUDE_PLUGIN_ROOT}/hooks"` when the manifest
+lives in a `hooks/` subtree), with zero `capt-hook run` entries; a `plugin.json`
+dependency, `{ "name": "captain-hook", "marketplace": "captain-hook", "version": ">=9.9.0" }`;
+and `"allowCrossMarketplaceDependenciesOn": ["captain-hook"]` in the plugin's own
+marketplace.json. The allowlist is load-bearing: without it Claude Code skips the
+declared dependency at install with no error (verified on Claude Code 2.1.207), and the attached
+pack runs in sessions with no dispatcher. `uvx capt-hook pack lint <plugin-root>` checks
+all four artifacts plus the pack itself in one CI line; it also fails a pack that
+subscribes `SessionStart`, because the attach and the dispatcher's own SessionStart run
+are unordered sibling hooks. Dependency auto-resolution needs the captain-hook
+marketplace added before install (`claude plugin marketplace add yasyf/captain-hook` —
+the scaffolded settings.json already registers it), and `claude plugin update` silently
+skips a dependency a new release adds, so upgrading such a plugin means re-running
+`claude plugin install` after the marketplace add. Full contract:
+<https://yasyf.github.io/captain-hook/docs/guide/plugin-packs.html>.
 
 A repo-scoped pin beats the ambient attach (the same-name pack resolves to the pin and
 the attach is dropped), so the two never double-fire. To drop the guard entirely (a repo
@@ -328,8 +348,8 @@ AGENTS.md Compact Context section with plain Code-Search guidance.
 One PreToolUse guard: blocks the built-in `Artifact` tool and steers
 presentation to a cc-present live board (or chat when cc-present is
 absent). Scaffolded repos pin it; the cc-present plugin also attaches it
-per session, and the repo-scoped pin beats the ambient attach, so the two
-never double-fire.
+per session (same attach-only contract as `ccx`), and the repo-scoped pin
+beats the ambient attach, so the two never double-fire.
 
 ### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
 
