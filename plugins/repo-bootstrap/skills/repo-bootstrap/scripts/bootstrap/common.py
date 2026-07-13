@@ -37,6 +37,10 @@ IOS_VERSION_RE = re.compile(r"^\d+(\.\d+)?$")
 # Reverse-DNS: the leading label is the TLD (letters only in practice); later
 # labels are org names, where digit-leading is real (com.1password, com.37signals).
 BUNDLE_ID_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$")
+# Relative repo-root-anchored directory for a secondary layer's code, e.g.
+# plugin/hooks. No leading/trailing slash; `..` traversal is rejected separately
+# (dots are in the class so the regex alone can't forbid it).
+CODE_ROOT_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 
 
 class ScaffoldError(SystemExit):
@@ -69,6 +73,10 @@ class FileSpec:
     feature: str | None = None
     extra: str | None = None
     transform: str | None = None
+    # When set, the spec is a secondary-layer contribution: selected only when the
+    # scaffold names this language via ``--secondary-layer`` (not gated by ``layer``
+    # membership), so a language can add files beside a different primary language.
+    secondary_layer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,7 @@ class Feature:
 class VarSpec:
     name: str
     required_in: tuple[str, ...]
-    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bundle_id_prefix, license_id, binary_version_mode
+    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bundle_id_prefix, license_id, binary_version_mode, code_root
 
 
 @dataclass(frozen=True)
@@ -113,6 +121,7 @@ class ResolveResult:
     enabled_sections: frozenset[str]
     extras: tuple[str, ...]
     variables: dict[str, str] = field(default_factory=dict)
+    secondary_layer: str | None = None
 
 
 @dataclass(frozen=True)

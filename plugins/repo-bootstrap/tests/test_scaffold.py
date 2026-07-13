@@ -15,8 +15,10 @@ from bootstrap.common import Notice, PlanItem, ScaffoldError, TransformCtx
 DATE = datetime.date(2026, 6, 8)
 
 
-def dests(layer, var_pairs, *, extras=None, features=None):
-    r = scaffold.resolve(layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE)
+def dests(layer, var_pairs, *, extras=None, features=None, secondary_layer=None):
+    r = scaffold.resolve(
+        layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE, secondary_layer
+    )
     return {item.dest for item in scaffold.select_files(r)}
 
 
@@ -29,6 +31,7 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
+    ".claude/fragments/AGENTS.md/demo-proj-hook-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
@@ -38,6 +41,7 @@ BASE_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".mcp.json", ".claude/jj-config.toml",
     ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
+    ".claude/hooks/STYLEGUIDE.md",  # always-shipped capt-hook Python style guide
     ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
     ".gitignore", "LICENSE",
 }
@@ -90,7 +94,7 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
 
 GO_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
@@ -675,8 +679,10 @@ def test_render_plan_injected(monkeypatch):
     assert notices == []
 
 
-def _real_plan(layer, var_pairs, *, features=None, extras=None):
-    r = scaffold.resolve(layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE)
+def _real_plan(layer, var_pairs, *, features=None, extras=None, secondary_layer=None):
+    r = scaffold.resolve(
+        layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE, secondary_layer
+    )
     items = scaffold.select_files(r)
     return scaffold.render_plan(items, r, scaffold.read_template, scaffold.template_exists)
 
@@ -979,9 +985,9 @@ def test_settings_json_composes_from_pack_fragments(base_var_pairs):
 
 # --- run(): post-write cc-guides render (stubbed on PATH) ---
 
-def _run_args(target, *, layer="base", extras="none", features="", var_pairs, force=False, dry_run=False):
+def _run_args(target, *, layer="base", secondary_layer=None, extras="none", features="", var_pairs, force=False, dry_run=False):
     return argparse.Namespace(
-        target=target, layer=layer, extras=extras, features=features,
+        target=target, layer=layer, secondary_layer=secondary_layer, extras=extras, features=features,
         var=var_pairs, force=force, dry_run=dry_run,
     )
 
@@ -1012,3 +1018,99 @@ def test_run_dry_run_skips_render(tmp_path, monkeypatch, base_var_pairs):
     monkeypatch.setenv("PATH", str(empty))
     assert scaffold.run(_run_args(tmp_path, var_pairs=base_var_pairs, dry_run=True)) == 0
     assert not (tmp_path / ".claude/fragments/AGENTS.md/layout.toml").exists()
+
+
+# --- Part 2: capt-hook hook styleguide ships in every layer ---
+
+
+def test_hook_styleguide_shipped_base(base_var_pairs):
+    plan, _ = _real_plan("base", base_var_pairs)
+    assert ".claude/hooks/STYLEGUIDE.md" in plan
+    assert "Hook Style Guide" in plan[".claude/hooks/STYLEGUIDE.md"]
+    frag = plan[".claude/fragments/AGENTS.md/demo-proj-hook-style.fragment.md"]
+    assert "## Hook Style" in frag
+    assert ".claude/hooks/STYLEGUIDE.md" in frag
+
+
+def test_hook_styleguide_shipped_go(go_var_pairs):
+    plan, _ = _real_plan("go", go_var_pairs, features=[])
+    assert ".claude/hooks/STYLEGUIDE.md" in plan
+    layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+    assert '"demo-proj-hook-style"' in layout
+    assert "{{#SECONDARY_STYLE}}" not in layout  # no secondary layer -> section stripped
+
+
+# --- Part 1: --secondary-layer python lands beside its code without clobbering ---
+
+
+def _secondary(var_pairs, root="plugin/hooks"):
+    return var_pairs + [f"SECONDARY_CODE_ROOT={root}"]
+
+
+def test_secondary_python_reproduces_cc_context_shape(go_var_pairs):
+    # --layer go --secondary-layer python --var SECONDARY_CODE_ROOT=plugin/hooks
+    plan, _ = _real_plan("go", _secondary(go_var_pairs), features=[], secondary_layer="python")
+    # primary Go styleguide keeps the repo-root STYLEGUIDE.md
+    assert "governs the Python" not in plan["STYLEGUIDE.md"]
+    assert "this module" in plan["STYLEGUIDE.md"]  # the go root styleguide
+    # the secondary python styleguide lands beside the code, not at the root
+    assert "governs the Python" in plan["plugin/hooks/STYLEGUIDE.md"]
+    assert "plugin/hooks/" in plan["plugin/hooks/STYLEGUIDE.md"]
+    # AGENTS ## Python Style pointer references the code-root styleguide
+    ptr = plan[".claude/fragments/AGENTS.md/demo-proj-secondary-style.fragment.md"]
+    assert "## Python Style" in ptr
+    assert "plugin/hooks/STYLEGUIDE.md" in ptr
+    # the go layout.toml composes both secondary + hook style fragments (section resolved)
+    layout = plan[".claude/fragments/AGENTS.md/layout.toml"]
+    assert '"demo-proj-secondary-style"' in layout
+    assert '"demo-proj-hook-style"' in layout
+    assert "SECONDARY_STYLE" not in layout
+
+
+def test_secondary_python_dests(go_var_pairs):
+    got = dests("go", _secondary(go_var_pairs), features=[], secondary_layer="python")
+    assert "plugin/hooks/STYLEGUIDE.md" in got
+    assert ".claude/fragments/AGENTS.md/demo-proj-secondary-style.fragment.md" in got
+    # the primary root styleguide is still there, unclobbered
+    assert "STYLEGUIDE.md" in got
+
+
+def test_no_secondary_layer_omits_python_style(go_var_pairs):
+    got = dests("go", go_var_pairs, features=[])
+    assert "plugin/hooks/STYLEGUIDE.md" not in got
+    assert ".claude/fragments/AGENTS.md/demo-proj-secondary-style.fragment.md" not in got
+    plan, _ = _real_plan("go", go_var_pairs, features=[])
+    assert '"demo-proj-secondary-style"' not in plan[".claude/fragments/AGENTS.md/layout.toml"]
+
+
+def test_secondary_layer_must_differ_from_layer(py_var_pairs):
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("python", [], [], _secondary(py_var_pairs), DATE, "python")
+
+
+def test_secondary_layer_requires_code_root(go_var_pairs):
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("go", [], [], go_var_pairs, DATE, "python")
+
+
+def test_unknown_secondary_layer_rejected(go_var_pairs):
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("go", [], [], _secondary(go_var_pairs), DATE, "rust")
+
+
+@pytest.mark.parametrize("bad", ["/abs/path", "../escape", "has space", "trailing/", ".", "a/./b"])
+def test_secondary_code_root_rejects_bad_path(go_var_pairs, bad):
+    with pytest.raises(ScaffoldError):
+        scaffold.resolve("go", [], [], _secondary(go_var_pairs, bad), DATE, "python")
+
+
+def test_secondary_python_writes_both_styleguides_end_to_end(tmp_path, cc_guides_stub, go_var_pairs):
+    args = _run_args(tmp_path, layer="go", secondary_layer="python", var_pairs=_secondary(go_var_pairs))
+    assert scaffold.run(args) == 0
+    root = (tmp_path / "STYLEGUIDE.md").read_text()
+    secondary = (tmp_path / "plugin/hooks/STYLEGUIDE.md").read_text()
+    assert "governs the Python" not in root and "this module" in root
+    assert "governs the Python" in secondary
+    assert (tmp_path / ".claude/hooks/STYLEGUIDE.md").exists()
+    assert (tmp_path / ".claude/fragments/AGENTS.md/demo-proj-secondary-style.fragment.md").exists()
+    assert (tmp_path / ".claude/fragments/AGENTS.md/demo-proj-hook-style.fragment.md").exists()

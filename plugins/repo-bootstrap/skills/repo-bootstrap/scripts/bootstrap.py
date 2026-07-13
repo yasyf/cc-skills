@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from bootstrap import identity, pypi, scaffold, trust, verify
-from bootstrap.manifest import EXTRAS, FEATURES
+from bootstrap.manifest import EXTRAS, FEATURES, SECONDARY_LAYERS
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -34,6 +34,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("scaffold", help="render templates into a repo")
     sc.add_argument("--target", type=Path, default=Path("."))
     sc.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app"), default="base")
+    sc.add_argument(
+        "--secondary-layer",
+        choices=SECONDARY_LAYERS,
+        default=None,
+        help="add a second language's styleguide beside its code (--var SECONDARY_CODE_ROOT=<dir>) plus an "
+        "AGENTS.md style pointer, without its toolchain; must differ from --layer",
+    )
     sc.add_argument("--extras", required=True, help=f"comma-separated: {', '.join(EXTRAS)}; or 'none' for no extras")
     sc.add_argument(
         "--features",

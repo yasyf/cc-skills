@@ -24,6 +24,7 @@ from pathlib import Path
 from . import render as _render
 from .common import (
     BUNDLE_ID_PREFIX_RE,
+    CODE_ROOT_RE,
     DIST_NAME_RE,
     GO_VERSION_RE,
     IOS_VERSION_RE,
@@ -37,7 +38,7 @@ from .common import (
     ScaffoldError,
     TransformCtx,
 )
-from .manifest import DERIVED, EXTRAS, FEATURES, FILES, LAYER_ORDER, LAYERS, VARS
+from .manifest import DERIVED, EXTRAS, FEATURES, FILES, LAYER_ORDER, LAYERS, SECONDARY_LAYERS, VARS
 
 TEMPLATES = Path(__file__).resolve().parent.parent.parent / "templates"
 
@@ -97,6 +98,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
         if kind == "binary_version_mode" and value not in ("pinned", "latest"):
             raise ScaffoldError(f"{name} must be 'pinned' or 'latest', got {value!r}")
+        if kind == "code_root" and (not CODE_ROOT_RE.match(value) or {".", ".."} & set(value.split("/"))):
+            raise ScaffoldError(f"{name} must be a repo-root-relative subdir like plugin/hooks, got {value!r}")
     # Cross-var checks for the swift layers:
     # - SPM target names must be unique, and the executable target is named
     #   PROJECT_NAME while the library is MODULE_NAME — a collision fails
@@ -138,7 +141,14 @@ def expand_layers(layer: str) -> tuple[str, ...]:
     return tuple(name for name in LAYER_ORDER if name in active)
 
 
-def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[str], now: date) -> ResolveResult:
+def resolve(
+    layer: str,
+    extras: list[str],
+    features: list[str],
+    var_pairs: list[str],
+    now: date,
+    secondary_layer: str | None = None,
+) -> ResolveResult:
     if unknown := sorted(set(extras) - set(EXTRAS)):
         raise ScaffoldError(f"unknown extras: {', '.join(unknown)}; known: {', '.join(EXTRAS)}")
     # An unknown feature name is an error; a known feature requested outside its
@@ -146,11 +156,18 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
     # the argparse "all features" default reduces to each layer's own set.
     if unknown := sorted(set(features) - set(_FEATURE_NAMES)):
         raise ScaffoldError(f"unknown features: {', '.join(unknown)}; known: {', '.join(_FEATURE_NAMES)}")
+    if secondary_layer is not None:
+        if secondary_layer not in SECONDARY_LAYERS:
+            raise ScaffoldError(f"unknown secondary layer {secondary_layer!r}; known: {', '.join(SECONDARY_LAYERS)}")
+        if secondary_layer == layer:
+            raise ScaffoldError(f"--secondary-layer {secondary_layer} must differ from --layer {layer}")
     applicable = {f.name for f in FEATURES if layer in f.layers}
     features = [f for f in features if f in applicable]
 
     variables = parse_vars(var_pairs)
     validate_vars(variables, layer)
+    if secondary_layer is not None and "SECONDARY_CODE_ROOT" not in variables:
+        raise ScaffoldError("--secondary-layer requires --var SECONDARY_CODE_ROOT=<dir>")
     variables = derive_vars(variables, now)
 
     enabled = {f.section for f in FEATURES if f.name in features}
@@ -162,12 +179,17 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
     # like HAS_LICENSE — extras carry no section tokens of their own.
     if "plugin" in extras:
         enabled.add("LATEST" if variables.get("BINARY_VERSION_MODE") == "latest" else "PINNED")
+    # A secondary layer's `## <Lang> Style` fragment is gated by this section in every
+    # layout.toml.
+    if secondary_layer is not None:
+        enabled.add("SECONDARY_STYLE")
     return ResolveResult(
         layers=expand_layers(layer),
         features=tuple(features),
         enabled_sections=frozenset(enabled),
         extras=tuple(extras),
         variables=variables,
+        secondary_layer=secondary_layer,
     )
 
 
@@ -177,7 +199,12 @@ def resolve(layer: str, extras: list[str], features: list[str], var_pairs: list[
 def select_files(r: ResolveResult) -> list[PlanItem]:
     chosen: dict[str, tuple[int, FileSpec]] = {}
     for spec in FILES:
-        if spec.layer not in r.layers:
+        # A secondary-layer spec is gated by --secondary-layer, not layer membership,
+        # so it lands beside a different primary layer's files without joining r.layers.
+        if spec.secondary_layer is not None:
+            if spec.secondary_layer != r.secondary_layer:
+                continue
+        elif spec.layer not in r.layers:
             continue
         if spec.feature is not None and spec.feature not in r.features:
             continue
@@ -358,7 +385,7 @@ def render_sources(target: Path) -> None:
 def run(args: argparse.Namespace) -> int:
     extras = parse_extras(args.extras)
     features = [f for f in args.features.split(",") if f]
-    r = resolve(args.layer, extras, features, args.var, datetime.date.today())
+    r = resolve(args.layer, extras, features, args.var, datetime.date.today(), args.secondary_layer)
     items = select_files(r)
     plan, notices = render_plan(items, r, read_template, template_exists)
     code = apply_plan(plan, args.target, args.force, args.dry_run)

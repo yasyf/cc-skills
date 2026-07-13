@@ -21,6 +21,12 @@ LAYERS = (
 )
 LAYER_ORDER = tuple(layer.name for layer in LAYERS)
 
+# Languages selectable via ``--secondary-layer``: each adds only its styleguide (at
+# SECONDARY_CODE_ROOT) and an AGENTS.md pointer — never a second toolchain — so the
+# files never clobber the primary layer's at the root. Add one by shipping its
+# ``secondary_layer=`` FileSpecs (see FILES) and listing it here.
+SECONDARY_LAYERS = ("python",)
+
 # Optional features, each scoped to the layer(s) that offer it. Each maps to a
 # {{#FEATURE_*}} section token and may gate whole files (see FILES below). A
 # feature requested outside its layer is silently dropped (scaffold.resolve).
@@ -78,6 +84,10 @@ VARS = (
     # (releases/latest redirect — for plugins whose version isn't coupled to
     # binary releases). Drives the PINNED/LATEST sections, never a placeholder.
     VarSpec("BINARY_VERSION_MODE", (), validate="binary_version_mode"),
+    # Repo-root-relative dir holding a --secondary-layer's code, e.g. plugin/hooks.
+    # required_in is empty (a secondary layer is layer-independent); resolve() makes
+    # it mandatory whenever --secondary-layer is set.
+    VarSpec("SECONDARY_CODE_ROOT", (), validate="code_root"),
 )
 
 DERIVED = (
@@ -128,6 +138,13 @@ FILES = (
         "base/claude/fragments/AGENTS.md/style.fragment.md",
         "base",
     ),
+    # capt-hook hooks are Python in every repo; the `## Hook Style` pointer ships in
+    # every layer's AGENTS.md (each layout.toml lists {{PROJECT_NAME}}-hook-style).
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-hook-style.fragment.md",
+        "base/claude/fragments/AGENTS.md/hook-style.fragment.md",
+        "base",
+    ),
     FileSpec(".claude/fragments/CLAUDE.md/layout.toml", "base/claude/fragments/CLAUDE.md/layout.toml", "base"),
     # settings.json layout dir lives at the doubly-nested .claude/fragments/.claude/
     # settings.json/ (the target IS .claude/settings.json). The
@@ -154,6 +171,8 @@ FILES = (
     # capt-hook hooks ship as the `general` builtin pack; the project enables it
     # via packs.toml instead of vendoring the hook files. See reference/hooks.md.
     FileSpec(".claude/hooks/packs.toml", "base/claude/hooks/packs.toml", "base"),
+    # The style guide for the repo's `.claude/hooks/` Python — shipped in every layer.
+    FileSpec(".claude/hooks/STYLEGUIDE.md", "base/claude/hooks/STYLEGUIDE.md", "base"),
     # synthesized base files (no single template src)
     FileSpec(".gitignore", None, "base", transform="gitignore"),
     FileSpec("LICENSE", None, "base", transform="license"),
@@ -205,6 +224,22 @@ FILES = (
     FileSpec("docs/scripts/native_reference_titles.py", "python/docs/scripts/native_reference_titles.py", "python", feature="docs"),
     FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
+    # --- python as a SECONDARY layer (--secondary-layer python) ---
+    # Only a path-keyed styleguide beside the code and an AGENTS.md `## Python Style`
+    # pointer; no toolchain. secondary_layer gates selection, so these never fire for
+    # a primary `--layer python`.
+    FileSpec(
+        "{{SECONDARY_CODE_ROOT}}/STYLEGUIDE.md",
+        "python/secondary-STYLEGUIDE.md",
+        "python",
+        secondary_layer="python",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-secondary-style.fragment.md",
+        "python/claude/fragments/AGENTS.md/secondary-style.fragment.md",
+        "python",
+        secondary_layer="python",
+    ),
     # --- go layer (overrides base where dest collides) ---
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "go/claude/fragments/AGENTS.md/layout.toml", "go"),
     FileSpec(

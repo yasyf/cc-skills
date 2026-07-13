@@ -36,6 +36,7 @@ FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
     ".claude/fragments/AGENTS.md/demo-proj-style.fragment.md",
+    ".claude/fragments/AGENTS.md/demo-proj-hook-style.fragment.md",
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
@@ -43,7 +44,7 @@ FRAGMENT_DESTS = {
 
 SWIFT_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -56,7 +57,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
 
 SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml",
+    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",

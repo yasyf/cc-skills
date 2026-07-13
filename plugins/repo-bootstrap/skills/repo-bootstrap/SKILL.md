@@ -100,6 +100,14 @@ layers, Homebrew release workflows ship **only** via the opt-in `release` featur
 (off by default); for a hand-written language they're product work the user must
 explicitly ask for.
 
+**A second language in a subdir?** When a repo carries a secondary language beside
+the primary — a Go CLI whose helper package or capt-hook hooks are Python, say —
+add `--secondary-layer <lang>` (currently `python`) plus `--var SECONDARY_CODE_ROOT=<dir>`.
+The secondary layer contributes **only** its styleguide at `<dir>/STYLEGUIDE.md` and an
+AGENTS.md `## <Lang> Style` pointer — never a second toolchain (no extra root
+`go.mod`/`pyproject.toml`/CI). It must differ from `--layer`. This is how the primary
+language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own code.
+
 **Then gather everything else in one `AskUserQuestion` round:**
 
 - **All layers**: project name, one-line description, **visibility** (public or
@@ -266,7 +274,9 @@ Set `--features` from Phase 1 — python: `docs,pypi` (both), `pypi`/`docs` (one
 explicitly); go and swift: `release` or `""` — **always pass it explicitly** (release
 is off by default, so omitting selects no features); swift-app: `""`. For
 base layer, drop the language `--var`s and `--features`. `--extras` is always
-required; pass `--extras none` if none were chosen.
+required; pass `--extras none` if none were chosen. To add a second language beside
+the primary, append `--secondary-layer python --var SECONDARY_CODE_ROOT=<dir>` (see
+Phase 1).
 
 Rules:
 
@@ -325,6 +335,8 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
 | `.claude/hooks/packs.toml` | base; python/go/swift **override** | enables capt-hook's builtin packs — `general` (base), `fixes` (workarounds for upstream Claude Code issues), and `steering` (judgment nudges: band-aid plans, dismissed pre-existing issues, trivial type noise), plus `python` on the python layer or `go` on the go layer (no swift pack exists — the swift layers enable general + fixes + steering only); each pack ships its guard hooks (see `reference/hooks.md`). Also pins the `ccx` guard pack (`github:yasyf/cc-context@latest`) and the `cc-present` guard pack (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool); repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. |
+| `.claude/hooks/STYLEGUIDE.md` | base | the Python style guide for the repo's `.claude/hooks/` capt-hook hooks; ships in every scaffold (hooks are Python whatever the primary language), with a `## Hook Style` AGENTS.md pointer |
+| `<SECONDARY_CODE_ROOT>/STYLEGUIDE.md` | `--secondary-layer python` | a Python style guide beside a secondary language's code (never at the root), with a `## Python Style` AGENTS.md pointer; only present when `--secondary-layer` is set |
 | `.claude/skills/xcodebuildmcp-cli/SKILL.md` | swift, swift-app | the vendored XcodeBuildMCP project skill (help-first CLI discovery); AGENTS.md mandates it before any XcodeBuildMCP call |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `great-docs.yml`, `docs/scripts/fix_color_swatch.py`, `docs/scripts/native_reference_titles.py` | python + feature `docs` | omitted entirely without `docs`; `native_reference_titles.py` is a `pre_render` perf workaround (see `reference/docs-site.md`) |
