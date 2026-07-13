@@ -4,6 +4,9 @@
 #
 #   • default            → Browserbase, reconnecting to this caller's keepAlive session
 #   • --local (anywhere) → local browser (flag stripped before hand-off)
+#   • --session <name>   → suffix the caller identity (AB_SESSION env works too; the
+#                          flag wins): parallel agents in one Claude Code session each
+#                          get their own browser session
 #   • key unresolvable   → warn on stderr, fall back to local
 #   • ab mode            → print "browserbase" or "local" (no session side effects)
 #   • ab close           → release this caller's Browserbase session
@@ -15,8 +18,9 @@
 # — it is a short-lived per-session credential, released on close. Assumes sequential
 # invocation per caller (the skill drives it one command at a time).
 #
-# Contract: --local anywhere in argv is always consumed as ab's own flag, so a literal
-# "--local" can never pass through as data (e.g. a storage value) — quoteless by design.
+# Contract: --local and --session <name> anywhere in argv are always consumed as ab's
+# own flags (--session also consumes the token after it), so a literal can never pass
+# through as data (e.g. a storage value) — quoteless by design.
 #
 # Key: op://OpenClaw/BROWSERBASE_API_KEY/notesPlain.
 set -uo pipefail
@@ -24,24 +28,46 @@ set -uo pipefail
 BB_API="https://api.browserbase.com/v1"
 SESSION_TIMEOUT=1800 # seconds; a keepAlive session self-expires if `close` never runs
 
-# Stable per-caller identity + a name-safe slug for the Browserbase tag and the local
-# agent-browser session name.
+# Stable per-caller identity; --session/AB_SESSION (below) suffixes it, and the
+# name-safe slug for the Browserbase tag and local agent-browser session name derives
+# after flag parsing.
 TAG="$(cookiesync requestor)" || {
   echo "ab: 'cookiesync requestor' failed — cannot derive a session identity" >&2
   exit 1
 }
-SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
 
-# Strip our own --local; pass everything else through. `close` is our subcommand only
-# when it leads.
+# Strip our own --local / --session <name>; pass everything else through. `close` is
+# our subcommand only when it leads.
 force_local=0
+session=""
+want_session=0
 args=()
 for a in "$@"; do
+  if [[ "$want_session" == 1 ]]; then
+    [[ -n "$a" ]] || {
+      echo "ab: --session needs a value" >&2
+      exit 2
+    }
+    session="$a"
+    want_session=0
+    continue
+  fi
   case "$a" in
   --local) force_local=1 ;;
+  --session) want_session=1 ;;
   *) args+=("$a") ;;
   esac
 done
+[[ "$want_session" == 0 ]] || {
+  echo "ab: --session needs a value" >&2
+  exit 2
+}
+
+# The override suffixes (never replaces) the requestor identity, so the same short
+# name in two Claude Code sessions still means two Browserbase sessions.
+session="${session:-${AB_SESSION:-}}"
+[[ -z "$session" ]] || TAG="$TAG · $session"
+SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
 API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
 
 # `mode` — report which backend a call would use (the key resolution + --local logic

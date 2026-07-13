@@ -59,8 +59,11 @@ point; never call `agent-browser` raw.
 3. **Launch the authenticated session.** `ab` picks the backend itself: Browserbase
    (one keepAlive cloud session per agent session, reconnected across calls) when its
    key resolves, the local stealth Clark browser otherwise. `--local` anywhere forces
-   local. Seed with the shipped helper, listing **every** host the task touches,
-   primary URL first; then open only the primary URL:
+   local. `--session <name>` (both commands; `AB_SESSION` env works too, the flag
+   wins) names a separate per-agent session — carry it on **every** later `"$ab"`
+   call, `close` included (**Parallel per-host fan-out**, Notes). Seed with the
+   shipped helper, listing **every** host the task touches, primary URL first; then
+   open only the primary URL:
 
    ```bash
    ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
@@ -90,9 +93,9 @@ point; never call `agent-browser` raw.
 5. **Do the task**, running every command as `"$ab" …` (defer to the `agent-browser`
    skill for command mechanics; substitute `"$ab"` for `agent-browser` throughout).
 
-6. **Clean up.** `"$ab" close` — closes the local session, or releases the Browserbase
-   keepAlive session (which otherwise lingers until it times out). Always end a run
-   with it.
+6. **Clean up.** `"$ab" close` — same `--session <name>` if you launched with one —
+   closes the local session, or releases the Browserbase keepAlive session (which
+   otherwise lingers until it times out). Always end a run with it.
 
 ## Failure handling
 
@@ -181,14 +184,15 @@ deeper diagnosis.
   you still `open` only the primary URL.
 - **Parallel per-host fan-out:** when N independent hosts are each their own task
   (reading a balance from each of N dashboards), a coordinator primes once with one
-  `cookiesync auth --reason` naming every host, then each parallel agent seeds only
-  its own host — the shared grant (**One session, one tap**, below) keeps the whole
-  fan-out at one tap. Precondition: one browser session per agent, which `ab` cannot
-  give yet — it keys the session off the cookiesync requestor, shared across a
-  session's agents, so until it takes a session override parallel agents would share
-  one page. The boundary with merging: merge co-dependent origins of one flow (an app
-  plus its API host, an SSO chain); fan out hosts that stand alone, even when one
-  request names them together.
+  `cookiesync auth --reason` naming every host, then each parallel agent runs step 3
+  with its own session name — `abwc-seed --session <slug> <host>`, the same
+  `--session <slug>` on every later `"$ab"` call, ending with `"$ab" close --session
+  <slug>` (an unclosed Browserbase session lingers for its full timeout). The shared
+  grant (**One session, one tap**, below) keeps the whole fan-out at one tap; the
+  override suffixes the requestor identity, so slugs need only be unique among this
+  session's agents. The boundary with merging: merge co-dependent origins of one flow
+  (an app plus its API host, an SSO chain); fan out hosts that stand alone, even when
+  one request names them together.
 - The stream carries plaintext session tokens — cookies **and** localStorage/
   sessionStorage (a Playwright `storageState` over a FIFO locally; a cookie header
   plus per-origin `storage set` calls in Browserbase mode). It goes process-to-process
@@ -200,6 +204,9 @@ deeper diagnosis.
 - The Touch ID prompt is a per-task consent checkpoint, not a hardware binding of the
   key. Your `--reason` shows verbatim, so the user approves an informed, task-specific
   request — keep the reason short and honest.
+- `--reason` is capped at 160 characters and silently truncated in the dialog. A host
+  list that won't fit: name the count and kind instead ("balances + status from 9
+  airline and bank sites").
 - **One session, one tap:** every `cookiesync` call in a Claude Code session shares
   one Touch ID grant — the CLI derives the requestor from the session — so `auth`
   (step 2), `abwc-seed` (step 3), and any retries cost one tap total. A second tap

@@ -5,7 +5,8 @@
 # at entry via `ab mode` (Browserbase vs local) and is pinned for the whole run — local
 # appends --local to every child ab call, browserbase exports the resolved API key so
 # no child can re-resolve it; pass --local anywhere to force the local browser, same
-# as ab.
+# as ab, and --session <name> to forward the per-agent session override to every ab
+# call.
 #
 #   • local       → one merged Playwright storageState over a short-lived FIFO
 #                   (cookies + localStorage), then per-origin sessionStorage seeding
@@ -39,21 +40,31 @@ cleanup() {
 trap cleanup EXIT
 
 local_flag=()
+session_flag=()
+want_session=0
 hosts=()
 for a in "$@"; do
+  if [[ "$want_session" == 1 ]]; then
+    [[ -n "$a" ]] || die "--session needs a value"
+    session_flag=(--session "$a")
+    want_session=0
+    continue
+  fi
   case "$a" in
   --local) local_flag=(--local) ;;
+  --session) want_session=1 ;;
   *) hosts+=("$a") ;;
   esac
 done
+[[ "$want_session" == 0 ]] || die "--session needs a value"
 
 if [[ ${#hosts[@]} -eq 0 ]]; then
-  echo "usage: abwc-seed [--local] <url-or-host>..." >&2
+  echo "usage: abwc-seed [--local] [--session <name>] <url-or-host>..." >&2
   exit 2
 fi
 primary="${hosts[0]}"
 
-run_ab() { "$ab" ${local_flag[@]+"${local_flag[@]}"} "$@"; }
+run_ab() { "$ab" ${local_flag[@]+"${local_flag[@]}"} ${session_flag[@]+"${session_flag[@]}"} "$@"; }
 
 # Mode resolves exactly once and pins every child call: a local verdict appends
 # --local everywhere; a browserbase verdict exports the API key so no child ab can
@@ -77,12 +88,13 @@ bare_host() { # url-or-host -> host: scheme, userinfo, port, path/query/fragment
   printf '%s' "${h%%:*}"
 }
 
-# seed_storage KIND — per-origin `ab storage KIND set` for every origin that carries
-# KIND keys; each origin is opened first because `storage set` writes to the current
-# page's origin. Names and values ride base64-encoded through the shell so JSON-ish
-# values survive verbatim. Returns non-zero if any origin or entry failed.
+# seed_storage KIND — one `ab eval --stdin` per origin that carries KIND keys; each
+# origin is opened first because the eval runs in the current page. The entries ride
+# inside the script as JSON (valid JS), so a storage-heavy origin costs one call —
+# per-key `storage set` calls were thousands of daemon roundtrips on a site like
+# github.com. Returns non-zero if any origin failed.
 seed_storage() {
-  local kind="$1" origins entries o origin k v fails=0
+  local kind="$1" origins o origin script fails=0
   origins="$(cookiesync cookies --format webstorage -- "${hosts[@]}" |
     jq -c --arg kind "${kind}Storage" '.origins[] | select((.[$kind] // []) | length > 0)')" || {
     echo "abwc-seed: could not extract ${kind}Storage from cookiesync" >&2
@@ -91,8 +103,8 @@ seed_storage() {
   while IFS= read -r o; do
     [[ -n "$o" ]] || continue
     origin="$(jq -r '.origin' <<<"$o")"
-    entries="$(jq -r --arg kind "${kind}Storage" \
-      '.[$kind][] | select((.name // "") != "") | [.name, .value] | map(@base64) | join(" ")' <<<"$o")" || {
+    script="$(jq -r --arg kind "${kind}Storage" \
+      '"for (const [k, v] of " + ([.[$kind][] | select((.name // "") != "") | [.name, .value]] | tojson) + ") window[" + ($kind | tojson) + "].setItem(k, v)"' <<<"$o")" || {
       echo "abwc-seed: could not parse ${kind}Storage entries for $origin" >&2
       fails=$((fails + 1))
       continue
@@ -102,12 +114,10 @@ seed_storage() {
       fails=$((fails + 1))
       continue
     fi
-    # $(base64 -D) strips trailing newlines and argv cannot carry NUL — storage-value
-    # shapes rare enough to accept rather than contort the bridge.
-    while read -r k v; do
-      [[ -n "$k" ]] || continue
-      run_ab storage "$kind" set "$(base64 -D <<<"$k")" "$(base64 -D <<<"$v")" || fails=$((fails + 1))
-    done <<<"$entries"
+    printf '%s' "$script" | run_ab eval --stdin >/dev/null || {
+      echo "abwc-seed: ${kind}Storage seeding failed for $origin" >&2
+      fails=$((fails + 1))
+    }
   done <<<"$origins"
   [[ "$fails" -eq 0 ]]
 }
@@ -125,7 +135,7 @@ seed_local() {
     seedwriter "$TMPD/state" "${hosts[@]}" 2>"$TMPD/err" &
   wpid=$!
   # Load concurrently so payloads larger than the pipe buffer (>64KB) drain.
-  timeout -k 5 90 "$ab" ${local_flag[@]+"${local_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
+  timeout -k 5 90 "$ab" ${local_flag[@]+"${local_flag[@]}"} ${session_flag[@]+"${session_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
   lpid=$!
   # Reap whichever side finishes first (bash ≥5.1): a failed first-finisher gets the
   # survivor killed instead of waited out — a loader that dies before ever opening
@@ -164,11 +174,14 @@ seed_local() {
 
 seed_browserbase() {
   local u fails=0
-  run_ab open "$primary" || die "could not open $primary"
-  # The header format carries no domain metadata — one host per call, domain pinned.
+  # The header format carries no domain metadata — open each host and set its cookies
+  # unpinned on that page: a pinned --domain invalidates the whole CDP batch whenever
+  # it carries a __Host- cookie (github.com does), and CDP accepts __Host- only
+  # url-scoped.
   for u in "${hosts[@]}"; do
-    if ! cookiesync cookies --format header -- "$u" |
-      run_ab cookies set --curl /dev/stdin --domain "$(bare_host "$u")"; then
+    if ! run_ab open "https://$(bare_host "$u")" ||
+      ! cookiesync cookies --format header -- "$u" |
+        run_ab cookies set --curl /dev/stdin; then
       echo "abwc-seed: cookie seeding failed for $u" >&2
       fails=$((fails + 1))
     fi
