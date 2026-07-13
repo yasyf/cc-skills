@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import tomllib
 
 import pytest
 from bootstrap import scaffold
@@ -731,11 +732,9 @@ def test_packs_toml_pins_guard_packs(base_var_pairs, py_var_pairs, go_var_pairs,
         ("go", go_var_pairs),
         ("swift", swift_var_pairs),
     ):
-        packs = _real_plan(layer, pairs)[0][".claude/hooks/packs.toml"]
-        assert "[packs.ccx]" in packs, f"{layer} packs.toml must pin the ccx guard pack"
-        assert 'source = "github:yasyf/cc-context@latest"' in packs, f"{layer} ccx pin source"
-        assert "[packs.cc-present]" in packs, f"{layer} packs.toml must pin cc-present"
-        assert 'source = "github:yasyf/cc-present@latest"' in packs, f"{layer} cc-present pin source"
+        parsed = tomllib.loads(_real_plan(layer, pairs)[0][".claude/hooks/packs.toml"])
+        assert parsed["packs"]["ccx"]["source"] == "github:yasyf/cc-context@latest", f"{layer} ccx pin"
+        assert parsed["packs"]["cc-present"]["source"] == "github:yasyf/cc-present@latest", f"{layer} cc-present pin"
 
 
 def test_go_goreleaser_template_tokens_survive(go_var_pairs):
