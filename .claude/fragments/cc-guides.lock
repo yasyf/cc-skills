@@ -5,4 +5,4 @@ artifacts = [".claude/settings.json", "AGENTS.md", "CLAUDE.md"]
 
 [sources.cc-skills]
 spec = "github:yasyf/cc-skills@main"
-commit = "b3d51ae3490789b7e6bc85133616fbbcb595709d"
+commit = "410f5d72b6c2d04760ce6619dd6aab5d329cb475"
