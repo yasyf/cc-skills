@@ -46,9 +46,10 @@ browser launches and routes browser/DOM work through the `agent-browser` CLI
 For image generation, add `--disable shell_tool` and follow the imagegen
 instructions embedded in your prompt.
 
-If the orchestrator's prompt explicitly marks the task rote/bulk throwaway,
-swap `-c model=gpt-5.6-luna`; that call is the orchestrator's, never yours.
-`service_tier=fast` stays pinned either way.
+If the orchestrator's prompt explicitly marks the task rote/bulk throwaway or
+a bounded recon sweep, swap `-c model=gpt-5.6-luna`; that call is the
+orchestrator's, never yours. `service_tier=fast` and
+`model_reasoning_effort=xhigh` stay pinned either way.
 
 ## Step 3: Return the reply
 

@@ -249,13 +249,11 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "verification of security-sensitive code" in claude
     assert "very sensitive or error-prone implementation" in claude
     assert "count as same-tier" in claude
-    # 2026-07-11: gpt-5.6 family migration — sol is the codex-lane model (fast
-    # tier pinned on every variant), luna sanctioned only for rote/bulk. Ultra
-    # execution mode (exposed since codex 0.144.0) is explicitly NOT a retry rung;
-    # regressing the phrase resurrects it as an escalation rung. A gpt-5.5 remnant
-    # means a half-migrated stamp.
+    # gpt-5.6 lanes: sol default; luna rote/bulk + bounded recon (xhigh only, v4.1
+    # 2026-07-13, cc-notes 128bed3). Ultra is NOT a retry rung; "gpt-5.5" = half-migrated.
     assert "| gpt-5.6-sol | 9 | 8 | 5 |" in claude
     assert "gpt-5.6-luna" in claude
+    assert "bounded recon sweeps" in claude
     assert "ultra execution mode" in claude
     assert "is not a retry rung" in claude
     assert "gpt-5.5" not in claude
@@ -263,10 +261,12 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "security review/audit" in conventions
     assert "verification of" in conventions and "security-sensitive code" in conventions
     assert "gpt-5.6-sol" in conventions
+    assert "bounded recon sweeps" in conventions
     assert "gpt-5.5" not in conventions
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
     assert "security review/audit" in codex_skill
     assert "verification of security-sensitive code" in codex_skill
+    assert "bounded recon sweeps" in codex_skill
     assert "gpt-5.5" not in codex_skill
     # The writing-plans "model and effort per phase" clause moved into the cc-guides
     # writing-plans fragment (rendered into AGENTS.md downstream) and is pinned there.

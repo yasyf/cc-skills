@@ -127,7 +127,9 @@ shared AGENTS.md:
   and terminal-heavy execution (ambiguous, large multi-file, or long-horizon work
   stays on opus), second
   opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
-  rote/bulk lane; from workflow routing stages: the
+  rote/bulk lane and, at xhigh only, for bounded recon sweeps — config/wiring
+  locates, crisp-scope enumerations, pattern sweeps; open-ended or exhaustive
+  recon stays sonnet; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
   escalation means fable;
   the unexpected checks back — a delegated agent hitting a task-shape surprise

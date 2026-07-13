@@ -58,9 +58,16 @@ the two sanctioned deviations.
 `gpt-5.6-sol` is the default for every lane. Two sanctioned deviations, at
 your discretion per task; every other flag stays put either way:
 
-- **`gpt-5.6-luna`** for the rote-throwaway/bulk lane only -- one-off scripts,
-  scratch harnesses, data munging where quality doesn't matter and nothing can
-  go wrong. Swap the `-c model=` value; keep the rest of the recipe.
+- **`gpt-5.6-luna`** for two lanes. The rote-throwaway/bulk lane: one-off
+  scripts, scratch harnesses, data munging where quality doesn't matter and
+  nothing can go wrong. And bounded recon sweeps: config/wiring locates,
+  crisp-scope enumerations, and pattern sweeps over a repo, where luna matched
+  or beat sonnet-5 with zero false cites at ~5x speed (measured 2026-07-13).
+  Open-ended or exhaustive recon, deep multi-path traces, and anything where a
+  silent miss is costly stay on Claude (sonnet-5 via Explore) -- luna's miss
+  mode is a confident wrong count. Swap the `-c model=` value; keep the rest
+  of the recipe. Recon on luna requires `model_reasoning_effort=xhigh`: at
+  `high` it drops whole subsystems on deep traces.
 - **Ultra execution mode** (exposed since codex 0.144.0) decomposes the run
   across internal subagents at 3-5x token cost. It is not an escalation rung:
   ultra shows the worst scope discipline of any config -- long unattended
