@@ -124,8 +124,9 @@ PreToolUse. Eight hooks:
   context.
 - **Fable-implementation nudge (LLM, warn).** An `Agent`/`Task` spawn that would run
   on fable (unpinned or `model: fable`) with an implementation-shaped prompt gets an
-  LLM-judged reminder that implementation defaults to opus `xhigh` (or gpt-5.6-sol
-  via the `codex:codex-wrapper` agent for well-scoped edits). Judged, not pattern-matched,
+  LLM-judged reminder that ambiguous/large/long-run implementation defaults to opus
+  `xhigh` and well-scoped, clearly-bounded (terminal-heavy included) implementation
+  routes to gpt-5.6-sol via the `codex:codex-wrapper` agent. Judged, not pattern-matched,
   because fable is often intentional — design/prose review, writing, hard planning,
   and sensitive implementation stay there (code/diff and security review route to
   gpt-5.6-sol via their own nudges); when uncertain it stays silent.

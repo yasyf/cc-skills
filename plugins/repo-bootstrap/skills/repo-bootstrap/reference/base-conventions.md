@@ -113,16 +113,19 @@ shared AGENTS.md:
   at the main-agent level, and routine docs/prose edits skip dynamic workflows and
   adversarial verify while keeping Models-table routing and the `## Workflow Plan`
   line; delegated agents are routed by the **Models** table —
-  opus-4.8 `xhigh` by default (when in doubt, opus; implementation — including
-  sustained hands-on tool-driving like browser automation — delegates here
-  rather than editing inline on fable), fable-5 for orchestration, design review,
+  opus-4.8 `xhigh` by default (when in doubt, opus; ambiguous, large-refactor,
+  or long-run implementation — including sustained hands-on tool-driving like
+  browser automation — delegates here rather than editing inline on fable),
+  fable-5 for orchestration, design review,
   hard planning, all prose/writing (never down-route writing), sensitive or
   error-prone implementation, review-findings synthesis, and as the escalation
   target for every lane (context-window pressure is not a routing cue), sonnet-5
   for recon (never haiku except single-fact mechanical steps), gpt-5.6-sol via the
   codex skill for code/diff review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
-  it stays fable), bug diagnosis, well-scoped edits to existing code, second
+  it stays fable), bug diagnosis, well-scoped or clearly-bounded implementation
+  and terminal-heavy execution (ambiguous, large multi-file, or long-horizon work
+  stays on opus), second
   opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
   rote/bulk lane; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —

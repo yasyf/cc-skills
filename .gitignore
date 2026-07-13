@@ -10,4 +10,8 @@ __pycache__/
 # OS / editor cruft
 .DS_Store
 *.swp
+
+# Claude Code
+.context/
+.claude-scratch/
 .claude/settings.local.json
