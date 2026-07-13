@@ -44,7 +44,7 @@ claude plugin marketplace add yasyf/cc-present
 claude plugin install cc-present@cc-present
 ```
 
-(Settings-file equivalent: `extraKnownMarketplaces: {"cc-present": {"source": {"source": "github", "repo": "yasyf/cc-present"}}}` plus `enabledPlugins: {"cc-present@cc-present": true}`.) If it cannot be installed, degrade deliberately: an Artifact page carries the content and AskUserQuestion collects the verdicts.
+(Settings-file equivalent: `extraKnownMarketplaces: {"cc-present": {"source": {"source": "github", "repo": "yasyf/cc-present"}, "autoUpdate": true}}` plus `enabledPlugins: {"cc-present@cc-present": true}`.) If it cannot be installed, degrade deliberately: an Artifact page carries the content and AskUserQuestion collects the verdicts.
 
 Per-surface mechanics live in [reference/surfaces.md](reference/surfaces.md).
 

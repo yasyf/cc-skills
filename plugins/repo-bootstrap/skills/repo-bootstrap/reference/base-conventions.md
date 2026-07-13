@@ -279,18 +279,21 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
   `ls`, `rg`, `wc` — each as `Bash(cmd:*)`). Philosophy: the checked-in allowlist
   never grants writes; anything mutating still prompts. `"defaultMode": "auto"`.
 - `"extraKnownMarketplaces"` + `"enabledPlugins"`: registers the
-  [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace (with
-  `"autoUpdate": true` so clones stay fresh) and enables `codex@skills` (the
+  [yasyf/cc-skills](https://github.com/yasyf/cc-skills) plugin marketplace and
+  enables `codex@skills` (the
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
   `prompts.py` nudge), `writing-docs@skills` (the `docs.py` nudge), and
   `cc-context@cc-context` (the `ccx` code-search facade the AGENTS.md Compact Context
   section routes to; the same plugin also attaches the `ccx` guard pack per session). It also
-  registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes) and
-  [yasyf/cc-context](https://github.com/yasyf/cc-context) marketplaces and
-  enables `cc-notes@cc-notes`, the git-native notes/tasks layer — so the
-  `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs.
-  Anyone who trusts the folder gets the marketplaces registered and the plugins
-  enabled after a one-time consent prompt. Removing a nudge from its hook file?
+  registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes),
+  [yasyf/cc-context](https://github.com/yasyf/cc-context), and
+  [yasyf/captain-hook](https://github.com/yasyf/captain-hook) marketplaces and
+  enables `cc-notes@cc-notes` (the git-native notes/tasks layer — so the
+  `using-cc-notes` skill loads on folder-trust even before `cc-notes init` runs)
+  and `captain-hook@captain-hook`, the capt-hook guard-hook framework. Every
+  marketplace entry sets `"autoUpdate": true` so clones stay fresh. Anyone who
+  trusts the folder gets the marketplaces registered and the plugins enabled
+  after a one-time consent prompt. Removing a nudge from its hook file?
   Remove its plugin keys in the same edit (n.b. `slop-cop@skills` is shared by
   `prompts.py` and `docs.py`).
 - No `"hooks"` key: `.claude/settings.json` carries no hook wiring. Hook dispatch
