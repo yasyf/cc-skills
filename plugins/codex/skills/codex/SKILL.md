@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit to existing code (little net-new code), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit to existing code, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit or clearly-bounded implementation task (net-new code included when the boundaries are crisp), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit or clearly-bounded build, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
 allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
 effort: medium
 ---
@@ -9,7 +9,7 @@ effort: medium
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
 run a code/diff review, security review/audit, or bug diagnosis, hand it a
-well-scoped edit to existing code, use its built-in `$imagegen` skill to generate
+well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen` skill to generate
 images, or offload rote throwaway work.
 
 Every `codex exec` in this skill pins `-c model=gpt-5.6-sol
@@ -45,10 +45,13 @@ the two sanctioned deviations.
 - Rote, throwaway work -- one-off scripts, scratch harnesses, bulk data munging --
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
-- Well-scoped edits to existing code -- the change is fully specifiable up front
-  and adds little net-new code (a refactor, a signature change, threading a
-  parameter through). Production edits are in range at xhigh; review the diff as
-  you would any other contributor's.
+- Well-scoped edits and clearly-bounded implementation -- the change is fully
+  specifiable up front: a refactor, a signature change, threading a parameter
+  through, or net-new code whose boundaries are crisp. Bounded terminal/shell-heavy
+  execution fits here too. Ambiguous or exploratory builds, large multi-file
+  refactors, and long agentic runs stay on Claude (opus xhigh) -- sol drifts
+  out of scope on open-ended work. Production edits are in range at xhigh;
+  review the diff as you would any other contributor's.
 
 ## Model Variants and Escalation
 
@@ -58,12 +61,11 @@ your discretion per task; every other flag stays put either way:
 - **`gpt-5.6-luna`** for the rote-throwaway/bulk lane only -- one-off scripts,
   scratch harnesses, data munging where quality doesn't matter and nothing can
   go wrong. Swap the `-c model=` value; keep the rest of the recipe.
-- **Ultra execution mode** is the escalation rung between sol at xhigh and
-  fable: it decomposes the run across internal subagents for the hardest
-  problems. The codex CLI does not expose it yet (0.144.1: not a
-  reasoning-effort value, no feature flag), so until it does, a hard sol miss
-  escalates straight to fable. Once it lands, it is the retry rung -- slow and
-  expensive; never start a task there.
+- **Ultra execution mode** (exposed since codex 0.144.0) decomposes the run
+  across internal subagents at 3-5x token cost. It is not an escalation rung:
+  ultra shows the worst scope discipline of any config -- long unattended
+  runs wander onto the wrong work -- so a hard sol miss escalates straight
+  to fable. Never start or retry a task on ultra.
 
 `-c service_tier=fast` is non-negotiable on every exec, regardless of variant
 or effort.
@@ -119,16 +121,21 @@ Build a comprehensive question with:
 ### Step 2: Write Question and Invoke Codex
 
 Write the question to a mktemp-unique path in your session scratchpad
-directory (the path listed in your system prompt) — never /tmp, which is
-shared across sessions, so fixed or `$$`-suffixed names there get clobbered
-or cross-read by parallel codex runs — then write the question, run codex,
-and print the reply path in ONE Bash call so the variables resolve
-consistently. Give the call a 10-minute timeout: xhigh on the fast tier
-typically returns in ~2 minutes but can run longer.
+directory when your system prompt lists one; when none is listed, create a
+fresh directory with `mktemp -d`. Those are the only two options — never
+invent a directory (a repo-relative name like `.claude-scratch/` lands in
+the working tree and gets committed by auto-snapshot), and never use fixed
+or `$$`-suffixed paths, which collide across parallel codex runs. Write the
+question, run codex, and print the reply path in ONE Bash call so the
+variables resolve consistently. Give the call a 10-minute timeout: xhigh on
+the fast tier typically returns in ~2 minutes but can run longer. The exec
+redirects its event stream (banner, echoed prompt, progress trace) into a
+JSONL log file; only the `REPLY_FILE:`/`LOG_FILE:` lines — or a failure
+tail — reach the conversation.
 
 ```bash
-S=<your scratchpad directory>  # from your system prompt; S=$(mktemp -d) if none is listed
-Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
+S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d). Never a made-up or repo-relative dir.
+Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
 cat <<'QUESTION' > "$Q"
 I have a [component] that fails with [specific error].
 
@@ -151,14 +158,15 @@ Questions:
 2. [specific question]
 QUESTION
 
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --sandbox danger-full-access
-echo "REPLY_FILE: $R"
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --json --color never --sandbox danger-full-access > "$Q.log" 2>&1 || tail -20 "$Q.log"
+echo "REPLY_FILE: $R"; echo "LOG_FILE: $Q.log"
 ```
 
 ### Step 3: Evaluate the Reply
 
 Read the reply file printed on the `REPLY_FILE:` line. The file persists as a
-durable record of the exchange.
+durable record of the exchange. If the reply file is empty or missing, read
+the tail of the `LOG_FILE:` JSONL — the failing event is in the last lines.
 
 Evaluate suggestions critically. Codex is helpful but not infallible -- it can occasionally misinterpret specifications. Always verify against authoritative sources before applying.
 
@@ -173,7 +181,10 @@ AGENTS.md § Ask Before Assuming.
 
 For shorter questions:
 ```bash
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" --sandbox danger-full-access
+S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d)
+R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
+echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --json --color never --sandbox danger-full-access > "$R.log" 2>&1 || tail -20 "$R.log"
+cat "$R"
 ```
 
 The file-based pattern is better for debugging because you can refine the question and keep a record.
@@ -222,8 +233,8 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-S=<your scratchpad directory>  # from your system prompt; S=$(mktemp -d) if none is listed
-Q=$(mktemp "$S/codex-q-XXXXXX"); R=$(mktemp "$S/codex-r-XXXXXX")
+S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d). Never a made-up or repo-relative dir.
+Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
 cat <<'PROMPT' > "$Q"
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
@@ -232,8 +243,8 @@ IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
 
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --disable shell_tool --sandbox danger-full-access
-echo "REPLY_FILE: $R"
+cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --disable shell_tool --json --color never --sandbox danger-full-access > "$Q.log" 2>&1 || tail -20 "$Q.log"
+echo "REPLY_FILE: $R"; echo "LOG_FILE: $Q.log"
 ```
 
 Then place and post-process yourself (read the path from the `REPLY_FILE:` line):
@@ -278,7 +289,8 @@ Model limits to design around:
 
 **"stdin is not a terminal"**: Use `codex exec` not bare `codex`
 
-**No output**: Check that `-o` flag has a valid path
+**No output**: Check that the `-o` flag has a valid path, then read the tail
+of the `LOG_FILE:` JSONL — the failing event is in the last lines
 
 **Result is a bare "Skill execution completed"**: you are running a stale cached
 version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
@@ -286,9 +298,9 @@ subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
 runs inline and this cannot happen: run `claude plugin update codex@skills`.
 
 **Two codex calls stomped or cross-read each other's files**: the question/reply
-files were written outside the session scratchpad (`/tmp` is shared across
-sessions, and even `$$`-suffixed names there collide when PIDs are reused).
-Keep the recipe's `mktemp` paths rooted in your scratchpad directory.
+files used fixed or `$$`-suffixed names (PIDs recycle, so parallel runs collide)
+or a shared invented directory. Keep the recipe's `mktemp` paths — the scratchpad
+from your system prompt, else a fresh `mktemp -d` — and never a repo-relative dir.
 
 **Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
 

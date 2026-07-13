@@ -221,14 +221,16 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "hands-on tool-driving" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
-    # gpt-5.6-sol lanes: code/diff review + bug diagnosis (2026-07-03 carve-out from
-    # fable; escalation stays sol→fable, with ultra execution mode as the retry rung
-    # once the codex CLI exposes it) and well-scoped edits, via the codex
-    # skill (inline; codex:codex-wrapper agent from workflows/subagents). Fable keeps design review
-    # and the synthesis/accept-reject pass over findings.
+    # gpt-5.6-sol lanes: code/diff review + bug diagnosis, and the 2026-07-13
+    # implementation split — well-scoped/clearly-bounded/terminal-heavy work routes
+    # to sol, ambiguous/large-refactor/long-run stays on opus. Regressing either
+    # phrase collapses the split back to the old single implementation lane.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
-    assert "well-scoped edits" in claude
+    assert "well-scoped or clearly-bounded implementation" in claude
+    assert "routes to gpt-5.6-sol instead" in claude
+    assert "terminal/shell-heavy" in claude
+    assert "ambiguous or exploratory" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
     assert "synthesis/accept-reject" in claude
     # All prose/writing routes to fable (capt-hook blocks non-fable pins on
@@ -244,12 +246,14 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "very sensitive or error-prone implementation" in claude
     assert "count as same-tier" in claude
     # 2026-07-11: gpt-5.6 family migration — sol is the codex-lane model (fast
-    # tier pinned on every variant), luna sanctioned only for rote/bulk, ultra
-    # execution mode is the future retry rung (not yet CLI-exposed). A gpt-5.5
-    # remnant means a half-migrated stamp.
+    # tier pinned on every variant), luna sanctioned only for rote/bulk. Ultra
+    # execution mode (exposed since codex 0.144.0) is explicitly NOT a retry rung;
+    # regressing the phrase resurrects it as an escalation rung. A gpt-5.5 remnant
+    # means a half-migrated stamp.
     assert "| gpt-5.6-sol | 9 | 8 | 5 |" in claude
     assert "gpt-5.6-luna" in claude
     assert "ultra execution mode" in claude
+    assert "is not a retry rung" in claude
     assert "gpt-5.5" not in claude
     conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
     assert "security review/audit" in conventions
@@ -299,12 +303,46 @@ def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
         text = src.read_text()
         assert "codex-q-$$" not in text and "codex-r-$$" not in text, src
         assert "mktemp" in text, src
-        execs += [line for line in text.splitlines() if "codex exec" in line and "|" in line]
+        execs += [line for line in text.splitlines() if "| codex exec" in line]
     assert execs, "expected codex exec invocations in the codex plugin"
     for line in execs:
         assert "-c model=gpt-5.6-sol" in line, line
         assert "-c model_reasoning_effort=xhigh" in line, line
         assert "-c service_tier=fast" in line, line
+        # Quiet exec: capture the reply to a file (-o), stream JSONL events, and
+        # redirect that stream to a log so only REPLY_FILE:/LOG_FILE: (or a failure
+        # tail) reach the conversation. Dropping any of these floods the caller's
+        # window with the banner + progress trace.
+        assert '-o "' in line, line
+        assert "--json" in line, line
+        assert "--color never" in line, line
+        assert "2>&1" in line, line
+    # The reply/log markers and the failure tail (plus the direct-piping recipe's
+    # `cat "$R"`) are the only output that reaches the conversation; losing them
+    # silently reverts to streaming stdout.
+    for src in sources:
+        text = src.read_text()
+        assert "REPLY_FILE:" in text, src
+        assert "LOG_FILE:" in text, src
+        assert "|| tail -20" in text, src
+
+
+def test_codex_scratchpad_fallback_is_non_improvisable(templates_dir):
+    # Codex temp files land in the session scratchpad, else a fresh `mktemp -d` —
+    # never an invented directory. A repo-relative name (e.g. `.claude-scratch/`)
+    # lands in the working tree and gets committed by auto-snapshot, so the base
+    # gitignore also excludes it as a backstop.
+    plugin_root = templates_dir.parents[3] / "codex"
+    for src in (
+        plugin_root / "skills" / "codex" / "SKILL.md",
+        plugin_root / "agents" / "codex-wrapper.md",
+    ):
+        text = src.read_text()
+        assert "mktemp -d" in text, src
+        assert "S=$(mktemp -d)" in text, src
+        assert "repo-relative" in text, src
+    gitignore = (templates_dir / "base" / "gitignore").read_text()
+    assert ".claude-scratch/" in gitignore
 
 
 # --- release: pypi caller -> shared reusable workflow ---
