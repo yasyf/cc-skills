@@ -1098,7 +1098,7 @@ def test_unknown_secondary_layer_rejected(go_var_pairs):
         scaffold.resolve("go", [], [], _secondary(go_var_pairs), DATE, "rust")
 
 
-@pytest.mark.parametrize("bad", ["/abs/path", "../escape", "has space", "trailing/", ".", "a/./b"])
+@pytest.mark.parametrize("bad", ["/abs/path", "../escape", "has space", "trailing/", ".", "a/./b", "plugin/hooks\n"])
 def test_secondary_code_root_rejects_bad_path(go_var_pairs, bad):
     with pytest.raises(ScaffoldError):
         scaffold.resolve("go", [], [], _secondary(go_var_pairs, bad), DATE, "python")
@@ -1114,3 +1114,51 @@ def test_secondary_python_writes_both_styleguides_end_to_end(tmp_path, cc_guides
     assert (tmp_path / ".claude/hooks/STYLEGUIDE.md").exists()
     assert (tmp_path / ".claude/fragments/AGENTS.md/demo-proj-secondary-style.fragment.md").exists()
     assert (tmp_path / ".claude/fragments/AGENTS.md/demo-proj-hook-style.fragment.md").exists()
+
+
+def test_secondary_code_root_collision_rejected(go_var_pairs):
+    r = scaffold.resolve("go", [], [], _secondary(go_var_pairs, ".claude/hooks"), DATE, "python")
+    with pytest.raises(ScaffoldError):
+        scaffold.select_files(r)
+
+
+def test_secondary_code_root_case_folded_collision_rejected(go_var_pairs):
+    r = scaffold.resolve("go", [], [], _secondary(go_var_pairs, ".CLAUDE/hooks"), DATE, "python")
+    with pytest.raises(ScaffoldError):
+        scaffold.select_files(r)
+
+
+def test_plan_rejects_symlink_escape(tmp_path, cc_guides_stub, go_var_pairs):
+    target = tmp_path / "target"
+    target.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (target / "linked").symlink_to(outside)
+    args = _run_args(target, layer="go", secondary_layer="python", var_pairs=_secondary(go_var_pairs, "linked"))
+    with pytest.raises(ScaffoldError):
+        scaffold.run(args)
+    assert list(outside.iterdir()) == []
+    assert not (target / "LICENSE").exists()
+
+
+def test_plan_rejects_destination_nested_in_planned_file(tmp_path, cc_guides_stub, go_var_pairs):
+    args = _run_args(tmp_path, layer="go", secondary_layer="python", var_pairs=_secondary(go_var_pairs, "README.md"))
+    with pytest.raises(ScaffoldError):
+        scaffold.run(args)
+    assert not (tmp_path / "README.md").exists()
+    assert not (tmp_path / "LICENSE").exists()
+
+
+def test_plan_rejects_existing_file_ancestor(tmp_path, cc_guides_stub, go_var_pairs):
+    (tmp_path / "plugin").write_text("a file, not a directory\n")
+    args = _run_args(tmp_path, layer="go", secondary_layer="python", var_pairs=_secondary(go_var_pairs))
+    with pytest.raises(ScaffoldError):
+        scaffold.run(args)
+    assert (tmp_path / "plugin").read_text() == "a file, not a directory\n"
+    assert not (tmp_path / "LICENSE").exists()
+
+
+@pytest.mark.parametrize("layer", ["base", "python", "go", "swift", "swift-app"])
+def test_every_layout_references_hook_style_fragment(layer):
+    layout = (scaffold.TEMPLATES / layer / "claude/fragments/AGENTS.md/layout.toml").read_text()
+    assert '"{{PROJECT_NAME}}-hook-style"' in layout

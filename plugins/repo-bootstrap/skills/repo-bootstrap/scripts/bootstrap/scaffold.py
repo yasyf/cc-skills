@@ -98,7 +98,7 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
         if kind == "binary_version_mode" and value not in ("pinned", "latest"):
             raise ScaffoldError(f"{name} must be 'pinned' or 'latest', got {value!r}")
-        if kind == "code_root" and (not CODE_ROOT_RE.match(value) or {".", ".."} & set(value.split("/"))):
+        if kind == "code_root" and (not CODE_ROOT_RE.fullmatch(value) or {".", ".."} & set(value.split("/"))):
             raise ScaffoldError(f"{name} must be a repo-root-relative subdir like plugin/hooks, got {value!r}")
     # Cross-var checks for the swift layers:
     # - SPM target names must be unique, and the executable target is named
@@ -198,6 +198,7 @@ def resolve(
 
 def select_files(r: ResolveResult) -> list[PlanItem]:
     chosen: dict[str, tuple[int, FileSpec]] = {}
+    secondary: list[tuple[str, FileSpec]] = []
     for spec in FILES:
         # A secondary-layer spec is gated by --secondary-layer, not layer membership,
         # so it lands beside a different primary layer's files without joining r.layers.
@@ -216,10 +217,21 @@ def select_files(r: ResolveResult) -> list[PlanItem]:
         dest = spec.dest
         for key, value in r.variables.items():
             dest = dest.replace("{{" + key + "}}", value)
+        if spec.secondary_layer is not None:
+            secondary.append((dest, spec))
+            continue
         precedence = _LAYER_INDEX[spec.layer]
         # last-writer-wins by dest, ordered by explicit layer precedence
         if dest not in chosen or precedence >= chosen[dest][0]:
             chosen[dest] = (precedence, spec)
+    # Static same-dest collisions are the intended base→language override; a secondary
+    # dest colliding (case-folded) is a SECONDARY_CODE_ROOT mistake, e.g. .claude/hooks.
+    folded = {dest.casefold(): dest for dest in chosen}
+    for dest, spec in secondary:
+        if (hit := folded.get(dest.casefold())) is not None:
+            raise ScaffoldError(f"SECONDARY_CODE_ROOT places {dest} onto the planned {hit}; pick a different code root")
+        folded[dest.casefold()] = dest
+        chosen[dest] = (_LAYER_INDEX[spec.layer], spec)
     return [PlanItem(dest, spec.src, spec.transform) for dest, (_, spec) in chosen.items()]
 
 
@@ -331,7 +343,37 @@ TRANSFORMS: dict[str, Callable[[TransformCtx, str | None], str | Notice]] = {
 # --- Phase 5: apply_plan (I/O edge) ---
 
 
+def verify_plan_paths(plan: dict[str, str], target: Path) -> None:
+    """Reject a plan that would write outside ``target`` or trip over itself, before any I/O.
+
+    Four lanes, each a real escape or mid-write crash otherwise: a symlinked ancestor
+    carries a write out of the target (resolve-containment); two destinations differing
+    only by case address one file on a case-insensitive filesystem; one destination
+    nests inside another planned file (its ``mkdir`` hits the file); an existing
+    non-directory ancestor blocks its subtree the same way on a re-run.
+    """
+    root = target.resolve()
+    folded: dict[str, str] = {}
+    for dest in sorted(plan):
+        if (prior := folded.get(dest.casefold())) is not None:
+            raise ScaffoldError(f"destinations {prior} and {dest} address the same file on a case-insensitive filesystem")
+        folded[dest.casefold()] = dest
+        if not (target / dest).resolve().is_relative_to(root):
+            raise ScaffoldError(f"destination {dest} resolves outside the target directory")
+    for dest in sorted(plan):
+        parts = dest.split("/")
+        parent = target
+        for i, part in enumerate(parts[:-1]):
+            ancestor = "/".join(parts[: i + 1])
+            if ancestor.casefold() in folded:
+                raise ScaffoldError(f"destination {dest} nests inside the planned file {ancestor}")
+            parent = parent / part
+            if parent.exists() and not parent.is_dir():
+                raise ScaffoldError(f"destination {dest} needs directory {ancestor}, which exists as a file")
+
+
 def apply_plan(plan: dict[str, str], target: Path, force: bool, dry_run: bool) -> int:
+    verify_plan_paths(plan, target)
     conflicts = [
         dest for dest, content in sorted(plan.items()) if (p := target / dest).exists() and p.read_text() != content
     ]
