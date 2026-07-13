@@ -18,6 +18,8 @@ Plans you author must specify, and plans you execute must enforce, that substant
 
 Exceptions: trivial single-file edits, single file reads, and single targeted `semble`/`LSP`/`Grep` lookups stay at the main-agent level; a lone ad-hoc investigation gets one subagent (fallbacks: AGENTS.md `## Parallelize Independent Work`).
 
+**Docs & prose edits.** A routine documentation or prose change — Markdown, READMEs, changelogs, doc-site pages, `.md` guide fragments, code comments; regardless of file count — needn't run as a dynamic workflow or carry an adversarial-verify pass; make the edit directly. This drops *orchestration weight only*: still route writing per the **Models** table (never down-route prose), still give any plan its `## Workflow Plan` line, and still run the prose bar (`writing-docs` + `slop-cop`) on substantive prose.
+
 **Quality patterns**: pick per task — adversarial verify, judge panel, loop-until-dry, multi-modal sweep. Reviews and audits lean thorough; quick checks lean brief.
 
 **Models** — route per agent, up-front by task type. Higher = better; cost = cheaper:

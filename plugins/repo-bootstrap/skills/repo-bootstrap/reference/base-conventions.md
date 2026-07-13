@@ -110,7 +110,9 @@ shared AGENTS.md:
 - `## Plan Execution & Orchestration` — keep verbatim. The session-level orchestrator
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
   authorization); only trivial edits, single reads, and single targeted lookups stay
-  at the main-agent level; delegated agents are routed by the **Models** table —
+  at the main-agent level, and routine docs/prose edits skip dynamic workflows and
+  adversarial verify while keeping Models-table routing and the `## Workflow Plan`
+  line; delegated agents are routed by the **Models** table —
   opus-4.8 `xhigh` by default (when in doubt, opus; implementation — including
   sustained hands-on tool-driving like browser automation — delegates here
   rather than editing inline on fable), fable-5 for orchestration, design review,
