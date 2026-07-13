@@ -128,18 +128,13 @@ create_session() { # -> "id<TAB>connectUrl"
     '{keepAlive: true, timeout: $to, userMetadata: {ab: $t}}')" no-retry)"
   id="$(jq -r '.id // ""' <<<"$resp")"
   url="$(jq -r '.connectUrl // ""' <<<"$resp")"
+  # Residual window: a signal between the create POST returning and this single printf can leak
+  # the session; it is bounded to one printf, and SESSION_TIMEOUT self-expiry is the backstop.
   [[ -z "$id" ]] || printf '%s' "$id" >"$created_marker" # arm the release before the id is printed
   printf '%s\t%s' "$id" "$url"
 }
 
 release() { api POST "/sessions/$1" '{"status":"REQUEST_RELEASE"}' >/dev/null 2>&1; }
-
-reap_others() { # reap_others KEEP — release every tagged RUNNING session except KEEP
-  local keep="$1" id
-  while IFS= read -r id; do
-    [[ -n "$id" && "$id" != "$keep" ]] && { release "$id" || true; }
-  done < <(list_sessions)
-}
 
 daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
 
@@ -207,8 +202,15 @@ if [[ -z "$sid" ]]; then
   [[ -n "$sid" ]] && created_sid="$sid" # arm the release before anything else can fail
   : >"$created_marker"                   # created_sid now owns the release; drop the marker copy
   if [[ -z "$url" ]]; then
-    # Create failed. Browserbase has no idempotency key and create runs without --retry, so
-    # rather than risk a duplicate we adopt an already-running tagged session if one exists.
+    if [[ -n "$sid" ]]; then
+      # The POST created a session (id present, marker armed) but returned no usable connectUrl.
+      # Keep created_sid armed so the EXIT/signal trap releases this known id deterministically,
+      # and fail loud rather than abandon a known-created session to self-expire.
+      echo "ab: Browserbase session created but has no usable connect url" >&2
+      exit 1
+    fi
+    # No id: the POST created nothing. Browserbase has no idempotency key and create runs without
+    # --retry, so rather than risk a duplicate we adopt an already-running tagged session if one exists.
     sid="$(find_session)" || exit 1
     created_sid="" # adopted, not created — leave it to self-expire or a later close
     [[ -n "$sid" ]] || {
@@ -237,7 +239,6 @@ elif ! daemon_has_session; then
   }
 fi
 
-reap_others "$sid" # collapse any duplicate or leaked tagged session to just this one
-created_sid=""      # handed off cleanly; disarm so exec does not release the live session
+created_sid="" # handed off cleanly; disarm so exec does not release the live session
 rm -f "$created_marker" 2>/dev/null || true # exec skips the EXIT trap — drop the marker here
 run
