@@ -54,6 +54,17 @@ def test_settings_base_fragment_disables_artifact():
     )
 
 
+def test_settings_base_fragment_marketplaces_auto_update():
+    """Fragment-level guard: every marketplace entry in settings-base must set
+    autoUpdate: true so clones stay fresh (ab68f3e). Reds the PR that drops the
+    flag before the fleet cron propagates a stale render."""
+    base = json.loads((GUIDES_JSON / "settings-base.json").read_text())
+    for name, entry in base["extraKnownMarketplaces"].items():
+        assert entry.get("autoUpdate") is True, (
+            f"settings-base marketplace entry {name!r} must set autoUpdate: true"
+        )
+
+
 def test_settings_json_is_a_rendered_artifact():
     """cc-skills must render its own settings.json from the fragments it publishes —
     commit b7d2e86 showed what half-migration looks like."""
