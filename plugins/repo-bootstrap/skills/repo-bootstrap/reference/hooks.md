@@ -300,25 +300,25 @@ The review-before-stop Stop gate is **not** in the `style` hook — it lives in 
 pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
 ships only the seven AST rules above.
 
-### `ccx` (pinned + plugin-attached pack — `cc-context@skills`)
+### `ccx` (pinned + plugin-attached pack — `cc-context@cc-context`)
 
 Guard pack that makes the `cc-context` facade (`ccx` / its MCP tools) the
 default for reading and searching code. It **blocks the token-heavy primitives** the
 facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
 Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`
-packs, `ccx` ships inside the `cc-context@skills` plugin the scaffolded
+packs, `ccx` ships inside the `cc-context@cc-context` plugin the scaffolded
 `.claude/settings.json` already enables. The plugin's SessionStart hook runs
 `uvx capt-hook pack attach` once to register the pack for the session, and the canonical
 `uvx capt-hook run <Event>` commands pick it up during dispatch. Scaffolded repos also
 pin it repo-scoped (`github:yasyf/cc-context@latest` in `.claude/hooks/packs.toml`), so
 every contributor gets the guard whether or not they have the plugin enabled; the plugin
-attach covers repos that enable `cc-context@skills` but weren't scaffolded by
+attach covers repos that enable `cc-context@cc-context` but weren't scaffolded by
 repo-bootstrap.
 
 A repo-scoped pin beats the ambient attach (the same-name pack resolves to the pin and
 the attach is dropped), so the two never double-fire. To drop the guard entirely (a repo
 that wants raw `Read`/`Grep` back), remove the `[packs.ccx]` pin from
-`.claude/hooks/packs.toml`, set `"cc-context@skills": false` under `enabledPlugins` in
+`.claude/hooks/packs.toml`, set `"cc-context@cc-context": false` under `enabledPlugins` in
 `settings-overrides.fragment.json`, re-render (`cc-guides render`), and replace the
 AGENTS.md Compact Context section with plain Code-Search guidance.
 
