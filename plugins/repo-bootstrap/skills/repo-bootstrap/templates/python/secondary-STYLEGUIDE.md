@@ -1,8 +1,6 @@
 # {{PROJECT_NAME}} Python Style Guide
 
-The concrete style rules for the Python code under `{{SECONDARY_CODE_ROOT}}/`. Target
-Python 3.13+. The repo's primary language follows the root `STYLEGUIDE.md`; this file
-governs the Python.
+The concrete style rules for `{{SECONDARY_CODE_ROOT}}/` — the Python in this repo. Target Python 3.13+. The primary language follows the root `STYLEGUIDE.md`; this file governs the Python. Code samples use `app` as a stand-in for your package.
 
 ## Core Principles
 
@@ -90,7 +88,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import Record
+    from app.models import Record
 
 def process(self, record: Record) -> bool: ...
 ```
@@ -101,22 +99,22 @@ body, before any logic, and never inside an `if`, `for`, or `try`.
 ```python
 # Good
 def model_version() -> str:
-    from .state import RESOURCES
+    from app.state import RESOURCES
 
     return RESOURCES.lookup()
 
 # Bad — import buried in a branch
 def model_version() -> str:
     if cached:
-        from .state import RESOURCES
+        from app.state import RESOURCES
         ...
 ```
 
 Don't widen to `Any` to quiet the type checker. Use the real type, narrow with
 `isinstance`, or split the model. Trivial complaints such as `cached_property`
 shadowing `property` or descriptor-protocol nuances are noise; ignore them instead
-of reaching for `# type: ignore`. Wanting `hasattr` on a typed object means the type
-is wrong. Fix it or define a `Protocol`.
+of reaching for `# type: ignore`. Wanting `hasattr` on a typed object means the
+type is wrong. Fix it or define a `Protocol`.
 
 ## Pattern Matching
 
@@ -174,14 +172,22 @@ None; a helper that can fail forces every caller into a guard.
 
 ## API Design
 
-Accept what callers naturally have. If callers must extract or transform data before
-calling, take the parent object and extract internally.
+Accept what callers naturally have. If callers must extract or transform data
+before calling, take the parent object and extract internally.
+
+```python
+# Good — caller passes what it holds
+def record_usage(request_id: RequestId, usage: Usage) -> None: ...
+
+# Bad — caller dismembers the object first
+def record_usage(request_id: str, total_tokens: int, total_cost: float) -> None: ...
+```
 
 Keep parameters minimal. No speculative flags; add a parameter when there is a
 demonstrated need, not just in case.
 
 Types reflect user concepts, not implementation internals. A public signature built
-from internal metadata types leaks the implementation; expose the objects callers
+from internal metadata types leaks the implementation; expose the objects users
 think in.
 
 ## Async
@@ -189,10 +195,29 @@ think in.
 I/O is async from day 1. Anything that hits the network, filesystem, or a database is
 an `async def`, and the library doing it has a native async API. Reach for the
 async-native driver instead of wrapping a blocking one in `asyncio.to_thread` — the
-wrapper leaks a sync boundary into every caller and caps throughput at the thread
-pool. Keep `to_thread` / `run_in_executor` for libraries with no async equivalent.
-Run concurrent work through `anyio` `TaskGroup`s rather than juggling bare
-`asyncio.gather`.
+wrapper leaks a sync boundary into every caller and caps throughput at the thread pool.
+Keep `to_thread` / `run_in_executor` for libraries with no async equivalent. Run
+concurrent work through `anyio` `TaskGroup`s rather than juggling bare `asyncio.gather`.
+
+```python
+# Good — async-native driver
+import aiosqlite
+
+async def load(db_path: str, key: str) -> Row | None:
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("select * from t where k = ?", (key,)) as cur:
+            return await cur.fetchone()
+
+# Bad — blocking driver shoved onto a thread
+import asyncio
+import sqlite3
+
+async def load(db_path: str, key: str) -> Row | None:
+    def _q() -> Row | None:
+        with sqlite3.connect(db_path) as db:
+            return db.execute("select * from t where k = ?", (key,)).fetchone()
+    return await asyncio.to_thread(_q)
+```
 
 ## Error Handling
 
@@ -209,17 +234,17 @@ return transform(data)
 ```
 
 No broad `except Exception` that swallows everything. Use dedicated exception
-classes. Read required configuration with `os.environ["KEY"]` so a missing key raises
-at startup. No sentinel return values; raise, or return a typed result.
+classes. Read required configuration with `os.environ["KEY"]` so a missing key
+raises at startup. No sentinel return values; raise, or return a typed result.
 
 ## Code Organization
 
-Module order runs imports, constants, type aliases, helpers, classes, then functions.
-Module-level `UPPER_SNAKE_CASE` constants sit immediately after imports, before any
-class or function.
+Module order runs imports, constants, type aliases, helpers, classes, then
+functions. Module-level `UPPER_SNAKE_CASE` constants sit immediately after imports,
+before any class or function.
 
-Within a class body, all assignments come before any methods. That covers constants,
-`ClassVar`s, and dataclass fields.
+Within a class body, all assignments come before any methods. That covers
+constants, `ClassVar`s, and dataclass fields.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -234,10 +259,10 @@ class JobSpec:
 No leading underscores on classes, constants, or module-level helpers. Reserve a
 leading underscore for a private instance attribute.
 
-`__init__.py` exposes only the public API surface, re-exported with plain regular
-imports. No redundant `as` aliases, no `__all__`: name a symbol here to make it
-public, omit it to keep it internal. F401 stays active in every other module, so
-unused imports outside `__init__.py` are still deleted.
+When the code under `{{SECONDARY_CODE_ROOT}}/` forms a package, its `__init__.py`
+exposes only the public API surface, re-exported with plain regular imports. No
+redundant `as` aliases, no `__all__`: name a symbol here to make it public, omit it
+to keep it internal.
 
 Frozen dataclasses for immutable and config data. Every mutable default needs a
 factory such as `field(default_factory=list)`; a bare `[]` or `{}` is a bug.
@@ -248,33 +273,21 @@ Code documents itself through names, types, and organization. No comments except
 TODOs, non-obvious workarounds, or disabled code.
 
 Docstrings are the one exception, scoped by surface. Public API surfaces and
-user-facing classes carry Google-style docstrings, so they earn their place. Internal
-helpers get none, and a docstring that restates the signature is clutter to delete.
-
-```python
-# Good — public class, documented
-@dataclass(frozen=True, slots=True)
-class Matcher:
-    """Matches a record against a regex pattern.
-
-    Example:
-        >>> Matcher("user_.*").matches(record)
-    """
-
-    pattern: str
-
-# Good — internal helper, no docstring
-def version_key(dirname: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in dirname.split("."))
-```
+user-facing classes carry Google-style docstrings, so they earn their place.
+Internal helpers get none, and a docstring that restates the signature is
+clutter to delete.
 
 ## Testing
 
-Tests live beside the code as `test_*.py`; run them with `uv run pytest`. Write strict
-assertions against specific expected values; a test that can't fail uncovers nothing.
-Mock the boundaries your code talks to, such as the network, filesystem, and clock,
-and leave the function under test real. A database (or any stateful service) is **not**
-a mock boundary: when a test needs one, start a real ephemeral instance with
-`testcontainers` rather than mocking the driver or using an in-memory fake.
-Parameterize repeated test bodies, giving each case a descriptive `id` and its own
-expected values.
+Tests live beside the code under `{{SECONDARY_CODE_ROOT}}/` (or in a `tests/`
+subdir there); run them with `uv run pytest {{SECONDARY_CODE_ROOT}}`. Hook authors
+also write inline `tests = {...}` on each hook in `.claude/hooks/`, runnable with
+`uvx capt-hook test`.
+
+Write strict assertions against specific expected values; a test that can't fail
+uncovers nothing. Mock the boundaries your code talks to, such as the network,
+filesystem, and clock, and leave the function under test real. A database (or any
+stateful service — Mongo, Postgres, Redis) is **not** a mock boundary: when a test
+needs one, start a real ephemeral instance with `testcontainers` rather than
+mocking the driver or using an in-memory fake. Parameterize repeated test bodies,
+giving each case a descriptive `id` and its own expected values.
