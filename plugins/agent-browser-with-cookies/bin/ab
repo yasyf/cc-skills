@@ -67,7 +67,9 @@ done
 # name in two Claude Code sessions still means two Browserbase sessions.
 session="${session:-${AB_SESSION:-}}"
 [[ -z "$session" ]] || TAG="$TAG · $session"
-SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
+# Outside a recognized Claude session `cookiesync requestor` falls back to the parent PID, so cross-invocation persistence is defeated there (documented limitation, not fixed here).
+# The sanitizer is non-injective (`a/b` and `a?b` both fold to `a-b`), so append a short stable hash of the FULL raw TAG to keep distinct requestors on distinct sessions.
+SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')-$(printf '%s' "$TAG" | shasum -a 256 | cut -c1-8)"
 API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
 
 # `mode` — report which backend a call would use (the key resolution + --local logic
@@ -89,37 +91,55 @@ fi
 
 # curl with the API key fed via a stdin config so it never appears in argv. Bounded so
 # a hung endpoint cannot stall a command, close, or the signal handler indefinitely.
-api() { # api METHOD PATH [JSON-BODY]
+api() { # api METHOD PATH [JSON-BODY] [no-retry]
+  local retry=(--retry 2 --retry-max-time 30 --retry-connrefused)
+  [[ "${4:-}" == no-retry ]] && retry=() # session creation has no idempotency key — never retry it
   if [[ -n "${3:-}" ]]; then
-    curl -fsS --connect-timeout 5 --max-time 30 --retry 2 --retry-max-time 30 --retry-connrefused --config - -X "$1" "$BB_API$2" \
+    curl -fsS --connect-timeout 5 --max-time 30 ${retry[@]+"${retry[@]}"} --config - -X "$1" "$BB_API$2" \
       -H 'Content-Type: application/json' -d "$3" <<<"header = \"X-BB-API-Key: ${API_KEY}\""
   else
-    curl -fsS --connect-timeout 5 --max-time 30 --retry 2 --retry-max-time 30 --retry-connrefused --config - "$BB_API$2" \
+    curl -fsS --connect-timeout 5 --max-time 30 ${retry[@]+"${retry[@]}"} --config - "$BB_API$2" \
       <<<"header = \"X-BB-API-Key: ${API_KEY}\""
   fi
 }
 
+tag_query() { jq -rn --arg s "user_metadata['ab']:'${SLUG}'" '$s | @uri'; } # URI-encoded tag filter
+
 find_session() { # -> RUNNING session id tagged with this caller, or empty
-  local raw q resp
-  raw="user_metadata['ab']:'${SLUG}'"
-  q="$(jq -rn --arg s "$raw" '$s | @uri')"
-  resp="$(api GET "/sessions?status=RUNNING&q=$q" 2>/dev/null)" || {
+  local resp
+  resp="$(api GET "/sessions?status=RUNNING&q=$(tag_query)" 2>/dev/null)" || {
     echo "ab: Browserbase API unreachable" >&2
     exit 1
   }
   jq -r 'if type=="array" then (.[0].id // "") else "" end' <<<"$resp"
 }
 
+list_sessions() { # -> newline-separated RUNNING session ids tagged with this caller
+  local resp
+  resp="$(api GET "/sessions?status=RUNNING&q=$(tag_query)" 2>/dev/null)" || return 1
+  jq -r 'if type=="array" then .[].id else empty end' <<<"$resp"
+}
+
 connect_url() { api GET "/sessions/$1" 2>/dev/null | jq -r '.connectUrl // ""'; } # id -> connectUrl
 
 create_session() { # -> "id<TAB>connectUrl"
-  local resp
+  local resp id url
   resp="$(api POST "/sessions" "$(jq -nc --arg t "$SLUG" --argjson to "$SESSION_TIMEOUT" \
-    '{keepAlive: true, timeout: $to, userMetadata: {ab: $t}}')")"
-  printf '%s\t%s' "$(jq -r '.id // ""' <<<"$resp")" "$(jq -r '.connectUrl // ""' <<<"$resp")"
+    '{keepAlive: true, timeout: $to, userMetadata: {ab: $t}}')" no-retry)"
+  id="$(jq -r '.id // ""' <<<"$resp")"
+  url="$(jq -r '.connectUrl // ""' <<<"$resp")"
+  [[ -z "$id" ]] || printf '%s' "$id" >"$created_marker" # arm the release before the id is printed
+  printf '%s\t%s' "$id" "$url"
 }
 
 release() { api POST "/sessions/$1" '{"status":"REQUEST_RELEASE"}' >/dev/null 2>&1; }
+
+reap_others() { # reap_others KEEP — release every tagged RUNNING session except KEEP
+  local keep="$1" id
+  while IFS= read -r id; do
+    [[ -n "$id" && "$id" != "$keep" ]] && { release "$id" || true; }
+  done < <(list_sessions)
+}
 
 daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
 
@@ -127,15 +147,24 @@ sid="$(find_session)" || exit 1
 
 if [[ "$is_close" == 1 ]]; then
   agent-browser --session "$SLUG" close >/dev/null 2>&1 || true
-  if [[ -z "$sid" ]]; then
-    sid="$(find_session)" || exit 1 # one retry so a transient GET does not leak a live session
-  fi
-  if [[ -n "$sid" ]]; then
-    release "$sid" || {
-      echo "ab: failed to release Browserbase session $sid — it will self-expire after ${SESSION_TIMEOUT}s" >&2
-      exit 1
-    }
-  fi
+  # Reap every tagged RUNNING session, not just the first. Bounded retries make close
+  # idempotent and resumable: a re-run finishes after an interrupt, and a transient GET
+  # failure retries rather than assuming the tag is already clear.
+  found=1
+  for _ in 1 2 3 4 5; do
+    ids="$(list_sessions)" || { found=1; continue; } # GET failed — retry, don't assume empty
+    found=0
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      found=1
+      release "$id" || true
+    done <<<"$ids"
+    [[ "$found" == 0 ]] && break
+  done
+  [[ "$found" == 0 ]] || {
+    echo "ab: some Browserbase sessions did not release — they will self-expire after ${SESSION_TIMEOUT}s" >&2
+    exit 1
+  }
   exit 0
 fi
 
@@ -145,9 +174,22 @@ fi
 # never continue against a just-released session; the handler clears the EXIT trap so
 # the release POSTs exactly once, and exits with the signal-correct code.
 created_sid=""
+# The marker file is written inside the create subshell (a shell var set there is invisible
+# to the parent), so a kill landing between a successful create POST and the parent arming
+# created_sid still releases the just-created session. Both channels are deduped on cleanup.
+created_marker="$(mktemp)"
 # Snapshot-and-clear so a second signal arriving during an in-flight release re-enters
-# to an empty created_sid and cannot post a duplicate release.
-on_exit() { local s="$created_sid"; created_sid=""; [[ -z "$s" ]] || release "$s" || true; }
+# to empty state and cannot post a duplicate release.
+on_exit() {
+  local s="$created_sid" m=""
+  created_sid=""
+  if [[ -f "$created_marker" ]]; then
+    m="$(cat "$created_marker" 2>/dev/null || true)"
+    rm -f "$created_marker" 2>/dev/null || true
+  fi
+  [[ -z "$s" ]] || release "$s" || true
+  [[ -z "$m" || "$m" == "$s" ]] || release "$m" || true
+}
 on_sig() { # on_sig EXIT-CODE (128+signal)
   trap - EXIT INT TERM
   on_exit
@@ -163,10 +205,22 @@ trap 'on_sig 143' TERM
 if [[ -z "$sid" ]]; then
   IFS=$'\t' read -r sid url < <(create_session)
   [[ -n "$sid" ]] && created_sid="$sid" # arm the release before anything else can fail
-  [[ -n "$url" ]] || {
-    echo "ab: could not create a Browserbase session" >&2
-    exit 1
-  }
+  : >"$created_marker"                   # created_sid now owns the release; drop the marker copy
+  if [[ -z "$url" ]]; then
+    # Create failed. Browserbase has no idempotency key and create runs without --retry, so
+    # rather than risk a duplicate we adopt an already-running tagged session if one exists.
+    sid="$(find_session)" || exit 1
+    created_sid="" # adopted, not created — leave it to self-expire or a later close
+    [[ -n "$sid" ]] || {
+      echo "ab: could not create a Browserbase session" >&2
+      exit 1
+    }
+    url="$(connect_url "$sid")"
+    [[ -n "$url" ]] || {
+      echo "ab: Browserbase session has no connect url" >&2
+      exit 1
+    }
+  fi
   agent-browser --session "$SLUG" connect "$url" >/dev/null 2>&1 || {
     echo "ab: could not connect to the Browserbase session" >&2
     exit 1
@@ -183,5 +237,7 @@ elif ! daemon_has_session; then
   }
 fi
 
-created_sid="" # handed off cleanly; disarm so exec does not release the live session
+reap_others "$sid" # collapse any duplicate or leaked tagged session to just this one
+created_sid=""      # handed off cleanly; disarm so exec does not release the live session
+rm -f "$created_marker" 2>/dev/null || true # exec skips the EXIT trap — drop the marker here
 run
