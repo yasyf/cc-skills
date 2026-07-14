@@ -5,6 +5,6 @@ Sequential is the exception, not the default. Two steps that don't consume each 
 - **Batch tool calls in one message** — the cheapest parallelism and the most missed. Independent reads, greps, globs, and read-only Bash go in a *single* message, never one per turn.
 - **Parallel subagent calls in one message** — ad-hoc independent investigations: "explore X while I check Y", multi-file reviews, independent edits. One message, N `Agent` tool uses, results gathered in parallel.
 - **Dynamic workflow** — default for substantive multi-step work; the script holds the loop, branching, and intermediate results. See CLAUDE.md `## Plan Execution & Orchestration`.
-- **Named team** — long-running peers needing agent-to-agent handoffs mid-run, via `TeamCreate`.
+- **Named team** — long-running peers needing agent-to-agent handoffs mid-run, via `TeamCreate`. Sized for a handful of peers; a teammate's own subagents are foreground-only, so an N-unit sweep inside a team delegates to a workflow instead of nesting `Agent` calls.
 
 Single-step exception: one task, no parallel sibling, no follow-on → one subagent call is fine.

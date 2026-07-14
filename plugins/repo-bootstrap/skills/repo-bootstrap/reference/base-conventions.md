@@ -260,9 +260,11 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
 (`plugin/guides/json/`) — edit them there — and per-repo overrides go in
 `settings-overrides.fragment.json` (then re-run `cc-guides render`). Field by field:
 
-- `"effortLevel": "max"`, `"ultracode": true`, `"alwaysThinkingEnabled": true`,
-  `"showThinkingSummaries": true` — maximum reasoning effort on every turn, with
-  thinking summaries surfaced. Keep unless the project is trivial.
+- `"effortLevel": "xhigh"`, `"ultracode": true`, `"alwaysThinkingEnabled": true`,
+  `"showThinkingSummaries": true` — xhigh reasoning effort on every turn, with
+  thinking summaries surfaced (`max` is a per-task escalation, not a pin: it
+  roughly doubles thinking share for little gain on routine work). Keep unless
+  the project is trivial.
 - `"includeGitInstructions": false` — drop the built-in git boilerplate; AGENTS.md
   § General Rules carries the version-control conventions instead (jj-preferred).
 - `"disableArtifact": true` — hides the built-in `Artifact` tool (static
