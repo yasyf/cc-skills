@@ -37,4 +37,4 @@ Every active development repo renders from this pack. Standing exclusions:
 | `landing-pages` | Empty placeholder |
 | `gpt-do`, `summ` | Owner decision (2026-07-11) |
 
-One structural exception: captain-hook's `.claude/settings.json` renders from a fully local fragment and pins `"captain-hook@captain-hook": false` — a plugin cannot dependency-enable itself in its own dev repo.
+One behavioral exception: captain-hook renders from the standard base + python + overrides layout, but its overlay pins `"captain-hook@captain-hook": false` and carries a repo-local `hooks` block dispatching the in-development `.venv/bin/hook` client — a plugin cannot dependency-enable itself in its own dev repo.
