@@ -15,4 +15,5 @@ __pycache__/
 .context/
 .claude-scratch/
 .scratch/
+.claude/worktrees/
 .claude/settings.local.json

@@ -229,16 +229,14 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "hands-on tool-driving" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
-    # gpt-5.6-sol lanes: code/diff review + bug diagnosis, and the 2026-07-13
-    # implementation split — well-scoped/clearly-bounded/terminal-heavy work routes
-    # to sol, ambiguous/large-refactor/long-run stays on opus. Regressing either
-    # phrase collapses the split back to the old single implementation lane.
+    # v5 2026-07-14 decision-density split: sol owns bounded decision-light impl,
+    # opus keeps ambiguous/decision-dense — regressing collapses the lanes.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
-    assert "well-scoped or clearly-bounded implementation" in claude
-    assert "routes to gpt-5.6-sol instead" in claude
+    assert "the default implementation lane for bounded, decision-light work" in claude
+    assert "fans out to gpt-5.6-sol" in claude
     assert "terminal/shell-heavy" in claude
-    assert "ambiguous or exploratory" in claude
+    assert "ambiguous, exploratory, long-horizon, or decision-dense" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
     assert "synthesis/accept-reject" in claude
     # All prose/writing routes to fable (capt-hook blocks non-fable pins on
@@ -421,6 +419,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     gitignore = (templates_dir / "base" / "gitignore").read_text()
     assert ".claude-scratch/" in gitignore
     assert ".scratch/" in gitignore
+    assert ".claude/worktrees/" in gitignore
 
 
 # --- release: pypi caller -> shared reusable workflow ---
