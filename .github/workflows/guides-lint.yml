@@ -1,10 +1,9 @@
 # Purity gate for the shared guides pack (plugin/guides/, addressed via the
-# .claude/cc-guides.toml manifest). Propagation is pull-based: every fleet
-# repo's own guides.yml re-renders daily and on repository_dispatch. To force
-# an immediate fleet-wide re-render (no roster needed — a repo without a
-# listener ignores the event):
-#   gh repo list yasyf --no-archived --json name -q '.[].name' | while read -r r; do
-#     gh api "repos/yasyf/$r/dispatches" -f event_type=cc-guides-render || true; done
+# .claude/cc-guides.toml manifest). Propagation is pull-based and stays that
+# way: every fleet repo's own guides.yml re-renders on its daily cron, so a
+# pack change lands fleet-wide within 24h. Do not force it — no fleet-wide
+# dispatch loops or render sweeps. A single repo that needs its render early
+# can run its own guides.yml via workflow_dispatch.
 name: Guides lint
 
 on:

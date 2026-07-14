@@ -14,7 +14,13 @@ Three fragment kinds, one directory each:
 
 ## How a repo consumes it
 
-Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` checks drift on push and re-renders on a daily cron (`17 9 * * *`) plus the `cc-guides-render` repository_dispatch.
+Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` checks drift on push and re-renders on a daily cron (`17 9 * * *`).
+
+## Propagation
+
+Pull-only. Each consumer re-renders on its own daily cron, so a pack change lands fleet-wide within 24 hours of merging — let it. Never run a fleet-wide dispatch loop or a manual render sweep. A single repo that needs its render early can trigger its own workflow (`gh workflow run guides.yml -R yasyf/<repo>`); that trigger exists for one repo at a time, not for fan-outs.
+
+One reliability caveat: GitHub disables a repo's scheduled workflows after 60 days without repo activity, and scheduled runs themselves don't count as activity. A dormant repo stops pulling silently — re-enable with `gh workflow enable guides.yml -R yasyf/<repo>` when it wakes up.
 
 ## Editing
 
