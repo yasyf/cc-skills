@@ -6,7 +6,11 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
+import re
+import subprocess
 import tomllib
+from pathlib import Path
 
 import pytest
 from bootstrap import scaffold
@@ -289,64 +293,134 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
     assert "never absorbs a surprise" in skill.read_text()
 
 
-def test_codex_skill_pins_fast_tier_on_every_exec(templates_dir):
-    # Every codex exec in the codex plugin (skill + wrapper agent) must pin the
-    # model (gpt-5.6-sol — local config drift must not silently reroute the
-    # lane), xhigh, and the fast service tier — without service_tier=fast,
-    # xhigh prompts run 10-30+ minutes and get abandoned. Reply files must be
-    # mktemp-unique: fixed $$-suffixed /tmp paths caused a live cross-session
-    # clobber (PIDs recycle; 2026-07-10). Luna/ultra deviations live in prose
-    # only; no example exec line may carry them.
+def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
+    # codex-ask pins model/effort/fast-tier + quiet-exec flags; skill and
+    # wrapper route through it (a raw exec recipe in prose is how pins drift).
     plugin_root = templates_dir.parents[3] / "codex"
-    sources = [
-        plugin_root / "skills" / "codex" / "SKILL.md",
-        plugin_root / "agents" / "codex-wrapper.md",
-    ]
-    execs = []
-    for src in sources:
-        text = src.read_text()
-        assert "codex-q-$$" not in text and "codex-r-$$" not in text, src
-        assert "mktemp" in text, src
-        execs += [line for line in text.splitlines() if "| codex exec" in line]
-    assert execs, "expected codex exec invocations in the codex plugin"
-    for line in execs:
-        assert "-c model=gpt-5.6-sol" in line, line
-        assert "-c model_reasoning_effort=xhigh" in line, line
-        assert "-c service_tier=fast" in line, line
-        # Quiet exec: capture the reply to a file (-o), stream JSONL events, and
-        # redirect that stream to a log so only REPLY_FILE:/LOG_FILE: (or a failure
-        # tail) reach the conversation. Dropping any of these floods the caller's
-        # window with the banner + progress trace.
-        assert '-o "' in line, line
-        assert "--json" in line, line
-        assert "--color never" in line, line
-        assert "2>&1" in line, line
-    # The reply/log markers and the failure tail (plus the direct-piping recipe's
-    # `cat "$R"`) are the only output that reaches the conversation; losing them
-    # silently reverts to streaming stdout.
-    for src in sources:
-        text = src.read_text()
-        assert "REPLY_FILE:" in text, src
-        assert "LOG_FILE:" in text, src
-        assert "|| tail -20" in text, src
-
-
-def test_codex_scratchpad_fallback_is_non_improvisable(templates_dir):
-    # Codex temp files land in the session scratchpad, else a fresh `mktemp -d` —
-    # never an invented directory. A repo-relative name (e.g. `.claude-scratch/`)
-    # lands in the working tree and gets committed by auto-snapshot, so the base
-    # gitignore also excludes it as a backstop.
-    plugin_root = templates_dir.parents[3] / "codex"
+    script = plugin_root / "bin" / "codex-ask"
+    assert os.access(script, os.X_OK), script
+    text = script.read_text()
+    for needle in (
+        "MODEL=gpt-5.6-sol",
+        "MODEL=gpt-5.6-luna",
+        "EFFORT=xhigh",
+        '-c model="$MODEL"',
+        '-c model_reasoning_effort="$EFFORT"',
+        "-c service_tier=fast",
+        "developer_instructions=",
+        "--sandbox danger-full-access",
+        '-o "$R"',
+        "--json",
+        "--color never",
+        "2>&1",
+        "REPLY_FILE:",
+        "LOG_FILE:",
+        "tail -20",
+        "unset OPENAI_API_KEY",
+        "TMPDIR=/tmp",
+        'S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX")',
+        "codex-q-XXXXXX",
+        "codex-r-XXXXXX",
+    ):
+        assert needle in text, needle
+    assert "codex-q-$$" not in text and "codex-r-$$" not in text
     for src in (
         plugin_root / "skills" / "codex" / "SKILL.md",
         plugin_root / "agents" / "codex-wrapper.md",
     ):
-        text = src.read_text()
-        assert "mktemp -d" in text, src
-        assert "S=$(mktemp -d)" in text, src
-        assert "repo-relative" in text, src
+        t = src.read_text()
+        assert "codex-ask" in t, src
+        recipe_lines = [line for line in t.splitlines() if "| codex exec" in line or "codex exec -c" in line]
+        assert not recipe_lines, (src, recipe_lines)
+        assert "REPLY_FILE:" in t, src
+        assert "LOG_FILE:" in t, src
+
+
+def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
+    # Scratch paths are absolute-by-construction (live .scratch/codex leak,
+    # 2026-07-13); a stub codex proves flags + OPENAI_API_KEY unset end to end.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        'echo "STUB_ARGS: $*"\n'
+        'echo "STUB_KEY: ${OPENAI_API_KEY:-UNSET}"\n'
+        '[ -n "$out" ] && echo pong > "$out"\n'
+    )
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{stub_bin}:{os.environ['PATH']}",
+        "OPENAI_API_KEY": "sk-dummy",
+        "TMPDIR": str(tmpdir),
+    }
+
+    def ask(*args, env=env):
+        return subprocess.run([str(script), *args], cwd=cwd, env=env, text=True, capture_output=True)
+
+    run = ask("ping")
+    assert run.returncode == 0, run.stderr
+    reply = re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
+    log = re.search(r"^LOG_FILE: (.+)$", run.stdout, re.M).group(1)
+    assert os.path.isabs(reply) and os.path.isabs(log)
+    assert reply.startswith(str(tmpdir) + os.sep)
+    assert not list(cwd.iterdir())
+    assert Path(reply).read_text().strip() == "pong"
+    log_text = Path(log).read_text()
+    assert "model=gpt-5.6-sol" in log_text
+    assert "model_reasoning_effort=xhigh" in log_text
+    assert "service_tier=fast" in log_text
+    assert "STUB_KEY: UNSET" in log_text
+
+    # a relative TMPDIR must sanitize to /tmp, never resolve against cwd
+    rel_tmp = ask("ping", env={**env, "TMPDIR": "."})
+    assert rel_tmp.returncode == 0, rel_tmp.stderr
+    r2 = re.search(r"^REPLY_FILE: (.+)$", rel_tmp.stdout, re.M).group(1)
+    assert os.path.isabs(r2)
+    assert not r2.startswith(str(cwd))
+    assert not list(cwd.iterdir())
+
+    rel = ask("-s", ".scratch", "ping")
+    assert rel.returncode == 2, rel.stdout + rel.stderr
+    assert not list(cwd.iterdir())
+
+    # absolute but inside the caller's repo is the original leak shape
+    subprocess.run(["git", "init", "-q", str(cwd)], check=True, env=env, capture_output=True)
+    inrepo = ask("-s", f"{cwd}/.scratch", "ping")
+    assert inrepo.returncode == 2, inrepo.stdout + inrepo.stderr
+    assert not (cwd / ".scratch").exists()
+
+    sdir = tmp_path / "scratch"
+    absr = ask("-s", str(sdir), "-m", "luna", "--image", "--skip-git-repo-check", "ping")
+    assert absr.returncode == 0, absr.stderr
+    assert re.search(r"^REPLY_FILE: (.+)$", absr.stdout, re.M).group(1).startswith(str(sdir) + os.sep)
+    luna_log = Path(re.search(r"^LOG_FILE: (.+)$", absr.stdout, re.M).group(1)).read_text()
+    assert "model=gpt-5.6-luna" in luna_log
+    assert "model_reasoning_effort=xhigh" in luna_log
+    assert "service_tier=fast" in luna_log
+    assert "--disable shell_tool" in luna_log
+    assert "--skip-git-repo-check" in luna_log
+
+    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "boom event"\nexit 7\n')
+    fail = ask("ping")
+    assert fail.returncode == 7, fail.stdout + fail.stderr
+    assert "boom event" in fail.stdout
+    assert "REPLY_FILE:" in fail.stdout
+    assert "LOG_FILE:" in fail.stdout
+
+    # gitignore backstop: a repo-relative scratch dir must never reach a commit
     gitignore = (templates_dir / "base" / "gitignore").read_text()
     assert ".claude-scratch/" in gitignore
+    assert ".scratch/" in gitignore
 
 
 # --- release: pypi caller -> shared reusable workflow ---

@@ -10,6 +10,7 @@
 # Claude Code
 .context/
 .claude-scratch/
+.scratch/
 .claude/settings.local.json
 
 # Python bytecode (guard hooks are Python even in non-Python repos)

@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# codex-ask — the one way this plugin runs codex: writes the question to an
+# absolute scratch path, runs the pinned `codex exec` quietly, and prints
+# REPLY_FILE:/LOG_FILE: lines (plus a log tail on failure).
+#
+# usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image]
+#                  [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]
+#
+#   QUESTION      a readable file path, `-` for stdin (the default), or
+#                 literal question text
+#   -m sol|luna   model lane (default sol → gpt-5.6-sol)
+#   -e EFFORT     model_reasoning_effort (default xhigh)
+#   -s ABS_DIR    scratch dir for question/reply/log files; must be absolute
+#                 and outside the repository (default: a fresh `mktemp -d`)
+#   --image       imagegen mode: adds `--disable shell_tool` so codex cannot
+#                 fake the image by drawing it
+set -u
+
+# Always auth via the ChatGPT-plan OAuth login: the ambient OPENAI_API_KEY is
+# billing-capped, and API-key auth never mounts the hosted image_gen tool.
+unset OPENAI_API_KEY
+
+# A relative TMPDIR would make mktemp land temp files inside the caller's
+# repo, where auto-snapshot commits them. The explicit template below is
+# what makes mktemp honor TMPDIR at all on macOS.
+case "${TMPDIR:-}" in /*) ;; *) TMPDIR=/tmp ;; esac
+export TMPDIR
+
+PLUGIN_ROOT=$(cd -P "$(dirname "$0")/.." && pwd) || exit 1
+
+MODEL=gpt-5.6-sol
+EFFORT=xhigh
+SCRATCH=""
+EXTRA_FLAGS=""
+USAGE="usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image] [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
+
+usage() {
+  echo "$USAGE" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m | --model)
+      case "${2:-}" in
+        sol) MODEL=gpt-5.6-sol ;;
+        luna) MODEL=gpt-5.6-luna ;;
+        *)
+          echo "codex-ask: -m takes sol or luna" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
+      ;;
+    -e | --effort)
+      [ -n "${2:-}" ] || usage
+      EFFORT=$2
+      shift 2
+      ;;
+    -s | --scratch)
+      case "${2:-}" in
+        /*) SCRATCH=$2 ;;
+        *)
+          echo "codex-ask: --scratch must be an absolute path (never repo-relative)" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
+      ;;
+    --image) EXTRA_FLAGS="$EXTRA_FLAGS --disable shell_tool"; shift ;;
+    --skip-git-repo-check) EXTRA_FLAGS="$EXTRA_FLAGS --skip-git-repo-check"; shift ;;
+    -h | --help)
+      echo "$USAGE"
+      exit 0
+      ;;
+    --) shift; break ;;
+    -) break ;;
+    -*) usage ;;
+    *) break ;;
+  esac
+done
+[ $# -le 1 ] || usage
+
+if [ -n "$SCRATCH" ]; then
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+  if [ -n "$root" ]; then
+    case "$SCRATCH/" in
+      "$root"/*)
+        echo "codex-ask: --scratch must be outside the repository at $root" >&2
+        exit 2
+        ;;
+    esac
+  fi
+  mkdir -p "$SCRATCH" || exit 2
+  S=$SCRATCH
+else
+  S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX") || exit 1
+fi
+Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
+
+if [ $# -eq 0 ] || [ "$1" = "-" ]; then
+  cat > "$Q" || exit 1
+elif [ -f "$1" ]; then
+  cat "$1" > "$Q" || exit 1
+elif [ -n "$1" ]; then
+  printf '%s\n' "$1" > "$Q" || exit 1
+fi
+[ -s "$Q" ] || {
+  echo "codex-ask: empty question" >&2
+  exit 2
+}
+
+# The developer_instructions feed carries the browser rules; running without
+# it launches Chrome on the user's desktop.
+DEV=$(cat "$PLUGIN_ROOT/AGENTS.md") || exit 1
+
+# EXTRA_FLAGS is deliberately unquoted: it holds zero or more whole flags.
+codex exec -c model="$MODEL" -c model_reasoning_effort="$EFFORT" -c service_tier=fast \
+  -c developer_instructions="$DEV" \
+  -o "$R" --json --color never --sandbox danger-full-access \
+  $EXTRA_FLAGS < "$Q" > "$Q.log" 2>&1
+status=$?
+[ "$status" -ne 0 ] && tail -20 "$Q.log"
+echo "REPLY_FILE: $R"
+echo "LOG_FILE: $Q.log"
+exit "$status"

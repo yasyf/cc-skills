@@ -1,7 +1,7 @@
 ---
 name: codex
 description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped edit or clearly-bounded implementation task (net-new code included when the boundaries are crisp), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit or clearly-bounded build, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
-allowed-tools: Bash(cat:*, codex:*, echo:*, ls:*), Read, Grep, Glob
+allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*), Read, Grep, Glob
 effort: medium
 ---
 
@@ -12,15 +12,22 @@ run a code/diff review, security review/audit, or bug diagnosis, hand it a
 well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen` skill to generate
 images, or offload rote throwaway work.
 
-Every `codex exec` in this skill pins `-c model=gpt-5.6-sol
+Every codex call in this skill runs through `codex-ask`, the executable this
+plugin ships (a plugin's `bin/` rides the Bash tool's PATH while the plugin
+is enabled). The script pins `-c model=gpt-5.6-sol
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
-`--sandbox danger-full-access`, and feeds the plugin's `AGENTS.md` via
-`-c developer_instructions` (see Browser Access below). The fast tier is
-mandatory — never drop it or offer a non-fast variant, whatever the model;
-without it, xhigh prompts can run 10–30+ minutes and get abandoned. Keep
-questions bounded and specific: a narrow question returns in ~2 minutes, an
-open-ended design essay does not. Model Variants and Escalation below covers
-the two sanctioned deviations.
+`--sandbox danger-full-access`, feeds the plugin's `AGENTS.md` via
+`-c developer_instructions` (see Browser Access below), unsets
+`OPENAI_API_KEY` so codex always authenticates via the ChatGPT-plan OAuth
+login (the ambient key is billing-capped and never mounts the hosted
+`image_gen` tool), and keeps every temp file on an absolute scratch path —
+the flags, auth, and paths are the script's job, so invoke it rather than
+hand-rolling a `codex exec` line.
+The fast tier is mandatory on every variant; without it, xhigh prompts can
+run 10–30+ minutes and get abandoned. Keep questions bounded and specific:
+a narrow question returns in ~2 minutes, an open-ended design essay does
+not. Model Variants and Escalation below covers the two sanctioned
+deviations.
 
 ## When to Use
 
@@ -65,29 +72,30 @@ your discretion per task; every other flag stays put either way:
   or beat sonnet-5 with zero false cites at ~5x speed (measured 2026-07-13).
   Open-ended or exhaustive recon, deep multi-path traces, and anything where a
   silent miss is costly stay on Claude (sonnet-5 via Explore) -- luna's miss
-  mode is a confident wrong count. Swap the `-c model=` value; keep the rest
-  of the recipe. Recon on luna requires `model_reasoning_effort=xhigh`: at
-  `high` it drops whole subsystems on deep traces.
+  mode is a confident wrong count. Pass `-m luna`; every other flag stays
+  pinned. Recon on luna stays at the default xhigh effort: at `high` it
+  drops whole subsystems on deep traces.
 - **Ultra execution mode** (exposed since codex 0.144.0) decomposes the run
   across internal subagents at 3-5x token cost. It is not an escalation rung:
   ultra shows the worst scope discipline of any config -- long unattended
   runs wander onto the wrong work -- so a hard sol miss escalates straight
   to fable. Never start or retry a task on ultra.
 
-`-c service_tier=fast` is non-negotiable on every exec, regardless of variant
-or effort.
+`codex-ask` pins `-c service_tier=fast` on every call, regardless of variant
+or effort — the tier is a property of the script, not a caller choice.
 
 ## Browser Access
 
-Every exec feeds `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` to codex as developer
-instructions via `-c developer_instructions="$(cat ...)"`. That file bans raw
+`codex-ask` feeds the plugin's `AGENTS.md` to codex as developer
+instructions on every call. That file bans raw
 browser launches (Chrome under the old `workspace-write` seatbelt died at
 `RegisterApplication`, spraying `.ips` crash reports; unsandboxed it opens
 windows on the user's desktop) and routes all browser/DOM verification through
 the `agent-browser` CLI in the `codex` namespace. Nothing for you to do —
 there is no warm-up step; the agent-browser daemon auto-starts from inside
-codex now that the sandbox is `danger-full-access`. Never drop the
-`-c developer_instructions` flag or swap the sandbox back.
+codex now that the sandbox is `danger-full-access`. Routing every call
+through `codex-ask` is what keeps the feed and the sandbox pin in place; a
+hand-rolled `codex exec` line is how they get lost.
 
 `--sandbox danger-full-access` means codex-generated commands run unsandboxed
 on this machine — a standing, user-sanctioned choice for these lanes; don't
@@ -125,25 +133,22 @@ Build a comprehensive question with:
 - What has already been tried and why it failed
 - Specific questions to answer
 
-### Step 2: Write Question and Invoke Codex
+### Step 2: Ask via codex-ask
 
-Write the question to a mktemp-unique path in your session scratchpad
-directory when your system prompt lists one; when none is listed, create a
-fresh directory with `mktemp -d`. Those are the only two options — never
-invent a directory (a repo-relative name like `.claude-scratch/` lands in
-the working tree and gets committed by auto-snapshot), and never use fixed
-or `$$`-suffixed paths, which collide across parallel codex runs. Write the
-question, run codex, and print the reply path in ONE Bash call so the
-variables resolve consistently. Give the call a 10-minute timeout: xhigh on
-the fast tier typically returns in ~2 minutes but can run longer. The exec
-redirects its event stream (banner, echoed prompt, progress trace) into a
-JSONL log file; only the `REPLY_FILE:`/`LOG_FILE:` lines — or a failure
-tail — reach the conversation.
+Pipe the question through `codex-ask`. The script handles the mechanics
+that used to be recipe steps: it mktemps the question/reply/log files in a
+fresh `mktemp -d` directory, runs the pinned exec, redirects the JSONL
+event stream (banner, echoed prompt, progress trace) into the log, and
+prints the `REPLY_FILE:`/`LOG_FILE:` lines — plus a log tail on failure —
+so only those reach the conversation. To group the files in your session
+scratchpad instead, pass `-s <dir>` with its absolute path; the script
+rejects a relative path or one inside the repository, because a scratch dir
+in the working tree gets committed by auto-snapshot. Give the Bash call a 10-minute
+timeout: xhigh on the fast tier typically returns in ~2 minutes but can run
+longer.
 
 ```bash
-S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d). Never a made-up or repo-relative dir.
-Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
-cat <<'QUESTION' > "$Q"
+codex-ask - <<'QUESTION'
 I have a [component] that fails with [specific error].
 
 Here is the full function:
@@ -164,10 +169,13 @@ Questions:
 1. [specific question]
 2. [specific question]
 QUESTION
-
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --json --color never --sandbox danger-full-access > "$Q.log" 2>&1 || tail -20 "$Q.log"
-echo "REPLY_FILE: $R"; echo "LOG_FILE: $Q.log"
 ```
+
+In place of `-` (stdin), `codex-ask` also takes a file path or literal
+text, so a short question can go inline:
+`codex-ask "Explain the JPEG progressive AC refinement algorithm"`. Every
+form writes the question file, so the exchange keeps a durable record
+either way.
 
 ### Step 3: Evaluate the Reply
 
@@ -183,18 +191,6 @@ the spec means something else, the fix belongs in a different layer -- stop
 rather than improvising a detour: surface the finding with 2-4 concrete options
 and let the user (or the fable orchestrator that delegated to you) pick. See
 AGENTS.md § Ask Before Assuming.
-
-## Alternative: Direct Piping
-
-For shorter questions:
-```bash
-S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d)
-R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
-echo "Explain the JPEG progressive AC refinement algorithm" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --json --color never --sandbox danger-full-access > "$R.log" 2>&1 || tail -20 "$R.log"
-cat "$R"
-```
-
-The file-based pattern is better for debugging because you can refine the question and keep a record.
 
 ## Response Format
 
@@ -228,10 +224,12 @@ skill; it works with non-interactive `codex exec`.
 **Availability:** the hosted tool mounts only when codex is signed in with a
 ChatGPT plan -- check `codex login status`. With API-key auth it never mounts,
 and codex will quietly fake the image by drawing it with PIL/ImageMagick instead.
-Two defenses, use both:
+`codex-ask` unsets `OPENAI_API_KEY` for exactly this reason, so the login
+state from `codex login status` is what counts. Two defenses, use both:
 
-1. **Pass `--disable shell_tool`** so codex cannot draw -- with no shell it
-   either calls `image_gen` or reports the tool missing.
+1. **Pass `--image`** so codex cannot draw -- it adds `--disable shell_tool`,
+   and with no shell codex either calls `image_gen` or reports the tool
+   missing.
 2. **Tell it to fail loudly**: "If the image_gen tool is unavailable, reply
    IMAGE_GEN_UNAVAILABLE and stop."
 
@@ -240,18 +238,13 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-S=<your scratchpad directory>  # absolute path from your system prompt; none listed → S=$(mktemp -d). Never a made-up or repo-relative dir.
-Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
-cat <<'PROMPT' > "$Q"
+codex-ask --image - <<'PROMPT'
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
 chroma-keyed out locally). If the image_gen tool is unavailable, reply
 IMAGE_GEN_UNAVAILABLE and stop. End your reply with the absolute path of the
 saved file on its own line.
 PROMPT
-
-cat "$Q" | codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh -c service_tier=fast -c developer_instructions="$(cat "${CLAUDE_PLUGIN_ROOT}/AGENTS.md")" -o "$R" --disable shell_tool --json --color never --sandbox danger-full-access > "$Q.log" 2>&1 || tail -20 "$Q.log"
-echo "REPLY_FILE: $R"; echo "LOG_FILE: $Q.log"
 ```
 
 Then place and post-process yourself (read the path from the `REPLY_FILE:` line):
@@ -294,26 +287,25 @@ Model limits to design around:
 
 ## Common Issues
 
-**"stdin is not a terminal"**: Use `codex exec` not bare `codex`
-
-**No output**: Check that the `-o` flag has a valid path, then read the tail
-of the `LOG_FILE:` JSONL — the failing event is in the last lines
+**No output**: read the tail of the `LOG_FILE:` JSONL — the failing event is
+in the last lines
 
 **Result is a bare "Skill execution completed"**: you are running a stale cached
 version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
 subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
 runs inline and this cannot happen: run `claude plugin update codex@skills`.
 
-**Two codex calls stomped or cross-read each other's files**: the question/reply
-files used fixed or `$$`-suffixed names (PIDs recycle, so parallel runs collide)
-or a shared invented directory. Keep the recipe's `mktemp` paths — the scratchpad
-from your system prompt, else a fresh `mktemp -d` — and never a repo-relative dir.
+**Two codex calls stomped or cross-read each other's files, or temp files
+appeared inside the repo**: a hand-rolled `codex exec` used fixed,
+`$$`-suffixed, or repo-relative paths. `codex-ask` mktemps fresh absolute
+paths per call, so neither can happen through it — route the call through
+the script.
 
-**Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). If a call drags past a few minutes, check the `-c service_tier=fast` flag is present and the question is bounded — broad open-ended prompts are the usual cause.
+**Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). `codex-ask` pins `-c service_tier=fast`, so a call dragging past a few minutes means the question is unbounded — broad open-ended prompts are the usual cause.
 
-**Codex launched Chrome / browser windows appeared**: the `-c developer_instructions` feed was dropped from the invocation — it carries the browser rules (agent-browser only, `codex` namespace). Restore the flag exactly as in the Step 2 recipe.
+**Codex launched Chrome / browser windows appeared**: a hand-rolled `codex exec` bypassed `codex-ask`, dropping the `-c developer_instructions` feed that carries the browser rules (agent-browser only, `codex` namespace). Route the call through `codex-ask`, which feeds it on every call.
 
-**"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass `--skip-git-repo-check`.
+**"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass codex-ask's `--skip-git-repo-check` flag (it goes before the question argument).
 
 **IMAGE_GEN_UNAVAILABLE**: codex is signed in with an API key (`codex login status`), not a ChatGPT plan — the hosted tool never mounts. Use the fallback CLI from Generating Images instead.
 
