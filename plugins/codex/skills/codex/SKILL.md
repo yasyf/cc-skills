@@ -52,13 +52,16 @@ deviations.
 - Rote, throwaway work -- one-off scripts, scratch harnesses, bulk data munging --
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
-- Well-scoped edits and clearly-bounded implementation -- the change is fully
-  specifiable up front: a refactor, a signature change, threading a parameter
-  through, or net-new code whose boundaries are crisp. Bounded terminal/shell-heavy
-  execution fits here too. Ambiguous or exploratory builds, large multi-file
-  refactors, and long agentic runs stay on Claude (opus xhigh) -- sol drifts
-  out of scope on open-ended work. Production edits are in range at xhigh;
-  review the diff as you would any other contributor's.
+- Well-scoped, decision-light changes to existing code -- the change is fully
+  specifiable up front: a scoped edit, a signature change, threading a parameter
+  through, a bounded refactor, a well-specified small feature. Bounded
+  terminal/shell-heavy execution fits here too. Large amounts of net-new code
+  stay on Claude (opus xhigh, fable if crucial) -- sol is much stronger at
+  modifying existing code than at authoring a large new subsystem from scratch;
+  ambiguous or exploratory builds, decision-dense refactors, and long agentic
+  runs stay on opus too, since sol drifts out of scope and fails to converge on
+  open-ended work. Production edits are in range at xhigh; review the diff as you
+  would any other contributor's.
 
 ## Model Variants and Escalation
 
@@ -67,14 +70,18 @@ your discretion per task; every other flag stays put either way:
 
 - **`gpt-5.6-luna`** for two lanes. The rote-throwaway/bulk lane: one-off
   scripts, scratch harnesses, data munging where quality doesn't matter and
-  nothing can go wrong. And bounded recon sweeps: config/wiring locates,
-  crisp-scope enumerations, and pattern sweeps over a repo, where luna matched
-  or beat sonnet-5 with zero false cites at ~5x speed (measured 2026-07-13).
-  Open-ended or exhaustive recon, deep multi-path traces, and anything where a
-  silent miss is costly stay on Claude (sonnet-5 via Explore) -- luna's miss
-  mode is a confident wrong count. Pass `-m luna`; every other flag stays
-  pinned. Recon on luna stays at the default xhigh effort: at `high` it
-  drops whole subsystems on deep traces.
+  nothing can go wrong. And the **recon lane, which now defaults to luna**:
+  enumerations, config/wiring locates, subsystem traces, pattern sweeps, and
+  routine chores (diff and log triage, classify, extract, digest, doc lookup),
+  where luna matched or beat sonnet-5 on recall with zero false cites at ~3x
+  speed and ~80% lower cost (measured 2026-07-14). Exhaustive enumerations get
+  a cross-model verify pass -- luna's failure mode is a confident wrong count, and
+  a luna/sonnet/sol verifier caught 100% of planted undercounts. Recon stays on
+  Claude (sonnet-5 via Explore) when the surface is Claude-only, when coverage
+  must sweep >300K tokens in one pass (luna's retrieval cliff -- xhigh doesn't
+  move it), or when a silent miss is unrecoverable and no verify pass will run.
+  Pass `-m luna`; every other flag stays pinned. Recon on luna stays at the
+  default xhigh effort: at `high` it drops whole subsystems on deep traces.
 - **Ultra execution mode** (exposed since codex 0.144.0) decomposes the run
   across internal subagents at 3-5x token cost. It is not an escalation rung:
   ultra shows the worst scope discipline of any config -- long unattended

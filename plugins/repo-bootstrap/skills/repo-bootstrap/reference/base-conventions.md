@@ -119,17 +119,18 @@ shared AGENTS.md:
   fable-5 for orchestration, design review,
   hard planning, all prose/writing (never down-route writing), sensitive or
   error-prone implementation, review-findings synthesis, and as the escalation
-  target for every lane (context-window pressure is not a routing cue), sonnet-5
-  for recon (never haiku except single-fact mechanical steps), gpt-5.6-sol via the
+  target for every lane (context-window pressure is not a routing cue), the recon
+  lane defaults to gpt-5.6-luna at xhigh with sonnet-5 the carve-out (Claude-only
+  surfaces, >300K-token sweeps, unrecoverable-miss work; never haiku except
+  single-fact mechanical steps), gpt-5.6-sol via the
   codex skill for code/diff review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
-  it stays fable), bug diagnosis, well-scoped or clearly-bounded implementation
-  and terminal-heavy execution (ambiguous, large multi-file, or long-horizon work
-  stays on opus), second
+  it stays fable), bug diagnosis, bounded decision-light changes to existing code
+  and terminal-heavy execution (large net-new code stays on opus — fable if
+  crucial; ambiguous, large-refactor, or long-horizon work stays on opus too, and
+  sol is not cheaper than opus — output costs ~20% more), second
   opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
-  rote/bulk lane and, at xhigh only, for bounded recon sweeps — config/wiring
-  locates, crisp-scope enumerations, pattern sweeps; open-ended or exhaustive
-  recon stays sonnet; from workflow routing stages: the
+  rote/bulk lane and carries the recon lane at xhigh; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
   escalation means fable;
   the unexpected checks back — a delegated agent hitting a task-shape surprise

@@ -233,10 +233,10 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # opus keeps ambiguous/decision-dense — regressing collapses the lanes.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
-    assert "the default implementation lane for bounded, decision-light work" in claude
+    assert "the default implementation lane for bounded, decision-light changes to existing code" in claude
     assert "fans out to gpt-5.6-sol" in claude
     assert "terminal/shell-heavy" in claude
-    assert "ambiguous, exploratory, long-horizon, or decision-dense" in claude
+    assert "ambiguous, exploratory, long-horizon, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
     assert "synthesis/accept-reject" in claude
     # All prose/writing routes to fable (capt-hook blocks non-fable pins on
@@ -251,11 +251,12 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "verification of security-sensitive code" in claude
     assert "very sensitive or error-prone implementation" in claude
     assert "count as same-tier" in claude
-    # gpt-5.6 lanes: sol default; luna rote/bulk + bounded recon (xhigh only, v4.1
-    # 2026-07-13, cc-notes 128bed3). Ultra is NOT a retry rung; "gpt-5.5" = half-migrated.
-    assert "| gpt-5.6-sol | 9 | 8 | 5 |" in claude
+    # gpt-5.6 lanes v6 (cc-notes routing-defaults experiment): sol Cost 3, large
+    # net-new stays opus; recon lane defaults to luna. Ultra is not a retry rung.
+    assert "| gpt-5.6-sol | 3 | 8 | 5 |" in claude
     assert "gpt-5.6-luna" in claude
-    assert "bounded recon sweeps" in claude
+    assert "recon lane" in claude
+    assert "net-new code stay on opus" in claude
     assert "ultra execution mode" in claude
     assert "is not a retry rung" in claude
     assert "gpt-5.5" not in claude
@@ -263,12 +264,12 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "security review/audit" in conventions
     assert "verification of" in conventions and "security-sensitive code" in conventions
     assert "gpt-5.6-sol" in conventions
-    assert "bounded recon sweeps" in conventions
+    assert "recon lane" in conventions
     assert "gpt-5.5" not in conventions
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
     assert "security review/audit" in codex_skill
     assert "verification of security-sensitive code" in codex_skill
-    assert "bounded recon sweeps" in codex_skill
+    assert "recon lane" in codex_skill
     assert "gpt-5.5" not in codex_skill
     # The writing-plans "model and effort per phase" clause moved into the cc-guides
     # writing-plans fragment (rendered into AGENTS.md downstream) and is pinned there.

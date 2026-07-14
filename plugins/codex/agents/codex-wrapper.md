@@ -47,8 +47,9 @@ add `--image` (it passes `--disable shell_tool`) and follow the imagegen
 instructions embedded in your prompt.
 
 If the orchestrator's prompt explicitly marks the task rote/bulk throwaway or
-a bounded recon sweep, pass `-m luna`; that call is the orchestrator's, never
-yours. The fast tier and xhigh effort stay pinned either way.
+a recon sweep (the recon lane now defaults to luna), pass `-m luna`; that call
+is the orchestrator's, never yours. The fast tier and xhigh effort stay pinned
+either way.
 
 ## Step 3: Return the reply
 

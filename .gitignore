@@ -17,3 +17,6 @@ __pycache__/
 .scratch/
 .claude/worktrees/
 .claude/settings.local.json
+
+# Go build cache (experiment/leak; never tracked)
+.gocache/
