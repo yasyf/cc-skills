@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
-# codex-ask — the one way this plugin runs codex: writes the question to an
-# absolute scratch path, runs the pinned `codex exec` quietly, and prints
-# REPLY_FILE:/LOG_FILE: lines (plus a log tail on failure).
+# codex-ask — the one way this plugin runs codex. Prints REPLY_FILE:/LOG_FILE:/
+# AWAIT: lines BEFORE codex starts, then launches the pinned `codex exec`
+# detached so a Bash-tool timeout kill can't destroy finished work; blocks on a
+# status file and exits with codex's code (log tail on failure). Recover a
+# killed call with `codex-ask --await <scratch-dir|reply-file>`.
 #
 # usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image]
 #                  [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]
+#        codex-ask --await <scratch-dir|reply-file>
 #
 #   QUESTION      a readable file path, `-` for stdin (the default), or
 #                 literal question text
 #   -m sol|luna   model lane (default sol → gpt-5.6-sol)
 #   -e EFFORT     model_reasoning_effort (default xhigh)
-#   -s ABS_DIR    scratch dir for question/reply/log files; must be absolute
-#                 and outside the repository (default: a fresh `mktemp -d`)
+#   -s ABS_DIR    scratch dir for question/reply/log/state files; must be
+#                 absolute and outside the repository. Without it, codex-ask
+#                 adopts the harness session scratchpad (resolved solely by
+#                 cc-transcript, never a hand-rolled path) or falls back to a
+#                 fresh `mktemp -d`.
 #   --image       imagegen mode: adds `--disable shell_tool` so codex cannot
 #                 fake the image by drawing it
+#   --await DIR   block on an already-launched run's status file and replay its
+#                 completion report; idempotent, safe mid-run and concurrently
 set -u
 
 # Always auth via the ChatGPT-plan OAuth login: the ambient OPENAI_API_KEY is
@@ -27,11 +35,126 @@ case "${TMPDIR:-}" in /*) ;; *) TMPDIR=/tmp ;; esac
 export TMPDIR
 
 PLUGIN_ROOT=$(cd -P "$(dirname "$0")/.." && pwd) || exit 1
+SELF="$PLUGIN_ROOT/bin/codex-ask"
+
+# poll_status <dir> — block until <dir>/status exists AND is non-empty (a
+# concurrent -s reuse may rm/recreate it). Liveness is probed via the recorded
+# pid: while pid is absent wait generously (~15s) for the launcher to register
+# it; only a recorded-then-dead pid with no status is a genuine mid-flight death.
+poll_status() {
+  local sdir=$1 wait_pid=0 grace=0 p
+  while [ ! -s "$sdir/status" ]; do
+    if [ ! -f "$sdir/pid" ]; then
+      wait_pid=$((wait_pid + 1))
+      if [ "$wait_pid" -ge 60 ]; then
+        echo "codex-ask: run at $sdir never registered a pid" >&2
+        exit 1
+      fi
+    elif p=$(cat "$sdir/pid" 2>/dev/null) && [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+      grace=0
+    else
+      grace=$((grace + 1))
+      if [ "$grace" -ge 4 ]; then
+        echo "codex-ask: run at $sdir exited without recording status" >&2
+        exit 1
+      fi
+    fi
+    sleep 0.25
+  done
+}
+
+# report_status <status> <reply> <log>: tail the log on failure, exit codex's
+# code. A 0 exit with an empty/missing reply is a silent codex death (exit 1);
+# an empty/non-numeric status vanished mid-read (concurrent -s reuse) — fail
+# cleanly instead of crashing `[` with "integer expected".
+report_status() {
+  local st=$1 rfile=$2 lfile=$3
+  case "$st" in
+    '' | *[!0-9]*)
+      echo "codex-ask: status went away before it could be read (concurrent -s reuse?)" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$st" -eq 0 ] && [ ! -s "$rfile" ]; then
+    echo "codex-ask: codex exited 0 but wrote no reply" >&2
+    tail -20 "$lfile"
+    exit 1
+  fi
+  [ "$st" -ne 0 ] && tail -20 "$lfile"
+  exit "$st"
+}
+
+# --await <scratch-dir|reply-file>: replay an already-launched run's report.
+if [ "${1:-}" = "--await" ]; then
+  target=${2:-}
+  case "$target" in
+    /*) ;;
+    *)
+      echo "codex-ask: --await needs an absolute scratch dir or reply-file path" >&2
+      exit 2
+      ;;
+  esac
+  if [ -d "$target" ]; then S=$target; else S=$(dirname "$target"); fi
+  if [ ! -f "$S/meta" ]; then
+    echo "codex-ask: no recorded codex-ask run at $S" >&2
+    exit 2
+  fi
+  { IFS= read -r R; IFS= read -r LOG; } < "$S/meta"
+  poll_status "$S"
+  echo "REPLY_FILE: $R"
+  echo "LOG_FILE: $LOG"
+  report_status "$(cat "$S/status")" "$R" "$LOG"
+fi
+
+# resolve_scratchpad — echo the harness session scratchpad (absolute, existing)
+# via cc-transcript, or nothing. The path formula lives only in cc-transcript;
+# reconstructing it here is the rejected hand-rolled-glob failure mode. Both
+# probe paths hard-bound a hung/TERM-ignoring cc-transcript so it falls through.
+resolve_scratchpad() {
+  local tmo spf gpid out="" i j cct_path
+  local -a cct
+  if cct_path=$(command -v cc-transcript 2>/dev/null); then
+    cct=("$cct_path")
+  elif command -v uvx >/dev/null 2>&1; then
+    cct=(uvx cc-transcript)
+  else
+    return 0
+  fi
+  if tmo=$(command -v timeout 2>/dev/null) || tmo=$(command -v gtimeout 2>/dev/null); then
+    # -k 2: SIGKILL 2s after the 5s SIGTERM if the probe ignores TERM.
+    out=$("$tmo" -k 2 5 "${cct[@]}" scratchpad 2>/dev/null) || out=""
+  else
+    # No timeout(1) on stock macOS: probe in its own process group so a hung
+    # child + descendants can be group-killed; TERM, grace, KILL — never wait.
+    spf=$(mktemp "$TMPDIR/codex-ask-sp.XXXXXX") || return 0
+    ( set -m; "${cct[@]}" scratchpad > "$spf" 2>/dev/null & echo $! > "$spf.pid" )
+    gpid=$(cat "$spf.pid" 2>/dev/null)
+    if [ -n "$gpid" ]; then
+      i=0
+      while kill -0 "$gpid" 2>/dev/null && [ "$i" -lt 20 ]; do
+        i=$((i + 1))
+        sleep 0.25
+      done
+      if kill -0 "$gpid" 2>/dev/null; then
+        kill -TERM -"$gpid" 2>/dev/null
+        j=0
+        while kill -0 "$gpid" 2>/dev/null && [ "$j" -lt 8 ]; do
+          j=$((j + 1))
+          sleep 0.25
+        done
+        kill -KILL -"$gpid" 2>/dev/null
+      fi
+      out=$(cat "$spf" 2>/dev/null)
+    fi
+    rm -f "$spf" "$spf.pid"
+  fi
+  printf '%s' "$out" | head -1
+}
 
 MODEL=gpt-5.6-sol
 EFFORT=xhigh
 SCRATCH=""
-EXTRA_FLAGS=""
+EXTRA_FLAGS=()
 USAGE="usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image] [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 usage() {
@@ -67,8 +190,8 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
-    --image) EXTRA_FLAGS="$EXTRA_FLAGS --disable shell_tool"; shift ;;
-    --skip-git-repo-check) EXTRA_FLAGS="$EXTRA_FLAGS --skip-git-repo-check"; shift ;;
+    --image) EXTRA_FLAGS+=(--disable shell_tool); shift ;;
+    --skip-git-repo-check) EXTRA_FLAGS+=(--skip-git-repo-check); shift ;;
     -h | --help)
       echo "$USAGE"
       exit 0
@@ -94,9 +217,19 @@ if [ -n "$SCRATCH" ]; then
   mkdir -p "$SCRATCH" || exit 2
   S=$SCRATCH
 else
-  S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX") || exit 1
+  S=""
+  # Only probe when the harness exposes a session id; any miss (no id, no tool,
+  # timeout, empty/non-dir output) falls through silently to mktemp.
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    sp=$(resolve_scratchpad)
+    case "$sp" in
+      /*) [ -d "$sp" ] && S=$(mktemp -d "$sp/codex-ask.XXXXXX") ;;
+    esac
+  fi
+  [ -n "$S" ] || S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX") || exit 1
 fi
 Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
+LOG="$Q.log"
 
 if [ $# -eq 0 ] || [ "$1" = "-" ]; then
   cat > "$Q" || exit 1
@@ -114,13 +247,36 @@ fi
 # it launches Chrome on the user's desktop.
 DEV=$(cat "$PLUGIN_ROOT/AGENTS.md") || exit 1
 
-# EXTRA_FLAGS is deliberately unquoted: it holds zero or more whole flags.
-codex exec -c model="$MODEL" -c model_reasoning_effort="$EFFORT" -c service_tier=fast \
-  -c developer_instructions="$DEV" \
-  -o "$R" --json --color never --sandbox danger-full-access \
-  $EXTRA_FLAGS < "$Q" > "$Q.log" 2>&1
-status=$?
-[ "$status" -ne 0 ] && tail -20 "$Q.log"
+# A reused -s dir must never serve a previous run's state.
+rm -f "$S/status" "$S/pid"
+# meta.tmp has a fixed name, so two concurrent runs sharing an explicit -s dir
+# race here (a sanctioned last-writer-wins limitation). Brand the loser's abort
+# rather than leaking a raw `mv:` coreutils error.
+printf '%s\n%s\n' "$R" "$LOG" > "$S/meta.tmp" && mv -f "$S/meta.tmp" "$S/meta" 2>/dev/null || {
+  echo "codex-ask: $S is in use by a concurrent run; pass a unique -s dir or omit it" >&2
+  exit 1
+}
+
+# Print recovery paths BEFORE codex starts: a killed Bash call still leaves the
+# --await recipe in the returned partial stdout. Only AWAIT is shell-quoted (via
+# printf %q) so a spaced -s path stays copy-pasteable; REPLY_FILE/LOG_FILE are
+# machine-parsed by the wrapper and stay verbatim.
 echo "REPLY_FILE: $R"
-echo "LOG_FILE: $Q.log"
-exit "$status"
+echo "LOG_FILE: $LOG"
+echo "AWAIT: $(printf '%q' "$SELF") --await $(printf '%q' "$S")"
+
+# Detached launch — the timeout-survival core. `set -m` gives the background job
+# its own process group (escapes the pgid-wide SIGTERM/SIGKILL) and the enclosing
+# subshell exits at once, orphaning it to PID 1 (escapes the ps-walked descendant
+# kill). BOTH halves are load-bearing: `( … & )` alone dies in the group kill;
+# `set -m` + `wait` in one fork stays in the ps tree. The group's `</dev/null
+# >/dev/null 2>&1` releases codex-ask's inherited pipe so a reader draining on EOF
+# sees the print-first lines at once (codex's inner `> "$LOG" 2>&1` still wins for
+# codex). Parent never waits — it polls the status file below.
+( set -m; { codex exec -c model="$MODEL" -c model_reasoning_effort="$EFFORT" -c service_tier=fast \
+    -c developer_instructions="$DEV" \
+    -o "$R" --json --color never --sandbox danger-full-access \
+    "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}" < "$Q" > "$LOG" 2>&1; rc=$?; echo "$rc" > "$S/status.tmp"; mv -f "$S/status.tmp" "$S/status"; } </dev/null >/dev/null 2>&1 & echo $! > "$S/pid.tmp"; mv -f "$S/pid.tmp" "$S/pid" )
+
+poll_status "$S"
+report_status "$(cat "$S/status")" "$R" "$LOG"

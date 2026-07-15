@@ -8,7 +8,12 @@ import datetime
 import json
 import os
 import re
+import select
+import shutil
+import signal
 import subprocess
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -293,8 +298,8 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
 
 
 def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
-    # codex-ask pins model/effort/fast-tier + quiet-exec flags; skill and
-    # wrapper route through it (a raw exec recipe in prose is how pins drift).
+    # codex-ask pins model/effort/fast-tier + quiet-exec flags and runs codex
+    # detached (print-first + --await); skill and wrapper route through it.
     plugin_root = templates_dir.parents[3] / "codex"
     script = plugin_root / "bin" / "codex-ask"
     assert os.access(script, os.X_OK), script
@@ -320,19 +325,36 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         'S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX")',
         "codex-q-XXXXXX",
         "codex-r-XXXXXX",
+        # v2: detached-survivable launch + --await recovery
+        "AWAIT:",
+        "--await",
+        "set -m",
+        'mv -f "$S/status.tmp" "$S/status"',
+        '"$S/pid"',
+        # v2: exit 0 + empty reply is a silent codex death, treated as failure
+        "codex exited 0 but wrote no reply",
     ):
         assert needle in text, needle
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
-    for src in (
-        plugin_root / "skills" / "codex" / "SKILL.md",
-        plugin_root / "agents" / "codex-wrapper.md",
-    ):
+    # print-first: the recovery paths echo before codex is ever invoked
+    assert text.index('echo "REPLY_FILE: ') < text.index("codex exec -c")
+    skill_md = plugin_root / "skills" / "codex" / "SKILL.md"
+    wrapper_md = plugin_root / "agents" / "codex-wrapper.md"
+    for src in (skill_md, wrapper_md):
         t = src.read_text()
         assert "codex-ask" in t, src
         recipe_lines = [line for line in t.splitlines() if "| codex exec" in line or "codex exec -c" in line]
         assert not recipe_lines, (src, recipe_lines)
         assert "REPLY_FILE:" in t, src
         assert "LOG_FILE:" in t, src
+        # v2 docs: --await documented, "session scratchpad" prose gone
+        assert "--await" in t, src
+        assert "session scratchpad" not in t, src
+    # check-back contract pinned verbatim in each (phrased differently per file)
+    assert "never absorbs a surprise" in skill_md.read_text()
+    assert "Never absorb a surprise" in wrapper_md.read_text()
+    # wrapper bans backgrounding the codex call (orphaned-verdict failure mode)
+    assert "run_in_background" in wrapper_md.read_text()
 
 
 def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
@@ -362,6 +384,9 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
         "OPENAI_API_KEY": "sk-dummy",
         "TMPDIR": str(tmpdir),
     }
+    # pytest runs inside a Claude session; a leaked id + a real on-PATH
+    # cc-transcript would redirect scratch files into the live session scratchpad.
+    env.pop("CLAUDE_CODE_SESSION_ID", None)
 
     def ask(*args, env=env):
         return subprocess.run([str(script), *args], cwd=cwd, env=env, text=True, capture_output=True)
@@ -421,6 +446,385 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert ".claude-scratch/" in gitignore
     assert ".scratch/" in gitignore
     assert ".claude/worktrees/" in gitignore
+
+
+def _codex_env(stub_bin, tmpdir, **extra):
+    # Controlled env: stub codex on PATH, sandboxed TMPDIR, no leaked session id
+    # (pytest runs in a Claude session; a real cc-transcript would else adopt it).
+    env = {**os.environ, "PATH": f"{stub_bin}:{os.environ['PATH']}", "TMPDIR": str(tmpdir)}
+    env.pop("CLAUDE_CODE_SESSION_ID", None)
+    env.update(extra)
+    return env
+
+
+def _read_lines(proc, count, deadline_s):
+    # Raw-fd reads: robust regardless of pipe buffering.
+    fd = proc.stdout.fileno()
+    buf = b""
+    end = time.monotonic() + deadline_s
+    while buf.count(b"\n") < count and time.monotonic() < end:
+        r, _, _ = select.select([fd], [], [], max(0.0, end - time.monotonic()))
+        if r:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                break
+            buf += chunk
+    return buf.decode().splitlines()
+
+
+def _read_lines_buffered(proc, count, deadline_s):
+    # Plain buffered readline in a thread (proc must be text=True); a regression
+    # that re-holds the pipe blocks here until the join deadline trips.
+    lines: list[str] = []
+
+    def reader() -> None:
+        for _ in range(count):
+            line = proc.stdout.readline()
+            if not line:
+                break
+            lines.append(line.rstrip("\n"))
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    t.join(deadline_s)
+    return lines
+
+
+def _descendants(pid):
+    # Every transitive child of pid via the ps pid/ppid tree.
+    out = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True).stdout
+    children: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    seen: list[int] = []
+    stack = [pid]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in seen:
+                seen.append(child)
+                stack.append(child)
+    return seen
+
+
+def test_codex_ask_run_survives_pgid_kill_and_await_recovers(templates_dir, tmp_path):
+    # Claude Code kills a timed-out Bash command across the whole process group;
+    # codex-ask detaches codex (own pgroup, orphaned to PID 1) so it survives.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        "sleep 3\n"
+        '[ -n "$out" ] && printf "REAL REPLY 42\\n" > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+
+    proc = subprocess.Popen(
+        [str(script), "ping"],
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        bufsize=0,
+    )
+    header = _read_lines(proc, 3, 5)
+    reply = next((l.split(": ", 1)[1] for l in header if l.startswith("REPLY_FILE:")), None)
+    assert reply, header
+    scratch = os.path.dirname(reply)
+    assert any(l.startswith("AWAIT:") and "--await" in l for l in header), header
+
+    # Kill only once the run is established (pid file lands after the job forks
+    # into its own pgroup); print-first emits before the detach, racing otherwise.
+    pid_file = Path(scratch) / "pid"
+    reg = time.monotonic() + 5
+    while not pid_file.exists() and time.monotonic() < reg:
+        time.sleep(0.02)
+    assert pid_file.exists(), "detached run never registered a pid"
+
+    # Claude Code's full timeout kill: SIGTERM/SIGKILL the process GROUP and every
+    # ps-walked descendant, 1500ms apart. A run left a launcher descendant dies.
+    pgid = os.getpgid(proc.pid)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        victims = _descendants(proc.pid)
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        for d in victims:
+            try:
+                os.kill(d, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+        time.sleep(1.5)
+    assert proc.wait(timeout=10) != 0  # the launcher itself was killed
+
+    recovered = subprocess.run(
+        [str(script), "--await", scratch], cwd=cwd, env=env, text=True, capture_output=True, timeout=30
+    )
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    r_reply = re.search(r"^REPLY_FILE: (.+)$", recovered.stdout, re.M).group(1)
+    assert Path(r_reply).read_text().strip() == "REAL REPLY 42"
+
+    # --await accepts a reply-file (resolved to its dir) and is idempotent
+    again = subprocess.run(
+        [str(script), "--await", reply], cwd=cwd, env=env, text=True, capture_output=True, timeout=30
+    )
+    assert again.returncode == 0
+    assert re.search(r"^REPLY_FILE: (.+)$", again.stdout, re.M).group(1) == reply
+
+
+def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path):
+    # Exit codes flow through the status file; --await replays a failure's tail,
+    # a reused -s dir never serves stale state, bad targets/no codex fail cleanly.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+
+    def ask(*args, e=env):
+        return subprocess.run([str(script), *args], cwd=cwd, env=e, text=True, capture_output=True, timeout=30)
+
+    # exit-7 stub: sync exits 7 with the log tail; --await replays it
+    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "boom detail"\nexit 7\n')
+    stub.chmod(0o755)
+    sdir = tmp_path / "s1"
+    run = ask("-s", str(sdir), "ping")
+    assert run.returncode == 7, run.stdout + run.stderr
+    assert "boom detail" in run.stdout
+    aw = ask("--await", str(sdir))
+    assert aw.returncode == 7, aw.stdout + aw.stderr
+    assert "boom detail" in aw.stdout
+    assert "REPLY_FILE:" in aw.stdout
+
+    # exit 0 but empty reply -> silent codex death: nonzero exit + log tail,
+    # both sync and via --await
+    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "turn cut off"\nexit 0\n')
+    edir = tmp_path / "s-empty"
+    empty_run = ask("-s", str(edir), "ping")
+    assert empty_run.returncode == 1, empty_run.stdout + empty_run.stderr
+    assert "turn cut off" in empty_run.stdout
+    assert "codex exited 0 but wrote no reply" in empty_run.stderr
+    empty_await = ask("--await", str(edir))
+    assert empty_await.returncode == 1, empty_await.stdout + empty_await.stderr
+    assert "turn cut off" in empty_await.stdout
+    assert "codex exited 0 but wrote no reply" in empty_await.stderr
+
+    # stale-state guard: reusing the same -s dir with a success stub must not
+    # serve the previous run's exit-7 status
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        '[ -n "$out" ] && echo fresh > "$out"\n'
+        "exit 0\n"
+    )
+    reuse = ask("-s", str(sdir), "ping")
+    assert reuse.returncode == 0, reuse.stdout + reuse.stderr
+
+    # --await a dir with no recorded run -> rc 2, clean message
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    norun = ask("--await", str(empty))
+    assert norun.returncode == 2
+    assert "no recorded" in norun.stderr.lower()
+
+    # --await a relative path -> rc 2, nothing written to cwd
+    relaw = ask("--await", "relative/path")
+    assert relaw.returncode == 2
+    assert not list(cwd.iterdir())
+
+    # no codex binary at all -> status 127. Assert the precondition so a stray
+    # real /usr/bin/codex can't let this pass for the wrong reason.
+    bare_path = "/usr/bin:/bin"
+    assert shutil.which("codex", path=bare_path) is None, "test PATH must resolve no real codex"
+    bare = _codex_env(stub_bin, tmpdir, PATH=bare_path)
+    nocodex = subprocess.run([str(script), "ping"], cwd=cwd, env=bare, text=True, capture_output=True, timeout=30)
+    assert nocodex.returncode == 127, nocodex.stdout + nocodex.stderr
+
+
+def test_codex_ask_adopts_harness_scratchpad(templates_dir, tmp_path):
+    # With a session id and no -s, codex-ask adopts the cc-transcript-resolved
+    # scratchpad into a per-call subdir; any miss falls back to mktemp.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    codex = stub_bin / "codex"
+    codex.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        '[ -n "$out" ] && echo ok > "$out"\n'
+        "exit 0\n"
+    )
+    codex.chmod(0o755)
+    fake_sp = tmp_path / "scratchpad"
+    fake_sp.mkdir()
+    sentinel = tmp_path / "cct-invoked"
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+
+    def write_cct(body):
+        cct = stub_bin / "cc-transcript"
+        cct.write_text(body)
+        cct.chmod(0o755)
+
+    def ask(session):
+        env = {**os.environ, "PATH": f"{stub_bin}:/usr/bin:/bin", "TMPDIR": str(tmpdir)}
+        if session is None:
+            env.pop("CLAUDE_CODE_SESSION_ID", None)
+        else:
+            env["CLAUDE_CODE_SESSION_ID"] = session
+        return subprocess.run([str(script), "ping"], cwd=cwd, env=env, text=True, capture_output=True, timeout=30)
+
+    def reply_of(run):
+        assert run.returncode == 0, run.stdout + run.stderr
+        return re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
+
+    # happy path: cc-transcript prints the existing scratchpad -> per-call subdir
+    write_cct(f'#!/bin/sh\ntouch "{sentinel}"\necho "{fake_sp}"\nexit 0\n')
+    reply = reply_of(ask("eac1daa0-dead-beef-0000-000000000000"))
+    assert reply.startswith(str(fake_sp) + os.sep), reply
+    assert os.path.dirname(os.path.dirname(reply)) == str(fake_sp), reply
+    assert sentinel.exists()
+
+    # cc-transcript exits nonzero -> mktemp fallback under TMPDIR
+    write_cct("#!/bin/sh\nexit 1\n")
+    assert reply_of(ask("sid-nonzero")).startswith(str(tmpdir) + os.sep)
+
+    # cc-transcript prints nothing -> fallback
+    write_cct("#!/bin/sh\nexit 0\n")
+    assert reply_of(ask("sid-empty")).startswith(str(tmpdir) + os.sep)
+
+    # cc-transcript prints a non-existent path -> fallback
+    write_cct(f'#!/bin/sh\necho "{tmp_path}/nope"\nexit 0\n')
+    assert reply_of(ask("sid-missing")).startswith(str(tmpdir) + os.sep)
+
+    # no session id -> the probe never runs (cc-transcript is never invoked)
+    sentinel.unlink()
+    write_cct(f'#!/bin/sh\ntouch "{sentinel}"\necho "{fake_sp}"\nexit 0\n')
+    assert reply_of(ask(None)).startswith(str(tmpdir) + os.sep)
+    assert not sentinel.exists()
+
+
+def test_codex_ask_prints_headers_before_codex_produces_output(templates_dir, tmp_path):
+    # Print-first is real: the stub blocks on a release file, so the 3 headers
+    # must arrive (via a plain buffered reader) while codex has written nothing.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    release = tmp_path / "release"
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        f'while [ ! -f "{release}" ]; do sleep 0.05; done\n'
+        '[ -n "$out" ] && printf "RELEASED REPLY\\n" > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+
+    proc = subprocess.Popen(
+        [str(script), "ping"], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    try:
+        header = _read_lines_buffered(proc, 3, 5)
+        assert sum(l.startswith(("REPLY_FILE:", "LOG_FILE:", "AWAIT:")) for l in header) == 3, header
+        reply = next(l.split(": ", 1)[1] for l in header if l.startswith("REPLY_FILE:"))
+        # codex is provably still blocked: nothing released, reply file still empty
+        assert not release.exists()
+        assert Path(reply).read_text() == "", "codex produced output before the headers were read"
+        release.write_text("go")
+        assert proc.wait(timeout=15) == 0
+        assert Path(reply).read_text().strip() == "RELEASED REPLY"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_path):
+    # Concurrent -s reuse is last-writer-wins, but a waiter whose status file is
+    # rm'd mid-poll must fail cleanly, never `[: : integer expected`.
+    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        '[ -n "$out" ] && echo ok > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+
+    # (1) deterministic: an empty status file + a dead pid must clean-error (exit
+    # 1), never crash the integer test in report_status.
+    sdir = tmp_path / "empty-status"
+    sdir.mkdir()
+    (sdir / "meta").write_text(f"{sdir / 'r'}\n{sdir / 'l'}\n")
+    (sdir / "l").write_text("log tail\n")
+    (sdir / "pid").write_text("2147483646\n")  # a surely-dead pid
+    (sdir / "status").write_text("")  # empty (mid-rewrite race)
+    det = subprocess.run(
+        [str(script), "--await", str(sdir)], cwd=cwd, env=env, text=True, capture_output=True, timeout=15
+    )
+    assert det.returncode == 1, det.stdout + det.stderr
+    assert "integer expected" not in (det.stdout + det.stderr)
+
+    # (2) racy smoke: complete a run, then race an --await against a second run
+    # reusing the same -s dir (whose pre-launch rm can delete the status).
+    shared = tmp_path / "shared"
+    first = subprocess.run(
+        [str(script), "-s", str(shared), "ping"], cwd=cwd, env=env, text=True, capture_output=True, timeout=30
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    for _ in range(6):
+        waiter = subprocess.Popen(
+            [str(script), "--await", str(shared)], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        subprocess.run([str(script), "-s", str(shared), "ping"], cwd=cwd, env=env, capture_output=True, timeout=30)
+        try:
+            _, werr = waiter.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            waiter.kill()
+            _, werr = waiter.communicate()
+        assert "integer expected" not in werr, werr
+        assert waiter.returncode in (0, 1), (waiter.returncode, werr)
 
 
 # --- release: pypi caller -> shared reusable workflow ---

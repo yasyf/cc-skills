@@ -122,37 +122,49 @@ The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps
 still takes only Claude models, so a workflow stage that should BE a codex
 call spawns agent type `codex:codex-wrapper` (the `subagent_type` of an
 `Agent`/`Task` call, or `agentType` on a workflow `agent()` step) with the
-full self-contained question — or pointers to gather plus the questions to
-answer — as the prompt. The wrapper is also the lane for keeping a big
-context gather (a large diff, many files) out of your own window: it reads,
-composes, runs the same pinned `codex exec`, and returns Codex's answer
-verbatim.
+full self-contained question — or file/diff pointers plus the questions to
+answer — as the prompt. The wrapper is also the lane for keeping big
+context (a large diff, many files) out of your own window: it forwards the
+pointers, Codex pulls the material itself inside the repo, and the wrapper
+returns Codex's answer verbatim — the material never transits either
+Claude context.
 
 ## Workflow
 
-### Step 1: Gather Context
+### Step 1: Compose the Context
 
-Before invoking Codex, collect all relevant context using Read, Grep, and Glob.
-Build a comprehensive question with:
+Codex answers only as well as the question scopes it, and it pulls its own
+context inside the repo (shell access plus token-bounded `ccx` tooling) — so
+precision beats volume. Every question carries:
 
-- Clear problem statement with the specific error or symptom
-- Complete functions (never truncated snippets)
+- A clear problem statement with the specific error or symptom
+- **Precise pointers**: exact file paths with line ranges (or `path:line#hash`
+  cites) and the diff ref under review — `ccx vcs diff` output, or the
+  instruction to run it. Once the material is more than a screenful, pointers
+  beat pasted walls of text; small context still inlines complete functions
+  (never truncated snippets).
+- **The narrowest test command** that answers the question, scoped to the
+  affected packages — name the full suite only when the suite itself is the
+  question. An unscoped "run the tests" invites a ten-minute re-run of work
+  that is already done.
 - What has already been tried and why it failed
-- Specific questions to answer
+- The specific questions to answer, and the expected answer shape
+  ("reply with ONLY the edited function", "a finding list with file:line")
 
 ### Step 2: Ask via codex-ask
 
 Pipe the question through `codex-ask`. The script handles the mechanics
-that used to be recipe steps: it mktemps the question/reply/log files in a
-fresh `mktemp -d` directory, runs the pinned exec, redirects the JSONL
-event stream (banner, echoed prompt, progress trace) into the log, and
-prints the `REPLY_FILE:`/`LOG_FILE:` lines — plus a log tail on failure —
-so only those reach the conversation. To group the files in your session
-scratchpad instead, pass `-s <dir>` with its absolute path; the script
-rejects a relative path or one inside the repository, because a scratch dir
-in the working tree gets committed by auto-snapshot. Give the Bash call a 10-minute
-timeout: xhigh on the fast tier typically returns in ~2 minutes but can run
-longer.
+that used to be recipe steps: it resolves an absolute scratch directory
+outside the repo (adopting the harness-provided one when the session has it,
+a fresh `mktemp -d` otherwise), prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:`
+lines up front, runs the pinned exec detached from the calling shell,
+redirects the JSONL event stream (banner, echoed prompt, progress trace)
+into the log, and blocks until the reply is complete — plus a log tail on
+failure. Because the paths print first and the run survives its caller's
+death, a killed or timed-out Bash call loses nothing: the `AWAIT:` line
+names the exact command that resumes waiting (see Common Issues). Give the
+Bash call a 10-minute timeout: xhigh on the fast tier typically returns in
+~2 minutes but can run longer.
 
 ```bash
 codex-ask - <<'QUESTION'
@@ -297,6 +309,14 @@ Model limits to design around:
 **No output**: read the tail of the `LOG_FILE:` JSONL — the failing event is
 in the last lines
 
+**Call killed or timed out mid-run**: the run is still alive — codex-ask
+detaches it from the calling shell and printed an `AWAIT:` line before
+starting. Run that command (`codex-ask --await <scratch-dir>`) in a fresh
+foreground Bash call with the same 10-minute timeout; it blocks until the
+run completes, then prints the same `REPLY_FILE:`/`LOG_FILE:` report.
+Repeat if it times out again. The first run finishes on its own — asking
+the question again pays for the same work twice.
+
 **Result is a bare "Skill execution completed"**: you are running a stale cached
 version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
 subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
@@ -313,6 +333,15 @@ the script.
 **Codex launched Chrome / browser windows appeared**: a hand-rolled `codex exec` bypassed `codex-ask`, dropping the `-c developer_instructions` feed that carries the browser rules (agent-browser only, `codex` namespace). Route the call through `codex-ask`, which feeds it on every call.
 
 **"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass codex-ask's `--skip-git-repo-check` flag (it goes before the question argument).
+
+**Turn fails with "flagged for possible cybersecurity risk"**: OpenAI's content
+filter killed the run, not codex-ask. It keys on offensive-security phrasing, so
+a security review or adversarial-verification prompt written as an attack —
+"reproduce the exploit", "the kill sequence", stubs that trap signals — can trip
+it even when the intent is defensive. Reframe clinically ("verify the process
+survives the harness's standard timeout-termination") and split a broad sweep
+into per-topic calls so one hit loses less. Offensive-framed reviews belong on
+the Claude lane, which has no such filter.
 
 **IMAGE_GEN_UNAVAILABLE**: codex is signed in with an API key (`codex login status`), not a ChatGPT plan — the hosted tool never mounts. Use the fallback CLI from Generating Images instead.
 
