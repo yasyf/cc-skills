@@ -8,13 +8,6 @@ import pytest
 
 from gd_build import cli
 
-LOADER_HTML = (
-    "<html><head>"
-    "<script>(function(){var s=document.createElement('script');"
-    "s.src='../../color-swatch.js';document.head.appendChild(s);})()</script>"
-    "</head></html>"
-)
-
 
 def packaged_titles() -> str:
     return importlib.resources.files("gd_build").joinpath("titles.py").read_text()
@@ -76,7 +69,6 @@ def test_build_materializes_titles(
     install_great_docs_cli(lambda: None)
     monkeypatch.setenv("GD_BUILD_PATCHES", "none")
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "great-docs/_site").mkdir(parents=True)
     monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -92,7 +84,6 @@ def test_build_overwrites_stale_titles(
     install_great_docs_cli(lambda: None)
     monkeypatch.setenv("GD_BUILD_PATCHES", "none")
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "great-docs/_site").mkdir(parents=True)
     dest = tmp_path / "docs/scripts/.gd-build/native_reference_titles.py"
     dest.parent.mkdir(parents=True)
     dest.write_text("# stale content from a previous run\n")
@@ -113,7 +104,6 @@ def test_build_delegates_argv(
     install_great_docs_cli(fake_main)
     monkeypatch.setenv("GD_BUILD_PATCHES", "none")
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "great-docs/_site").mkdir(parents=True)
     monkeypatch.setattr(sys, "argv", ["gd-build", "build", "--to", "gh-pages"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -121,24 +111,7 @@ def test_build_delegates_argv(
     assert recorded["argv"] == ["great-docs", "build", "--to", "gh-pages"]
 
 
-def test_build_success_fixes_swatch(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
-) -> None:
-    install_great_docs_cli(lambda: None)
-    monkeypatch.setenv("GD_BUILD_PATCHES", "none")
-    monkeypatch.chdir(tmp_path)
-    site = tmp_path / "great-docs/_site"
-    site.mkdir(parents=True)
-    (site / "index.html").write_text(LOADER_HTML)
-    monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    assert exc.value.code == 0
-    rendered = (site / "index.html").read_text()
-    assert rendered == '<html><head><script src="color-swatch.js"></script></head></html>'
-
-
-def test_build_failure_skips_swatch_and_propagates(
+def test_build_failure_propagates(
     tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
 ) -> None:
     def fake_main() -> None:
@@ -147,14 +120,10 @@ def test_build_failure_skips_swatch_and_propagates(
     install_great_docs_cli(fake_main)
     monkeypatch.setenv("GD_BUILD_PATCHES", "none")
     monkeypatch.chdir(tmp_path)
-    site = tmp_path / "great-docs/_site"
-    site.mkdir(parents=True)
-    (site / "index.html").write_text(LOADER_HTML)
     monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 1
-    assert (site / "index.html").read_text() == LOADER_HTML
     assert (tmp_path / "docs/scripts/.gd-build/native_reference_titles.py").is_file()
 
 

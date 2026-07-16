@@ -1,9 +1,8 @@
-"""The gd-build CLI: apply the patches, delegate to great-docs, fix the swatches.
+"""The gd-build CLI: apply the patches, then delegate to great-docs.
 
 `gd-build build` materializes the pre_render titles script, applies the
-performance patches, delegates to `great-docs build`, then — on success only —
-rewrites the color-swatch loaders in the built site. `gd-build selftest` reports
-whether every selected patch applies, exiting 3 if any was skipped.
+performance patches, and delegates to `great-docs build`. `gd-build selftest`
+reports whether every selected patch applies, exiting 3 if any was skipped.
 
 Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
 
@@ -16,8 +15,8 @@ Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
   per-run kill-switch. Measured: API discovery 331.75s -> 2.32s quiet.
 - Titles materialize into the gitignored `docs/scripts/.gd-build/` because great-docs
   `pre_render` accepts file paths only (they are copied into the Quarto staging dir).
-- The swatch pass no-ops on great-docs >=0.15 (upstream's quarto:offset loader is
-  depth-correct); it exists for 0.14.x repos and retires with them.
+- The color-swatch fixup pass retired 2026-07-17: great-docs >=0.15 ships its own
+  depth-correct `quarto:offset` loader, and no fleet repo pins <0.15 any more.
 - The whole tool self-retires: when upstream ships the shared-loader fix, the gates
   report UNPATCHED and every build runs stock — loudly, never brokenly.
 """
@@ -28,7 +27,6 @@ import importlib.resources
 import sys
 from pathlib import Path
 
-from gd_build import swatch
 from gd_build.patches import apply_patches
 
 TITLES_DEST = Path("docs/scripts/.gd-build/native_reference_titles.py")
@@ -64,10 +62,7 @@ def delegate(rest: list[str]) -> int:
 def build(rest: list[str]) -> int:
     materialize_titles()
     apply_patches()
-    if (code := delegate(rest)) != 0:
-        return code
-    swatch.fix_swatches(swatch.SITE_DIR)
-    return 0
+    return delegate(rest)
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 [project]
 name = "gd-build"
 version = "0.1.0"
-description = "The fleet's centralized great-docs docs-build wrapper (patches, pre_render titles, swatch fix)"
+description = "The fleet's centralized great-docs docs-build wrapper (patches, pre_render titles)"
 requires-python = ">=3.12"
 dependencies = []
 

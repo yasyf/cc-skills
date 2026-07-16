@@ -69,9 +69,9 @@ is a cc-guides rendered artifact: a repo-local preamble piece plus the shared
    widget's star/fork counts at build time, so visitors' browsers never hit (and 403 on) the
    GitHub API. gd-build materializes `docs/scripts/.gd-build/native_reference_titles.py` (the
    `pre_render` entry that keeps a large API reference's build linear), applies version-gated
-   great-docs perf patches (each degrades to a stock build, never a failure), delegates to
-   `great-docs build`, then fixes the color-swatch loader in-process (see
-   `reference/docs-site.md`). The job carries `timeout-minutes: 45` as a regression guard
+   great-docs perf patches (each degrades to a stock build, never a failure), and delegates
+   to `great-docs build` (see `reference/docs-site.md`). The job carries
+   `timeout-minutes: 45` as a regression guard
 6. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and
    `include-hidden-files: true` (the site contains dotfiles that Pages needs)
 

@@ -76,12 +76,11 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
   pins its version and supplies it at run time — run it ad hoc with
   `uvx prek run ty --all-files`. pyright is config-only (run on demand via `uvx pyright`
   or an editor extension).
-- `docs = ["griffelib>=2.0", "great-docs @ git+...@main"]` is a PEP 735 *dependency group*:
+- `docs = ["griffelib>=2.0", "great-docs>=0.15,<0.16"]` is a PEP 735 *dependency group*:
   uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with
-  `uv run great-docs build`, preview with `uv run great-docs preview`. great-docs is pinned to
-  git `main` (build-time GitHub widget stats; avoids the live-site 403s) with `griffelib>=2.0`
-  forcing griffe 2.x — see `reference/docs-site.md`. A `TODO(bootstrap)` marks the revert to a
-  PyPI pin once a release newer than 0.13.0 ships.
+  `uv run great-docs build`, preview with `uv run great-docs preview`. The `<0.16` cap keeps
+  new repos inside gd-build's patch-gate window (the deliberate exception to the floor-only
+  rule above), and `griffelib>=2.0` forces griffe 2.x — see `reference/docs-site.md`.
 Tooling that consumers might want goes in the extra; pure repo plumbing goes in a group.
 
 **`[project.scripts]`** — `capt-hook = "captain_hook.cli:main"`: dist name on the left,

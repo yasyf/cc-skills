@@ -11,13 +11,12 @@ installed via the `[dependency-groups].docs` group in `pyproject.toml`. It was c
 mkdocs/Read the Docs because it generates the API reference dynamically from docstrings with
 zero nav maintenance, takes a single YAML config, and deploys to GitHub Pages.
 
-The docs group pins **great-docs to git `main`**, not the PyPI release, plus `griffelib>=2.0`.
-Two reasons: `main` carries build-time GitHub widget stats (embedded at build time via the CI
-`GITHUB_TOKEN`, so the navbar widget makes no client-side API calls — the latest PyPI release,
-0.13.0, instead fires unauthenticated `api.github.com` calls that 403 on the live site); and
-`griffelib` is the modern griffe 2.x distribution that great-docs' module layout needs,
-overriding the stale `griffe<2` pin great-docs still declares. A `TODO(bootstrap)` marks the
-revert to a PyPI pin once a release newer than 0.13.0 ships.
+The docs group pins **`great-docs>=0.15,<0.16`** plus `griffelib>=2.0`. The `<0.16` cap keeps
+new repos inside gd-build's patch-gate window (the fleet's build wrapper gates its perf patches
+on 0.15.x); 0.15 carries the build-time GitHub widget stats (embedded at build time via the CI
+`GITHUB_TOKEN`, so the navbar widget makes no client-side API calls that would 403 on the live
+site); and `griffelib` is the modern griffe 2.x distribution that great-docs' module layout
+needs, overriding the stale `griffe<2` pin great-docs still declares.
 
 Commands (Quarto CLI must be on PATH; CI installs it via `quarto-dev/quarto-actions/setup@v2`):
 
@@ -42,7 +41,7 @@ at scaffold time (worked example: project `captain-hook`, package `captain_hook`
 | `dynamic` | `true` | Auto-generate the API reference from the module's docstrings |
 | `repo` / `site_url` | the repo URL / docs URL | Source links and canonical URL |
 | `pypi` | follows feature `pypi` | Renders the install widget; `false` without a PyPI release |
-| `github_style` | `widget` | GitHub repo widget in the navbar (stars/forks; needs the git-`main` pin + CI `GITHUB_TOKEN` to avoid 403s) |
+| `github_style` | `widget` | GitHub repo widget in the navbar (stars/forks; the build-time stats need the CI `GITHUB_TOKEN` to avoid 403s) |
 | `jupyter` | `python3` | Kernel for executable code blocks |
 | `navbar_color` | `"#1e293b"` | Solid navbar color, marked `TODO(bootstrap)` — text contrast is auto-chosen |
 | `accent_color` | `"#3b82f6"` | Single accent (both modes), marked `TODO(bootstrap)` — replace with a brand color; the mascot's dominant color is a good source |
@@ -147,17 +146,11 @@ on `if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to t
 `github-pages` environment. Enable Pages with the Actions build first
 (`gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`) or the deploy job fails.
 
-Three non-obvious build details:
+Two non-obvious build details:
 
 - The build step sets `env: GITHUB_TOKEN: ${{ github.token }}` — great-docs embeds the navbar
   widget's star/fork counts at build time using it, so visitors' browsers never hit the
   GitHub API. Drop the token and the widget falls back to client-side calls that 403.
-- gd-build fixes great-docs' runtime `color-swatch.js` loader in-process after the build. The
-  0.14.x loader resolves its own URL by stripping two path segments from the canonical URL,
-  which 404s on any page not exactly one directory deep (e.g. the homepage); the fix rewrites
-  it to a depth-correct static `<script src>` on every built page. great-docs ≥0.15 ships a
-  depth-correct `quarto:offset` loader, so on those versions the pass matches nothing and
-  no-ops — it exists for repos still on 0.14.x and retires with them.
 - `docs/scripts/.gd-build/native_reference_titles.py` runs *before* the render (a `pre_render:`
   entry in `great-docs.yml`, supplied by the `cc-skills:great-docs-prerender` fragment). gd-build
   materializes the script into that gitignored directory on every build — it is not committed.
