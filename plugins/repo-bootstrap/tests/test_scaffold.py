@@ -313,7 +313,7 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         "-c service_tier=fast",
         "developer_instructions=",
         "--sandbox danger-full-access",
-        '-o "$R"',
+        '-o "$R.tmp"',
         "--json",
         "--color never",
         "2>&1",
@@ -333,6 +333,16 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         '"$S/pid"',
         # v2: exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
+        # v3 disk-truth: staged reply, meta wipe, collect, completion marker
+        'mv -f "$R.tmp" "$R"',
+        'rm -f "$S/status" "$S/pid" "$S/meta"',
+        "--collect",
+        '"type":"turn.started"',
+        '"type":"turn.completed"',
+        "died mid-turn",
+        # v3 opt-in schema passthrough (verdict lanes only)
+        "--schema",
+        "--output-schema",
     ):
         assert needle in text, needle
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
@@ -825,6 +835,351 @@ def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_pat
             _, werr = waiter.communicate()
         assert "integer expected" not in werr, werr
         assert waiter.returncode in (0, 1), (waiter.returncode, werr)
+
+
+# --- codex-ask disk-truth protocol: --collect, staged reply, poll recovery ---
+
+DEAD_PID = "2147483646"  # far above macOS PID_MAX: never a live process
+STARTED = '{"type":"turn.started"}\n'
+COMPLETED = STARTED + '{"type":"turn.completed","usage":{}}\n'
+
+
+def _codex_ask(templates_dir):
+    return templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+
+
+def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask\n", meta=True):
+    # Hand-build one lane's on-disk state (meta/status/pid/reply/log), mirroring
+    # what a real codex-ask run leaves behind, so --collect can be tested offline.
+    d.mkdir(parents=True, exist_ok=True)
+    r, q, lg = d / "codex-r-x", d / "codex-q-x", d / "codex-q-x.log"
+    if meta:
+        (d / "meta").write_text(f"{r}\n{lg}\n")
+    q.write_text(question)
+    if reply is not None:
+        r.write_text(reply)
+    if log is not None:
+        lg.write_text(log)
+    if status is not None:
+        (d / "status").write_text(status)
+    if pid is not None:
+        (d / "pid").write_text(f"{pid}\n")
+    return d
+
+
+def _collect_lanes(script, target, *, timeout=30):
+    run = subprocess.run(
+        [str(script), "--collect", str(target)], text=True, capture_output=True, timeout=timeout
+    )
+    lanes = {}
+    for line in run.stdout.splitlines():
+        line = line.strip()
+        if line:
+            rec = json.loads(line)  # raises on invalid JSON -> a real escaper bug fails loudly
+            lanes[rec["lane"]] = rec
+    return run, lanes
+
+
+def test_codex_ask_collect_classifies_lane_states(templates_dir, tmp_path):
+    # One hand-crafted lane per reachable state; --collect classifies each from
+    # disk alone and emits exactly one JSONL record per lane.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "norun").mkdir()  # empty dir, no meta
+    d = root / "qronly"  # q/r files but no meta -> still no-run
+    d.mkdir()
+    (d / "codex-q-x").write_text("q\n")
+    (d / "codex-r-x").write_text("stale\n")
+    _craft_lane(root / "pending")  # meta, no pid, no status
+    _craft_lane(root / "died", reply="", pid=DEAD_PID)  # dead pid + empty reply
+    _craft_lane(root / "completed", reply="the answer\n", status="0", question="What is 2+2?\n")
+    _craft_lane(root / "failed", status="7")  # non-zero exit
+    _craft_lane(root / "emptyreply", reply="", status="0")  # status 0 + empty reply -> silent death
+    _craft_lane(root / "diedmarker", reply="partial\n", status="0", log=STARTED)  # turn began, never completed
+    _craft_lane(root / "completedmarker", reply="done\n", status="0", log=COMPLETED)
+
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(root / "running", pid=sleeper.pid)  # meta + live pid + no status
+        run, lanes = _collect_lanes(script, root)
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+
+    assert run.returncode == 0, run.stderr
+    expected = {
+        "norun": "no-run", "qronly": "no-run", "pending": "pending", "running": "running",
+        "died": "died", "completed": "completed", "failed": "failed", "emptyreply": "failed",
+        "diedmarker": "died", "completedmarker": "completed",
+    }
+    assert {k: lanes[k]["state"] for k in expected} == expected
+    assert lanes["completed"]["reply_size"] == len("the answer\n")
+    assert lanes["completed"]["reply_file"].endswith("codex-r-x")
+    assert lanes["completed"]["question"] == "What is 2+2?"
+    for name in ("pending", "running", "died"):
+        assert "--await" in lanes[name].get("await", ""), name
+    for name in ("completed", "failed", "norun"):
+        assert "await" not in lanes[name], name  # nothing to await for a lane that never ran
+
+
+def test_codex_ask_poll_recovery_synthesizes_status(templates_dir, tmp_path):
+    # A run killed after staging its reply but before the status write: --await
+    # reads the staged (complete) reply, synthesizes a durable status=0, recovers.
+    script = _codex_ask(templates_dir)
+    d = tmp_path / "lane"
+    _craft_lane(d, reply="RECOVERED ANSWER\n", pid=DEAD_PID, log="tail\n")
+    run = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=30)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert (d / "status").read_text().strip() == "0"
+    r = re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
+    assert Path(r).read_text().strip() == "RECOVERED ANSWER"
+    again = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=30)
+    assert again.returncode == 0, again.stdout + again.stderr  # idempotent
+
+
+def test_codex_ask_poll_recovery_inverse(templates_dir, tmp_path):
+    # Same shape, EMPTY staged reply -> a genuine death: rc 1, no durable status.
+    script = _codex_ask(templates_dir)
+    d = tmp_path / "lane"
+    _craft_lane(d, reply="", pid=DEAD_PID, log="tail\n")
+    run = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=30)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert not (d / "status").exists()
+
+
+def test_codex_ask_reply_published_only_on_zero_exit(templates_dir, tmp_path):
+    # rc gate on the reply mv: a nonzero-exit codex that still wrote its -o file
+    # must not publish that reply, so a failed run is never mistaken for complete.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        'echo "boom tail"\n'
+        '[ -n "$out" ] && printf "PARTIAL AND FAILED\\n" > "$out"\n'
+        "exit 5\n"
+    )
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    lane = tmp_path / "lane"
+    run = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert run.returncode == 5, run.stdout + run.stderr
+    reply = re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
+    assert Path(reply).read_text() == ""  # partial output not published on nonzero exit
+    _, lanes = _collect_lanes(script, lane)
+    assert lanes["."]["state"] == "failed"
+
+
+def test_codex_ask_reuse_wipes_meta(templates_dir, tmp_path):
+    # Wiping meta on reuse closes the wrong-attribution state: a stale reply with
+    # no meta is never 'completed' — it reads no-run, and --await refuses.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    d = root / "stale"
+    d.mkdir(parents=True)
+    (d / "codex-r-old").write_text("STALE PREVIOUS ANSWER\n")  # reply, but no meta
+    run, lanes = _collect_lanes(script, root)
+    assert lanes["stale"]["state"] == "no-run"
+    assert "STALE PREVIOUS ANSWER" not in run.stdout
+    aw = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=15)
+    assert aw.returncode == 2
+    assert "no recorded" in aw.stderr.lower()
+    assert 'rm -f "$S/status" "$S/pid" "$S/meta"' in script.read_text()
+
+
+def test_codex_ask_reply_staging_is_atomic(templates_dir, tmp_path):
+    # A blocked run reads 'running' with an empty reply (staged write not yet
+    # moved); --collect never blocks on it; release -> 'completed', reply present.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    release = tmp_path / "release"
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        f'while [ ! -f "{release}" ]; do sleep 0.05; done\n'
+        '[ -n "$out" ] && printf "STAGED REPLY\\n" > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    root = tmp_path / "root"
+    root.mkdir()
+    lane = root / "a"
+
+    proc = subprocess.Popen(
+        [str(script), "-s", str(lane), "ping"], cwd=cwd, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        pid_file = lane / "pid"
+        end = time.monotonic() + 5
+        while not pid_file.exists() and time.monotonic() < end:
+            time.sleep(0.02)
+        assert pid_file.exists(), "run never registered a pid"
+        t0 = time.monotonic()
+        run, lanes = _collect_lanes(script, root)
+        assert time.monotonic() - t0 < 5, "collect blocked on a running lane"
+        assert lanes["a"]["state"] == "running", lanes["a"]
+        assert lanes["a"]["reply_size"] == 0
+        rf = lanes["a"]["reply_file"]
+        assert Path(rf).read_text() == "", "final reply populated before completion"
+        assert not release.exists()
+        release.write_text("go")
+        assert proc.wait(timeout=15) == 0
+        _, lanes2 = _collect_lanes(script, root)
+        assert lanes2["a"]["state"] == "completed"
+        assert Path(rf).read_text().strip() == "STAGED REPLY"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_codex_ask_collect_mixed_root_snapshot(templates_dir, tmp_path):
+    # A snapshot over a mixed root returns promptly and never blocks, even with a
+    # live (running) lane present alongside terminal ones.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    _craft_lane(root / "done", reply="x\n", status="0", log=COMPLETED)
+    _craft_lane(root / "gone", reply="", pid=DEAD_PID)
+    _craft_lane(root / "waiting")
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(root / "live", pid=sleeper.pid)
+        t0 = time.monotonic()
+        run, lanes = _collect_lanes(script, root, timeout=10)
+        dt = time.monotonic() - t0
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert run.returncode == 0
+    assert dt < 5, dt
+    assert lanes["done"]["state"] == "completed"
+    assert lanes["gone"]["state"] == "died"
+    assert lanes["waiting"]["state"] == "pending"
+    assert lanes["live"]["state"] == "running"
+
+
+def test_codex_ask_collect_never_inlines_reply_and_escapes(templates_dir, tmp_path):
+    # Large replies contribute size, never content; a hostile question first line
+    # (quotes, backslashes, tab, control chars, trailing lines) yields valid JSONL.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    sentinel = "REPLY_BODY_SENTINEL_" + "z" * 4000
+    _craft_lane(root / "big", reply=sentinel + "\n", status="0", log=COMPLETED)
+    hostile_q = 'say "hi" a\\b\tc\x01\x02 end\nSECOND LINE MUST BE IGNORED\n'
+    _craft_lane(root / "hostile", reply="ok\n", status="0", log=COMPLETED, question=hostile_q)
+    # a lane dir whose name carries a newline must still emit one valid JSONL line
+    _craft_lane(root / "lane\nbreak", reply="ok\n", status="0", log=COMPLETED)
+    run, lanes = _collect_lanes(script, root)  # json.loads inside proves validity
+    assert sentinel not in run.stdout  # reply body never inlined
+    assert lanes["big"]["reply_size"] == len(sentinel) + 1
+    q = lanes["hostile"]["question"]
+    assert "SECOND LINE" not in q  # only the first line survives
+    assert q.startswith('say "hi" a\\b')  # quotes/backslash round-trip through JSON
+    assert "\x01" not in q and "\x02" not in q  # C0 controls stripped
+    assert "lane\nbreak" in lanes  # newline in the lane name survives escaping
+    assert len(run.stdout.strip().splitlines()) == len(lanes)  # no record split across lines
+
+
+def test_codex_ask_collect_single_lane_dir(templates_dir, tmp_path):
+    # Pointed straight at a lane dir (meta present), --collect emits one '.' record.
+    script = _codex_ask(templates_dir)
+    d = tmp_path / "lane"
+    _craft_lane(d, reply="one answer\n", status="0", log=COMPLETED, question="the q\n")
+    run, lanes = _collect_lanes(script, d)
+    assert run.returncode == 0
+    assert list(lanes) == ["."]
+    assert lanes["."]["state"] == "completed"
+    assert lanes["."]["question"] == "the q"
+
+
+def test_codex_ask_collect_is_readonly(templates_dir, tmp_path):
+    # --collect never writes: the lane tree is byte-identical before and after.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    _craft_lane(root / "a", reply="x\n", status="0", log=COMPLETED)
+    _craft_lane(root / "b", reply="", pid=DEAD_PID)
+
+    def snap():
+        return {
+            str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
+            for p in sorted(root.rglob("*")) if p.is_file()
+        }
+
+    before = snap()
+    run, _ = _collect_lanes(script, root)
+    assert run.returncode == 0
+    assert snap() == before
+
+
+def test_codex_ask_schema_passthrough(templates_dir, tmp_path):
+    # --schema FILE -> codex --output-schema (opt-in, verdict lanes); an
+    # unreadable schema fails cleanly before codex is ever launched.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        'echo "STUB_ARGS: $*"\n'
+        '[ -n "$out" ] && echo done > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    schema = tmp_path / "schema.json"
+    schema.write_text('{"type":"object"}\n')
+
+    ok = subprocess.run(
+        [str(script), "-s", str(tmp_path / "s1"), "--schema", str(schema), "ping"],
+        env=env, text=True, capture_output=True, timeout=30,
+    )
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    log = Path(re.search(r"^LOG_FILE: (.+)$", ok.stdout, re.M).group(1)).read_text()
+    assert f"--output-schema {schema}" in log
+
+    bad = subprocess.run(
+        [str(script), "-s", str(tmp_path / "s2"), "--schema", str(tmp_path / "nope.json"), "ping"],
+        env=env, text=True, capture_output=True, timeout=30,
+    )
+    assert bad.returncode == 2
+    assert "readable json schema" in bad.stderr.lower()
+
+
+def test_claude_md_disk_truth_fragment(templates_dir):
+    # The fleet fragment carries the disk-truth doctrine + the collect/schema
+    # surface; base-conventions carries the delegated-results verify clause.
+    claude = (templates_dir.parents[4] / "plugin" / "guides" / "md" / "claude-rules.md").read_text()
+    assert "the disk is the record" in claude
+    assert "codex-ask --collect" in claude
+    assert "codex-ask --schema" in claude
+    conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
+    assert "codex-ask --collect" in conventions
 
 
 # --- release: pypi caller -> shared reusable workflow ---

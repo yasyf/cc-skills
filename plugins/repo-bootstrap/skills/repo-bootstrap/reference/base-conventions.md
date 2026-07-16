@@ -137,7 +137,9 @@ shared AGENTS.md:
   (scope change, invalidated assumption, task not as described) stops and
   returns findings plus 2-4 options for the fable orchestrator to pick, never
   improvising a detour or punting the decision to a cheaper model (transient
-  failures stay autonomous); effort `xhigh` by default (fable implementation may
+  failures stay autonomous); delegated results verify against the disk record
+  and the lane-scoped tree diff, never the agent's narration — a failed codex
+  lane gets a `codex-ask --collect` check before any redo; effort `xhigh` by default (fable implementation may
   run `high`), `max` only after xhigh falls short, verification at same-or-higher
   tier with table-routed gpt-5.6-sol lanes counting as same-tier; every plan's
   `## Workflow Plan` table names each phase's model and effort (AGENTS.md

@@ -129,6 +129,42 @@ pointers, Codex pulls the material itself inside the repo, and the wrapper
 returns Codex's answer verbatim — the material never transits either
 Claude context.
 
+### The fan-out shape: disk is the record
+
+A delegated agent's final message is a lossy channel; the deliverable lives on
+disk. `codex-ask` already persists every run's `meta` (reply/log paths),
+`status`, question, reply, and log per scratch dir — mv-atomic, written before
+any narration exists. Drive a codex fan-out off that record, not off what the
+agents say:
+
+1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
+   `ROOT=$(mktemp -d "$TMPDIR/wf-XXXXXX")` and `mkdir -p`s one lane dir per
+   agent (a lane that never runs must be a *visible* `no-run`, not absent).
+   Pass the lane dirs through the workflow `args`.
+2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
+   `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir.
+3. **End with a collect stage.** The last deterministic step runs
+   `codex-ask --collect "$ROOT"` (a cheap run-this-exact-command agent that
+   returns stdout verbatim). It walks the roster and classifies each lane from
+   disk alone — `no-run` / `pending` / `running` / `died` / `completed` /
+   `failed` — as one JSONL record per lane, never inlining reply contents. The
+   gate consumes that JSONL against the roster; skipping collect starves the
+   gate rather than passing it.
+4. **Reconcile, then redo only what truly failed.** A lane reported "failed"
+   whose record is `completed` is a paperwork failure — recover its
+   `reply_file` (or the run's `journal.jsonl`), never re-dispatch. A lane
+   reported "succeeded" that reads `no-run` never ran. Implementation lanes
+   also diff the tree, scoped to the lane's expected fileset — a shared working
+   copy (cc-pool) makes the tree truth about the world, not attribution. Redo
+   only `no-run`, `died`, and genuinely-failed lanes.
+
+**Returns by lane kind.** Short verdict lanes carry a `{status, summary}`
+micro-schema — enforce it natively with `codex-ask --schema <file>` (→ codex
+`--output-schema`), where structure is the answer and the session is too short
+to risk the retry cap. Implementation lanes return schema-free prose led by
+their `REPLY_FILE:` pointer line; a schema after a long session is how the
+StructuredOutput retry cap nulls finished work the disk already holds.
+
 ## Workflow
 
 ### Step 1: Compose the Context
@@ -316,6 +352,14 @@ foreground Bash call with the same 10-minute timeout; it blocks until the
 run completes, then prints the same `REPLY_FILE:`/`LOG_FILE:` report.
 Repeat if it times out again. The first run finishes on its own — asking
 the question again pays for the same work twice.
+
+**Reported result doesn't match the tree**: trust the disk, not the narration.
+Run `codex-ask --collect` over the lane root (or a single lane dir, which emits
+one `.` record). A lane reported failed whose record says `completed` is a
+paperwork failure — recover the answer from its `reply_file` or the run's
+`journal.jsonl`, don't re-dispatch. A lane reported successful over an
+untouched, scoped tree diff never actually ran. For ad-hoc single calls with no
+downstream collector, `codex-ask --await <scratch-dir>` is the recovery path.
 
 **Result is a bare "Skill execution completed"**: you are running a stale cached
 version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound

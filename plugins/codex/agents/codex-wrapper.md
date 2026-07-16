@@ -37,6 +37,11 @@ codex-ask - <<'QUESTION'
 QUESTION
 ```
 
+When the caller's prompt hands you a lane or scratch dir, pass it verbatim as
+`-s "$LANE_DIR"` (`codex-ask -s "$LANE_DIR" - <<'QUESTION'`) so this run's
+on-disk state lands where a downstream `codex-ask --collect` stage will find
+it. Without one, `codex-ask` picks its own absolute scratch path.
+
 The script prints `REPLY_FILE:`, `LOG_FILE:`, and `AWAIT:` lines up front,
 then blocks in the foreground until Codex finishes. Keep it in the
 foreground: a backgrounded call (`run_in_background: true`) detaches you from
@@ -65,15 +70,31 @@ second question call would re-pay for work that is already finishing.
 
 ## Step 4: Return the reply
 
-Read the file on the `REPLY_FILE:` line and return its contents verbatim, in
-the exact shape the caller asked for (e.g. "reply with ONLY the edited
-function") — a bare artifact stays bare, not wrapped in analysis boilerplate.
-If the reply file is empty or missing, return the tail of the `LOG_FILE:`
-JSONL verbatim: the failing event is in the last lines.
+Lead your reply with the `REPLY_FILE:` pointer line (one line — it serves both
+ad-hoc callers and any downstream `--collect` reader), then the file's contents
+verbatim, in the exact shape the caller asked for (e.g. "reply with ONLY the
+edited function") — a bare artifact stays bare, not wrapped in analysis
+boilerplate.
+
+If the reply file is empty or missing after the run finished, do NOT re-run.
+Codex may have exited without recording a reply — `codex-ask` reports this as
+"exited 0 but wrote no reply" or "died mid-turn (no turn.completed)". Return the
+tail of the `LOG_FILE:` JSONL verbatim, and — because a mid-turn death may have
+written files before it stopped — flag that the working tree is unverified and
+hand the orchestrator 2-4 options. A blind re-run risks double-applying edits;
+the recover-or-redo decision is the orchestrator's.
 
 Your turn ends only when your final message carries the reply-file contents
 or that verbatim failure tail. "Codex is still running" is not a result —
 the `--await` loop above always produces one.
+
+## Schema-bound spawns
+
+When a workflow `schema` forces you to end on a `StructuredOutput` call (a short
+verdict lane), fill every field strictly from the reply file and emit it
+immediately — do not narrate a long analysis first. A long transcript before the
+structured call is what exhausts the retry cap and nulls finished work; the disk
+already holds the truth, and your structured output only points at it.
 
 Never absorb a surprise. If Codex's reply is unexpected — it contradicts the
 question's premise, says the task is different than described, or proposes

@@ -42,7 +42,7 @@ SELF="$PLUGIN_ROOT/bin/codex-ask"
 # pid: while pid is absent wait generously (~15s) for the launcher to register
 # it; only a recorded-then-dead pid with no status is a genuine mid-flight death.
 poll_status() {
-  local sdir=$1 wait_pid=0 grace=0 p
+  local sdir=$1 wait_pid=0 grace=0 p r
   while [ ! -s "$sdir/status" ]; do
     if [ ! -f "$sdir/pid" ]; then
       wait_pid=$((wait_pid + 1))
@@ -55,6 +55,14 @@ poll_status() {
     else
       grace=$((grace + 1))
       if [ "$grace" -ge 4 ]; then
+        # Dead pid + no status: killed after the staged-reply mv, before the
+        # status write. meta line 1 = reply path; non-empty ⇒ complete, so
+        # synthesize a durable status=0 (later --await replays it) and recover.
+        { IFS= read -r r; } < "$sdir/meta" 2>/dev/null || r=""
+        if [ -n "$r" ] && [ -s "$r" ]; then
+          echo 0 > "$sdir/status.tmp" && mv -f "$sdir/status.tmp" "$sdir/status"
+          continue
+        fi
         echo "codex-ask: run at $sdir exited without recording status" >&2
         exit 1
       fi
@@ -77,6 +85,19 @@ report_status() {
   esac
   if [ "$st" -eq 0 ] && [ ! -s "$rfile" ]; then
     echo "codex-ask: codex exited 0 but wrote no reply" >&2
+    tail -20 "$lfile"
+    exit 1
+  fi
+  # Belt over the exit code: codex's --json emits turn.completed iff the turn
+  # finished cleanly. A turn that started but lacks it died mid-turn; grep
+  # literals — the stream interleaves stray non-JSON tracing lines.
+  if [ "$st" -eq 0 ] && grep -q '"type":"turn.started"' "$lfile" 2>/dev/null \
+    && ! grep -q '"type":"turn.completed"' "$lfile" 2>/dev/null; then
+    if grep -q '"type":"turn.failed"' "$lfile" 2>/dev/null; then
+      echo "codex-ask: codex reported turn.failed (see log tail)" >&2
+    else
+      echo "codex-ask: codex died mid-turn (no turn.completed) — the working tree may hold partial, unverified edits; inspect with git/jj status before re-running" >&2
+    fi
     tail -20 "$lfile"
     exit 1
   fi
@@ -104,6 +125,109 @@ if [ "${1:-}" = "--await" ]; then
   echo "REPLY_FILE: $R"
   echo "LOG_FILE: $LOG"
   report_status "$(cat "$S/status")" "$R" "$LOG"
+fi
+
+# json_escape <s> — emit a JSON-safe string body (no surrounding quotes). A raw
+# quote, backslash, tab, CR, or control char corrupts the JSONL; first-line
+# input only, so an embedded newline never reaches here.
+json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/\\t}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\n'/\\n}
+  printf '%s' "$s" | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
+}
+
+# turn.completed / turn.started probes over a --json log (see report_status): a
+# turn that started but never completed died mid-turn.
+has_completed_marker() { [ -n "$1" ] && [ -f "$1" ] && grep -q '"type":"turn.completed"' "$1" 2>/dev/null; }
+turn_started() { [ -n "$1" ] && [ -f "$1" ] && grep -q '"type":"turn.started"' "$1" 2>/dev/null; }
+
+# collect_lane <dir> <lane> — classify one lane from disk and print one JSONL
+# record. Read-only: never writes, blocks, or inlines reply contents (path +
+# size only). States mirror poll_status/report_status.
+collect_lane() {
+  local dir=$1 lane=$2
+  local R="" LOG="" Q="" st="" p="" state reply_size=0 qcount=0 excerpt="" alive=0 qf await=""
+  for qf in "$dir"/codex-q-*; do
+    [ -e "$qf" ] || continue
+    case "$qf" in *.log) continue ;; esac
+    qcount=$((qcount + 1))
+  done
+  if [ -f "$dir/meta" ]; then
+    { IFS= read -r R; IFS= read -r LOG; } < "$dir/meta" 2>/dev/null || { R=""; LOG=""; }
+    Q=${LOG%.log}
+    if [ -n "$Q" ] && [ -f "$Q" ]; then IFS= read -r excerpt < "$Q" 2>/dev/null || :; fi
+  fi
+  if [ -n "$R" ] && [ -s "$R" ]; then
+    reply_size=$(wc -c < "$R" 2>/dev/null | tr -d ' ')
+    case "$reply_size" in '' | *[!0-9]*) reply_size=0 ;; esac
+  fi
+  if [ -f "$dir/pid" ]; then
+    p=$(cat "$dir/pid" 2>/dev/null)
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && alive=1
+  fi
+  [ -s "$dir/status" ] && st=$(cat "$dir/status" 2>/dev/null)
+
+  if [ ! -f "$dir/meta" ]; then
+    state=no-run
+  elif [ -n "$st" ]; then
+    case "$st" in
+      0)
+        if [ ! -s "$R" ]; then state=failed
+        elif turn_started "$LOG" && ! has_completed_marker "$LOG"; then state=died
+        else state=completed
+        fi
+        ;;
+      *) state=failed ;;
+    esac
+  elif [ ! -f "$dir/pid" ]; then
+    state=pending
+  elif [ "$alive" -eq 1 ]; then
+    state=running
+  elif [ -s "$R" ] && { ! turn_started "$LOG" || has_completed_marker "$LOG"; }; then
+    state=completed
+  else
+    state=died
+  fi
+
+  case "$state" in
+    completed | failed | no-run) ;;
+    *) await="$(printf '%q' "$SELF") --await $(printf '%q' "$dir")" ;;
+  esac
+  printf '{"lane":"%s","state":"%s","reply_file":"%s","reply_size":%s,"log_file":"%s","question":"%s","question_files":%s' \
+    "$(json_escape "$lane")" "$state" "$(json_escape "$R")" "$reply_size" "$(json_escape "$LOG")" "$(json_escape "$excerpt")" "$qcount"
+  [ -n "$await" ] && printf ',"await":"%s"' "$(json_escape "$await")"
+  printf '}\n'
+}
+
+# --collect <root|lane>: walk lane dirs, classify each from disk as JSONL.
+# Single-lane mode when the target itself holds a run (meta present).
+if [ "${1:-}" = "--collect" ]; then
+  root=${2:-}
+  case "$root" in
+    /*) ;;
+    *)
+      echo "codex-ask: --collect needs an absolute lane-root or lane dir" >&2
+      exit 2
+      ;;
+  esac
+  [ -d "$root" ] || {
+    echo "codex-ask: --collect: no such directory: $root" >&2
+    exit 2
+  }
+  shopt -s nullglob
+  if [ -f "$root/meta" ] || [ -f "$root/status" ] || [ -f "$root/pid" ]; then
+    collect_lane "$root" "."
+  else
+    for d in "$root"/*/; do
+      [ -d "$d" ] || continue
+      collect_lane "${d%/}" "$(basename "$d")"
+    done
+  fi
+  exit 0
 fi
 
 # resolve_scratchpad — echo the harness session scratchpad (absolute, existing)
@@ -155,7 +279,7 @@ MODEL=gpt-5.6-sol
 EFFORT=xhigh
 SCRATCH=""
 EXTRA_FLAGS=()
-USAGE="usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image] [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
+USAGE="usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image] [--schema FILE] [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 usage() {
   echo "$USAGE" >&2
@@ -191,6 +315,17 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --image) EXTRA_FLAGS+=(--disable shell_tool); shift ;;
+    # --schema FILE → codex --output-schema: constrain the final reply to a JSON
+    # Schema. Opt-in, for short verdict lanes only (a schema after a long impl
+    # session risks the StructuredOutput retry cap nulling finished work).
+    --schema)
+      [ -r "${2:-}" ] || {
+        echo "codex-ask: --schema needs a readable JSON Schema file" >&2
+        exit 2
+      }
+      EXTRA_FLAGS+=(--output-schema "$2")
+      shift 2
+      ;;
     --skip-git-repo-check) EXTRA_FLAGS+=(--skip-git-repo-check); shift ;;
     -h | --help)
       echo "$USAGE"
@@ -247,8 +382,10 @@ fi
 # it launches Chrome on the user's desktop.
 DEV=$(cat "$PLUGIN_ROOT/AGENTS.md") || exit 1
 
-# A reused -s dir must never serve a previous run's state.
-rm -f "$S/status" "$S/pid"
+# A reused -s dir must never serve a previous run's state. Wiping meta too
+# establishes "meta present ⇒ describes the latest launch attempt": no meta
+# means no codex ran this attempt, so a redo never double-pays.
+rm -f "$S/status" "$S/pid" "$S/meta"
 # meta.tmp has a fixed name, so two concurrent runs sharing an explicit -s dir
 # race here (a sanctioned last-writer-wins limitation). Brand the loser's abort
 # rather than leaking a raw `mv:` coreutils error.
@@ -275,8 +412,8 @@ echo "AWAIT: $(printf '%q' "$SELF") --await $(printf '%q' "$S")"
 # codex). Parent never waits — it polls the status file below.
 ( set -m; { codex exec -c model="$MODEL" -c model_reasoning_effort="$EFFORT" -c service_tier=fast \
     -c developer_instructions="$DEV" \
-    -o "$R" --json --color never --sandbox danger-full-access \
-    "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}" < "$Q" > "$LOG" 2>&1; rc=$?; echo "$rc" > "$S/status.tmp"; mv -f "$S/status.tmp" "$S/status"; } </dev/null >/dev/null 2>&1 & echo $! > "$S/pid.tmp"; mv -f "$S/pid.tmp" "$S/pid" )
+    -o "$R.tmp" --json --color never --sandbox danger-full-access \
+    "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}" < "$Q" > "$LOG" 2>&1; rc=$?; [ "$rc" -eq 0 ] && [ -s "$R.tmp" ] && mv -f "$R.tmp" "$R"; echo "$rc" > "$S/status.tmp" && mv -f "$S/status.tmp" "$S/status"; } </dev/null >/dev/null 2>&1 & echo $! > "$S/pid.tmp" && mv -f "$S/pid.tmp" "$S/pid" )
 
 poll_status "$S"
 report_status "$(cat "$S/status")" "$R" "$LOG"
