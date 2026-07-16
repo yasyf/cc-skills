@@ -4,12 +4,15 @@
 #
 #   • default            → Browserbase, reconnecting to this caller's keepAlive session
 #   • --local (anywhere) → local browser (flag stripped before hand-off)
+#   • --bridge (anywhere)→ local cookiesync CDP bridge: a throwaway pre-seeded Chrome
+#                          whose ws:// endpoint agent-browser connects to; optional
+#                          --bridge=<host:browser:profile> target (else chrome:Default)
 #   • --session <name>   → suffix the caller identity (AB_SESSION env works too; the
 #                          flag wins): parallel agents in one Claude Code session each
 #                          get their own browser session
 #   • key unresolvable   → warn on stderr, fall back to local
-#   • ab mode            → print "browserbase" or "local" (no session side effects)
-#   • ab close           → release this caller's Browserbase session
+#   • ab mode            → print "bridge", "browserbase", or "local" (no session side effects)
+#   • ab close           → release this caller's Browserbase session (or stop the bridge)
 #
 # The session is keyed by `cookiesync requestor` (stable per agent session), tagged in
 # Browserbase's own registry (no local state), created with keepAlive, and released on
@@ -18,9 +21,9 @@
 # — it is a short-lived per-session credential, released on close. Assumes sequential
 # invocation per caller (the skill drives it one command at a time).
 #
-# Contract: --local and --session <name> anywhere in argv are always consumed as ab's
-# own flags (--session also consumes the token after it), so a literal can never pass
-# through as data (e.g. a storage value) — quoteless by design.
+# Contract: --local, --bridge[=target], and --session <name> anywhere in argv are always
+# consumed as ab's own flags (--session also consumes the token after it), so a literal
+# can never pass through as data (e.g. a storage value) — quoteless by design.
 #
 # Key: op://OpenClaw/BROWSERBASE_API_KEY/notesPlain.
 set -uo pipefail
@@ -39,6 +42,8 @@ TAG="$(cookiesync requestor)" || {
 # Strip our own --local / --session <name>; pass everything else through. `close` is
 # our subcommand only when it leads.
 force_local=0
+use_bridge=0
+bridge_target=()
 session=""
 want_session=0
 args=()
@@ -54,6 +59,11 @@ for a in "$@"; do
   fi
   case "$a" in
   --local) force_local=1 ;;
+  --bridge) use_bridge=1 ;;
+  --bridge=*)
+    use_bridge=1
+    [[ "$a" == "--bridge=" ]] || bridge_target=("${a#--bridge=}")
+    ;;
   --session) want_session=1 ;;
   *) args+=("$a") ;;
   esac
@@ -75,7 +85,13 @@ API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/not
 # `mode` — report which backend a call would use (the key resolution + --local logic
 # above, nothing else) so helpers like abwc-seed never duplicate it.
 if [[ "${args[0]:-}" == "mode" ]]; then
-  if [[ "$force_local" == 1 || -z "$API_KEY" ]]; then echo local; else echo browserbase; fi
+  if [[ "$use_bridge" == 1 ]]; then
+    echo bridge
+  elif [[ "$force_local" == 1 || -z "$API_KEY" ]]; then
+    echo local
+  else
+    echo browserbase
+  fi
   exit 0
 fi
 
@@ -83,6 +99,71 @@ is_close=0
 [[ "${args[0]:-}" == "close" ]] && is_close=1
 
 run() { exec agent-browser --session "$SLUG" ${args[@]+"${args[@]}"}; }
+daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
+
+# --bridge — route agent-browser through a local cookiesync CDP bridge: a throwaway
+# Chrome pre-seeded with the caller's cookies, exposed over a token-scoped ws:// CDP
+# endpoint. `cookiesync bridge open --json` launches (or reuses) it and prints the
+# endpoint; agent-browser connects to that FULL tokened URL (never a bare port — the
+# path token is required). The bridge is its own backend, so it precedes the --local /
+# Browserbase resolution below and never touches BROWSERBASE_API_KEY.
+if [[ "$use_bridge" == 1 ]]; then
+  # Stop this caller's bridge, returning cookiesync's own exit status so callers can
+  # surface a real failure instead of leaving a bridge live silently.
+  bridge_stop() { cookiesync bridge stop ${bridge_target[@]+"${bridge_target[@]}"} >/dev/null 2>&1; }
+
+  if [[ "$is_close" == 1 ]]; then
+    agent-browser --session "$SLUG" close >/dev/null 2>&1 || true
+    bridge_stop || {
+      echo "ab: 'cookiesync bridge stop' failed — the bridge may still be live" >&2
+      exit 1
+    }
+    exit 0
+  fi
+
+  # Stop the bridge if we fail before handing off. exec (a successful hand-off) replaces
+  # the shell, so the EXIT trap never fires on success — the bridge persists for reuse
+  # across calls. INT/TERM stop then exit signal-correct; the handler clears EXIT first
+  # so the stop runs exactly once. bridge_armed gates the stop to a session we opened.
+  bridge_armed=0
+  on_bridge_exit() {
+    [[ "$bridge_armed" == 0 ]] && return 0
+    bridge_stop || echo "ab: 'cookiesync bridge stop' failed during teardown — the bridge may still be live" >&2
+  }
+  on_bridge_sig() {
+    trap - EXIT INT TERM
+    on_bridge_exit
+    exit "$1"
+  }
+  trap on_bridge_exit EXIT
+  trap 'on_bridge_sig 130' INT
+  trap 'on_bridge_sig 143' TERM
+
+  # Connect only when there is no live pairing: reconnecting a live one would reset the
+  # page (mirrors the Browserbase path). A reconnect after a dropped daemon re-reads the
+  # endpoint from a fresh `bridge open`, which reuses the running bridge by capability.
+  if ! daemon_has_session; then
+    resp="$(cookiesync bridge open --json ${bridge_target[@]+"${bridge_target[@]}"})" || {
+      echo "ab: 'cookiesync bridge open' failed" >&2
+      exit 1
+    }
+    bridge_armed=1 # bridge is live; a failure before hand-off must stop it, not leak it
+    url="$(jq -r '.url // ""' <<<"$resp")"
+    [[ -n "$url" ]] || {
+      echo "ab: cookiesync bridge returned no ws url" >&2
+      exit 1
+    }
+    # A loopback bridge url attaches via AGENT_BROWSER_CDP, never `connect` (which
+    # relaunches a cookieless browser on loopback); the probe establishes the session,
+    # run's exec reuses it (no env, like the daemon_has_session path above).
+    AGENT_BROWSER_CDP="$url" agent-browser --session "$SLUG" title >/dev/null 2>&1 || {
+      echo "ab: could not attach to the cookiesync bridge" >&2
+      exit 1
+    }
+    bridge_armed=0 # handed off cleanly; exec below persists the bridge for reuse
+  fi
+  run
+fi
 
 if [[ "$force_local" == 1 || -z "$API_KEY" ]]; then
   [[ "$force_local" == 1 ]] || echo "ab: Browserbase key unavailable; using local browser." >&2
@@ -135,8 +216,6 @@ create_session() { # -> "id<TAB>connectUrl"
 }
 
 release() { api POST "/sessions/$1" '{"status":"REQUEST_RELEASE"}' >/dev/null 2>&1; }
-
-daemon_has_session() { agent-browser session list 2>/dev/null | sed 's/^[[:space:]]*//' | grep -Fqx -- "$SLUG"; }
 
 sid="$(find_session)" || exit 1
 

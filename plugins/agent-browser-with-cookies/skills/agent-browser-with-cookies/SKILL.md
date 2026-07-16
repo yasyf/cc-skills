@@ -97,6 +97,31 @@ point; never call `agent-browser` raw.
    closes the local session, or releases the Browserbase keepAlive session (which
    otherwise lingers until it times out). Always end a run with it.
 
+## Bridge mode (`--bridge`)
+
+`--bridge` routes every `ab` call through a **local cookiesync CDP bridge** instead
+of Browserbase or the stealth browser. `cookiesync` launches a throwaway Chrome
+already seeded with your cookies (one consent tap on the first open) and hands `ab`
+its token-scoped `ws://` DevTools endpoint; `ab` connects agent-browser to it.
+Because the bridge is seeded on the `cookiesync` side, **skip `abwc-seed`** — launch
+and drive directly:
+
+```bash
+ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
+"$ab" --bridge open "$U1"
+"$ab" --bridge snapshot -i    # carry --bridge on every call
+"$ab" --bridge close          # closes the session and stops the bridge
+```
+
+Carry `--bridge` on **every** call, `close` included — same rule as `--local` and
+`--session`. The bridge defaults to `chrome:Default`; point it at another browser or
+profile with `--bridge=<host:browser:profile>` (e.g. `--bridge=arc:Default`).
+`"$ab" --bridge mode` prints `bridge`.
+
+Not driving through `ab`? agent-browser's native `--provider cookiesync` (shipped by
+a separate cookiesync-side plugin) is the equivalent one-shot bridge for direct
+`agent-browser` callers.
+
 ## Failure handling
 
 - **`cookies` says to run `cookiesync auth` first** (`abwc-seed` relays it and exits
