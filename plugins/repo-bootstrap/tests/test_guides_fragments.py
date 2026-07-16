@@ -44,6 +44,18 @@ def test_settings_base_fragment_enables_captain_hook():
     ), "settings-base fragment must register the captain-hook marketplace at yasyf/captain-hook"
 
 
+def test_settings_base_fragment_enables_cc_guides():
+    """The cc-guides plugin ships the rendered-artifact guard pack; the fleet gets it
+    through this fragment, so dropping either key un-guards every repo."""
+    base = json.loads((GUIDES_JSON / "settings-base.json").read_text())
+    assert base["enabledPlugins"]["cc-guides@cc-guides"] is True, (
+        "settings-base fragment must enable cc-guides@cc-guides"
+    )
+    assert (
+        base["extraKnownMarketplaces"]["cc-guides"]["source"]["repo"] == "yasyf/cc-guides"
+    ), "settings-base fragment must register the cc-guides marketplace at yasyf/cc-guides"
+
+
 def test_settings_base_fragment_disables_artifact():
     """Fragment-level guard: settings-base must hide the built-in Artifact tool
     (disableArtifact: true) so presentation flows through chat or a cc-present live board.
