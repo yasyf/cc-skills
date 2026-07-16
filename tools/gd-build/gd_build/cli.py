@@ -4,6 +4,22 @@
 performance patches, delegates to `great-docs build`, then — on success only —
 rewrites the color-swatch loaders in the built site. `gd-build selftest` reports
 whether every selected patch applies, exiting 3 if any was skipped.
+
+Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
+
+- Consumed at CI time as `uv run --with "git+https://github.com/yasyf/cc-skills@main\
+#subdirectory=tools/gd-build" gd-build build` from a repo whose project venv holds
+  great-docs 0.15.x — never uvx, whose isolation would hide the host great-docs.
+- Patches rebind `great_docs._apiref.introspect` (great-docs core imports get_object
+  function-locally, so patching core never fires). Each patch is gated on the exact
+  internals it rebinds and degrades to a stock build; `GD_BUILD_PATCHES=none` is the
+  per-run kill-switch. Measured: API discovery 331.75s -> 2.32s quiet.
+- Titles materialize into the gitignored `docs/scripts/.gd-build/` because great-docs
+  `pre_render` accepts file paths only (they are copied into the Quarto staging dir).
+- The swatch pass no-ops on great-docs >=0.15 (upstream's quarto:offset loader is
+  depth-correct); it exists for 0.14.x repos and retires with them.
+- The whole tool self-retires: when upstream ships the shared-loader fix, the gates
+  report UNPATCHED and every build runs stock — loudly, never brokenly.
 """
 
 from __future__ import annotations
