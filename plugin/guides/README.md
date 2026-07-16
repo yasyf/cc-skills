@@ -14,7 +14,7 @@ Three fragment kinds, one directory each:
 
 ## How a repo consumes it
 
-Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` checks drift on push and re-renders on a daily cron (`17 9 * * *`).
+Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` flags drift on push with a non-blocking warning and re-renders on a daily cron (`17 9 * * *`) that heals it.
 
 ## Propagation
 
