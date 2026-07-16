@@ -40,6 +40,8 @@ def delegate(rest: list[str]) -> int:
     try:
         return exit_code(main())
     except SystemExit as exc:
+        if not isinstance(exc.code, int | None):
+            print(exc.code, file=sys.stderr)
         return exit_code(exc.code)
 
 

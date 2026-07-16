@@ -158,6 +158,23 @@ def test_build_failure_skips_swatch_and_propagates(
     assert (tmp_path / "docs/scripts/.gd-build/native_reference_titles.py").is_file()
 
 
+def test_build_failure_string_code_prints_message(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    install_great_docs_cli: Callable[[Callable[[], object]], None],
+) -> None:
+    def fake_main() -> None:
+        raise SystemExit("ERROR: Configured reference item(s) not found in `pkg`: `Gone`")
+
+    install_great_docs_cli(fake_main)
+    monkeypatch.setenv("GD_BUILD_PATCHES", "none")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "ERROR: Configured reference item(s) not found in `pkg`: `Gone`" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "argv",
     [
