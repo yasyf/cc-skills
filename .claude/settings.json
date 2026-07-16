@@ -64,6 +64,13 @@
         "repo": "yasyf/captain-hook"
       },
       "autoUpdate": true
+    },
+    "cc-guides": {
+      "source": {
+        "source": "github",
+        "repo": "yasyf/cc-guides"
+      },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": {
@@ -73,6 +80,7 @@
     "writing-docs@skills": true,
     "cc-context@cc-context": true,
     "cc-notes@cc-notes": true,
-    "captain-hook@captain-hook": true
+    "captain-hook@captain-hook": true,
+    "cc-guides@cc-guides": true
   }
 }
