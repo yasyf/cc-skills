@@ -1,0 +1,7 @@
+# Go: gofumpt + goimports formatting and the golangci-lint suite, both driven
+# by the repo's .golangci.yml. Continues the `repos:` list precommit-base opens.
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.12.2
+    hooks:
+      - id: golangci-lint-fmt
+      - id: golangci-lint

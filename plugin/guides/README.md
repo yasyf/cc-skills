@@ -4,13 +4,14 @@ The fleet's shared guide-fragment pack. The repo root's `.claude/cc-guides.toml`
 
 ## Layout
 
-Three fragment kinds, one directory each:
+Four fragment kinds, one directory each:
 
 | Directory | Contents |
 |-----------|----------|
 | `md/` | `AGENTS.md`/`CLAUDE.md` prose fragments: `ask-before-assuming`, `ccx`, `claude-rules`, `code-review-response`, `parallelize`, `version-control`, `writing-plans` |
 | `sh/` | `install-binary-latest.sh`, `install-binary-pinned.sh` |
 | `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`, deep-merged |
+| `yml/` | Docs-site workflow pieces (`docs-build-*`, `docs-publish`, `great-docs-*`) and the prek `.pre-commit-config.yaml` pieces: `precommit-base` owns the `repos:` key and carries the `repo: builtin` hygiene hooks; `precommit-go`/`precommit-python`/`precommit-swift` continue the list and hold the centrally managed rev pins |
 
 ## How a repo consumes it
 

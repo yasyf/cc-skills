@@ -1,0 +1,23 @@
+# Commit-time checks, composed by cc-guides from the shared cc-skills pack.
+# Run by prek — a fast Rust drop-in for pre-commit: `ccx vcs ship` runs these
+# hooks before every commit, and `uvx prek install` wires them into plain
+# `git commit` too.
+# prek-only: the `repo: builtin` hooks are prek-native (Rust, offline, no rev);
+# legacy pre-commit cannot parse this file.
+# Rev pins are centrally managed in the cc-skills pack fragments — a local
+# `uvx prek autoupdate` shows up as drift and the daily re-render reverts it.
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # 1 MiB, not the 500 KB default: gen-image compresses repo brand images
+        # (banners, social cards) to just under 1 MiB.
+        args: [--maxkb=1024]
+      - id: detect-private-key
