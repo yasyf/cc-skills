@@ -3,21 +3,10 @@
 
 module: {{PACKAGE}}
 display_name: {{PROJECT_NAME}}
-parser: google
 dynamic: true
 repo: {{REPO_URL}}
 site_url: "{{DOCS_URL}}"
 pypi: {{#FEATURE_PYPI}}true{{/FEATURE_PYPI}}{{^FEATURE_PYPI}}false{{/FEATURE_PYPI}}
-github_style: widget
-jupyter: python3
-
-# Rewrite generated reference titles to pre-parsed pandoc-native Spans so Quarto
-# doesn't re-parse the bracketed-span sidebar markup on every page — Pandoc
-# backtracks exponentially on __dunder__ emphasis candidates (jgm/pandoc#11687),
-# which can push a large API reference's build past an hour. No-op until you add
-# a reference: section below. See docs/scripts/native_reference_titles.py.
-pre_render:
-  - docs/scripts/native_reference_titles.py
 
 # Conservative defaults: a solid navbar and a single accent, no gradient
 # presets or hero starfield. The gradient/starfield extras read as busy and the
@@ -25,9 +14,6 @@ pre_render:
 # TODO(bootstrap): pick a navbar color and accent that fit the project.
 navbar_color: "#1e293b"
 accent_color: "#3b82f6"
-dark_mode_toggle: true
-back_to_top: true
-keyboard_nav: true
 
 # Navbar logo + favicon are auto-detected from docs/assets/logo.png (the
 # generated mascot); no logo key is needed here.

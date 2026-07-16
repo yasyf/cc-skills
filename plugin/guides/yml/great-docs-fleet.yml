@@ -1,0 +1,7 @@
+parser: google
+github_style: widget
+jupyter: python3
+dark_mode_toggle: true
+back_to_top: true
+keyboard_nav: true
+fast_sidebar: true

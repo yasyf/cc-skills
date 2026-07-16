@@ -1,0 +1,8 @@
+fragments = [
+  "great-docs-repo",
+  "cc-skills:great-docs-fleet",
+  "cc-skills:great-docs-prerender",
+]
+
+[sources.cc-skills]
+source = "github:yasyf/cc-skills@main"

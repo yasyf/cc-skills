@@ -1,0 +1,2 @@
+pre_render:
+  - docs/scripts/.gd-build/native_reference_titles.py

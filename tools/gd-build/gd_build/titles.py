@@ -1,3 +1,12 @@
+"""Great-docs pre_render script: rewrite generated sidebar titles as pandoc-native inlines.
+
+At build time `gd_build.cli` copies this module verbatim to
+`docs/scripts/.gd-build/native_reference_titles.py`; great-docs then stages it
+into its own `scripts/` dir and runs it standalone in a Quarto pre_render
+subprocess. It must therefore stay a bare, import-free script with no `gd_build`
+dependency and its `__main__` behavior intact.
+"""
+
 from __future__ import annotations
 
 import re

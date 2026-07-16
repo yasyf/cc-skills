@@ -218,11 +218,32 @@ FILES = (
     FileSpec("tests/__init__.py", "python/tests/__init__.py", "python"),
     FileSpec("tests/conftest.py", "python/tests/conftest.py", "python"),
     FileSpec("tests/test_cli.py", "python/tests/test_cli.py", "python"),
-    # feature-gated python files (content-level feature diffs live in templates)
-    FileSpec("great-docs.yml", "python/great-docs.yml", "python", feature="docs"),
-    FileSpec("docs/scripts/fix_color_swatch.py", "python/docs/scripts/fix_color_swatch.py", "python", feature="docs"),
-    FileSpec("docs/scripts/native_reference_titles.py", "python/docs/scripts/native_reference_titles.py", "python", feature="docs"),
-    FileSpec(".github/workflows/docs.yml", "python/github/workflows/docs.yml", "python", feature="docs"),
+    # great-docs.yml + docs.yml scaffold as cc-guides layout dirs (seed + one repo-local
+    # *.fragment.yml), composed with the fleet cc-skills: imports; gd-build ships the scripts.
+    FileSpec(
+        ".claude/fragments/great-docs.yml/layout.toml",
+        "python/claude/fragments/great-docs.yml/layout.toml",
+        "python",
+        feature="docs",
+    ),
+    FileSpec(
+        ".claude/fragments/great-docs.yml/great-docs-repo.fragment.yml",
+        "python/claude/fragments/great-docs.yml/great-docs-repo.fragment.yml",
+        "python",
+        feature="docs",
+    ),
+    FileSpec(
+        ".claude/fragments/.github/workflows/docs.yml/layout.toml",
+        "python/claude/fragments/.github/workflows/docs.yml/layout.toml",
+        "python",
+        feature="docs",
+    ),
+    FileSpec(
+        ".claude/fragments/.github/workflows/docs.yml/docs-build-preamble.fragment.yml",
+        "python/claude/fragments/.github/workflows/docs.yml/docs-build-preamble.fragment.yml",
+        "python",
+        feature="docs",
+    ),
     FileSpec(".github/workflows/release-pypi.yml", "python/github/workflows/release-pypi.yml", "python", feature="pypi"),
     # --- python as a SECONDARY layer (--secondary-layer python) ---
     # Only a path-keyed styleguide beside the code and an AGENTS.md `## Python Style`

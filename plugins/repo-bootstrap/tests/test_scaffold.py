@@ -69,7 +69,7 @@ def test_python_both_features_substitutes_package(py_var_pairs):
     got = dests("python", py_var_pairs)
     assert "demo_proj/cli.py" in got and "demo_proj/__init__.py" in got
     assert ".claude/ty-quiet.toml" in got  # python-only ty silence config (absent from BASE_DESTS)
-    assert "great-docs.yml" in got  # docs
+    assert ".claude/fragments/great-docs.yml/layout.toml" in got  # docs
     assert ".github/workflows/release-pypi.yml" in got  # pypi
     assert got >= BASE_DESTS  # python implies base
     assert "{{PACKAGE}}/cli.py" not in got
@@ -77,25 +77,29 @@ def test_python_both_features_substitutes_package(py_var_pairs):
 
 def test_python_docs_only_drops_pypi(py_var_pairs):
     got = dests("python", py_var_pairs, features=["docs"])
-    assert "great-docs.yml" in got
-    assert "docs/scripts/native_reference_titles.py" in got
-    assert ".github/workflows/docs.yml" in got
+    assert ".claude/fragments/great-docs.yml/layout.toml" in got
+    assert ".claude/fragments/.github/workflows/docs.yml/layout.toml" in got
+    # the standalone docs scripts are gone — gd-build materializes them at build time
+    assert "docs/scripts/native_reference_titles.py" not in got
+    assert "docs/scripts/fix_color_swatch.py" not in got
     assert ".github/workflows/release-pypi.yml" not in got
 
 
 def test_python_pypi_only_drops_docs(py_var_pairs):
     got = dests("python", py_var_pairs, features=["pypi"])
     assert ".github/workflows/release-pypi.yml" in got
-    for docs_only in ("great-docs.yml", "docs/scripts/fix_color_swatch.py",
-                      "docs/scripts/native_reference_titles.py", ".github/workflows/docs.yml"):
+    for docs_only in (".claude/fragments/great-docs.yml/layout.toml",
+                      ".claude/fragments/great-docs.yml/great-docs-repo.fragment.yml",
+                      ".claude/fragments/.github/workflows/docs.yml/layout.toml"):
         assert docs_only not in got
 
 
 def test_python_no_features_drops_all_gated(py_var_pairs):
     got = dests("python", py_var_pairs, features=[])
-    for gated in ("great-docs.yml", "docs/scripts/fix_color_swatch.py",
-                  "docs/scripts/native_reference_titles.py",
-                  ".github/workflows/docs.yml", ".github/workflows/release-pypi.yml"):
+    for gated in (".claude/fragments/great-docs.yml/layout.toml",
+                  ".claude/fragments/.github/workflows/docs.yml/layout.toml",
+                  ".claude/fragments/.github/workflows/docs.yml/docs-build-preamble.fragment.yml",
+                  ".github/workflows/release-pypi.yml"):
         assert gated not in got
 
 
@@ -1573,8 +1577,28 @@ def test_license_badge_doubles_dashes(base_var_pairs):
 
 
 def test_great_docs_pypi_widget_follows_feature(py_var_pairs):
-    assert "pypi: true" in _real_plan("python", py_var_pairs)[0]["great-docs.yml"]
-    assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0]["great-docs.yml"]
+    frag = ".claude/fragments/great-docs.yml/great-docs-repo.fragment.yml"
+    assert "pypi: true" in _real_plan("python", py_var_pairs)[0][frag]
+    assert "pypi: false" in _real_plan("python", py_var_pairs, features=["docs"])[0][frag]
+
+
+def test_docs_layout_dirs_import_fleet_pack(py_var_pairs):
+    # great-docs.yml + docs.yml now compose from cc-guides layout dirs: a repo-local
+    # *.fragment.yml plus fleet-shared cc-skills: imports (`cc-guides render` joins them).
+    plan, _ = _real_plan("python", py_var_pairs)
+    gd_layout = plan[".claude/fragments/great-docs.yml/layout.toml"]
+    assert '"great-docs-repo"' in gd_layout
+    assert '"cc-skills:great-docs-fleet"' in gd_layout
+    assert '"cc-skills:great-docs-prerender"' in gd_layout
+    assert 'source = "github:yasyf/cc-skills@main"' in gd_layout
+    docs_layout = plan[".claude/fragments/.github/workflows/docs.yml/layout.toml"]
+    for imp in ('"docs-build-preamble"', '"cc-skills:docs-build-head"', '"cc-skills:docs-build-sync"',
+                '"cc-skills:docs-build-tail"', '"cc-skills:docs-publish"'):
+        assert imp in docs_layout
+    # the workflow preamble's PR paths filter is substituted to the package dir
+    preamble = plan[".claude/fragments/.github/workflows/docs.yml/docs-build-preamble.fragment.yml"]
+    assert '"demo_proj/**"' in preamble
+    assert "{{PACKAGE}}" not in preamble
 
 
 def test_real_templates_render_go(go_var_pairs):

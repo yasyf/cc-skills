@@ -27,4 +27,7 @@ coverage.xml
 
 # Great Docs build output
 great-docs/
+
+# gd-build-materialized pre_render scripts (native_reference_titles, etc.)
+docs/scripts/.gd-build/
 {{/FEATURE_DOCS}}
