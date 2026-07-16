@@ -141,8 +141,8 @@ surface; internal helpers get none. Consequences for editing:
 ## Publishing
 
 `.github/workflows/docs.yml` builds on every push to `main` and every pull request
-(`uv sync --group docs` → `uv run great-docs build` → `docs/scripts/fix_color_swatch.py` →
-upload `great-docs/_site` with `include-hidden-files: true`), then a `publish-docs` job gated
+(`uv sync --group docs` → `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build`
+→ upload `great-docs/_site` with `include-hidden-files: true`), then a `publish-docs` job gated
 on `if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to the
 `github-pages` environment. Enable Pages with the Actions build first
 (`gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`) or the deploy job fails.
@@ -152,19 +152,21 @@ Three non-obvious build details:
 - The build step sets `env: GITHUB_TOKEN: ${{ github.token }}` — great-docs embeds the navbar
   widget's star/fork counts at build time using it, so visitors' browsers never hit the
   GitHub API. Drop the token and the widget falls back to client-side calls that 403.
-- `docs/scripts/fix_color_swatch.py` runs after the build. great-docs' runtime `color-swatch.js`
-  loader resolves its own URL by stripping two path segments from the canonical URL, which 404s
-  on any page not exactly one directory deep (e.g. the homepage). The script rewrites the loader
-  to a depth-correct static `<script src>` on every built page. The bug is present in PyPI 0.13.0
-  and `main` alike; remove the script only once upstream fixes the loader.
-- `docs/scripts/native_reference_titles.py` runs *before* the build (a `pre_render:` entry in
-  `great-docs.yml`). Quarto re-renders the API-reference sidebar into every page, and Pandoc's
-  emphasis resolver backtracks exponentially on the `__dunder__` candidates inside the
-  bracketed-span titles (jgm/pandoc#11687) — a large reference can drag the build out to an hour
-  or more. The script rewrites each generated `[Name]{.doc-*}` title to a pre-parsed
-  `` `Span (…)`{=pandoc-native} `` inline: linear to parse, styled identically (the kind pills
-  survive). It is a no-op until you add a `reference:` section; remove it once upstream fixes the
-  backtracking.
+- gd-build fixes great-docs' runtime `color-swatch.js` loader in-process after the build. The
+  0.14.x loader resolves its own URL by stripping two path segments from the canonical URL,
+  which 404s on any page not exactly one directory deep (e.g. the homepage); the fix rewrites
+  it to a depth-correct static `<script src>` on every built page. great-docs ≥0.15 ships a
+  depth-correct `quarto:offset` loader, so on those versions the pass matches nothing and
+  no-ops — it exists for repos still on 0.14.x and retires with them.
+- `docs/scripts/.gd-build/native_reference_titles.py` runs *before* the render (a `pre_render:`
+  entry in `great-docs.yml`, supplied by the `cc-skills:great-docs-prerender` fragment). gd-build
+  materializes the script into that gitignored directory on every build — it is not committed.
+  Quarto re-renders the API-reference sidebar into every page, and Pandoc's emphasis resolver
+  backtracks exponentially on the `__dunder__` candidates inside the bracketed-span titles
+  (jgm/pandoc#11687) — a large reference can drag the build out to an hour or more. The script
+  rewrites each generated `[Name]{.doc-*}` title to a pre-parsed `` `Span (…)`{=pandoc-native} ``
+  inline: linear to parse, styled identically (the kind pills survive). It is a no-op until you
+  add a `reference:` section; the fragment drops once upstream fixes the backtracking.
 
 The site lives at `https://<user>.github.io/<repo>/` (captain-hook:
 `https://yasyf.github.io/captain-hook/`). Three places point there and must agree:

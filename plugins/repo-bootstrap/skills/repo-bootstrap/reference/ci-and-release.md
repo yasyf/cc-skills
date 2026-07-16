@@ -51,25 +51,28 @@ Steps, in order:
 
 ## docs.yml
 
-Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency group. Two jobs:
+Same triggers and a `docs-${{ github.ref }}` cancel-in-progress concurrency group. The file
+is a cc-guides rendered artifact: a repo-local preamble piece plus the shared
+`cc-skills:docs-build-{head,sync,tail}` and `cc-skills:docs-publish` pieces. Two jobs:
 
 **`build-docs`** (runs on PRs too, so docs breakage blocks merge):
 
 1. `actions/checkout@v7` with `fetch-depth: 0` (great-docs reads git history)
 2. `astral-sh/setup-uv@v8.2.0` pinned to the scaffold-time pin version, same
    `cache-dependency-glob: uv.lock`
-3. `quarto-dev/quarto-actions/setup@v2` — great-docs renders via Quarto
+3. `quarto-dev/quarto-actions/setup@v2` pinned to Quarto 1.9.38 — the newest stable release
+   (1.10 is prerelease-only); the pin bumps centrally in the `docs-build-head` fragment
 4. `uv sync --group docs` — docs deps live in `[dependency-groups] docs` in `pyproject.toml`
    (note: dependency *group*, not the `dev` extra)
-5. `uv run great-docs build` with `env: GITHUB_TOKEN: ${{ github.token }}` — the token lets
-   great-docs embed the navbar widget's star/fork counts at build time, so visitors' browsers
-   never hit (and 403 on) the GitHub API. The build first runs the `great-docs.yml` `pre_render`
-   scripts, including `docs/scripts/native_reference_titles.py`, which keeps a large API
-   reference's build linear (see `reference/docs-site.md`). The job carries `timeout-minutes: 30`
-   as a regression guard
-6. `uv run python docs/scripts/fix_color_swatch.py` — rewrites great-docs' broken runtime
-   `color-swatch.js` loader to depth-correct static tags (see `reference/docs-site.md`)
-7. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and
+5. `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build`
+   with `env: GITHUB_TOKEN: ${{ github.token }}` — the token lets great-docs embed the navbar
+   widget's star/fork counts at build time, so visitors' browsers never hit (and 403 on) the
+   GitHub API. gd-build materializes `docs/scripts/.gd-build/native_reference_titles.py` (the
+   `pre_render` entry that keeps a large API reference's build linear), applies version-gated
+   great-docs perf patches (each degrades to a stock build, never a failure), delegates to
+   `great-docs build`, then fixes the color-swatch loader in-process (see
+   `reference/docs-site.md`). The job carries `timeout-minutes: 45` as a regression guard
+6. `actions/upload-pages-artifact@v5` with `path: great-docs/_site` and
    `include-hidden-files: true` (the site contains dotfiles that Pages needs)
 
 **`publish-docs`**: `needs: build-docs`, gated `if: github.ref == 'refs/heads/main'`,
