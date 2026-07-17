@@ -77,8 +77,10 @@ the `py.typed` marker — keep them in sync or drop both. Add `keywords` and per
   `uvx prek run ty --all-files`. pyright is config-only (run on demand via `uvx pyright`
   or an editor extension).
 - `docs = ["griffelib>=2.0", "great-docs>=0.15,<0.16"]` is a PEP 735 *dependency group*:
-  uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with
-  `uv run great-docs build`, preview with `uv run great-docs preview`. The `<0.16` cap keeps
+  uv-local, invisible to PyPI consumers. Install with `uv sync --group docs`; build with the
+  gd-build wrapper — the exact CI command, see `reference/docs-site.md`; bare `great-docs
+  build` misses the materialized pre_render script — and preview with
+  `uv run great-docs preview` after a first gd-build run. The `<0.16` cap keeps
   new repos inside gd-build's patch-gate window (the deliberate exception to the floor-only
   rule above), and `griffelib>=2.0` forces griffe 2.x — see `reference/docs-site.md`.
 Tooling that consumers might want goes in the extra; pure repo plumbing goes in a group.

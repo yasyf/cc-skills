@@ -92,8 +92,8 @@ The single canonical agent-conventions doc. Section by section:
   watch CI with `gh run watch` after every push). The **Testing** rule carries a `TODO(bootstrap)`: fill in where the suite
   lives and the exact command (captain-hook: "The suite lives in `tests/`; run it
   with `uv run pytest`"). Add project-specific rules in the same format — e.g.
-  captain-hook adds a **Docs** rule ("Any public API change must keep
-  `uv run great-docs build` green") and a **Releases** rule.
+  captain-hook adds a **Docs** rule ("Any public API change must keep the
+  gd-build docs build green") and a **Releases** rule.
 
 ## CLAUDE.md
 

@@ -52,4 +52,4 @@ Run this before merging any documentation change. The enforcement hook points th
 - [ ] Public-API docstrings are present and Google-style where the reference renders them; internal helpers carry none.
 - [ ] The docs homepage shows the get-started command and the demo above the fold, before any feature grid.
 - [ ] Tutorial and walkthrough pages carry shown-output checkpoints every few steps.
-- [ ] The docs site builds green. On Great Docs that means `uv run great-docs build` after `uv sync --group docs`.
+- [ ] The docs site builds green. On Great Docs that means `uv sync --group docs`, then the gd-build wrapper docs CI runs: `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build` (never bare `great-docs build` — it misses the materialized pre_render script).

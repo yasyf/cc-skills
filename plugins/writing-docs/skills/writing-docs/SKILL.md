@@ -141,4 +141,4 @@ Run this before merging any docs change. The full version is in `references/chec
 
 ## Great Docs and Quarto projects
 
-When the project uses Great Docs with Quarto, see `references/great-docs-quarto.md` for the stack specifics. They cover `great-docs.yml` sections, the curated symbol reference from the package `__init__` re-exports, Google-style docstrings on the public API only, `.qmd` front matter, the `gd-embed` marker workflow for single-sourcing example code, and building green with `uv run great-docs build` after `uv sync --group docs`.
+When the project uses Great Docs with Quarto, see `references/great-docs-quarto.md` for the stack specifics. They cover `great-docs.yml` sections, the curated symbol reference from the package `__init__` re-exports, Google-style docstrings on the public API only, `.qmd` front matter, the `gd-embed` marker workflow for single-sourcing example code, and building green with the gd-build wrapper after `uv sync --group docs`.

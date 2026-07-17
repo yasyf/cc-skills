@@ -6,7 +6,7 @@ Stack specifics for a project documented with Great Docs, which renders a Quarto
 
 - `great-docs.yml` holds the site config, including `module`, `sections` where each names a directory under `docs/`, `hero`, `navbar_color`, `accent_color`, `cli`, and `pre_render` scripts.
 - The curated symbol reference comes from the package root `__init__.py` re-exports, which often carry no `__all__`. The auto-generated symbol pages live under the generated `reference/` directory; hand-written cheatsheets live under `docs/reference/`. Keep the two distinct and link between them.
-- Build green with `uv run great-docs build` after `uv sync --group docs`. Set `GITHUB_TOKEN` locally so the GitHub-Releases changelog page does not skip on rate limits. If a large API reference makes the build crawl, that is the per-page sidebar re-render cost — repo-bootstrap's `reference/docs-site.md` covers the `pre_render` fix (`native_reference_titles.py`).
+- Build green with `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build` after `uv sync --group docs` — the exact command docs CI runs; it applies the fleet's perf patches and materializes the `pre_render` titles fix into the gitignored `docs/scripts/.gd-build/`. Never bare `great-docs build`: without the materialized script a large API reference makes the render crawl for an hour (pandoc #11687 — repo-bootstrap's `reference/docs-site.md` has the details). Set `GITHUB_TOKEN` locally so the GitHub-Releases changelog page does not skip on rate limits.
 
 ## Landing page
 

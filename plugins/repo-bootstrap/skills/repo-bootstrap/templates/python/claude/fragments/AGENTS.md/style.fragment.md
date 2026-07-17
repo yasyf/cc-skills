@@ -41,6 +41,6 @@ Target Python {{PYTHON_MIN}}+. Run `uv sync --extra dev`, `uv run pytest`, and `
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish.
 
 {{#FEATURE_DOCS}}
-**Docs.** Any public API change must keep `uv run great-docs build` green; run `uv sync --group docs` first.
+**Docs.** Any public API change must keep the docs build green: `uv sync --group docs`, then `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build` — the exact command docs CI runs. Never bare `great-docs build`: it misses the pre_render titles script gd-build materializes into the gitignored `docs/scripts/.gd-build/`, and a large API reference can hang the render for an hour without it (pandoc #11687).
 
 {{/FEATURE_DOCS}}

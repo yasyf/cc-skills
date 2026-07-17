@@ -22,9 +22,16 @@ Commands (Quarto CLI must be on PATH; CI installs it via `quarto-dev/quarto-acti
 
 ```bash
 uv sync --group docs        # install great-docs
-uv run great-docs build     # output lands in great-docs/_site
-uv run great-docs preview   # live-reloading local preview
+uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build
+                            # the exact CI build — output lands in great-docs/_site
+uv run great-docs preview   # live-reloading local preview (needs a prior gd-build run,
+                            # which materializes the pre_render titles script)
 ```
+
+Never build with bare `uv run great-docs build`: the `pre_render` entry points at the
+gitignored `docs/scripts/.gd-build/native_reference_titles.py`, which only exists after a
+gd-build run. great-docs warns "Pre-render script not found" and continues anyway — into an
+unpatched build that can hang for an hour on a large API reference (pandoc #11687).
 
 `great-docs/` is build output — it is listed in `.gitignore`; never commit it.
 

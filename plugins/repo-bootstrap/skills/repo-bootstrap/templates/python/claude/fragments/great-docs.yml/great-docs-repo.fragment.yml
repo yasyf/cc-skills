@@ -1,5 +1,6 @@
 # Great Docs configuration — https://posit-dev.github.io/great-docs/
-# Build: uv run great-docs build · Preview: uv run great-docs preview
+# Build: uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build
+# Preview: uv run great-docs preview (after a first gd-build run materializes the pre_render script)
 
 module: {{PACKAGE}}
 display_name: {{PROJECT_NAME}}
