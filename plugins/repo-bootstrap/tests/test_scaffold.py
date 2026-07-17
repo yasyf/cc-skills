@@ -33,7 +33,7 @@ def dests(layer, var_pairs, *, extras=None, features=None, secondary_layer=None)
 
 # --- selection matrix ---
 
-# AGENTS.md, CLAUDE.md, and .claude/settings.json now scaffold as cc-guides layout
+# AGENTS.md, CLAUDE.md, .claude/settings.json, and .mcp.json scaffold as cc-guides layout
 # dirs (a layout.toml + repo-local *.fragment.* pieces); `cc-guides render` composes
 # the artifacts post-write. Shared across every layer (PROJECT_NAME=demo-proj).
 FRAGMENT_DESTS = {
@@ -44,11 +44,13 @@ FRAGMENT_DESTS = {
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
+    ".claude/fragments/.mcp.json/layout.toml",
+    ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
 }
 
 BASE_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml",
+    ".claude/jj-config.toml",
     ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
     ".claude/hooks/STYLEGUIDE.md",  # always-shipped capt-hook Python style guide
     ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
@@ -107,7 +109,7 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
 
 GO_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
@@ -1838,6 +1840,15 @@ def test_settings_json_composes_from_pack_fragments(base_var_pairs):
     assert '"settings-overrides"' in layout
     assert 'source = "github:yasyf/cc-skills@main"' in layout
     assert json.loads(plan[".claude/fragments/.claude/settings.json/settings-overrides.fragment.json"]) == {}
+
+
+def test_mcp_json_composes_from_pack_fragments(base_var_pairs):
+    plan, _ = _real_plan("base", base_var_pairs)
+    layout = tomllib.loads(plan[".claude/fragments/.mcp.json/layout.toml"])
+    assert layout["fragments"] == ["cc-skills:mcp-base", "mcp-overrides"]
+    assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
+    assert json.loads(plan[".claude/fragments/.mcp.json/mcp-overrides.fragment.json"]) == {}
+    assert ".mcp.json" not in plan
 
 
 # --- run(): post-write cc-guides render (stubbed on PATH) ---

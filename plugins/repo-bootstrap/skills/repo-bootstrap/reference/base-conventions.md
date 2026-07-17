@@ -8,8 +8,8 @@ so when that layer is active, edit those four against its richer versions instea
 Worked example throughout: project `captain-hook`, dist+CLI `capt-hook`, package
 `captain_hook`.
 
-**Rendered artifacts.** `AGENTS.md`, `CLAUDE.md`, and `.claude/settings.json` are
-generated, never hand-edited. Scaffold writes a `.claude/fragments/<target>/` layout
+**Rendered artifacts.** `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, and
+`.mcp.json` are generated, never hand-edited. Scaffold writes a `.claude/fragments/<target>/` layout
 dir — a `layout.toml` listing repo-local `*.fragment.*` prose pieces plus imports of
 shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:claude-rules`,
 `cc-skills:version-control`, `cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
@@ -169,13 +169,18 @@ boundaries only.
 { "mcpServers": {} }
 ```
 
-Empty by default. Code search no longer ships a per-project `semble` MCP server here —
-the `cc-context` facade (semble + tilth, surfaced as `ccx` and the
-plugin's MCP tools) ships inside the `cc-context@cc-context` plugin enabled in
-`.claude/settings.json`, so every trusted clone gets it without a project-scoped
-server. The AGENTS.md **Compact Context (ccx)** section and the General Rules
-"Search before writing" rule both point at `ccx`, not at this file; `.mcp.json` stays
-here only as the seam for any genuinely project-specific MCP server a repo later adds.
+A rendered artifact, like `.claude/settings.json`: `cc-guides render` composes it
+from `.claude/fragments/.mcp.json/` — the shared `cc-skills:mcp-base` fragment
+deep-merged with the repo-local `mcp-overrides.fragment.json` (the swift layers'
+layout adds `cc-skills:mcp-swift` for `xcodebuildmcp`). Code search no longer ships
+a per-project `semble` MCP server here — the `cc-context` facade (semble + tilth,
+surfaced as `ccx` and the plugin's MCP tools) ships inside the
+`cc-context@cc-context` plugin enabled in `.claude/settings.json`, so every trusted
+clone gets it without a project-scoped server. The AGENTS.md **Compact Context
+(ccx)** section and the General Rules "Search before writing" rule both point at
+`ccx`, not at this file. A genuinely project-specific MCP server goes in
+`mcp-overrides.fragment.json`, never into the artifact by hand — `cc-guides render`
+recomposes `.mcp.json`, and the `guides.yml` check flags hand drift.
 
 ## .superset/config.json (extra `superset`)
 

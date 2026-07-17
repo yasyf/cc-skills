@@ -118,15 +118,16 @@ DERIVED = (
 
 FILES = (
     # --- base layer ---
-    # AGENTS.md, CLAUDE.md, and .claude/settings.json are cc-guides v3 artifacts:
+    # AGENTS.md, CLAUDE.md, .claude/settings.json, and .mcp.json are cc-guides v3 artifacts:
     # scaffold writes a `.claude/fragments/<target>/` layout dir (a layout.toml plus
-    # any repo-local `*.fragment.*` prose) and the post-write `cc-guides render` step
+    # any repo-local `*.fragment.*` pieces) and the post-write `cc-guides render` step
     # (scaffold.render_sources) composes each artifact in place — local prose plus
     # imported shared fragments (`cc-skills:ccx`, …) for AGENTS.md, the shared
     # `cc-skills:claude-rules` guide (import-only, no local prose) for CLAUDE.md, and
     # the settings pack fragments (`cc-skills:settings-base` + a layer variant) for
-    # settings.json. A language layer overrides base at each shared fragment dest,
-    # exactly as the whole-file overrides below.
+    # settings.json, and the MCP pack fragments (`cc-skills:mcp-base` + the Swift
+    # variant) for .mcp.json. A language layer overrides base at each shared
+    # fragment dest.
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "base/claude/fragments/AGENTS.md/layout.toml", "base"),
     FileSpec(
         ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
@@ -161,10 +162,19 @@ FILES = (
         "base/claude/fragments/settings.json/settings-overrides.fragment.json",
         "base",
     ),
+    FileSpec(
+        ".claude/fragments/.mcp.json/layout.toml",
+        "base/claude/fragments/mcp.json/layout.toml",
+        "base",
+    ),
+    FileSpec(
+        ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+        "base/claude/fragments/mcp.json/mcp-overrides.fragment.json",
+        "base",
+    ),
     FileSpec("STYLEGUIDE.md", "base/STYLEGUIDE.md", "base"),
     FileSpec("README.md", "base/README.md", "base"),
     FileSpec("CHANGELOG.md", "base/CHANGELOG.md", "base"),
-    FileSpec(".mcp.json", "base/mcp.json", "base"),
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
     # The cc-guides caller stub: `check` on push/PR + `re-render` on release dispatch.
     FileSpec(".github/workflows/guides.yml", "base/github/workflows/guides.yml", "base"),
@@ -333,8 +343,11 @@ FILES = (
     ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift"),
     FileSpec("README.md", "swift/README.md", "swift"),
-    # swift layers override the empty base .mcp.json with the xcodebuildmcp server.
-    FileSpec(".mcp.json", "swift/mcp.json", "swift"),
+    FileSpec(
+        ".claude/fragments/.mcp.json/layout.toml",
+        "swift/claude/fragments/mcp.json/layout.toml",
+        "swift",
+    ),
     # no swift capt-hook pack exists — general + steering only.
     FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift"),
     # vendored project skill: help-first discovery of the xcodebuildmcp CLI.
@@ -377,7 +390,11 @@ FILES = (
     ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift-app"),
     FileSpec("README.md", "swift-app/README.md", "swift-app"),
-    FileSpec(".mcp.json", "swift/mcp.json", "swift-app"),
+    FileSpec(
+        ".claude/fragments/.mcp.json/layout.toml",
+        "swift/claude/fragments/mcp.json/layout.toml",
+        "swift-app",
+    ),
     FileSpec(".claude/hooks/packs.toml", "swift/claude/hooks/packs.toml", "swift-app"),
     FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift-app"),
     # The committed synced-folder project (objectVersion 77, fixed synthetic UUIDs):

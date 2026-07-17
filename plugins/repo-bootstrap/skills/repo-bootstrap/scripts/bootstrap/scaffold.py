@@ -407,17 +407,20 @@ def template_exists(src: str) -> bool:
     return (TEMPLATES / src).exists()
 
 
-def render_sources(target: Path) -> None:
+def render_sources(target: Path, force: bool) -> None:
     """Compose every ``.claude/fragments/<target>/`` layout dir the scaffold wrote
-    (AGENTS.md, CLAUDE.md, .claude/settings.json, and the plugin installer) into its
-    artifact via a full ``cc-guides render``. cc-guides resolves the imported shared
-    fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact; the
-    artifacts do not exist yet, so no ``--force`` is needed. Hard-required: the shared
-    fragment bodies live upstream, so there is no Python fallback."""
+    (AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and the plugin installer)
+    into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
+    shared fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact.
+    On a fresh scaffold the artifacts do not exist yet; retrofitting an existing repo
+    needs ``force`` because cc-guides refuses to overwrite a JSON artifact its lock
+    does not list. Hard-required: the shared fragment bodies live upstream, so there
+    is no Python fallback."""
     exe = shutil.which("cc-guides")
     if exe is None:
         raise ScaffoldError("cc-guides not found on PATH; install it with `brew install yasyf/tap/cc-guides`")
-    proc = subprocess.run([exe, "render"], cwd=target, capture_output=True, text=True)
+    cmd = [exe, "render", "--force"] if force else [exe, "render"]
+    proc = subprocess.run(cmd, cwd=target, capture_output=True, text=True)
     if proc.returncode != 0:
         raise ScaffoldError(f"cc-guides render failed: {proc.stderr.strip() or proc.stdout.strip()}")
     if proc.stdout.strip():
@@ -435,5 +438,5 @@ def run(args: argparse.Namespace) -> int:
         print(notice.text)
     # Every X.src.<ext> just written renders to its sibling artifact in place.
     if code == 0 and not args.dry_run:
-        render_sources(args.target)
+        render_sources(args.target, args.force)
     return code

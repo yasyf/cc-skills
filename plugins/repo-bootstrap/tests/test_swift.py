@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import tomllib
 
 import pytest
 from bootstrap import scaffold
@@ -30,7 +31,7 @@ def _real_plan(layer, var_pairs, *, features=None):
 
 # --- selection matrix ---
 
-# AGENTS.md, CLAUDE.md, and .claude/settings.json scaffold as cc-guides layout dirs
+# AGENTS.md, CLAUDE.md, .claude/settings.json, and .mcp.json scaffold as cc-guides layout dirs
 # (layout.toml + repo-local *.fragment.* pieces); shared across every layer.
 FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
@@ -40,11 +41,13 @@ FRAGMENT_DESTS = {
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
+    ".claude/fragments/.mcp.json/layout.toml",
+    ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
 }
 
 SWIFT_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -57,7 +60,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
 
 SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".mcp.json", ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -112,7 +115,10 @@ def test_swift_overrides_base_for_shared_dest(swift_var_pairs):
     items = {item.dest: item for item in scaffold.select_files(r)}
     assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "swift/claude/fragments/AGENTS.md/layout.toml"
     assert items["README.md"].src == "swift/README.md"
-    assert items[".mcp.json"].src == "swift/mcp.json"
+    assert (
+        items[".claude/fragments/.mcp.json/layout.toml"].src
+        == "swift/claude/fragments/mcp.json/layout.toml"
+    )
     assert items[".claude/hooks/packs.toml"].src == "swift/claude/hooks/packs.toml"
 
 
@@ -121,7 +127,8 @@ def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
     # consumed by both layers — swift-app must not fork its own copies.
     r = scaffold.resolve("swift-app", [], [], swift_app_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    for dest in ("STYLEGUIDE.md", ".mcp.json", ".claude/fragments/.claude/settings.json/layout.toml",
+    for dest in ("STYLEGUIDE.md", ".claude/fragments/.mcp.json/layout.toml",
+                 ".claude/fragments/.claude/settings.json/layout.toml",
                  ".claude/hooks/packs.toml", ".swiftformat", ".swiftlint.yml",
                  ".pre-commit-config.yaml", ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
         assert items[dest].src.startswith("swift/"), f"{dest} forked from {items[dest].src}"
@@ -350,11 +357,15 @@ def test_swift_packs_toml_no_swift_pack(templates_dir):
     assert "[packs.cc-present]" in swift_packs
 
 
-def test_swift_mcp_json_overrides_with_xcodebuildmcp(swift_var_pairs):
-    plan, _ = _real_plan("swift", swift_var_pairs)
-    mcp = json.loads(plan[".mcp.json"])
-    assert mcp["mcpServers"]["xcodebuildmcp"] == {"command": "xcodebuildmcp", "args": ["mcp"]}
-    assert "semble" not in mcp["mcpServers"]
+def test_swift_mcp_layout_imports_swift_variant(swift_var_pairs, swift_app_var_pairs):
+    expected = ["cc-skills:mcp-base", "cc-skills:mcp-swift", "mcp-overrides"]
+    for layer, var_pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
+        plan, _ = _real_plan(layer, var_pairs)
+        layout = tomllib.loads(plan[".claude/fragments/.mcp.json/layout.toml"])
+        assert layout["fragments"] == expected
+        assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
+        assert json.loads(plan[".claude/fragments/.mcp.json/mcp-overrides.fragment.json"]) == {}
+        assert ".mcp.json" not in plan
 
 
 def test_swift_settings_layout_imports_swift_variant(swift_var_pairs):

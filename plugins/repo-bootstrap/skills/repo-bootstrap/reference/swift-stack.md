@@ -145,8 +145,9 @@ nested configs directory-wise.
 
 ## XcodeBuildMCP
 
-Both layers wire the `xcodebuildmcp` MCP server into `.mcp.json` and vendor the
-`xcodebuildmcp-cli` project skill (`.claude/skills/xcodebuildmcp-cli/`). It's the
+Both layers wire the `xcodebuildmcp` MCP server into `.mcp.json` via the
+`cc-skills:mcp-swift` fragment in the `.claude/fragments/.mcp.json/` layout, and
+vendor the `xcodebuildmcp-cli` project skill (`.claude/skills/xcodebuildmcp-cli/`). It's the
 sanctioned driver for build/test/run/simulator/device/log/UI-automation work —
 help-first discovery (`xcodebuildmcp tools`), instead of memorized `xcodebuild`
 /`xcrun`/`simctl` incantations. AGENTS.md requires reading the skill before the
