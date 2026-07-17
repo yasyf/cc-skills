@@ -8,6 +8,7 @@
 # usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image]
 #                  [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]
 #        codex-ask --await <scratch-dir|reply-file>
+#        codex-ask --mint-root [LANE ...]
 #
 #   QUESTION      a readable file path, `-` for stdin (the default), or
 #                 literal question text
@@ -22,6 +23,9 @@
 #                 fake the image by drawing it
 #   --await DIR   block on an already-launched run's status file and replay its
 #                 completion report; idempotent, safe mid-run and concurrently
+#   --mint-root   mint a fan-out root under the same scratch base the no--s path
+#                 resolves (session scratchpad, else $TMPDIR); mkdir one lane dir
+#                 per LANE; print ROOT:/LANE: lines and exit
 set -u
 
 # Always auth via the ChatGPT-plan OAuth login: the ambient OPENAI_API_KEY is
@@ -214,6 +218,21 @@ if [ "${1:-}" = "--collect" ]; then
       exit 2
       ;;
   esac
+  repo_top=$(git rev-parse --show-toplevel 2>/dev/null) || repo_top=""
+  if [ -n "$repo_top" ]; then
+    case "$root/" in
+      "$repo_top"/*)
+        echo "codex-ask: --collect root must be outside the repository at $repo_top (lanes are never minted in-repo)" >&2
+        exit 2 ;;
+    esac
+  fi
+  if [ -n "${HOME:-}" ]; then
+    case "$root/" in
+      "${HOME%/}/.claude/"*)
+        echo "codex-ask: --collect root must be outside ~/.claude (config dir, not scratch space)" >&2
+        exit 2 ;;
+    esac
+  fi
   [ -d "$root" ] || {
     echo "codex-ask: --collect: no such directory: $root" >&2
     exit 2
@@ -274,6 +293,49 @@ resolve_scratchpad() {
   fi
   printf '%s' "$out" | head -1
 }
+
+# mint_scratch <prefix> — mint a fresh scratch dir where a no--s run would land:
+# the harness session scratchpad when one is exposed, else a $TMPDIR mktemp. Only
+# probe when the harness exposes a session id; any miss (no id, no tool, timeout,
+# empty/non-dir output) falls through silently to mktemp.
+mint_scratch() {
+  local d="" sp
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    sp=$(resolve_scratchpad)
+    case "$sp" in
+      /*) [ -d "$sp" ] && d=$(mktemp -d "$sp/$1.XXXXXX") ;;
+    esac
+  fi
+  [ -n "$d" ] || d=$(mktemp -d "$TMPDIR/$1.XXXXXX") || return 1
+  printf '%s\n' "$d"
+}
+
+# --mint-root [LANE ...]: mint a fan-out root (and one lane dir per LANE) where a
+# no--s ask would land, print ROOT:/LANE: lines. Needs mint_scratch →
+# resolve_scratchpad, hence its placement after both.
+if [ "${1:-}" = "--mint-root" ]; then
+  shift
+  for lane in "$@"; do
+    case "$lane" in
+      '' | .* | -* | */* | *$'\n'*)
+        echo "codex-ask: --mint-root lanes must be plain path segments (no /, newlines, empty, or leading . or -): $lane" >&2
+        exit 2 ;;
+    esac
+  done
+  # -f/-i: case-insensitive filesystems collapse review/Review into one lane dir
+  dup=$(printf '%s\n' "$@" | sort -f | uniq -di)
+  [ -z "$dup" ] || { echo "codex-ask: --mint-root got duplicate lane names: $dup" >&2; exit 2; }
+  ROOT=$(mint_scratch codex-root) || exit 1
+  for lane in "$@"; do
+    mkdir -p "$ROOT/$lane" || { rm -rf "$ROOT"; exit 1; }
+  done
+  # all-or-nothing: nothing prints until the whole roster exists
+  printf 'ROOT: %s\n' "$ROOT"
+  for lane in "$@"; do
+    printf 'LANE: %s\n' "$ROOT/$lane"
+  done
+  exit 0
+fi
 
 MODEL=gpt-5.6-sol
 EFFORT=xhigh
@@ -349,19 +411,18 @@ if [ -n "$SCRATCH" ]; then
         ;;
     esac
   fi
+  if [ -n "${HOME:-}" ]; then
+    case "$SCRATCH/" in
+      "${HOME%/}/.claude/"*)
+        echo "codex-ask: --scratch must be outside ~/.claude (config dir, not scratch space); omit -s or use --mint-root" >&2
+        exit 2
+        ;;
+    esac
+  fi
   mkdir -p "$SCRATCH" || exit 2
   S=$SCRATCH
 else
-  S=""
-  # Only probe when the harness exposes a session id; any miss (no id, no tool,
-  # timeout, empty/non-dir output) falls through silently to mktemp.
-  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-    sp=$(resolve_scratchpad)
-    case "$sp" in
-      /*) [ -d "$sp" ] && S=$(mktemp -d "$sp/codex-ask.XXXXXX") ;;
-    esac
-  fi
-  [ -n "$S" ] || S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX") || exit 1
+  S=$(mint_scratch codex-ask) || exit 1
 fi
 Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
 LOG="$Q.log"

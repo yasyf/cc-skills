@@ -138,9 +138,14 @@ any narration exists. Drive a codex fan-out off that record, not off what the
 agents say:
 
 1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
-   `ROOT=$(mktemp -d "$TMPDIR/wf-XXXXXX")` and `mkdir -p`s one lane dir per
-   agent (a lane that never runs must be a *visible* `no-run`, not absent).
-   Pass the lane dirs through the workflow `args`.
+   `ROOT=$(codex-ask --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
+   (lane paths: `sed -n 's/^LANE: //p'`; the `sed` masks a mint failure, so
+   guard `[ -n "$ROOT" ]` before use) — the root lands where a plain ask
+   would (session scratchpad, else `$TMPDIR`) with one lane dir pre-created
+   per agent (a lane that never runs must be a *visible* `no-run`, not
+   absent). Never hand-mint scratch — no repo-relative dirs, no
+   `.claude/scratch`, no `~/.claude`. Pass the lane dirs through the
+   workflow `args`.
 2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
    `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir.
 3. **End with a collect stage.** The last deterministic step runs
@@ -192,7 +197,8 @@ precision beats volume. Every question carries:
 Pipe the question through `codex-ask`. The script handles the mechanics
 that used to be recipe steps: it resolves an absolute scratch directory
 outside the repo (adopting the harness-provided one when the session has it,
-a fresh `mktemp -d` otherwise), prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:`
+a fresh `mktemp -d` otherwise — a plain call needs no `-s`, and never a
+hand-picked path), prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:`
 lines up front, runs the pinned exec detached from the calling shell,
 redirects the JSONL event stream (banner, echoed prompt, progress trace)
 into the log, and blocks until the reply is complete — plus a log tail on
@@ -370,7 +376,8 @@ runs inline and this cannot happen: run `claude plugin update codex@skills`.
 appeared inside the repo**: a hand-rolled `codex exec` used fixed,
 `$$`-suffixed, or repo-relative paths. `codex-ask` mktemps fresh absolute
 paths per call, so neither can happen through it — route the call through
-the script.
+the script, and mint fan-out roots with `codex-ask --mint-root`, never a
+hand-picked `.claude/scratch`.
 
 **Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). `codex-ask` pins `-c service_tier=fast`, so a call dragging past a few minutes means the question is unbounded — broad open-ended prompts are the usual cause.
 
