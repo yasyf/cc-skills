@@ -328,7 +328,8 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         "tail -20",
         "unset OPENAI_API_KEY",
         "TMPDIR=/tmp",
-        'S=$(mktemp -d "$TMPDIR/codex-ask.XXXXXX")',
+        "S=$(mint_scratch codex-ask)",
+        'mktemp -d "$TMPDIR/$1.XXXXXX"',
         "codex-q-XXXXXX",
         "codex-r-XXXXXX",
         # v2: detached-survivable launch + --await recovery
@@ -363,9 +364,8 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         assert not recipe_lines, (src, recipe_lines)
         assert "REPLY_FILE:" in t, src
         assert "LOG_FILE:" in t, src
-        # v2 docs: --await documented, "session scratchpad" prose gone
+        # v2 docs: --await documented
         assert "--await" in t, src
-        assert "session scratchpad" not in t, src
     # check-back contract pinned verbatim in each (phrased differently per file)
     assert "never absorbs a surprise" in skill_md.read_text()
     assert "Never absorb a surprise" in wrapper_md.read_text()

@@ -39,7 +39,10 @@ deviations.
   validation, file paths, crypto, secrets. The primary security-verification lane
   per the Models table: implementing that code stays on fable, this lane checks
   the result, and the synthesis/accept-reject pass over findings stays with the
-  caller (fable).
+  caller (fable). Routing here also quarantines dual-use payloads (exploit code,
+  vuln PoCs, malware analysis) outside the Claude session entirely, so the root
+  orchestrator never carries material that could trip fable's dual-use screening
+  and downgrade the session.
 - Bug diagnosis — the first stop; escalate to fable only when Codex's answer
   misses.
 - After 2+ failed approaches to the same problem

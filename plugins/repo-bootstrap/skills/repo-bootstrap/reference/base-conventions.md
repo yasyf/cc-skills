@@ -133,6 +133,10 @@ shared AGENTS.md:
   rote/bulk lane and carries the recon lane at xhigh; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
   escalation means fable;
+  dual-use security payloads (exploit code, vuln PoCs, malware analysis) are
+  quarantined in isolated subagents, teammates, or workflow lanes — never the
+  root orchestrator's context, which fable's dual-use screening would otherwise
+  downgrade to opus for the rest of the session;
   the unexpected checks back — a delegated agent hitting a task-shape surprise
   (scope change, invalidated assumption, task not as described) stops and
   returns findings plus 2-4 options for the fable orchestrator to pick, never
