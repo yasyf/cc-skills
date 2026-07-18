@@ -1,8 +1,3 @@
-name = "show"
-version = "0.1.0"
-description = "Nudge the agent onto a purpose-built surface — Artifact, cc-present, or AskUserQuestion — when it dumps a large structured deliverable as a wall of chat text or a file."
-hooks = "."
-
 [pack]
 name = "show"
 version = "0.1.0"
