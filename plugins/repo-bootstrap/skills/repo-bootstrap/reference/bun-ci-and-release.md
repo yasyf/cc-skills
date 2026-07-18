@@ -66,11 +66,17 @@ macOS.
 **Signing** is the native codesign + notarytool path on the darwin legs. With
 the `MACOS_*` secrets absent the release ships unsigned with a warning; the
 cask postflight strips the quarantine xattr so an unsigned binary still runs
-after `brew install`. One bun-specific wrinkle: hardened-runtime notarization
-can break a JIT runtime. If the signed binary dies at launch where an unsigned
-build ran, pass `entitlements:` pointing at a plist that grants
-`com.apple.security.cs.allow-jit` — the workflow exports it to
-`macos-codesign.sh` on the darwin legs.
+after `brew install`. Signed builds get bun's documented codesign entitlements
+by default (allow-jit, allow-unsigned-executable-memory,
+disable-executable-page-protection, allow-dyld-environment-variables,
+disable-library-validation); `entitlements:` replaces the whole set with a
+repo-owned plist. disable-library-validation is the load-bearing one: a
+compiled bun binary extracts its embedded native dylibs (OpenTUI et al.) to
+`$TMPDIR` and dlopens them, and hardened-runtime library validation rejects
+any dylib not signed with the process's Team ID — without it the binary
+launches but dies the moment the native dep loads. The darwin legs also re-run
+`smoke-command` against the signed binary, so a signing-induced break fails
+the release instead of shipping.
 
 **Versioning the binary:** bun inlines a `package.json` import at compile
 time, so a `--version` fast-path reading the imported `version` field costs
