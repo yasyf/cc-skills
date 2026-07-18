@@ -61,5 +61,6 @@
       "source": "./plugins/show",
       "description": "Choose the right surface before delivering to the human — prose, AskUserQuestion, a static Artifact page, or a live cc-present board — with a wall-of-text nudge that flags structured deliverables dumped as chat text."
     }
-  ]
+  ],
+  "allowCrossMarketplaceDependenciesOn": ["captain-hook"]
 }
