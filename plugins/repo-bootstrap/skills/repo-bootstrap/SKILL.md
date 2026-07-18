@@ -346,7 +346,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.claude/fragments/.claude/settings.json/` → `.claude/settings.json` | base; python/go/swift **override** | a rendered artifact composed by cc-guides: `cc-skills:settings-base` (hooks-free — hook registration comes from the captain-hook plugin, not settings; disables the built-in `Artifact` tool (`disableArtifact: true`); registers the `yasyf/cc-skills`, `yasyf/cc-notes`, `yasyf/cc-context` marketplaces; enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@cc-context`, `cc-notes@cc-notes`) deep-merged with the layer variant (`settings-go` adds `go`/`task` perms; `settings-python` adds `uv` perms + ty env; `settings-swift` adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint`) and a placeholder-free `{}` `settings-overrides.fragment.json` for repo-specific overrides. The pack fragments live in `cc-skills` `plugin/guides/json/`; edit them there, not in the scaffolded repo |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/hooks/packs.toml` | base; python/go/swift **override** | enables capt-hook's builtin packs — `general` (base), `fixes` (workarounds for upstream Claude Code issues), and `steering` (judgment nudges: band-aid plans, dismissed pre-existing issues, trivial type noise), plus `python` on the python layer or `go` on the go layer (no swift pack exists — the swift layers enable general + fixes + steering only); each pack ships its guard hooks (see `reference/hooks.md`). Also pins the `ccx` guard pack (`github:yasyf/cc-context@latest`) and the `cc-present` guard pack (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool); repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. |
+| `.claude/fragments/.claude/capt-hook.toml/` → `.claude/capt-hook.toml` | base; python/go/swift **override** | a cc-guides-rendered artifact enabling capt-hook's builtin packs, composed from the shared `cc-skills:capt-hook-*` fragments: `capt-hook-base` (`general` base hooks, `fixes` upstream-issue workarounds, `steering` judgment nudges — band-aid plans, dismissed pre-existing issues, trivial type noise), plus `capt-hook-python` on the python layer or `capt-hook-go` on the go layer (no swift pack exists — the swift layers get base only); each pack ships its guard hooks (see `reference/hooks.md`). Also imports the `capt-hook-ccx` (`github:yasyf/cc-context@latest`) and `capt-hook-cc-present` (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool) guard pins; repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. The legacy `.claude/hooks/packs.toml` is gone — capt-hook 10.x never reads it. |
 | `.claude/hooks/STYLEGUIDE.md` | base | the Python style guide for the repo's `.claude/hooks/` capt-hook hooks; ships in every scaffold (hooks are Python whatever the primary language), with a `## Hook Style` AGENTS.md pointer |
 | `<SECONDARY_CODE_ROOT>/STYLEGUIDE.md` | `--secondary-layer python` | a Python style guide beside a secondary language's code (never at the root), with a `## Python Style` AGENTS.md pointer; only present when `--secondary-layer` is set |
 | `.claude/skills/xcodebuildmcp-cli/SKILL.md` | swift, swift-app | the vendored XcodeBuildMCP project skill (help-first CLI discovery); AGENTS.md mandates it before any XcodeBuildMCP call |
@@ -517,16 +517,18 @@ Then, optionally, publish and wire one-time setups:
 - *(when `cc-notes` is installed: `command -v cc-notes`)* run `cc-notes init` to adopt the
   git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs (which target `origin`),
   records the `[packs.cc-notes]` entry (`source = github:yasyf/cc-notes@latest`) in
-  `.claude/hooks/packs.toml`, and installs the reconcile CI workflow under `.github/`. capt-hook
-  auto-fetches the declared pack on the next hook event. The pack's nudges gate on the `cc-notes`
-  binary being on PATH, so adoption is **conditional** — never declare `[packs.cc-notes]` in a
-  template's `packs.toml`. If `cc-notes` isn't installed, skip `init` and mention it as an optional
+  `.claude/capt-hook.toml` — in a cc-guides-managed repo, durably as the `cc-skills:capt-hook-cc-notes`
+  import in the `.claude/capt-hook.toml` layout so the next render keeps it — and installs the
+  reconcile CI workflow under `.github/`. capt-hook auto-fetches the declared pack on the next hook
+  event. The pack's nudges gate on the `cc-notes` binary being on PATH, so adoption is
+  **conditional** — never import `cc-skills:capt-hook-cc-notes` in the bootstrap `.claude/capt-hook.toml`
+  layout. If `cc-notes` isn't installed, skip `init` and mention it as an optional
   add-on (install the binary, then `cc-notes init`); the cc-notes plugin is already registered by
   the `.claude/settings.json` template, so the repo gets the `using-cc-notes` skill even without the
   binary. See `reference/hooks.md`.
 - Commit and push what the two steps above wrote: `chore: arm session reviewer and cc-notes`
   covering the `.claude/settings.json` plugin registration (and, when cc-notes ran, the
-  `refs/cc-notes/*` refspecs, `packs.toml` entry, and reconcile CI), then `git push`. For an
+  `refs/cc-notes/*` refspecs, `.claude/capt-hook.toml` entry, and reconcile CI), then `git push`. For an
   **unpublished** repo, skip all three steps — the reviewer and cc-notes sync have no `origin` to
   target; adopt them later once you publish.
 - *(any layer)* if `reposync` is installed locally (`command -v reposync`), register the
@@ -623,8 +625,9 @@ explicitly deferred with the user).
   default) scaffolds no license at all; when retrofitting with `none`, delete any
   existing LICENSE by hand — the scaffold never deletes, and `verify --no-license`
   fails while it remains.
-- **No capt-hook hooks wanted**: delete `.claude/hooks/packs.toml` (or `.claude/hooks/`
-  entirely) and set `"captain-hook@captain-hook": false` under `enabledPlugins` in
+- **No capt-hook hooks wanted**: delete the `.claude/fragments/.claude/capt-hook.toml/` layout dir
+  and the rendered `.claude/capt-hook.toml` (or `.claude/hooks/` entirely) and set
+  `"captain-hook@captain-hook": false` under `enabledPlugins` in
   `settings-overrides.fragment.json` (then re-run `cc-guides render`).
 - **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
   `uvx prek install`). If you already ran `uvx prek install`, also run

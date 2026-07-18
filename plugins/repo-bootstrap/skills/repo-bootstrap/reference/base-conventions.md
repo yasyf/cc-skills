@@ -319,8 +319,8 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
   `prompts.py` and `docs.py`).
 - No `"hooks"` key: `.claude/settings.json` carries no hook wiring. Hook dispatch
   is registered globally by the captain-hook plugin; which hooks fire per repo is
-  selected by the packs enabled in `.claude/hooks/packs.toml` (see
-  `reference/hooks.md`). Project-local rules still live in `.claude/hooks/*.py`,
+  selected by the packs enabled in `.claude/capt-hook.toml` (a cc-guides-rendered
+  artifact; see `reference/hooks.md`). Project-local rules still live in `.claude/hooks/*.py`,
   each carrying inline `tests = {...}` runnable with `uvx capt-hook test`.
 
 **settings.local.json pattern**: `.claude/settings.local.json` is gitignored

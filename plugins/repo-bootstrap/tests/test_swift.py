@@ -31,8 +31,8 @@ def _real_plan(layer, var_pairs, *, features=None):
 
 # --- selection matrix ---
 
-# AGENTS.md, CLAUDE.md, .claude/settings.json, and .mcp.json scaffold as cc-guides layout dirs
-# (layout.toml + repo-local *.fragment.* pieces); shared across every layer.
+# AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and .claude/capt-hook.toml scaffold as
+# cc-guides layout dirs (layout.toml + repo-local *.fragment.* pieces); shared across every layer.
 FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
@@ -43,11 +43,12 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/.claude/capt-hook.toml/layout.toml",
 }
 
 SWIFT_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -60,7 +61,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
 
 SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE",
@@ -119,7 +120,10 @@ def test_swift_overrides_base_for_shared_dest(swift_var_pairs):
         items[".claude/fragments/.mcp.json/layout.toml"].src
         == "swift/claude/fragments/mcp.json/layout.toml"
     )
-    assert items[".claude/hooks/packs.toml"].src == "swift/claude/hooks/packs.toml"
+    assert (
+        items[".claude/fragments/.claude/capt-hook.toml/layout.toml"].src
+        == "swift/claude/fragments/capt-hook.toml/layout.toml"
+    )
 
 
 def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
@@ -129,7 +133,7 @@ def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
     items = {item.dest: item for item in scaffold.select_files(r)}
     for dest in ("STYLEGUIDE.md", ".claude/fragments/.mcp.json/layout.toml",
                  ".claude/fragments/.claude/settings.json/layout.toml",
-                 ".claude/hooks/packs.toml", ".swiftformat", ".swiftlint.yml",
+                 ".claude/fragments/.claude/capt-hook.toml/layout.toml", ".swiftformat", ".swiftlint.yml",
                  ".pre-commit-config.yaml", ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
         assert items[dest].src.startswith("swift/"), f"{dest} forked from {items[dest].src}"
     # AGENTS prose is app-specific, so swift-app ships its own AGENTS layout dir
@@ -347,14 +351,17 @@ def test_swift_release_workflow_uses_reusable_workflow(swift_var_pairs):
     assert "with:" not in release
 
 
-def test_swift_packs_toml_no_swift_pack(templates_dir):
-    swift_packs = (templates_dir / "swift/claude/hooks/packs.toml").read_text()
-    assert "[packs.fixes]" in swift_packs
-    assert "[packs.general]" in swift_packs
-    assert "[packs.steering]" in swift_packs
-    assert "[packs.swift]" not in swift_packs
-    assert "[packs.ccx]" in swift_packs  # ccx + cc-present pin repo-scoped now, alongside the plugin attach
-    assert "[packs.cc-present]" in swift_packs
+def test_swift_capt_hook_layout_no_swift_pack(templates_dir):
+    layout = tomllib.loads((templates_dir / "swift/claude/fragments/capt-hook.toml/layout.toml").read_text())
+    fragments = layout["fragments"]
+    # capt-hook-base carries fixes/general/steering; no swift language pack exists.
+    assert "cc-skills:capt-hook-base" in fragments
+    assert "cc-skills:capt-hook-swift" not in fragments
+    assert "cc-skills:capt-hook-python" not in fragments
+    assert "cc-skills:capt-hook-go" not in fragments
+    # ccx + cc-present guard pins ship on every layer, alongside the plugin attach.
+    assert "cc-skills:capt-hook-ccx" in fragments
+    assert "cc-skills:capt-hook-cc-present" in fragments
 
 
 def test_swift_mcp_layout_imports_swift_variant(swift_var_pairs, swift_app_var_pairs):

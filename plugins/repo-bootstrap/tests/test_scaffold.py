@@ -33,9 +33,9 @@ def dests(layer, var_pairs, *, extras=None, features=None, secondary_layer=None)
 
 # --- selection matrix ---
 
-# AGENTS.md, CLAUDE.md, .claude/settings.json, and .mcp.json scaffold as cc-guides layout
-# dirs (a layout.toml + repo-local *.fragment.* pieces); `cc-guides render` composes
-# the artifacts post-write. Shared across every layer (PROJECT_NAME=demo-proj).
+# AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and .claude/capt-hook.toml scaffold
+# as cc-guides layout dirs (a layout.toml + repo-local *.fragment.* pieces); `cc-guides render`
+# composes the artifacts post-write. Shared across every layer (PROJECT_NAME=demo-proj).
 FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
@@ -46,12 +46,12 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/.claude/capt-hook.toml/layout.toml",  # capt-hook pack enablement layout
 }
 
 BASE_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".claude/jj-config.toml",
-    ".claude/hooks/packs.toml",  # capt-hook packs manifest, replaces vendored hook .py files
     ".claude/hooks/STYLEGUIDE.md",  # always-shipped capt-hook Python style guide
     ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
     ".gitignore", "LICENSE",
@@ -109,7 +109,7 @@ def test_python_no_features_drops_all_gated(py_var_pairs):
 
 GO_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
-    ".claude/jj-config.toml", ".claude/hooks/packs.toml", ".claude/hooks/STYLEGUIDE.md",
+    ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
     ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
@@ -154,7 +154,10 @@ def test_go_overrides_base_for_shared_dest(go_var_pairs):
     )
     assert items["README.md"].src == "go/README.md"
     assert items["STYLEGUIDE.md"].src == "go/STYLEGUIDE.md"
-    assert items[".claude/hooks/packs.toml"].src == "go/claude/hooks/packs.toml"
+    assert (
+        items[".claude/fragments/.claude/capt-hook.toml/layout.toml"].src
+        == "go/claude/fragments/capt-hook.toml/layout.toml"
+    )
 
 
 def test_go_module_path_derived(go_var_pairs):
@@ -1626,18 +1629,23 @@ def test_real_templates_render_go(go_var_pairs):
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
 
 
-def test_packs_toml_pins_guard_packs(base_var_pairs, py_var_pairs, go_var_pairs, swift_var_pairs):
-    # Every layer's packs.toml pins the ccx and cc-present guard packs repo-scoped
-    # (alongside the plugins' session attach) so every contributor gets the guards.
+def test_capt_hook_layout_imports_guard_packs(base_var_pairs, py_var_pairs, go_var_pairs, swift_var_pairs):
+    # Every layer's capt-hook.toml layout imports the ccx and cc-present guard-pack fragments
+    # (which carry the repo-scoped @latest pins), alongside the base fixes/general/steering
+    # fragment, so every contributor gets the guards whether or not the plugins are attached.
     for layer, pairs in (
         ("base", base_var_pairs),
         ("python", py_var_pairs),
         ("go", go_var_pairs),
         ("swift", swift_var_pairs),
     ):
-        parsed = tomllib.loads(_real_plan(layer, pairs)[0][".claude/hooks/packs.toml"])
-        assert parsed["packs"]["ccx"]["source"] == "github:yasyf/cc-context@latest", f"{layer} ccx pin"
-        assert parsed["packs"]["cc-present"]["source"] == "github:yasyf/cc-present@latest", f"{layer} cc-present pin"
+        layout = tomllib.loads(
+            _real_plan(layer, pairs)[0][".claude/fragments/.claude/capt-hook.toml/layout.toml"]
+        )
+        assert "cc-skills:capt-hook-base" in layout["fragments"], f"{layer} base fragment"
+        assert "cc-skills:capt-hook-ccx" in layout["fragments"], f"{layer} ccx guard fragment"
+        assert "cc-skills:capt-hook-cc-present" in layout["fragments"], f"{layer} cc-present guard fragment"
+        assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main", f"{layer} source pin"
 
 
 def test_go_goreleaser_template_tokens_survive(go_var_pairs):

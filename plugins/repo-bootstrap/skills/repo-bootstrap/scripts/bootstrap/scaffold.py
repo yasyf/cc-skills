@@ -427,8 +427,8 @@ def template_exists(src: str) -> bool:
 
 def render_sources(target: Path, force: bool) -> None:
     """Compose every ``.claude/fragments/<target>/`` layout dir the scaffold wrote
-    (AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and the plugin installer)
-    into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
+    (AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, .claude/capt-hook.toml, and the
+    plugin installer) into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
     shared fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact.
     On a fresh scaffold the artifacts do not exist yet; retrofitting an existing repo
     needs ``force`` because cc-guides refuses to overwrite a JSON artifact its lock

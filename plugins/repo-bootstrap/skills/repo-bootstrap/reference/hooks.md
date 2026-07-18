@@ -14,9 +14,16 @@ no-op. `uvx` fetches capt-hook into a throwaway environment, so nothing is added
 `pyproject.toml` and there is zero install step. The hooks themselves ship inside capt-hook as
 builtin **packs** — `general` (the base-layer hooks), `fixes` (workarounds for upstream Claude
 Code issues), the language layer (`python` or `go`), and `steering` (judgment nudges) — which the
-scaffold enables through `.claude/hooks/packs.toml`, the sole per-repo control surface. A project
-can add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory — and you
-verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo root.
+scaffold enables through `.claude/capt-hook.toml`, the sole per-repo control surface. Since
+capt-hook 10.0.0 that file is a **cc-guides-rendered artifact**, composed from the
+`.claude/fragments/.claude/capt-hook.toml/` layout dir that imports the shared
+`cc-skills:capt-hook-*` fragments (`capt-hook-base` = fixes/general/steering, a `capt-hook-python`
+or `capt-hook-go` language pack, and the `capt-hook-ccx`/`capt-hook-cc-present` guard pins) — so
+you change enablement by editing the layout and re-rendering (`cc-guides render`), not the
+generated file. The legacy `.claude/hooks/packs.toml` is dead: capt-hook 10.x never reads it. A
+project can add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory —
+and you verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo
+root.
 
 ## The session reviewer
 
@@ -84,10 +91,11 @@ the CI ty step.
 These hooks ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), `fixes`
 (workarounds for upstream Claude Code issues), the language layer (`python` or `go`), and
 `steering` (judgment nudges) — enabled per repo through
-`.claude/hooks/packs.toml`. Their behavior is
+`.claude/capt-hook.toml`. Their behavior is
 unchanged; only the delivery moved from vendored `.py` files to packs, so the "tailor" and
 "remove" notes below route through the pack model: override a hook with a local
-`.claude/hooks/<name>.py`, or manage packs in `packs.toml` (see *Adding and removing rules*).
+`.claude/hooks/<name>.py`, or manage packs by editing the capt-hook.toml layout fragments and
+re-rendering (see *Adding and removing rules*).
 
 ### `commands` (general pack)
 
@@ -313,7 +321,8 @@ pack contract**: its only capt-hook hook is a SessionStart entry running
 `uvx --isolated capt-hook pack attach "${CLAUDE_PLUGIN_ROOT}"`, which registers the pack
 for the session; dispatch stays with the captain-hook plugin — the sole dispatcher — so a
 pack-shipping plugin never wires a `capt-hook run` entry. Scaffolded repos also
-pin it repo-scoped (`github:yasyf/cc-context@latest` in `.claude/hooks/packs.toml`), so
+pin it repo-scoped (`github:yasyf/cc-context@latest`, via the `cc-skills:capt-hook-ccx` fragment
+in the `.claude/capt-hook.toml` layout), so
 every contributor gets the guard whether or not they have the plugin enabled; the plugin
 attach covers repos that enable `cc-context@cc-context` but weren't scaffolded by
 repo-bootstrap.
@@ -338,8 +347,8 @@ skips a dependency a new release adds, so upgrading such a plugin means re-runni
 
 A repo-scoped pin beats the ambient attach (the same-name pack resolves to the pin and
 the attach is dropped), so the two never double-fire. To drop the guard entirely (a repo
-that wants raw `Read`/`Grep` back), remove the `[packs.ccx]` pin from
-`.claude/hooks/packs.toml`, set `"cc-context@cc-context": false` under `enabledPlugins` in
+that wants raw `Read`/`Grep` back), drop the `cc-skills:capt-hook-ccx` import from the
+`.claude/capt-hook.toml` layout, set `"cc-context@cc-context": false` under `enabledPlugins` in
 `settings-overrides.fragment.json`, re-render (`cc-guides render`), and replace the
 AGENTS.md Compact Context section with plain Code-Search guidance.
 
@@ -362,20 +371,23 @@ merges. Every nudge gates on the `CcNotesAvailable` condition — exactly the `c
 binary on PATH, with no `refs/cc-notes/*` check — so the pack is **silent on any
 machine without the binary**. Unlike the builtin `general`/`python`/`go` packs, it is
 an **external** pack tracking `@latest`: the per-repo opt-in is the `[packs.cc-notes]`
-entry's **presence** in `.claude/hooks/packs.toml`, which `cc-notes init` records (it
-also installs the `refs/cc-notes/*` refspecs and a reconcile CI workflow). capt-hook
+entry's **presence** in `.claude/capt-hook.toml`. In a cc-guides-managed repo that entry
+comes from the `cc-skills:capt-hook-cc-notes` import in the `.claude/capt-hook.toml` layout,
+added on adoption and re-rendered (mirroring cc-skills' own layout); `cc-notes init` also
+installs the `refs/cc-notes/*` refspecs and a reconcile CI workflow. capt-hook
 auto-fetches the declared pack on the next hook event, so there is no manual
 `uvx capt-hook pack update` after `init` or after a fresh clone.
 
 Because the pack is silent without the binary, adoption is **conditional on
 `cc-notes` being installed** — Phase 6 runs `cc-notes init` (after the repo is published, so its
-`refs/cc-notes/*` refspecs have an `origin` to target) only when `command -v cc-notes` resolves. **Never declare `[packs.cc-notes]` in a template's `packs.toml`**:
+`refs/cc-notes/*` refspecs have an `origin` to target) only when `command -v cc-notes` resolves.
+**Never import `cc-skills:capt-hook-cc-notes` in the bootstrap `.claude/capt-hook.toml` layout**:
 that would impose it on every bootstrapped repo, and capt-hook would auto-fetch the
 pack on the first hook event even for users who don't run cc-notes. The
 `.claude/settings.json` template registers the `cc-notes@cc-notes` plugin so the
 `using-cc-notes` skill loads on folder-trust regardless; the *pack* is the opt-in
-half, gated behind `cc-notes init`. To drop the nudges from an adopted repo, delete
-the `[packs.cc-notes]` entry from `packs.toml`.
+half, gated behind `cc-notes init`. To drop the nudges from an adopted repo, drop the
+`cc-skills:capt-hook-cc-notes` import from the layout and re-render.
 
 ### `toolchain` (python pack)
 
@@ -399,15 +411,18 @@ nonexistent section sends future agents on a dead-end lookup.
 
 ## Adding and removing rules
 
-The hooks ship as capt-hook packs, managed through `.claude/hooks/packs.toml` and the
-`uvx capt-hook pack` CLI:
+The hooks ship as capt-hook packs, managed through `.claude/capt-hook.toml` and the
+`uvx capt-hook pack` CLI. In a cc-guides-managed repo `.claude/capt-hook.toml` is a rendered
+artifact, so the **durable** change is to the `.claude/fragments/.claude/capt-hook.toml/` layout
+fragments (then `cc-guides render`) — a bare `pack add`/`remove` on the generated file
+self-reverts on the next cron render:
 
 - **List** the enabled packs with `uvx capt-hook pack list`.
 - **Add** a pack with `uvx capt-hook pack add <name>` — a builtin (`general`, `python`) or
   `github:owner/repo@ref` for a third-party pack; `uvx capt-hook pack update` refreshes the
   pinned ones.
 - **Drop** a whole pack's hooks with `uvx capt-hook pack remove <name>`, or delete its
-  `[packs.<name>]` entry from `packs.toml` by hand.
+  `[packs.<name>]` entry from `.claude/capt-hook.toml` by hand.
 
 To **change a pack hook's behavior**, add a local `.claude/hooks/<name>.py` that registers on
 the same event. Local modules load before packs, and dispatch returns on the first `allow` or
@@ -466,7 +481,7 @@ per-event `uv run` resolve (~55ms/event).
   if files were moved, pass `--hooks <dir>` to `capt-hook test` and other CLI commands so
   they find them.
 - **Changed a pack or plugin but nothing happened.** Claude Code reads hook registrations at
-  session start, so enabling a pack in `packs.toml` or toggling the captain-hook plugin needs a
+  session start, so enabling a pack in `.claude/capt-hook.toml` or toggling the captain-hook plugin needs a
   session restart to take effect. `.claude/settings.json` carries no hook wiring to edit — the
   registration lives in the captain-hook plugin.
 - **`stewardship.py` raises `spaCy model 'en_core_web_sm' is not installed`.** capt-hook

@@ -168,10 +168,10 @@ def test_end_to_end_python(tmp_path, features, license_id, cc_guides_stub):
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
-    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
-    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
-    # it to `general` so the hook-inline-test check runs against a released pack.
-    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+    # The rendered .claude/capt-hook.toml imports the ccx/cc-present guard pins, which stay
+    # unresolvable until those packs cut their GitHub releases. Overwrite it with just
+    # [packs.general] so the hook-inline-test check runs against a released builtin pack.
+    (tmp_path / ".claude" / "capt-hook.toml").write_text("[packs.general]\n")
 
     verify_flags = ["--no-license"] if license_id == "none" else []
     result = subprocess.run(
@@ -237,11 +237,11 @@ def test_end_to_end_go(tmp_path, cc_guides_stub):
     tidy = subprocess.run(["go", "mod", "tidy"], cwd=tmp_path, capture_output=True, text=True, env=env)
     assert tidy.returncode == 0, tidy.stdout + tidy.stderr
 
-    # The shipped packs.toml enables [packs.go], which only resolves once captain-hook
-    # ships that pack (Workstream B). Until then neutralize it to `general` so the
-    # hook-inline-test check runs against a released pack; the go-specific verify checks
-    # (vet / build / test -race / binary smoke) are what this test exercises.
-    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+    # The rendered .claude/capt-hook.toml enables [packs.go] plus the ccx/cc-present guard pins.
+    # Overwrite it with just [packs.general] so the hook-inline-test check runs against a released
+    # builtin pack; the go-specific verify checks (vet / build / test -race / binary smoke) are
+    # what this test exercises.
+    (tmp_path / ".claude" / "capt-hook.toml").write_text("[packs.general]\n")
 
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "go", "--target", str(tmp_path)],
@@ -278,11 +278,11 @@ def test_end_to_end_swift(tmp_path, cc_guides_stub):
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
-    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
-    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
-    # it to `general` so the hook-inline-test check runs against a released pack; verify runs
-    # the full sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
-    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+    # The rendered .claude/capt-hook.toml imports the ccx/cc-present guard pins, which stay
+    # unresolvable until those packs cut their GitHub releases. Overwrite it with just
+    # [packs.general] so the hook-inline-test check runs against a released builtin pack; verify
+    # runs the full sequence: build, test, format/lint (or NOTE), and the swift-run smoke.
+    (tmp_path / ".claude" / "capt-hook.toml").write_text("[packs.general]\n")
     result = subprocess.run(
         [sys.executable, str(BOOTSTRAP), "verify", "--layer", "swift", "--target", str(tmp_path)],
         capture_output=True, text=True, env=env,
@@ -311,10 +311,10 @@ def test_end_to_end_swift_app(tmp_path, cc_guides_stub):
     )
     assert scaffold.returncode == 0, scaffold.stdout + scaffold.stderr
 
-    # The shipped packs.toml pins [packs.cc-present] (github:yasyf/cc-present@latest), which
-    # stays unresolvable until cc-present cuts its v0.7.0 GitHub release. Until then neutralize
-    # it to `general` so the hook-inline-test check runs against a released pack.
-    (tmp_path / ".claude" / "hooks" / "packs.toml").write_text("[packs.general]\n")
+    # The rendered .claude/capt-hook.toml imports the ccx/cc-present guard pins, which stay
+    # unresolvable until those packs cut their GitHub releases. Overwrite it with just
+    # [packs.general] so the hook-inline-test check runs against a released builtin pack.
+    (tmp_path / ".claude" / "capt-hook.toml").write_text("[packs.general]\n")
 
     # The committed pbxproj must parse as a real project with both targets.
     listing = subprocess.run(
