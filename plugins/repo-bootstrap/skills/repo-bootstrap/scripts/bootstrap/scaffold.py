@@ -100,6 +100,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be 'pinned' or 'latest', got {value!r}")
         if kind == "code_root" and (not CODE_ROOT_RE.fullmatch(value) or {".", ".."} & set(value.split("/"))):
             raise ScaffoldError(f"{name} must be a repo-root-relative subdir like plugin/hooks, got {value!r}")
+        if kind == "launchd_mode" and value not in ("client-spawn", "launchagent"):
+            raise ScaffoldError(f"{name} must be 'client-spawn' or 'launchagent', got {value!r}")
     # Cross-var checks for the swift layers:
     # - SPM target names must be unique, and the executable target is named
     #   PROJECT_NAME while the library is MODULE_NAME — a collision fails
@@ -163,14 +165,26 @@ def resolve(
             raise ScaffoldError(f"--secondary-layer {secondary_layer} must differ from --layer {layer}")
     applicable = {f.name for f in FEATURES if layer in f.layers}
     features = [f for f in features if f in applicable]
+    # helper-app / widget are daemonkit sub-features: dropped without the daemon,
+    # and widget without the helper-app that hosts it (like an out-of-layer drop).
+    if "daemonkit" not in features:
+        features = [f for f in features if f not in ("helper-app", "widget")]
+    if "helper-app" not in features:
+        features = [f for f in features if f != "widget"]
 
     variables = parse_vars(var_pairs)
     validate_vars(variables, layer)
     if secondary_layer is not None and "SECONDARY_CODE_ROOT" not in variables:
         raise ScaffoldError("--secondary-layer requires --var SECONDARY_CODE_ROOT=<dir>")
+    if "daemonkit" in features and "LAUNCHD_MODE" not in variables:
+        raise ScaffoldError("--features daemonkit requires --var LAUNCHD_MODE=<client-spawn|launchagent>")
     variables = derive_vars(variables, now)
 
     enabled = {f.section for f in FEATURES if f.name in features}
+    # daemonkit picks the skew initiator from LAUNCHD_MODE: client-spawn wires
+    # Takeover + IdleExit, launchagent wires SkewWatch.
+    if "daemonkit" in features:
+        enabled.add("MODE_CLIENT_SPAWN" if variables["LAUNCHD_MODE"] == "client-spawn" else "MODE_LAUNCHD")
     # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.
     if variables["LICENSE_ID"] != "none":
         enabled.add("HAS_LICENSE")
@@ -392,6 +406,10 @@ def apply_plan(plan: dict[str, str], target: Path, force: bool, dry_run: bool) -
         if not dry_run:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
+            # A scaffolded shell script (scripts/test.sh) must be runnable as
+            # `scripts/test.sh …`; write_text alone leaves it non-executable.
+            if dest.endswith(".sh"):
+                path.chmod(0o755)
         print(f"{action}  {dest}")
     return 0
 

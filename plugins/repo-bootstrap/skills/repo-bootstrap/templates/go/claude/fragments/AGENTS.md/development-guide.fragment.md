@@ -7,11 +7,34 @@
 ```
 {{PROJECT_NAME}}/
 ├── cmd/{{PROJECT_NAME}}/   # main package — the CLI entry point
+{{#FEATURE_DAEMONKIT}}
+├── cmd/{{PROJECT_NAME}}d/  # the daemon binary (proc.CloseInheritedFDs is main's first call)
+{{/FEATURE_DAEMONKIT}}
 ├── internal/
 │   ├── cli/               # cobra command tree — TODO(bootstrap): name the commands
+{{#FEATURE_DAEMONKIT}}
+│   ├── daemon/            # serve loop, takeover / skew-watch, launchd service, lifeproto peer
+{{/FEATURE_DAEMONKIT}}
 │   ├── version/           # build version, stamped via -ldflags
 │   └── log/               # slog setup
+{{#FEATURE_DAEMONKIT}}
+├── scripts/test.sh        # RLIMIT_NPROC fork-bomb harness — the ONLY way to run the tests
+{{/FEATURE_DAEMONKIT}}
 ├── .github/               # GitHub Actions workflows
 ├── AGENTS.md              # This file — shared conventions
 └── README.md              # Project overview
 ```
+{{#FEATURE_DAEMONKIT}}
+
+## Daemon (daemonkit)
+
+`cmd/{{PROJECT_NAME}}d` is a detached daemon built on [daemonkit](https://github.com/yasyf/daemonkit). `proc.CloseInheritedFDs()` is main's literal first call; the version is stamped via `-ldflags -X {{MODULE_PATH}}/internal/daemon.buildVersion=vX.Y.Z` and dev builds fall back to `version.DevString`. `{{PROJECT_NAME}}d service install|uninstall|status` manages the launchd registration.
+
+**Never run bare `go test`** — `scripts/test.sh ./...` caps `RLIMIT_NPROC` so a `proc.Spawn` path that execs a test binary hits `EAGAIN` instead of fork-bombing the machine. CI routes through it too.
+
+daemonkit is unreleased; for local development point a `go.work` at your checkout instead of committing a `replace`:
+
+```bash
+go work init . /path/to/daemonkit   # untracked; never commit it
+```
+{{/FEATURE_DAEMONKIT}}

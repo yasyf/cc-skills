@@ -185,6 +185,17 @@ def _wheel_smoke() -> tuple[bool, str]:
         shutil.rmtree(".wheel-smoke", ignore_errors=True)
 
 
+def _go_test_cmd() -> list[str]:
+    """The race-suite command, routed through scripts/test.sh when the repo ships
+    it. That harness caps RLIMIT_NPROC so a daemonkit proc.Spawn path that execs a
+    test binary hits EAGAIN instead of fork-bombing the machine; bare `go test` is
+    that exact fork-bomb class, so it is used only when no harness is present."""
+    script = Path("scripts/test.sh")
+    if script.is_file():
+        return ["bash", str(script), "-race", "./..."]
+    return ["go", "test", "-race", "./..."]
+
+
 def _go_binary_smoke() -> tuple[bool, str]:
     """Build the first cmd/<name>/ binary to a temp dir and run it with --help.
 
@@ -293,8 +304,15 @@ def main(layer: str, target: str, no_license: bool) -> int:
         else:
             print("NOTE  golangci-lint not installed — skipping lint check (CI and the commit hook run it)")
         check("go build ./...", lambda: _run_cmd(["go", "build", "./..."]))
-        check("go test -race ./...", lambda: _run_cmd(["go", "test", "-race", "./..."]))
-        check("binary smoke test", _go_binary_smoke)
+        go_test = _go_test_cmd()
+        label = "scripts/test.sh -race ./..." if go_test[0] == "bash" else "go test -race ./..."
+        check(label, lambda: _run_cmd(go_test))
+        # The go library escape hatch (delete cmd/, expose packages at the module
+        # root) leaves no binary to smoke — NOTE-skip rather than FAIL.
+        if any(Path(p).is_dir() for p in glob.glob("cmd/*")):
+            check("binary smoke test", _go_binary_smoke)
+        else:
+            print("NOTE  no cmd/<name>/ binary (library repo — the go library escape hatch); skipping binary smoke test")
 
     if layer == "swift":
         check("swift build", lambda: _run_cmd(["swift", "build"]))

@@ -15,11 +15,23 @@ tasks:
     desc: Build the binary into ./bin
     cmds:
       - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{PROJECT_NAME}} ./cmd/{{PROJECT_NAME}}
+{{#FEATURE_DAEMONKIT}}
+
+  build:daemon:
+    desc: Build the {{PROJECT_NAME}}d daemon into ./bin
+    cmds:
+      - go build -trimpath -ldflags "-s -w -X {{MODULE_PATH}}/internal/daemon.buildVersion={{.VERSION}}" -o bin/{{PROJECT_NAME}}d ./cmd/{{PROJECT_NAME}}d
+{{/FEATURE_DAEMONKIT}}
 
   test:
     desc: Run the test suite with the race detector
     cmds:
+{{#FEATURE_DAEMONKIT}}
+      - ./scripts/test.sh -race -count=1 ./...
+{{/FEATURE_DAEMONKIT}}
+{{^FEATURE_DAEMONKIT}}
       - go test -race -count=1 ./...
+{{/FEATURE_DAEMONKIT}}
 
   vet:
     desc: Vet the module

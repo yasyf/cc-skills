@@ -125,10 +125,18 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   public, and Pages on a private repo needs a paid plan. A PyO3 native-extension repo
   also selects `maturin` (off by default; it builds per-platform wheels and requires `pypi`).
 - **Go additionally**: the Go toolchain version (`GO_VERSION`, e.g. `1.26`), and the
-  one **feature** as a `multiSelect` "Optional Go features" — `release` (goreleaser
-  build + a Homebrew cask pushed to `yasyf/homebrew-tap`). **Default unselected (off)**
-  regardless of visibility — release/distribution tooling is product work the user opts
-  into, and it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret.
+  **features** as a `multiSelect` "Optional Go features" — `release` (goreleaser
+  build + a Homebrew cask pushed to `yasyf/homebrew-tap`), `daemonkit` (a detached
+  daemon binary `cmd/<name>d` on `github.com/yasyf/daemonkit`), and daemonkit's
+  sub-features `helper-app` (wrap `<name>d` in a signed `.app` + cask) and `widget`
+  (a WidgetKit appex on that app). **All default unselected (off)** regardless of
+  visibility — release/distribution tooling is product work the user opts into, and
+  it needs the tap repo plus a `HOMEBREW_TAP_TOKEN` secret. When `daemonkit` is
+  selected, also ask the **launchd mode** (`LAUNCHD_MODE`, `client-spawn` for a
+  successor-initiated `Takeover` + `IdleExit` daemon or `launchagent` for an
+  incumbent-initiated `SkewWatch` daemon), **signed app y/n** (`helper-app`), and
+  **widget y/n** (`widget`, needs `helper-app`). `helper-app`/`widget` are dropped
+  silently without `daemonkit`.
 - **Swift additionally**: the library module name (`MODULE_NAME`, UpperCamelCase —
   default the UpperCamel of a multi-word project name; it **must differ from the
   project name beyond letter case** (case-insensitive filesystems merge the two
@@ -155,7 +163,9 @@ visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
 (python: `docs,pypi`, `docs`, or `pypi`, plus `maturin` for a native-extension repo;
-go and swift: `release`); deselect everything → `--features ""`. Omitting the flag
+go: `release` and/or `daemonkit`, plus `helper-app`/`widget` under daemonkit;
+swift: `release`); deselect everything → `--features ""`. A daemonkit scaffold also
+passes `--var LAUNCHD_MODE=<client-spawn|launchagent>`. Omitting the flag
 selects the layer's **on-by-default** features — fine for python (defaults to
 `docs,pypi`; `maturin` is opt-in and must be named), but for **go and swift always
 pass `--features` explicitly** (`release` when selected, else `""`), because release
@@ -213,6 +223,7 @@ bundle id suffix — no underscores).
 | `BREW_PACKAGE` | Fully-qualified brew formula or cask (extra `plugin`) | `yasyf/tap/ccx` |
 | `PLUGIN_NAME` | Plugin name, for the data-dir default (extra `plugin`) | `cc-context` |
 | `BINARY_VERSION_MODE` | `pinned` (plugin.json version; default) or `latest` (extra `plugin`) | `pinned` |
+| `LAUNCHD_MODE` | daemonkit skew initiator: `client-spawn` (Takeover) or `launchagent` (SkewWatch) (feature `daemonkit`) | `client-spawn` |
 
 Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`,
 `MODULE_PATH` (go: `github.com/<user>/<name>`), `BUNDLE_ID` (swift-app:
@@ -222,7 +233,8 @@ placeholder values.
 
 **Exit criteria:** layer and visibility chosen; names, license, and extras chosen;
 for python, the two features chosen and the dist name `check-name`d; for go,
-`GO_VERSION` and the `release` feature chosen; for swift, `MODULE_NAME` /
+`GO_VERSION` and the go features chosen (with `LAUNCHD_MODE` when `daemonkit` is);
+for swift, `MODULE_NAME` /
 `SWIFT_TOOLS_VERSION` and the `release` feature chosen; for swift-app,
 `MODULE_NAME` / `BUNDLE_ID_PREFIX` / `IOS_DEPLOYMENT_TARGET` chosen.
 
@@ -349,6 +361,8 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds the matrix and publishes a native Homebrew **cask** to `yasyf/homebrew-tap`; `release.yml` is a one-liner forwarding to the shared `release-go.yml@v1` reusable workflow (gates on `verify-tag-on-main`). A formula (services/deps) is a documented recipe, not scaffolded — see `reference/go-ci-and-release.md` |
+| `cmd/<name>d/main.go`, `internal/daemon/*.go`, `internal/daemon/protocol_test.go`, `scripts/test.sh` | go + feature `daemonkit` | a detached daemon on [daemonkit](https://github.com/yasyf/daemonkit) beside the base CLI: `proc.CloseInheritedFDs` is main's first call, paths + ldflags version + `version.DevString` dev builds, `Takeover` (`LAUNCHD_MODE=client-spawn`) or `SkewWatch` (`launchagent`), `service install/uninstall/status`, a lifeproto golden-bytes test, and the RLIMIT_NPROC fork-bomb harness (`scripts/test.sh` — the only way the tests run). daemonkit is unreleased: dev-wire a `go.work`, never a committed `replace` |
+| `.github/workflows/release-app.yml` | go + feature `helper-app` | caller forwarding to the shared `release-app.yml@v1` for a signed, notarized `.app` wrapping `<name>d` + a Homebrew cask; feature `widget` toggles its WidgetKit appex input. TODO: the `helper/` XcodeGen project renders from daemonkit's `templates/` (P4) — see `reference/go-ci-and-release.md` |
 | `.github/workflows/release.yml` | swift + feature `release` | a zero-config one-liner forwarding to the shared `release-swift.yml@swift-v1` reusable workflow (goreleaser can't build Swift): verify-tag-on-main, universal `swift build`, codesign + notarytool, GitHub release, synthesized binary cask to the tap. No goreleaser config, no cask template — see `reference/swift-ci-and-release.md` |
 | `Package.swift`, `Sources/<Module>/`, `Sources/<name>/`, `Tests/<Module>Tests/` | swift | logic-in-library + thin ArgumentParser executable (one `hello` subcommand + Swift Testing smoke tests); `Package.resolved` comes from `swift build` |
 | `<name>.xcodeproj/{project.pbxproj, xcshareddata/xcschemes/<name>.xcscheme}` | swift-app | the committed synced-folder project (objectVersion 77, fixed synthetic UUIDs) — **never regenerate it, never let Xcode "upgrade" it**; adding source files needs no project edit |

@@ -44,6 +44,13 @@ FEATURES = (
     # deliberately absent — requesting release there is silently dropped, which IS the
     # "apps have no brew release" behavior (App Store/TestFlight is product work).
     Feature("release", "FEATURE_RELEASE", layers=("go", "swift"), default=False),
+    # daemonkit (opt-in, go): scaffolds a detached-daemon binary (cmd/<name>d) on
+    # github.com/yasyf/daemonkit plus the scripts/test.sh fork-bomb harness.
+    Feature("daemonkit", "FEATURE_DAEMONKIT", layers=("go",), default=False),
+    # helper-app wraps <name>d in a signed .app + cask (release-app.yml); widget
+    # adds its appex. resolve drops both without daemonkit, widget without helper-app.
+    Feature("helper-app", "HELPER_APP", layers=("go",), default=False),
+    Feature("widget", "WIDGET", layers=("go",), default=False),
 )
 
 # Optional extra layers, selectable in any layer via --extras.
@@ -88,6 +95,9 @@ VARS = (
     # required_in is empty (a secondary layer is layer-independent); resolve() makes
     # it mandatory whenever --secondary-layer is set.
     VarSpec("SECONDARY_CODE_ROOT", (), validate="code_root"),
+    # daemonkit launchd mode: client-spawn (Takeover) or launchagent (SkewWatch).
+    # resolve() requires it with --features daemonkit and derives the MODE_* section.
+    VarSpec("LAUNCHD_MODE", (), validate="launchd_mode"),
 )
 
 DERIVED = (
@@ -318,6 +328,19 @@ FILES = (
     # reference/go-ci-and-release.md.
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
+    # daemonkit files (off by default). cmd/<name>d is a second binary beside the
+    # base cmd/<name> CLI; scripts/test.sh is mandatory wherever proc.Spawn lives.
+    FileSpec("cmd/{{PROJECT_NAME}}d/main.go", "go/cmd/daemon-main.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/root.go", "go/internal/daemon/root.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/serve.go", "go/internal/daemon/serve.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/peer.go", "go/internal/daemon/peer.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/version.go", "go/internal/daemon/version.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/service.go", "go/internal/daemon/service.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/protocol_test.go", "go/internal/daemon/protocol_test.go", "go", feature="daemonkit"),
+    FileSpec("scripts/test.sh", "go/scripts/test.sh", "go", feature="daemonkit"),
+    # the signed-.app helper release caller (helper-app feature); widget toggles
+    # its appex input via the {{#WIDGET}} section inside the file.
+    FileSpec(".github/workflows/release-app.yml", "go/github/workflows/release-app.yml", "go", feature="helper-app"),
     # --- swift layer (SPM package/CLI; overrides base where dest collides) ---
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "swift/claude/fragments/AGENTS.md/layout.toml", "swift"),
     FileSpec(
