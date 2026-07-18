@@ -156,9 +156,9 @@ mkdir -p "$DATA_DIR/bin"
 # still-executing inode alive.
 tmp="$(mktemp "$DATA_DIR/bin/.$NAME.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-curl -fsSL --retry 2 -o "$tmp" "$url"
+curl -fsSL --retry 2 --connect-timeout 10 --max-time 300 -o "$tmp" "$url"
 
-if ! sums="$(curl -fsSL --retry 2 "https://github.com/$REPO/releases/download/$TAG/checksums.txt")"; then
+if ! sums="$(curl -fsSL --retry 2 --connect-timeout 10 --max-time 60 "https://github.com/$REPO/releases/download/$TAG/checksums.txt")"; then
   echo "$NAME: could not fetch checksums.txt for $TAG" >&2
   exit 1
 fi
