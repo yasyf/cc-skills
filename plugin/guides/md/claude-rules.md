@@ -10,7 +10,7 @@ Non-trivial work flows `pending` → `in_progress` → `completed`: `TaskCreate`
 
 ## Durable Records (cc-notes)
 
-Durable knowledge routes through cc-notes, never loose markdown in the tree — via the MCP tools first, the `cc-notes` CLI only when no server is live: a decision or durable fact → `note_add`; living guidance with a `when` read-trigger → `doc_add`; an append-only chronology with artifacts → `log_add` / `log_append` (with `attach`); friction → `papercut`; a repeatable procedure → `runbook_add`; orient with `status`. Decision memos, gate verdicts, handoffs, and status write-ups are notes/docs — not `*-memo.md` files committed alongside results. The tree carries only published docs and source.
+Durable knowledge routes through cc-notes, never loose markdown in the tree — via the MCP tools first, the `cc-notes` CLI only when no server is live: work that outlives the session or crosses agents → `task_add` (acceptance criteria included; `backlog: true` for shared work); a decision or durable fact → `note_add`; living guidance with a `when` read-trigger → `doc_add`; an append-only chronology with artifacts → `log_add` / `log_append` (with `attach`); friction → `papercut`; a falsifiable debugging suspicion → `investigation_open`, its arc carried through findings, `root_cause`, `fix`, and a closing verdict; a repeatable procedure → `runbook_add`; orient with `status`. Decision memos, gate verdicts, handoffs, and status write-ups are notes/docs — not `*-memo.md` files committed alongside results. The tree carries only published docs and source.
 
 ## Plan Execution & Orchestration
 
