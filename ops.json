@@ -1,1 +1,1 @@
-{"v":1,"lamport":2,"ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"dir","value":"plugins/codex"},"oid":"e02315e243189f5d2cf63a3e41795a023fdb723a"}],"verified_commit":"18aff7b3534fc2efe54c5887a6ecf14f05cc28e0"}]}
+{"v":1,"lamport":3,"session":"262d9ff1-0e13-45dc-a7c4-01fa5895cf5c","ops":[{"kind":"add_superseded_by","id":"902ee3cdcd5ff122e4a791e144d6fb0ba6f5a988"}]}
