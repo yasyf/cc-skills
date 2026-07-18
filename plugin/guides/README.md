@@ -10,7 +10,7 @@ Five fragment kinds, one directory each:
 |-----------|----------|
 | `md/` | `AGENTS.md`/`CLAUDE.md` prose fragments: `ask-before-assuming`, `ccx`, `claude-rules`, `code-review-response`, `parallelize`, `version-control`, `writing-plans` |
 | `sh/` | `install-binary-latest.sh`, `install-binary-pinned.sh` |
-| `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`, deep-merged |
+| `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`/`settings-bun`, deep-merged |
 | `yml/` | Docs-site workflow pieces (`docs-build-*`, `docs-publish`, `great-docs-*`) and the prek `.pre-commit-config.yaml` pieces: `precommit-base` owns the `repos:` key and carries the `repo: builtin` hygiene hooks; `precommit-go`/`precommit-python`/`precommit-swift` continue the list and hold the centrally managed rev pins |
 | `toml/` | capt-hook pack enablement for `.claude/capt-hook.toml`: `capt-hook-base` (the fixes/general/steering builtins every repo runs), `capt-hook-python`/`capt-hook-go` language packs, and the external packs `capt-hook-cc-notes`/`capt-hook-cc-present`/`capt-hook-ccx`, each carrying its canonical `@latest` source pin |
 

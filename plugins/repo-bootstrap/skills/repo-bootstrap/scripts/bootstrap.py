@@ -33,7 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("scaffold", help="render templates into a repo")
     sc.add_argument("--target", type=Path, default=Path("."))
-    sc.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app"), default="base")
+    sc.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app", "bun"), default="base")
     sc.add_argument(
         "--secondary-layer",
         choices=SECONDARY_LAYERS,
@@ -55,7 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--dry-run", action="store_true")
 
     vf = sub.add_parser("verify", help="verify a scaffolded repo")
-    vf.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app"), default="base")
+    vf.add_argument("--layer", choices=("base", "python", "go", "swift", "swift-app", "bun"), default="base")
     vf.add_argument("--target", default=".")
     vf.add_argument("--no-license", action="store_true", help="license `none` was chosen: require LICENSE absent")
 

@@ -18,6 +18,7 @@ LAYERS = (
     Layer("go", implies=("base",)),
     Layer("swift", implies=("base",)),
     Layer("swift-app", implies=("base",)),
+    Layer("bun", implies=("base",)),
 )
 LAYER_ORDER = tuple(layer.name for layer in LAYERS)
 
@@ -40,10 +41,11 @@ FEATURES = (
     Feature("maturin", "FEATURE_MATURIN", layers=("python",), default=False),
     # release is opt-in too: an omitted `--features` must not scaffold a release pipeline
     # (SKILL Phase 1 promises "release defaults off"). default=False makes that honest.
-    # It spans go (goreleaser cask) and swift (release-swift.yml cask); swift-app is
+    # It spans go (goreleaser cask), swift (release-swift.yml cask), and bun
+    # (release-bun.yml cask — a native-runner bun --compile matrix); swift-app is
     # deliberately absent — requesting release there is silently dropped, which IS the
     # "apps have no brew release" behavior (App Store/TestFlight is product work).
-    Feature("release", "FEATURE_RELEASE", layers=("go", "swift"), default=False),
+    Feature("release", "FEATURE_RELEASE", layers=("go", "swift", "bun"), default=False),
     # daemonkit (opt-in, go): scaffolds a detached-daemon binary (cmd/<name>d) on
     # github.com/yasyf/daemonkit plus the scripts/test.sh fork-bomb harness.
     Feature("daemonkit", "FEATURE_DAEMONKIT", layers=("go",), default=False),
@@ -56,7 +58,7 @@ FEATURES = (
 # Optional extra layers, selectable in any layer via --extras.
 EXTRAS = ("superset", "env", "plugin")
 
-_ALL_LAYERS = ("base", "python", "go", "swift", "swift-app")
+_ALL_LAYERS = ("base", "python", "go", "swift", "swift-app", "bun")
 
 VARS = (
     VarSpec("PROJECT_NAME", _ALL_LAYERS),
@@ -79,6 +81,10 @@ VARS = (
     VarSpec("SWIFT_TOOLS_VERSION", ("swift",), validate="swift_tools_version"),
     VarSpec("BUNDLE_ID_PREFIX", ("swift-app",), validate="bundle_id_prefix"),
     VarSpec("IOS_DEPLOYMENT_TARGET", ("swift-app",), validate="ios_version"),
+    # The bun toolchain pin, written verbatim into `.bun-version` — setup-bun's
+    # `bun-version-file` and the release matrix both read it. Exact X.Y.Z: setup-bun
+    # downloads an exact version, never a range or `latest`.
+    VarSpec("BUN_VERSION", ("bun",), validate="bun_version"),
     # Tokens for the `plugin` extra's install-binary.sh (the canonical plugin
     # binary provisioner — see reference/go-ci-and-release.md § format: binary).
     # required_in is empty because extras are layer-independent; a missing token
@@ -472,6 +478,50 @@ FILES = (
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift-app"),
     FileSpec(".pre-commit-config.yaml", "swift/pre-commit-config.yaml", "swift-app"),
     FileSpec(".github/workflows/ci.yml", "swift-app/github/workflows/ci.yml", "swift-app"),
+    # --- bun layer (single-binary TypeScript CLI/TUI; overrides base where dest
+    # collides). No .mcp.json override (base's empty server map suffices — no bun MCP
+    # variant) and no .pre-commit-config.yaml (bun ships no swiftformat/ruff analogue). ---
+    FileSpec(".claude/fragments/AGENTS.md/layout.toml", "bun/claude/fragments/AGENTS.md/layout.toml", "bun"),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
+        "bun/claude/fragments/AGENTS.md/development-guide.fragment.md",
+        "bun",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-style.fragment.md",
+        "bun/claude/fragments/AGENTS.md/style.fragment.md",
+        "bun",
+    ),
+    FileSpec(
+        ".claude/fragments/AGENTS.md/releases.fragment.md",
+        "bun/claude/fragments/AGENTS.md/releases.fragment.md",
+        "bun",
+        feature="release",
+    ),
+    FileSpec(
+        ".claude/fragments/.claude/settings.json/layout.toml",
+        "bun/claude/fragments/settings.json/layout.toml",
+        "bun",
+    ),
+    # no bun capt-hook pack exists — the layout imports capt-hook-base + the guard pins only.
+    FileSpec(
+        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
+        "bun/claude/fragments/capt-hook.toml/layout.toml",
+        "bun",
+    ),
+    FileSpec("STYLEGUIDE.md", "bun/STYLEGUIDE.md", "bun"),
+    FileSpec("README.md", "bun/README.md", "bun"),
+    FileSpec("package.json", "bun/package.json", "bun"),
+    FileSpec("tsconfig.json", "bun/tsconfig.json", "bun"),
+    FileSpec(".bun-version", "bun/bun-version", "bun"),
+    FileSpec("src/index.ts", "bun/src/index.ts", "bun"),
+    FileSpec("tests/hello.test.ts", "bun/tests/hello.test.ts", "bun"),
+    FileSpec(".github/workflows/ci.yml", "bun/github/workflows/ci.yml", "bun"),
+    # feature-gated bun file (the release pipeline; off by default). One caller
+    # workflow forwarding to the shared release-bun.yml@bun-v1 reusable workflow
+    # (native-runner bun --compile matrix + codesign/notarytool + binary cask to the
+    # shared tap) — no goreleaser config; goreleaser has no bun builder.
+    FileSpec(".github/workflows/release.yml", "bun/github/workflows/release.yml", "bun", feature="release"),
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),

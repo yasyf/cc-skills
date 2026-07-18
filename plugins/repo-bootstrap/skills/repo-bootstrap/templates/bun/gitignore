@@ -1,0 +1,5 @@
+# Bun / node
+node_modules/
+
+# Compiled binaries
+dist/

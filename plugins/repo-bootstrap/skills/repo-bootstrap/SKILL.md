@@ -42,16 +42,17 @@ downstream as flags.
 ## Terminology
 
 - **Layer** — `base` (all repos), or one of `python`, `go`, `swift` (SPM package/CLI),
-  `swift-app` (Xcode iOS app) — each implies base.
+  `swift-app` (Xcode iOS app), `bun` (single-binary TypeScript CLI/TUI) — each implies base.
 - **Feature** — a layer-scoped opt-in toggled by `--features`. Python: `docs` (Great
   Docs site + Pages workflow), `pypi` (trusted-publishing release workflow), and the
   opt-in `maturin` (native PyO3 wheels — only meaningful with `pypi`, off unless named).
-  Go and Swift: `release` (go: goreleaser → shared Homebrew tap; swift: shared
-  release-swift.yml → universal-binary cask on the same tap). Not offered on
+  Go, Swift, and Bun: `release` (go: goreleaser → shared Homebrew tap; swift: shared
+  release-swift.yml → universal-binary cask; bun: shared release-bun.yml → native-runner
+  `bun --compile` matrix → binary cask on the same tap). Not offered on
   `swift-app` — requesting it there is silently dropped (App Store/TestFlight
   distribution is product work). A feature requested outside its layer
   is silently dropped. Each gates whole files and inline sections of shared files
-  (README, AGENTS, pyproject / goreleaser / the PyPI release caller).
+  (README, AGENTS, pyproject / goreleaser / the PyPI or release-bun caller).
 - **Template** — a file under `templates/`; only ever rendered by `bootstrap.py scaffold`, never hand-copied.
 - **Placeholder** — a `{{NAME}}` token in a template, rendered by `bootstrap.py scaffold` from `--var` inputs.
 - **Partial** — a `{{> _partials/<name>.md}}` token that inlines a README seed from `templates/_partials/` at scaffold time. The seed is render-only — it carries no `dest` and is never written to the target repo.
@@ -88,7 +89,8 @@ target is a git repo on `main` with a colocated jj repo (`.jj/`).
 **First decide the layer.** Apply the **python** layer for a Python project (uv / PyPI);
 apply the **go** layer for a Go CLI; apply the **swift** layer for a Swift CLI or
 library (SPM); apply the **swift-app** layer for a SwiftUI iOS app (Xcode project);
-otherwise scaffold base only. Base always applies. For an unsupported language,
+apply the **bun** layer for a TypeScript CLI or TUI that ships as a single compiled
+binary (bun toolchain); otherwise scaffold base only. Base always applies. For an unsupported language,
 scaffold base only, then hand-write a skeleton that
 mirrors the **shape** of a layered starter, not its substance: a minimal package/module
 layout, exactly **one** hello-world command that builds and runs, **one** smoke test, a
@@ -151,6 +153,14 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   test target's import), the reverse-DNS bundle prefix (`BUNDLE_ID_PREFIX`, default
   `com.<github-user>` — the bundle id derives as `<prefix>.<project>`), and the iOS
   floor (`IOS_DEPLOYMENT_TARGET`, default `26.0`). No features.
+- **Bun additionally**: the bun toolchain pin (`BUN_VERSION`, exact `X.Y.Z` such as
+  `1.3.14` — it becomes the `.bun-version` file that CI's setup-bun and the release
+  matrix both read; find the current release with `bun --version`), and the one
+  **feature** as a `multiSelect` "Optional Bun features" — `release` (a single
+  compiled binary per target, built on native runners (platform-native deps rule out cross-compiling),
+  signed and notarized when the `MACOS_*` secrets exist, published as a Homebrew cask
+  to `yasyf/homebrew-tap` via the shared `release-bun.yml@bun-v1`). **Default
+  unselected (off)**, same rationale as go/swift.
 
 Write `DESCRIPTION` in the writing-docs opener register — it becomes the README
 opener, the GitHub About description, the pyproject or module description, the
@@ -164,10 +174,10 @@ visibility" license answer becomes `LICENSE_ID=PolyForm-Noncommercial-1.0.0`
 **Feature → flag mapping:** each selected feature becomes one token in `--features`
 (python: `docs,pypi`, `docs`, or `pypi`, plus `maturin` for a native-extension repo;
 go: `release` and/or `daemonkit`, plus `helper-app`/`widget` under daemonkit;
-swift: `release`); deselect everything → `--features ""`. A daemonkit scaffold also
+swift: `release`; bun: `release`); deselect everything → `--features ""`. A daemonkit scaffold also
 passes `--var LAUNCHD_MODE=<client-spawn|launchagent>`. Omitting the flag
 selects the layer's **on-by-default** features — fine for python (defaults to
-`docs,pypi`; `maturin` is opt-in and must be named), but for **go and swift always
+`docs,pypi`; `maturin` is opt-in and must be named), but for **go, swift, and bun always
 pass `--features` explicitly** (`release` when selected, else `""`), because release
 defaults off. For swift-app pass `--features ""` — it offers none, and a requested
 `release` is silently dropped. Don't scaffold a docs site or release pipeline the
@@ -200,6 +210,11 @@ the module tests import; the app bundle and folders carry the project name, so a
 swift-app project name allows only alphanumerics and hyphens (it becomes the
 bundle id suffix — no underscores).
 
+**Naming rule (bun):** the binary and repo share the project name — no module split
+(the entry point is fixed at `src/index.ts`). With feature `release` the shared
+`release-bun.yml` compiles the binary named after the repo and packages a cask under
+that name; that plus the `.bun-version` pin is the whole calling contract.
+
 ### Placeholder reference
 
 | Var | Meaning | Example |
@@ -218,6 +233,7 @@ bundle id suffix — no underscores).
 | `SWIFT_TOOLS_VERSION` | Package.swift tools version (swift) | `6.2` |
 | `BUNDLE_ID_PREFIX` | Reverse-DNS prefix (swift-app) | `com.yasyf` |
 | `IOS_DEPLOYMENT_TARGET` | iOS floor (swift-app) | `26.0` |
+| `BUN_VERSION` | bun toolchain pin, exact `X.Y.Z` → `.bun-version` (bun) | `1.3.14` |
 | `BINARY_NAME` | Released binary the plugin provisions (extra `plugin`) | `ccx` |
 | `RELEASE_REPO` | GitHub repo that releases the binary (extra `plugin`) | `yasyf/cc-context` |
 | `BREW_PACKAGE` | Fully-qualified brew formula or cask (extra `plugin`) | `yasyf/tap/ccx` |
@@ -236,7 +252,8 @@ for python, the two features chosen and the dist name `check-name`d; for go,
 `GO_VERSION` and the go features chosen (with `LAUNCHD_MODE` when `daemonkit` is);
 for swift, `MODULE_NAME` /
 `SWIFT_TOOLS_VERSION` and the `release` feature chosen; for swift-app,
-`MODULE_NAME` / `BUNDLE_ID_PREFIX` / `IOS_DEPLOYMENT_TARGET` chosen.
+`MODULE_NAME` / `BUNDLE_ID_PREFIX` / `IOS_DEPLOYMENT_TARGET` chosen; for bun,
+`BUN_VERSION` and the `release` feature chosen.
 
 ## Phase 2 — Scaffold
 
@@ -281,9 +298,19 @@ $BOOTSTRAP scaffold \
   --var BUNDLE_ID_PREFIX=com.... --var IOS_DEPLOYMENT_TARGET=26.0
 ```
 
+For the **bun** layer (single-binary TypeScript CLI/TUI):
+
+```bash
+$BOOTSTRAP scaffold \
+  --target . --layer bun --extras none --features "" \
+  --var PROJECT_NAME=... --var "DESCRIPTION=..." \
+  --var "AUTHOR_NAME=..." --var AUTHOR_EMAIL=... --var GITHUB_USER=... \
+  --var LICENSE_ID=MIT --var BUN_VERSION=1.3.14
+```
+
 Set `--features` from Phase 1 — python: `docs,pypi` (both), `pypi`/`docs` (one), or
 `""` (neither; omitting the flag equals `docs,pypi` — `maturin` is opt-in, name it
-explicitly); go and swift: `release` or `""` — **always pass it explicitly** (release
+explicitly); go, swift, and bun: `release` or `""` — **always pass it explicitly** (release
 is off by default, so omitting selects no features); swift-app: `""`. For
 base layer, drop the language `--var`s and `--features`. `--extras` is always
 required; pass `--extras none` if none were chosen. To add a second language beside
@@ -329,6 +356,12 @@ For swift-app there is no generation step — **the committed pbxproj IS the pro
 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO`, then `uvx prek install`
 as above.
 
+For bun, follow the scaffold with `bun install` once — it resolves `@types/bun` +
+`typescript` and writes `bun.lock` (**commit it**, the go.sum/uv.lock analogue: CI runs
+`bun install --frozen-lockfile` and fails without it). Then `bun run typecheck` and
+`bun test`. There are no commit hooks (bun ships no formatter here), so no `uvx prek
+install` step.
+
 Two integrations are armed **after** the repo is published (Phase 6), because they
 need an `origin` remote: the **session reviewer** (`uvx capt-hook review enable`) and,
 when `cc-notes` is installed, **cc-notes** (`cc-notes init`). Do not run them here —
@@ -339,14 +372,14 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 
 | Destination | Layer | Notes |
 |---|---|---|
-| `.claude/fragments/AGENTS.md/` → `AGENTS.md`, plus `STYLEGUIDE.md`, `README.md` | base; python/go/swift/swift-app **override** | `AGENTS.md` composes from a layout dir: repo-local `<name>-development-guide` + `<name>-style` fragments around `cc-skills:` imports (ask-before-assuming, code-review-response, parallelize, writing-plans, ccx, version-control); the Releases rule ships as a `releases` fragment gated on pypi (python) / release (go, swift). Every README follows the writing-docs skeleton (`references/readme.md`); the language versions gate the get-started path, agent-block invocation, and docs teaser on `--features`; swift-app shares the swift `STYLEGUIDE.md` |
-| `.claude/fragments/CLAUDE.md/` → `CLAUDE.md`, plus `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` composes from the shared `cc-skills:claude-rules` import (no local fragment): body `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); the rules stay fleet-synced from `cc-skills` `plugin/guides/md/`; `.gitignore` gains python/go/swift entries when layered; `LICENSE` omitted with license `none` |
+| `.claude/fragments/AGENTS.md/` → `AGENTS.md`, plus `STYLEGUIDE.md`, `README.md` | base; python/go/swift/swift-app/bun **override** | `AGENTS.md` composes from a layout dir: repo-local `<name>-development-guide` + `<name>-style` fragments around `cc-skills:` imports (ask-before-assuming, code-review-response, parallelize, writing-plans, ccx, version-control); the Releases rule ships as a `releases` fragment gated on pypi (python) / release (go, swift, bun). Every README follows the writing-docs skeleton (`references/readme.md`); the language versions gate the get-started path, agent-block invocation, and docs teaser on `--features`; swift-app shares the swift `STYLEGUIDE.md` |
+| `.claude/fragments/CLAUDE.md/` → `CLAUDE.md`, plus `CHANGELOG.md`, `LICENSE`, `.gitignore` | base | `CLAUDE.md` composes from the shared `cc-skills:claude-rules` import (no local fragment): body `@AGENTS.md` plus Claude-only rules (AskUserQuestion, task tracking, plan execution & orchestration); the rules stay fleet-synced from `cc-skills` `plugin/guides/md/`; `.gitignore` gains python/go/swift/bun entries when layered; `LICENSE` omitted with license `none` |
 | `.github/workflows/guides.yml` | base | the cc-guides caller stub: `check` job (rendered-artifact freshness on push/PR) + `re-render` job (daily cron / repository_dispatch / manual). Copied verbatim from the [cc-guides](https://github.com/yasyf/cc-guides) repo; the machinery lives there |
 | `.mcp.json` | base; swift layers **override** | base ships empty `{"mcpServers":{}}` — code search ships via the `cc-context@cc-context` plugin (the `ccx` facade), not a per-project server. Both swift layers override it with the `xcodebuildmcp` server (`command: xcodebuildmcp, args: [mcp]`) — the sanctioned build/test/run/simulator driver |
-| `.claude/fragments/.claude/settings.json/` → `.claude/settings.json` | base; python/go/swift **override** | a rendered artifact composed by cc-guides: `cc-skills:settings-base` (hooks-free — hook registration comes from the captain-hook plugin, not settings; disables the built-in `Artifact` tool (`disableArtifact: true`); registers the `yasyf/cc-skills`, `yasyf/cc-notes`, `yasyf/cc-context` marketplaces; enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@cc-context`, `cc-notes@cc-notes`) deep-merged with the layer variant (`settings-go` adds `go`/`task` perms; `settings-python` adds `uv` perms + ty env; `settings-swift` adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint`) and a placeholder-free `{}` `settings-overrides.fragment.json` for repo-specific overrides. The pack fragments live in `cc-skills` `plugin/guides/json/`; edit them there, not in the scaffolded repo |
+| `.claude/fragments/.claude/settings.json/` → `.claude/settings.json` | base; python/go/swift/bun **override** | a rendered artifact composed by cc-guides: `cc-skills:settings-base` (hooks-free — hook registration comes from the captain-hook plugin, not settings; disables the built-in `Artifact` tool (`disableArtifact: true`); registers the `yasyf/cc-skills`, `yasyf/cc-notes`, `yasyf/cc-context` marketplaces; enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@cc-context`, `cc-notes@cc-notes`) deep-merged with the layer variant (`settings-go` adds `go`/`task` perms; `settings-python` adds `uv` perms + ty env; `settings-swift` adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint`; `settings-bun` adds `bun`/`bunx`/`tsc` perms) and a placeholder-free `{}` `settings-overrides.fragment.json` for repo-specific overrides. The pack fragments live in `cc-skills` `plugin/guides/json/`; edit them there, not in the scaffolded repo |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/fragments/.claude/capt-hook.toml/` → `.claude/capt-hook.toml` | base; python/go/swift **override** | a cc-guides-rendered artifact enabling capt-hook's builtin packs, composed from the shared `cc-skills:capt-hook-*` fragments: `capt-hook-base` (`general` base hooks, `fixes` upstream-issue workarounds, `steering` judgment nudges — band-aid plans, dismissed pre-existing issues, trivial type noise), plus `capt-hook-python` on the python layer or `capt-hook-go` on the go layer (no swift pack exists — the swift layers get base only); each pack ships its guard hooks (see `reference/hooks.md`). Also imports the `capt-hook-ccx` (`github:yasyf/cc-context@latest`) and `capt-hook-cc-present` (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool) guard pins; repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. The legacy `.claude/hooks/packs.toml` is gone — capt-hook 10.x never reads it. |
+| `.claude/fragments/.claude/capt-hook.toml/` → `.claude/capt-hook.toml` | base; python/go/swift/bun **override** | a cc-guides-rendered artifact enabling capt-hook's builtin packs, composed from the shared `cc-skills:capt-hook-*` fragments: `capt-hook-base` (`general` base hooks, `fixes` upstream-issue workarounds, `steering` judgment nudges — band-aid plans, dismissed pre-existing issues, trivial type noise), plus `capt-hook-python` on the python layer or `capt-hook-go` on the go layer (no swift or bun pack exists — those layers get base only); each pack ships its guard hooks (see `reference/hooks.md`). Also imports the `capt-hook-ccx` (`github:yasyf/cc-context@latest`) and `capt-hook-cc-present` (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool) guard pins; repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. The legacy `.claude/hooks/packs.toml` is gone — capt-hook 10.x never reads it. |
 | `.claude/hooks/STYLEGUIDE.md` | base | the Python style guide for the repo's `.claude/hooks/` capt-hook hooks; ships in every scaffold (hooks are Python whatever the primary language), with a `## Hook Style` AGENTS.md pointer |
 | `<SECONDARY_CODE_ROOT>/STYLEGUIDE.md` | `--secondary-layer python` | a Python style guide beside a secondary language's code (never at the root), with a `## Python Style` AGENTS.md pointer; only present when `--secondary-layer` is set |
 | `.claude/skills/xcodebuildmcp-cli/SKILL.md` | swift, swift-app | the vendored XcodeBuildMCP project skill (help-first CLI discovery); AGENTS.md mandates it before any XcodeBuildMCP call |
@@ -379,7 +412,9 @@ from their `.claude/fragments/` layout dirs);
 LICENSE present (or `MANUAL` line resolved, or license `none`); for python,
 `uv sync --extra dev` succeeded and `uv.lock` is committed; for go, `go mod tidy`
 succeeded and `go build ./...` passes (`go.sum` committed); for swift,
-`swift build` and `swift test` pass (`Package.resolved` committed); for swift-app,
+`swift build` and `swift test` pass (`Package.resolved` committed); for bun,
+`bun install` succeeded and `bun.lock` is committed (`bun run typecheck` + `bun test`
+pass); for swift-app,
 the `xcodebuild build … generic/platform=iOS Simulator` sanity build passes (or
 Xcode/the iOS platform is absent locally and CI owns it).
 
@@ -466,14 +501,14 @@ $BOOTSTRAP verify --layer python --target .
 ```
 
 Set `--layer go` for a go repo, `--layer swift` / `--layer swift-app` for the swift
-layers. Add `--no-license` when license `none` was chosen —
+layers, `--layer bun` for a bun repo. Add `--no-license` when license `none` was chosen —
 the LICENSE check inverts to require the file absent. Runs every check and reports
 `PASS`/`FAIL` per check: leftover-token scan, LICENSE presence (or absence), hook
 inline tests, and either (python) `uv sync` → `pytest` → `uv build` → wheel smoke,
 (go) `go vet` → golangci-lint (skipped with a NOTE if not installed) → `go build`
 → `go test -race` → binary smoke, (swift) `swift build` → `swift test` →
 swiftformat/swiftlint (NOTE-skipped if not installed) → a `swift run <name> --help`
-smoke, or (swift-app) swiftformat/swiftlint → an `xcodebuild build` against the
+smoke, (bun) `bun install` → `bun run typecheck` → `bun test`, or (swift-app) swiftformat/swiftlint → an `xcodebuild build` against the
 generic iOS Simulator destination (NOTE-skipped without Xcode or with the iOS
 platform component not downloaded; the simulator **test** suite is CI's job and is
 NOTEd, not run). Fix failures and re-run; **never skip a `FAIL`.**
@@ -564,7 +599,11 @@ Then, optionally, publish and wire one-time setups:
   tap (`reference/go-ci-and-release.md`). Swift: `release.yml` forwards to the shared
   `release-swift.yml@swift-v1` reusable workflow — same gate, then a universal `swift build`,
   codesign + notarytool, the GitHub release, and a synthesized binary **cask** pushed to the tap
-  (`reference/swift-ci-and-release.md`). No PyPI/Pages for either.
+  (`reference/swift-ci-and-release.md`). Bun: `release.yml` forwards to the shared
+  `release-bun.yml@bun-v1` reusable workflow — same gate, then a per-target
+  `bun build --compile` matrix on native runners, codesign + notarytool on the darwin
+  legs, the GitHub release, and a synthesized binary **cask** pushed to the tap
+  (`reference/bun-ci-and-release.md`). No PyPI/Pages for any of them.
 - Set the repo's social preview to `docs/assets/social-preview.jpg`. GitHub has
   no API for it — use the **`agent-browser-with-cookies`** skill (install
   `agent-browser-with-cookies@skills` from this marketplace if absent) to run an
@@ -688,5 +727,11 @@ Read these on demand — each is self-contained:
   `release-swift.yml@swift-v1` reusable workflow (universal binary, codesign +
   notarytool, synthesized cask), version stamping, one-time setup, and why apps get
   no release feature.
+- `reference/bun-ci-and-release.md` — the bun CI workflow (`.bun-version` pin,
+  committed `bun.lock`), the `release` feature flow via the shared
+  `release-bun.yml@bun-v1` reusable workflow (native-runner matrix and why bun
+  can't cross-compile here, codesign + notarytool, synthesized 4-platform cask),
+  the JIT entitlements escape hatch, version stamping, one-time setup, and
+  runner-label drift.
 - `reference/docs-site.md` — Great Docs config, build/preview commands, enabling
   narrative sections and curated reference.

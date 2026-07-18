@@ -34,6 +34,8 @@ PY_VERSION_RE = re.compile(r"^3\.\d+$")
 GO_VERSION_RE = re.compile(r"^1\.\d+(\.\d+)?$")
 SWIFT_TOOLS_VERSION_RE = re.compile(r"^\d+\.\d+$")
 IOS_VERSION_RE = re.compile(r"^\d+(\.\d+)?$")
+# Exact X.Y.Z — setup-bun downloads an exact version, never a range or `latest`.
+BUN_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 # Reverse-DNS: the leading label is the TLD (letters only in practice); later
 # labels are org names, where digit-leading is real (com.1password, com.37signals).
 BUNDLE_ID_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$")
@@ -102,7 +104,7 @@ class Feature:
 class VarSpec:
     name: str
     required_in: tuple[str, ...]
-    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bundle_id_prefix, license_id, binary_version_mode, code_root
+    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bun_version, bundle_id_prefix, license_id, binary_version_mode, code_root, launchd_mode
 
 
 @dataclass(frozen=True)

@@ -111,3 +111,8 @@ def swift_app_var_pairs(base_var_pairs: list[str]) -> list[str]:
         "BUNDLE_ID_PREFIX=com.janedoe",
         "IOS_DEPLOYMENT_TARGET=26.0",
     ]
+
+
+@pytest.fixture
+def bun_var_pairs(base_var_pairs: list[str]) -> list[str]:
+    return base_var_pairs + ["BUN_VERSION=1.3.14"]

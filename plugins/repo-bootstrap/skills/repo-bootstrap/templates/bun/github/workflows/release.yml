@@ -1,0 +1,13 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-bun.yml@bun-v1
+    secrets: inherit

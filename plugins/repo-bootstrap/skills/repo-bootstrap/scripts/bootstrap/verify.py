@@ -320,6 +320,13 @@ def main(layer: str, target: str, no_license: bool) -> int:
         _swift_lint_checks(check)
         check("binary smoke test (swift run --help)", _swift_binary_smoke)
 
+    if layer == "bun":
+        # bun install writes bun.lock (the go.sum/uv.lock analogue) when absent, then
+        # typecheck + the starter test suite prove the scaffold runs end to end.
+        check("bun install", lambda: _run_cmd(["bun", "install"]))
+        check("bun run typecheck", lambda: _run_cmd(["bun", "run", "typecheck"]))
+        check("bun test", lambda: _run_cmd(["bun", "test"]))
+
     if layer == "swift-app":
         _swift_lint_checks(check)
         if _xcodebuild_usable():

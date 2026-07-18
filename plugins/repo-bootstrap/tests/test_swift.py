@@ -13,7 +13,6 @@ import tomllib
 import pytest
 from bootstrap import scaffold
 from bootstrap.common import ScaffoldError
-from bootstrap.manifest import FEATURES
 
 DATE = datetime.date(2026, 6, 8)
 
@@ -216,10 +215,8 @@ def test_bad_ios_deployment_target(swift_app_var_pairs, version):
         scaffold.resolve("swift-app", [], [], pairs + [f"IOS_DEPLOYMENT_TARGET={version}"], DATE)
 
 
-def test_release_feature_spans_go_and_swift():
-    release = next(f for f in FEATURES if f.name == "release")
-    assert release.layers == ("go", "swift")
-    assert release.default is False
+# The release feature's layer span (now ("go", "swift", "bun")) is pinned in
+# test_bun.py::test_release_feature_spans_go_swift_bun — the bun layer extended it.
 
 
 # --- render-throughs of the real templates ---

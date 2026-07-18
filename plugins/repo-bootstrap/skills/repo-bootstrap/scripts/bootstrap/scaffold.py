@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import render as _render
 from .common import (
+    BUN_VERSION_RE,
     BUNDLE_ID_PREFIX_RE,
     CODE_ROOT_RE,
     DIST_NAME_RE,
@@ -92,6 +93,8 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must look like 6.2, got {value!r}")
         if kind == "ios_version" and not IOS_VERSION_RE.match(value):
             raise ScaffoldError(f"{name} must look like 26 or 26.0, got {value!r}")
+        if kind == "bun_version" and not BUN_VERSION_RE.match(value):
+            raise ScaffoldError(f"{name} must look like 1.3.14, got {value!r}")
         if kind == "bundle_id_prefix" and not BUNDLE_ID_PREFIX_RE.match(value):
             raise ScaffoldError(f"{name} must be a reverse-DNS prefix like com.yasyf, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
@@ -322,6 +325,8 @@ def gitignore_concat(ctx: TransformCtx, content: str | None) -> str:
     # Both swift layers share one fragment (Xcode + SwiftPM + XcodeBuildMCP state).
     if "swift" in ctx.layers or "swift-app" in ctx.layers:
         text += "\n" + ctx.render("swift/gitignore")
+    if "bun" in ctx.layers:
+        text += "\n" + ctx.render("bun/gitignore")
     return text
 
 
