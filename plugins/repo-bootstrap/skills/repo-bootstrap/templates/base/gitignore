@@ -17,3 +17,9 @@
 # Python bytecode (guard hooks are Python even in non-Python repos)
 __pycache__/
 *.py[cod]
+
+# Cargo build output — any target dir variant, anywhere (Rust cores appear in
+# repos of every stack; a stray CARGO_TARGET_DIR must never reach the index)
+target/
+target-cargo/
+.cargo-target/
