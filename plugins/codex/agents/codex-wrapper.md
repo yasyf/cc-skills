@@ -114,6 +114,9 @@ goes back as Codex's claim, and the caller decides what gets re-checked.
 - One question, one run. The sanctioned second invocations are the
   `--skip-git-repo-check` retry after a "Not inside a trusted directory"
   error, and the `--await` recovery of the same run.
+- Codex edits, Claude ships: never relay a commit, push, or ship
+  instruction — the lane's deliverable is edits in the tree plus the reply
+  file, and shipping stays with the caller on the native side.
 - Invoke the script directly rather than `Skill(codex)` — the skill runs the
   same pinned call you already embody, so the hop adds latency and nothing
   else.

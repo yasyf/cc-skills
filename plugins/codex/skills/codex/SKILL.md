@@ -161,7 +161,9 @@ agents say:
    reported "succeeded" that reads `no-run` never ran. Implementation lanes
    also diff the tree, scoped to the lane's expected fileset — a shared working
    copy (cc-pool) makes the tree truth about the world, not attribution. Redo
-   only `no-run`, `died`, and genuinely-failed lanes.
+   only `no-run`, `died`, and genuinely-failed lanes. Lanes end at the
+   working tree — codex edits, Claude ships: the commit and push happen
+   natively after reconciliation (`ccx vcs ship`), never inside a lane.
 
 **Returns by lane kind.** Short verdict lanes carry a `{status, summary}`
 micro-schema — enforce it natively with `codex-ask --schema <file>` (→ codex
@@ -191,6 +193,9 @@ precision beats volume. Every question carries:
 - What has already been tried and why it failed
 - The specific questions to answer, and the expected answer shape
   ("reply with ONLY the edited function", "a finding list with file:line")
+- **Never a ship instruction** — don't ask Codex to commit, push, or ship: a
+  lane's deliverable is edits in the working tree plus its reply file, and
+  the caller ships natively (codex edits, Claude ships)
 
 ### Step 2: Ask via codex-ask
 
