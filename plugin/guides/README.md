@@ -1,10 +1,10 @@
 # guides
 
-The fleet's shared guide-fragment pack. The repo root's `.claude/cc-guides.toml` publishes this directory (`guides = "plugin/guides"`), and ~40 repos consume it as `github:yasyf/cc-skills@main` to render their standard artifact set: `AGENTS.md`, `CLAUDE.md`, and `.claude/settings.json`.
+The fleet's shared guide-fragment pack. The repo root's `.claude/cc-guides.toml` publishes this directory (`guides = "plugin/guides"`), and ~40 repos consume it as `github:yasyf/cc-skills@main` to render their standard artifact set: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, and `.claude/capt-hook.toml`.
 
 ## Layout
 
-Four fragment kinds, one directory each:
+Five fragment kinds, one directory each:
 
 | Directory | Contents |
 |-----------|----------|
@@ -12,6 +12,7 @@ Four fragment kinds, one directory each:
 | `sh/` | `install-binary-latest.sh`, `install-binary-pinned.sh` |
 | `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`, deep-merged |
 | `yml/` | Docs-site workflow pieces (`docs-build-*`, `docs-publish`, `great-docs-*`) and the prek `.pre-commit-config.yaml` pieces: `precommit-base` owns the `repos:` key and carries the `repo: builtin` hygiene hooks; `precommit-go`/`precommit-python`/`precommit-swift` continue the list and hold the centrally managed rev pins |
+| `toml/` | capt-hook pack enablement for `.claude/capt-hook.toml`: `capt-hook-base` (the fixes/general/steering builtins every repo runs), `capt-hook-python`/`capt-hook-go` language packs, and the external packs `capt-hook-cc-notes`/`capt-hook-cc-present`/`capt-hook-ccx`, each carrying its canonical `@latest` source pin |
 
 ## How a repo consumes it
 
