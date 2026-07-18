@@ -28,3 +28,9 @@ Core loop:
 3. `AGENT_BROWSER_NAMESPACE=codex agent-browser click @e1` /
    `... fill @e2 "text"` — interact via refs
 4. Re-snapshot after page changes.
+
+## Tooling
+
+Never invoke `ccx` or any MCP tooling — those belong to the calling Claude
+session, not to you, and a call into them wedges the run. Use `rg`, `sed`,
+`git`, and the standard command-line tools instead.

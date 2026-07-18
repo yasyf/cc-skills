@@ -1,480 +1,837 @@
-#!/usr/bin/env bash
-# codex-ask — the one way this plugin runs codex. Prints REPLY_FILE:/LOG_FILE:/
-# AWAIT: lines BEFORE codex starts, then launches the pinned `codex exec`
-# detached so a Bash-tool timeout kill can't destroy finished work; blocks on a
-# status file and exits with codex's code (log tail on failure). Recover a
-# killed call with `codex-ask --await <scratch-dir|reply-file>`.
-#
-# usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image]
-#                  [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]
-#        codex-ask --await <scratch-dir|reply-file>
-#        codex-ask --mint-root [LANE ...]
-#
-#   QUESTION      a readable file path, `-` for stdin (the default), or
-#                 literal question text
-#   -m sol|luna   model lane (default sol → gpt-5.6-sol)
-#   -e EFFORT     model_reasoning_effort (default xhigh)
-#   -s ABS_DIR    scratch dir for question/reply/log/state files; must be
-#                 absolute and outside the repository. Without it, codex-ask
-#                 adopts the harness session scratchpad (resolved solely by
-#                 cc-transcript, never a hand-rolled path) or falls back to a
-#                 fresh `mktemp -d`.
-#   --image       imagegen mode: adds `--disable shell_tool` so codex cannot
-#                 fake the image by drawing it
-#   --await DIR   block on an already-launched run's status file and replay its
-#                 completion report; idempotent, safe mid-run and concurrently
-#   --mint-root   mint a fan-out root under the same scratch base the no--s path
-#                 resolves (session scratchpad, else $TMPDIR); mkdir one lane dir
-#                 per LANE; print ROOT:/LANE: lines and exit
-set -u
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
+"""codex-ask — the one way this plugin runs codex.
+
+Prints REPLY_FILE:/LOG_FILE:/AWAIT: lines BEFORE codex starts, then launches
+the pinned ``codex exec`` in a detached worker so a Bash-tool timeout kill can't
+destroy finished work; the parent blocks on a status file and exits with codex's
+code (log tail on failure). Every run lands under a fixed base
+(``$CODEX_ASK_RUNS_DIR`` or ``${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs``), so
+``--ps`` can discover and any session can ``--await``/``--collect`` a dead
+caller's runs. Recover a killed call with
+``codex-ask --await <scratch-dir|reply-file>``.
+
+usage: codex-ask [-m sol|luna] [-s ABS_DIR] [--image] [--schema FILE]
+                 [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]
+       codex-ask --await <scratch-dir|reply-file>
+       codex-ask --collect <root|lane>
+       codex-ask --mint-root [LANE ...]
+       codex-ask --ps
+"""
+
+import collections
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 # Always auth via the ChatGPT-plan OAuth login: the ambient OPENAI_API_KEY is
 # billing-capped, and API-key auth never mounts the hosted image_gen tool.
-unset OPENAI_API_KEY
+os.environ.pop("OPENAI_API_KEY", None)
 
-# A relative TMPDIR would make mktemp land temp files inside the caller's
-# repo, where auto-snapshot commits them. The explicit template below is
-# what makes mktemp honor TMPDIR at all on macOS.
-case "${TMPDIR:-}" in /*) ;; *) TMPDIR=/tmp ;; esac
-export TMPDIR
+SELF = Path(__file__).resolve()
+PLUGIN_ROOT = SELF.parent.parent
 
-PLUGIN_ROOT=$(cd -P "$(dirname "$0")/.." && pwd) || exit 1
-SELF="$PLUGIN_ROOT/bin/codex-ask"
+MODEL_SOL = "gpt-5.6-sol"
+MODEL_LUNA = "gpt-5.6-luna"
+EFFORT = "xhigh"
 
-# poll_status <dir> — block until <dir>/status exists AND is non-empty (a
-# concurrent -s reuse may rm/recreate it). Liveness is probed via the recorded
-# pid: while pid is absent wait generously (~15s) for the launcher to register
-# it; only a recorded-then-dead pid with no status is a genuine mid-flight death.
-poll_status() {
-  local sdir=$1 wait_pid=0 grace=0 p r
-  while [ ! -s "$sdir/status" ]; do
-    if [ ! -f "$sdir/pid" ]; then
-      wait_pid=$((wait_pid + 1))
-      if [ "$wait_pid" -ge 60 ]; then
-        echo "codex-ask: run at $sdir never registered a pid" >&2
-        exit 1
-      fi
-    elif p=$(cat "$sdir/pid" 2>/dev/null) && [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
-      grace=0
-    else
-      grace=$((grace + 1))
-      if [ "$grace" -ge 4 ]; then
-        # Dead pid + no status: killed after the staged-reply mv, before the
-        # status write. meta line 1 = reply path; non-empty ⇒ complete, so
-        # synthesize a durable status=0 (later --await replays it) and recover.
-        { IFS= read -r r; } < "$sdir/meta" 2>/dev/null || r=""
-        if [ -n "$r" ] && [ -s "$r" ]; then
-          echo 0 > "$sdir/status.tmp" && mv -f "$sdir/status.tmp" "$sdir/status"
-          continue
-        fi
-        echo "codex-ask: run at $sdir exited without recording status" >&2
-        exit 1
-      fi
-    fi
-    sleep 0.25
-  done
-}
+TERMINAL = ("completed", "failed", "no-run")
+PRUNE_AGE_S = 7 * 24 * 3600
+# --ps prunes only codex-ask's own minted dirs, never a caller-named fan-out lane.
+RUN_PREFIXES = ("codex-ask.", "codex-root.")
 
-# report_status <status> <reply> <log>: tail the log on failure, exit codex's
-# code. A 0 exit with an empty/missing reply is a silent codex death (exit 1);
-# an empty/non-numeric status vanished mid-read (concurrent -s reuse) — fail
-# cleanly instead of crashing `[` with "integer expected".
-report_status() {
-  local st=$1 rfile=$2 lfile=$3
-  case "$st" in
-    '' | *[!0-9]*)
-      echo "codex-ask: status went away before it could be read (concurrent -s reuse?)" >&2
-      exit 1
-      ;;
-  esac
-  if [ "$st" -eq 0 ] && [ ! -s "$rfile" ]; then
-    echo "codex-ask: codex exited 0 but wrote no reply" >&2
-    tail -20 "$lfile"
-    exit 1
-  fi
-  # Belt over the exit code: codex's --json emits turn.completed iff the turn
-  # finished cleanly. A turn that started but lacks it died mid-turn; grep
-  # literals — the stream interleaves stray non-JSON tracing lines.
-  if [ "$st" -eq 0 ] && grep -q '"type":"turn.started"' "$lfile" 2>/dev/null \
-    && ! grep -q '"type":"turn.completed"' "$lfile" 2>/dev/null; then
-    if grep -q '"type":"turn.failed"' "$lfile" 2>/dev/null; then
-      echo "codex-ask: codex reported turn.failed (see log tail)" >&2
-    else
-      echo "codex-ask: codex died mid-turn (no turn.completed) — the working tree may hold partial, unverified edits; inspect with git/jj status before re-running" >&2
-    fi
-    tail -20 "$lfile"
-    exit 1
-  fi
-  [ "$st" -ne 0 ] && tail -20 "$lfile"
-  exit "$st"
-}
+USAGE = (
+    "usage: codex-ask [-m sol|luna] [-s ABS_DIR] [--image] [--schema FILE] "
+    "[--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
+)
 
-# --await <scratch-dir|reply-file>: replay an already-launched run's report.
-if [ "${1:-}" = "--await" ]; then
-  target=${2:-}
-  case "$target" in
-    /*) ;;
-    *)
-      echo "codex-ask: --await needs an absolute scratch dir or reply-file path" >&2
-      exit 2
-      ;;
-  esac
-  if [ -d "$target" ]; then S=$target; else S=$(dirname "$target"); fi
-  if [ ! -f "$S/meta" ]; then
-    echo "codex-ask: no recorded codex-ask run at $S" >&2
-    exit 2
-  fi
-  { IFS= read -r R; IFS= read -r LOG; } < "$S/meta"
-  poll_status "$S"
-  echo "REPLY_FILE: $R"
-  echo "LOG_FILE: $LOG"
-  report_status "$(cat "$S/status")" "$R" "$LOG"
-fi
+TURN_STARTED = '"type":"turn.started"'
+TURN_COMPLETED = '"type":"turn.completed"'
+TURN_FAILED = '"type":"turn.failed"'
 
-# json_escape <s> — emit a JSON-safe string body (no surrounding quotes). A raw
-# quote, backslash, tab, CR, or control char corrupts the JSONL; first-line
-# input only, so an embedded newline never reaches here.
-json_escape() {
-  local s=$1
-  s=${s//\\/\\\\}
-  s=${s//\"/\\\"}
-  s=${s//$'\t'/\\t}
-  s=${s//$'\r'/\\r}
-  s=${s//$'\n'/\\n}
-  printf '%s' "$s" | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
-}
 
-# turn.completed / turn.started probes over a --json log (see report_status): a
-# turn that started but never completed died mid-turn.
-has_completed_marker() { [ -n "$1" ] && [ -f "$1" ] && grep -q '"type":"turn.completed"' "$1" 2>/dev/null; }
-turn_started() { [ -n "$1" ] && [ -f "$1" ] && grep -q '"type":"turn.started"' "$1" 2>/dev/null; }
+def die(msg: str, code: int) -> None:
+    print(msg, file=sys.stderr)
+    sys.exit(code)
 
-# collect_lane <dir> <lane> — classify one lane from disk and print one JSONL
-# record. Read-only: never writes, blocks, or inlines reply contents (path +
-# size only). States mirror poll_status/report_status.
-collect_lane() {
-  local dir=$1 lane=$2
-  local R="" LOG="" Q="" st="" p="" state reply_size=0 qcount=0 excerpt="" alive=0 qf await=""
-  for qf in "$dir"/codex-q-*; do
-    [ -e "$qf" ] || continue
-    case "$qf" in *.log) continue ;; esac
-    qcount=$((qcount + 1))
-  done
-  if [ -f "$dir/meta" ]; then
-    { IFS= read -r R; IFS= read -r LOG; } < "$dir/meta" 2>/dev/null || { R=""; LOG=""; }
-    Q=${LOG%.log}
-    if [ -n "$Q" ] && [ -f "$Q" ]; then IFS= read -r excerpt < "$Q" 2>/dev/null || :; fi
-  fi
-  if [ -n "$R" ] && [ -s "$R" ]; then
-    reply_size=$(wc -c < "$R" 2>/dev/null | tr -d ' ')
-    case "$reply_size" in '' | *[!0-9]*) reply_size=0 ;; esac
-  fi
-  if [ -f "$dir/pid" ]; then
-    p=$(cat "$dir/pid" 2>/dev/null)
-    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && alive=1
-  fi
-  [ -s "$dir/status" ] && st=$(cat "$dir/status" 2>/dev/null)
 
-  if [ ! -f "$dir/meta" ]; then
-    state=no-run
-  elif [ -n "$st" ]; then
-    case "$st" in
-      0)
-        if [ ! -s "$R" ]; then state=failed
-        elif turn_started "$LOG" && ! has_completed_marker "$LOG"; then state=died
-        else state=completed
-        fi
-        ;;
-      *) state=failed ;;
-    esac
-  elif [ ! -f "$dir/pid" ]; then
-    state=pending
-  elif [ "$alive" -eq 1 ]; then
-    state=running
-  elif [ -s "$R" ] && { ! turn_started "$LOG" || has_completed_marker "$LOG"; }; then
-    state=completed
-  else
-    state=died
-  fi
+def usage() -> None:
+    die(USAGE, 2)
 
-  case "$state" in
-    completed | failed | no-run) ;;
-    *) await="$(printf '%q' "$SELF") --await $(printf '%q' "$dir")" ;;
-  esac
-  printf '{"lane":"%s","state":"%s","reply_file":"%s","reply_size":%s,"log_file":"%s","question":"%s","question_files":%s' \
-    "$(json_escape "$lane")" "$state" "$(json_escape "$R")" "$reply_size" "$(json_escape "$LOG")" "$(json_escape "$excerpt")" "$qcount"
-  [ -n "$await" ] && printf ',"await":"%s"' "$(json_escape "$await")"
-  printf '}\n'
-}
 
-# --collect <root|lane>: walk lane dirs, classify each from disk as JSONL.
-# Single-lane mode when the target itself holds a run (meta present).
-if [ "${1:-}" = "--collect" ]; then
-  root=${2:-}
-  case "$root" in
-    /*) ;;
-    *)
-      echo "codex-ask: --collect needs an absolute lane-root or lane dir" >&2
-      exit 2
-      ;;
-  esac
-  repo_top=$(git rev-parse --show-toplevel 2>/dev/null) || repo_top=""
-  if [ -n "$repo_top" ]; then
-    case "$root/" in
-      "$repo_top"/*)
-        echo "codex-ask: --collect root must be outside the repository at $repo_top (lanes are never minted in-repo)" >&2
-        exit 2 ;;
-    esac
-  fi
-  if [ -n "${HOME:-}" ]; then
-    case "$root/" in
-      "${HOME%/}/.claude/"*)
-        echo "codex-ask: --collect root must be outside ~/.claude (config dir, not scratch space)" >&2
-        exit 2 ;;
-    esac
-  fi
-  [ -d "$root" ] || {
-    echo "codex-ask: --collect: no such directory: $root" >&2
-    exit 2
-  }
-  shopt -s nullglob
-  if [ -f "$root/meta" ] || [ -f "$root/status" ] || [ -f "$root/pid" ]; then
-    collect_lane "$root" "."
-  else
-    for d in "$root"/*/; do
-      [ -d "$d" ] || continue
-      collect_lane "${d%/}" "$(basename "$d")"
-    done
-  fi
-  exit 0
-fi
+def runs_base() -> Path:
+    # The fixed registry root: every run (ad-hoc and --mint-root) lands here, so
+    # the filesystem is the registry and --ps/--collect can find a dead caller's
+    # runs. $CODEX_ASK_RUNS_DIR overrides for tests, but must clear the same
+    # guards as -s — a relative or in-repo value would let --ps prune rmtree
+    # arbitrary source dirs.
+    override = os.environ.get("CODEX_ASK_RUNS_DIR")
+    if override:
+        if not override.startswith("/"):
+            die("codex-ask: CODEX_ASK_RUNS_DIR must be an absolute path", 2)
+        reject_outside_scratch(override, "CODEX_ASK_RUNS_DIR")
+        base = Path(override)
+    else:
+        xdg = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+        base = Path(xdg) / "codex-ask" / "runs"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
-# resolve_scratchpad — echo the harness session scratchpad (absolute, existing)
-# via cc-transcript, or nothing. The path formula lives only in cc-transcript;
-# reconstructing it here is the rejected hand-rolled-glob failure mode. Both
-# probe paths hard-bound a hung/TERM-ignoring cc-transcript so it falls through.
-resolve_scratchpad() {
-  local tmo spf gpid out="" i j cct_path
-  local -a cct
-  if cct_path=$(command -v cc-transcript 2>/dev/null); then
-    cct=("$cct_path")
-  elif command -v uvx >/dev/null 2>&1; then
-    cct=(uvx cc-transcript)
-  else
-    return 0
-  fi
-  if tmo=$(command -v timeout 2>/dev/null) || tmo=$(command -v gtimeout 2>/dev/null); then
-    # -k 2: SIGKILL 2s after the 5s SIGTERM if the probe ignores TERM.
-    out=$("$tmo" -k 2 5 "${cct[@]}" scratchpad 2>/dev/null) || out=""
-  else
-    # No timeout(1) on stock macOS: probe in its own process group so a hung
-    # child + descendants can be group-killed; TERM, grace, KILL — never wait.
-    spf=$(mktemp "$TMPDIR/codex-ask-sp.XXXXXX") || return 0
-    ( set -m; "${cct[@]}" scratchpad > "$spf" 2>/dev/null & echo $! > "$spf.pid" )
-    gpid=$(cat "$spf.pid" 2>/dev/null)
-    if [ -n "$gpid" ]; then
-      i=0
-      while kill -0 "$gpid" 2>/dev/null && [ "$i" -lt 20 ]; do
-        i=$((i + 1))
-        sleep 0.25
-      done
-      if kill -0 "$gpid" 2>/dev/null; then
-        kill -TERM -"$gpid" 2>/dev/null
-        j=0
-        while kill -0 "$gpid" 2>/dev/null && [ "$j" -lt 8 ]; do
-          j=$((j + 1))
-          sleep 0.25
-        done
-        kill -KILL -"$gpid" 2>/dev/null
-      fi
-      out=$(cat "$spf" 2>/dev/null)
-    fi
-    rm -f "$spf" "$spf.pid"
-  fi
-  printf '%s' "$out" | head -1
-}
 
-# mint_scratch <prefix> — mint a fresh scratch dir where a no--s run would land:
-# the harness session scratchpad when one is exposed, else a $TMPDIR mktemp. Only
-# probe when the harness exposes a session id; any miss (no id, no tool, timeout,
-# empty/non-dir output) falls through silently to mktemp.
-mint_scratch() {
-  local d="" sp
-  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-    sp=$(resolve_scratchpad)
-    case "$sp" in
-      /*) [ -d "$sp" ] && d=$(mktemp -d "$sp/$1.XXXXXX") ;;
-    esac
-  fi
-  [ -n "$d" ] || d=$(mktemp -d "$TMPDIR/$1.XXXXXX") || return 1
-  printf '%s\n' "$d"
-}
+def mint_scratch(prefix: str) -> str:
+    return tempfile.mkdtemp(prefix=prefix + ".", dir=runs_base())
 
-# --mint-root [LANE ...]: mint a fan-out root (and one lane dir per LANE) where a
-# no--s ask would land, print ROOT:/LANE: lines. Needs mint_scratch →
-# resolve_scratchpad, hence its placement after both.
-if [ "${1:-}" = "--mint-root" ]; then
-  shift
-  for lane in "$@"; do
-    case "$lane" in
-      '' | .* | -* | */* | *$'\n'*)
-        echo "codex-ask: --mint-root lanes must be plain path segments (no /, newlines, empty, or leading . or -): $lane" >&2
-        exit 2 ;;
-    esac
-  done
-  # -f/-i: case-insensitive filesystems collapse review/Review into one lane dir
-  dup=$(printf '%s\n' "$@" | sort -f | uniq -di)
-  [ -z "$dup" ] || { echo "codex-ask: --mint-root got duplicate lane names: $dup" >&2; exit 2; }
-  ROOT=$(mint_scratch codex-root) || exit 1
-  for lane in "$@"; do
-    mkdir -p "$ROOT/$lane" || { rm -rf "$ROOT"; exit 1; }
-  done
-  # all-or-nothing: nothing prints until the whole roster exists
-  printf 'ROOT: %s\n' "$ROOT"
-  for lane in "$@"; do
-    printf 'LANE: %s\n' "$ROOT/$lane"
-  done
-  exit 0
-fi
 
-MODEL=gpt-5.6-sol
-EFFORT=xhigh
-SCRATCH=""
-EXTRA_FLAGS=()
-USAGE="usage: codex-ask [-m sol|luna] [-e EFFORT] [-s ABS_DIR] [--image] [--schema FILE] [--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
+def tmp_sibling(path: Path) -> Path:
+    return path.with_name(path.name + ".tmp")
 
-usage() {
-  echo "$USAGE" >&2
-  exit 2
-}
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -m | --model)
-      case "${2:-}" in
-        sol) MODEL=gpt-5.6-sol ;;
-        luna) MODEL=gpt-5.6-luna ;;
-        *)
-          echo "codex-ask: -m takes sol or luna" >&2
-          exit 2
-          ;;
-      esac
-      shift 2
-      ;;
-    -e | --effort)
-      [ -n "${2:-}" ] || usage
-      EFFORT=$2
-      shift 2
-      ;;
-    -s | --scratch)
-      case "${2:-}" in
-        /*) SCRATCH=$2 ;;
-        *)
-          echo "codex-ask: --scratch must be an absolute path (never repo-relative)" >&2
-          exit 2
-          ;;
-      esac
-      shift 2
-      ;;
-    --image) EXTRA_FLAGS+=(--disable shell_tool); shift ;;
-    # --schema FILE → codex --output-schema: constrain the final reply to a JSON
-    # Schema. Opt-in, for short verdict lanes only (a schema after a long impl
-    # session risks the StructuredOutput retry cap nulling finished work).
-    --schema)
-      [ -r "${2:-}" ] || {
-        echo "codex-ask: --schema needs a readable JSON Schema file" >&2
-        exit 2
-      }
-      EXTRA_FLAGS+=(--output-schema "$2")
-      shift 2
-      ;;
-    --skip-git-repo-check) EXTRA_FLAGS+=(--skip-git-repo-check); shift ;;
-    -h | --help)
-      echo "$USAGE"
-      exit 0
-      ;;
-    --) shift; break ;;
-    -) break ;;
-    -*) usage ;;
-    *) break ;;
-  esac
-done
-[ $# -le 1 ] || usage
+def atomic_write(path: Path, text: str) -> None:
+    # A unique per-writer temp file: two concurrent writers (e.g. two --await
+    # recoveries synthesizing status) must not race on a shared "<name>.tmp".
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
-if [ -n "$SCRATCH" ]; then
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
-  if [ -n "$root" ]; then
-    case "$SCRATCH/" in
-      "$root"/*)
-        echo "codex-ask: --scratch must be outside the repository at $root" >&2
-        exit 2
-        ;;
-    esac
-  fi
-  if [ -n "${HOME:-}" ]; then
-    case "$SCRATCH/" in
-      "${HOME%/}/.claude/"*)
-        echo "codex-ask: --scratch must be outside ~/.claude (config dir, not scratch space); omit -s or use --mint-root" >&2
-        exit 2
-        ;;
-    esac
-  fi
-  mkdir -p "$SCRATCH" || exit 2
-  S=$SCRATCH
-else
-  S=$(mint_scratch codex-ask) || exit 1
-fi
-Q=$(mktemp "$S/codex-q-XXXXXX") && R=$(mktemp "$S/codex-r-XXXXXX") || exit 1
-LOG="$Q.log"
 
-if [ $# -eq 0 ] || [ "$1" = "-" ]; then
-  cat > "$Q" || exit 1
-elif [ -f "$1" ]; then
-  cat "$1" > "$Q" || exit 1
-elif [ -n "$1" ]; then
-  printf '%s\n' "$1" > "$Q" || exit 1
-fi
-[ -s "$Q" ] || {
-  echo "codex-ask: empty question" >&2
-  exit 2
-}
+def read_pid(pid_file: Path) -> int | None:
+    try:
+        s = pid_file.read_text().strip()
+    except OSError:
+        return None
+    return int(s) if s.isdigit() else None
 
-# The developer_instructions feed carries the browser rules; running without
-# it launches Chrome on the user's desktop.
-DEV=$(cat "$PLUGIN_ROOT/AGENTS.md") || exit 1
 
-# A reused -s dir must never serve a previous run's state. Wiping meta too
-# establishes "meta present ⇒ describes the latest launch attempt": no meta
-# means no codex ran this attempt, so a redo never double-pays.
-rm -f "$S/status" "$S/pid" "$S/meta"
-# meta.tmp has a fixed name, so two concurrent runs sharing an explicit -s dir
-# race here (a sanctioned last-writer-wins limitation). Brand the loser's abort
-# rather than leaking a raw `mv:` coreutils error.
-printf '%s\n%s\n' "$R" "$LOG" > "$S/meta.tmp" && mv -f "$S/meta.tmp" "$S/meta" 2>/dev/null || {
-  echo "codex-ask: $S is in use by a concurrent run; pass a unique -s dir or omit it" >&2
-  exit 1
-}
+def kill0(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
-# Print recovery paths BEFORE codex starts: a killed Bash call still leaves the
-# --await recipe in the returned partial stdout. Only AWAIT is shell-quoted (via
-# printf %q) so a spaced -s path stays copy-pasteable; REPLY_FILE/LOG_FILE are
-# machine-parsed by the wrapper and stay verbatim.
-echo "REPLY_FILE: $R"
-echo "LOG_FILE: $LOG"
-echo "AWAIT: $(printf '%q' "$SELF") --await $(printf '%q' "$S")"
 
-# Detached launch — the timeout-survival core. `set -m` gives the background job
-# its own process group (escapes the pgid-wide SIGTERM/SIGKILL) and the enclosing
-# subshell exits at once, orphaning it to PID 1 (escapes the ps-walked descendant
-# kill). BOTH halves are load-bearing: `( … & )` alone dies in the group kill;
-# `set -m` + `wait` in one fork stays in the ps tree. The group's `</dev/null
-# >/dev/null 2>&1` releases codex-ask's inherited pipe so a reader draining on EOF
-# sees the print-first lines at once (codex's inner `> "$LOG" 2>&1` still wins for
-# codex). Parent never waits — it polls the status file below.
-( set -m; { codex exec -c model="$MODEL" -c model_reasoning_effort="$EFFORT" -c service_tier=fast \
-    -c developer_instructions="$DEV" \
-    -o "$R.tmp" --json --color never --sandbox danger-full-access \
-    "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}" < "$Q" > "$LOG" 2>&1; rc=$?; [ "$rc" -eq 0 ] && [ -s "$R.tmp" ] && mv -f "$R.tmp" "$R"; echo "$rc" > "$S/status.tmp" && mv -f "$S/status.tmp" "$S/status"; } </dev/null >/dev/null 2>&1 & echo $! > "$S/pid.tmp" && mv -f "$S/pid.tmp" "$S/pid" )
+# proc_lstart: the process start-time via a fixed binary and pinned env, so a
+# TZ or locale change between the launch record and a later probe can't reformat
+# the timestamp and make a live lane read dead (/etc/localtime does change).
+def proc_lstart(pid: int) -> str:
+    env = {**os.environ, "TZ": "UTC", "LC_ALL": "C"}
+    try:
+        proc = subprocess.run(
+            ["/bin/ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env
+        )
+    except OSError:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
 
-poll_status "$S"
-report_status "$(cat "$S/status")" "$R" "$LOG"
+
+# pid_alive: kill-0 AND the recorded process start-time still matches, so a
+# recycled pid (some unrelated process now holding the old number) reads dead.
+# A blank/missing recorded lstart (a failed initial ps, or a legacy bash run with
+# no lstart file still in flight at upgrade) degrades to bare kill-0.
+def pid_alive(sdir: Path) -> bool:
+    pid = read_pid(sdir / "pid")
+    if pid is None or not kill0(pid):
+        return False
+    try:
+        recorded = (sdir / "lstart").read_text().strip()
+    except OSError:
+        recorded = ""
+    if not recorded:
+        return True
+    return proc_lstart(pid) == recorded
+
+
+def first_line(path: Path) -> str:
+    try:
+        with path.open(errors="replace") as f:
+            return f.readline().rstrip("\n")
+    except OSError:
+        return ""
+
+
+def meta_lines(meta: Path) -> list[str]:
+    try:
+        return meta.read_text().splitlines()
+    except OSError:
+        return []
+
+
+def grep(path: Path, needle: str) -> bool:
+    try:
+        with path.open(errors="replace") as f:
+            return any(needle in line for line in f)
+    except OSError:
+        return False
+
+
+def turn_started(log: str) -> bool:
+    return bool(log) and Path(log).is_file() and grep(Path(log), TURN_STARTED)
+
+
+def has_completed_marker(log: str) -> bool:
+    return bool(log) and Path(log).is_file() and grep(Path(log), TURN_COMPLETED)
+
+
+def nonempty(path: str) -> bool:
+    return bool(path) and Path(path).exists() and Path(path).stat().st_size > 0
+
+
+def tail(path: Path, n: int) -> None:
+    # Bounded: keep only the last n lines in memory, never slurp a huge log.
+    try:
+        with path.open(errors="replace") as f:
+            lines = collections.deque(f, maxlen=n)
+    except OSError:
+        return
+    for line in lines:
+        print(line.rstrip("\n"))
+
+
+def json_escape(s: str) -> str:
+    s = (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\t", "\\t")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+    )
+    # Strip the remaining raw C0 controls the JSONL can't carry (tab/cr/nl are
+    # already escaped away above).
+    return "".join(c for c in s if ord(c) >= 0x20)
+
+
+# poll_status: block until <sdir>/status exists AND is non-empty (a concurrent
+# -s reuse may rm/recreate it). Liveness is probed via the recorded pid: while
+# the pid is absent wait generously (~15s) for the worker to register it; only a
+# recorded-then-dead pid with no status is a genuine mid-flight death.
+def poll_status(sdir: Path) -> None:
+    status = sdir / "status"
+    pid_file = sdir / "pid"
+    meta = sdir / "meta"
+    wait_pid = 0
+    grace = 0
+    while not nonempty(str(status)):
+        if not pid_file.exists():
+            wait_pid += 1
+            if wait_pid >= 60:
+                die(f"codex-ask: run at {sdir} never registered a pid", 1)
+        elif pid_alive(sdir):
+            grace = 0
+        else:
+            grace += 1
+            if grace >= 4:
+                # Dead pid + no status: killed after the staged-reply mv, before
+                # the status write. meta line 1 = reply path; non-empty =>
+                # complete, so synthesize a durable status=0 (later --await
+                # replays it) and recover.
+                lines = meta_lines(meta)
+                r = lines[0] if lines else ""
+                if nonempty(r):
+                    # Another concurrent --await may publish status first; tolerate
+                    # it (the loop re-reads and exits either way).
+                    try:
+                        atomic_write(status, "0\n")
+                    except OSError:
+                        pass
+                    continue
+                die(f"codex-ask: run at {sdir} exited without recording status", 1)
+        time.sleep(0.25)
+
+
+# report_status: tail the log on failure, exit codex's code. A 0 exit with an
+# empty/missing reply is a silent codex death (exit 1); an empty/non-numeric
+# status vanished mid-read (concurrent -s reuse) — fail cleanly.
+def report_status(st: str, rfile: Path, lfile: Path) -> None:
+    st = st.strip()
+    if not st.isdigit():
+        die("codex-ask: status went away before it could be read (concurrent -s reuse?)", 1)
+    code = int(st)
+    if code == 0 and not nonempty(str(rfile)):
+        print("codex-ask: codex exited 0 but wrote no reply", file=sys.stderr)
+        tail(lfile, 20)
+        sys.exit(1)
+    # Belt over the exit code: codex's --json emits turn.completed iff the turn
+    # finished cleanly. A turn that started but lacks it died mid-turn.
+    if code == 0 and turn_started(str(lfile)) and not has_completed_marker(str(lfile)):
+        if grep(lfile, TURN_FAILED):
+            print("codex-ask: codex reported turn.failed (see log tail)", file=sys.stderr)
+        else:
+            print(
+                "codex-ask: codex died mid-turn (no turn.completed) — the working tree may "
+                "hold partial, unverified edits; inspect with git/jj status before re-running",
+                file=sys.stderr,
+            )
+        tail(lfile, 20)
+        sys.exit(1)
+    if code != 0:
+        tail(lfile, 20)
+    sys.exit(code)
+
+
+def read_status(sdir: Path) -> str:
+    try:
+        return (sdir / "status").read_text()
+    except OSError:
+        return ""
+
+
+@dataclass
+class LaneInfo:
+    state: str
+    reply: str
+    log: str
+    reply_size: int
+    excerpt: str
+    qcount: int
+    pid: int | None
+    info: dict
+
+
+# classify: derive one run dir's state from disk alone — the shared truth for
+# --collect and --ps. Read-only; never blocks or inlines reply contents.
+# classify: derive a run dir's state from disk, retried once so a concurrent
+# unlink (worker staging/renaming, another session's prune) can't traceback
+# --collect/--ps; a dir that vanishes entirely reads no-run.
+def classify(d: Path) -> LaneInfo:
+    try:
+        return _classify(d)
+    except OSError:
+        try:
+            return _classify(d)
+        except OSError:
+            return LaneInfo("no-run", "", "", 0, "", 0, None, {})
+
+
+def _classify(d: Path) -> LaneInfo:
+    r = log = excerpt = ""
+    qcount = 0
+    for qf in d.glob("codex-q-*"):
+        if not qf.name.endswith(".log"):
+            qcount += 1
+    meta = d / "meta"
+    has_meta = meta.is_file()
+    info: dict = {}
+    if has_meta:
+        lines = meta_lines(meta)
+        r = lines[0] if len(lines) > 0 else ""
+        log = lines[1] if len(lines) > 1 else ""
+        if len(lines) > 2:
+            try:
+                info = json.loads(lines[2])
+            except json.JSONDecodeError:
+                info = {}
+        q = log[:-4] if log.endswith(".log") else ""
+        if q and Path(q).is_file():
+            excerpt = first_line(Path(q))
+    reply_size = Path(r).stat().st_size if nonempty(r) else 0
+    pid_file = d / "pid"
+    pid = read_pid(pid_file) if pid_file.is_file() else None
+    alive = pid_file.is_file() and pid_alive(d)
+    status = d / "status"
+    st = status.read_text().strip() if nonempty(str(status)) else ""
+
+    if not has_meta:
+        state = "no-run"
+    elif st:
+        if st == "0":
+            if not nonempty(r):
+                state = "failed"
+            elif turn_started(log) and not has_completed_marker(log):
+                state = "died"
+            else:
+                state = "completed"
+        else:
+            state = "failed"
+    elif not pid_file.is_file():
+        state = "pending"
+    elif alive:
+        state = "running"
+    elif nonempty(r) and (not turn_started(log) or has_completed_marker(log)):
+        state = "completed"
+    else:
+        state = "died"
+
+    # Stale-.tmp sweep: a SIGKILLed worker can't run its finally, so a finished
+    # run may leave an orphaned "<reply>.tmp". Reap it once the run is no longer
+    # in flight (a running/pending lane's .tmp may be mid-write).
+    if r and state not in ("running", "pending"):
+        try:
+            Path(r + ".tmp").unlink(missing_ok=True)
+        except OSError:
+            pass
+    return LaneInfo(state, r, log, reply_size, excerpt, qcount, pid, info)
+
+
+# collect_lane: print one JSONL record for a lane from its classified state.
+def collect_lane(d: Path, lane: str) -> None:
+    li = classify(d)
+    await_cmd = ""
+    if li.state not in TERMINAL:
+        await_cmd = f"{shlex.quote(str(SELF))} --await {shlex.quote(str(d))}"
+    record = (
+        f'{{"lane":"{json_escape(lane)}","state":"{li.state}",'
+        f'"reply_file":"{json_escape(li.reply)}","reply_size":{li.reply_size},'
+        f'"log_file":"{json_escape(li.log)}","question":"{json_escape(li.excerpt)}",'
+        f'"question_files":{li.qcount}'
+    )
+    if await_cmd:
+        record += f',"await":"{json_escape(await_cmd)}"'
+    record += "}"
+    print(record)
+
+
+def run_mtime(d: Path) -> float:
+    newest = 0.0
+    for name in ("status", "meta", "pid"):
+        try:
+            newest = max(newest, (d / name).stat().st_mtime)
+        except OSError:
+            pass
+    if newest == 0.0:
+        try:
+            newest = d.stat().st_mtime
+        except OSError:
+            newest = time.time()
+    return newest
+
+
+def git_toplevel() -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+        )
+    except OSError:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def reject_outside_scratch(path: str, flag: str) -> None:
+    top = git_toplevel()
+    if top and (path + "/").startswith(top.rstrip("/") + "/"):
+        die(f"codex-ask: {flag} must be outside the repository at {top} (lanes are never minted in-repo)", 2)
+    home = os.environ.get("HOME", "")
+    if home and (path + "/").startswith(home.rstrip("/") + "/.claude/"):
+        die(f"codex-ask: {flag} must be outside ~/.claude (config dir, not scratch space)", 2)
+
+
+def await_mode(target: str) -> None:
+    if not target.startswith("/"):
+        die("codex-ask: --await needs an absolute scratch dir or reply-file path", 2)
+    tp = Path(target)
+    sdir = tp if tp.is_dir() else tp.parent
+    if not (sdir / "meta").is_file():
+        die(f"codex-ask: no recorded codex-ask run at {sdir}", 2)
+    lines = meta_lines(sdir / "meta")
+    r = lines[0] if len(lines) > 0 else ""
+    log = lines[1] if len(lines) > 1 else ""
+    poll_status(sdir)
+    # Generation re-check: a concurrent reuse may have wiped and rewritten meta
+    # mid-await. Reporting this run's status against the previous generation's
+    # reply/log would mix generations — refuse and say so instead.
+    after = meta_lines(sdir / "meta")
+    r2 = after[0] if len(after) > 0 else ""
+    log2 = after[1] if len(after) > 1 else ""
+    if (r2, log2) != (r, log):
+        die(f"codex-ask: lane {sdir} was reused during --await (generation changed); re-run --await", 1)
+    print(f"REPLY_FILE: {r}")
+    print(f"LOG_FILE: {log}")
+    report_status(read_status(sdir), Path(r), Path(log))
+
+
+def collect_mode(root: str) -> None:
+    if not root.startswith("/"):
+        die("codex-ask: --collect needs an absolute lane-root or lane dir", 2)
+    reject_outside_scratch(root, "--collect root")
+    rootp = Path(root)
+    if not rootp.is_dir():
+        die(f"codex-ask: --collect: no such directory: {root}", 2)
+    if (rootp / "meta").is_file() or (rootp / "status").is_file() or (rootp / "pid").is_file():
+        collect_lane(rootp, ".")
+    else:
+        for d in sorted(rootp.iterdir()):
+            if d.is_dir():
+                collect_lane(d, d.name)
+    sys.exit(0)
+
+
+# ps_mode: the registry view. Walk the base, classify every run as one JSONL
+# record, expand fan-out containers into their lane children, and reap only
+# codex-ask's own terminal-and-aged run dirs (never a live lane, a container, or
+# a caller-named lane).
+def ps_mode() -> None:
+    base = runs_base()
+    now = time.time()
+    for d in sorted(base.iterdir()):
+        if d.is_dir():
+            _ps_walk(d, now)
+    sys.exit(0)
+
+
+def _ps_walk(d: Path, now: float) -> None:
+    has_run_state = any((d / f).exists() for f in ("meta", "status", "pid"))
+    if not has_run_state:
+        # A fan-out container holds lane subdirs and no run state of its own:
+        # classify its children as lanes, never the container itself (and never
+        # prune it — no meta means it can't satisfy the prune guard).
+        try:
+            subdirs = [c for c in sorted(d.iterdir()) if c.is_dir()]
+        except OSError:
+            subdirs = []
+        if subdirs:
+            for c in subdirs:
+                _ps_walk(c, now)
+            return
+    li = classify(d)
+    # Prune-and-skip before emitting so --ps is a post-prune snapshot: only a
+    # codex-ask-minted dir with meta that classifies terminal and is past the age,
+    # reclassified once more right before rmtree to close the classify->delete
+    # TOCTOU (a reuse mid-walk flips it non-terminal and spares it). Caller-named
+    # lanes and no-meta containers never match.
+    if (
+        d.name.startswith(RUN_PREFIXES)
+        and (d / "meta").is_file()
+        and li.state in TERMINAL
+        and now - run_mtime(d) > PRUNE_AGE_S
+        and classify(d).state in TERMINAL
+    ):
+        shutil.rmtree(d, ignore_errors=True)
+        return
+    log_age = None
+    if li.log and Path(li.log).exists():
+        try:
+            log_age = round(now - Path(li.log).stat().st_mtime, 1)
+        except OSError:
+            log_age = None
+    print(json.dumps({
+        "dir": str(d),
+        "state": li.state,
+        "pid": li.pid,
+        "started": li.info.get("ts"),
+        "log_age_s": log_age,
+        "cwd": li.info.get("cwd"),
+        "session": li.info.get("session"),
+        "reply_file": li.reply or None,
+    }))
+
+
+def mint_root_mode(lanes: list[str]) -> None:
+    for lane in lanes:
+        if not lane or lane[0] in ".-" or "/" in lane or "\n" in lane:
+            die(
+                "codex-ask: --mint-root lanes must be plain path segments "
+                f"(no /, newlines, empty, or leading . or -): {lane}",
+                2,
+            )
+    # Case-insensitive dedup: case-insensitive filesystems collapse review/Review
+    # into one lane dir.
+    seen: set[str] = set()
+    dups: list[str] = []
+    for lane in lanes:
+        key = lane.lower()
+        if key in seen:
+            if lane not in dups:
+                dups.append(lane)
+        else:
+            seen.add(key)
+    if dups:
+        die(f"codex-ask: --mint-root got duplicate lane names: {' '.join(dups)}", 2)
+    root = Path(mint_scratch("codex-root"))
+    for lane in lanes:
+        try:
+            (root / lane).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            shutil.rmtree(root, ignore_errors=True)
+            sys.exit(1)
+    # All-or-nothing: nothing prints until the whole roster exists.
+    print(f"ROOT: {root}")
+    for lane in lanes:
+        print(f"LANE: {root / lane}")
+    sys.exit(0)
+
+
+# run_worker: the detached side. Runs the pinned codex exec from the cmd file,
+# stages the reply (rename only on rc 0 + non-empty), and writes codex's code to
+# status. The whole lifecycle is wrapped: a spawn/exec error yields 126 (127 for
+# not-found), a signal death normalizes to 128+signal, and any exception still
+# lands a durable status with the .tmp swept — so no failure mode leaves the run
+# statusless (which would hang a waiter). The pid/lstart files are written by the
+# parent (see detach_worker), not here.
+def run_worker(sdir: Path) -> None:
+    reply_tmp = None
+    rc = 126
+    try:
+        cmd = json.loads((sdir / "cmd").read_text())
+        argv = cmd["argv"]
+        question = Path(cmd["question"])
+        reply = Path(cmd["reply"])
+        reply_tmp = Path(cmd["reply_tmp"])
+        log = Path(cmd["log"])
+        try:
+            with question.open("rb") as qin, log.open("wb") as logf:
+                rc = subprocess.run(argv, stdin=qin, stdout=logf, stderr=logf).returncode
+            if rc < 0:
+                rc = 128 - rc  # signal death: -SIGTERM(-15) -> 143, -SIGKILL(-9) -> 137
+        except FileNotFoundError:
+            rc = 127
+        if rc == 0 and nonempty(str(reply_tmp)):
+            os.replace(reply_tmp, reply)
+    except BaseException:
+        pass  # rc stays 126 (or 127 from a not-found); status still lands below
+    finally:
+        if reply_tmp is not None:
+            try:
+                reply_tmp.unlink(missing_ok=True)  # no-op if it was renamed to reply
+            except OSError:
+                pass
+        try:
+            atomic_write(sdir / "status", f"{rc}\n")
+        except OSError:
+            pass
+
+
+# detach_worker: double-fork so the worker is orphaned to PID 1 (escapes a
+# ps-walked descendant kill) and setsid'd into its own session (escapes the
+# process-group SIGTERM/SIGKILL), mirroring the old ``( set -m; … & )`` trick.
+# The middle child forks the grandchild worker, pipes its pid back to the parent,
+# and exits at once (orphaning it); the PARENT records pid+lstart (closing the
+# window where meta exists but no pid ever appears) and reaps the middle child.
+# A detach/re-exec failure lands a durable status 126 rather than hanging.
+def detach_worker(sdir: Path) -> None:
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid > 0:
+        os.close(w)
+        os.waitpid(pid, 0)
+        try:
+            raw = os.read(r, 64)
+        except OSError:
+            raw = b""
+        os.close(r)
+        s = raw.decode(errors="replace").strip()
+        gpid = int(s) if s.isdigit() else 0
+        if gpid <= 0:
+            atomic_write(sdir / "status", "126\n")
+            return
+        atomic_write(sdir / "lstart", proc_lstart(gpid) + "\n")
+        atomic_write(sdir / "pid", f"{gpid}\n")
+        return
+    # middle child
+    os.close(r)
+    try:
+        os.setsid()
+        gpid = os.fork()
+    except BaseException:
+        os._exit(127)  # detach failed -> parent sees no gpid -> status 126
+    if gpid > 0:
+        try:
+            os.write(w, f"{gpid}\n".encode())
+        finally:
+            os._exit(0)
+    # grandchild = worker
+    os.close(w)
+    try:
+        devnull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull, 0)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        if devnull > 2:
+            os.close(devnull)
+        os.execv(sys.executable, [sys.executable, str(SELF), "--worker", str(sdir)])
+    except BaseException:
+        try:
+            atomic_write(sdir / "status", "126\n")
+        except OSError:
+            pass
+        os._exit(126)
+
+
+def ask_mode(args: list[str]) -> None:
+    model = MODEL_SOL
+    scratch = ""
+    extra_flags: list[str] = []
+    rest: list[str] = []
+    i, n = 0, len(args)
+    while i < n:
+        a = args[i]
+        nxt = args[i + 1] if i + 1 < n else ""
+        if a in ("-m", "--model"):
+            if nxt == "sol":
+                model = MODEL_SOL
+            elif nxt == "luna":
+                model = MODEL_LUNA
+            else:
+                die("codex-ask: -m takes sol or luna", 2)
+            i += 2
+        elif a in ("-s", "--scratch"):
+            if not nxt.startswith("/"):
+                die("codex-ask: --scratch must be an absolute path (never repo-relative)", 2)
+            scratch = nxt
+            i += 2
+        elif a == "--image":
+            extra_flags += ["--disable", "shell_tool"]
+            i += 1
+        elif a == "--schema":
+            # --schema FILE → codex --output-schema: constrain the final reply to
+            # a JSON Schema. Opt-in, for short verdict lanes only.
+            if not (nxt and os.access(nxt, os.R_OK)):
+                die("codex-ask: --schema needs a readable JSON Schema file", 2)
+            extra_flags += ["--output-schema", nxt]
+            i += 2
+        elif a == "--skip-git-repo-check":
+            extra_flags += ["--skip-git-repo-check"]
+            i += 1
+        elif a in ("-h", "--help"):
+            print(USAGE)
+            sys.exit(0)
+        elif a == "--":
+            rest = args[i + 1:]
+            break
+        elif a == "-":
+            rest = args[i:]
+            break
+        elif a.startswith("-"):
+            usage()
+        else:
+            rest = args[i:]
+            break
+    if len(rest) > 1:
+        usage()
+
+    # Read the question up front so an empty one refuses before anything is minted
+    # (the fixed runs base would otherwise keep an empty codex-ask.XXXX as litter).
+    if not rest or rest[0] == "-":
+        question_bytes = sys.stdin.buffer.read()
+    elif Path(rest[0]).is_file():
+        question_bytes = Path(rest[0]).read_bytes()
+    elif rest[0]:
+        question_bytes = (rest[0] + "\n").encode()
+    else:
+        question_bytes = b""
+    if not question_bytes:
+        die("codex-ask: empty question", 2)
+
+    if scratch:
+        reject_outside_scratch(scratch, "--scratch")
+        try:
+            Path(scratch).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            sys.exit(2)
+        sdir = Path(scratch)
+        # Refuse to clobber a still-alive run in this lane; a finished lane (its
+        # status is written) stays reusable for a redo. Also refuse a lane whose
+        # meta is <5s old even before a pid registers — that is the window where a
+        # concurrent launcher wrote meta but its worker hasn't checked in yet, and
+        # wiping it would clobber that in-flight run.
+        meta_p = sdir / "meta"
+        if meta_p.is_file() and not nonempty(str(sdir / "status")):
+            try:
+                recent = (time.time() - meta_p.stat().st_mtime) < 5
+            except OSError:
+                recent = False
+            if pid_alive(sdir) or recent:
+                die(f"codex-ask: lane {sdir} busy; --await it or mint a new lane", 1)
+    else:
+        sdir = Path(mint_scratch("codex-ask"))
+
+    qfd, qpath = tempfile.mkstemp(prefix="codex-q-", dir=sdir)
+    os.close(qfd)
+    rfd, rpath = tempfile.mkstemp(prefix="codex-r-", dir=sdir)
+    os.close(rfd)
+    question = Path(qpath)
+    reply = Path(rpath)
+    log = Path(str(question) + ".log")
+    question.write_bytes(question_bytes)
+
+    # The developer_instructions feed carries the browser rules and the
+    # ccx/MCP-off directive; running without it launches Chrome on the desktop.
+    dev = (PLUGIN_ROOT / "AGENTS.md").read_text().rstrip("\n")
+
+    reply_tmp = tmp_sibling(reply)
+    argv = [
+        "codex", "exec",
+        "-c", f"model={model}",
+        "-c", f"model_reasoning_effort={EFFORT}",
+        "-c", "service_tier=fast",
+        # No MCP mounts in a lane: an 18-run A/B showed zero correctness gain and
+        # real overhead, and lanes wedge mid-ccx-MCP-call.
+        "-c", "mcp_servers={}",
+        "-c", f"developer_instructions={dev}",
+        "-o", str(reply_tmp),
+        "--json", "--color", "never",
+        "--sandbox", "danger-full-access",
+        *extra_flags,
+    ]
+
+    # A reused -s dir must never serve a previous run's state. Wiping meta too
+    # establishes "meta present => describes the latest launch attempt".
+    for stale in ("status", "pid", "lstart", "meta", "cmd"):
+        (sdir / stale).unlink(missing_ok=True)
+    cmd = {
+        "argv": argv,
+        "question": str(question),
+        "reply": str(reply),
+        "reply_tmp": str(reply_tmp),
+        "log": str(log),
+    }
+    (sdir / "cmd").write_text(json.dumps(cmd))
+    info = {"ts": time.time(), "cwd": os.getcwd(), "model": model}
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if sid:
+        info["session"] = sid
+    try:
+        atomic_write(sdir / "meta", f"{reply}\n{log}\n{json.dumps(info)}\n")
+    except OSError:
+        die(f"codex-ask: {sdir} is in use by a concurrent run; pass a unique -s dir or omit it", 1)
+
+    # Print recovery paths BEFORE codex starts: a killed Bash call still leaves
+    # the --await recipe in the returned partial stdout. Only AWAIT is
+    # shell-quoted so a spaced -s path stays copy-pasteable.
+    print(f"REPLY_FILE: {reply}")
+    print(f"LOG_FILE: {log}")
+    print(f"AWAIT: {shlex.quote(str(SELF))} --await {shlex.quote(str(sdir))}")
+    sys.stdout.flush()
+
+    detach_worker(sdir)
+    poll_status(sdir)
+    report_status(read_status(sdir), reply, log)
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    match args:
+        case ["--worker", sdir]:
+            run_worker(Path(sdir))
+        case ["--await", *rest]:
+            await_mode(rest[0] if rest else "")
+        case ["--collect", *rest]:
+            collect_mode(rest[0] if rest else "")
+        case ["--mint-root", *lanes]:
+            mint_root_mode(lanes)
+        case ["--ps"]:
+            ps_mode()
+        case _:
+            ask_mode(args)
+
+
+if __name__ == "__main__":
+    main()

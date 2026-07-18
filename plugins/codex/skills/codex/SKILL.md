@@ -9,25 +9,28 @@ effort: medium
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
 run a code/diff review, security review/audit, or bug diagnosis, hand it a
-well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen` skill to generate
-images, or offload rote throwaway work.
+well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen`
+skill to generate images, or offload rote throwaway work.
 
-Every codex call in this skill runs through `codex-ask`, the executable this
-plugin ships (a plugin's `bin/` rides the Bash tool's PATH while the plugin
-is enabled). The script pins `-c model=gpt-5.6-sol
+Every codex call runs through `codex-ask`, the executable this plugin ships (a
+plugin's `bin/` rides the Bash tool's PATH while the plugin is enabled). The
+script owns every mechanic: it pins `-c model=gpt-5.6-sol
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
 `--sandbox danger-full-access`, feeds the plugin's `AGENTS.md` via
-`-c developer_instructions` (see Browser Access below), unsets
-`OPENAI_API_KEY` so codex always authenticates via the ChatGPT-plan OAuth
-login (the ambient key is billing-capped and never mounts the hosted
-`image_gen` tool), and keeps every temp file on an absolute scratch path —
-the flags, auth, and paths are the script's job, so invoke it rather than
-hand-rolling a `codex exec` line.
-The fast tier is mandatory on every variant; without it, xhigh prompts can
-run 10–30+ minutes and get abandoned. Keep questions bounded and specific:
-a narrow question returns in ~2 minutes, an open-ended design essay does
-not. Model Variants and Escalation below covers the two sanctioned
-deviations.
+`-c developer_instructions` (browser rules; no ccx/MCP inside lanes), disables
+MCP server mounts on the exec line, unsets `OPENAI_API_KEY` so codex always
+authenticates via the ChatGPT-plan OAuth login (the ambient key is
+billing-capped and never mounts the hosted `image_gen` tool), and keeps every
+run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
+where any session can rediscover it (see Run Inventory). The plugin also ships
+a guard hook that blocks hand-rolled `codex exec` and backgrounded `codex-ask`
+calls: dispatch is foreground-only, because background Bash completion never
+wakes an in-process subagent (claude-code#78782) and the script already
+survives a killed or timed-out foreground call.
+
+The fast tier is mandatory on every variant; without it, xhigh prompts can run
+10–30+ minutes and get abandoned. Keep questions bounded and specific: a narrow
+question returns in ~2 minutes, an open-ended design essay does not.
 
 ## When to Use
 
@@ -66,89 +69,47 @@ deviations.
   open-ended work. Production edits are in range at xhigh; review the diff as you
   would any other contributor's.
 
-## Model Variants and Escalation
-
-`gpt-5.6-sol` is the default for every lane. Two sanctioned deviations, at
-your discretion per task; every other flag stays put either way:
-
-- **`gpt-5.6-luna`** for two lanes. The rote-throwaway/bulk lane: one-off
-  scripts, scratch harnesses, data munging where quality doesn't matter and
-  nothing can go wrong. And the **recon lane, which now defaults to luna**:
-  enumerations, config/wiring locates, subsystem traces, pattern sweeps, and
-  routine chores (diff and log triage, classify, extract, digest, doc lookup),
-  where luna matched or beat sonnet-5 on recall with zero false cites at ~3x
-  speed and ~80% lower cost (measured 2026-07-14). Exhaustive enumerations get
-  a cross-model verify pass -- luna's failure mode is a confident wrong count, and
-  a luna/sonnet/sol verifier caught 100% of planted undercounts. Recon stays on
-  Claude (sonnet-5 via Explore) when the surface is Claude-only, when coverage
-  must sweep >300K tokens in one pass (luna's retrieval cliff -- xhigh doesn't
-  move it), or when a silent miss is unrecoverable and no verify pass will run.
-  Pass `-m luna`; every other flag stays pinned. Recon on luna stays at the
-  default xhigh effort: at `high` it drops whole subsystems on deep traces.
-- **Ultra execution mode** (exposed since codex 0.144.0) decomposes the run
-  across internal subagents at 3-5x token cost. It is not an escalation rung:
-  ultra shows the worst scope discipline of any config -- long unattended
-  runs wander onto the wrong work -- so a hard sol miss escalates straight
-  to fable. Never start or retry a task on ultra.
-
-`codex-ask` pins `-c service_tier=fast` on every call, regardless of variant
-or effort — the tier is a property of the script, not a caller choice.
+Model variants: pass `-m luna` for the rote/bulk and recon lanes. Routing,
+escalation, and when each variant applies live in the fleet Models table
+(CLAUDE.md § Plan Execution & Orchestration) — the script pins tier and effort
+regardless of variant.
 
 ## Browser Access
 
-`codex-ask` feeds the plugin's `AGENTS.md` to codex as developer
-instructions on every call. That file bans raw
-browser launches (Chrome under the old `workspace-write` seatbelt died at
-`RegisterApplication`, spraying `.ips` crash reports; unsandboxed it opens
-windows on the user's desktop) and routes all browser/DOM verification through
-the `agent-browser` CLI in the `codex` namespace. Nothing for you to do —
-there is no warm-up step; the agent-browser daemon auto-starts from inside
-codex now that the sandbox is `danger-full-access`. Routing every call
-through `codex-ask` is what keeps the feed and the sandbox pin in place; a
-hand-rolled `codex exec` line is how they get lost.
-
+The `AGENTS.md` fed as developer instructions bans raw browser launches and
+routes all browser/DOM work through the `agent-browser` CLI in the `codex`
+namespace; the daemon auto-starts from inside codex. Routing every call through
+`codex-ask` is what keeps that feed and the sandbox pin in place.
 `--sandbox danger-full-access` means codex-generated commands run unsandboxed
 on this machine — a standing, user-sanctioned choice for these lanes; don't
 "harden" it back to `workspace-write`.
 
 ## From Workflows and Subagents (the codex-wrapper agent)
 
-Since 0.10.0 this skill runs inline — no `context: fork` — so `Skill(codex)`
-works identically from the main conversation, subagents, and workflow steps.
-(Through 0.9.0 the skill forked, and a schema-bound caller leaked its
-`StructuredOutput` tool into the fork; a fork ending its turn there had its
-answer discarded as a bare "Skill execution completed" stub — claude-code#75559.
-Inline execution removes the fork and the relay, so the failure mode is
-structurally gone.)
-
-The `model` parameter on `Agent`/`Task` calls and workflow `agent()` steps
-still takes only Claude models, so a workflow stage that should BE a codex
-call spawns agent type `codex:codex-wrapper` (the `subagent_type` of an
-`Agent`/`Task` call, or `agentType` on a workflow `agent()` step) with the
-full self-contained question — or file/diff pointers plus the questions to
-answer — as the prompt. The wrapper is also the lane for keeping big
-context (a large diff, many files) out of your own window: it forwards the
-pointers, Codex pulls the material itself inside the repo, and the wrapper
-returns Codex's answer verbatim — the material never transits either
-Claude context.
+This skill runs inline (no `context: fork`), so `Skill(codex)` works
+identically from the main conversation, subagents, and workflow steps. The
+`model` parameter on `Agent`/`Task` calls and workflow `agent()` steps takes
+only Claude models, so a workflow stage that should BE a codex call spawns
+agent type `codex:codex-wrapper` with the full self-contained question — or
+file/diff pointers plus the questions to answer — as the prompt. The wrapper is
+also the lane for keeping big context (a large diff, many files) out of your
+own window: it forwards the pointers, Codex pulls the material itself inside
+the repo, and the wrapper returns Codex's answer verbatim.
 
 ### The fan-out shape: disk is the record
 
 A delegated agent's final message is a lossy channel; the deliverable lives on
-disk. `codex-ask` already persists every run's `meta` (reply/log paths),
-`status`, question, reply, and log per scratch dir — mv-atomic, written before
-any narration exists. Drive a codex fan-out off that record, not off what the
-agents say:
+disk. `codex-ask` persists every run's `meta` (reply/log paths), `status`,
+question, reply, and log per run dir — mv-atomic, written before any narration
+exists. Drive a codex fan-out off that record, not off what the agents say:
 
 1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
    `ROOT=$(codex-ask --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
    (lane paths: `sed -n 's/^LANE: //p'`; the `sed` masks a mint failure, so
-   guard `[ -n "$ROOT" ]` before use) — the root lands where a plain ask
-   would (session scratchpad, else `$TMPDIR`) with one lane dir pre-created
-   per agent (a lane that never runs must be a *visible* `no-run`, not
-   absent). Never hand-mint scratch — no repo-relative dirs, no
-   `.claude/scratch`, no `~/.claude`. Pass the lane dirs through the
-   workflow `args`.
+   guard `[ -n "$ROOT" ]` before use) — the root lands under the fixed runs
+   base with one lane dir pre-created per agent (a lane that never runs must
+   be a *visible* `no-run`, not absent). Never hand-mint scratch. Pass the
+   lane dirs through the workflow `args`.
 2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
    `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir.
 3. **End with a collect stage.** The last deterministic step runs
@@ -160,35 +121,34 @@ agents say:
    gate rather than passing it.
 4. **Reconcile, then redo only what truly failed.** A lane reported "failed"
    whose record is `completed` is a paperwork failure — recover its
-   `reply_file` (or the run's `journal.jsonl`), never re-dispatch. A lane
-   reported "succeeded" that reads `no-run` never ran. Implementation lanes
-   also diff the tree, scoped to the lane's expected fileset — a shared working
-   copy (cc-pool) makes the tree truth about the world, not attribution. Redo
-   only `no-run`, `died`, and genuinely-failed lanes. Lanes end at the
-   working tree — codex edits, Claude ships: the commit and push happen
-   natively after reconciliation (`ccx vcs ship`), never inside a lane.
+   `reply_file`, never re-dispatch. A lane reported "succeeded" that reads
+   `no-run` never ran. Implementation lanes also diff the tree, scoped to the
+   lane's expected fileset — a shared working copy makes the tree truth about
+   the world, not attribution. Redo only `no-run`, `died`, and
+   genuinely-failed lanes. Lanes end at the working tree — codex edits, Claude
+   ships: the commit and push happen natively after reconciliation
+   (`ccx vcs ship`), never inside a lane.
 
-**Returns by lane kind.** Short verdict lanes carry a `{status, summary}`
-micro-schema — enforce it natively with `codex-ask --schema <file>` (→ codex
-`--output-schema`), where structure is the answer and the session is too short
-to risk the retry cap. Implementation lanes return schema-free prose led by
-their `REPLY_FILE:` pointer line; a schema after a long session is how the
-StructuredOutput retry cap nulls finished work the disk already holds.
+**Returns by lane kind.** Verdict lanes enforce their `{status, summary}`
+micro-schema natively with `codex-ask --schema <file>` (→ codex
+`--output-schema`). Implementation lanes return prose led by their
+`REPLY_FILE:` pointer line.
 
 ## Workflow
 
 ### Step 1: Compose the Context
 
 Codex answers only as well as the question scopes it, and it pulls its own
-context inside the repo (shell access plus token-bounded `ccx` tooling) — so
-precision beats volume. Every question carries:
+context inside the repo with standard shell tools (rg, sed, git — ccx and MCP
+tooling are disabled in lanes) — so precision beats volume. Every question
+carries:
 
 - A clear problem statement with the specific error or symptom
 - **Precise pointers**: exact file paths with line ranges (or `path:line#hash`
   cites) and the diff ref under review — `ccx vcs diff` output, or the
-  instruction to run it. Once the material is more than a screenful, pointers
-  beat pasted walls of text; small context still inlines complete functions
-  (never truncated snippets).
+  instruction to run `git diff`. Once the material is more than a screenful,
+  pointers beat pasted walls of text; small context still inlines complete
+  functions (never truncated snippets).
 - **The narrowest test command** that answers the question, scoped to the
   affected packages — name the full suite only when the suite itself is the
   question. An unscoped "run the tests" invites a ten-minute re-run of work
@@ -202,19 +162,17 @@ precision beats volume. Every question carries:
 
 ### Step 2: Ask via codex-ask
 
-Pipe the question through `codex-ask`. The script handles the mechanics
-that used to be recipe steps: it resolves an absolute scratch directory
-outside the repo (adopting the harness-provided one when the session has it,
-a fresh `mktemp -d` otherwise — a plain call needs no `-s`, and never a
-hand-picked path), prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:`
-lines up front, runs the pinned exec detached from the calling shell,
-redirects the JSONL event stream (banner, echoed prompt, progress trace)
-into the log, and blocks until the reply is complete — plus a log tail on
-failure. Because the paths print first and the run survives its caller's
-death, a killed or timed-out Bash call loses nothing: the `AWAIT:` line
-names the exact command that resumes waiting (see Common Issues). Give the
-Bash call a 10-minute timeout: xhigh on the fast tier typically returns in
-~2 minutes but can run longer.
+Pipe the question through `codex-ask` in a foreground Bash call with a
+10-minute timeout (`timeout: 600000`) — xhigh on the fast tier typically
+returns in ~2 minutes but can run longer. The script mints the run dir under
+the fixed base, prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines up front,
+runs the pinned exec detached from the calling shell, redirects the JSONL
+event stream into the log, and blocks until the reply is complete — plus a log
+tail on failure. Because the paths print first and the run survives its
+caller's death, a killed or timed-out Bash call loses nothing: rerun the
+`AWAIT:` line (`codex-ask --await <run-dir>`) in a fresh foreground call,
+repeatedly if needed, until it exits. Asking the question again pays for work
+that is already finishing.
 
 ```bash
 codex-ask - <<'QUESTION'
@@ -240,19 +198,18 @@ Questions:
 QUESTION
 ```
 
-In place of `-` (stdin), `codex-ask` also takes a file path or literal
-text, so a short question can go inline:
-`codex-ask "Explain the JPEG progressive AC refinement algorithm"`. Every
-form writes the question file, so the exchange keeps a durable record
-either way.
+In place of `-` (stdin), `codex-ask` also takes a file path or literal text,
+so a short question can go inline:
+`codex-ask "Explain the JPEG progressive AC refinement algorithm"`. Every form
+writes the question file, so the exchange keeps a durable record either way.
 
 ### Step 3: Evaluate the Reply
 
-Read the reply file printed on the `REPLY_FILE:` line. The file persists as a
+Read the reply file printed on the `REPLY_FILE:` line; it persists as a
 durable record of the exchange. If the reply file is empty or missing, read
 the tail of the `LOG_FILE:` JSONL — the failing event is in the last lines.
-
-Evaluate suggestions critically. Codex is helpful but not infallible -- it can occasionally misinterpret specifications. Always verify against authoritative sources before applying.
+Evaluate suggestions critically and verify against authoritative sources
+before applying.
 
 The codex skill never absorbs a surprise. If the reply invalidates the premise
 of your question or changes the task's shape -- the bug isn't where you said,
@@ -261,28 +218,25 @@ rather than improvising a detour: surface the finding with 2-4 concrete options
 and let the user (or the fable orchestrator that delegated to you) pick. See
 AGENTS.md § Ask Before Assuming.
 
-## Response Format
+Return the answer in the exact shape the caller asked for — a bare artifact
+(an edited function, a file path) stays bare, never wrapped in analysis
+boilerplate.
 
-For diagnosis, review, and second-opinion calls, return a structured summary:
+## Run Inventory and Recovery (--ps)
 
-```
-## Codex Analysis
+Every run — ad-hoc or fan-out — lives under
+`${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` (override: `CODEX_ASK_RUNS_DIR`,
+absolute and outside any repo). The filesystem is the registry:
 
-**Problem:** <1 sentence>
-**Codex Findings:**
-1. <finding with assessment: agree/disagree/needs-verification>
-2. <finding with assessment>
-
-**Recommended Actions:**
-- <concrete next step based on verified findings>
-
-**Confidence:** <high/medium/low based on how well Codex understood the problem>
-```
-
-For well-scoped edits and image generation, skip the structure: return Codex's
-answer verbatim in the exact shape the caller asked for (e.g. "reply with ONLY
-the edited function"). Don't wrap a bare artifact in the Analysis boilerplate —
-the caller wants the artifact, not a report on it.
+- `codex-ask --ps` walks the base and prints one JSONL record per run — state
+  (the collect classification), pid, start time, log age, cwd, session —
+  pruning only long-terminal runs. A run whose caller died, compacted, or was
+  never woken is *not* lost: any session can find it here and recover with
+  `codex-ask --await <run-dir>` (single run) or `codex-ask --collect <root>`
+  (fan-out root).
+- Before re-dispatching anything that "seems dead", check `--ps` first — a
+  wedged run is visible (old log age, live pid) and killable; a completed one
+  has its reply on disk.
 
 ## Generating Images ($imagegen)
 
@@ -346,52 +300,29 @@ Model limits to design around:
    `gpt-image-1.5 --background transparent` for native transparency. Run it
    directly; no codex session needed.
 
-## Tips
-
-1. **Provide complete code** -- don't truncate functions. Codex needs full context.
-2. **Be specific** -- "Why does Huffman decoding fail after 1477 blocks in AC refinement scan?" not "Why does this fail?"
-3. **Include the spec** -- if debugging against a standard, mention the relevant spec sections.
-4. **Verify suggestions** -- Codex is helpful but not infallible. Always verify against authoritative sources.
-5. **Iterate if needed** -- if the first response doesn't solve the problem, create a new question with additional context from what you learned.
-
 ## Common Issues
 
 **No output**: read the tail of the `LOG_FILE:` JSONL — the failing event is
-in the last lines
+in the last lines.
 
 **Call killed or timed out mid-run**: the run is still alive — codex-ask
-detaches it from the calling shell and printed an `AWAIT:` line before
-starting. Run that command (`codex-ask --await <scratch-dir>`) in a fresh
-foreground Bash call with the same 10-minute timeout; it blocks until the
-run completes, then prints the same `REPLY_FILE:`/`LOG_FILE:` report.
-Repeat if it times out again. The first run finishes on its own — asking
-the question again pays for the same work twice.
+detached it and printed the `AWAIT:` line before starting. Rerun that command
+in a fresh foreground Bash call (same 10-minute timeout), repeating until it
+exits.
 
 **Reported result doesn't match the tree**: trust the disk, not the narration.
-Run `codex-ask --collect` over the lane root (or a single lane dir, which emits
-one `.` record). A lane reported failed whose record says `completed` is a
-paperwork failure — recover the answer from its `reply_file` or the run's
-`journal.jsonl`, don't re-dispatch. A lane reported successful over an
-untouched, scoped tree diff never actually ran. For ad-hoc single calls with no
-downstream collector, `codex-ask --await <scratch-dir>` is the recovery path.
+Run `codex-ask --collect` over the lane root (or `--ps` for ad-hoc runs). A
+lane reported failed whose record says `completed` is a paperwork failure —
+recover the answer from its `reply_file`, don't re-dispatch. A lane reported
+successful over an untouched, scoped tree diff never actually ran.
 
-**Result is a bare "Skill execution completed"**: you are running a stale cached
-version (0.9.0 or earlier, when this skill ran `context: fork` and schema-bound
-subagent callers hit a relay bug — claude-code#75559). Since 0.10.0 the skill
-runs inline and this cannot happen: run `claude plugin update codex@skills`.
+**Timeout**: exec mode never prompts and the fast tier is pinned, so a call
+dragging past a few minutes means the question is unbounded — broad open-ended
+prompts are the usual cause.
 
-**Two codex calls stomped or cross-read each other's files, or temp files
-appeared inside the repo**: a hand-rolled `codex exec` used fixed,
-`$$`-suffixed, or repo-relative paths. `codex-ask` mktemps fresh absolute
-paths per call, so neither can happen through it — route the call through
-the script, and mint fan-out roots with `codex-ask --mint-root`, never a
-hand-picked `.claude/scratch`.
-
-**Timeout**: Exec mode never prompts; `--sandbox danger-full-access` runs generated commands unsandboxed without approval (the old `workspace-write` seatbelt crashed GUI launches like browsers). `codex-ask` pins `-c service_tier=fast`, so a call dragging past a few minutes means the question is unbounded — broad open-ended prompts are the usual cause.
-
-**Codex launched Chrome / browser windows appeared**: a hand-rolled `codex exec` bypassed `codex-ask`, dropping the `-c developer_instructions` feed that carries the browser rules (agent-browser only, `codex` namespace). Route the call through `codex-ask`, which feeds it on every call.
-
-**"Not inside a trusted directory"**: `codex exec` refuses to run outside a git repository — `git init` first, or pass codex-ask's `--skip-git-repo-check` flag (it goes before the question argument).
+**"Not inside a trusted directory"**: `codex exec` refuses to run outside a
+git repository — `git init` first, or pass codex-ask's `--skip-git-repo-check`
+flag (it goes before the question argument).
 
 **Turn fails with "flagged for possible cybersecurity risk"**: OpenAI's content
 filter killed the run, not codex-ask. It keys on offensive-security phrasing, so
@@ -402,8 +333,13 @@ survives the harness's standard timeout-termination") and split a broad sweep
 into per-topic calls so one hit loses less. Offensive-framed reviews belong on
 the Claude lane, which has no such filter.
 
-**IMAGE_GEN_UNAVAILABLE**: codex is signed in with an API key (`codex login status`), not a ChatGPT plan — the hosted tool never mounts. Use the fallback CLI from Generating Images instead.
+**IMAGE_GEN_UNAVAILABLE**: codex is signed in with an API key (`codex login
+status`), not a ChatGPT plan — the hosted tool never mounts. Use the fallback
+CLI from Generating Images instead.
 
-**Images not in the repo**: expected — with `--disable shell_tool` codex can't write into the workspace; generations stay in `$CODEX_HOME/generated_images/` and copying them in is your job.
+**Images not in the repo**: expected — with `--disable shell_tool` codex can't
+write into the workspace; generations stay in `$CODEX_HOME/generated_images/`
+and copying them in is your job.
 
-**Solid box behind a "transparent" logo**: chroma-key removal was skipped -- gpt-image-2 has no native transparency; use the `remove_chroma_key.py` step.
+**Solid box behind a "transparent" logo**: chroma-key removal was skipped --
+gpt-image-2 has no native transparency; use the `remove_chroma_key.py` step.

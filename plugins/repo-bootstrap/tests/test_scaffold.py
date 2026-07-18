@@ -314,50 +314,63 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
     assert os.access(script, os.X_OK), script
     text = script.read_text()
     for needle in (
-        "MODEL=gpt-5.6-sol",
-        "MODEL=gpt-5.6-luna",
-        "EFFORT=xhigh",
-        '-c model="$MODEL"',
-        '-c model_reasoning_effort="$EFFORT"',
-        "-c service_tier=fast",
-        "developer_instructions=",
-        "--sandbox danger-full-access",
-        '-o "$R.tmp"',
+        # pinned model / effort / fast-tier / mcp-off / dev-instructions on the exec line
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
+        "xhigh",
+        'f"model={model}"',
+        'f"model_reasoning_effort={EFFORT}"',
+        "service_tier=fast",
+        "mcp_servers={}",
+        'f"developer_instructions={dev}"',
+        "danger-full-access",
+        '"-o", str(reply_tmp)',
         "--json",
-        "--color never",
-        "2>&1",
+        '"--color", "never"',
         "REPLY_FILE:",
         "LOG_FILE:",
-        "tail -20",
-        "unset OPENAI_API_KEY",
-        "TMPDIR=/tmp",
-        "S=$(mint_scratch codex-ask)",
-        'mktemp -d "$TMPDIR/$1.XXXXXX"',
-        "codex-q-XXXXXX",
-        "codex-r-XXXXXX",
-        # v2: detached-survivable launch + --await recovery
+        # unset the billing-capped key; every run lands under the fixed runs base
+        "OPENAI_API_KEY",
+        "CODEX_ASK_RUNS_DIR",
+        "codex-q-",
+        "codex-r-",
+        # uv must never pollute the parseable stdout contract
+        "--quiet",
+        # native detached-survivable launch (pipe-back registration) + --await
         "AWAIT:",
         "--await",
-        "set -m",
-        'mv -f "$S/status.tmp" "$S/status"',
-        '"$S/pid"',
-        # v2: exit 0 + empty reply is a silent codex death, treated as failure
+        "detach_worker",
+        "os.setsid()",
+        "os.pipe()",
+        # PID-recycle guard: kill-0 + recorded start-time, pinned TZ/locale/binary
+        "pid_alive",
+        "lstart",
+        '"TZ": "UTC"',
+        "/bin/ps",
+        # signal death normalizes to 128+signal so the status still parses
+        "128 - rc",
+        'atomic_write(sdir / "status"',
+        'sdir / "pid"',
+        # --ps prunes only codex-ask's own minted dirs
+        "RUN_PREFIXES",
+        # exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
-        # v3 disk-truth: staged reply, meta wipe, collect, completion marker
-        'mv -f "$R.tmp" "$R"',
-        'rm -f "$S/status" "$S/pid" "$S/meta"',
+        # disk-truth: staged reply, meta wipe, collect, --ps registry, marker
+        "os.replace(reply_tmp, reply)",
+        '("status", "pid", "lstart", "meta", "cmd")',
         "--collect",
+        "--ps",
         '"type":"turn.started"',
         '"type":"turn.completed"',
         "died mid-turn",
-        # v3 opt-in schema passthrough (verdict lanes only)
+        # opt-in schema passthrough (verdict lanes only)
         "--schema",
         "--output-schema",
     ):
         assert needle in text, needle
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
-    # print-first: the recovery paths echo before codex is ever invoked
-    assert text.index('echo "REPLY_FILE: ') < text.index("codex exec -c")
+    # print-first: the recovery paths print before the worker (and thus codex) launches
+    assert text.index('print(f"REPLY_FILE:') < text.index("detach_worker(sdir)")
     skill_md = plugin_root / "skills" / "codex" / "SKILL.md"
     wrapper_md = plugin_root / "agents" / "codex-wrapper.md"
     for src in (skill_md, wrapper_md):
@@ -367,11 +380,14 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         assert not recipe_lines, (src, recipe_lines)
         assert "REPLY_FILE:" in t, src
         assert "LOG_FILE:" in t, src
-        # v2 docs: --await documented
-        assert "--await" in t, src
-    # check-back contract pinned verbatim in each (phrased differently per file)
+        # each doc carries the timeout-recovery mechanic self-sufficiently (the
+        # wrapper can't lean on SKILL.md): the printed AWAIT: line / --await flag
+        assert "AWAIT" in t, src
+    # the check-back contract lives in each doc (worded per file): surface a
+    # surprise and hand back options rather than absorbing it
     assert "never absorbs a surprise" in skill_md.read_text()
-    assert "Never absorb a surprise" in wrapper_md.read_text()
+    assert "surprise" in wrapper_md.read_text()
+    assert "options" in wrapper_md.read_text()
     # wrapper bans backgrounding the codex call (orphaned-verdict failure mode)
     assert "run_in_background" in wrapper_md.read_text()
 
@@ -402,9 +418,10 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
         "PATH": f"{stub_bin}:{os.environ['PATH']}",
         "OPENAI_API_KEY": "sk-dummy",
         "TMPDIR": str(tmpdir),
+        # Pin the fixed runs base into the sandbox so a no--s run never escapes
+        # to the real ~/.cache.
+        "CODEX_ASK_RUNS_DIR": str(tmpdir),
     }
-    # pytest runs inside a Claude session; a leaked id + a real on-PATH
-    # cc-transcript would redirect scratch files into the live session scratchpad.
     env.pop("CLAUDE_CODE_SESSION_ID", None)
 
     def ask(*args, env=env):
@@ -423,14 +440,6 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert "model_reasoning_effort=xhigh" in log_text
     assert "service_tier=fast" in log_text
     assert "STUB_KEY: UNSET" in log_text
-
-    # a relative TMPDIR must sanitize to /tmp, never resolve against cwd
-    rel_tmp = ask("ping", env={**env, "TMPDIR": "."})
-    assert rel_tmp.returncode == 0, rel_tmp.stderr
-    r2 = re.search(r"^REPLY_FILE: (.+)$", rel_tmp.stdout, re.M).group(1)
-    assert os.path.isabs(r2)
-    assert not r2.startswith(str(cwd))
-    assert not list(cwd.iterdir())
 
     rel = ask("-s", ".scratch", "ping")
     assert rel.returncode == 2, rel.stdout + rel.stderr
@@ -468,9 +477,14 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
 
 
 def _codex_env(stub_bin, tmpdir, **extra):
-    # Controlled env: stub codex on PATH, sandboxed TMPDIR, no leaked session id
-    # (pytest runs in a Claude session; a real cc-transcript would else adopt it).
-    env = {**os.environ, "PATH": f"{stub_bin}:{os.environ['PATH']}", "TMPDIR": str(tmpdir)}
+    # Controlled env: stub codex on PATH, the fixed runs base pinned into the
+    # sandbox so no run escapes to the real ~/.cache, no leaked session id.
+    env = {
+        **os.environ,
+        "PATH": f"{stub_bin}:{os.environ['PATH']}",
+        "TMPDIR": str(tmpdir),
+        "CODEX_ASK_RUNS_DIR": str(tmpdir),
+    }
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.update(extra)
     return env
@@ -671,23 +685,28 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
     assert relaw.returncode == 2
     assert not list(cwd.iterdir())
 
-    # no codex binary at all -> status 127. Assert the precondition so a stray
-    # real /usr/bin/codex can't let this pass for the wrong reason.
-    bare_path = "/usr/bin:/bin"
+    # no codex, but uv stays reachable so the shebang launches (else this passes
+    # vacuously on `env: uv: not found`): worker records status 127, headers still
+    # arrive. Assert no stray real codex.
+    uv_dir = os.path.dirname(shutil.which("uv"))
+    bare_path = f"{uv_dir}:/usr/bin:/bin"
     assert shutil.which("codex", path=bare_path) is None, "test PATH must resolve no real codex"
     bare = _codex_env(stub_bin, tmpdir, PATH=bare_path)
     nocodex = subprocess.run([str(script), "ping"], cwd=cwd, env=bare, text=True, capture_output=True, timeout=30)
     assert nocodex.returncode == 127, nocodex.stdout + nocodex.stderr
+    assert "REPLY_FILE:" in nocodex.stdout and "AWAIT:" in nocodex.stdout
+    reply = re.search(r"^REPLY_FILE: (.+)$", nocodex.stdout, re.M).group(1)
+    assert (Path(reply).parent / "status").read_text().strip() == "127"
 
 
-def test_codex_ask_adopts_harness_scratchpad(templates_dir, tmp_path):
-    # With a session id and no -s, codex-ask adopts the cc-transcript-resolved
-    # scratchpad into a per-call subdir; any miss falls back to mktemp.
+def test_codex_ask_runs_base(templates_dir, tmp_path):
+    # A no--s run lands under the fixed registry base — $CODEX_ASK_RUNS_DIR, or
+    # ${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs by default — never in the repo.
     script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
-    codex = stub_bin / "codex"
-    codex.write_text(
+    stub = stub_bin / "codex"
+    stub.write_text(
         "#!/bin/sh\n"
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
@@ -695,56 +714,57 @@ def test_codex_ask_adopts_harness_scratchpad(templates_dir, tmp_path):
         '[ -n "$out" ] && echo ok > "$out"\n'
         "exit 0\n"
     )
-    codex.chmod(0o755)
-    fake_sp = tmp_path / "scratchpad"
-    fake_sp.mkdir()
-    sentinel = tmp_path / "cct-invoked"
+    stub.chmod(0o755)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
     cwd = tmp_path / "repo"
     cwd.mkdir()
-
-    def write_cct(body):
-        cct = stub_bin / "cc-transcript"
-        cct.write_text(body)
-        cct.chmod(0o755)
-
-    def ask(session):
-        env = {**os.environ, "PATH": f"{stub_bin}:/usr/bin:/bin", "TMPDIR": str(tmpdir)}
-        if session is None:
-            env.pop("CLAUDE_CODE_SESSION_ID", None)
-        else:
-            env["CLAUDE_CODE_SESSION_ID"] = session
-        return subprocess.run([str(script), "ping"], cwd=cwd, env=env, text=True, capture_output=True, timeout=30)
+    subprocess.run(["git", "init", "-q", str(cwd)], check=True, capture_output=True)
 
     def reply_of(run):
         assert run.returncode == 0, run.stdout + run.stderr
         return re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
 
-    # happy path: cc-transcript prints the existing scratchpad -> per-call subdir
-    write_cct(f'#!/bin/sh\ntouch "{sentinel}"\necho "{fake_sp}"\nexit 0\n')
-    reply = reply_of(ask("eac1daa0-dead-beef-0000-000000000000"))
-    assert reply.startswith(str(fake_sp) + os.sep), reply
-    assert os.path.dirname(os.path.dirname(reply)) == str(fake_sp), reply
-    assert sentinel.exists()
+    # explicit CODEX_ASK_RUNS_DIR: the run lands under it, cwd stays clean
+    runs = tmp_path / "runs"
+    env = _codex_env(stub_bin, tmpdir, CODEX_ASK_RUNS_DIR=str(runs))
+    reply = reply_of(
+        subprocess.run([str(script), "ping"], cwd=cwd, env=env, text=True, capture_output=True, timeout=30)
+    )
+    assert reply.startswith(str(runs) + os.sep), reply
+    assert [p.name for p in cwd.iterdir()] == [".git"]  # nothing minted in-repo
 
-    # cc-transcript exits nonzero -> mktemp fallback under TMPDIR
-    write_cct("#!/bin/sh\nexit 1\n")
-    assert reply_of(ask("sid-nonzero")).startswith(str(tmpdir) + os.sep)
+    # default base: ${XDG_CACHE_HOME}/codex-ask/runs, never ~/.claude
+    xdg = tmp_path / "xdg"
+    env2 = _codex_env(stub_bin, tmpdir, XDG_CACHE_HOME=str(xdg))
+    env2.pop("CODEX_ASK_RUNS_DIR", None)
+    reply2 = reply_of(
+        subprocess.run([str(script), "ping"], cwd=cwd, env=env2, text=True, capture_output=True, timeout=30)
+    )
+    assert reply2.startswith(str(xdg / "codex-ask" / "runs") + os.sep), reply2
+    assert [p.name for p in cwd.iterdir()] == [".git"]
 
-    # cc-transcript prints nothing -> fallback
-    write_cct("#!/bin/sh\nexit 0\n")
-    assert reply_of(ask("sid-empty")).startswith(str(tmpdir) + os.sep)
 
-    # cc-transcript prints a non-existent path -> fallback
-    write_cct(f'#!/bin/sh\necho "{tmp_path}/nope"\nexit 0\n')
-    assert reply_of(ask("sid-missing")).startswith(str(tmpdir) + os.sep)
-
-    # no session id -> the probe never runs (cc-transcript is never invoked)
-    sentinel.unlink()
-    write_cct(f'#!/bin/sh\ntouch "{sentinel}"\necho "{fake_sp}"\nexit 0\n')
-    assert reply_of(ask(None)).startswith(str(tmpdir) + os.sep)
-    assert not sentinel.exists()
+def test_codex_ask_empty_question_mints_nothing(templates_dir, tmp_path):
+    # An empty question refuses (exit 2) before minting anything, so the fixed
+    # runs base never accumulates an empty codex-ask.XXXX no-run as litter.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    env = _codex_env(stub_bin, tmpdir, CODEX_ASK_RUNS_DIR=str(runs))
+    run = subprocess.run(
+        [str(script), "-"], env=env, text=True, capture_output=True, input="", timeout=30
+    )
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "empty question" in run.stderr
+    assert list(runs.iterdir()) == [], "empty-question refusal must mint nothing"
 
 
 def test_codex_ask_prints_headers_before_codex_produces_output(templates_dir, tmp_path):
@@ -857,9 +877,20 @@ def _codex_ask(templates_dir):
     return templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
 
 
-def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask\n", meta=True):
-    # Hand-build one lane's on-disk state (meta/status/pid/reply/log), mirroring
-    # what a real codex-ask run leaves behind, so --collect can be tested offline.
+def _lstart_of(pid):
+    # Match the script's pinned probe (TZ=UTC LC_ALL=C /bin/ps) so a crafted live
+    # lane's recorded start-time compares equal to codex-ask's own reading.
+    env = {**os.environ, "TZ": "UTC", "LC_ALL": "C"}
+    return subprocess.run(
+        ["/bin/ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env
+    ).stdout.strip()
+
+
+def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask\n", meta=True, lstart=None):
+    # Hand-build one lane's on-disk state (meta/status/pid/lstart/reply/log),
+    # mirroring what a real codex-ask run leaves behind, so --collect/--ps can be
+    # tested offline. A live pid gets its real recorded start-time so pid_alive
+    # sees it as running; pass lstart= to simulate a recycle mismatch.
     d.mkdir(parents=True, exist_ok=True)
     r, q, lg = d / "codex-r-x", d / "codex-q-x", d / "codex-q-x.log"
     if meta:
@@ -873,6 +904,7 @@ def _craft_lane(d, *, reply=None, status=None, pid=None, log=None, question="ask
         (d / "status").write_text(status)
     if pid is not None:
         (d / "pid").write_text(f"{pid}\n")
+        (d / "lstart").write_text((_lstart_of(pid) if lstart is None else lstart) + "\n")
     return d
 
 
@@ -1002,7 +1034,7 @@ def test_codex_ask_reuse_wipes_meta(templates_dir, tmp_path):
     aw = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=15)
     assert aw.returncode == 2
     assert "no recorded" in aw.stderr.lower()
-    assert 'rm -f "$S/status" "$S/pid" "$S/meta"' in script.read_text()
+    assert '("status", "pid", "lstart", "meta", "cmd")' in script.read_text()
 
 
 def test_codex_ask_reply_staging_is_atomic(templates_dir, tmp_path):
@@ -1178,6 +1210,364 @@ def test_codex_ask_schema_passthrough(templates_dir, tmp_path):
     )
     assert bad.returncode == 2
     assert "readable json schema" in bad.stderr.lower()
+
+
+def _ps_records(script, runs):
+    run = subprocess.run(
+        [str(script), "--ps"], env={**os.environ, "CODEX_ASK_RUNS_DIR": str(runs)},
+        text=True, capture_output=True, timeout=30,
+    )
+    assert run.returncode == 0, run.stderr
+    recs = {}
+    for line in run.stdout.splitlines():
+        if line.strip():
+            rec = json.loads(line)
+            recs[os.path.basename(rec["dir"])] = rec
+    return recs
+
+
+def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
+    # --ps walks the runs base, emits one JSONL record per run with the right
+    # state, tolerates an empty dir, and prunes long-terminal (never live) runs.
+    script = _codex_ask(templates_dir)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    _craft_lane(runs / "done", reply="x\n", status="0", log=COMPLETED)
+    _craft_lane(runs / "waiting")
+    (runs / "empty").mkdir()  # a dir with no run state must not crash the walk
+
+    recs = _ps_records(script, runs)
+    assert recs["done"]["state"] == "completed"
+    assert recs["waiting"]["state"] == "pending"
+    assert recs["empty"]["state"] == "no-run"
+    assert recs["done"]["reply_file"].endswith("codex-r-x")
+
+    # a codex-ask-minted terminal run past the prune age is deleted; a
+    # caller-named lane (no codex-ask prefix) is emitted but never auto-pruned
+    old = _craft_lane(runs / "codex-ask.old", reply="x\n", status="0", log=COMPLETED)
+    safe = _craft_lane(runs / "notmine", reply="x\n", status="0", log=COMPLETED)
+    stale = time.time() - 10 * 24 * 3600
+    for d in (old, safe):
+        for p in [d, *d.rglob("*")]:
+            os.utime(p, (stale, stale))
+    recs2 = _ps_records(script, runs)
+    assert "codex-ask.old" not in recs2, "long-terminal codex-ask run should be pruned"
+    assert not old.exists()
+    assert recs2["notmine"]["state"] == "completed"
+    assert safe.exists(), "a non-codex-ask-named dir must never be pruned"
+
+    # a non-terminal run is never pruned, however old, even with the prefix
+    pend = _craft_lane(runs / "codex-ask.oldpending")
+    for p in [pend, *pend.rglob("*")]:
+        os.utime(p, (stale, stale))
+    recs3 = _ps_records(script, runs)
+    assert recs3["codex-ask.oldpending"]["state"] == "pending"
+    assert pend.exists()
+
+
+def test_codex_ask_reply_tmp_removed_on_failure(templates_dir, tmp_path):
+    # A nonzero-exit codex that wrote its -o file leaves no <reply>.tmp behind.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        '[ -n "$out" ] && printf "PARTIAL\\n" > "$out"\n'
+        "exit 4\n"
+    )
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    lane = tmp_path / "lane"
+    run = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert run.returncode == 4, run.stdout + run.stderr
+    reply = re.search(r"^REPLY_FILE: (.+)$", run.stdout, re.M).group(1)
+    assert Path(reply).read_text() == ""  # partial output not published
+    assert not Path(reply + ".tmp").exists()  # and the staging file is cleaned up
+
+
+def test_codex_ask_live_lane_refusal(templates_dir, tmp_path):
+    # Relaunching into a lane whose run is still alive is refused; a finished
+    # lane stays reusable for a redo.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    release = tmp_path / "release"
+    stub = stub_bin / "codex"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
+        "cat > /dev/null\n"
+        f'while [ ! -f "{release}" ]; do sleep 0.05; done\n'
+        '[ -n "$out" ] && echo done > "$out"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    lane = tmp_path / "lane"
+
+    proc = subprocess.Popen(
+        [str(script), "-s", str(lane), "ping"], env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        pid_file = lane / "pid"
+        end = time.monotonic() + 5
+        while not pid_file.exists() and time.monotonic() < end:
+            time.sleep(0.02)
+        assert pid_file.exists(), "run never registered a pid"
+        busy = subprocess.run(
+            [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+        )
+        assert busy.returncode == 1, busy.stdout + busy.stderr
+        assert "busy" in busy.stderr.lower()
+        release.write_text("go")
+        assert proc.wait(timeout=15) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+    reuse = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert reuse.returncode == 0, reuse.stdout + reuse.stderr
+
+
+def test_codex_ask_lstart_mismatch_classified_dead(templates_dir, tmp_path):
+    # A recycled pid — kill-0 passes but the recorded start-time no longer
+    # matches — reads dead, not running.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(root / "live", pid=sleeper.pid)  # real recorded lstart
+        _craft_lane(root / "recycled", pid=sleeper.pid, lstart="Wed Jan  1 00:00:00 2020")
+        _, lanes = _collect_lanes(script, root)
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert lanes["live"]["state"] == "running"
+    assert lanes["recycled"]["state"] == "died"
+
+
+def test_codex_ask_lstart_tz_stable(templates_dir, tmp_path):
+    # The start-time is recorded and probed under a pinned TZ, so a probe run in a
+    # different TZ still matches a live lane (a /etc/localtime change can't wedge).
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(root / "live", pid=sleeper.pid)
+        run = subprocess.run(
+            [str(script), "--collect", str(root)],
+            env={**os.environ, "TZ": "Asia/Kolkata"},
+            text=True, capture_output=True, timeout=30,
+        )
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert run.returncode == 0, run.stderr
+    lanes = {json.loads(l)["lane"]: json.loads(l) for l in run.stdout.splitlines() if l.strip()}
+    assert lanes["live"]["state"] == "running"
+
+
+def test_codex_ask_legacy_lane_kill0_fallback(templates_dir, tmp_path):
+    # A live lane with no recorded lstart (a legacy bash run, or a failed initial
+    # ps) degrades to bare kill-0 and still reads running, not dead.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        lane = _craft_lane(root / "legacy", pid=sleeper.pid)
+        (lane / "lstart").unlink()
+        _, lanes = _collect_lanes(script, root)
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert lanes["legacy"]["state"] == "running"
+
+
+def test_codex_ask_signal_exit_normalized(templates_dir, tmp_path):
+    # A codex killed by a signal exits negative from subprocess; codex-ask
+    # normalizes to 128+signal so the status parses (SIGTERM -> 143).
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text("#!/bin/sh\ncat > /dev/null\nkill -TERM $$\n")
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    lane = tmp_path / "lane"
+    run = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert run.returncode == 143, run.stdout + run.stderr
+    assert (lane / "status").read_text().strip() == "143"
+
+
+def test_codex_ask_worker_spawn_failure_durable_status(templates_dir, tmp_path):
+    # A non-executable codex is a spawn error, not a not-found: durable status 126,
+    # never a statusless hang. PATH is isolated so execvp can't fall through to a
+    # real codex on the host.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    (stub_bin / "codex").write_text("not a program\n")
+    (stub_bin / "codex").chmod(0o644)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    uv_dir = os.path.dirname(shutil.which("uv"))
+    assert shutil.which("codex", path=f"{uv_dir}:/usr/bin:/bin") is None
+    env = _codex_env(stub_bin, tmpdir, PATH=f"{stub_bin}:{uv_dir}:/usr/bin:/bin")
+    lane = tmp_path / "lane"
+    run = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert run.returncode == 126, run.stdout + run.stderr
+    assert (lane / "status").read_text().strip() == "126"
+
+
+def test_codex_ask_concurrent_await_recovery(templates_dir, tmp_path):
+    # Two --await recoveries of the same killed-after-mv lane both synthesize
+    # status via unique temp files: both exit 0, neither tracebacks.
+    script = _codex_ask(templates_dir)
+    d = tmp_path / "lane"
+    _craft_lane(d, reply="RECOVERED\n", pid=DEAD_PID, log="tail\n")
+    procs = [
+        subprocess.Popen(
+            [str(script), "--await", str(d)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        for _ in range(2)
+    ]
+    results = [p.communicate(timeout=30) for p in procs]
+    for (out, err), p in zip(results, procs):
+        assert p.returncode == 0, err
+        assert "Traceback" not in err
+    assert (d / "status").read_text().strip() == "0"
+
+
+def test_codex_ask_live_lane_refusal_fresh_meta(templates_dir, tmp_path):
+    # A lane whose meta is <5s old with no pid yet (the launch window before a
+    # worker registers) is refused, so a racing relaunch can't clobber it.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.chmod(0o755)
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    env = _codex_env(stub_bin, tmpdir)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "meta").write_text(f"{lane}/codex-r-x\n{lane}/codex-q-x.log\n{{}}\n")
+    run = subprocess.run(
+        [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+    )
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "busy" in run.stderr.lower()
+
+
+def test_codex_ask_ps_expands_fanout_root(templates_dir, tmp_path):
+    # --ps expands a minted fan-out root into its lane children; the container is
+    # never emitted as a run nor pruned.
+    script = _codex_ask(templates_dir)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    root = runs / "codex-root.abc"
+    root.mkdir()
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(root / "finder", pid=sleeper.pid)
+        (root / "refuter").mkdir()
+        recs = _ps_records(script, runs)
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert recs["finder"]["state"] == "running"
+    assert recs["refuter"]["state"] == "no-run"
+    assert "codex-root.abc" not in recs
+    assert root.exists()
+
+
+def test_codex_ask_runs_dir_guard(templates_dir, tmp_path):
+    # CODEX_ASK_RUNS_DIR must be absolute and outside the repo, so --ps prune can
+    # never rmtree source dirs.
+    script = _codex_ask(templates_dir)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    stub = stub_bin / "codex"
+    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.chmod(0o755)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    subprocess.run(["git", "init", "-q", str(cwd)], check=True, capture_output=True)
+    base = {**os.environ, "PATH": f"{stub_bin}:{os.environ['PATH']}"}
+    base.pop("CLAUDE_CODE_SESSION_ID", None)
+
+    rel = subprocess.run(
+        [str(script), "ping"], cwd=cwd, env={**base, "CODEX_ASK_RUNS_DIR": "."},
+        text=True, capture_output=True, timeout=30,
+    )
+    assert rel.returncode == 2, rel.stdout + rel.stderr
+    inrepo = subprocess.run(
+        [str(script), "ping"], cwd=cwd, env={**base, "CODEX_ASK_RUNS_DIR": str(cwd / "runs")},
+        text=True, capture_output=True, timeout=30,
+    )
+    assert inrepo.returncode == 2, inrepo.stdout + inrepo.stderr
+    assert not (cwd / "runs").exists()
+
+
+def test_codex_ask_stale_tmp_swept_on_read(templates_dir, tmp_path):
+    # A terminal lane with a leftover <reply>.tmp (a SIGKILLed worker couldn't run
+    # its finally) has the .tmp reaped when --collect classifies it.
+    script = _codex_ask(templates_dir)
+    root = tmp_path / "root"
+    root.mkdir()
+    lane = _craft_lane(root / "done", reply="ok\n", status="0", log=COMPLETED)
+    stale = lane / "codex-r-x.tmp"
+    stale.write_text("orphaned partial\n")
+    _, lanes = _collect_lanes(script, root)
+    assert lanes["done"]["state"] == "completed"
+    assert not stale.exists(), "stale reply.tmp should be swept at read time"
+
+
+def test_codex_ask_await_generation_recheck(templates_dir, tmp_path):
+    # If a lane is wiped and reused mid --await, the awaiter refuses rather than
+    # reporting this run's status against the previous generation's reply/log.
+    script = _codex_ask(templates_dir)
+    lane = tmp_path / "lane"
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        _craft_lane(lane, pid=sleeper.pid, reply="gen1\n")
+        proc = subprocess.Popen(
+            [str(script), "--await", str(lane)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        time.sleep(1.5)  # let --await read the first-generation meta and enter poll
+        (lane / "codex-r-new").write_text("gen2\n")
+        (lane / "meta").write_text(f"{lane}/codex-r-new\n{lane}/codex-q-new.log\n{{}}\n")
+        (lane / "status").write_text("0\n")
+        out, err = proc.communicate(timeout=30)
+    finally:
+        sleeper.terminate()
+        sleeper.wait()
+    assert proc.returncode == 1, (out, err)
+    assert "reused" in err.lower() or "generation" in err.lower()
 
 
 def test_claude_md_disk_truth_fragment(templates_dir):
