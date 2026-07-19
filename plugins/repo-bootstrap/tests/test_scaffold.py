@@ -139,6 +139,26 @@ def test_go_release_feature_gates(go_var_pairs):
     assert ".github/formula/demo-proj.rb.tmpl" not in got
 
 
+DAEMONKIT_DESTS = GO_DESTS | {
+    "cmd/demo-projd/main.go",
+    "internal/daemon/root.go",
+    "internal/daemon/serve.go",
+    "internal/daemon/runtime.go",
+    "internal/daemon/version.go",
+    "internal/daemon/service.go",
+    "internal/daemon/protocol_test.go",
+    "scripts/test.sh",
+}
+
+
+@pytest.mark.parametrize("mode", ["client-spawn", "launchagent"])
+def test_go_daemonkit_surface_is_frozen(go_var_pairs, mode):
+    pairs = go_var_pairs + [f"LAUNCHD_MODE={mode}"]
+    got = dests("go", pairs, features=["daemonkit"])
+    assert got == DAEMONKIT_DESTS
+    assert "internal/daemon/peer.go" not in got
+
+
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
     r = scaffold.resolve("go", [], [], go_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
@@ -2017,6 +2037,52 @@ def test_real_templates_render_go(go_var_pairs):
     assert '"releases"' in layout
     assert "**Releases.**" in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
+
+
+@pytest.mark.parametrize(
+    ("mode", "restart_policy", "forbidden_policy"),
+    [
+        ("client-spawn", "service.NoRestart", "service.RestartAlways"),
+        ("launchagent", "service.RestartAlways", "service.NoRestart"),
+    ],
+)
+def test_real_templates_render_daemonkit_v4(go_var_pairs, mode, restart_policy, forbidden_policy):
+    pairs = go_var_pairs + [f"LAUNCHD_MODE={mode}"]
+    plan, notices = _real_plan("go", pairs, features=["daemonkit"])
+    assert notices == []
+    assert "internal/daemon/peer.go" not in plan
+    assert "github.com/yasyf/daemonkit v0.1.1-0.20260719051422-e93fc1280567" in plan["go.mod"]
+
+    main = plan["cmd/demo-projd/main.go"]
+    assert "proc.CloseInheritedFDs()" in main
+    assert "signal.NotifyContext" not in main
+
+    runtime = plan["internal/daemon/runtime.go"]
+    assert "dkdaemon.NewRuntime" in runtime
+    assert "wire.LifecyclePeer" in runtime
+    assert "(trust.Policy{}).Check" in runtime
+    assert "wire.NewFraming" not in runtime
+    assert "PeerFromConn" not in runtime
+
+    service_template = plan["internal/daemon/service.go"]
+    assert restart_policy in service_template
+    assert forbidden_policy not in service_template
+
+    protocol = plan["internal/daemon/protocol_test.go"]
+    assert "wire.ProtocolVersion != 4" in protocol
+    assert "lifeproto.Version != 2" in protocol
+    assert '"protocol":4' in protocol
+    assert '"v":1' not in protocol
+
+    serve = plan["internal/daemon/serve.go"]
+    assert "serveLifecycle" not in serve
+    assert "handleConn" not in serve
+    assert "wire.NewFraming" not in serve
+    if mode == "client-spawn":
+        assert "dkdaemon.EnsureCurrent" in serve
+        assert "runtime.workers.Start(idle.Run)" in serve
+    else:
+        assert "dkdaemon.EnsureCurrent" not in serve
 
 
 def test_capt_hook_layout_imports_guard_packs(base_var_pairs, py_var_pairs, go_var_pairs, swift_var_pairs):

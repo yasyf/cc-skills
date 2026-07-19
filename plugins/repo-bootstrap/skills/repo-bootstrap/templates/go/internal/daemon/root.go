@@ -1,6 +1,5 @@
-// Package daemon is the {{PROJECT_NAME}} daemon: its command tree, serve loop,
-// and the daemonkit lifecycle wiring (build version, takeover / skew-watch, and
-// launchd service management).
+// Package daemon is the {{PROJECT_NAME}} daemon: its command tree, daemonkit
+// runtime, exact persistent protocol, and launchd service management.
 package daemon
 
 import "github.com/spf13/cobra"

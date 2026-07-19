@@ -16,10 +16,16 @@ const serviceLabel = "com.example." + appName
 
 func agent() service.Agent {
 	return service.Agent{
-		Label:   serviceLabel,
-		Formula: appName,
-		Args:    []string{"serve"},
-		LogPath: paths.Paths{App: appName}.LogPath(),
+		Label:         serviceLabel,
+		Formula:       appName,
+		Args:          []string{"serve"},
+		LogPath:       paths.Paths{App: appName}.LogPath(),
+{{#MODE_CLIENT_SPAWN}}
+		RestartPolicy: service.NoRestart,
+{{/MODE_CLIENT_SPAWN}}
+{{#MODE_LAUNCHD}}
+		RestartPolicy: service.RestartAlways,
+{{/MODE_LAUNCHD}}
 	}
 }
 
@@ -51,11 +57,13 @@ func status(ctx context.Context, out io.Writer) error {
 		fmt.Fprintln(out, line)
 	}
 	socket := paths.Paths{App: appName}.SocketPath()
-	h, err := (&socketPeer{socket: socket}).Health(ctx)
+	peer := lifecyclePeer(socket, selfVersion())
+	defer peer.Close()
+	h, err := peer.Health(ctx)
 	if err != nil {
 		fmt.Fprintf(out, "daemon: unreachable (%v)\n", err)
 		return nil
 	}
-	fmt.Fprintf(out, "daemon: %s pid=%d state=%s\n", h.Version, h.PID, h.State)
+	fmt.Fprintf(out, "daemon: %s pid=%d state=%s\n", h.Build, h.PID, h.State)
 	return nil
 }

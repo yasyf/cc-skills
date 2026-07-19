@@ -184,8 +184,8 @@ def resolve(
     variables = derive_vars(variables, now)
 
     enabled = {f.section for f in FEATURES if f.name in features}
-    # daemonkit picks the skew initiator from LAUNCHD_MODE: client-spawn wires
-    # Takeover + IdleExit, launchagent wires SkewWatch.
+    # daemonkit ownership mode selects lazy exact-build start + idle retirement
+    # or launchd-owned restart policy; Runtime owns takeover in both modes.
     if "daemonkit" in features:
         enabled.add("MODE_CLIENT_SPAWN" if variables["LAUNCHD_MODE"] == "client-spawn" else "MODE_LAUNCHD")
     # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.

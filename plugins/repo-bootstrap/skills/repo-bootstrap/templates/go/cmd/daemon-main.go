@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/yasyf/daemonkit/proc"
 
@@ -21,10 +19,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	if err := daemon.NewRootCmd().ExecuteContext(ctx); err != nil {
+	if err := daemon.NewRootCmd().ExecuteContext(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, "{{PROJECT_NAME}}d:", err)
 		os.Exit(1)
 	}

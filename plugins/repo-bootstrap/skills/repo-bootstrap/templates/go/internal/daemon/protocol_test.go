@@ -1,43 +1,43 @@
 package daemon
 
 import (
-	"encoding/json"
 	"testing"
 
+	"github.com/yasyf/daemonkit/wire"
 	"github.com/yasyf/daemonkit/wire/lifeproto"
 )
 
-// TestLifeprotoGoldenBytes freezes the exact on-wire bytes of every lifecycle op
-// {{PROJECT_NAME}}d speaks. daemonkit's lifeproto envelope is frozen after v1; any
-// drift here breaks compatibility with an already-deployed daemon or Swift peer.
-// TODO(bootstrap): add your own request/response ops as the protocol grows.
-func TestLifeprotoGoldenBytes(t *testing.T) {
-	if lifeproto.Version != 1 {
-		t.Fatalf("lifeproto.Version = %d, want 1", lifeproto.Version)
+func TestDaemonkitProtocolSnapshot(t *testing.T) {
+	if wire.ProtocolVersion != 4 {
+		t.Fatalf("wire.ProtocolVersion = %d, want 4", wire.ProtocolVersion)
+	}
+	if lifeproto.Version != 2 {
+		t.Fatalf("lifeproto.Version = %d, want 2", lifeproto.Version)
 	}
 	cases := []struct {
-		name  string
-		value any
-		want  string
+		name    string
+		message any
+		want    string
 	}{
-		{"health request", lifeproto.NewHealthRequest(), `{"v":1,"op":"health"}`},
+		{"health request", lifeproto.NewHealthRequest(), `{"v":2,"op":"health"}`},
 		{
 			"health response",
-			lifeproto.NewHealthResponse("1.0.0", 4242, "healthy", false, false, nil),
-			`{"v":1,"op":"health","version":"1.0.0","pid":4242,"state":"healthy","draining":false,"busy":false,"features":[]}`,
+			lifeproto.NewHealthResponse("1.0.0", int(wire.ProtocolVersion), 4242, "healthy", false, false),
+			`{"v":2,"op":"health","build":"1.0.0","protocol":4,"pid":4242,"state":"healthy","draining":false,"busy":false}`,
 		},
-		{"shutdown request", lifeproto.NewShutdownRequest(), `{"v":1,"op":"shutdown"}`},
-		{"hello response", lifeproto.NewHelloResponse(nil), `{"v":1,"op":"hello","features":[]}`},
-		{"handoff request", lifeproto.NewHandoffRequest(), `{"v":1,"op":"handoff"}`},
+		{"shutdown request", lifeproto.NewShutdownRequest(), `{"v":2,"op":"shutdown"}`},
+		{"shutdown response", lifeproto.NewShutdownResponse(true), `{"v":2,"op":"shutdown","ok":true}`},
+		{"handoff request", lifeproto.NewHandoffRequest(), `{"v":2,"op":"handoff"}`},
+		{"handoff response", lifeproto.NewHandoffResponse(true), `{"v":2,"op":"handoff","ok":true}`},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := json.Marshal(tc.value)
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := lifeproto.Encode(test.message)
 			if err != nil {
-				t.Fatalf("marshal: %v", err)
+				t.Fatalf("Encode: %v", err)
 			}
-			if string(got) != tc.want {
-				t.Errorf("golden mismatch\n got: %s\nwant: %s", got, tc.want)
+			if string(got) != test.want {
+				t.Fatalf("payload = %s, want %s", got, test.want)
 			}
 		})
 	}

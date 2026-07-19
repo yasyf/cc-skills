@@ -101,8 +101,8 @@ VARS = (
     # required_in is empty (a secondary layer is layer-independent); resolve() makes
     # it mandatory whenever --secondary-layer is set.
     VarSpec("SECONDARY_CODE_ROOT", (), validate="code_root"),
-    # daemonkit launchd mode: client-spawn (Takeover) or launchagent (SkewWatch).
-    # resolve() requires it with --features daemonkit and derives the MODE_* section.
+    # daemonkit ownership mode: client-spawn adds exact-build lazy start and idle
+    # retirement; launchagent delegates restart ownership to launchd.
     VarSpec("LAUNCHD_MODE", (), validate="launchd_mode"),
 )
 
@@ -353,11 +353,12 @@ FILES = (
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
     # daemonkit files (off by default). cmd/<name>d is a second binary beside the
-    # base cmd/<name> CLI; scripts/test.sh is mandatory wherever proc.Spawn lives.
+    # base CLI. Runtime owns takeover and wire v4; no consumer peer/server adapter
+    # is generated. scripts/test.sh is mandatory wherever proc.Spawn lives.
     FileSpec("cmd/{{PROJECT_NAME}}d/main.go", "go/cmd/daemon-main.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/root.go", "go/internal/daemon/root.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/serve.go", "go/internal/daemon/serve.go", "go", feature="daemonkit"),
-    FileSpec("internal/daemon/peer.go", "go/internal/daemon/peer.go", "go", feature="daemonkit"),
+    FileSpec("internal/daemon/runtime.go", "go/internal/daemon/runtime.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/version.go", "go/internal/daemon/version.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/service.go", "go/internal/daemon/service.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/protocol_test.go", "go/internal/daemon/protocol_test.go", "go", feature="daemonkit"),

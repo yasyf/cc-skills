@@ -1,6 +1,11 @@
 package daemon
 
-import "github.com/yasyf/daemonkit/version"
+import (
+	"github.com/yasyf/daemonkit/version"
+	"github.com/yasyf/daemonkit/wire"
+)
+
+const protocolVersion = int(wire.ProtocolVersion)
 
 // buildVersion is the release version stamped at build time via
 //

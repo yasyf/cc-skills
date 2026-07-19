@@ -3,17 +3,25 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
+{{#MODE_CLIENT_SPAWN}}
+	"time"
+{{/MODE_CLIENT_SPAWN}}
 
 	"github.com/spf13/cobra"
+{{#MODE_CLIENT_SPAWN}}
 	dkdaemon "github.com/yasyf/daemonkit/daemon"
+{{/MODE_CLIENT_SPAWN}}
 	"github.com/yasyf/daemonkit/paths"
+{{#MODE_CLIENT_SPAWN}}
 	"github.com/yasyf/daemonkit/proc"
-	"github.com/yasyf/daemonkit/wire"
-	"github.com/yasyf/daemonkit/wire/lifeproto"
+	"github.com/yasyf/daemonkit/version"
+{{/MODE_CLIENT_SPAWN}}
 )
 
+{{#MODE_CLIENT_SPAWN}}
+const upgradeTimeout = 30 * time.Second
+
+{{/MODE_CLIENT_SPAWN}}
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
@@ -22,135 +30,63 @@ func newServeCmd() *cobra.Command {
 	}
 }
 
-// serve binds the daemon socket and answers the lifeproto lifecycle until ctx
-// ends, resolving version skew per the launchd mode chosen at scaffold time.
+// serve gives daemonkit sole ownership of listener takeover, persistent v4
+// sessions, admission, and ordered shutdown.
 func serve(ctx context.Context) error {
 	p := paths.Paths{App: appName}
 	if err := p.EnsureStateDir(); err != nil {
 		return fmt.Errorf("ensure state dir: %w", err)
 	}
-	self := selfVersion()
-	socket := p.SocketPath()
-
-{{#MODE_CLIENT_SPAWN}}
-	// Client-spawn: a strictly-newer successor takes over an older incumbent
-	// before binding; a tie exits (never evicts).
-	peer := &socketPeer{socket: socket}
-	switch outcome, err := dkdaemon.Run(ctx, dkdaemon.TakeoverConfig{
-		Self:     self,
-		Peer:     peer,
-		Contract: dkdaemon.RequestDaemon,
-		WaitMode: dkdaemon.SocketRelease,
-	}); {
-	case err != nil:
-		return fmt.Errorf("takeover: %w", err)
-	case outcome == dkdaemon.ExitSelf:
-		return nil
-	}
-{{/MODE_CLIENT_SPAWN}}
-
-	ln, lock, err := proc.SingleEntrant{
-		Socket: socket,
-		Evict:  func() (bool, error) { return true, nil },
-	}.Listen(ctx)
+	runtime, err := newRuntime(ctx, p.SocketPath(), selfVersion())
 	if err != nil {
-		return fmt.Errorf("bind %s: %w", socket, err)
+		return fmt.Errorf("build runtime: %w", err)
 	}
-	defer lock.Close()
-	defer ln.Close()
 
 {{#MODE_CLIENT_SPAWN}}
-	// Retire the daemon once idle: a client-spawn daemon is respawned on demand.
-	idle := &dkdaemon.IdleExit{Exit: func(context.Context) { _ = ln.Close() }}
-	go idle.Run(ctx)
+	idle := &dkdaemon.IdleExit{
+		Exit: func(ctx context.Context) {
+			_ = runtime.daemon.Shutdown(context.WithoutCancel(ctx))
+		},
+	}
+	runtime.server.OnActivity(idle.Touch)
+	runtime.workers.Start(idle.Run)
 {{/MODE_CLIENT_SPAWN}}
-{{#MODE_LAUNCHD}}
-	// launchd holds the old binary alive across an upgrade, so the incumbent
-	// watches for a newer installed artifact and drains on skew.
-	// TODO(bootstrap): point Installed at the real installed version.
-	watch := dkdaemon.NewSkewWatch(dkdaemon.SkewConfig{
-		Running:   func() string { return self },
-		Installed: func() (string, error) { return self, nil },
-		OnSkew:    func(context.Context) error { return fmt.Errorf("{{PROJECT_NAME}}d: newer artifact installed; exiting for launchd relaunch") },
-	})
-	go func() { _ = watch.Run(ctx) }()
-{{/MODE_LAUNCHD}}
-
-	return serveLifecycle(ctx, ln, self)
+	return runtime.daemon.Run(ctx)
 }
 
 {{#MODE_CLIENT_SPAWN}}
-// EnsureRunning ensures a {{PROJECT_NAME}}d serves the socket, spawning a
-// detached one when needed. A client (your CLI) calls this before dialing.
-// TODO(bootstrap): call this from the CLI's client path.
+// EnsureRunning starts or upgrades the daemon and waits for the exact build and
+// wire protocol before returning to the caller.
 func EnsureRunning(ctx context.Context) error {
 	p := paths.Paths{App: appName}
 	if err := p.EnsureStateDir(); err != nil {
 		return fmt.Errorf("ensure state dir: %w", err)
 	}
-	socket := p.SocketPath()
-	return proc.Spawn{
-		Socket:  socket,
+	if err := p.EnsureLockDir(); err != nil {
+		return fmt.Errorf("ensure lock dir: %w", err)
+	}
+	build := selfVersion()
+	peer := lifecyclePeer(p.SocketPath(), build)
+	defer peer.Close()
+	if health, err := peer.Health(ctx); err == nil && version.Newer(health.Build, build) {
+		return fmt.Errorf("daemon build %s is newer than client build %s", health.Build, build)
+	}
+	spawn := proc.Spawn{
+		Socket:  p.SocketPath(),
 		LogPath: p.LogPath(),
 		Args:    []string{"serve"},
+		Timeout: upgradeTimeout,
 		Available: func() bool {
-			c, err := net.Dial("unix", socket)
-			if err != nil {
-				return false
-			}
-			_ = c.Close()
-			return true
+			probeCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			health, err := peer.Health(probeCtx)
+			return err == nil && health.Build == build && health.Protocol == protocolVersion
 		},
 		CanHost: func() error { return nil },
-	}.EnsureRunning(ctx)
+	}
+	return dkdaemon.EnsureCurrent(ctx, dkdaemon.EnsureConfig{
+		Peer: peer, Protocol: protocolVersion, LockPath: p.StartLockPath(),
+		Ensure: spawn.EnsureRunning, Timeout: upgradeTimeout,
+	}, build)
 }
 {{/MODE_CLIENT_SPAWN}}
-
-// serveLifecycle accepts connections on ln and answers each with one lifeproto
-// exchange until ctx is done.
-func serveLifecycle(ctx context.Context, ln net.Listener, self string) error {
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("accept: %w", err)
-		}
-		go handleConn(conn, self)
-	}
-}
-
-// handleConn answers one lifeproto request. TODO(bootstrap): enforce trust
-// (trust.Policy.Check on the peer creds) and wire real shutdown/handoff.
-func handleConn(conn net.Conn, self string) {
-	defer conn.Close()
-	f := wire.NewFraming(conn)
-	env, _, err := lifeproto.ReadEnvelope(f)
-	if err != nil {
-		return
-	}
-	var resp any
-	switch env.Op {
-	case lifeproto.OpHealth:
-		resp = lifeproto.NewHealthResponse(self, os.Getpid(), string(dkdaemon.StateHealthy), false, false, features())
-	case lifeproto.OpHello:
-		resp = lifeproto.NewHelloResponse(features())
-	case lifeproto.OpShutdown:
-		resp = lifeproto.NewShutdownResponse(true)
-	case lifeproto.OpHandoff:
-		resp = lifeproto.NewHandoffResponse(false)
-	default:
-		return
-	}
-	_ = lifeproto.Write(f, resp)
-}
-
-// features lists the lifecycle capabilities this daemon advertises; a successor
-// consults these bits, never a version compare, before requesting a handoff.
-// TODO(bootstrap): add dkdaemon.FeatureHandoff once handoff releases the socket.
-func features() []string { return nil }
