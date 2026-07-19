@@ -22,6 +22,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import version
 
+MARGIN_EMPTY_RETURN = 'return "\\n".join(margin_sections) if margin_sections else ""'
+
 
 @dataclass(frozen=True, slots=True)
 class Patch:
@@ -91,6 +93,120 @@ def apply_gitinfo_cache() -> None:
     git.GitInfo.from_package = classmethod(from_package)
 
 
+def _within_window() -> str | None:
+    dist = version("great-docs")
+    if not (m := re.match(r"(\d+)\.(\d+)", dist)) or (int(m[1]), int(m[2])) != (0, 15):
+        return f"great-docs {dist} is outside [0.15, 0.16)"
+    return None
+
+
+def probe_metadata_margin_off() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    from great_docs import core
+
+    fn = getattr(core.GreatDocs, "_build_metadata_margin", None)
+    if fn is None:
+        return "GreatDocs._build_metadata_margin missing"
+    if MARGIN_EMPTY_RETURN not in inspect.getsource(fn):
+        return "GreatDocs._build_metadata_margin return shape changed"
+    return None
+
+
+def apply_metadata_margin_off() -> None:
+    from great_docs import core
+
+    original = core.GreatDocs._build_metadata_margin
+
+    @functools.wraps(original)
+    def _build_metadata_margin(self: object) -> str:
+        # Keep the side effects (contributing/roadmap/security .qmd pages); drop the sidebar markup.
+        original(self)
+        return ""
+
+    core.GreatDocs._build_metadata_margin = _build_metadata_margin
+
+
+def _footer_colophon(instance: object, metadata: dict) -> str:
+    name = instance._config.display_name or instance._detect_package_name() or ""
+    tagline = instance._config.hero_tagline
+    if tagline is None:
+        tagline = metadata.get("description", "")
+    name_md = f"**{name}**" if name else ""
+    if name_md and tagline:
+        return f"{name_md} · {tagline}"
+    return name_md or tagline or ""
+
+
+def _footer_links(instance: object) -> str:
+    parts: list[str] = []
+    pypi = instance._config.pypi
+    # Mirror _build_metadata_margin: only an explicit False disables the PyPI link.
+    if pypi is not False:
+        package_name = instance._detect_package_name()
+        pypi_url = (
+            pypi
+            if isinstance(pypi, str)
+            else (f"https://pypi.org/project/{package_name}/" if package_name else None)
+        )
+        if pypi_url:
+            parts.append(f"[PyPI]({pypi_url})")
+    _owner, _repo, base_url = instance._get_github_repo_info()
+    if base_url:
+        parts.append(f"[Source]({base_url})")
+        parts.append(f"[Issues]({base_url}/issues)")
+        parts.append(f"[Changelog]({base_url}/blob/main/CHANGELOG.md)")
+    parts.append("[llms.txt](llms.txt)")
+    parts.append("[llms-full.txt](llms-full.txt)")
+    if instance._config.skill_enabled:
+        parts.append("[Skills](skills.html)")
+    return " · ".join(parts)
+
+
+def merge_page_footer(website: dict, left: str, right: str) -> None:
+    footer = website.get("page-footer")
+    if not isinstance(footer, dict):
+        footer = {"center": footer} if footer else {}
+    if left:
+        footer.setdefault("left", left)
+    if right:
+        footer.setdefault("right", right)
+    if footer:
+        website["page-footer"] = footer
+
+
+def probe_fleet_footer() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    from great_docs import core
+
+    fn = getattr(core.GreatDocs, "_write_quarto_yml", None)
+    if fn is None:
+        return "GreatDocs._write_quarto_yml missing"
+    src = inspect.getsource(fn)
+    if "f.write(header_comment)" not in src or "write_yaml(config, f)" not in src:
+        return "GreatDocs._write_quarto_yml serialization shape changed"
+    return None
+
+
+def apply_fleet_footer() -> None:
+    from great_docs import core
+
+    original = core.GreatDocs._write_quarto_yml
+
+    @functools.wraps(original)
+    def _write_quarto_yml(self: object, quarto_yml: object, config: dict) -> object:
+        website = config.get("website")
+        if isinstance(website, dict):
+            metadata = self._get_package_metadata()
+            merge_page_footer(
+                website, _footer_colophon(self, metadata), _footer_links(self)
+            )
+        return original(self, quarto_yml, config)
+
+    core.GreatDocs._write_quarto_yml = _write_quarto_yml
+
+
 def patches() -> tuple[Patch, ...]:
     return (
         Patch(
@@ -109,6 +225,22 @@ def patches() -> tuple[Patch, ...]:
             expected_savings="~71% of discovery git-subprocess cost",
             upstream_ref="griffe GitInfo.from_package per-package memoization",
         ),
+        Patch(
+            name="metadata-margin-off",
+            verified_window="great-docs >=0.15,<0.16 with GreatDocs._build_metadata_margin empty-margin return",
+            probe=probe_metadata_margin_off,
+            apply=apply_metadata_margin_off,
+            expected_savings="full-width homepage (sidebar dropped; links relocated to fleet footer)",
+            upstream_ref="great_docs GreatDocs._build_metadata_margin returns '' (page-creation side effects kept)",
+        ),
+        Patch(
+            name="fleet-footer",
+            verified_window="great-docs >=0.15,<0.16 with GreatDocs._write_quarto_yml header+write_yaml serialization",
+            probe=probe_fleet_footer,
+            apply=apply_fleet_footer,
+            expected_savings="compact site footer merged into the author/funding page-footer",
+            upstream_ref="great_docs GreatDocs._write_quarto_yml merges left colophon + right links",
+        ),
     )
 
 
@@ -120,7 +252,10 @@ def selected_patches() -> list[tuple[Patch | None, str]]:
         case "all":
             return [(patch, name) for name, patch in registry.items()]
         case names:
-            return [(registry.get(n), n) for n in filter(None, (part.strip() for part in names.split(",")))]
+            return [
+                (registry.get(n), n)
+                for n in filter(None, (part.strip() for part in names.split(",")))
+            ]
 
 
 def skip_reason(patch: Patch | None) -> str | None:
