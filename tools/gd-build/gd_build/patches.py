@@ -29,6 +29,20 @@ RENDER_ANNOTATION_RETURN = "return pretty_code(str(_render(annotation)))"
 RENDER_ANNOTATION_INITVAR = 'ann.canonical_name == "InitVar"'
 SIGNATURE_ANNOTATION_FSTRING = 'f": {el.annotation}"'
 MANIFEST_ITEM_NAME = "InventoryItem(name=name_path"
+HERO_SEAM_CALL = "hero_html, cleaned_content = self._build_hero_section(readme_content)"
+HERO_SEAM_APPLY = "readme_content = cleaned_content"
+
+# Fleet-standard homepage demo assets: a raster screenshot swapped for a termshow
+# recording (docs/assets/demo.termshow), rendered via the great-docs shortcode.
+TERMSHOW_SHORTCODE = '{{< termshow file="docs/assets/demo" autoplay="true" >}}'
+DEMO_SRC = r"docs/assets/demo\.(?:png|gif|webp)"
+DEMO_IMG_RE = re.compile(
+    r"<img\b[^>]*?\ssrc\s*=\s*[\"'][^\"']*" + DEMO_SRC + r"[^\"']*[\"'][^>]*>"
+    r"|!\[[^\]]*\]\([^)]*" + DEMO_SRC + r"[^)]*\)"
+)
+# A tight demo wrapper: the image is the element's only child (only whitespace between).
+WRAP_OPEN_RE = re.compile(r"(?P<open><(?P<tag>p|figure|div)\b[^>]*>)\s*\Z", re.IGNORECASE)
+WRAP_CLOSE_RE = re.compile(r"\A\s*(?P<close></(?P<tag>p|figure|div)>)", re.IGNORECASE)
 
 # Manifest object names captured pre-render; linkify only tokens that resolve here.
 DOCUMENTED_NAMES: set[str] = set()
@@ -398,6 +412,101 @@ def apply_type_annotations() -> None:
     mixin_call.RenderDocCallMixin.render_signature_parameter = render_signature_parameter
 
 
+def _find_demo_span(content: str) -> tuple[int, int, bool] | None:
+    """Locate the homepage demo image in `content`.
+
+    Returns `(start, end, standalone)` spanning the demo `<img>`/markdown image —
+    widened to a tight `<p>`/`<figure>`/`<div align>` wrapper when the image is
+    that element's only child, and to whole lines when the unit sits alone on its
+    line(s). `standalone` reports that whole-line case. `None` when no demo image.
+    """
+    m = DEMO_IMG_RE.search(content)
+    if m is None:
+        return None
+    start, end = m.start(), m.end()
+    open_m = WRAP_OPEN_RE.search(content[:start])
+    close_m = WRAP_CLOSE_RE.match(content[end:])
+    if (
+        open_m is not None
+        and close_m is not None
+        and open_m["tag"].lower() == close_m["tag"].lower()
+        and (open_m["tag"].lower() != "div" or "align" in open_m["open"].lower())
+    ):
+        start = open_m.start("open")
+        end += close_m.end("close")
+    line_start = content.rfind("\n", 0, start) + 1
+    nl = content.find("\n", end)
+    line_end = len(content) if nl == -1 else nl
+    if not content[line_start:start].strip() and not content[end:line_end].strip():
+        return line_start, (line_end if nl == -1 else nl + 1), True
+    return start, end, False
+
+
+def _transform_demo_image(instance: object, content: str) -> str | None:
+    """Swap the homepage demo screenshot for a termshow shortcode, or drop it.
+
+    Returns the rewritten body, or `None` when the body carries no demo image (so
+    the stock hero cleaning is left untouched). The demo screenshot is replaced by
+    a `termshow` shortcode when `docs/assets/demo.termshow` exists at the project
+    root, and otherwise removed — the README's fenced quickstart blocks carry the
+    page. READMEs on disk are never edited; only the generated index sees this.
+    """
+    span = _find_demo_span(content)
+    if span is None:
+        return None
+    start, end, standalone = span
+    termshow = instance.project_root / "docs" / "assets" / "demo.termshow"
+    if termshow.is_file():
+        replacement = TERMSHOW_SHORTCODE + ("\n" if standalone else "")
+    else:
+        replacement = ""
+    rewritten = content[:start] + replacement + content[end:]
+    return re.sub(r"\n{3,}", "\n\n", rewritten)
+
+
+def probe_homepage_demo() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    from great_docs import core
+
+    hero = getattr(core.GreatDocs, "_build_hero_section", None)
+    if hero is None:
+        return "GreatDocs._build_hero_section missing"
+    if "readme_content" not in inspect.signature(hero).parameters:
+        return "GreatDocs._build_hero_section readme_content parameter missing"
+    caller = getattr(core.GreatDocs, "_create_index_from_readme", None)
+    if caller is None:
+        return "GreatDocs._create_index_from_readme missing"
+    src = inspect.getsource(caller)
+    if HERO_SEAM_CALL not in src or HERO_SEAM_APPLY not in src:
+        return "GreatDocs._create_index_from_readme hero seam changed"
+    return None
+
+
+def apply_homepage_demo() -> None:
+    from great_docs import core
+
+    original = core.GreatDocs._build_hero_section
+
+    @functools.wraps(original)
+    def _build_hero_section(
+        self: object, readme_content: str | None = None
+    ) -> tuple[str, str | None]:
+        hero_html, cleaned_content = original(self, readme_content)
+        if not readme_content:  # blended-mode call carries no body — leave it stock.
+            return hero_html, cleaned_content
+        try:
+            base = cleaned_content if cleaned_content is not None else readme_content
+            transformed = _transform_demo_image(self, base)
+        except Exception:  # A patch must never crash a build; fall back to stock cleaning.
+            return hero_html, cleaned_content
+        if transformed is None:
+            return hero_html, cleaned_content
+        return hero_html, transformed
+
+    core.GreatDocs._build_hero_section = _build_hero_section
+
+
 def patches() -> tuple[Patch, ...]:
     return (
         Patch(
@@ -447,6 +556,14 @@ def patches() -> tuple[Patch, ...]:
             apply=apply_type_annotations,
             expected_savings="modern union annotations (Optional[X]->X | None) + type cross-links to reference pages",
             upstream_ref="great_docs render_annotation + render_signature_parameter modernize/linkify against the manifest inventory",
+        ),
+        Patch(
+            name="homepage-demo-transform",
+            verified_window="great-docs >=0.15,<0.16 with _create_index_from_readme hero seam (_build_hero_section(readme_content) -> cleaned_content)",
+            probe=probe_homepage_demo,
+            apply=apply_homepage_demo,
+            expected_savings="homepage demo screenshot swapped for a termshow terminal animation (or dropped when no recording)",
+            upstream_ref="great_docs GreatDocs._build_hero_section demo-image -> termshow shortcode rewrite",
         ),
     )
 

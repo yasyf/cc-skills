@@ -90,6 +90,30 @@ class _WriteNeighbor:
             f.write(repr(config))
 
 
+class _HeroRealShape:
+    def _build_hero_section(
+        self, readme_content: str | None = None
+    ) -> tuple[str, str | None]:
+        return "", None
+
+    def _create_index_from_readme(self, force_rebuild: bool = False) -> None:
+        hero_html, cleaned_content = self._build_hero_section(readme_content)  # noqa: F821, F841 — source text only; never executed
+        if cleaned_content is not None:
+            readme_content = cleaned_content  # noqa: F841 — source text only; never executed
+
+
+class _HeroNeighbor:
+    def _build_hero_section(
+        self, readme_content: str | None = None
+    ) -> tuple[str, str | None]:
+        return "", None
+
+    def _create_index_from_readme(self, force_rebuild: bool = False) -> None:
+        hero_html, cleaned_content = self._build_hero_section()  # noqa: F841 — source text only; never executed
+        if cleaned_content is not None:
+            readme_content = cleaned_content  # noqa: F841 — source text only; never executed
+
+
 def install_git(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -132,6 +156,7 @@ def install_git(
                 ("fleet-footer", True),
                 ("example-doctest-fence", True),
                 ("type-annotations", True),
+                ("homepage-demo-transform", True),
             ],
             id="unset-defaults-to-all",
         ),
@@ -144,6 +169,7 @@ def install_git(
                 ("fleet-footer", True),
                 ("example-doctest-fence", True),
                 ("type-annotations", True),
+                ("homepage-demo-transform", True),
             ],
             id="all",
         ),
@@ -751,3 +777,189 @@ def test_apply_example_doctest_registers_on_singledispatch() -> None:
         )
     finally:
         sdm.register(gf.DocstringSectionAdmonition)(original)
+
+
+# ── homepage-demo-transform ──────────────────────────────────────────────
+
+
+def test_probe_homepage_demo_real_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("great_docs")
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_homepage_demo() is None
+
+
+def test_probe_homepage_demo_matches_synthetic_real_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_core(monkeypatch, _HeroRealShape)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_homepage_demo() is None
+
+
+def test_probe_homepage_demo_self_retires_on_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_core(monkeypatch, _HeroNeighbor)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert (
+        patches_mod.probe_homepage_demo()
+        == "GreatDocs._create_index_from_readme hero seam changed"
+    )
+
+
+def test_probe_homepage_demo_version_below_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_core(monkeypatch, _HeroRealShape)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.14.9")
+    assert (
+        patches_mod.probe_homepage_demo()
+        == "great-docs 0.14.9 is outside [0.15, 0.16)"
+    )
+
+
+def test_probe_homepage_demo_missing_method(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Empty:
+        pass
+
+    install_core(monkeypatch, _Empty)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert (
+        patches_mod.probe_homepage_demo() == "GreatDocs._build_hero_section missing"
+    )
+
+
+def _hero_instance(project_root: object) -> types.SimpleNamespace:
+    return types.SimpleNamespace(project_root=project_root)
+
+
+def test_transform_demo_image_swaps_for_termshow(tmp_path) -> None:
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.termshow").write_text("recording")
+    body = 'Intro.\n\n<img src="docs/assets/demo.png" alt="Demo" width="700">\n\nMore.\n'
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert out == (
+        'Intro.\n\n{{< termshow file="docs/assets/demo" autoplay="true" >}}\n\nMore.\n'
+    )
+    assert "docs/assets/demo.png" not in out
+
+
+def test_transform_demo_image_matches_full_url_src(tmp_path) -> None:
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.termshow").write_text("recording")
+    body = (
+        "Intro.\n\n"
+        '<img src="https://github.com/yasyf/x/raw/main/docs/assets/demo.png" '
+        'alt="Demo" width="700">\n\nMore.\n'
+    )
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert '{{< termshow file="docs/assets/demo" autoplay="true" >}}' in out
+    assert "demo.png" not in out
+
+
+def test_transform_demo_image_drops_when_no_recording(tmp_path) -> None:
+    body = 'Intro.\n\n<img src="docs/assets/demo.png" alt="Demo" width="700">\n\nMore.\n'
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert out == "Intro.\n\nMore.\n"
+    assert "termshow" not in out
+
+
+def test_transform_demo_image_drops_markdown_image(tmp_path) -> None:
+    body = "Intro.\n\n![Demo](docs/assets/demo.webp)\n\nMore.\n"
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert out == "Intro.\n\nMore.\n"
+
+
+def test_transform_demo_image_drops_empty_wrapper(tmp_path) -> None:
+    body = (
+        'Intro.\n\n<p align="center">\n'
+        '  <img src="docs/assets/demo.gif" alt="Demo">\n'
+        "</p>\n\nMore.\n"
+    )
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert out == "Intro.\n\nMore.\n"
+    assert "<p" not in out and "</p>" not in out
+
+
+def test_transform_demo_image_no_image_is_noop(tmp_path) -> None:
+    assert (
+        patches_mod._transform_demo_image(
+            _hero_instance(tmp_path), "# Title\n\nJust prose, no demo.\n"
+        )
+        is None
+    )
+
+
+def test_transform_demo_image_ignores_non_demo_screenshot(tmp_path) -> None:
+    body = 'Intro.\n\n<img src="docs/assets/architecture.png" alt="Arch">\n\nMore.\n'
+    assert patches_mod._transform_demo_image(_hero_instance(tmp_path), body) is None
+
+
+def test_apply_homepage_demo_transforms_readme_body(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    body = 'Intro.\n\n<img src="docs/assets/demo.png" alt="Demo">\n\nMore.\n'
+
+    class _Fake:
+        project_root = tmp_path
+
+        def _build_hero_section(
+            self, readme_content: str | None = None
+        ) -> tuple[str, str | None]:
+            return "HERO", None
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_homepage_demo()
+    hero, cleaned = _Fake()._build_hero_section(body)
+    assert hero == "HERO"
+    assert cleaned == "Intro.\n\nMore.\n"
+
+
+def test_apply_homepage_demo_leaves_blended_mode_untouched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class _Fake:
+        project_root = tmp_path
+
+        def _build_hero_section(
+            self, readme_content: str | None = None
+        ) -> tuple[str, str | None]:
+            return "HERO", None
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_homepage_demo()
+    assert _Fake()._build_hero_section() == ("HERO", None)
+
+
+def test_apply_homepage_demo_preserves_cleaning_without_demo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class _Fake:
+        project_root = tmp_path
+
+        def _build_hero_section(
+            self, readme_content: str | None = None
+        ) -> tuple[str, str | None]:
+            return "HERO", "CLEANED, NO DEMO IMAGE"
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_homepage_demo()
+    hero, cleaned = _Fake()._build_hero_section("body without a demo image")
+    assert (hero, cleaned) == ("HERO", "CLEANED, NO DEMO IMAGE")
+
+
+def test_apply_homepage_demo_never_crashes_the_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Fake:
+        # No project_root attribute → the transform raises; the wrapper must
+        # swallow it and fall back to the stock hero cleaning.
+        def _build_hero_section(
+            self, readme_content: str | None = None
+        ) -> tuple[str, str | None]:
+            return "HERO", None
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_homepage_demo()
+    body = 'Intro.\n\n<img src="docs/assets/demo.png" alt="Demo">\n\nMore.\n'
+    assert _Fake()._build_hero_section(body) == ("HERO", None)
