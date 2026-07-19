@@ -1,6 +1,10 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
+# dependencies = ["fleetlib"]
+#
+# [tool.uv.sources]
+# fleetlib = { path = "fleetlib", editable = true }
 # ///
 """Rotate cc-guides deploy keys — 1Password mints each key, GitHub gets it.
 Per repo: archive any prior item, generate an Ed25519 key (vault OpenClaw, item
@@ -9,13 +13,9 @@ key and CC_GUIDES_DEPLOY_KEY actions secret. Repos default to the discovered
 fleet: every non-archived source repo carrying .github/workflows/guides.yml."""
 
 import argparse
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "fleetlib"))
-
-from fleetlib import gh, op  # noqa: E402
+from fleetlib import gh, op
 
 VAULT = "OpenClaw"
 GH_KEY_TITLE = "cc-guides-render"
