@@ -2290,6 +2290,7 @@ def test_base_emits_guides_yml(base_var_pairs):
     gy = _real_plan("base", base_var_pairs)[0][".github/workflows/guides.yml"]
     assert "uses: yasyf/cc-guides@action-v1" in gy
     assert "yasyf/cc-guides/.github/workflows/re-render.yml@action-v1" in gy
+    assert "secrets: inherit" in gy
     assert "types: [cc-guides-render]" in gy
 
 
