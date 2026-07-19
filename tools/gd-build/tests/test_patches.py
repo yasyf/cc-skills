@@ -130,6 +130,7 @@ def install_git(
                 ("griffe-gitinfo-cache", True),
                 ("metadata-margin-off", True),
                 ("fleet-footer", True),
+                ("example-doctest-fence", True),
             ],
             id="unset-defaults-to-all",
         ),
@@ -140,6 +141,7 @@ def install_git(
                 ("griffe-gitinfo-cache", True),
                 ("metadata-margin-off", True),
                 ("fleet-footer", True),
+                ("example-doctest-fence", True),
             ],
             id="all",
         ),
@@ -584,3 +586,166 @@ def test_apply_fleet_footer_skips_config_without_website(
     cfg = {"project": {"type": "website"}}
     _Fake()._write_quarto_yml("_quarto.yml", cfg)
     assert "website" not in cfg
+
+
+# ── example-doctest-fence ────────────────────────────────────────────────
+
+CUSTOM_CONDITION_DOCTEST = (
+    ">>> class LargeFile(CustomCondition):\n"
+    "...     def check(self, evt: BaseHookEvent) -> bool:\n"
+    "...         return bool(evt.file and evt.file.path.stat().st_size > 1_000_000)\n"
+    "...\n"
+    '>>> app.hook(Event.PreToolUse, only_if=[LargeFile()], message="Large file", block=True)'
+)
+
+
+def _stock_shaped_admonition_handler(self: object, el: object) -> object:
+    return convert_rst_text(el.value.description)  # noqa: F821 — source text only; never executed
+
+
+def _changed_admonition_handler(self: object, el: object) -> object:
+    return "rendered differently now"
+
+
+def test_is_pure_doctest_detects_prompt_only_blocks() -> None:
+    assert patches_mod._is_pure_doctest(CUSTOM_CONDITION_DOCTEST)
+    assert patches_mod._is_pure_doctest(">>> x = 1\n>>> x + 1")
+    assert not patches_mod._is_pure_doctest("Some prose.\n\n>>> x = 1")
+    assert not patches_mod._is_pure_doctest("Just prose, no doctest here.")
+    assert not patches_mod._is_pure_doctest("   \n\n")
+
+
+def test_probe_example_doctest_version_below_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.14.9")
+    assert (
+        patches_mod.probe_example_doctest()
+        == "great-docs 0.14.9 is outside [0.15, 0.16)"
+    )
+
+
+def test_probe_example_doctest_real_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("great_docs")
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_example_doctest() is None
+
+
+def test_probe_example_doctest_matches_synthetic_real_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    monkeypatch.setattr(
+        patches_mod,
+        "_render_doc_admonition_handler",
+        lambda: (None, object(), _stock_shaped_admonition_handler),
+    )
+    assert patches_mod.probe_example_doctest() is None
+
+
+def test_probe_example_doctest_self_retires_on_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    monkeypatch.setattr(
+        patches_mod,
+        "_render_doc_admonition_handler",
+        lambda: (None, object(), _changed_admonition_handler),
+    )
+    assert (
+        patches_mod.probe_example_doctest()
+        == "RenderDoc admonition handler render shape changed"
+    )
+
+
+def test_probe_example_doctest_missing_singledispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    monkeypatch.setattr(
+        patches_mod, "_render_doc_admonition_handler", lambda: (None, None, None)
+    )
+    assert (
+        patches_mod.probe_example_doctest()
+        == "RenderDoc.render_docstring_section singledispatch missing"
+    )
+
+
+def test_probe_example_doctest_missing_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    monkeypatch.setattr(
+        patches_mod, "_render_doc_admonition_handler", lambda: (None, object(), None)
+    )
+    assert (
+        patches_mod.probe_example_doctest()
+        == "RenderDoc has no DocstringSectionAdmonition handler"
+    )
+
+
+def test_apply_example_doctest_fences_pure_doctest() -> None:
+    pytest.importorskip("great_docs")
+    import griffe as gf
+    from great_docs._apiref._render import doc as doc_mod
+
+    handler = patches_mod._example_admonition_renderer(doc_mod)
+    el = gf.DocstringSectionAdmonition(
+        kind="example", text=CUSTOM_CONDITION_DOCTEST, title="Example"
+    )
+    rendered = str(handler(types.SimpleNamespace(level=0), el))
+
+    assert rendered.startswith("```python\n")
+    assert rendered.endswith("\n```")
+    assert ">>> class LargeFile(CustomCondition):" in rendered
+    assert '>>> app.hook(Event.PreToolUse, only_if=[LargeFile()], message="Large file"' in rendered
+    assert "“" not in rendered and "”" not in rendered  # straight quotes, no smart curls
+
+
+def test_apply_example_doctest_note_admonition_stays_stock() -> None:
+    pytest.importorskip("great_docs")
+    import griffe as gf
+    from great_docs._apiref._render import doc as doc_mod
+
+    handler = patches_mod._example_admonition_renderer(doc_mod)
+    el = gf.DocstringSectionAdmonition(
+        kind="note", text="Be careful with ``paths``.", title="Note"
+    )
+    rendered = handler(types.SimpleNamespace(level=0), el)
+
+    assert rendered == doc_mod.convert_rst_text("Be careful with ``paths``.")
+    assert not isinstance(rendered, doc_mod.CodeBlock)
+
+
+def test_apply_example_doctest_mixed_prose_uses_docstring_text() -> None:
+    pytest.importorskip("great_docs")
+    import griffe as gf
+    from great_docs._apiref._render import doc as doc_mod
+
+    handler = patches_mod._example_admonition_renderer(doc_mod)
+    mixed = "First build a check:\n\n>>> x = 1\n>>> print(x)\n\nThen wire it up."
+    el = gf.DocstringSectionAdmonition(kind="example", text=mixed, title="Example")
+    rendered = handler(types.SimpleNamespace(level=0), el)
+
+    assert isinstance(rendered, str)
+    assert "```python" in rendered  # doctest still fenced
+    assert "First build a check" in rendered and "Then wire it up" in rendered
+
+
+def test_apply_example_doctest_registers_on_singledispatch() -> None:
+    pytest.importorskip("great_docs")
+    import griffe as gf
+
+    _, sdm, original = patches_mod._render_doc_admonition_handler()
+    try:
+        patches_mod.apply_example_doctest()
+        dispatched = sdm.dispatcher.dispatch(gf.DocstringSectionAdmonition)
+        assert dispatched is not original
+        el = gf.DocstringSectionAdmonition(
+            kind="example", text='>>> print("x")', title="Example"
+        )
+        assert str(dispatched(types.SimpleNamespace(level=0), el)) == (
+            '```python\n>>> print("x")\n```'
+        )
+    finally:
+        sdm.register(gf.DocstringSectionAdmonition)(original)

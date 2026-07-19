@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from importlib.metadata import version
 
 MARGIN_EMPTY_RETURN = 'return "\\n".join(margin_sections) if margin_sections else ""'
+ADMONITION_STOCK_RETURN = "return convert_rst_text(el.value.description)"
+DOCTEST_LINE_RE = re.compile(r"^\s*(?:>>>|\.\.\.)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +209,57 @@ def apply_fleet_footer() -> None:
     core.GreatDocs._write_quarto_yml = _write_quarto_yml
 
 
+def _is_pure_doctest(text: str) -> bool:
+    lines = [line for line in text.splitlines() if line.strip()]
+    return bool(lines) and all(DOCTEST_LINE_RE.match(line) for line in lines)
+
+
+def _render_doc_admonition_handler() -> tuple[object, object, object]:
+    import griffe as gf
+    from great_docs._apiref._render import doc as doc_mod
+
+    for cls in doc_mod.RenderDoc.__mro__:
+        sdm = cls.__dict__.get("render_docstring_section")
+        if sdm is not None:
+            handler = sdm.dispatcher.registry.get(gf.DocstringSectionAdmonition)
+            return doc_mod, sdm, handler
+    return doc_mod, None, None
+
+
+def _example_admonition_renderer(doc_mod: object) -> Callable[[object, object], object]:
+    def render_admonition(self: object, el: object) -> object:
+        # Google "Example:" sections parse as admonitions; griffe never fences their
+        # doctests, so stock convert_rst_text flattens them and Pandoc curls the quotes.
+        if (el.title or "").lower().startswith("example"):
+            description = el.value.description
+            if _is_pure_doctest(description):
+                return doc_mod.CodeBlock(description, doc_mod.Attr(classes=["python"]))
+            return doc_mod.convert_docstring_text(description, heading_level=self.level + 1)
+        return doc_mod.convert_rst_text(el.value.description)
+
+    return render_admonition
+
+
+def probe_example_doctest() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    _, sdm, handler = _render_doc_admonition_handler()
+    if sdm is None:
+        return "RenderDoc.render_docstring_section singledispatch missing"
+    if handler is None:
+        return "RenderDoc has no DocstringSectionAdmonition handler"
+    if ADMONITION_STOCK_RETURN not in inspect.getsource(handler):
+        return "RenderDoc admonition handler render shape changed"
+    return None
+
+
+def apply_example_doctest() -> None:
+    import griffe as gf
+
+    doc_mod, sdm, _ = _render_doc_admonition_handler()
+    sdm.register(gf.DocstringSectionAdmonition)(_example_admonition_renderer(doc_mod))
+
+
 def patches() -> tuple[Patch, ...]:
     return (
         Patch(
@@ -240,6 +293,14 @@ def patches() -> tuple[Patch, ...]:
             apply=apply_fleet_footer,
             expected_savings="compact site footer merged into the author/funding page-footer",
             upstream_ref="great_docs GreatDocs._write_quarto_yml merges left colophon + right links",
+        ),
+        Patch(
+            name="example-doctest-fence",
+            verified_window="great-docs >=0.15,<0.16 with RenderDoc admonition handler convert_rst_text(el.value.description)",
+            probe=probe_example_doctest,
+            apply=apply_example_doctest,
+            expected_savings="Example: doctest admonitions fenced as python (straight quotes) instead of flattened prose",
+            upstream_ref="great_docs RenderDoc.render_docstring_section example-admonition doctest fencing",
         ),
     )
 
