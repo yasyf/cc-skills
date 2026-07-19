@@ -1,0 +1,20 @@
+[project]
+name = "fleetlib"
+version = "0.1.0"
+description = "Shared helpers for cc-skills repo-local fleet-ops tools: subprocess, gh fleet discovery, 1Password"
+requires-python = ">=3.13"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "fleetlib"
+module-root = ""
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
