@@ -12,6 +12,7 @@ import select
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import tomllib
@@ -327,24 +328,24 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
 
 
 def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
-    # codex-ask pins model/effort/fast-tier + quiet-exec flags and runs codex
-    # detached (print-first + --await); skill and wrapper route through it.
+    # codex-ask (Go) pins model/effort/fast-tier flags + detached print-first launch;
+    # this golden inspects the Go source, not the built binary.
     plugin_root = templates_dir.parents[3] / "codex"
-    script = plugin_root / "bin" / "codex-ask"
-    assert os.access(script, os.X_OK), script
-    text = script.read_text()
+    go_files = sorted(plugin_root.glob("*.go"))
+    assert go_files, "no Go source found in plugins/codex"
+    text = "\n".join(p.read_text() for p in go_files)
     for needle in (
         # pinned model / effort / fast-tier / mcp-off / dev-instructions on the exec line
         "gpt-5.6-sol",
         "gpt-5.6-luna",
         "xhigh",
-        'f"model={model}"',
-        'f"model_reasoning_effort={EFFORT}"',
+        '"model=" + model',
+        '"model_reasoning_effort=" + effort',
         "service_tier=fast",
         "mcp_servers={}",
-        'f"developer_instructions={dev}"',
+        '"developer_instructions=" + dev',
         "danger-full-access",
-        '"-o", str(reply_tmp)',
+        '"-o", replyTmp',
         "--json",
         '"--color", "never"',
         "REPLY_FILE:",
@@ -354,30 +355,29 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         "CODEX_ASK_RUNS_DIR",
         "codex-q-",
         "codex-r-",
-        # uv must never pollute the parseable stdout contract
-        "--quiet",
-        # native detached-survivable launch (pipe-back registration) + --await
+        # native detached-survivable launch (setsid re-exec + pipe-back) + --await
         "AWAIT:",
         "--await",
-        "detach_worker",
-        "os.setsid()",
-        "os.pipe()",
+        "detachWorker",
+        "Setsid",
+        "os.Pipe()",
+        "--worker",
         # PID-recycle guard: kill-0 + recorded start-time, pinned TZ/locale/binary
-        "pid_alive",
+        "pidAlive",
         "lstart",
-        '"TZ": "UTC"',
+        '"TZ=UTC"',
         "/bin/ps",
         # signal death normalizes to 128+signal so the status still parses
-        "128 - rc",
-        'atomic_write(sdir / "status"',
-        'sdir / "pid"',
+        "128 + int(ws.Signal())",
+        'join(sdir, "status")',
+        'join(sdir, "pid")',
         # --ps prunes only codex-ask's own minted dirs
-        "RUN_PREFIXES",
+        "runPrefixes",
         # exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
         # disk-truth: staged reply, meta wipe, collect, --ps registry, marker
-        "os.replace(reply_tmp, reply)",
-        '("status", "pid", "lstart", "meta", "cmd")',
+        "os.Rename(cmd.ReplyTmp, cmd.Reply)",
+        '"status", "pid", "lstart", "meta", "cmd"',
         "--collect",
         "--ps",
         '"type":"turn.started"',
@@ -390,7 +390,7 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         assert needle in text, needle
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
     # print-first: the recovery paths print before the worker (and thus codex) launches
-    assert text.index('print(f"REPLY_FILE:') < text.index("detach_worker(sdir)")
+    assert text.index("REPLY_FILE:") < text.index("detachWorker(sdir)")
     skill_md = plugin_root / "skills" / "codex" / "SKILL.md"
     wrapper_md = plugin_root / "agents" / "codex-wrapper.md"
     for src in (skill_md, wrapper_md):
@@ -415,7 +415,7 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
 def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     # Scratch paths are absolute-by-construction (live .scratch/codex leak,
     # 2026-07-13); a stub codex proves flags + OPENAI_API_KEY unset end to end.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "stub-bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
@@ -460,6 +460,9 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert "model_reasoning_effort=xhigh" in log_text
     assert "service_tier=fast" in log_text
     assert "STUB_KEY: UNSET" in log_text
+    # AGENTS.md (developer_instructions feed) reaches codex, fail-closed and e2e:
+    # its distinctive H1 rides the -c developer_instructions= arg into the stub.
+    assert "developer_instructions=# Session Instructions" in log_text
 
     rel = ask("-s", ".scratch", "ping")
     assert rel.returncode == 2, rel.stdout + rel.stderr
@@ -564,7 +567,7 @@ def _descendants(pid):
 def test_codex_ask_run_survives_pgid_kill_and_await_recovers(templates_dir, tmp_path):
     # Claude Code kills a timed-out Bash command across the whole process group;
     # codex-ask detaches codex (own pgroup, orphaned to PID 1) so it survives.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
@@ -642,7 +645,7 @@ def test_codex_ask_run_survives_pgid_kill_and_await_recovers(templates_dir, tmp_
 def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path):
     # Exit codes flow through the status file; --await replays a failure's tail,
     # a reused -s dir never serves stale state, bad targets/no codex fail cleanly.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
@@ -722,7 +725,7 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
 def test_codex_ask_runs_base(templates_dir, tmp_path):
     # A no--s run lands under the fixed registry base — $CODEX_ASK_RUNS_DIR, or
     # ${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs by default — never in the repo.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
@@ -790,7 +793,7 @@ def test_codex_ask_empty_question_mints_nothing(templates_dir, tmp_path):
 def test_codex_ask_prints_headers_before_codex_produces_output(templates_dir, tmp_path):
     # Print-first is real: the stub blocks on a release file, so the 3 headers
     # must arrive (via a plain buffered reader) while codex has written nothing.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     release = tmp_path / "release"
@@ -832,7 +835,7 @@ def test_codex_ask_prints_headers_before_codex_produces_output(templates_dir, tm
 def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_path):
     # Concurrent -s reuse is last-writer-wins, but a waiter whose status file is
     # rm'd mid-poll must fail cleanly, never `[: : integer expected`.
-    script = templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
@@ -893,8 +896,26 @@ STARTED = '{"type":"turn.started"}\n'
 COMPLETED = STARTED + '{"type":"turn.completed","usage":{}}\n'
 
 
+# The Go codex-ask binary, built once per session and reused by every golden (the
+# Python script is gone; the compiled binary is the contract under test).
+_GO_CODEX_ASK: Path | None = None
+
+
 def _codex_ask(templates_dir):
-    return templates_dir.parents[3] / "codex" / "bin" / "codex-ask"
+    global _GO_CODEX_ASK
+    if _GO_CODEX_ASK is None:
+        plugin = templates_dir.parents[3] / "codex"
+        # PLUGIN_ROOT layout so os.Executable()->parent.parent/AGENTS.md resolves; a
+        # bare temp dir would mask the fail-closed developer_instructions read.
+        root = Path(tempfile.mkdtemp(prefix="codex-ask-go.")) / "codex"
+        (root / "bin").mkdir(parents=True)
+        shutil.copy(plugin / "AGENTS.md", root / "AGENTS.md")
+        out = root / "bin" / "codex-ask"
+        subprocess.run(
+            ["go", "build", "-o", str(out), "./"], cwd=plugin, check=True, capture_output=True
+        )
+        _GO_CODEX_ASK = out
+    return _GO_CODEX_ASK
 
 
 def _lstart_of(pid):
@@ -1054,7 +1075,8 @@ def test_codex_ask_reuse_wipes_meta(templates_dir, tmp_path):
     aw = subprocess.run([str(script), "--await", str(d)], text=True, capture_output=True, timeout=15)
     assert aw.returncode == 2
     assert "no recorded" in aw.stderr.lower()
-    assert '("status", "pid", "lstart", "meta", "cmd")' in script.read_text()
+    go_src = "\n".join(p.read_text() for p in sorted((templates_dir.parents[3] / "codex").glob("*.go")))
+    assert '"status", "pid", "lstart", "meta", "cmd"' in go_src
 
 
 def test_codex_ask_reply_staging_is_atomic(templates_dir, tmp_path):

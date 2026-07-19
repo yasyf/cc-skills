@@ -1,0 +1,70 @@
+version: 2
+
+project_name: codex-ask
+
+# Pure Go (CGO_ENABLED=0), darwin-only; Developer ID signed + notarized via codesign.
+builds:
+  - id: codex-ask
+    # dir = go build's working dir (the nested module); main is relative to it.
+    dir: plugins/codex
+    main: .
+    binary: codex-ask
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    # codesign+notarize via $MACOS_CODESIGN_SCRIPT; guarded so a local snapshot is a no-op.
+    hooks:
+      post:
+        - cmd: sh -c 'if [ -n "${MACOS_CODESIGN_SCRIPT:-}" ]; then bash "$MACOS_CODESIGN_SCRIPT" "$1" "$2"; fi' -- "{{ .Path }}" "{{ .Target }}"
+          output: true
+
+archives:
+  - id: codex-ask
+    ids: [codex-ask]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  # Bare per-arch binaries for the plugin's install-binary.sh; the cask keeps the tar.gz.
+  - id: binary
+    ids: [codex-ask]
+    formats: [binary]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+homebrew_casks:
+  - name: codex-ask
+    # Pin the cask to the tar.gz; the bare-binary archive would make the pipe ambiguous.
+    ids: [codex-ask]
+    binaries:
+      - codex-ask
+    repository:
+      owner: yasyf
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/yasyf/cc-skills
+    description: The one way the codex plugin runs OpenAI Codex — a pinned, detach-survivable `codex exec` launcher with fan-out mint/collect/await.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr",
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/codex-ask"]
+          end
+
+release:
+  prerelease: auto
+  # Lets goreleaser's retry re-upload after a mid-publish failure.
+  replace_existing_artifacts: true
+
+changelog:
+  use: github
+  sort: asc

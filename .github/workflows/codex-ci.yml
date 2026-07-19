@@ -1,0 +1,36 @@
+name: codex CI
+
+on:
+  push:
+    paths:
+      - "plugins/codex/**"
+      - "plugins/repo-bootstrap/tests/test_scaffold.py"
+  pull_request:
+    paths:
+      - "plugins/codex/**"
+      - "plugins/repo-bootstrap/tests/test_scaffold.py"
+
+permissions:
+  contents: read
+
+jobs:
+  codex-ask:
+    # Goldens shell `/bin/ps -o lstart=` and assert the setsid detach path (macOS
+    # process semantics); codex-ask ships darwin-only. Runs where the binary lives.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/codex/go.mod
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: build, vet, test (race)
+        run: |
+          mkdir -p /tmp/codex-ci
+          cd plugins/codex && go build -o /tmp/codex-ci/codex-ask ./ && go vet ./... && go test -race ./...
+      - name: repo-bootstrap codex-ask goldens
+        run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests/test_scaffold.py -k codex_ask -q
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: plugins/codex

@@ -20,3 +20,6 @@ __pycache__/
 
 # Go build cache (experiment/leak; never tracked)
 .gocache/
+
+# Stray binary from a bare `go build ./...` in the codex nested module
+/plugins/codex/codex

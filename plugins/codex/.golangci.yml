@@ -1,0 +1,27 @@
+# golangci-lint v2 config. CI and the prek commit hook run this, and you can run it
+# by hand whenever it helps. `golangci-lint fmt`
+# applies the formatters; `golangci-lint run` applies the linters.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - contextcheck
+    - durationcheck
+    - errcheck
+    - errorlint
+    - gosec
+    - govet
+    - ineffassign
+    - prealloc
+    - revive
+    - staticcheck
+    - unused
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
