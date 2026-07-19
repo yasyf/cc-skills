@@ -1,13 +1,13 @@
 {
   "name": "show",
   "description": "Choose the right surface before delivering anything to the human — prose, AskUserQuestion, a static Artifact page, or a live cc-present board.",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
   },
   "license": "MIT",
   "dependencies": [
-    { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=10.0.0" }
+    { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=11.0.0" }
   ]
 }

@@ -1,5 +1,0 @@
-[pack]
-name = "codex"
-version = "0.1.0"
-description = "Mechanize codex dispatch discipline: block backgrounded or detached codex-ask (foreground-only — the script survives a Bash-tool timeout and recovers via --await, while background Bash completion never wakes an in-process subagent) and block hand-rolled `codex exec` (route every dispatch through codex-ask, which pins model/effort/tier/auth, feeds developer_instructions, disables MCP mounts, and owns the disk protocol)."
-hooks = "."
