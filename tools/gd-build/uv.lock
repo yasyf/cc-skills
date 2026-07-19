@@ -403,8 +403,13 @@ wheels = [
 
 [[package]]
 name = "gd-build"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
+
+[package.optional-dependencies]
+content = [
+    { name = "great-docs" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -413,6 +418,8 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "great-docs", marker = "extra == 'content'", specifier = ">=0.15,<0.16" }]
+provides-extras = ["content"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -1,9 +1,17 @@
 [project]
 name = "gd-build"
-version = "0.1.0"
+version = "0.2.0"
 description = "The fleet's centralized great-docs docs-build wrapper (patches, pre_render titles)"
 requires-python = ">=3.12"
 dependencies = []
+
+# Content-only repos (no Python package, so no project venv holding great-docs) install
+# `gd-build[content]` in CI: this pin is the sole source of truth for the great-docs version
+# a module-less build resolves, and it must stay inside the patches' [0.15, 0.16) window
+# (gd_build/patches.py::_within_window) or the fleet footer/CSS patches self-retire to stock.
+# Python repos keep installing bare `gd-build` and reuse their own synced great-docs.
+[project.optional-dependencies]
+content = ["great-docs>=0.15,<0.16"]
 
 [project.scripts]
 gd-build = "gd_build.cli:main"

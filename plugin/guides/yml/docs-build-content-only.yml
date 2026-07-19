@@ -1,0 +1,10 @@
+      - name: Build documentation
+        run: uv run --with "gd-build[content] @ git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: great-docs/_site
+          include-hidden-files: true
