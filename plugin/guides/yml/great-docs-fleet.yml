@@ -8,3 +8,8 @@ back_to_top: true
 keyboard_nav: true
 fast_sidebar: true
 freeze: auto
+
+# Fleet SEO: uniform page-title format (schema placeholders {page_title}/{site_name}; default
+# separator is "|"). social_cards stays per-repo — repos set social_cards.image in their fragment.
+seo:
+  title_template: "{page_title} - {site_name}"
