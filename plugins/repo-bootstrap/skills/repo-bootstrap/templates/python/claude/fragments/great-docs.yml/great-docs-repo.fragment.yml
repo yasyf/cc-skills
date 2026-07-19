@@ -12,7 +12,11 @@ pypi: {{#FEATURE_PYPI}}true{{/FEATURE_PYPI}}{{^FEATURE_PYPI}}false{{/FEATURE_PYP
 # Conservative defaults: a solid navbar and a single accent, no gradient
 # presets or hero starfield. The gradient/starfield extras read as busy and the
 # starfield canvas intercepts homepage clicks; keep them off unless asked.
-# TODO(bootstrap): pick a navbar color and accent that fit the project.
+# TODO(bootstrap): replace these seed colors with picks derived from the
+# docs/assets/logo.png mascot palette. navbar_color: a deep tone from the
+# mascot (white navbar text >=4.5:1). accent_color doubles as the link color:
+# use {light: ..., dark: ...} — light >=4.5:1 on white, dark >=4.5:1 on
+# #1a1a1a (darken/lighten the mascot hue until both pass WCAG AA).
 navbar_color: "#1e293b"
 accent_color: "#3b82f6"
 

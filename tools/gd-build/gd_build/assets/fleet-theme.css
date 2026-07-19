@@ -1,0 +1,219 @@
+/* Fleet design system over flatly + great-docs.scss (via format.html.css). */
+
+/* tokens */
+:root {
+  --fleet-link: var(--gd-accent, #2563eb);
+  --fleet-link-hover: color-mix(in oklab, var(--fleet-link) 78%, black);
+  --fleet-muted: #56606e;
+  --fleet-border: #e3e6eb;
+  --fleet-slab-bg: #f6f7f9;
+  --fleet-code-bg: #f6f8fa;
+  --bs-link-color: var(--fleet-link);
+  --bs-link-hover-color: var(--fleet-link-hover);
+  --gd-link-color: var(--fleet-link);
+}
+
+html.quarto-dark,
+body.quarto-dark {
+  --fleet-link: var(--gd-accent, #8ea9ff);
+  --fleet-link-hover: color-mix(in oklab, var(--fleet-link) 78%, white);
+  --fleet-muted: #a3adbd;
+  --fleet-border: #343a4a;
+  --fleet-slab-bg: #232733;
+  --fleet-code-bg: #2a2a2a;
+  --bs-link-color: var(--fleet-link);
+  --bs-link-hover-color: var(--fleet-link-hover);
+  --gd-link-color: var(--fleet-link);
+}
+
+/* links: content scope only, navbar/sidebar keep APCA-managed colors */
+:where(main.content, #quarto-document-content, .content) a:not(.btn):not(.nav-link):not(.sidebar-item-text) {
+  color: var(--fleet-link);
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.16em;
+}
+
+:where(main.content, #quarto-document-content, .content) a:not(.btn):not(.nav-link):not(.sidebar-item-text):hover {
+  color: var(--fleet-link-hover);
+}
+
+/* typography */
+main.content {
+  line-height: 1.65;
+}
+
+main.content :where(h1, .title) {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin-bottom: 1rem;
+}
+
+main.content :where(h2) {
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin-top: 2.4rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.35rem;
+}
+
+main.content :where(h3) {
+  font-size: 1.22rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.9rem;
+  margin-bottom: 0.7rem;
+}
+
+main.content :where(h4, h5) {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.55rem;
+}
+
+main.content p {
+  margin-bottom: 1.05rem;
+}
+
+/* content measure */
+@media (min-width: 992px) {
+  body:not(.gd-homepage) main.content {
+    max-width: 50rem;
+    margin-inline: auto;
+    padding-inline: 0.5rem;
+  }
+}
+
+/* code blocks */
+main.content div.sourceCode,
+main.content pre:not(.sourceCode pre) {
+  background-color: var(--fleet-code-bg);
+  border: 1px solid var(--fleet-border);
+  border-radius: 8px;
+}
+
+main.content div.sourceCode pre,
+main.content pre {
+  padding: 0.85rem 1rem;
+  font-size: 0.875em;
+  line-height: 1.55;
+}
+
+main.content p code,
+main.content li code,
+main.content td code {
+  background-color: var(--fleet-code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+
+/* admonitions */
+main.content .callout {
+  border-radius: 8px;
+  border-left-width: 3px;
+  margin-block: 1.4rem;
+}
+
+main.content .callout .callout-header {
+  font-weight: 600;
+  padding-block: 0.55rem;
+}
+
+main.content .callout .callout-body-container {
+  padding-block: 0.35rem 0.55rem;
+}
+
+/* reference pages: Usage / Attributes slabs */
+.doc-signature > div:first-child,
+.doc-signature > p:first-child {
+  background-color: var(--fleet-slab-bg);
+  border: 1px solid var(--fleet-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.doc-signature div.sourceCode {
+  border-radius: 0 8px 8px 0 !important;
+  border: none;
+  margin-bottom: 0;
+}
+
+.doc-usage-source {
+  padding: 0.35rem 0.15rem;
+}
+
+.doc-usage-source > p:first-child {
+  color: var(--fleet-muted);
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.doc-usage-source a {
+  color: var(--fleet-link) !important;
+}
+
+section.doc-attributes > section.doc-attribute,
+section.doc-methods > section.doc-method {
+  border-left: 2px solid var(--fleet-border);
+  padding-block: 0.15rem;
+  margin-block: 1.1rem;
+}
+
+.doc-section dd {
+  margin-bottom: 0.8rem;
+}
+
+/* search dropdown */
+.aa-DetachedContainer .aa-Panel,
+#quarto-search-results .aa-Panel {
+  border: 1px solid var(--fleet-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.aa-DetachedContainer .aa-Form {
+  border-radius: 8px;
+}
+
+.aa-DetachedContainer .aa-Form:focus-within {
+  border-color: var(--fleet-link);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fleet-link) 30%, transparent);
+}
+
+#quarto-search-results .aa-Item[aria-selected="true"],
+.aa-DetachedContainer .aa-Item[aria-selected="true"] {
+  background-color: color-mix(in srgb, var(--fleet-link) 13%, transparent);
+}
+
+#quarto-search-results .aa-Item mark,
+.aa-DetachedContainer .aa-Item mark {
+  color: var(--fleet-link);
+  background: none;
+  font-weight: 650;
+}
+
+/* footer: quiet and small */
+.page-footer,
+.nav-footer {
+  font-size: 0.8rem;
+  color: var(--fleet-muted);
+  border-top: 1px solid var(--fleet-border);
+  padding-block: 1.1rem 0.9rem;
+  margin-top: 2.5rem;
+}
+
+.page-footer a,
+.nav-footer a {
+  color: var(--fleet-muted);
+  text-decoration: none;
+}
+
+.page-footer a:hover,
+.nav-footer a:hover {
+  color: var(--fleet-link);
+  text-decoration: underline;
+}
