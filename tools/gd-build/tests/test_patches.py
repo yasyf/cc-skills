@@ -1042,6 +1042,17 @@ def test_transform_demo_image_drops_markdown_image(tmp_path) -> None:
     assert out == "Intro.\n\nMore.\n"
 
 
+def test_transform_demo_image_consumes_pandoc_attrs(tmp_path) -> None:
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.termshow").write_text("recording")
+    body = "Intro.\n\n![Demo](docs/assets/demo.png){width=700}\n\nMore.\n"
+    out = patches_mod._transform_demo_image(_hero_instance(tmp_path), body)
+    assert out == (
+        'Intro.\n\n{{< termshow file="docs/assets/demo" autoplay="true" >}}\n\nMore.\n'
+    )
+    assert "width=700" not in out
+
+
 def test_transform_demo_image_drops_empty_wrapper(tmp_path) -> None:
     body = (
         'Intro.\n\n<p align="center">\n'

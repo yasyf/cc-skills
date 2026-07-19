@@ -45,7 +45,7 @@ TERMSHOW_SHORTCODE = '{{< termshow file="docs/assets/demo" autoplay="true" >}}'
 DEMO_SRC = r"docs/assets/demo\.(?:png|gif|webp)"
 DEMO_IMG_RE = re.compile(
     r"<img\b[^>]*?\ssrc\s*=\s*[\"'][^\"']*" + DEMO_SRC + r"[^\"']*[\"'][^>]*>"
-    r"|!\[[^\]]*\]\([^)]*" + DEMO_SRC + r"[^)]*\)"
+    r"|!\[[^\]]*\]\([^)]*" + DEMO_SRC + r"[^)]*\)(?:\{[^}\n]*\})?"
 )
 # A tight demo wrapper: the image is the element's only child (only whitespace between).
 WRAP_OPEN_RE = re.compile(r"(?P<open><(?P<tag>p|figure|div)\b[^>]*>)\s*\Z", re.IGNORECASE)
