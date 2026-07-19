@@ -25,6 +25,13 @@ from importlib.metadata import version
 MARGIN_EMPTY_RETURN = 'return "\\n".join(margin_sections) if margin_sections else ""'
 ADMONITION_STOCK_RETURN = "return convert_rst_text(el.value.description)"
 DOCTEST_LINE_RE = re.compile(r"^\s*(?:>>>|\.\.\.)")
+RENDER_ANNOTATION_RETURN = "return pretty_code(str(_render(annotation)))"
+RENDER_ANNOTATION_INITVAR = 'ann.canonical_name == "InitVar"'
+SIGNATURE_ANNOTATION_FSTRING = 'f": {el.annotation}"'
+MANIFEST_ITEM_NAME = "InventoryItem(name=name_path"
+
+# Manifest object names captured pre-render; linkify only tokens that resolve here.
+DOCUMENTED_NAMES: set[str] = set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +267,137 @@ def apply_example_doctest() -> None:
     sdm.register(gf.DocstringSectionAdmonition)(_example_admonition_renderer(doc_mod))
 
 
+def format_annotation(ann: object, *, documented: set[str], mode: str) -> str:
+    """Render a griffe annotation expression to great-docs markup.
+
+    Two layers over griffe's source form: modernize (`Optional[X]` -> `X | None`,
+    `Union[A, B]` -> `A | B`, `typing.` prefix stripped) always; and, for
+    `mode == "annotation"`, linkify — a name token whose canonical path is a
+    documented object becomes a great-docs interlink (``[](`~pkg.Name`)``) that
+    post-render resolves to a reference-page link. `mode == "signature"` renders
+    bare, link-free source for the fenced `python` block (pandoc never processes
+    link markup there).
+    """
+    import griffe as gf
+    from great_docs._apiref._format import markdown_escape, repr_obj
+    from great_docs._apiref.pandoc.inlines import InterLink
+
+    def members(sl: object) -> list[object]:
+        return list(sl.elements) if isinstance(sl, gf.ExprTuple) else [sl]
+
+    def render(a: object) -> str:
+        if a is None:
+            return ""
+        if isinstance(a, str):
+            return a if mode == "signature" else repr_obj(a)
+        if isinstance(a, gf.ExprName):
+            if mode == "annotation" and a.canonical_path in documented:
+                return str(InterLink(target=f"~{a.canonical_path}"))
+            return a.name if mode == "signature" else markdown_escape(a.name)
+        assert isinstance(a, gf.Expr)
+        if isinstance(a, gf.ExprSubscript):
+            if a.canonical_name == "InitVar":  # mirror stock doc.py InitVar unwrap
+                return render(a.slice)
+            if a.canonical_path == "typing.Optional":
+                return f"{render(a.slice)} | None"
+            if a.canonical_path == "typing.Union":
+                return " | ".join(render(m) for m in members(a.slice))
+        if isinstance(a, gf.ExprAttribute) and a.canonical_path.startswith("typing."):
+            return a.canonical_name
+        path = a.canonical_path
+        if path and path[0] == "~":
+            return a.canonical_name
+        return "".join(render(x) for x in a)
+
+    return render(ann)
+
+
+def probe_type_annotations() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    import griffe as gf
+    from great_docs._apiref import collect
+    from great_docs._apiref._render import doc as doc_mod
+    from great_docs._apiref._render import mixin_call
+    from great_docs._apiref.pandoc.inlines import InterLink
+
+    for cls in ("ExprName", "ExprSubscript", "ExprTuple", "ExprAttribute"):
+        if not hasattr(gf, cls):
+            return f"griffe.{cls} missing"
+    ra_src = inspect.getsource(doc_mod.RenderDoc.render_annotation)
+    if RENDER_ANNOTATION_RETURN not in ra_src or RENDER_ANNOTATION_INITVAR not in ra_src:
+        return "RenderDoc.render_annotation shape changed"
+    rsp_src = inspect.getsource(mixin_call.RenderDocCallMixin.render_signature_parameter)
+    if SIGNATURE_ANNOTATION_FSTRING not in rsp_src:
+        return "render_signature_parameter annotation f-string changed"
+    if not callable(getattr(collect, "build_manifest", None)):
+        return "collect.build_manifest missing"
+    if MANIFEST_ITEM_NAME not in inspect.getsource(collect._ManifestBuilder):
+        return "manifest inventory-item name shape changed"
+    if str(InterLink(target="~x.y")) != "[](`~x.y`)":
+        return "InterLink interlink markup shape changed"
+    return None
+
+
+def apply_type_annotations() -> None:
+    from great_docs._apiref import collect
+    from great_docs._apiref._format import pretty_code
+    from great_docs._apiref._render import doc as doc_mod
+    from great_docs._apiref._render import mixin_call
+
+    import griffe as gf
+
+    original_bm = collect.build_manifest
+
+    @functools.wraps(original_bm)
+    def build_manifest(*args: object, **kwargs: object) -> object:
+        manifest = original_bm(*args, **kwargs)
+        DOCUMENTED_NAMES.clear()
+        DOCUMENTED_NAMES.update(item.name for item in manifest.items if item.name)
+        return manifest
+
+    collect.build_manifest = build_manifest
+
+    original_ra = doc_mod.RenderDoc.render_annotation
+
+    @functools.wraps(original_ra)
+    def render_annotation(self: object, annotation: object = None) -> str:
+        if annotation is None:
+            if not (
+                isinstance(self.obj, gf.Attribute)
+                or (isinstance(self.obj, gf.Alias) and self.obj.is_attribute)
+            ):
+                msg = f"Cannot render annotation for type {type(self.obj)}."
+                raise TypeError(msg)
+            annotation = self.obj.annotation
+        try:
+            rendered = format_annotation(
+                annotation, documented=DOCUMENTED_NAMES, mode="annotation"
+            )
+            return pretty_code(str(rendered))
+        except Exception:  # A patch must never crash a build; fall back to stock render.
+            return original_ra(self, annotation)
+
+    doc_mod.RenderDoc.render_annotation = render_annotation
+
+    original_rsp = mixin_call.RenderDocCallMixin.render_signature_parameter
+
+    @functools.wraps(original_rsp)
+    def render_signature_parameter(self: object, el: object) -> str:
+        result = original_rsp(self, el)
+        if self.show_signature_annotation and el.annotation is not None:
+            try:
+                modern = format_annotation(
+                    el.annotation, documented=DOCUMENTED_NAMES, mode="signature"
+                )
+            except Exception:  # Keep the stock signature rather than crash the build.
+                return result
+            result = result.replace(f": {el.annotation}", f": {modern}", 1)
+        return result
+
+    mixin_call.RenderDocCallMixin.render_signature_parameter = render_signature_parameter
+
+
 def patches() -> tuple[Patch, ...]:
     return (
         Patch(
@@ -301,6 +439,14 @@ def patches() -> tuple[Patch, ...]:
             apply=apply_example_doctest,
             expected_savings="Example: doctest admonitions fenced as python (straight quotes) instead of flattened prose",
             upstream_ref="great_docs RenderDoc.render_docstring_section example-admonition doctest fencing",
+        ),
+        Patch(
+            name="type-annotations",
+            verified_window="great-docs >=0.15,<0.16 with RenderDoc.render_annotation _render/InitVar, signature f\": {el.annotation}\", collect.build_manifest",
+            probe=probe_type_annotations,
+            apply=apply_type_annotations,
+            expected_savings="modern union annotations (Optional[X]->X | None) + type cross-links to reference pages",
+            upstream_ref="great_docs render_annotation + render_signature_parameter modernize/linkify against the manifest inventory",
         ),
     )
 

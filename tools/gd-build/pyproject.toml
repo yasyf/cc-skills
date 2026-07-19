@@ -17,7 +17,10 @@ module-name = "gd_build"
 module-root = ""
 
 [dependency-groups]
-dev = ["pytest>=8"]
+# great-docs (with its griffe dependency) is a test-only dep: the type-annotation
+# patch operates on real griffe annotation expressions, so its tests build genuine
+# `griffe.Expr` trees and assert against real great-docs render internals.
+dev = ["pytest>=8", "great-docs>=0.15,<0.16"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
