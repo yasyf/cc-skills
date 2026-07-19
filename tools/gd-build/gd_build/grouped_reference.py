@@ -22,8 +22,9 @@ great-docs internals so each titled group renders as one anchored page:
   `RenderAPIPage.render_metadata` titles the page with the group name.
 - `GreatDocs._update_sidebar_from_sections` points each symbol at
   `reference/<group>.qmd#<anchor>`, with a fragment-free group-page leaf per
-  section so the pages get sidebar membership (great-docs' config round-trip
-  drops a section-level href but keeps leaves).
+  section so the pages get sidebar membership: a fragment-free leaf href is the
+  shape that confers membership in a Quarto multi-sidebar site (section-level
+  hrefs round-trip fine; they just don't confer membership).
 
 Everything is gated by `gd_build.patches`; `install` validates then commits
 (no half-patched interpreter on failure) and is idempotent, transforming only
@@ -189,8 +190,9 @@ def grouped_update_sidebar(instance: GreatDocs, original: Callable[[GreatDocs], 
     for section in sections:
         title = section.get("title")
         section_pkg = section.get("package", package)
-        # A fragment-free leaf establishes the group page's sidebar membership;
-        # great-docs' config round-trip drops a section-level href but keeps leaves.
+        # A fragment-free leaf href is the shape that confers sidebar membership
+        # in a Quarto multi-sidebar site (section-level hrefs round-trip fine;
+        # they just don't confer membership).
         entries: list[object] = (
             [{"text": title, "href": f"reference/{slug(title)}.qmd"}] if title else []
         )
