@@ -33,6 +33,11 @@ gitignored `docs/scripts/.gd-build/native_reference_titles.py`, which only exist
 gd-build run. great-docs warns "Pre-render script not found" and continues anyway — into an
 unpatched build that can hang for an hour on a large API reference (pandoc #11687).
 
+gd-build also enforces a hard wall-clock cap on the whole build: 300 seconds by default,
+`GD_BUILD_TIMEOUT=<secs>` to override (`0` disables), exit 124 with the quarto process tree
+killed when it trips. A pathological build dies in five minutes with a pointer here instead
+of hanging an agent or a CI runner for an hour.
+
 `great-docs/` is build output — it is listed in `.gitignore`; never commit it.
 
 ## great-docs.yml walkthrough
@@ -153,7 +158,7 @@ on `if: github.ref == 'refs/heads/main'` deploys via `actions/deploy-pages` to t
 `github-pages` environment. Enable Pages with the Actions build first
 (`gh api repos/{owner}/{repo}/pages -X POST -f build_type=workflow`) or the deploy job fails.
 
-Two non-obvious build details:
+Three non-obvious build details:
 
 - The build step sets `env: GITHUB_TOKEN: ${{ github.token }}` — great-docs embeds the navbar
   widget's star/fork counts at build time using it, so visitors' browsers never hit the
@@ -167,6 +172,12 @@ Two non-obvious build details:
   rewrites each generated `[Name]{.doc-*}` title to a pre-parsed `` `Span (…)`{=pandoc-native} ``
   inline: linear to parse, styled identically (the kind pills survive). It is a no-op until you
   add a `reference:` section; the fragment drops once upstream fixes the backtracking.
+- The `grouped-reference-pages` gd-build patch collapses a curated `reference:` into one page
+  per titled group at build time (captain-hook: ~296 rendered reference pages → ~59). Page
+  count is what the render pays for, so this is what keeps a large reference inside the cap.
+  Every symbol keeps a stable deep link: headings carry explicit `id=<package>.<name>` anchors,
+  and the sidebar and reference index point at `reference/<group>.html#<anchor>`.
+  `GD_BUILD_PATCHES=none` restores stock per-symbol pages.
 
 The site lives at `https://<user>.github.io/<repo>/` (captain-hook:
 `https://yasyf.github.io/captain-hook/`). Three places point there and must agree:

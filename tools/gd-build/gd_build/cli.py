@@ -1,9 +1,11 @@
 """The gd-build CLI: apply the patches, then delegate to great-docs.
 
-`gd-build build` materializes the pre_render titles script and the fleet
-design-system CSS, applies the performance patches, delegates to `great-docs
-build`, then ranks the rendered search index. `gd-build selftest` reports
-whether every selected patch applies, exiting 3 if any was skipped.
+`gd-build build` materializes the pre_render titles script, applies the
+performance patches, and delegates to `great-docs build`. `gd-build selftest`
+reports whether every selected patch applies, exiting 3 if any was skipped.
+`build` supervises that work in a child process under a hard wall-clock cap
+(default 300s, GD_BUILD_TIMEOUT overrides in seconds, 0 disables), killing
+the process tree and exiting 124 on timeout.
 
 Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
 
@@ -25,15 +27,15 @@ Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
 from __future__ import annotations
 
 import importlib.resources
+import os
+import signal
+import subprocess
 import sys
 from pathlib import Path
 
-from gd_build.fleet_assets import materialize_fleet_css
 from gd_build.patches import apply_patches
-from gd_build.search_rank import apply_search_ranking
 
 TITLES_DEST = Path("docs/scripts/.gd-build/native_reference_titles.py")
-SITE_DIR = Path("great-docs") / "_site"
 
 
 def materialize_titles() -> None:
@@ -63,20 +65,78 @@ def delegate(rest: list[str]) -> int:
         return exit_code(exc.code)
 
 
-def build(rest: list[str]) -> int:
+def build_inprocess(rest: list[str]) -> int:
     materialize_titles()
-    materialize_fleet_css()
     apply_patches()
-    code = delegate(rest)
-    if code == 0:
-        apply_search_ranking(SITE_DIR)
-    return code
+    return delegate(rest)
+
+
+class Interrupted(Exception):
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+def terminate(child: subprocess.Popen) -> None:
+    if child.poll() is not None:
+        return
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait()
+
+
+def wait_for_child(child: subprocess.Popen, cap: int) -> int:
+    try:
+        return child.wait() if cap == 0 else child.wait(timeout=cap)
+    except subprocess.TimeoutExpired:
+        line = (
+            f"TIMEOUT: docs build exceeded the {cap}s hard cap — killing the quarto process tree. "
+            "Profile the build or trim the API reference (repo-bootstrap reference/docs-site.md); "
+            "GD_BUILD_TIMEOUT=<secs> overrides, 0 disables."
+        )
+        print(line, file=sys.stderr)
+        if os.environ.get("GITHUB_ACTIONS"):
+            print(f"::error::{line}")
+        return 124
+
+
+def supervise(argv: list[str], cap: int) -> int:
+    child = subprocess.Popen(argv, start_new_session=True)
+
+    def relay(signum: int, _frame: object) -> None:
+        raise Interrupted(signum)
+
+    previous = {sig: signal.signal(sig, relay) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        return wait_for_child(child, cap)
+    except Interrupted as exc:
+        raise SystemExit(128 + exc.signum) from None
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        terminate(child)
+
+
+def build(rest: list[str]) -> int:
+    cap = int(os.environ.get("GD_BUILD_TIMEOUT", "300"))
+    return supervise([sys.executable, "-m", "gd_build", "_build", *rest], cap)
 
 
 def main() -> None:
     match sys.argv[1:]:
         case ["selftest"]:
             raise SystemExit(0 if all(apply_patches().values()) else 3)
+        case ["_build", *rest]:
+            raise SystemExit(build_inprocess(rest))
         case ["build", *rest]:
             raise SystemExit(build(rest))
         case _:
