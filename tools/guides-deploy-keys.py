@@ -28,6 +28,9 @@ FLEET = [
     "docker-dsl",
     "experiment-at-home",
     "spawnllm",
+    "cc-squash",
+    "cc-orchestrate",
+    "cc-review",
 ]
 
 
