@@ -629,6 +629,9 @@ def test_apply_metadata_margin_off_keeps_side_effects_and_empties_return(
             self.calls.append("side-effect")
             return "SIDEBAR MARKUP"
 
+        def _create_index_from_readme(self, force_rebuild: bool = False) -> None:
+            return None
+
     install_core(monkeypatch, _SideEffect)
     patches_mod.apply_metadata_margin_off()
     inst = _SideEffect()
@@ -1082,6 +1085,65 @@ def test_apply_homepage_demo_transforms_readme_body(
     hero, cleaned = _Fake()._build_hero_section(body)
     assert hero == "HERO"
     assert cleaned == "Intro.\n\nMore.\n"
+
+
+def test_index_source_demo_keeps_generated_frontmatter_valid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from great_docs import core
+
+    for name in (
+        "_build_metadata_margin",
+        "_create_index_from_readme",
+        "_build_hero_section",
+    ):
+        monkeypatch.setattr(core.GreatDocs, name, getattr(core.GreatDocs, name))
+
+    (tmp_path / "great-docs.yml").write_text(
+        "module: sample\n"
+        "display_name: Sample\n"
+        "hero:\n"
+        "  name: Sample\n"
+        '  tagline: "A sample project."\n'
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "sample"\n'
+        'version = "1.0.0"\n'
+        'description = "A sample project."\n'
+        'requires-python = ">=3.12"\n'
+    )
+    (tmp_path / "sample").mkdir()
+    (tmp_path / "sample" / "__init__.py").write_text("")
+    (tmp_path / "docs" / "assets").mkdir(parents=True)
+    (tmp_path / "docs" / "assets" / "demo.png").write_bytes(b"png")
+    (tmp_path / "docs" / "assets" / "demo.termshow").write_text("recording")
+    (tmp_path / "index.qmd").write_text(
+        "---\n"
+        'title: "Hand-authored homepage"\n'
+        "toc: false\n"
+        'body-classes: "gd-homepage"\n'
+        "---\n\n"
+        "Intro.\n\n"
+        "![Demo](docs/assets/demo.png)\n\n"
+        "More.\n"
+    )
+    (tmp_path / "great-docs").mkdir()
+
+    patches_mod.apply_metadata_margin_off()
+    patches_mod.apply_homepage_demo()
+    core.GreatDocs(str(tmp_path))._create_index_from_readme(force_rebuild=True)
+
+    generated = (tmp_path / "great-docs" / "index.qmd").read_text()
+    assert generated.splitlines()[:5] == [
+        "---",
+        'title: ""',
+        "toc: false",
+        'body-classes: "gd-homepage"',
+        "---",
+    ]
+    assert patches_mod.TERMSHOW_SHORTCODE in generated
+    assert "demo.png" not in generated
 
 
 def test_apply_homepage_demo_leaves_blended_mode_untouched(

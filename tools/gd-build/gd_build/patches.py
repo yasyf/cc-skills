@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from importlib.metadata import version
 
 MARGIN_EMPTY_RETURN = 'return "\\n".join(margin_sections) if margin_sections else ""'
+MALFORMED_EMPTY_MARGIN_FRONTMATTER = "---  # pragma: no cover\n"
 ADMONITION_STOCK_RETURN = "return convert_rst_text(el.value.description)"
 DOCTEST_LINE_RE = re.compile(r"^\s*(?:>>>|\.\.\.)")
 RENDER_ANNOTATION_RETURN = "return pretty_code(str(_render(annotation)))"
@@ -221,6 +222,7 @@ def apply_metadata_margin_off() -> None:
     from great_docs import core
 
     original = core.GreatDocs._build_metadata_margin
+    original_create_index = core.GreatDocs._create_index_from_readme
 
     @functools.wraps(original)
     def _build_metadata_margin(self: object) -> str:
@@ -228,7 +230,19 @@ def apply_metadata_margin_off() -> None:
         original(self)
         return ""
 
+    @functools.wraps(original_create_index)
+    def _create_index_from_readme(self: object, force_rebuild: bool = False) -> None:
+        result = original_create_index(self, force_rebuild)
+        index_qmd = self.project_path / "index.qmd"
+        if index_qmd.is_file():
+            content = index_qmd.read_text(encoding="utf-8")
+            if content.startswith(MALFORMED_EMPTY_MARGIN_FRONTMATTER):
+                content = "---\n" + content[len(MALFORMED_EMPTY_MARGIN_FRONTMATTER) :]
+                index_qmd.write_text(content, encoding="utf-8")
+        return result
+
     core.GreatDocs._build_metadata_margin = _build_metadata_margin
+    core.GreatDocs._create_index_from_readme = _create_index_from_readme
 
 
 def _footer_colophon(instance: object, metadata: dict) -> str:
