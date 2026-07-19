@@ -10,6 +10,7 @@ repo's cc-guides-render deploy key and CC_GUIDES_DEPLOY_KEY actions secret.
 1Password is the source of truth; repos default to the Great Docs fleet."""
 
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,8 @@ def rotate(repo: str) -> None:
 
 
 def main() -> None:
+    if os.environ.pop("OP_SERVICE_ACCOUNT_TOKEN", None):
+        print("note: dropped read-only OP_SERVICE_ACCOUNT_TOKEN — using your 1Password user session")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repos", nargs="*", default=FLEET)
     for repo in parser.parse_args().repos:
