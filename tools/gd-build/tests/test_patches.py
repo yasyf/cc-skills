@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -157,6 +158,8 @@ def install_git(
                 ("example-doctest-fence", True),
                 ("type-annotations", True),
                 ("homepage-demo-transform", True),
+                ("hero-logo-off", True),
+                ("fleet-css", True),
             ],
             id="unset-defaults-to-all",
         ),
@@ -170,6 +173,8 @@ def install_git(
                 ("example-doctest-fence", True),
                 ("type-annotations", True),
                 ("homepage-demo-transform", True),
+                ("hero-logo-off", True),
+                ("fleet-css", True),
             ],
             id="all",
         ),
@@ -963,3 +968,276 @@ def test_apply_homepage_demo_never_crashes_the_build(
     patches_mod.apply_homepage_demo()
     body = 'Intro.\n\n<img src="docs/assets/demo.png" alt="Demo">\n\nMore.\n'
     assert _Fake()._build_hero_section(body) == ("HERO", None)
+
+
+# ── hero-logo-off ────────────────────────────────────────────────────────
+
+
+class _HeroLogoRealConfig:
+    @property
+    def hero_logo(self) -> object:
+        hero: dict = {}
+        val = hero.get("logo")
+        return val
+
+
+class _HeroLogoRealCore:
+    def _build_hero_section(
+        self, readme_content: str | None = None
+    ) -> tuple[str, str | None]:
+        logo_config = self._config.hero_logo  # noqa: F821, F841 — source text only; never executed
+        if logo_config is None:
+            logo_config = self._detect_hero_logo()  # noqa: F821, F841 — source text only; never executed
+        return "", None
+
+
+class _HeroLogoNeighborCore:
+    def _build_hero_section(
+        self, readme_content: str | None = None
+    ) -> tuple[str, str | None]:
+        logo_config = self._config.hero_logo  # noqa: F821, F841 — source text only; never executed
+        return "", None
+
+
+def install_hero_modules(
+    monkeypatch: pytest.MonkeyPatch, config_cls: type, core_cls: type
+) -> None:
+    great_docs = types.ModuleType("great_docs")
+    config_mod = types.ModuleType("great_docs.config")
+    config_mod.Config = config_cls
+    core_mod = types.ModuleType("great_docs.core")
+    core_mod.GreatDocs = core_cls
+    great_docs.config = config_mod
+    great_docs.core = core_mod
+    monkeypatch.setitem(sys.modules, "great_docs", great_docs)
+    monkeypatch.setitem(sys.modules, "great_docs.config", config_mod)
+    monkeypatch.setitem(sys.modules, "great_docs.core", core_mod)
+
+
+def test_probe_hero_logo_off_real_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("great_docs")
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_hero_logo_off() is None
+
+
+def test_probe_hero_logo_off_matches_synthetic_real_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_hero_modules(monkeypatch, _HeroLogoRealConfig, _HeroLogoRealCore)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_hero_logo_off() is None
+
+
+def test_probe_hero_logo_off_version_below_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.14.9")
+    assert patches_mod.probe_hero_logo_off() == "great-docs 0.14.9 is outside [0.15, 0.16)"
+
+
+def test_probe_hero_logo_off_self_retires_on_core_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_hero_modules(monkeypatch, _HeroLogoRealConfig, _HeroLogoNeighborCore)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert (
+        patches_mod.probe_hero_logo_off()
+        == "GreatDocs._build_hero_section hero-logo fallback shape changed"
+    )
+
+
+def test_probe_hero_logo_off_config_not_a_property(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Config:
+        def hero_logo(self) -> object:  # a method, not a property
+            return None
+
+    install_hero_modules(monkeypatch, _Config, _HeroLogoRealCore)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_hero_logo_off() == "Config.hero_logo is not a property"
+
+
+def test_apply_hero_logo_off_suppresses_unset_and_honors_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Config:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        @property
+        def hero_logo(self) -> object:
+            return self._value
+
+    config_mod = types.ModuleType("great_docs.config")
+    config_mod.Config = _Config
+    great_docs = types.ModuleType("great_docs")
+    great_docs.config = config_mod
+    monkeypatch.setitem(sys.modules, "great_docs", great_docs)
+    monkeypatch.setitem(sys.modules, "great_docs.config", config_mod)
+
+    patches_mod.apply_hero_logo_off()
+    assert _Config(None).hero_logo is False  # unset → suppressed
+    assert _Config("assets/logo.svg").hero_logo == "assets/logo.svg"  # explicit honored
+    assert _Config(False).hero_logo is False  # explicit suppression preserved
+
+
+# ── fleet-css ────────────────────────────────────────────────────────────
+
+
+class _FleetCssRealCore:
+    def _write_quarto_yml(self, quarto_yml: object, config: dict) -> None:
+        header_comment = "# Generated\n"
+        with open(quarto_yml, "w") as f:
+            f.write(header_comment)
+            write_yaml(config, f)  # noqa: F821 — source text only; never executed
+
+    def _prepare_build_directory(self) -> None:
+        shutil.copy2(css_src, self.project_path / css_src.name)  # noqa: F821 — source text only; never executed
+
+
+def _make_fleet_css(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    css = tmp_path / "docs/assets/.gd-build/fleet-theme.css"
+    css.parent.mkdir(parents=True)
+    css.write_text("/* fleet */\n")
+    return tmp_path
+
+
+def test_probe_fleet_css_real_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("great_docs")
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_fleet_css() is None
+
+
+def test_probe_fleet_css_matches_synthetic_real_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_core(monkeypatch, _FleetCssRealCore)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_fleet_css() is None
+
+
+def test_probe_fleet_css_version_below_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.14.0")
+    assert patches_mod.probe_fleet_css() == "great-docs 0.14.0 is outside [0.15, 0.16)"
+
+
+def test_probe_fleet_css_self_retires_on_write_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_core(monkeypatch, _WriteNeighbor)
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert (
+        patches_mod.probe_fleet_css()
+        == "GreatDocs._write_quarto_yml serialization shape changed"
+    )
+
+
+def test_probe_fleet_css_missing_prepare(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_core(monkeypatch, _WriteRealShape)  # has _write_quarto_yml, no _prepare_build_directory
+    monkeypatch.setattr(patches_mod, "version", lambda dist: "0.15.0")
+    assert patches_mod.probe_fleet_css() == "GreatDocs._prepare_build_directory missing"
+
+
+def test_merge_fleet_css_copies_and_appends_basename(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_fleet_css(tmp_path, monkeypatch)
+    staging = root / "great-docs"
+    staging.mkdir()
+    inst = types.SimpleNamespace(project_path=staging)
+    config = {"format": {"html": {"css": ["site.css"]}}}
+    patches_mod._merge_fleet_css(inst, config)
+    assert (staging / "fleet-theme.css").read_text() == "/* fleet */\n"
+    assert config["format"]["html"]["css"] == ["site.css", "fleet-theme.css"]
+
+
+def test_merge_fleet_css_idempotent(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _make_fleet_css(tmp_path, monkeypatch)
+    staging = root / "great-docs"
+    staging.mkdir()
+    inst = types.SimpleNamespace(project_path=staging)
+    config = {"format": {"html": {}}}
+    patches_mod._merge_fleet_css(inst, config)
+    patches_mod._merge_fleet_css(inst, config)
+    assert config["format"]["html"]["css"] == ["fleet-theme.css"]
+
+
+def test_merge_fleet_css_wraps_scalar_css(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_fleet_css(tmp_path, monkeypatch)
+    staging = root / "great-docs"
+    staging.mkdir()
+    inst = types.SimpleNamespace(project_path=staging)
+    config = {"format": {"html": {"css": "site.css"}}}
+    patches_mod._merge_fleet_css(inst, config)
+    assert config["format"]["html"]["css"] == ["site.css", "fleet-theme.css"]
+
+
+def test_merge_fleet_css_skips_config_without_format_html(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_fleet_css(tmp_path, monkeypatch)
+    staging = root / "great-docs"
+    staging.mkdir()
+    inst = types.SimpleNamespace(project_path=staging)
+    config = {"project": {"type": "website"}}
+    patches_mod._merge_fleet_css(inst, config)
+    assert "format" not in config
+    assert not (staging / "fleet-theme.css").exists()  # no format.html → no copy
+
+
+def test_merge_fleet_css_skips_when_css_source_missing(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no materialized CSS on disk
+    staging = tmp_path / "great-docs"
+    staging.mkdir()
+    inst = types.SimpleNamespace(project_path=staging)
+    config = {"format": {"html": {}}}
+    patches_mod._merge_fleet_css(inst, config)
+    assert "css" not in config["format"]["html"]
+    assert not (staging / "fleet-theme.css").exists()
+
+
+def test_apply_fleet_css_wraps_and_merges(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_fleet_css(tmp_path, monkeypatch)
+    staging = root / "great-docs"
+    staging.mkdir()
+    captured: dict = {}
+
+    class _Fake:
+        project_path = staging
+
+        def _write_quarto_yml(self, quarto_yml: object, config: dict) -> None:
+            captured["config"] = config
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_fleet_css()
+    cfg = {"format": {"html": {"css": ["site.css"]}}}
+    _Fake()._write_quarto_yml(str(staging / "_quarto.yml"), cfg)
+    assert captured["config"] is cfg
+    assert cfg["format"]["html"]["css"] == ["site.css", "fleet-theme.css"]
+    assert (staging / "fleet-theme.css").read_text() == "/* fleet */\n"
+
+
+def test_apply_fleet_css_never_crashes_the_build(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_fleet_css(tmp_path, monkeypatch)
+
+    class _Fake:
+        # No project_path → the copy raises; the wrapper must swallow it and
+        # still delegate to the stock _write_quarto_yml.
+        def _write_quarto_yml(self, quarto_yml: object, config: dict) -> None:
+            config["written"] = True
+
+    install_core(monkeypatch, _Fake)
+    patches_mod.apply_fleet_css()
+    cfg = {"format": {"html": {}}}
+    _Fake()._write_quarto_yml("_quarto.yml", cfg)
+    assert cfg["written"] is True

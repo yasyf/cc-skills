@@ -1,8 +1,9 @@
 """The gd-build CLI: apply the patches, then delegate to great-docs.
 
-`gd-build build` materializes the pre_render titles script, applies the
-performance patches, and delegates to `great-docs build`. `gd-build selftest`
-reports whether every selected patch applies, exiting 3 if any was skipped.
+`gd-build build` materializes the pre_render titles script and the fleet
+design-system CSS, applies the performance patches, delegates to `great-docs
+build`, then ranks the rendered search index. `gd-build selftest` reports
+whether every selected patch applies, exiting 3 if any was skipped.
 
 Why this exists (condensed; the full decision matrix is cc-notes doc 98b1683):
 
@@ -27,9 +28,12 @@ import importlib.resources
 import sys
 from pathlib import Path
 
+from gd_build.fleet_assets import materialize_fleet_css
 from gd_build.patches import apply_patches
+from gd_build.search_rank import apply_search_ranking
 
 TITLES_DEST = Path("docs/scripts/.gd-build/native_reference_titles.py")
+SITE_DIR = Path("great-docs") / "_site"
 
 
 def materialize_titles() -> None:
@@ -61,8 +65,12 @@ def delegate(rest: list[str]) -> int:
 
 def build(rest: list[str]) -> int:
     materialize_titles()
+    materialize_fleet_css()
     apply_patches()
-    return delegate(rest)
+    code = delegate(rest)
+    if code == 0:
+        apply_search_ranking(SITE_DIR)
+    return code
 
 
 def main() -> None:

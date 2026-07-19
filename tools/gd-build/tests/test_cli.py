@@ -93,6 +93,54 @@ def test_build_overwrites_stale_titles(
     assert dest.read_text() == packaged_titles()
 
 
+def test_build_materializes_fleet_css(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
+) -> None:
+    install_great_docs_cli(lambda: None)
+    monkeypatch.setenv("GD_BUILD_PATCHES", "none")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    css = tmp_path / "docs/assets/.gd-build/fleet-theme.css"
+    assert css.is_file()
+    assert css.read_text() == importlib.resources.files("gd_build").joinpath("assets/fleet-theme.css").read_text()
+
+
+def test_build_ranks_search_on_success(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
+) -> None:
+    calls: list[object] = []
+    install_great_docs_cli(lambda: None)
+    monkeypatch.setattr(cli, "apply_search_ranking", lambda site_dir: calls.append(site_dir))
+    monkeypatch.setenv("GD_BUILD_PATCHES", "none")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert calls == [cli.SITE_DIR]
+
+
+def test_build_skips_search_ranking_on_failure(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
+) -> None:
+    calls: list[object] = []
+
+    def fake_main() -> None:
+        raise SystemExit(1)
+
+    install_great_docs_cli(fake_main)
+    monkeypatch.setattr(cli, "apply_search_ranking", lambda site_dir: calls.append(site_dir))
+    monkeypatch.setenv("GD_BUILD_PATCHES", "none")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["gd-build", "build"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert calls == []
+
+
 def test_build_delegates_argv(
     tmp_path, monkeypatch: pytest.MonkeyPatch, install_great_docs_cli: Callable[[Callable[[], object]], None]
 ) -> None:

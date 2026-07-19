@@ -17,6 +17,7 @@ import functools
 import inspect
 import os
 import re
+import shutil
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,6 +32,10 @@ SIGNATURE_ANNOTATION_FSTRING = 'f": {el.annotation}"'
 MANIFEST_ITEM_NAME = "InventoryItem(name=name_path"
 HERO_SEAM_CALL = "hero_html, cleaned_content = self._build_hero_section(readme_content)"
 HERO_SEAM_APPLY = "readme_content = cleaned_content"
+HERO_LOGO_READ = "logo_config = self._config.hero_logo"
+HERO_LOGO_FALLBACK = "logo_config = self._detect_hero_logo()"
+HERO_LOGO_PROP_SRC = 'val = hero.get("logo")'
+CSS_STAGING_COPY = "shutil.copy2(css_src, self.project_path / css_src.name)"
 
 # Fleet-standard homepage demo assets: a raster screenshot swapped for a termshow
 # recording (docs/assets/demo.termshow), rendered via the great-docs shortcode.
@@ -507,6 +512,98 @@ def apply_homepage_demo() -> None:
     core.GreatDocs._build_hero_section = _build_hero_section
 
 
+def probe_hero_logo_off() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    from great_docs import config, core
+
+    prop = config.Config.__dict__.get("hero_logo")
+    if not isinstance(prop, property):
+        return "Config.hero_logo is not a property"
+    if HERO_LOGO_PROP_SRC not in inspect.getsource(prop.fget):
+        return "Config.hero_logo return shape changed"
+    hero = getattr(core.GreatDocs, "_build_hero_section", None)
+    if hero is None:
+        return "GreatDocs._build_hero_section missing"
+    src = inspect.getsource(hero)
+    if HERO_LOGO_READ not in src or HERO_LOGO_FALLBACK not in src:
+        return "GreatDocs._build_hero_section hero-logo fallback shape changed"
+    return None
+
+
+def apply_hero_logo_off() -> None:
+    from great_docs import config
+
+    original = config.Config.__dict__["hero_logo"].fget
+
+    @functools.wraps(original)
+    def hero_logo(self: object) -> object:
+        # Unset hero.logo suppresses the mascot fallback chain; explicit values win.
+        value = original(self)
+        return False if value is None else value
+
+    config.Config.hero_logo = property(hero_logo)
+
+
+def _merge_fleet_css(instance: object, config: dict) -> None:
+    from gd_build import fleet_assets
+
+    fmt = config.get("format")
+    html = fmt.get("html") if isinstance(fmt, dict) else None
+    if not isinstance(html, dict):
+        return
+    css_src = fleet_assets.CSS_DEST
+    if not css_src.is_file():
+        return
+    dest = instance.project_path / css_src.name
+    if not dest.exists():
+        shutil.copy2(css_src, dest)
+    existing = html.get("css")
+    if isinstance(existing, str):
+        css_list = [existing]
+    elif isinstance(existing, list):
+        css_list = list(existing)
+    else:
+        css_list = []
+    if css_src.name not in css_list:
+        css_list.append(css_src.name)
+    html["css"] = css_list
+
+
+def probe_fleet_css() -> str | None:
+    if (reason := _within_window()) is not None:
+        return reason
+    from great_docs import core
+
+    wq = getattr(core.GreatDocs, "_write_quarto_yml", None)
+    if wq is None:
+        return "GreatDocs._write_quarto_yml missing"
+    if "write_yaml(config, f)" not in inspect.getsource(wq):
+        return "GreatDocs._write_quarto_yml serialization shape changed"
+    prep = getattr(core.GreatDocs, "_prepare_build_directory", None)
+    if prep is None:
+        return "GreatDocs._prepare_build_directory missing"
+    if CSS_STAGING_COPY not in inspect.getsource(prep):
+        return "GreatDocs CSS staging-copy shape changed (project_path basename copy)"
+    return None
+
+
+def apply_fleet_css() -> None:
+    from great_docs import core
+
+    original = core.GreatDocs._write_quarto_yml
+
+    @functools.wraps(original)
+    def _write_quarto_yml(self: object, quarto_yml: object, config: dict) -> object:
+        try:
+            _merge_fleet_css(self, config)
+        except Exception:  # A patch must never crash a build; fall back to stock config.
+            pass
+        return original(self, quarto_yml, config)
+
+    core.GreatDocs._write_quarto_yml = _write_quarto_yml
+
+
 def patches() -> tuple[Patch, ...]:
     return (
         Patch(
@@ -564,6 +661,22 @@ def patches() -> tuple[Patch, ...]:
             apply=apply_homepage_demo,
             expected_savings="homepage demo screenshot swapped for a termshow terminal animation (or dropped when no recording)",
             upstream_ref="great_docs GreatDocs._build_hero_section demo-image -> termshow shortcode rewrite",
+        ),
+        Patch(
+            name="hero-logo-off",
+            verified_window="great-docs >=0.15,<0.16 with Config.hero_logo property + _build_hero_section hero-logo fallback",
+            probe=probe_hero_logo_off,
+            apply=apply_hero_logo_off,
+            expected_savings="fleet hero renders name + tagline with no mascot <img> unless the repo sets hero.logo",
+            upstream_ref="great_docs Config.hero_logo returns False when unset (suppresses the auto-detect/navbar-logo fallback)",
+        ),
+        Patch(
+            name="fleet-css",
+            verified_window="great-docs >=0.15,<0.16 with _write_quarto_yml write_yaml + _prepare_build_directory css basename copy",
+            probe=probe_fleet_css,
+            apply=apply_fleet_css,
+            expected_savings="fleet design-system CSS staged to the build root and merged into format.html.css",
+            upstream_ref="great_docs GreatDocs._write_quarto_yml merges the materialized fleet-theme.css by basename",
         ),
     )
 
