@@ -8,11 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/yasyf/cc-interact/procs"
 )
 
 func askMode(args []string) {
 	model := modelSol
 	scratch := ""
+	dispatch := false
+	owner := ""
 	var extraFlags []string
 	var rest []string
 
@@ -54,6 +58,15 @@ loop:
 		case a == "--skip-git-repo-check":
 			extraFlags = append(extraFlags, "--skip-git-repo-check")
 			i++
+		case a == "--dispatch":
+			dispatch = true
+			i++
+		case a == "--owner":
+			if nxt == "" {
+				die("codex-ask: --owner needs an agent id", 2)
+			}
+			owner = nxt
+			i += 2
 		case a == "-h" || a == "--help":
 			fmt.Println(usageStr)
 			os.Exit(0)
@@ -72,6 +85,19 @@ loop:
 	}
 	if len(rest) > 1 {
 		usage()
+	}
+	if owner != "" && !dispatch {
+		die("codex-ask: --owner requires --dispatch", 2)
+	}
+	// An unroutable wake (no session id, no claude ancestor) would enqueue
+	// nothing, silently: refuse before anything is minted.
+	ownerSession, ownerPID := "", 0
+	if owner != "" {
+		ownerSession = os.Getenv("CLAUDE_CODE_SESSION_ID")
+		ownerPID = procs.ClaudePID()
+		if ownerSession == "" && ownerPID == 0 {
+			die("codex-ask: --owner is unroutable: no CLAUDE_CODE_SESSION_ID and no claude ancestor process", 2)
+		}
 	}
 
 	// Read the question up front so an empty one refuses before anything is minted.
@@ -160,11 +186,19 @@ loop:
 	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd"} {
 		_ = os.Remove(join(sdir, stale)) //nolint:gosec // best-effort sweep of the lane's own stale state files
 	}
+	cwd, _ := os.Getwd()
 	cmd := cmdSpec{Argv: argv, Question: question, Reply: reply, ReplyTmp: replyTmp, Log: logf}
+	// An owner subagent's async dispatch records who to wake and the routing keys
+	// resolved now — the orphaned worker cannot recover them later.
+	if owner != "" {
+		cmd.Owner = owner
+		cmd.Session = ownerSession
+		cmd.Scope = cwd
+		cmd.ClaudePID = ownerPID
+	}
 	cb, _ := json.Marshal(cmd)
 	_ = os.WriteFile(join(sdir, "cmd"), cb, 0o644) //nolint:gosec // 0o644 matches the Python spec's cmd-file mode
 
-	cwd, _ := os.Getwd()
 	info := map[string]any{"ts": nowSec(), "cwd": cwd, "model": model}
 	if sid := os.Getenv("CLAUDE_CODE_SESSION_ID"); sid != "" {
 		info["session"] = sid
@@ -181,6 +215,12 @@ loop:
 	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(selfPath), shlexQuote(sdir))
 
 	detachWorker(sdir)
+	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
+	// contract, and the worker wakes the owner on completion — return at once
+	// rather than blocking on the status file.
+	if dispatch {
+		os.Exit(0)
+	}
 	pollStatus(sdir)
 	reportStatus(readStatus(sdir), reply, logf)
 }

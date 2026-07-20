@@ -17,6 +17,13 @@ type cmdSpec struct {
 	Reply    string   `json:"reply"`
 	ReplyTmp string   `json:"reply_tmp"`
 	Log      string   `json:"log"`
+	// Owner/Session/Scope/ClaudePID are captured at --dispatch time (the worker is
+	// orphaned to PID 1 and cannot derive them) so the worker can wake the owner
+	// subagent on completion. Absent for a foreground/top-level dispatch.
+	Owner     string `json:"owner,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	ClaudePID int    `json:"claude_pid,omitempty"`
 }
 
 type laneInfo struct {

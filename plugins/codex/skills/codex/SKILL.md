@@ -134,6 +134,42 @@ micro-schema natively with `codex-ask --schema <file>` (→ codex
 `--output-schema`). Implementation lanes return prose led by their
 `REPLY_FILE:` pointer line.
 
+## Async Dispatch (owner subagents and the steering channel)
+
+Blocking foreground is the default because a backgrounded completion never
+wakes an in-process subagent — the harness gap the guard hook exists for.
+`--dispatch` is the sanctioned async path: the call returns as soon as the
+worker detaches, and completion wakes the waiting agent through the codex-ask
+steering channel instead of a Bash return.
+
+1. **Know your agent id.** It arrives in your greeting directive, the first
+   steering-channel message you see. No greeting means no channel — use the
+   blocking flow instead.
+2. **Dispatch async.** `codex-ask --dispatch --owner <agent-id> - <<'QUESTION'`
+   (`--owner` requires `--dispatch`; `--dispatch` alone is fire-and-forget,
+   recovered via its `AWAIT:` line). The usual
+   `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines print, then the call returns with
+   the run still going.
+3. **Park on `await`.** Call the `await` tool with your `agent_id`, sizing
+   `timeout_seconds` to the run — xhigh typically returns in ~2 minutes, a
+   review sweep can take 10–30. Progress pings hold a parked call open. An
+   elapsed window returns a "no directive" notice, not an error: re-park, or
+   check the run dir's `status` file first — another delivery rung may have
+   drained the directive before your park saw it.
+4. **On wake, read the disk.** The directive names the run's terminal status
+   and reply file; it never carries the reply. Read the `REPLY_FILE:` path
+   and evaluate per Step 3 below.
+5. **A missed wake costs nothing.** The wake is fail-open: a dead daemon
+   means no directive, never a lost run — the `AWAIT:` line
+   (`codex-ask --await <run-dir>`) recovers from any session. An owner that
+   finished before the wake landed gets collected by the relay: its parent is
+   nudged to wake it, and that wake is authorized — call `await` to collect.
+
+The fan-out shape above composes unchanged: the parent mints the root, spawns
+one owner subagent per lane, each owner dispatches `--dispatch --owner` into
+its lane with `-s` and parks; the daemon wakes owners as their runs finish,
+and the terminal `--collect` still gates.
+
 ## Workflow
 
 ### Step 1: Compose the Context
