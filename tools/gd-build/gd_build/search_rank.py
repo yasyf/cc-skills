@@ -8,6 +8,7 @@ from typing import Literal
 
 DEFAULT_NARRATIVE_PREFIXES = (
     "getting-started/",
+    "tutorial/",
     "guide/",
     "cheatsheet/",
     "examples/",

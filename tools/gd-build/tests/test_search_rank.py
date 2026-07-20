@@ -63,6 +63,7 @@ const kFuseIndexOptions = {
     ("href", "expected"),
     [
         pytest.param("getting-started/install.html", "narrative", id="getting-started"),
+        pytest.param("tutorial/first-block.html", "narrative", id="tutorial"),
         pytest.param("guide/widgets.html", "narrative", id="guide"),
         pytest.param("cheatsheet/index.html", "narrative", id="cheatsheet"),
         pytest.param("examples/basic.html", "narrative", id="examples"),
