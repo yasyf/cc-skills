@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -95,19 +96,6 @@ func TestRegisterTranscript(t *testing.T) {
 		}
 	})
 
-	t.Run("failed codex run still registers", func(t *testing.T) {
-		sdir := lane(t, `{"session":"s-test"}`, "banner\n"+started)
-		// A nonzero status must not gate registration.
-		if err := atomicWrite(join(sdir, "status"), "1\n"); err != nil {
-			t.Fatal(err)
-		}
-		shimPath(t, "capt-hook", "exit 0\n")
-		registerTranscript(sdir)
-		if got := outcome(t, sdir); got != "ok "+tid {
-			t.Fatalf("outcome = %q, want %q", got, "ok "+tid)
-		}
-	})
-
 	t.Run("skipped no session", func(t *testing.T) {
 		sdir := lane(t, `{"model":"gpt-5.6-sol"}`, "banner\n"+started)
 		shimPath(t, "capt-hook", "exit 0\n")
@@ -162,6 +150,74 @@ func TestRegisterTranscript(t *testing.T) {
 	})
 }
 
+// TestRunWorkerRegistersAfterStatus drives a freshly built binary's real --worker
+// entry with a fake codex + fake capt-hook, asserting runWorker writes status AND
+// register on both a zero and a nonzero run — the only coverage of the lifecycle
+// placement (register after status, unconditional on rc), which os.Exit forecloses in-process.
+func TestRunWorkerRegistersAfterStatus(t *testing.T) {
+	bin := buildCodexAsk(t)
+	captDir := t.TempDir()
+	writeExec(t, filepath.Join(captDir, "capt-hook"), "exit 0\n")
+	codexDir := t.TempDir()
+	writeExec(t, filepath.Join(codexDir, "fakecodex"),
+		`printf '%s\n' '{"type":"thread.started","thread_id":"019f-worker"}'`+"\nexit ${FAKE_CODEX_RC:-0}\n")
+
+	for _, c := range []struct {
+		id, rc, wantStatus string
+	}{
+		{"rc-zero-registers", "0", "0"},
+		{"rc-nonzero-still-registers", "3", "3"},
+	} {
+		t.Run(c.id, func(t *testing.T) {
+			sdir := t.TempDir()
+			question := join(sdir, "question")
+			if err := os.WriteFile(question, []byte("hi\n"), 0o644); err != nil { //nolint:gosec // test fixture question file
+				t.Fatal(err)
+			}
+			reply := join(sdir, "reply")
+			cb, err := json.Marshal(cmdSpec{Argv: []string{"fakecodex"}, Question: question, Reply: reply, ReplyTmp: reply + ".tmp", Log: join(sdir, "codex.log")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(join(sdir, "cmd"), cb, 0o644); err != nil { //nolint:gosec // test fixture cmd file
+				t.Fatal(err)
+			}
+			writeMeta(t, sdir, `{"session":"s-test"}`)
+
+			worker := exec.Command(bin, "--worker", sdir)
+			worker.Env = append(os.Environ(), "PATH="+codexDir+string(os.PathListSeparator)+captDir, "CAPT_HOOK_BIN=", "FAKE_CODEX_RC="+c.rc)
+			if out, err := worker.CombinedOutput(); err != nil {
+				t.Fatalf("--worker failed: %v\n%s", err, out)
+			}
+			if got := strings.TrimSpace(readFile(join(sdir, "status"))); got != c.wantStatus {
+				t.Errorf("status = %q, want %q", got, c.wantStatus)
+			}
+			if got := outcome(t, sdir); got != "ok 019f-worker" {
+				t.Errorf("register outcome = %q, want %q", got, "ok 019f-worker")
+			}
+		})
+	}
+}
+
+// buildCodexAsk compiles this package to a temp path so its real --worker entry
+// point (which ends in os.Exit) can be driven as a subprocess.
+func buildCodexAsk(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "codex-ask")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// writeExec drops an executable /bin/sh shim carrying body at path.
+func writeExec(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil { //nolint:gosec // test shim must be executable
+		t.Fatal(err)
+	}
+}
+
 // writeMeta lays down a meta file with the given info JSON on line 3, mirroring
 // dispatch.go's reply\nlog\ninfo\n layout.
 func writeMeta(t *testing.T, sdir, info string) {
@@ -198,9 +254,7 @@ func lane(t *testing.T, info, logBody string) string {
 func shimPath(t *testing.T, name, body string) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil { //nolint:gosec // test shim must be executable
-		t.Fatal(err)
-	}
+	writeExec(t, filepath.Join(dir, name), body)
 	t.Setenv("CAPT_HOOK_BIN", "")
 	t.Setenv("PATH", dir)
 }

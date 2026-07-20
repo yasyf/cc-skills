@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -21,6 +22,12 @@ const threadScanLines = 10
 // registerTimeout bounds the capt-hook invocation; the worker is already orphaned
 // to PID 1, so the wait is free of any caller — but never unbounded.
 const registerTimeout = 30 * time.Second
+
+// registerKillGrace caps the post-timeout Wait: once the deadline fires the whole
+// process group is SIGKILLed (Setpgid), then any orphan still holding the inherited
+// stderr pipe gets this long before Wait forcibly closes the pipe and returns — so a
+// wedged capt-hook can never make Run() (and the worker's os.Exit) block unbounded.
+const registerKillGrace = 5 * time.Second
 
 // registerTranscript records this lane's codex rollout with captain-hook so a
 // deep-transcript gate can see the lane's edits. Called from runWorker after the
@@ -133,6 +140,11 @@ func invokeRegister(bin string, prefix []string, sid, tid, label string) string 
 		"--label", label,
 	)
 	c := exec.CommandContext(ctx, bin, args...) //nolint:gosec // bin is the resolved capt-hook launcher; args are the fixed registration contract
+	// A hung uvx grandchild inheriting the stderr pipe would block Wait to EOF; own
+	// process group + group-SIGKILL on timeout + bounded pipe drain keep it finite.
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGKILL) }
+	c.WaitDelay = registerKillGrace
 	var stderr bytes.Buffer
 	c.Stderr = &stderr
 	if err := c.Run(); err != nil {

@@ -157,7 +157,7 @@ loop:
 
 	// A reused -s dir must never serve a previous run's state; wiping meta too
 	// establishes "meta present => describes the latest launch attempt".
-	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd"} {
+	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd", "register"} {
 		_ = os.Remove(join(sdir, stale)) //nolint:gosec // best-effort sweep of the lane's own stale state files
 	}
 	cmd := cmdSpec{Argv: argv, Question: question, Reply: reply, ReplyTmp: replyTmp, Log: logf}
