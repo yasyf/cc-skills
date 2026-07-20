@@ -12,6 +12,11 @@ DEFAULT_NARRATIVE_PREFIXES = (
     "guide/",
     "cheatsheet/",
     "examples/",
+    "docs/getting-started/",
+    "docs/tutorial/",
+    "docs/guide/",
+    "docs/cheatsheet/",
+    "docs/examples/",
     "index.html",
 )
 REFERENCE_PREFIX = "reference/"
