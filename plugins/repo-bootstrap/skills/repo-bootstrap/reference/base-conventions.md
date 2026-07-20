@@ -77,7 +77,7 @@ The single canonical agent-conventions doc. Section by section:
   even after the file drifts. LSP for exhaustive/structural answers, `Grep`/`Glob`
   only for literal content in non-source files. The facade (semble + tilth) ships inside the
   `cc-context@cc-context` plugin enabled in `.claude/settings.json`, **not** a per-project
-  `.mcp.json` server — and the same plugin attaches the `ccx` guard pack per session, so
+  `.mcp.json` server — and the same plugin ships the `ccx` guard pack, so
   the `ccx` heading and the `cc-context@cc-context` plugin are the cross-reference invariant,
   not `.mcp.json`. The fragment body is owned by `cc-skills`; change it there, not here.
 - **Style.** Exactly `@STYLEGUIDE.md` under `## Style` — an embed, not a link.
@@ -305,7 +305,7 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
   `commands.py` failure nudge), `slop-cop@skills` + `llm-prompts@skills` (the
   `prompts.py` nudge), `writing-docs@skills` (the `docs.py` nudge), and
   `cc-context@cc-context` (the `ccx` code-search facade the AGENTS.md Compact Context
-  section routes to; the same plugin also attaches the `ccx` guard pack per session). It also
+  section routes to; the same plugin also ships the `ccx` guard pack). It also
   registers the [yasyf/cc-notes](https://github.com/yasyf/cc-notes),
   [yasyf/cc-context](https://github.com/yasyf/cc-context), and
   [yasyf/captain-hook](https://github.com/yasyf/captain-hook) marketplaces and
@@ -318,10 +318,12 @@ hand-edit `.claude/settings.json`; the shared fields below live in the `cc-skill
   Remove its plugin keys in the same edit (n.b. `slop-cop@skills` is shared by
   `prompts.py` and `docs.py`).
 - No `"hooks"` key: `.claude/settings.json` carries no hook wiring. Hook dispatch
-  is registered globally by the captain-hook plugin; which hooks fire per repo is
-  selected by the packs enabled in `.claude/capt-hook.toml` (a cc-guides-rendered
-  artifact; see `reference/hooks.md`). Project-local rules still live in `.claude/hooks/*.py`,
-  each carrying inline `tests = {...}` runnable with `uvx capt-hook test`.
+  is registered globally by the captain-hook plugin, and which hooks fire per repo is
+  automatic: builtin packs activate by policy (`general`/`fixes`/`steering`/`performance`
+  everywhere; `python`/`go` by file detection) and guard packs load from whichever
+  enabled plugins ship one (see `reference/hooks.md`). Project-local rules still live in
+  `.claude/hooks/*.py`, each carrying inline `tests = {...}` runnable with
+  `uvx capt-hook test`.
 
 **settings.local.json pattern**: `.claude/settings.local.json` is gitignored
 (see `.gitignore`, alongside `.context/` and `.env*`). Personal, per-machine

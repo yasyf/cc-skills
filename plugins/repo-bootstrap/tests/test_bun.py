@@ -29,8 +29,7 @@ def _real_plan(layer, var_pairs, *, features=None):
 
 # --- selection matrix ---
 
-# AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and .claude/capt-hook.toml scaffold as
-# cc-guides layout dirs (layout.toml + repo-local *.fragment.* pieces); shared across every layer.
+# cc-guides layout dirs (AGENTS.md, CLAUDE.md, settings.json, .mcp.json); shared across layers.
 FRAGMENT_DESTS = {
     ".claude/fragments/AGENTS.md/layout.toml",
     ".claude/fragments/AGENTS.md/demo-proj-development-guide.fragment.md",
@@ -41,7 +40,6 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
-    ".claude/fragments/.claude/capt-hook.toml/layout.toml",
 }
 
 BUN_DESTS = FRAGMENT_DESTS | {
@@ -86,10 +84,6 @@ def test_bun_overrides_base_for_shared_dest(bun_var_pairs):
     assert (
         items[".claude/fragments/.claude/settings.json/layout.toml"].src
         == "bun/claude/fragments/settings.json/layout.toml"
-    )
-    assert (
-        items[".claude/fragments/.claude/capt-hook.toml/layout.toml"].src
-        == "bun/claude/fragments/capt-hook.toml/layout.toml"
     )
     # bun ships no .mcp.json variant — the base layout (empty server map) serves it.
     assert items[".claude/fragments/.mcp.json/layout.toml"].src == "base/claude/fragments/mcp.json/layout.toml"

@@ -379,8 +379,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.claude/fragments/.claude/settings.json/` → `.claude/settings.json` | base; python/go/swift/bun **override** | a rendered artifact composed by cc-guides: `cc-skills:settings-base` (hooks-free — hook registration comes from the captain-hook plugin, not settings; disables the built-in `Artifact` tool (`disableArtifact: true`); registers the `yasyf/cc-skills`, `yasyf/cc-notes`, `yasyf/cc-context` marketplaces; enables `codex@skills`, `slop-cop@skills`, `llm-prompts@skills`, `writing-docs@skills`, `cc-context@cc-context`, `cc-notes@cc-notes`) deep-merged with the layer variant (`settings-go` adds `go`/`task` perms; `settings-python` adds `uv` perms + ty env; `settings-swift` adds `swift`/`xcodebuild`/`xcodebuildmcp`/`swiftformat --lint`/`swiftlint`; `settings-bun` adds `bun`/`bunx`/`tsc` perms) and a placeholder-free `{}` `settings-overrides.fragment.json` for repo-specific overrides. The pack fragments live in `cc-skills` `plugin/guides/json/`; edit them there, not in the scaffolded repo |
 | `.claude/jj-config.toml` | base | jj VCS config; `settings.json` env points `JJ_CONFIG` at it |
 | `.claude/ty-quiet.toml` | python | `[rules] all = "ignore"`; `settings.json` env points `TY_CONFIG_FILE` at it so ty is silent inside Claude sessions (no thrashing on diagnostics). CI (`uvx prek run ty`), commits made outside Claude sessions, and editors run without that env and keep the real `[tool.ty]` config (`all = "warn"` — diagnostics print, nothing blocks) |
-| `.claude/fragments/.claude/capt-hook.toml/` → `.claude/capt-hook.toml` | base; python/go/swift/bun **override** | a cc-guides-rendered artifact enabling capt-hook's builtin packs, composed from the shared `cc-skills:capt-hook-*` fragments: `capt-hook-base` (`general` base hooks, `fixes` upstream-issue workarounds, `steering` judgment nudges — band-aid plans, dismissed pre-existing issues, trivial type noise), plus `capt-hook-python` on the python layer or `capt-hook-go` on the go layer (no swift or bun pack exists — those layers get base only); each pack ships its guard hooks (see `reference/hooks.md`). Also imports the `capt-hook-ccx` (`github:yasyf/cc-context@latest`) and `capt-hook-cc-present` (`github:yasyf/cc-present@latest` — blocks the built-in `Artifact` tool) guard pins; repo-scoped pins beat the plugins' ambient session attach, so every contributor gets the guards, plugin or not. The legacy `.claude/hooks/packs.toml` is gone — capt-hook 10.x never reads it. |
-| `.claude/hooks/STYLEGUIDE.md` | base | the Python style guide for the repo's `.claude/hooks/` capt-hook hooks; ships in every scaffold (hooks are Python whatever the primary language), with a `## Hook Style` AGENTS.md pointer |
+| `.claude/hooks/STYLEGUIDE.md` | base | the Python style guide for the repo's `.claude/hooks/` capt-hook hooks; ships in every scaffold (hooks are Python whatever the primary language), with a `## Hook Style` AGENTS.md pointer. The packs themselves need no scaffold: capt-hook's builtins activate automatically (`general`/`fixes`/`steering`/`performance` everywhere, `python`/`go` by file detection) and the `ccx`/`cc-present` guard packs load from their enabled plugins (see `reference/hooks.md`) |
 | `<SECONDARY_CODE_ROOT>/STYLEGUIDE.md` | `--secondary-layer python` | a Python style guide beside a secondary language's code (never at the root), with a `## Python Style` AGENTS.md pointer; only present when `--secondary-layer` is set |
 | `.claude/skills/xcodebuildmcp-cli/SKILL.md` | swift, swift-app | the vendored XcodeBuildMCP project skill (help-first CLI discovery); AGENTS.md mandates it before any XcodeBuildMCP call |
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
@@ -550,20 +549,17 @@ Then, optionally, publish and wire one-time setups:
   `origin` remote** — the reviewer opens PRs against `origin`, so an origin-less repo is rejected.
   `uvx capt-hook review disable` turns it off. See `reference/hooks.md`.
 - *(when `cc-notes` is installed: `command -v cc-notes`)* run `cc-notes init` to adopt the
-  git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs (which target `origin`),
-  records the `[packs.cc-notes]` entry (`source = github:yasyf/cc-notes@latest`) in
-  `.claude/capt-hook.toml` — in a cc-guides-managed repo, durably as the `cc-skills:capt-hook-cc-notes`
-  import in the `.claude/capt-hook.toml` layout so the next render keeps it — and installs the
-  reconcile CI workflow under `.github/`. capt-hook auto-fetches the declared pack on the next hook
-  event. The pack's nudges gate on the `cc-notes` binary being on PATH, so adoption is
-  **conditional** — never import `cc-skills:capt-hook-cc-notes` in the bootstrap `.claude/capt-hook.toml`
-  layout. If `cc-notes` isn't installed, skip `init` and mention it as an optional
-  add-on (install the binary, then `cc-notes init`); the cc-notes plugin is already registered by
-  the `.claude/settings.json` template, so the repo gets the `using-cc-notes` skill even without the
-  binary. See `reference/hooks.md`.
+  git-native notes/tasks layer: it installs the `refs/cc-notes/*` refspecs (which target `origin`)
+  and the reconcile CI workflow under `.github/`. The cc-notes guard-pack nudges need no
+  registration step — they ship inside the `cc-notes@cc-notes` plugin's `capt-hook/` pack, already
+  enabled by the scaffolded `.claude/settings.json`, and they gate on the `cc-notes` binary being
+  on PATH, so adoption stays **conditional**: without the binary the pack is silent. If `cc-notes`
+  isn't installed, skip `init` and mention it as an optional add-on (install the binary, then
+  `cc-notes init`); the plugin registration also gives the repo the `using-cc-notes` skill even
+  without the binary. See `reference/hooks.md`.
 - Commit and push what the two steps above wrote: `chore: arm session reviewer and cc-notes`
   covering the `.claude/settings.json` plugin registration (and, when cc-notes ran, the
-  `refs/cc-notes/*` refspecs, `.claude/capt-hook.toml` entry, and reconcile CI), then `git push`. For an
+  `refs/cc-notes/*` refspecs and reconcile CI), then `git push`. For an
   **unpublished** repo, skip all three steps — the reviewer and cc-notes sync have no `origin` to
   target; adopt them later once you publish.
 - *(any layer)* if `reposync` is installed locally (`command -v reposync`), register the
@@ -664,16 +660,17 @@ explicitly deferred with the user).
   default) scaffolds no license at all; when retrofitting with `none`, delete any
   existing LICENSE by hand — the scaffold never deletes, and `verify --no-license`
   fails while it remains.
-- **No capt-hook hooks wanted**: delete the `.claude/fragments/.claude/capt-hook.toml/` layout dir
-  and the rendered `.claude/capt-hook.toml` (or `.claude/hooks/` entirely) and set
-  `"captain-hook@captain-hook": false` under `enabledPlugins` in
-  `settings-overrides.fragment.json` (then re-run `cc-guides render`).
+- **No capt-hook hooks wanted**: set `"captain-hook@captain-hook": false` under
+  `enabledPlugins` in `settings-overrides.fragment.json` (then re-run `cc-guides render`) —
+  disabling the plugin drops dispatch entirely, builtin and plugin packs alike. Delete
+  `.claude/hooks/` too if the repo's local hooks should go with it.
 - **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
   `uvx prek install`). If you already ran `uvx prek install`, also run
   `uvx prek uninstall` — deleting the config alone orphans the hook and aborts every
   commit. (python) To drop only the ty hook, delete its `repo:` block there and the CI
   ty step. (go) The config runs gofumpt + golangci-lint; the `go` capt-hook pack blocks
-  manual invocation, so also relax that pack if you drop the hook.
+  manual invocation, so if you drop the hook, also shadow that guard with a local
+  `.claude/hooks/` override (see `reference/hooks.md`).
 - **No Codex**: the second-opinion nudge ships in the `general` pack — override it with a
   local `.claude/hooks/commands.py` (a local hook shadows the pack's; see `reference/hooks.md`),
   then set `"codex@skills": false` under `enabledPlugins` in

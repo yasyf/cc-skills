@@ -9,21 +9,19 @@ run anywhere — locally, in CI if you wire them in — in the same shape they r
 production. The captain-hook Claude Code plugin registers the wiring, not the repo: it ships a
 static `hooks.json` that subscribes all 12 hook events globally, each running
 `uvx capt-hook run <Event>`. So `.claude/settings.json` carries no hook entries — the scaffolded
-settings fragment is hooks-free, and an event no enabled pack subscribes to dispatches as a clean
+settings fragment is hooks-free, and an event no active pack subscribes to dispatches as a clean
 no-op. `uvx` fetches capt-hook into a throwaway environment, so nothing is added to
-`pyproject.toml` and there is zero install step. The hooks themselves ship inside capt-hook as
-builtin **packs** — `general` (the base-layer hooks), `fixes` (workarounds for upstream Claude
-Code issues), the language layer (`python` or `go`), and `steering` (judgment nudges) — which the
-scaffold enables through `.claude/capt-hook.toml`, the sole per-repo control surface. Since
-capt-hook 10.0.0 that file is a **cc-guides-rendered artifact**, composed from the
-`.claude/fragments/.claude/capt-hook.toml/` layout dir that imports the shared
-`cc-skills:capt-hook-*` fragments (`capt-hook-base` = fixes/general/steering, a `capt-hook-python`
-or `capt-hook-go` language pack, and the `capt-hook-ccx`/`capt-hook-cc-present` guard pins) — so
-you change enablement by editing the layout and re-rendering (`cc-guides render`), not the
-generated file. The legacy `.claude/hooks/packs.toml` is dead: capt-hook 10.x never reads it. A
-project can add its own local hooks under `.claude/hooks/*.py` — the default `--hooks` directory —
-and you verify the enabled packs (plus any local hooks) with `uvx capt-hook test` from the repo
-root.
+`pyproject.toml` and there is zero install step. Since capt-hook 11.0.0 packs come from exactly
+two providers, with no per-repo config: **builtins** shipped inside the capt-hook wheel, and
+**plugin packs** shipped by enabled Claude Code plugins. Builtins activate by policy — `general`
+(the base-layer hooks), `fixes` (workarounds for upstream Claude Code issues), `steering`
+(judgment nudges), and `performance` run in every repo; the `python` pack activates on a
+recursive, non-ignored `pyproject.toml` and the `go` pack on a `go.mod`/`go.work` — and an
+enabled plugin's pack loads from `capt-hook/{pack.toml, hooks/}` under its plugin root. The old
+per-repo enable list (`.claude/capt-hook.toml`) is gone: capt-hook 11 never parses it, so delete
+it (and its fragments layout) from older scaffolds. A project can add its own local hooks under
+`.claude/hooks/*.py` — the default `--hooks` directory — and `uvx capt-hook test` from the repo
+root runs exactly those.
 
 ## The session reviewer
 
@@ -90,12 +88,12 @@ the CI ty step.
 
 These hooks ship inside capt-hook as builtin **packs** — `general` (the base-layer hooks), `fixes`
 (workarounds for upstream Claude Code issues), the language layer (`python` or `go`), and
-`steering` (judgment nudges) — enabled per repo through
-`.claude/capt-hook.toml`. Their behavior is
+`steering` (judgment nudges) — which activate automatically: `general`, `fixes`, `steering`, and
+`performance` unconditionally, the language packs by file detection. Their behavior is
 unchanged; only the delivery moved from vendored `.py` files to packs, so the "tailor" and
 "remove" notes below route through the pack model: override a hook with a local
-`.claude/hooks/<name>.py`, or manage packs by editing the capt-hook.toml layout fragments and
-re-rendering (see *Adding and removing rules*).
+`.claude/hooks/<name>.py` — there is no per-pack off switch short of disabling the captain-hook
+plugin (see *Adding and removing rules*).
 
 ### `commands` (general pack)
 
@@ -309,58 +307,42 @@ The review-before-stop Stop gate is **not** in the `style` hook — it lives in 
 pack's `review` hook (a language-agnostic gate, so it covers Python too). The `style` hook
 ships only the seven AST rules above.
 
-### `ccx` (pinned + plugin-attached pack — `cc-context@cc-context`)
+### `ccx` (plugin pack — `cc-context@cc-context`)
 
 Guard pack that makes the `cc-context` facade (`ccx` / its MCP tools) the
 default for reading and searching code. It **blocks the token-heavy primitives** the
 facade replaces so an agent reaches for `ccx` first, citing the AGENTS.md **Compact
 Context (ccx)** heading in its block reasons. Unlike the builtin `general`/`python`/`go`
 packs, `ccx` ships inside the `cc-context@cc-context` plugin the scaffolded
-`.claude/settings.json` already enables. The plugin follows capt-hook's **attach-only
-pack contract**: its only capt-hook hook is a SessionStart entry running
-`uvx --isolated capt-hook pack attach "${CLAUDE_PLUGIN_ROOT}"`, which registers the pack
-for the session; dispatch stays with the captain-hook plugin — the sole dispatcher — so a
-pack-shipping plugin never wires a `capt-hook run` entry. Scaffolded repos also
-pin it repo-scoped (`github:yasyf/cc-context@latest`, via the `cc-skills:capt-hook-ccx` fragment
-in the `.claude/capt-hook.toml` layout), so
-every contributor gets the guard whether or not they have the plugin enabled; the plugin
-attach covers repos that enable `cc-context@cc-context` but weren't scaffolded by
-repo-bootstrap.
+`.claude/settings.json` already enables: the plugin carries the pack at
+`capt-hook/{pack.toml, hooks/}` under its plugin root, and capt-hook loads it because the
+plugin is enabled — that is the whole delivery. There is no repo-scoped pin, so a
+contributor without the plugin enabled does not get the guard. Dispatch stays with the
+captain-hook plugin — the sole dispatcher — so a pack-shipping plugin never wires a
+`capt-hook run` entry.
 
-The attach-only contract (capt-hook >= 9.9.0) fixes a pack-shipping plugin at exactly
-four artifacts: the pack manifest `capt-hook.toml`; the single SessionStart attach entry
-in the plugin's `hooks.json` (pass `"${CLAUDE_PLUGIN_ROOT}/hooks"` when the manifest
-lives in a `hooks/` subtree), with zero `capt-hook run` entries; a `plugin.json`
-dependency, `{ "name": "captain-hook", "marketplace": "captain-hook", "version": ">=9.9.0" }`;
-and `"allowCrossMarketplaceDependenciesOn": ["captain-hook"]` in the plugin's own
-marketplace.json. The allowlist is load-bearing: without it Claude Code skips the
-declared dependency at install with no error (verified on Claude Code 2.1.207), and the attached
-pack runs in sessions with no dispatcher. `uvx capt-hook pack lint <plugin-root>` checks
-all four artifacts plus the pack itself in one CI line; it also fails a pack that
-subscribes `SessionStart`, because the attach and the dispatcher's own SessionStart run
-are unordered sibling hooks. Dependency auto-resolution needs the captain-hook
-marketplace added before install (`claude plugin marketplace add yasyf/captain-hook` —
-the scaffolded settings.json already registers it), and `claude plugin update` silently
-skips a dependency a new release adds, so upgrading such a plugin means re-running
-`claude plugin install` after the marketplace add. Full contract:
-<https://yasyf.github.io/captain-hook/docs/guide/plugin-packs.html>.
+The pack's identity derives from the plugin, not a manifest: its runtime id is the full
+plugin id (`plugin:cc-context@cc-context`), and version, description, and repository come
+from the plugin's `plugin.json`. `pack.toml` is a tiny descriptor carrying only
+`resources = [...]` and `[tools.<name>]` gate semantics. A malformed `capt-hook/` dir is
+a fatal load error at dispatch — all-or-nothing, never a silent skip. Pack authors
+validate and test a working-tree pack with `uvx capt-hook pack test <plugin-root>`. Full
+contract: <https://yasyf.github.io/captain-hook/docs/guide/plugin-packs.html>.
 
-A repo-scoped pin beats the ambient attach (the same-name pack resolves to the pin and
-the attach is dropped), so the two never double-fire. To drop the guard entirely (a repo
-that wants raw `Read`/`Grep` back), drop the `cc-skills:capt-hook-ccx` import from the
-`.claude/capt-hook.toml` layout, set `"cc-context@cc-context": false` under `enabledPlugins` in
+To drop the guard entirely (a repo that wants raw `Read`/`Grep` back), set
+`"cc-context@cc-context": false` under `enabledPlugins` in
 `settings-overrides.fragment.json`, re-render (`cc-guides render`), and replace the
 AGENTS.md Compact Context section with plain Code-Search guidance.
 
-### `cc-present` (pinned pack — `github:yasyf/cc-present@latest`)
+### `cc-present` (plugin pack — the cc-present plugin)
 
 One PreToolUse guard: blocks the built-in `Artifact` tool and steers
 presentation to a cc-present live board (or chat when cc-present is
-absent). Scaffolded repos pin it; the cc-present plugin also attaches it
-per session (same attach-only contract as `ccx`), and the repo-scoped pin
-beats the ambient attach, so the two never double-fire.
+absent). Same delivery as `ccx`: the cc-present plugin ships the pack under
+its `capt-hook/` dir, so the guard fires exactly where that plugin is
+enabled.
 
-### `cc-notes` (external pack — `github:yasyf/cc-notes@latest`)
+### `cc-notes` (plugin pack — `cc-notes@cc-notes`)
 
 Nudge pack for repos that adopt [cc-notes](https://github.com/yasyf/cc-notes), the
 git-native durable tasks/notes layer (`refs/cc-notes/*`). Its hooks **only nudge,
@@ -369,25 +351,19 @@ git-synced cc-notes entities, float this session's open tasks and the notes rele
 to a file you just read, and prompt `cc-notes sync`/`reconcile` after commits and
 merges. Every nudge gates on the `CcNotesAvailable` condition — exactly the `cc-notes`
 binary on PATH, with no `refs/cc-notes/*` check — so the pack is **silent on any
-machine without the binary**. Unlike the builtin `general`/`python`/`go` packs, it is
-an **external** pack tracking `@latest`: the per-repo opt-in is the `[packs.cc-notes]`
-entry's **presence** in `.claude/capt-hook.toml`. In a cc-guides-managed repo that entry
-comes from the `cc-skills:capt-hook-cc-notes` import in the `.claude/capt-hook.toml` layout,
-added on adoption and re-rendered (mirroring cc-skills' own layout); `cc-notes init` also
-installs the `refs/cc-notes/*` refspecs and a reconcile CI workflow. capt-hook
-auto-fetches the declared pack on the next hook event, so there is no manual
-`uvx capt-hook pack update` after `init` or after a fresh clone.
+machine without the binary**. Delivery is the same `capt-hook/` plugin-pack path as
+`ccx`: the `cc-notes@cc-notes` plugin the scaffolded `.claude/settings.json` already
+enables ships the pack, so the nudges are live wherever the plugin is enabled, and the
+binary gate is the per-machine opt-in — no pack config exists to add or remove.
 
-Because the pack is silent without the binary, adoption is **conditional on
-`cc-notes` being installed** — Phase 6 runs `cc-notes init` (after the repo is published, so its
-`refs/cc-notes/*` refspecs have an `origin` to target) only when `command -v cc-notes` resolves.
-**Never import `cc-skills:capt-hook-cc-notes` in the bootstrap `.claude/capt-hook.toml` layout**:
-that would impose it on every bootstrapped repo, and capt-hook would auto-fetch the
-pack on the first hook event even for users who don't run cc-notes. The
-`.claude/settings.json` template registers the `cc-notes@cc-notes` plugin so the
-`using-cc-notes` skill loads on folder-trust regardless; the *pack* is the opt-in
-half, gated behind `cc-notes init`. To drop the nudges from an adopted repo, drop the
-`cc-skills:capt-hook-cc-notes` import from the layout and re-render.
+Adoption stays **conditional on `cc-notes` being installed** — Phase 6 runs
+`cc-notes init` (after the repo is published, so its `refs/cc-notes/*` refspecs have an
+`origin` to target) only when `command -v cc-notes` resolves. `init` installs the
+refspecs and a reconcile CI workflow; it touches no hook wiring. To drop the nudges from
+a repo, set `"cc-notes@cc-notes": false` under `enabledPlugins` in
+`settings-overrides.fragment.json` and re-render — disabling the plugin also drops the
+`using-cc-notes` skill, so on a machine that merely lacks the binary, the
+`CcNotesAvailable` gate already keeps the pack silent with the skill intact.
 
 ### `toolchain` (python pack)
 
@@ -401,9 +377,9 @@ Hook messages cite doc sections by exact heading:
 
 - steering pack (pre-existing-issue nudge): **AGENTS.md § Code Stewardship**
 - `ccx` pack: **AGENTS.md § Compact Context (ccx)**
-- `tasks.py`: **CLAUDE.md § Task Tracking**
-- `style.py` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
-- `review.py`: **STYLEGUIDE.md**
+- `tasks` hook: **CLAUDE.md § Task Tracking**
+- `style` rule docstrings: **STYLEGUIDE.md § Code Organization** and **STYLEGUIDE.md § Type Annotations**
+- `review` hook: **STYLEGUIDE.md**
 
 If you rename or remove those sections while tailoring the scaffolded AGENTS.md, CLAUDE.md, or
 STYLEGUIDE.md, update the hook messages in the same edit — a citation pointing at a
@@ -411,29 +387,32 @@ nonexistent section sends future agents on a dead-end lookup.
 
 ## Adding and removing rules
 
-The hooks ship as capt-hook packs, managed through `.claude/capt-hook.toml` and the
-`uvx capt-hook pack` CLI. In a cc-guides-managed repo `.claude/capt-hook.toml` is a rendered
-artifact, so the **durable** change is to the `.claude/fragments/.claude/capt-hook.toml/` layout
-fragments (then `cc-guides render`) — a bare `pack add`/`remove` on the generated file
-self-reverts on the next cron render:
+Since capt-hook 11.0.0 pack membership is automatic, with no per-repo enable
+list. Builtins activate by policy (`general`, `fixes`, `steering`, and `performance` in
+every repo; `python` and `go` by file detection), and a plugin pack loads whenever its
+plugin is enabled. `uvx capt-hook pack list` is read-only, listing the active builtins
+plus every enabled plugin's pack. Adding and removing move through three levers:
 
-- **List** the enabled packs with `uvx capt-hook pack list`.
-- **Add** a pack with `uvx capt-hook pack add <name>` — a builtin (`general`, `python`) or
-  `github:owner/repo@ref` for a third-party pack; `uvx capt-hook pack update` refreshes the
-  pinned ones.
-- **Drop** a whole pack's hooks with `uvx capt-hook pack remove <name>`, or delete its
-  `[packs.<name>]` entry from `.claude/capt-hook.toml` by hand.
+- **Plugin packs** ride their plugin: enable the plugin to get its pack, disable it
+  (`"<plugin-id>": false` under `enabledPlugins`) to drop it.
+- **Builtins** have no per-pack switch — the all-off lever is disabling the captain-hook
+  plugin, which drops dispatch entirely (see *Project-local escape hatch* for keeping
+  hooks while dropping the plugin).
+- **Local hooks** live in `.claude/hooks/*.py`; the file itself is the registration, and
+  deleting it is the removal.
 
 To **change a pack hook's behavior**, add a local `.claude/hooks/<name>.py` that registers on
 the same event. Local modules load before packs, and dispatch returns on the first `allow` or
 `block`, so a local hook that issues a terminal decision pre-empts the pack hooks on that event
 — a `warn` (or returning `None`) falls through and the pack hook still fires, so a no-op does
-not silence anything. To drop a *single* pack hook cleanly, fork the pack and delete that hook
-file; removing a `style` rule means deleting it from both its class definition and the
-`styleguide(...)` registration call.
+not silence anything. The same override is how you drop a *single* pack hook: there is no
+per-hook opt-out, so a local hook that `allow`s the shapes the pack hook would block is the
+clean silencer.
 
-The inline tests are the regression net — `uvx capt-hook test` runs every enabled pack's tests
-plus any local hook's. After adding, overriding, or removing a hook, run:
+The inline tests are the regression net — `uvx capt-hook test` runs the repo's own
+`.claude/hooks` tests (pack tests are the pack author's lane: `uvx capt-hook pack test
+<plugin-root>` validates and tests a working-tree plugin pack). After adding, overriding, or
+removing a local hook, run:
 
 ```bash
 uvx capt-hook test
@@ -481,9 +460,9 @@ per-event `uv run` resolve (~55ms/event).
   if files were moved, pass `--hooks <dir>` to `capt-hook test` and other CLI commands so
   they find them.
 - **Changed a pack or plugin but nothing happened.** Claude Code reads hook registrations at
-  session start, so enabling a pack in `.claude/capt-hook.toml` or toggling the captain-hook plugin needs a
-  session restart to take effect. `.claude/settings.json` carries no hook wiring to edit — the
-  registration lives in the captain-hook plugin.
+  session start, so toggling the captain-hook plugin — or a pack-shipping plugin like
+  `cc-context@cc-context` — needs a session restart to take effect. `.claude/settings.json`
+  carries no hook wiring to edit — the registration lives in the captain-hook plugin.
 - **`stewardship.py` raises `spaCy model 'en_core_web_sm' is not installed`.** capt-hook
   refuses to silently download the model from a live hook. Provision it once per machine
   (the wn `oewn:2025` lexicon auto-downloads on first use):

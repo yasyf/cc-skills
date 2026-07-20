@@ -1,9 +1,0 @@
-fragments = [
-  "cc-skills:capt-hook-base",
-  "cc-skills:capt-hook-python",
-  "cc-skills:capt-hook-ccx",
-  "cc-skills:capt-hook-cc-present",
-]
-
-[sources.cc-skills]
-source = "github:yasyf/cc-skills@main"

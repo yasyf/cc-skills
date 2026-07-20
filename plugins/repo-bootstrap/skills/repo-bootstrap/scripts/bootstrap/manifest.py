@@ -134,17 +134,8 @@ DERIVED = (
 
 FILES = (
     # --- base layer ---
-    # AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and .claude/capt-hook.toml are
-    # cc-guides v3 artifacts: scaffold writes a `.claude/fragments/<target>/` layout dir (a
-    # layout.toml plus any repo-local `*.fragment.*` pieces) and the post-write `cc-guides render`
-    # step (scaffold.render_sources) composes each artifact in place — local prose plus
-    # imported shared fragments (`cc-skills:ccx`, …) for AGENTS.md, the shared
-    # `cc-skills:claude-rules` guide (import-only, no local prose) for CLAUDE.md, the
-    # settings pack fragments (`cc-skills:settings-base` + a layer variant) for
-    # settings.json, the MCP pack fragments (`cc-skills:mcp-base` + the Swift
-    # variant) for .mcp.json, and the capt-hook pack fragments (`cc-skills:capt-hook-base` +
-    # a language variant + the ccx/cc-present guard pins) for .claude/capt-hook.toml. A language
-    # layer overrides base at each shared fragment dest.
+    # cc-guides v3 artifacts (AGENTS.md, CLAUDE.md, settings.json, .mcp.json): scaffold
+    # writes a `.claude/fragments/<target>/` layout dir; `cc-guides render` composes it.
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "base/claude/fragments/AGENTS.md/layout.toml", "base"),
     FileSpec(
         ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
@@ -195,17 +186,6 @@ FILES = (
     FileSpec(".claude/jj-config.toml", "base/claude/jj-config.toml", "base"),
     # The cc-guides caller stub: `check` on push/PR + `re-render` on release dispatch.
     FileSpec(".github/workflows/guides.yml", "base/github/workflows/guides.yml", "base"),
-    # capt-hook pack enablement is a cc-guides-rendered artifact (.claude/capt-hook.toml):
-    # scaffold writes the `.claude/fragments/.claude/capt-hook.toml/` layout dir importing the
-    # shared `cc-skills:capt-hook-*` fragments, and the post-write `cc-guides render` step composes
-    # the enabled `[packs.*]` tables. The base layout imports capt-hook-base (fixes/general/steering)
-    # plus the ccx/cc-present guard pins; a language layer overrides it at the same dest. The legacy
-    # `.claude/hooks/packs.toml` is dead — capt-hook 10.x never reads it. See reference/hooks.md.
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "base/claude/fragments/capt-hook.toml/layout.toml",
-        "base",
-    ),
     # The style guide for the repo's `.claude/hooks/` Python — shipped in every layer.
     FileSpec(".claude/hooks/STYLEGUIDE.md", "base/claude/hooks/STYLEGUIDE.md", "base"),
     # synthesized base files (no single template src)
@@ -241,13 +221,6 @@ FILES = (
     FileSpec(".claude/ty-quiet.toml", "python/claude/ty-quiet.toml", "python"),
     FileSpec("pyproject.toml", "python/pyproject.toml", "python"),
     FileSpec(".python-version", "python/python-version", "python"),
-    # python layer's capt-hook.toml layout imports capt-hook-python on top of capt-hook-base
-    # (overrides the base layout at the same dest, with both packs enabled).
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "python/claude/fragments/capt-hook.toml/layout.toml",
-        "python",
-    ),
     FileSpec(".github/workflows/ci.yml", "python/github/workflows/ci.yml", "python"),
     FileSpec(".pre-commit-config.yaml", "python/pre-commit-config.yaml", "python"),
     FileSpec("{{PACKAGE}}/__init__.py", "python/package/__init__.py", "python"),
@@ -325,13 +298,6 @@ FILES = (
     ),
     FileSpec("STYLEGUIDE.md", "go/STYLEGUIDE.md", "go"),
     FileSpec("README.md", "go/README.md", "go"),
-    # go layer's capt-hook.toml layout imports capt-hook-go on top of capt-hook-base
-    # (overrides the base layout at the same dest).
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "go/claude/fragments/capt-hook.toml/layout.toml",
-        "go",
-    ),
     FileSpec("go.mod", "go/go-mod", "go"),
     FileSpec("cmd/{{PROJECT_NAME}}/main.go", "go/cmd/main.go", "go"),
     FileSpec("internal/cli/root.go", "go/internal/cli/root.go", "go"),
@@ -396,12 +362,6 @@ FILES = (
         "swift/claude/fragments/mcp.json/layout.toml",
         "swift",
     ),
-    # no swift capt-hook pack exists — the layout imports capt-hook-base + the guard pins only.
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "swift/claude/fragments/capt-hook.toml/layout.toml",
-        "swift",
-    ),
     # vendored project skill: help-first discovery of the xcodebuildmcp CLI.
     FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift"),
     FileSpec("Package.swift", "swift/Package.swift", "swift"),
@@ -445,11 +405,6 @@ FILES = (
     FileSpec(
         ".claude/fragments/.mcp.json/layout.toml",
         "swift/claude/fragments/mcp.json/layout.toml",
-        "swift-app",
-    ),
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "swift/claude/fragments/capt-hook.toml/layout.toml",
         "swift-app",
     ),
     FileSpec(".claude/skills/xcodebuildmcp-cli/SKILL.md", "swift/claude/skills/xcodebuildmcp-cli/SKILL.md", "swift-app"),
@@ -502,12 +457,6 @@ FILES = (
     FileSpec(
         ".claude/fragments/.claude/settings.json/layout.toml",
         "bun/claude/fragments/settings.json/layout.toml",
-        "bun",
-    ),
-    # no bun capt-hook pack exists — the layout imports capt-hook-base + the guard pins only.
-    FileSpec(
-        ".claude/fragments/.claude/capt-hook.toml/layout.toml",
-        "bun/claude/fragments/capt-hook.toml/layout.toml",
         "bun",
     ),
     FileSpec("STYLEGUIDE.md", "bun/STYLEGUIDE.md", "bun"),
