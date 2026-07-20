@@ -57,9 +57,11 @@ func main() {
 		mintRootMode(args[1:])
 	case len(args) == 1 && args[0] == "--ps":
 		psMode()
+	case len(args) >= 1 && isConsumerSubcommand(args[0]):
+		// Additive cc-interact subcommands (daemon, agent-*, channel, direct) —
+		// plain words that never shadow the leading --flag cases above or askMode.
+		runConsumer(args)
 	default:
-		// Flag-driven default; additive subcommands (agent-*, channel, direct)
-		// land as leading cases above in a later phase.
 		askMode(args)
 	}
 }

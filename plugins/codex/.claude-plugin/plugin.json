@@ -9,5 +9,16 @@
   "license": "MIT",
   "dependencies": [
     { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=11.0.0" }
+  ],
+  "mcpServers": {
+    "codex-ask-channel": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-channel.sh"
+    }
+  },
+  "channels": [
+    {
+      "server": "codex-ask-channel",
+      "displayName": "codex-ask"
+    }
   ]
 }
