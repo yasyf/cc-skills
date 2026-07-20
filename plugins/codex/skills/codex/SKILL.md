@@ -100,8 +100,9 @@ the repo, and the wrapper returns Codex's answer verbatim.
 
 A delegated agent's final message is a lossy channel; the deliverable lives on
 disk. `codex-ask` persists every run's `meta` (reply/log paths), `status`,
-question, reply, and log per run dir — mv-atomic, written before any narration
-exists. Drive a codex fan-out off that record, not off what the agents say:
+question, reply, log, and a `register` outcome (the transcript-registration
+result) per run dir — mv-atomic, written before any narration exists. Drive a
+codex fan-out off that record, not off what the agents say:
 
 1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
    `ROOT=$(codex-ask --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
