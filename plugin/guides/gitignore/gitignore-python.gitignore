@@ -23,11 +23,3 @@ coverage.xml
 
 # CI wheel smoke test
 .wheel-smoke/
-{{#FEATURE_DOCS}}
-
-# Great Docs build output
-great-docs/
-
-# gd-build-materialized pre_render scripts (native_reference_titles, etc.)
-docs/scripts/.gd-build/
-{{/FEATURE_DOCS}}

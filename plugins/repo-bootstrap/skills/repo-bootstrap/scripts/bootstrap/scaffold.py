@@ -4,8 +4,8 @@
     read_template)  ->  [validate folded into render]  ->  apply_plan (I/O)
 
 ``select_files`` and ``render_plan`` know nothing about the special cases
-(.gitignore concat, LICENSE fallback, superset uv-strip) — each is a named entry
-in ``TRANSFORMS``. Template access is injected so rendering stays pure.
+(LICENSE fallback, superset uv-strip) — each is a named entry in ``TRANSFORMS``.
+Template access is injected so rendering stays pure.
 """
 
 from __future__ import annotations
@@ -316,20 +316,6 @@ def render_plan(
 # --- Special cases as named transforms ---
 
 
-def gitignore_concat(ctx: TransformCtx, content: str | None) -> str:
-    text = ctx.render("base/gitignore")
-    if "python" in ctx.layers:
-        text += "\n" + ctx.render("python/gitignore")
-    if "go" in ctx.layers:
-        text += "\n" + ctx.render("go/gitignore")
-    # Both swift layers share one fragment (Xcode + SwiftPM + XcodeBuildMCP state).
-    if "swift" in ctx.layers or "swift-app" in ctx.layers:
-        text += "\n" + ctx.render("swift/gitignore")
-    if "bun" in ctx.layers:
-        text += "\n" + ctx.render("bun/gitignore")
-    return text
-
-
 def license_or_notice(ctx: TransformCtx, content: str | None) -> str | Notice:
     license_id = ctx.variables["LICENSE_ID"]
     if license_id == "none":
@@ -353,7 +339,6 @@ def strip_uv_setup(ctx: TransformCtx, content: str | None) -> str:
 
 
 TRANSFORMS: dict[str, Callable[[TransformCtx, str | None], str | Notice]] = {
-    "gitignore": gitignore_concat,
     "license": license_or_notice,
     "superset_strip": strip_uv_setup,
 }
@@ -432,8 +417,8 @@ def template_exists(src: str) -> bool:
 
 def render_sources(target: Path, force: bool) -> None:
     """Compose every ``.claude/fragments/<target>/`` layout dir the scaffold wrote
-    (AGENTS.md, CLAUDE.md, .claude/settings.json, .mcp.json, and the plugin installer)
-    into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
+    (AGENTS.md, CLAUDE.md, .gitignore, .claude/settings.json, .mcp.json, and the plugin
+    installer) into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
     shared fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact.
     On a fresh scaffold the artifacts do not exist yet; retrofitting an existing repo
     needs ``force`` because cc-guides refuses to overwrite a JSON artifact its lock

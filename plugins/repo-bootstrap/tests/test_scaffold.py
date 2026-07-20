@@ -45,6 +45,8 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/.gitignore/layout.toml",  # root .gitignore layout (base + language variant)
+    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",  # repo-local overlay seed
 }
 
 BASE_DESTS = FRAGMENT_DESTS | {
@@ -52,7 +54,7 @@ BASE_DESTS = FRAGMENT_DESTS | {
     ".claude/jj-config.toml",
     ".claude/hooks/STYLEGUIDE.md",  # always-shipped capt-hook Python style guide
     ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
-    ".gitignore", "LICENSE",
+    "LICENSE",
 }
 
 
@@ -109,7 +111,7 @@ GO_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
-    ".gitignore", "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
+    "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
     ".pre-commit-config.yaml", ".github/workflows/ci.yml",
     "go.mod", "cmd/demo-proj/main.go",
     "internal/cli/root.go", "internal/cli/hello.go", "internal/cli/hello_test.go",
@@ -484,12 +486,6 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert "boom event" in fail.stdout
     assert "REPLY_FILE:" in fail.stdout
     assert "LOG_FILE:" in fail.stdout
-
-    # gitignore backstop: a repo-relative scratch dir must never reach a commit
-    gitignore = (templates_dir / "base" / "gitignore").read_text()
-    assert ".claude-scratch/" in gitignore
-    assert ".scratch/" in gitignore
-    assert ".claude/worktrees/" in gitignore
 
 
 def _codex_env(stub_bin, tmpdir, **extra):
@@ -1884,22 +1880,38 @@ def test_strip_uv_setup_noops_for_python():
     assert out == config  # unchanged passthrough
 
 
-def test_gitignore_concat_base_only():
-    rendered = {"base/gitignore": "BASE", "python/gitignore": "PY"}
-    out = scaffold.gitignore_concat(_ctx(("base",), render=rendered.__getitem__), None)
-    assert out == "BASE"
+def test_gitignore_layout_python_docs_order(py_var_pairs):
+    # base first, then the language variant, then gitignore-docs (FEATURE_DOCS),
+    # then repo-local gitignore-local LAST — gitignore is order-sensitive.
+    plan, _ = _real_plan("python", py_var_pairs, features=["docs"])
+    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    assert fragments == [
+        "cc-skills:gitignore-base",
+        "cc-skills:gitignore-python",
+        "cc-skills:gitignore-docs",
+        "gitignore-local",
+    ]
 
 
-def test_gitignore_concat_base_plus_python():
-    rendered = {"base/gitignore": "BASE", "python/gitignore": "PY"}
-    out = scaffold.gitignore_concat(_ctx(("base", "python"), render=rendered.__getitem__), None)
-    assert out == "BASE\nPY"
+def test_gitignore_layout_python_without_docs_drops_docs(py_var_pairs):
+    plan, _ = _real_plan("python", py_var_pairs, features=[])
+    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    assert "cc-skills:gitignore-docs" not in fragments
+    assert fragments == [
+        "cc-skills:gitignore-base",
+        "cc-skills:gitignore-python",
+        "gitignore-local",
+    ]
 
 
-def test_gitignore_concat_base_plus_go():
-    rendered = {"base/gitignore": "BASE", "go/gitignore": "GO"}
-    out = scaffold.gitignore_concat(_ctx(("base", "go"), render=rendered.__getitem__), None)
-    assert out == "BASE\nGO"
+def test_gitignore_layout_go_order(go_var_pairs):
+    plan, _ = _real_plan("go", go_var_pairs, features=[])
+    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    assert fragments == [
+        "cc-skills:gitignore-base",
+        "cc-skills:gitignore-go",
+        "gitignore-local",
+    ]
 
 
 def test_license_renders_when_template_exists():
@@ -1926,7 +1938,6 @@ def test_license_none_returns_notice():
 
 def test_render_plan_injected(monkeypatch):
     templates = {
-        "base/gitignore": "node_modules\n",
         "base/LICENSE-MIT": "MIT for {{PROJECT_NAME}}\n",
         "foo.txt": "hello {{PROJECT_NAME}} {{#FEATURE_DOCS}}+docs{{/FEATURE_DOCS}}\n",
     }
@@ -1936,12 +1947,10 @@ def test_render_plan_injected(monkeypatch):
     ], DATE)
     items = [
         PlanItem("foo.txt", "foo.txt", None),
-        PlanItem(".gitignore", None, "gitignore"),
         PlanItem("LICENSE", None, "license"),
     ]
     plan, notices = scaffold.render_plan(items, r, templates.__getitem__, lambda s: s in templates)
     assert plan["foo.txt"] == "hello demo \n"
-    assert plan[".gitignore"] == "node_modules\n"
     assert plan["LICENSE"] == "MIT for demo\n"
     assert notices == []
 

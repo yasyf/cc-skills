@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import tomllib
 
 import pytest
 from bootstrap import scaffold
@@ -40,13 +41,15 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/.gitignore/layout.toml",
+    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",
 }
 
 BUN_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
-    ".gitignore", "LICENSE",
+    "LICENSE",
     "package.json", "tsconfig.json", ".bun-version",
     "src/index.ts", "tests/hello.test.ts",
     ".github/workflows/ci.yml",
@@ -173,15 +176,15 @@ def test_bun_readme_install_follows_release(bun_var_pairs):
     assert "bun start" in plan_off["README.md"]
 
 
-def test_bun_gitignore_concat(bun_var_pairs):
+def test_bun_gitignore_layout(bun_var_pairs):
+    # base + gitignore-bun then the repo-local seed last; no swift/go variant bleeding in.
     plan, _ = _real_plan("bun", bun_var_pairs)
-    gitignore = plan[".gitignore"]
-    assert ".DS_Store" in gitignore  # base fragment first
-    assert "node_modules/" in gitignore
-    assert "dist/" in gitignore
-    # no swift/go fragment bleeding in
-    assert ".build/" not in gitignore
-    assert "/bin/" not in gitignore
+    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    assert fragments == [
+        "cc-skills:gitignore-base",
+        "cc-skills:gitignore-bun",
+        "gitignore-local",
+    ]
 
 
 def test_bun_settings_layout_imports_bun_variant(bun_var_pairs):

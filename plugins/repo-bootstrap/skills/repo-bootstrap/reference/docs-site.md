@@ -165,7 +165,9 @@ Three non-obvious build details:
   GitHub API. Drop the token and the widget falls back to client-side calls that 403.
 - `docs/scripts/.gd-build/native_reference_titles.py` runs *before* the render (a `pre_render:`
   entry in `great-docs.yml`, supplied by the `cc-skills:great-docs-prerender` fragment). gd-build
-  materializes the script into that gitignored directory on every build — it is not committed.
+  materializes the script into that directory on every build — never committed, since the docs
+  `.gitignore` ignores `.gd-build/` at any depth (covering the `docs/scripts/` and `docs/assets/`
+  build dirs alike).
   Quarto re-renders the API-reference sidebar into every page, and Pandoc's emphasis resolver
   backtracks exponentially on the `__dunder__` candidates inside the bracketed-span titles
   (jgm/pandoc#11687) — a large reference can drag the build out to an hour or more. The script

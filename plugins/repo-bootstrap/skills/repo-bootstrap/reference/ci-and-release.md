@@ -68,7 +68,8 @@ is a cc-guides rendered artifact: a repo-local preamble piece plus the shared
    with `env: GITHUB_TOKEN: ${{ github.token }}` — the token lets great-docs embed the navbar
    widget's star/fork counts at build time, so visitors' browsers never hit (and 403 on) the
    GitHub API. gd-build materializes `docs/scripts/.gd-build/native_reference_titles.py` (the
-   `pre_render` entry that keeps a large API reference's build linear), applies version-gated
+   `pre_render` entry that keeps a large API reference's build linear; the docs `.gitignore`
+   ignores `.gd-build/` at any depth, so nothing it writes is committed), applies version-gated
    great-docs perf patches (each degrades to a stock build, never a failure), and delegates
    to `great-docs build` (see `reference/docs-site.md`). The job carries
    `timeout-minutes: 45` as a regression guard

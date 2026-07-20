@@ -59,6 +59,19 @@ def test_scaffold_and_json_guides_do_not_reference_semble():
     assert hits == []
 
 
+def test_gitignore_base_fragment_keeps_claude_scratch_ignores():
+    # Re-homed from the deleted templates/base/gitignore backstop: scratch and
+    # worktree state must stay ignored fleet-wide or it reaches the index.
+    body = (REPO_ROOT / "plugin" / "guides" / "gitignore" / "gitignore-base.gitignore").read_text()
+    for pattern in (
+        ".claude-scratch/",
+        ".scratch/",
+        ".claude/worktrees/",
+        ".claude/settings.local.json",
+    ):
+        assert pattern in body, f"gitignore-base must keep {pattern}"
+
+
 def test_settings_base_fragment_enables_captain_hook():
     """The rendered-settings guard can't see fragment regressions until the next render —
     this one reds the PR that removes captain-hook from the base fragment before the fleet

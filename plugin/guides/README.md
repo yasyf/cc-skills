@@ -1,6 +1,6 @@
 # guides
 
-The fleet's shared guide-fragment pack. The repo root's `.claude/cc-guides.toml` publishes this directory (`guides = "plugin/guides"`), and ~40 repos consume it as `github:yasyf/cc-skills@main` to render their standard artifact set: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, and `.claude/capt-hook.toml`.
+The fleet's shared guide-fragment pack. The repo root's `.claude/cc-guides.toml` publishes this directory (`guides = "plugin/guides"`), and ~40 repos consume it as `github:yasyf/cc-skills@main` to render their standard artifact set: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, and `.gitignore`.
 
 ## Layout
 
@@ -12,7 +12,7 @@ Five fragment kinds, one directory each:
 | `sh/` | `install-binary-latest.sh`, `install-binary-pinned.sh` |
 | `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`/`settings-bun`, deep-merged |
 | `yml/` | Docs-site workflow pieces (`docs-build-*`, `docs-publish`, `great-docs-*`) and the prek `.pre-commit-config.yaml` pieces: `precommit-base` owns the `repos:` key and carries the `repo: builtin` hygiene hooks; `precommit-go`/`precommit-python`/`precommit-swift` continue the list and hold the centrally managed rev pins |
-| `toml/` | capt-hook pack enablement for `.claude/capt-hook.toml`: `capt-hook-base` (the fixes/general/steering builtins every repo runs), `capt-hook-python`/`capt-hook-go` language packs, and the external packs `capt-hook-cc-notes`/`capt-hook-cc-present`/`capt-hook-ccx`, each carrying its canonical `@latest` source pin |
+| `gitignore/` | Root-`.gitignore` pieces — `gitignore-base` plus per-layer `gitignore-python`/`gitignore-go`/`gitignore-swift`/`gitignore-bun` and the docs-feature `gitignore-docs`, concatenated in layout order; a consumer's repo-specific residue rides last in its local `gitignore-local` fragment so negations win |
 
 ## How a repo consumes it
 

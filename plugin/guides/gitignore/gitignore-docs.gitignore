@@ -1,0 +1,5 @@
+# Great Docs build output
+great-docs/
+
+# gd-build-materialized build inputs (pre_render scripts, fleet-theme.css), any depth
+.gd-build/

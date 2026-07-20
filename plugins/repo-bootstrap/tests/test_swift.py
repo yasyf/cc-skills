@@ -41,6 +41,8 @@ FRAGMENT_DESTS = {
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
     ".claude/fragments/.mcp.json/layout.toml",
     ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/.gitignore/layout.toml",
+    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",
 }
 
 SWIFT_DESTS = FRAGMENT_DESTS | {
@@ -48,7 +50,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
-    ".gitignore", "LICENSE",
+    "LICENSE",
     "Package.swift",
     "Sources/DemoProj/Hello.swift", "Sources/demo-proj/Main.swift",
     "Tests/DemoProjTests/HelloTests.swift",
@@ -61,7 +63,7 @@ SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".claude/skills/xcodebuildmcp-cli/SKILL.md",
     ".github/workflows/guides.yml",
-    ".gitignore", "LICENSE",
+    "LICENSE",
     "demo-proj.xcodeproj/project.pbxproj",
     "demo-proj.xcodeproj/xcshareddata/xcschemes/demo-proj.xcscheme",
     "demo-proj/App/DemoProjApp.swift", "demo-proj/App/ContentView.swift",
@@ -378,11 +380,14 @@ def test_swift_precommit_local_system_hooks(templates_dir):
     assert "github.com/realm/SwiftLint" not in config
 
 
-def test_swift_gitignore_concat(swift_var_pairs, swift_app_var_pairs):
+def test_swift_gitignore_layout(swift_var_pairs, swift_app_var_pairs):
+    # both swift layers share one gitignore layout: base + gitignore-swift, then the
+    # repo-local seed last; never the go/python variants.
     for layer, pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
         plan, _ = _real_plan(layer, pairs)
-        gitignore = plan[".gitignore"]
-        assert ".DS_Store" in gitignore  # base fragment first
-        for entry in (".build/", ".swiftpm/", "DerivedData/", ".xcodebuildmcp/"):
-            assert entry in gitignore, f"{entry} missing in {layer}"
-        assert "/bin/" not in gitignore  # no go fragment bleeding in
+        fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+        assert fragments == [
+            "cc-skills:gitignore-base",
+            "cc-skills:gitignore-swift",
+            "gitignore-local",
+        ], f"unexpected fragments in {layer}"
