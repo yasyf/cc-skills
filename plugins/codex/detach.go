@@ -115,6 +115,9 @@ func runWorker(sdir string) {
 			_ = os.Rename(cmd.ReplyTmp, cmd.Reply)
 		}
 	}()
+	// The parent's pollStatus already unblocked on the status write above, so the
+	// registration runs on time no caller is waiting for (worker orphaned to PID 1).
+	registerTranscript(sdir)
 	os.Exit(0)
 }
 
