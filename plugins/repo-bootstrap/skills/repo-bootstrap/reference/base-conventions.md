@@ -46,7 +46,8 @@ The single canonical agent-conventions doc. Section by section:
   themes, end with a `# | file:line | verbatim | cluster` mapping table, and never
   implement before `ExitPlanMode`.
 - **Parallelize Independent Work.** Keep verbatim. Stance: the main session is an
-  orchestrator, not an executor — sequential is the exception; when unsure, fan
+  orchestrator, not an executor — sequential is the exception, saturation is
+  required (every lane whose inputs are ready is in flight); when unsure, fan
   out. Dispatch ladder, cheapest first: batch independent tool calls in one
   message, parallel subagent calls for ad-hoc investigations, dynamic workflow as
   the default for substantive multi-step work (detailed in CLAUDE.md § Plan
@@ -55,7 +56,9 @@ The single canonical agent-conventions doc. Section by section:
   orchestrator acting directly.
 - **Writing Plans.** Keep verbatim. The five-part plan shape (Context, Approach,
   Potential Pitfalls, Workflow Plan, Verification). The Workflow Plan part is
-  required in every plan — `Phase | Shape | Agents | Verification` table, or one
+  required in every plan — a `Phase | Shape | Agents | Blocks on | Verification`
+  table whose `Blocks on` edges form the dependency graph the schedule must run
+  at full width, speculative lanes as their own `(speculative)` rows, or one
   line saying everything stays at the main-agent level; a plan without it is
   incomplete.
 - **Compact Context (ccx).** The `cc-skills:ccx` import in every layer's
@@ -109,7 +112,11 @@ shared AGENTS.md:
   `TaskUpdate`; cited by the `tasks.py` Stop gate (keep the heading in sync with that hook).
 - `## Plan Execution & Orchestration` — keep verbatim. The session-level orchestrator
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
-  authorization); only trivial edits, single reads, and single targeted lookups stay
+  authorization) at the dependency graph's full width — every lane whose inputs
+  are ready is in flight, phases sequence only on a consumed output, and any
+  pending gate with a concrete candidate in hand gets a worktree-isolated
+  speculative lane that a confirming verdict lands and a refuting one discards;
+  only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level, and routine docs/prose edits skip dynamic workflows and
   adversarial verify while keeping Models-table routing and the `## Workflow Plan`
   line; delegated agents are routed by the **Models** table —
@@ -146,8 +153,8 @@ shared AGENTS.md:
   lane gets a `codex-ask --collect` check before any redo; effort `xhigh` by default (fable implementation may
   run `high`), `max` only after xhigh falls short, verification at same-or-higher
   tier with table-routed gpt-5.6-sol lanes counting as same-tier; every plan's
-  `## Workflow Plan` table names each phase's model and effort (AGENTS.md
-  § Writing Plans).
+  `## Workflow Plan` table names each phase's model, effort, and `Blocks on`
+  dependency (AGENTS.md § Writing Plans).
 
 Keep all three terse. Anything tool-agnostic still belongs in AGENTS.md, not here.
 
