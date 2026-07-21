@@ -170,6 +170,18 @@ one owner subagent per lane, each owner dispatches `--dispatch --owner` into
 its lane with `-s` and parks; the daemon wakes owners as their runs finish,
 and the terminal `--collect` still gates.
 
+**Top-level sessions use Monitor + `--watch`, not the channel.** From the main
+conversation — the one place Monitor wakes actually deliver — dispatch with
+`--dispatch` alone, then arm `Monitor` on `codex-ask --watch <run-dir>...`
+(fan-out roots expand to their lanes; `--watch --all` covers every in-flight
+run). The watch emits one JSONL record per run as it settles — completed,
+failed, or died, never silence — and exits once all watched runs have
+settled. Arm it after dispatching: a lane that hasn't dispatched yet reads
+`no-run` and settles immediately. Placement rule: top-level async is
+Monitor + `--watch`; an owner subagent parks on `await` (Monitor wakes are
+dropped inside subagents); a workflow stays script-driven with blocking
+calls; a plain subagent without the channel foreground-blocks as ever.
+
 ## Workflow
 
 ### Step 1: Compose the Context

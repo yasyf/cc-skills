@@ -151,12 +151,15 @@ hook(
         Or(ToolInput(run_in_background="true"), CodexAskDetached()),
     ],
     message=(
-        "codex-ask must run in the FOREGROUND. It already survives a Bash-tool timeout — the "
-        "AWAIT: line prints first, so on a slow run rerun that exact line foreground with "
-        "timeout: 600000 to recover. Backgrounding it (run_in_background, a trailing &, or "
-        "nohup/setsid/disown) strands the finished reply on disk: background Bash completion "
-        "never wakes an in-process subagent (anthropics/claude-code#78782). Parallelism comes "
-        "from parallel wrapper agents or a workflow fan-out, never from backgrounding."
+        "codex-ask must run in the FOREGROUND — backgrounding it (run_in_background, a trailing "
+        "&, or nohup/setsid/disown) strands the finished reply on disk: background Bash "
+        "completion never wakes an in-process subagent (anthropics/claude-code#78782). Async is "
+        "sanctioned, but routed: an owner subagent runs `codex-ask --dispatch --owner "
+        "<agent-id>` foreground (returns at once) and parks on the await tool; a top-level "
+        "session runs `--dispatch` and arms Monitor on `codex-ask --watch <run-dir>`. A "
+        "blocking call already survives a Bash-tool timeout — rerun the printed AWAIT: line "
+        "foreground with timeout: 600000 to recover. Parallelism comes from parallel wrapper "
+        "agents or a workflow fan-out, never from backgrounding."
     ),
     block=True,
     tests={
@@ -180,6 +183,9 @@ hook(
             tool_input={"command": "grep codex-ask notes.md", "run_in_background": True},
         ): Allow(),
         Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ"): Allow(),
+        Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff'"): Allow(),
+        Input(command="codex-ask --watch --all"): Allow(),
+        Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff' &"): Block(),
         Input(command="codex-ask --await /tmp/x/lane && echo done"): Allow(),
         Input(command="grep codex-ask notes.md"): Allow(),
         Input(command="sleep 5 &"): Allow(),

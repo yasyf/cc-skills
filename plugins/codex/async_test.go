@@ -270,6 +270,52 @@ func TestOwnerWakeDirectiveLands(t *testing.T) {
 	waitForWake(t, srv.DB(), sub.ID, "owner-1", reply)
 }
 
+// TestWatchEmitsOnSettleAndExits arms --watch on a pending lane, settles it
+// mid-watch, and expects one JSONL record naming the reply plus a clean exit.
+func TestWatchEmitsOnSettleAndExits(t *testing.T) {
+	bin := codexAskBin(t)
+	home := shortHome(t)
+	runs := mustTempDir(t)
+
+	sdir, err := os.MkdirTemp(runs, "codex-ask.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := filepath.Join(sdir, "codex-r-x")
+	logf := filepath.Join(sdir, "codex-q-x.log")
+	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+logf+"\n")
+
+	c := exec.Command(bin, "--watch", sdir) //nolint:gosec // drives the built binary under test
+	c.Env = dispatchEnv(home, "", runs, mustTempDir(t), sdir)
+	var stdout bytes.Buffer
+	c.Stdout = &stdout
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // still pending: the watch must stay armed
+	writeFile(t, reply, "pong\n")
+	writeFile(t, filepath.Join(sdir, "status"), "0\n")
+
+	done := make(chan error, 1)
+	go func() { done <- c.Wait() }()
+	select {
+	case werr := <-done:
+		if werr != nil {
+			t.Fatalf("watch exited non-zero: %v\n%s", werr, stdout.String())
+		}
+	case <-time.After(15 * time.Second):
+		_ = c.Process.Kill()
+		t.Fatalf("watch never exited after settle; output: %s", stdout.String())
+	}
+	var rec psRecord
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout.String())), &rec); err != nil {
+		t.Fatalf("bad watch record %q: %v", stdout.String(), err)
+	}
+	if rec.State != "completed" || rec.ReplyFile == nil || *rec.ReplyFile != reply {
+		t.Fatalf("record = %+v, want completed naming %s", rec, reply)
+	}
+}
+
 // TestOwnerWakeFallsBackToClaudePID seeds the subject with a claude pid, then
 // wakes with a rotated session id: resolution must fall back to (pid, scope) —
 // the production survival path when CLAUDE_CODE_SESSION_ID rotates mid-run.
