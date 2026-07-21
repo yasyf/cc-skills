@@ -108,7 +108,7 @@ func buildServer() (*daemon.Server, error) {
 		BootReconcile:     c.BootReconcile,
 		AgentGreeting:     agentGreeting,
 		// ScopeResolve nil → identity; Gate/AgentGate nil → allow every edit and
-		// stop; Migrate nil → no domain tables.
+		// stop; zero StoreSchema → no domain tables.
 	})
 }
 
