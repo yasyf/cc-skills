@@ -74,6 +74,25 @@ func TestSessionFromMetaNoMeta(t *testing.T) {
 	}
 }
 
+func TestFirstStderrLine(t *testing.T) {
+	cases := []struct {
+		id, stderr, want string
+	}{
+		{"click-banner-before-error", "Usage: capt-hook [OPTIONS] COMMAND [ARGS]...\nTry 'capt-hook --help'.\n\nError: No such command 'transcripts'.\n", "Error: No such command 'transcripts'."},
+		{"uvx-progress-before-error", "Resolved 5 packages\nInstalled 5 packages\nerror: bad flag\n", "error: bad flag"},
+		{"no-error-line-falls-back", "boom\nmore noise\n", "boom"},
+		{"leading-blank-lines", "\n\nError: x\n", "Error: x"},
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.id, func(t *testing.T) {
+			if got := firstStderrLine([]byte(c.stderr)); got != c.want {
+				t.Errorf("firstStderrLine = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // TestRegisterTranscript exercises the whole registerTranscript codepath via the
 // <sdir>/register outcome file, with a fake capt-hook shim on $PATH.
 func TestRegisterTranscript(t *testing.T) {
@@ -157,7 +176,9 @@ func TestRegisterTranscript(t *testing.T) {
 func TestRunWorkerRegistersAfterStatus(t *testing.T) {
 	bin := buildCodexAsk(t)
 	captDir := t.TempDir()
-	writeExec(t, filepath.Join(captDir, "capt-hook"), "exit 0\n")
+	// Shim asserts status exists (via STATUS_FILE) so a register-before-status reorder
+	// yields rc=9, not byte-identical green — pinning the ordering, not just presence.
+	writeExec(t, filepath.Join(captDir, "capt-hook"), "test -s \"$STATUS_FILE\" || { echo status-missing >&2; exit 9; }\nexit 0\n")
 	codexDir := t.TempDir()
 	writeExec(t, filepath.Join(codexDir, "fakecodex"),
 		`printf '%s\n' '{"type":"thread.started","thread_id":"019f-worker"}'`+"\nexit ${FAKE_CODEX_RC:-0}\n")
@@ -185,7 +206,7 @@ func TestRunWorkerRegistersAfterStatus(t *testing.T) {
 			writeMeta(t, sdir, `{"session":"s-test"}`)
 
 			worker := exec.Command(bin, "--worker", sdir)
-			worker.Env = append(os.Environ(), "PATH="+codexDir+string(os.PathListSeparator)+captDir, "CAPT_HOOK_BIN=", "FAKE_CODEX_RC="+c.rc)
+			worker.Env = append(os.Environ(), "PATH="+codexDir+string(os.PathListSeparator)+captDir, "CAPT_HOOK_BIN=", "FAKE_CODEX_RC="+c.rc, "STATUS_FILE="+join(sdir, "status"))
 			if out, err := worker.CombinedOutput(); err != nil {
 				t.Fatalf("--worker failed: %v\n%s", err, out)
 			}

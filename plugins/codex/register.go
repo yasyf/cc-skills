@@ -165,11 +165,22 @@ func registerExitCode(err error) int {
 	return -1
 }
 
+// firstStderrLine returns the first stderr line naming the error, else the first
+// non-empty line. Click leads with a "Usage:" banner (cold uvx with "Resolved" noise),
+// which would otherwise bury the diagnosable "Error: ..." the outcome record exists for.
 func firstStderrLine(b []byte) string {
+	first := ""
 	for _, line := range strings.Split(string(b), "\n") {
-		if t := strings.TrimSpace(line); t != "" {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "Error") || strings.HasPrefix(t, "error") {
 			return t
 		}
+		if first == "" {
+			first = t
+		}
 	}
-	return ""
+	return first
 }
