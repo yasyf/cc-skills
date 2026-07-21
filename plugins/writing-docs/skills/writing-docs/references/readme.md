@@ -23,6 +23,7 @@ One bolded fragment of at most 80 characters, then at most one expansion sentenc
 Good:
 
 - **Paste once, run once.** — imperative pair; two verbs, one promise.
+- **Stop repeating yourself to Claude.** — command-form provocation, live on captain-hook; the expansion sentence then names the mechanism ("mines your transcripts for the corrections you keep giving and opens PRs that turn each one into a typed, tested Python hook").
 - **Delete your HANDOFF.md.** — command-form provocation; names the artifact the reader gets to kill.
 - **Every AI coding limit, in your menu bar.** — noun phrase plus outcome; the reader sees where the value lands.
 - **Your best training data is rotting in ~/.claude.** — loss-framing; the pain is already happening, at a real path.
@@ -93,6 +94,15 @@ Two to four, each an H3 phrased as the reader's goal ("Strip a 40k-token transcr
 ## One fragment, five surfaces
 
 The opener fragment is the project's one-line identity, and five surfaces carry it verbatim: the README opener, the GitHub About description, the pyproject or module description, the Great Docs `hero.tagline`, and the gen-image `--tagline`. Change one, change all five.
+
+## The landing page is the README's twin
+
+When a docs site exists, its landing page tells the same story as the README — same opener register, same get-started command with the demo above the fold, same use cases with the same code — synced by hand, because the two render through different engines:
+
+- The README renders raw on GitHub (and often PyPI): no shortcodes, no embed markers, no site-only widgets. Its code samples live inline in the file.
+- The landing page may single-source through the site's embed machinery (`great-docs-quarto.md`), use native callouts and grids, and end in section cards that map the docs' top level.
+
+Manual sync is a standing obligation: a use-case edit lands in both files in the same commit, or the two front doors diverge and one of them lies.
 
 ## Worked example
 

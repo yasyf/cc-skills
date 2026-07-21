@@ -102,3 +102,24 @@ Five surfaces carry the fragment verbatim: the README opener, the GitHub About d
 
 - Use backticks for any library, method, or tool name inline in prose, plus filenames, paths, commands, keywords, types, and placeholder variables. Do not code-font product names or browsable URLs.
 - Do not inflect a code element name. Add a noun and inflect the noun, as in "the `Event` flag", not "`Event`s".
+
+## slop-cop triage
+
+Every touched page runs `slop-cop check <file> --lang=markdown`, and every finding gets a verdict, never an auto-fix — this voice deliberately uses devices the linter flags.
+
+Keep, as deliberate voice:
+
+- Em-dash asides and interruptions; they carry the builder register.
+- Colons introducing technical specifics, lists, or explanations.
+- Technical parentheticals and self-aware asides.
+- Verdict fragments, casual intensifiers, and register markers ("pretty solid", "YMMV").
+
+Fix, as genuine tells:
+
+- Arrows in prose (`A → B → fails`) — write the sentence.
+- Filler adverbs and hedges: "significantly", "essentially", "robust", "comprehensive".
+- Bold-bullet walls — runs of **Bold lead.** bullets that template every paragraph alike.
+- Formulaic scaffolding: "It's not just X, it's Y", rule-of-three padding, "seamlessly integrates".
+- Hype adjectives — the opener register's banned lexicon applies to every page, not just openers.
+
+Two scope rules: triage is per-finding, so one page can keep an em-dash aside and fix a filler adverb three lines later; and never reflow pre-existing untouched lines just to satisfy the linter — lint what you wrote.

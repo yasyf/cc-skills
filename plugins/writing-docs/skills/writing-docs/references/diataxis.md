@@ -69,6 +69,14 @@ From the Good Docs Project templates, trimmed to the essentials.
 - A fact lives once, in reference. Task pages may restate a key fact (ARID) but never duplicate a whole section.
 - Each section index states which mode its pages are, so the reader knows whether to study, work, look up, or understand.
 
+## Findability
+
+A capability nobody can find is undocumented, whatever the reference says. Three rules:
+
+- Phrase titles and headings as the reader's task, not the API surface. captain-hook's command-parsing page is "Inspect and rewrite commands", not "The Cmd API"; its sections run "Block a command family", "Walk the calls", "Judge the blast radius". When a heading must also anchor a symbol, keep the task phrasing and attach the anchor: "Auto-answer permission dialogs {#llm_approve}" serves the searcher and the deep link at once.
+- Every "where do I…?" question gets a narrative home. A generated API reference answers "what is this symbol" and strands "how do I do this" — for each capability, a how-to or guide section must exist and outrank the reference page in site search. If searching a capability's obvious name surfaces only generated symbol pages, that is a findability bug to fix with a task-phrased page, not a search tweak.
+- Merged and renamed pages keep their old URLs findable: `aliases:` frontmatter plus explicit anchors for inbound section links (`consolidation.md`, stages 4-5).
+
 ## Reference genres
 
 A cheat sheet and an examples catalog entry are formats of reference and how-to, not new modes. See `references/reference-genres.md` for each one's skeleton and the rule that keeps a cheat sheet from blurring into a reference.
