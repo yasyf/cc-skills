@@ -11,19 +11,30 @@ disk reply verbatim. Codex does the thinking; the caller does the judging. The
 drill:
 
 1. **Collect your agent id.** Run one cheap foreground Bash call
-   (`ls "$LANE_DIR"`); your greeting directive — the first steering-channel
-   message, naming your agent id — arrives with its result. No greeting means
-   no channel: fall back to the codex-wrapper blocking drill (one foreground
-   Bash call, `timeout: 600000`, rerun the printed `AWAIT:` line on timeout).
+   (`ls "$LANE_DIR"`); your greeting directive arrives with its result as a
+   `Directives from the codex-ask steering channel` block naming your agent
+   id. If the result carries no such block, the channel is not mounted: fall
+   back to the codex-wrapper blocking drill (one foreground Bash call,
+   `timeout: 600000`, rerun the printed `AWAIT:` line on timeout).
 2. **Dispatch async** in one foreground Bash call:
    `codex-ask --dispatch --owner <agent-id> -s "$LANE_DIR" - <<'QUESTION' …
    QUESTION`. Forward the caller's question and pointers verbatim; variants
    only when the prompt asks (`-m luna`, `--image`, `--schema <file>`). Record
-   the printed `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines.
+   the printed `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines. One dispatch per
+   owner: a second `--dispatch --owner` from the same agent lands both
+   completions in one mailbox, where one park drains them together — a second
+   run belongs to a second owner.
 3. **Park on `await`** with your agent id, `timeout_seconds` sized to the run
    (default 1800). A "no directive" notice is not an error: read the lane's
    `status` file — still running means re-park; terminal means the directive
-   was drained by another rung, proceed to step 4.
+   was drained by another rung, proceed to step 4. If `await` returns an
+   error instead (`await: resolve subject …` or a connection failure — the
+   daemon is unreachable), do not re-park: fall back to disk truth — run the
+   recorded `AWAIT:` line foreground (`timeout: 600000`, rerun on timeout
+   until it exits), then go to step 4; `--await` polls the status file and
+   needs no daemon. A wake from your parent naming pending directives may
+   also resume you after you stopped — that relay wake is authorized: call
+   `await` once (or read the `status` file), then go to step 4.
 4. **On wake, read the disk.** The directive names the terminal status and
    reply file; it never carries content. Read the `REPLY_FILE:` path and
    return per the codex-wrapper contract: lead with the pointer line, then the

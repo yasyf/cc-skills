@@ -153,9 +153,10 @@ steering channel instead of a Bash return.
 3. **Park on `await`.** Call the `await` tool with your `agent_id`, sizing
    `timeout_seconds` to the run — xhigh typically returns in ~2 minutes, a
    review sweep can take 10–30. Progress pings hold a parked call open. An
-   elapsed window returns a "no directive" notice, not an error: re-park, or
-   check the run dir's `status` file first — another delivery rung may have
-   drained the directive before your park saw it.
+   elapsed window returns a "no directive" notice, not an error: first read
+   the run dir's `status` file — a terminal state means another delivery rung
+   already drained the directive, so read the reply; re-park only while the
+   run is still going.
 4. **On wake, read the disk.** The directive names the run's terminal status
    and reply file; it never carries the reply. Read the `REPLY_FILE:` path
    and evaluate per Step 3 below.
@@ -179,8 +180,9 @@ failed, or died, never silence — and exits once all watched runs have
 settled. Arm it after dispatching: a lane that hasn't dispatched yet reads
 `no-run` and settles immediately. Placement rule: top-level async is
 Monitor + `--watch`; an owner subagent parks on `await` (Monitor wakes are
-dropped inside subagents); a workflow stays script-driven with blocking
-calls; a plain subagent without the channel foreground-blocks as ever.
+dropped inside subagents); a workflow stage's own dispatch stays
+script-driven and blocking, though a workflow may spawn owner subagents that
+park; a plain subagent without the channel foreground-blocks as ever.
 
 ## Workflow
 

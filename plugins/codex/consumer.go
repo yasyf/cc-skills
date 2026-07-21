@@ -19,10 +19,10 @@ import (
 	"github.com/yasyf/daemonkit/paths"
 )
 
-// appVersion is the daemon build identity (daemon.Config.Version, gating
-// daemon-upgrade matching). goreleaser stamps -s -w only, so releases share the
-// default until the Phase F ldflags land a per-build stamp.
-var appVersion = "0.0.0"
+// appVersion is the build identity: daemon.Config.Version (gating daemon-upgrade
+// matching) and the --version output install-binary.sh pins on. goreleaser stamps
+// the release value; "dev" marks an unstamped build the installer must not clobber.
+var appVersion = "dev"
 
 // wakeTimeout bounds the detached worker's owner-wake dial. Every failure inside
 // it is swallowed so a dead daemon never crashes the worker or loses the
