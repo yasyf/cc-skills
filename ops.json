@@ -1,1 +1,1 @@
-{"v":1,"lamport":2,"session":"262d9ff1-0e13-45dc-a7c4-01fa5895cf5c","ops":[{"kind":"verify_note","witness":[{"anchor":{"kind":"path","value":"plugins/codex/bin/codex-ask"},"oid":"09d8aae0cd2f795289f7f5c2d935e76b60a4d688"}],"verified_commit":"5a7e964e911a4878280244773c2a06066a9b9f5f"}]}
+{"v":1,"lamport":3,"session":"b3eb1833-25a0-47a3-a729-7b9aba708d02","ops":[{"kind":"add_superseded_by","id":"c3304c23eeec728fa45fe6b618eb137ad934f00f"}]}
