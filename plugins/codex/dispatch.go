@@ -235,8 +235,14 @@ func isRegularFile(path string) bool {
 }
 
 func readAgentsMd() string {
-	// PLUGIN_ROOT = SELF.parent.parent (bin/../AGENTS.md). Fail closed like Python
-	// line 767: no dev feed means codex would launch Chrome on the desktop.
+	// The plugin provisions bin/codex-ask as a symlink to the brew binary, and only
+	// the symlink's root carries AGENTS.md — so try the unresolved invocation path.
+	if exe, err := os.Executable(); err == nil {
+		if b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), "AGENTS.md")); err == nil { //nolint:gosec // reads the plugin's own AGENTS.md, by design
+			return strings.TrimRight(string(b), "\n")
+		}
+	}
+	// Fail closed like Python line 767: no dev feed means codex browses the desktop.
 	root := filepath.Dir(filepath.Dir(selfPath))
 	path := filepath.Join(root, "AGENTS.md")
 	b, err := os.ReadFile(path) //nolint:gosec // reads the plugin's own AGENTS.md by resolved path, by design

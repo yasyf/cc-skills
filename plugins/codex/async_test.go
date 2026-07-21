@@ -270,6 +270,41 @@ func TestOwnerWakeDirectiveLands(t *testing.T) {
 	waitForWake(t, srv.DB(), sub.ID, "owner-1", reply)
 }
 
+// TestDispatchThroughSymlinkFindsAgentsMd provisions bin/codex-ask as a symlink
+// (the install-binary.sh layout): AGENTS.md sits beside the symlink's bin/, not
+// the real binary's home, and dispatch must still resolve it.
+func TestDispatchThroughSymlinkFindsAgentsMd(t *testing.T) {
+	target := codexAskBin(t)
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+
+	pluginRoot := mustTempDir(t)
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "symlink-layout developer instructions\n")
+	link := filepath.Join(pluginRoot, "bin", "codex-ask")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(link, "ping") //nolint:gosec // drives the symlinked binary under test
+	c.Dir = scope
+	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("dispatch via symlink: %v\nstderr: %s", err, stderr.String())
+	}
+	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
+	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
+		t.Fatalf("reply = %q, want pong (stderr: %s)", got, stderr.String())
+	}
+}
+
 // TestWatchEmitsOnSettleAndExits arms --watch on a pending lane, settles it
 // mid-watch, and expects one JSONL record naming the reply plus a clean exit.
 func TestWatchEmitsOnSettleAndExits(t *testing.T) {
