@@ -30,7 +30,7 @@ func newServeCmd() *cobra.Command {
 	}
 }
 
-// serve gives daemonkit sole ownership of listener takeover, persistent v4
+// serve gives daemonkit sole ownership of listener takeover, persistent v1
 // sessions, admission, and ordered shutdown.
 func serve(ctx context.Context) error {
 	p := paths.Paths{App: appName}

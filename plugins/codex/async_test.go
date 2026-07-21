@@ -234,11 +234,6 @@ func TestOwnerWakeDirectiveLands(t *testing.T) {
 	}
 	const session = "sess-wake"
 	scope := canonicalScope(t)
-	sub, err := store.NewSubjectStore(srv.DB()).
-		Create(context.Background(), "0123456789abcdef0123456789abcdef", "codex-wake", session, scope, 0, statusOpen)
-	if err != nil {
-		t.Fatalf("seed subject: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
@@ -248,6 +243,11 @@ func TestOwnerWakeDirectiveLands(t *testing.T) {
 		<-served
 	}()
 	waitDaemonReady(t)
+	sub, err := store.NewSubjectStore(srv.DB()).
+		Create(context.Background(), "0123456789abcdef0123456789abcdef", "codex-wake", session, scope, 0, statusOpen)
+	if err != nil {
+		t.Fatalf("seed subject: %v", err)
+	}
 	registerOwner(t, session, scope, "owner-1")
 
 	runs := mustTempDir(t)
@@ -331,11 +331,6 @@ func TestOwnerWakeFallsBackToClaudePID(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := canonicalScope(t)
-	sub, err := store.NewSubjectStore(srv.DB()).
-		Create(context.Background(), "fedcba9876543210fedcba9876543210", "codex-rot", "sess-original", scope, 4242, statusOpen)
-	if err != nil {
-		t.Fatalf("seed subject: %v", err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ctx) }()
@@ -344,6 +339,11 @@ func TestOwnerWakeFallsBackToClaudePID(t *testing.T) {
 		<-served
 	}()
 	waitDaemonReady(t)
+	sub, err := store.NewSubjectStore(srv.DB()).
+		Create(context.Background(), "fedcba9876543210fedcba9876543210", "codex-rot", "sess-original", scope, 4242, statusOpen)
+	if err != nil {
+		t.Fatalf("seed subject: %v", err)
+	}
 	registerOwner(t, "sess-original", scope, "owner-rot")
 
 	runs := mustTempDir(t)
@@ -441,6 +441,7 @@ func writeFile(t *testing.T, path, content string) {
 func waitDaemonReady(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
+	var lastErr error
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		client, err := newClient(ctx)
@@ -451,13 +452,15 @@ func waitDaemonReady(t *testing.T) {
 			if herr == nil && health.Build == appVersion {
 				return
 			}
+			lastErr = herr
 			time.Sleep(20 * time.Millisecond)
 			continue
 		}
+		lastErr = err
 		cancel()
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("daemon never became ready")
+	t.Fatalf("daemon never became ready: %v", lastErr)
 }
 
 func registerOwner(t *testing.T, session, scope, agentID string) {

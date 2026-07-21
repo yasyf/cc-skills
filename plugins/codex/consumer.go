@@ -56,7 +56,10 @@ const (
 func appPaths() paths.Paths { return paths.Paths{App: appDir} }
 
 func launcher() daemon.Launcher {
-	return daemon.Launcher{Paths: appPaths(), Version: appVersion, Args: []string{"daemon"}}
+	return daemon.Launcher{
+		Paths: appPaths(), Version: appVersion, LifecycleBuild: appVersion,
+		Args: []string{"daemon"}, DaemonRole: appDaemonRole(),
+	}
 }
 
 func newClient(ctx context.Context) (*daemon.Client, error) { return launcher().NewClient(ctx) }
@@ -97,6 +100,8 @@ func buildServer() (*daemon.Server, error) {
 		AppName:           binaryName,
 		Paths:             appPaths(),
 		Version:           appVersion,
+		LifecycleBuild:    appVersion,
+		DaemonRole:        appDaemonRole(),
 		ActiveStatuses:    []string{statusOpen},
 		PresenceEventType: c.Type(),
 		OnPresenceChange:  c.OnPresenceChange,

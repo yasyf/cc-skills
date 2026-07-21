@@ -2070,12 +2070,12 @@ def test_real_templates_render_go(go_var_pairs):
         ("launchagent", "service.RestartAlways", "service.NoRestart"),
     ],
 )
-def test_real_templates_render_daemonkit_v4(go_var_pairs, mode, restart_policy, forbidden_policy):
+def test_real_templates_render_daemonkit_v1(go_var_pairs, mode, restart_policy, forbidden_policy):
     pairs = go_var_pairs + [f"LAUNCHD_MODE={mode}"]
     plan, notices = _real_plan("go", pairs, features=["daemonkit"])
     assert notices == []
     assert "internal/daemon/peer.go" not in plan
-    assert "github.com/yasyf/daemonkit v0.1.1-0.20260719051422-e93fc1280567" in plan["go.mod"]
+    assert "github.com/yasyf/daemonkit v0.1.1-0.20260721013056-c39154cdbd0a" in plan["go.mod"]
 
     main = plan["cmd/demo-projd/main.go"]
     assert "proc.CloseInheritedFDs()" in main
@@ -2093,10 +2093,10 @@ def test_real_templates_render_daemonkit_v4(go_var_pairs, mode, restart_policy, 
     assert forbidden_policy not in service_template
 
     protocol = plan["internal/daemon/protocol_test.go"]
-    assert "wire.ProtocolVersion != 4" in protocol
-    assert "lifeproto.Version != 2" in protocol
-    assert '"protocol":4' in protocol
-    assert '"v":1' not in protocol
+    assert "wire.ProtocolVersion != 1" in protocol
+    assert "lifeproto.Version != 1" in protocol
+    assert '"protocol":1' in protocol
+    assert '"v":2' not in protocol
 
     serve = plan["internal/daemon/serve.go"]
     assert "serveLifecycle" not in serve

@@ -8,27 +8,27 @@ import (
 )
 
 func TestDaemonkitProtocolSnapshot(t *testing.T) {
-	if wire.ProtocolVersion != 4 {
-		t.Fatalf("wire.ProtocolVersion = %d, want 4", wire.ProtocolVersion)
+	if wire.ProtocolVersion != 1 {
+		t.Fatalf("wire.ProtocolVersion = %d, want 1", wire.ProtocolVersion)
 	}
-	if lifeproto.Version != 2 {
-		t.Fatalf("lifeproto.Version = %d, want 2", lifeproto.Version)
+	if lifeproto.Version != 1 {
+		t.Fatalf("lifeproto.Version = %d, want 1", lifeproto.Version)
 	}
 	cases := []struct {
 		name    string
 		message any
 		want    string
 	}{
-		{"health request", lifeproto.NewHealthRequest(), `{"v":2,"op":"health"}`},
+		{"health request", lifeproto.NewHealthRequest(), `{"v":1,"op":"health"}`},
 		{
 			"health response",
 			lifeproto.NewHealthResponse("1.0.0", int(wire.ProtocolVersion), 4242, "healthy", false, false),
-			`{"v":2,"op":"health","build":"1.0.0","protocol":4,"pid":4242,"state":"healthy","draining":false,"busy":false}`,
+			`{"v":1,"op":"health","build":"1.0.0","protocol":1,"pid":4242,"state":"healthy","draining":false,"busy":false}`,
 		},
-		{"shutdown request", lifeproto.NewShutdownRequest(), `{"v":2,"op":"shutdown"}`},
-		{"shutdown response", lifeproto.NewShutdownResponse(true), `{"v":2,"op":"shutdown","ok":true}`},
-		{"handoff request", lifeproto.NewHandoffRequest(), `{"v":2,"op":"handoff"}`},
-		{"handoff response", lifeproto.NewHandoffResponse(true), `{"v":2,"op":"handoff","ok":true}`},
+		{"shutdown request", lifeproto.NewShutdownRequest(), `{"v":1,"op":"shutdown"}`},
+		{"shutdown response", lifeproto.NewShutdownResponse(true), `{"v":1,"op":"shutdown","ok":true}`},
+		{"handoff request", lifeproto.NewHandoffRequest(), `{"v":1,"op":"handoff"}`},
+		{"handoff response", lifeproto.NewHandoffResponse(true), `{"v":1,"op":"handoff","ok":true}`},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

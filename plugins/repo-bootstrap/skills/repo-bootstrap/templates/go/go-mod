@@ -3,5 +3,5 @@ module {{MODULE_PATH}}
 go {{GO_VERSION}}
 {{#FEATURE_DAEMONKIT}}
 
-require github.com/yasyf/daemonkit v0.1.1-0.20260719051422-e93fc1280567
+require github.com/yasyf/daemonkit v0.1.1-0.20260721013056-c39154cdbd0a
 {{/FEATURE_DAEMONKIT}}

@@ -338,7 +338,7 @@ FILES = (
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),
     # daemonkit files (off by default). cmd/<name>d is a second binary beside the
-    # base CLI. Runtime owns takeover and wire v4; no consumer peer/server adapter
+    # base CLI. Runtime owns takeover and exact wire v1; no consumer peer/server adapter
     # is generated. scripts/test.sh is mandatory wherever proc.Spawn lives.
     FileSpec("cmd/{{PROJECT_NAME}}d/main.go", "go/cmd/daemon-main.go", "go", feature="daemonkit"),
     FileSpec("internal/daemon/root.go", "go/internal/daemon/root.go", "go", feature="daemonkit"),

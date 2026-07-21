@@ -13,7 +13,7 @@
 ├── internal/
 │   ├── cli/               # cobra command tree — TODO(bootstrap): name the commands
 {{#FEATURE_DAEMONKIT}}
-│   ├── daemon/            # daemonkit Runtime, persistent wire v4, launchd service
+│   ├── daemon/            # daemonkit Runtime, persistent wire v1, launchd service
 {{/FEATURE_DAEMONKIT}}
 │   ├── version/           # build version, stamped via -ldflags
 │   └── log/               # slog setup
@@ -28,7 +28,7 @@
 
 ## Daemon (daemonkit)
 
-`cmd/{{PROJECT_NAME}}d` is a detached daemon built on [daemonkit](https://github.com/yasyf/daemonkit). `proc.CloseInheritedFDs()` is main's literal first call. One `daemon.Runtime` owns listener takeover, admission, persistent wire-v4 sessions, and ordered shutdown; `wire.LifecyclePeer` and `trust.Policy` provide the exact lifecycle and typed same-UID trust boundary. The version is stamped via `-ldflags -X {{MODULE_PATH}}/internal/daemon.buildVersion=vX.Y.Z`, dev builds fall back to `version.DevString`, and `{{PROJECT_NAME}}d service install|uninstall|status` manages the typed launchd policy.
+`cmd/{{PROJECT_NAME}}d` is a detached daemon built on [daemonkit](https://github.com/yasyf/daemonkit). `proc.CloseInheritedFDs()` is main's literal first call. One `daemon.Runtime` owns listener takeover, admission, persistent wire-v1 sessions, and ordered shutdown; `wire.LifecyclePeer` and `trust.Policy` provide the exact lifecycle and typed same-UID trust boundary. The version is stamped via `-ldflags -X {{MODULE_PATH}}/internal/daemon.buildVersion=vX.Y.Z`, dev builds fall back to `version.DevString`, and `{{PROJECT_NAME}}d service install|uninstall|status` manages the typed launchd policy.
 
 **Never run bare `go test`** — `scripts/test.sh ./...` caps `RLIMIT_NPROC` so a `proc.Spawn` path that execs a test binary hits `EAGAIN` instead of fork-bombing the machine. CI routes through it too.
 
