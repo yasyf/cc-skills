@@ -2075,7 +2075,7 @@ def test_real_templates_render_daemonkit_v1(go_var_pairs, mode, restart_policy, 
     plan, notices = _real_plan("go", pairs, features=["daemonkit"])
     assert notices == []
     assert "internal/daemon/peer.go" not in plan
-    assert "github.com/yasyf/daemonkit v0.1.1-0.20260721013056-c39154cdbd0a" in plan["go.mod"]
+    assert "github.com/yasyf/daemonkit v0.1.1-0.20260721044346-f090a23cf11f" in plan["go.mod"]
 
     main = plan["cmd/demo-projd/main.go"]
     assert "proc.CloseInheritedFDs()" in main
