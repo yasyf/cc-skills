@@ -82,7 +82,7 @@ main.content p {
 /* content measure */
 @media (min-width: 992px) {
   body:not(.gd-homepage) main.content {
-    max-width: 50rem;
+    max-width: min(50rem, 100%);
     margin-inline: auto;
     padding-inline: 0.5rem;
   }
