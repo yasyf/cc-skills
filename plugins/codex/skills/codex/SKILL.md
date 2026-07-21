@@ -137,6 +137,56 @@ micro-schema natively with `codex-ask --schema <file>` (→ codex
 `--output-schema`). Implementation lanes return prose led by their
 `REPLY_FILE:` pointer line.
 
+## Async Dispatch (owner subagents and the steering channel)
+
+Blocking foreground is the default because a backgrounded completion never
+wakes an in-process subagent — the harness gap the guard hook exists for.
+`--dispatch` is the sanctioned async path: the call returns as soon as the
+worker detaches, and completion wakes the waiting agent through the codex-ask
+steering channel instead of a Bash return.
+
+1. **Know your agent id.** It arrives in your greeting directive, the first
+   steering-channel message you see. No greeting means no channel — use the
+   blocking flow instead.
+2. **Dispatch async.** `codex-ask --dispatch --owner <agent-id> - <<'QUESTION'`
+   (`--owner` requires `--dispatch`; `--dispatch` alone is fire-and-forget,
+   recovered via its `AWAIT:` line). The usual
+   `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines print, then the call returns with
+   the run still going.
+3. **Park on `await`.** Call the `await` tool with your `agent_id`, sizing
+   `timeout_seconds` to the run — xhigh typically returns in ~2 minutes, a
+   review sweep can take 10–30. Progress pings hold a parked call open. An
+   elapsed window returns a "no directive" notice, not an error: first read
+   the run dir's `status` file — a terminal state means another delivery rung
+   already drained the directive, so read the reply; re-park only while the
+   run is still going.
+4. **On wake, read the disk.** The directive names the run's terminal status
+   and reply file; it never carries the reply. Read the `REPLY_FILE:` path
+   and evaluate per Step 3 below.
+5. **A missed wake costs nothing.** The wake is fail-open: a dead daemon
+   means no directive, never a lost run — the `AWAIT:` line
+   (`codex-ask --await <run-dir>`) recovers from any session. An owner that
+   finished before the wake landed gets collected by the relay: its parent is
+   nudged to wake it, and that wake is authorized — call `await` to collect.
+
+The fan-out shape above composes unchanged: the parent mints the root, spawns
+one owner subagent per lane, each owner dispatches `--dispatch --owner` into
+its lane with `-s` and parks; the daemon wakes owners as their runs finish,
+and the terminal `--collect` still gates.
+
+**Top-level sessions use Monitor + `--watch`, not the channel.** From the main
+conversation — the one place Monitor wakes actually deliver — dispatch with
+`--dispatch` alone, then arm `Monitor` on `codex-ask --watch <run-dir>...`
+(fan-out roots expand to their lanes; `--watch --all` covers every in-flight
+run). The watch emits one JSONL record per run as it settles — completed,
+failed, or died, never silence — and exits once all watched runs have
+settled. Arm it after dispatching: a lane that hasn't dispatched yet reads
+`no-run` and settles immediately. Placement rule: top-level async is
+Monitor + `--watch`; an owner subagent parks on `await` (Monitor wakes are
+dropped inside subagents); a workflow stage's own dispatch stays
+script-driven and blocking, though a workflow may spawn owner subagents that
+park; a plain subagent without the channel foreground-blocks as ever.
+
 ## Workflow
 
 ### Step 1: Compose the Context

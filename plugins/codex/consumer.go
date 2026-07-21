@@ -19,10 +19,15 @@ import (
 	"github.com/yasyf/daemonkit/paths"
 )
 
-// appVersion is the daemon build identity (daemon.Config.Version, gating
-// daemon-upgrade matching). goreleaser stamps -s -w only, so releases share the
-// default until the Phase F ldflags land a per-build stamp.
-var appVersion = "0.0.0"
+// appVersion is the build identity: daemon.Config.Version (gating daemon-upgrade
+// matching) and the --version output install-binary.sh pins on. goreleaser stamps
+// the release value; "dev" marks an unstamped build the installer must not clobber.
+var appVersion = "dev"
+
+// wakeTimeout bounds the detached worker's owner-wake dial. Every failure inside
+// it is swallowed so a dead daemon never crashes the worker or loses the
+// completed run; a var so a test can shrink the bound.
+var wakeTimeout = 30 * time.Second
 
 const (
 	// binaryName is the cobra root name: the channel MCP server name, the source
@@ -51,7 +56,10 @@ const (
 func appPaths() paths.Paths { return paths.Paths{App: appDir} }
 
 func launcher() daemon.Launcher {
-	return daemon.Launcher{Paths: appPaths(), Version: appVersion, Args: []string{"daemon"}}
+	return daemon.Launcher{
+		Paths: appPaths(), Version: appVersion, LifecycleBuild: appVersion,
+		Args: []string{"daemon"}, DaemonRole: appDaemonRole(),
+	}
 }
 
 func newClient(ctx context.Context) (*daemon.Client, error) { return launcher().NewClient(ctx) }
@@ -92,13 +100,15 @@ func buildServer() (*daemon.Server, error) {
 		AppName:           binaryName,
 		Paths:             appPaths(),
 		Version:           appVersion,
+		LifecycleBuild:    appVersion,
+		DaemonRole:        appDaemonRole(),
 		ActiveStatuses:    []string{statusOpen},
 		PresenceEventType: c.Type(),
 		OnPresenceChange:  c.OnPresenceChange,
 		BootReconcile:     c.BootReconcile,
 		AgentGreeting:     agentGreeting,
 		// ScopeResolve nil → identity; Gate/AgentGate nil → allow every edit and
-		// stop; Migrate nil → no domain tables.
+		// stop; zero StoreSchema → no domain tables.
 	})
 }
 
@@ -184,9 +194,63 @@ func deps() cmd.Deps {
 	}
 }
 
-// directCmd enqueues a steering directive addressed to an agent via OpAgentDirect
-// and prints the daemon's reply. The detached worker calls it in Phase C to wake
-// the owner subagent parked on await; an empty --agent targets the top-level agent.
+// directWake dials the daemon and enqueues one steering directive addressed to
+// agentID: EnsureCurrent → NewClient → OpAgentDirect. It is the single enqueue
+// path shared by the `direct` subcommand and the detached worker's owner wake.
+// claudePID is passed in (the worker persists it from dispatch time; the
+// subcommand supplies procs.ClaudePID) rather than resolved here.
+func directWake(ctx context.Context, d cmd.Deps, session, scope string, claudePID int, agentID, origin, text string) (daemon.Reply, error) {
+	if err := d.EnsureCurrent(ctx); err != nil {
+		return daemon.Reply{}, err
+	}
+	body, _ := json.Marshal(map[string]string{"agent_id": agentID, "origin": origin, "text": text})
+	client, err := d.NewClient(ctx)
+	if err != nil {
+		return daemon.Reply{}, err
+	}
+	defer func() { _ = client.Close() }()
+	reply, err := client.Do(ctx, daemon.Envelope{
+		Op: daemon.OpAgentDirect, Session: session, ClaudePID: claudePID, Scope: scope, Body: body,
+	})
+	if err != nil {
+		return daemon.Reply{}, err
+	}
+	if !reply.OK {
+		return daemon.Reply{}, errors.New(reply.Error)
+	}
+	return reply, nil
+}
+
+// wakeOwner enqueues a wake-only directive to the dispatching owner subagent once
+// the worker's terminal status is durably on disk. Disk is truth: the directive
+// names the terminal state and the reply/log paths, never the reply payload. The
+// dial is bounded (wakeTimeout) and fail-open — a dead daemon is swallowed (at
+// most a line in the lane log), so the worker still exits with status intact.
+func wakeOwner(sdir string, c cmdSpec) {
+	text := fmt.Sprintf(
+		"codex dispatch %s. Read the reply from disk at %s (log: %s). "+
+			"Wake-only completion notice — the result is in the file, not in this message.",
+		classify(sdir).state, c.Reply, c.Log)
+	ctx, cancel := context.WithTimeout(context.Background(), wakeTimeout)
+	defer cancel()
+	if _, err := directWake(ctx, deps(), c.Session, c.Scope, c.ClaudePID, c.Owner, event.OriginSystem, text); err != nil {
+		appendLine(c.Log, "codex-ask: owner wake failed (fail-open): "+err.Error())
+	}
+}
+
+// appendLine best-effort appends one line to an existing file (the lane log),
+// swallowing every error — a wake-failure note must never itself fail the worker.
+func appendLine(path, line string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0) //nolint:gosec // appends to the lane's own log by path, by design
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintln(f, line)
+}
+
+// directCmd enqueues a steering directive addressed to an agent via directWake
+// and prints the daemon's reply; an empty --agent targets the top-level agent.
 func directCmd(d cmd.Deps) *cobra.Command {
 	var session, cwd, agentID, origin string
 	c := &cobra.Command{
@@ -194,26 +258,9 @@ func directCmd(d cmd.Deps) *cobra.Command {
 		Short: "Enqueue a steering directive for an agent (empty --agent = the top-level agent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			ctx := c.Context()
-			if err := d.EnsureCurrent(ctx); err != nil {
-				return err
-			}
-			body, _ := json.Marshal(map[string]string{
-				"agent_id": agentID, "origin": origin, "text": args[0],
-			})
-			client, err := d.NewClient(ctx)
+			reply, err := directWake(c.Context(), d, session, cwdOr(cwd), d.ClaudePID(), agentID, origin, args[0])
 			if err != nil {
 				return err
-			}
-			defer func() { _ = client.Close() }()
-			reply, err := client.Do(ctx, daemon.Envelope{
-				Op: daemon.OpAgentDirect, Session: session, ClaudePID: d.ClaudePID(), Scope: cwdOr(cwd), Body: body,
-			})
-			if err != nil {
-				return err
-			}
-			if !reply.OK {
-				return errors.New(reply.Error)
 			}
 			_, err = fmt.Fprintf(c.OutOrStdout(), "%s\n", reply.Body)
 			return err

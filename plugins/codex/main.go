@@ -27,7 +27,7 @@ const (
 )
 
 const usageStr = "usage: codex-ask [-m sol|luna] [-s ABS_DIR] [--image] [--schema FILE] " +
-	"[--skip-git-repo-check] [QUESTION_FILE | - | QUESTION_TEXT]"
+	"[--skip-git-repo-check] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}
 
@@ -57,6 +57,12 @@ func main() {
 		mintRootMode(args[1:])
 	case len(args) == 1 && args[0] == "--ps":
 		psMode()
+	case len(args) >= 1 && args[0] == "--watch":
+		watchMode(args[1:])
+	case len(args) == 1 && args[0] == "--version":
+		// install-binary.sh compares this first line against the pinned release.
+		fmt.Println(appVersion)
+		os.Exit(0)
 	case len(args) >= 1 && isConsumerSubcommand(args[0]):
 		// Additive cc-interact subcommands (daemon, agent-*, channel, direct) —
 		// plain words that never shadow the leading --flag cases above or askMode.

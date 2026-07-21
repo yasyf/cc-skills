@@ -6,7 +6,7 @@ Stack specifics for a project documented with Great Docs, which renders a Quarto
 
 - `great-docs.yml` holds the site config, including `module`, `sections` where each names a directory under `docs/`, `hero`, `navbar_color`, `accent_color`, `cli`, and `pre_render` scripts.
 - The curated symbol reference comes from the package root `__init__.py` re-exports, which often carry no `__all__`. The auto-generated symbol pages live under the generated `reference/` directory; hand-written cheatsheets live under `docs/reference/`. Keep the two distinct and link between them.
-- Build green with `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build` after `uv sync --group docs` — the exact command docs CI runs; it applies the fleet's perf patches and materializes the `pre_render` titles fix into the gitignored `docs/scripts/.gd-build/`. Never bare `great-docs build`: without the materialized script a large API reference makes the render crawl for an hour (pandoc #11687 — repo-bootstrap's `reference/docs-site.md` has the details). Set `GITHUB_TOKEN` locally so the GitHub-Releases changelog page does not skip on rate limits.
+- The gate for a docs change is docs CI on the pushed commit, never a local build. When you must build locally — iterating on a render problem, not verifying a change — use the exact command CI runs: `uv sync --group docs`, then `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build`. Never bare `great-docs build`: gd-build applies the fleet's perf patches and materializes the `pre_render` titles fix into the gitignored `docs/scripts/.gd-build/`, and without that script a large API reference makes the render crawl for an hour (pandoc #11687 — repo-bootstrap's `reference/docs-site.md` has the details). Set `GITHUB_TOKEN` locally so the GitHub-Releases changelog page does not skip on rate limits.
 
 ## Landing page
 
@@ -42,6 +42,8 @@ The getting-started tutorial and any multi-step how-to follow one contract:
 ## Pages
 
 - Every `.qmd` starts with front matter holding at least a `title`.
+- A page that absorbs or renames others carries `aliases:` frontmatter listing every killed `.html` URL (`aliases: [signals.html, transcript.html]`), plus explicit `{#anchors}` on the sections old deep links point into — `consolidation.md`, stages 4-5.
+- A section with `index: true` in `great-docs.yml` generates its card grid from its pages. Prefer that to a hand-written index page: a flat link directory drifts as pages come and go, and killing it is a merge-map verdict, not a loss.
 - Each section's `index.qmd` states which Diataxis mode its pages are.
 - End a how-to or tutorial with a "Next steps" or "See also" list of relative links.
 - `.qmd` is not auto-detected by slop-cop, so always pass `--lang=markdown`.

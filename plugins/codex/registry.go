@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type cmdSpec struct {
@@ -17,6 +18,13 @@ type cmdSpec struct {
 	Reply    string   `json:"reply"`
 	ReplyTmp string   `json:"reply_tmp"`
 	Log      string   `json:"log"`
+	// Owner/Session/Scope/ClaudePID are captured at --dispatch time (the worker is
+	// orphaned to PID 1 and cannot derive them) so the worker can wake the owner
+	// subagent on completion. Absent for a foreground/top-level dispatch.
+	Owner     string `json:"owner,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	ClaudePID int    `json:"claude_pid,omitempty"`
 }
 
 type laneInfo struct {
@@ -321,6 +329,143 @@ func psWalk(d string, now float64) {
 		_ = os.RemoveAll(d)
 		return
 	}
+	var logAge *float64
+	if li.log != "" && exists(li.log) {
+		if fi, err := os.Stat(li.log); err == nil {
+			a := math.Round((now-float64(fi.ModTime().UnixNano())/1e9)*10) / 10
+			logAge = &a
+		}
+	}
+	rec := psRecord{
+		Dir:       d,
+		State:     li.state,
+		Pid:       li.pid,
+		Started:   infoFloat(li.info, "ts"),
+		LogAgeS:   logAge,
+		Cwd:       infoString(li.info, "cwd"),
+		Session:   infoString(li.info, "session"),
+		ReplyFile: nilIfEmpty(li.reply),
+	}
+	b, _ := json.Marshal(rec)
+	fmt.Println(string(b))
+}
+
+// watchMode: the registry stream for a top-level Monitor watch. Emits one JSONL
+// psRecord per watched run when it settles (any state but pending/running) and
+// exits once all have settled; a run already settled at arm time emits at once.
+func watchMode(args []string) {
+	all := false
+	var targets []string
+	for _, a := range args {
+		switch {
+		case a == "--all":
+			all = true
+		case strings.HasPrefix(a, "-"):
+			usage()
+		default:
+			targets = append(targets, a)
+		}
+	}
+	if all == (len(targets) > 0) {
+		die("codex-ask: --watch takes run/root dirs or --all (one or the other)", 2)
+	}
+	var watched []string
+	if all {
+		watched = unsettledRuns()
+		if len(watched) == 0 {
+			fmt.Println(`{"state":"idle","note":"no pending or running runs to watch"}`)
+			os.Exit(0)
+		}
+	} else {
+		for _, tgt := range targets {
+			watched = append(watched, watchTargets(tgt)...)
+		}
+	}
+	settled := map[string]bool{}
+	for {
+		done := true
+		for _, d := range watched {
+			if settled[d] {
+				continue
+			}
+			li := classify(d)
+			if li.state == "pending" || li.state == "running" {
+				done = false
+				continue
+			}
+			settled[d] = true
+			emitWatchRecord(d, li)
+		}
+		if done {
+			os.Exit(0)
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// watchTargets resolves one --watch operand: a run dir watches itself, a fan-out
+// root watches its lane children — the same split --collect makes.
+func watchTargets(root string) []string {
+	if !strings.HasPrefix(root, "/") {
+		die("codex-ask: --watch needs absolute run or root dirs", 2)
+	}
+	rejectOutsideScratch(root, "--watch target")
+	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --watch target
+		die(fmt.Sprintf("codex-ask: --watch: no such directory: %s", root), 2)
+	}
+	if isFile(join(root, "meta")) || isFile(join(root, "status")) || isFile(join(root, "pid")) {
+		return []string{root}
+	}
+	var lanes []string
+	entries, _ := os.ReadDir(root) // sorted by name
+	for _, e := range entries {
+		if isDir(join(root, e.Name())) { // is_dir() follows symlinks; a symlinked lane counts
+			lanes = append(lanes, join(root, e.Name()))
+		}
+	}
+	if len(lanes) == 0 {
+		die(fmt.Sprintf("codex-ask: --watch: %s has no run state and no lane dirs", root), 2)
+	}
+	return lanes
+}
+
+// unsettledRuns walks the registry base like --ps (containers expand into lane
+// children) and returns every run still pending or running.
+func unsettledRuns() []string {
+	var runs []string
+	var walk func(d string)
+	walk = func(d string) {
+		hasRunState := exists(join(d, "meta")) || exists(join(d, "status")) || exists(join(d, "pid"))
+		if !hasRunState {
+			kids := false
+			if entries, err := os.ReadDir(d); err == nil {
+				for _, e := range entries {
+					if isDir(join(d, e.Name())) { // follow symlinks, like Python's is_dir()
+						kids = true
+						walk(join(d, e.Name()))
+					}
+				}
+			}
+			if kids {
+				return
+			}
+		}
+		if st := classify(d).state; st == "pending" || st == "running" {
+			runs = append(runs, d)
+		}
+	}
+	base := runsBase()
+	entries, _ := os.ReadDir(base)
+	for _, e := range entries {
+		if isDir(join(base, e.Name())) { // follow symlinks, like Python's is_dir()
+			walk(join(base, e.Name()))
+		}
+	}
+	return runs
+}
+
+func emitWatchRecord(d string, li laneInfo) {
+	now := nowSec()
 	var logAge *float64
 	if li.log != "" && exists(li.log) {
 		if fi, err := os.Stat(li.log); err == nil {

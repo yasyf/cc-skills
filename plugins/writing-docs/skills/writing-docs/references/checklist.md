@@ -47,9 +47,25 @@ Run this before merging any documentation change. The enforcement hook points th
 - [ ] The opener fragment, GitHub About description, package description, and docs hero tagline are identical.
 - [ ] The CHANGELOG is updated in Keep a Changelog format, with a grouped Unreleased entry. Any deprecation carries an in-docs notice and a migration path.
 
+## Consolidation (when pages merge, die, or move)
+
+- [ ] Every affected page has a merge-map verdict — merge, kill, or stay standalone — with a stated WHY; no page's fate is implicit.
+- [ ] Merged pages are rewritten as one piece (authored lead, demoted headings, one deduped See-also, cross-references turned into same-page anchors), never concatenated.
+- [ ] Every audit gem survives byte-exact, verified by searching the merged page for each one.
+- [ ] `aliases:` frontmatter covers every killed URL, with explicit anchors for inbound section links.
+- [ ] The link sweep ran over the explicit retarget map and covered docs, README, the landing page, and any bundled skills; the killed-page reference count is zero.
+
+## Honesty gates and delegation
+
+- [ ] The reflection gate ran at landing: every documented symbol imported and inspected against the real package, and any miss stopped the ship (the draft is wrong, not the code).
+- [ ] Every code block ran at its strongest applicable tier — engine-run, compile, or declared-up-front syntax-only — per the plan, not ad hoc.
+- [ ] Shown CLI output was regenerated from a live run in the current tree, trimmed with a real comment.
+- [ ] Demos are parity-gated against the real engine or labeled as recorded; nothing canned poses as live.
+- [ ] Delegated drafts landed verbatim, byte-compared against the draft; the delegate's own words are confined to retargets and glue.
+
 ## Build
 
 - [ ] Public-API docstrings are present and Google-style where the reference renders them; internal helpers carry none.
 - [ ] The docs homepage shows the get-started command and the demo above the fold, before any feature grid.
 - [ ] Tutorial and walkthrough pages carry shown-output checkpoints every few steps.
-- [ ] The docs site builds green. On Great Docs that means `uv sync --group docs`, then the gd-build wrapper docs CI runs: `uv run --with "git+https://github.com/yasyf/cc-skills@main#subdirectory=tools/gd-build" gd-build build` (never bare `great-docs build` — it misses the materialized pre_render script).
+- [ ] Docs CI on the pushed commit is green — that run is the gate, never a local build. (A local repro, when a render problem needs iterating, uses the exact command CI runs; `great-docs-quarto.md` has it.)

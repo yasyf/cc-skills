@@ -10,7 +10,7 @@ Keep each genre distinct from its plain cousin. A cheat sheet is not a "lite ref
 
 ## Cheat sheet
 
-A one-screen scan sheet for a reader who knows the tool and wants the snippet, now. ast-grep's cheat sheets are the model.
+A one-screen scan sheet for a reader who knows the tool and wants the snippet, now. ast-grep's cheat sheets are the model; captain-hook's single-page cheatsheet shows the shape applied, opening "Every hook you reach for, on one page. Copy a line, swap the strings, drop it in `.claude/hooks/`."
 
 - Title naming the surface ("Hooks", "Matchers")
 - One framing sentence, then straight into entries
@@ -20,6 +20,11 @@ A one-screen scan sheet for a reader who knows the tool and wants the snippet, n
 - A "See also" line to the how-to that teaches the surface and the reference that lists every option
 
 The cheat sheet shows the *common* form of each thing; the reference shows *every* form. They cross-link, and neither carries the other's depth.
+
+Two more rules from practice:
+
+- One cheat sheet per project beats three. Subpages ("Hooks", "Matchers", "Workflows") accumulate and defeat the genre — the reader came for one-screen scan speed. Collapse them into one page with `aliases:` covering the killed URLs.
+- Give the reader one command that exercises a copied entry, stated once in a callout up top ("Save it to `.claude/hooks/x.py` and run `uvx capt-hook --hooks .claude/hooks test`"), so every snippet is one step from verified.
 
 ## Examples catalog entry
 
@@ -35,3 +40,5 @@ One runnable specimen per page, framed as a problem the reader has hit. ast-grep
 - A "See also" to the how-to and reference behind it
 
 Order a catalog simple to complex and group it by job. Every entry stands alone — no entry depends on reading the one before it.
+
+The catalog index carries a verified-how column, and the taxonomy behind it is stated once, centrally, on the index. captain-hook's: deterministic hooks assert their verdicts inline (**inline tests**); LLM- and session-state-driven hooks are verified by replaying a real session (**replay**), "because a stubbed model proves only the wiring." The column keeps every entry honest about what its badge actually proves — the same law as `honesty-gates.md` Gate 4, applied to a catalog.
