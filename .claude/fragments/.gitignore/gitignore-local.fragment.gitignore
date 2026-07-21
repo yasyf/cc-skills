@@ -3,3 +3,6 @@
 
 # Stray binary from a bare `go build ./...` in the codex nested module
 /plugins/codex/codex
+
+# Managed symlink install-binary.sh maintains; never tracked
+/plugins/codex/bin/

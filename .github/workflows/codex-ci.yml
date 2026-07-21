@@ -28,8 +28,12 @@ jobs:
         run: |
           mkdir -p /tmp/codex-ci
           cd plugins/codex && go build -o /tmp/codex-ci/codex-ask ./ && go vet ./... && go test -race ./...
+      - name: release build parity (CGO_ENABLED=0, goreleaser's env)
+        run: cd plugins/codex && CGO_ENABLED=0 go build -o /dev/null .
       - name: repo-bootstrap codex-ask goldens
         run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests/test_scaffold.py -k codex_ask -q
+      - name: capt-hook pack test
+        run: uvx --isolated 'capt-hook>=11.0.0' pack test plugins/codex
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

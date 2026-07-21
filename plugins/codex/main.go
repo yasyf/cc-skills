@@ -59,6 +59,10 @@ func main() {
 		psMode()
 	case len(args) >= 1 && args[0] == "--watch":
 		watchMode(args[1:])
+	case len(args) == 1 && args[0] == "--version":
+		// install-binary.sh compares this first line against the pinned release.
+		fmt.Println(appVersion)
+		os.Exit(0)
 	case len(args) >= 1 && isConsumerSubcommand(args[0]):
 		// Additive cc-interact subcommands (daemon, agent-*, channel, direct) —
 		// plain words that never shadow the leading --flag cases above or askMode.

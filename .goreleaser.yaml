@@ -19,7 +19,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -X main.appVersion={{.Version}}
     # codesign+notarize via $MACOS_CODESIGN_SCRIPT; guarded so a local snapshot is a no-op.
     hooks:
       post:
