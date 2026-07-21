@@ -15,10 +15,12 @@ shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:claude-rules`,
 `cc-skills:version-control`, `cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
 `github:yasyf/cc-skills@main` — then the post-write step runs `cc-guides render`, which
 composes each `<target>`: markdown/shell get a line-1 `GENERATED …` marker, JSON is
-deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). Edit the
-fragments and re-run `cc-guides render`; a `Guides` GitHub workflow
-(`.github/workflows/guides.yml`) checks freshness on push and re-renders daily / on a
-cc-guides release. The layout schema, composition rules, and marker contract live in
+deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). During
+bootstrap, edit the fragments and re-run `cc-guides render`. In an onboarded repo,
+never render locally: commit and push the fragment alone, and the `Guides` workflow
+(`.github/workflows/guides.yml`, a shim onto `yasyf/cc-guides`) re-renders and commits
+the artifacts and lock on push (daily cron as backstop) and fails any PR that
+hand-edits a rendered artifact. The layout schema, composition rules, and marker contract live in
 the [cc-guides](https://github.com/yasyf/cc-guides) README — this repo keeps no
 rendering or checking machinery. The README seeds under `templates/_partials/*.md` are a
 separate mechanism: they carry no cc-guides directives and are inlined at scaffold time

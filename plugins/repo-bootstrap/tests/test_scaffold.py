@@ -53,7 +53,7 @@ BASE_DESTS = FRAGMENT_DESTS | {
     "STYLEGUIDE.md", "README.md", "CHANGELOG.md",
     ".claude/jj-config.toml",
     ".claude/hooks/STYLEGUIDE.md",  # always-shipped capt-hook Python style guide
-    ".github/workflows/guides.yml",  # cc-guides caller stub (check + re-render)
+    ".github/workflows/guides.yml",  # cc-guides shim onto the reusable Guides workflow
     "LICENSE",
 }
 
@@ -2319,15 +2319,16 @@ def test_apply_dry_run_writes_nothing(tmp_path, capsys):
     assert "WOULD WRITE  a.txt" in capsys.readouterr().out
 
 
-# --- guides.yml caller stub + cc-context marketplace ---
+# --- guides.yml shim + cc-context marketplace ---
 
 def test_base_emits_guides_yml(base_var_pairs):
     assert ".github/workflows/guides.yml" in dests("base", base_var_pairs)
     gy = _real_plan("base", base_var_pairs)[0][".github/workflows/guides.yml"]
-    assert "uses: yasyf/cc-guides@action-v1" in gy
-    assert "yasyf/cc-guides/.github/workflows/re-render.yml@action-v1" in gy
+    assert "uses: yasyf/cc-guides/.github/workflows/guides.yml@main" in gy
     assert "secrets: inherit" in gy
+    assert "permissions: {contents: write}" in gy
     assert "types: [cc-guides-render]" in gy
+    assert "action-v1" not in gy
 
 
 def test_settings_json_composes_from_pack_fragments(base_var_pairs):

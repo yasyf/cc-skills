@@ -16,17 +16,17 @@ Five fragment kinds, one directory each:
 
 ## How a repo consumes it
 
-Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` flags drift on push with a non-blocking warning and re-renders on a daily cron (`17 9 * * *`) that heals it.
+Each consumer declares a `layout.toml` per artifact under `.claude/fragments/<artifact-path>/`, with a local `settings-overrides.fragment.json` as its overlay. `.claude/fragments/cc-guides.lock` pins the source commit. `.github/workflows/guides.yml` is a never-changing shim onto `yasyf/cc-guides/.github/workflows/guides.yml@main`: every push to main re-renders and commits the artifacts and lock (a daily `17 9 * * *` cron backstops quiet repos), and a pull request that hand-edits a rendered artifact fails `pr-check` with a pointer at the fragment dir to edit instead.
 
 ## Propagation
 
-Pull-only. Each consumer re-renders on its own daily cron, so a pack change lands fleet-wide within 24 hours of merging — let it. Never run a fleet-wide dispatch loop or a manual render sweep. A single repo that needs its render early can trigger its own workflow (`gh workflow run guides.yml -R yasyf/<repo>`); that trigger exists for one repo at a time, not for fan-outs.
+Pull-only. Each consumer re-renders on its own pushes and its daily cron, so a pack change lands in active repos on their next push and fleet-wide within 24 hours of merging — let it. Never run a fleet-wide dispatch loop or a manual render sweep. A single quiet repo that needs its render early can trigger its own workflow (`gh workflow run guides.yml -R yasyf/<repo>`); that trigger exists for one repo at a time, not for fan-outs.
 
 One reliability caveat: GitHub disables a repo's scheduled workflows after 60 days without repo activity, and scheduled runs themselves don't count as activity. A dormant repo stops pulling silently — re-enable with `gh workflow enable guides.yml -R yasyf/<repo>` when it wakes up.
 
 ## Editing
 
-Never hand-edit a rendered artifact — an artifact-only edit self-reverts on the next cron render. Edit the fragment, render, and commit fragments, artifacts, and lock together in one commit.
+Never hand-edit a rendered artifact — an artifact-only edit self-reverts on the next render, and a PR carrying one goes red on `pr-check`. Never run `cc-guides render` locally either: edit the fragment, commit and push the fragment alone, and CI renders and commits the artifacts and lock. The only sanctioned local renders are repo-creation flows (repo-bootstrap's scaffold and settings-onboard's first render), where the artifacts must exist before the repo has CI.
 
 ## Fleet coverage
 
