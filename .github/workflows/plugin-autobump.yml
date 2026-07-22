@@ -29,16 +29,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # job_workflow_sha is empty for same-repo `uses: ./` calls; github.sha is that commit
+      # job_workflow_sha is unreliable (empty even cross-repo); job_workflow_ref carries repo/path@ref
       - name: Resolve pinned script ref
         id: script-ref
         run: |
           REF="${{ github.job_workflow_sha }}"
-          [ -n "$REF" ] || REF="${{ github.sha }}"
+          if [ -z "$REF" ] && [ "${{ github.repository }}" = "yasyf/cc-skills" ]; then
+            REF="${{ github.sha }}"
+          fi
+          if [ -z "$REF" ]; then
+            JWR="${{ github.job_workflow_ref }}"
+            REF="${JWR#*@}"
+          fi
           if [ -z "$REF" ]; then
             echo "::error::cannot resolve a pinned script ref — refusing an unpinned checkout"
             exit 1
           fi
+          echo "resolved script ref: $REF (job_workflow_sha='${{ github.job_workflow_sha }}' job_workflow_ref='${{ github.job_workflow_ref }}')"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       # Script + workflow stay in lockstep at the caller's pinned ref — never main.
