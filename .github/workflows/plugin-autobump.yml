@@ -29,20 +29,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # An empty job_workflow_sha would silently resolve to the default branch,
-      # breaking the pinned-ref invariant of the script checkout below.
-      - name: Verify pinned script ref
+      # job_workflow_sha is empty for same-repo `uses: ./` calls; github.sha is that commit
+      - name: Resolve pinned script ref
+        id: script-ref
         run: |
-          if [ -z "${{ github.job_workflow_sha }}" ]; then
-            echo "::error::github.job_workflow_sha is empty — refusing to check out the script from an unpinned ref"
+          REF="${{ github.job_workflow_sha }}"
+          [ -n "$REF" ] || REF="${{ github.sha }}"
+          if [ -z "$REF" ]; then
+            echo "::error::cannot resolve a pinned script ref — refusing an unpinned checkout"
             exit 1
           fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       # Script + workflow stay in lockstep at the caller's pinned ref — never main.
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-skills
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ steps.script-ref.outputs.ref }}
           path: .autobump-src
           sparse-checkout: .github/scripts
 
