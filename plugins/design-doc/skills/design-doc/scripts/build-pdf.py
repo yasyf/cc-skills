@@ -128,8 +128,6 @@ if R.get("tldr"):
     for t in R["tldr"]:
         w(f"<li>{inline(t)}</li>")
     w("</ul>")
-if META.get("tagline"):
-    w(f"<p style='color:var(--ink2)'>{inline(META['tagline'])}</p>")
 
 if svg.strip():
     w('<div class="diagram avoid"><h3>The system</h3>' + svg)

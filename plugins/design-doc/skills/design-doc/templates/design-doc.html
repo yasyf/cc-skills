@@ -250,7 +250,6 @@ footer a{cursor:pointer}
     <div class="lbl">tl;dr</div>
     <ul id="tldrList"></ul>
   </div>
-  <p class="sub" id="tagline" style="margin-top:14px" hidden></p>
   <div class="sysd">
     <h3>The system</h3>
     <!-- The system diagram is the one hand-authored part of this file. Replace the
@@ -409,7 +408,6 @@ document.title=(META.title?META.title+" — ":"")+(META.subtitle||"Design propos
 $("#navBrand").textContent=META.title||"";
 $("#docTitle").textContent=META.title||"Untitled design";
 $("#docDate").textContent=[META.subtitle||"Design proposal",META.phase,META.date].filter(Boolean).join(" · ");
-if(META.tagline){const t=$("#tagline");t.innerHTML=inline(META.tagline);t.hidden=false}
 if(META.diagramCaption){const c=$("#diagramCapn");c.innerHTML=inline(META.diagramCaption);c.hidden=false}
 $("#timingsCapn").innerHTML=inline(META.timingsCaption||"Log scale.");
 if(META.banner&&META.banner.text){

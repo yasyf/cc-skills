@@ -13,7 +13,6 @@ The contract between `registers.json`, `qa-log.json`, the HTML renderer, and the
 | `date` | yes | shown in the date line |
 | `subtitle` | no | defaults to "Design proposal" |
 | `phase` | no | e.g. "draft"; shown in the date line |
-| `tagline` | no | the stance line under the tl;dr |
 | `banner` | no | `{assumption, text}` — the warning card for the starred assumption; `assumption` must be a real `A#`; omit the key to omit the card |
 | `diagramCaption`, `timingsCaption` | no | captions under the diagram and timing strip |
 | `footerNote` | no | appended to the footer and the date lines |
