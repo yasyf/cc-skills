@@ -103,6 +103,20 @@
   "pipeBg": [
     { "t": "archive to object storage", "chip": "24h" }
   ],
+  "numbers": [
+    {
+      "id": "n-throughput",
+      "t": "Throughput budget",
+      "sub": "Sustained rates one tenant is sized for; latency for the same flows is under Request paths.",
+      "cols": ["Flow", "Sustained (E)", "Burst (E)", "Limited by"],
+      "rows": [
+        ["Enqueues", "3k jobs/s", "5k jobs/s for 60s", "the WAL flush loop"],
+        ["Dispatches", "3k jobs/s", "8k jobs/s", "parked long-polls per tenant"],
+        ["Archival drain", "1k jobs/s", "n/a (background)", "object-storage write rate[^3]"]
+      ],
+      "note": "Per tenant. Both (E) columns are estimates pending spike V1; the ceilings table below says what happens when a rate is exceeded."
+    }
+  ],
   "ceilings": [
     ["WAL flush loop", "~5k jobs/s (E)", "enqueue p95 climbs", "backpressure: 429 with retry-after"],
     ["parked workers", "~10k long-polls (E)", "dispatch latency climbs", "per-tenant cap; new polls rejected"],

@@ -1,6 +1,6 @@
 ---
 name: design-doc
-description: Run an assumptions-first architecture design and ship it as an interactive design doc. Ground truths land in a register with stable IDs, every design fork goes through a question round with a recorded escape hatch, an adversarial review attacks the middle draft, and timing estimates are gated on named spikes. The deliverable is a registers.json-driven single-file HTML doc plus a generated PDF, written as a humble proposal that explains and asks for feedback. Use when asked to "write a design doc", "architecture proposal", "help me design <system>", "redesign <system>", "assumptions-first design", or to turn a systems discussion into a reviewable design document.
+description: Run an assumptions-first architecture design and ship it as an interactive design doc. Ground truths land in a register with stable IDs, every design fork goes through a question round with a recorded escape hatch, an adversarial review attacks the middle draft, and every estimate is gated on a named spike. The deliverable is a registers.json-driven single-file HTML doc plus a generated PDF, written as a humble proposal that explains and asks for feedback. Use when asked to "write a design doc", "architecture proposal", "help me design <system>", "redesign <system>", "assumptions-first design", or to turn a systems discussion into a reviewable design document.
 allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:*, wlm:*, slop-cop:*, uvx:*, ssh:*, rsync:*), Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
 
@@ -62,9 +62,15 @@ Attack the middle draft, before polish makes flaws harder to see. Use the `codex
 
 **Exit criteria:** every finding has a disposition, and the latest pass produced nothing that changes a decision.
 
-## Phase 4 — Timings, ceilings, spikes
+## Phase 4 — The quantitative story
 
-Skip this phase when the system has no latency or load story — the doc hides empty sections. Otherwise: give each request path p50/p95 segments marked `(E)`, give each resource a ceiling row (ceiling, first symptom, guard), and hold the degradation rule: under load the system backpressures, rejects, or goes stale; a design whose overload mode corrupts data is off-design. Every `(E)` is gated on a named `V#` spike, because an estimate nobody plans to measure is a guess wearing a costume.
+Latency is one axis a design can be measured on, not the default. The doc carries a small library of quantitative components; pick the ones that describe this system, skip the rest (the doc hides empty sections), and skip the phase entirely when the design has no quantitative story:
+
+- **Request paths** (`paths`, plus the `scaleMarks` strip) — for designs whose story is latency: p50/p95 segments per step, summed and traceable.
+- **Load ceilings** (`ceilings`) — for designs whose story is load: each resource gets a ceiling, its first observable symptom, and the guard in front of it.
+- **Number tables** (`numbers`) — any other axis, each table with its own columns: a throughput budget, storage growth, a cost model, freshness windows.
+
+Two rules hold whichever components are in play. Every unmeasured number is marked `(E)` and gated on a named `V#` spike, because an estimate nobody plans to measure is a guess wearing a costume. And under load the system backpressures, rejects, or goes stale; a design whose overload mode corrupts data is off-design.
 
 **Exit criteria:** no `(E)` without a spike; every ceiling row has a guard.
 

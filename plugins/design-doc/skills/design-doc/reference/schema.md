@@ -17,7 +17,7 @@ The contract between `registers.json`, `qa-log.json`, the HTML renderer, and the
 | `banner` | no | `{assumption, text}` — the warning card for the starred assumption; `assumption` must be a real `A#`; omit the key to omit the card |
 | `diagramCaption`, `timingsCaption` | no | captions under the diagram and timing strip |
 | `footerNote` | no | appended to the footer and the date lines |
-| `sections` | no | `{<sectionId>: {sub: "…"}}` overrides for section sub-copy; ids are `ground`, `architecture`, `paths`, `ceilings`, `decisions`, `assumptions`, `open`, `footnotes` |
+| `sections` | no | `{<sectionId>: {sub: "…"}}` overrides for section sub-copy; ids are `ground`, `architecture`, `paths`, `numbers`, `ceilings`, `decisions`, `assumptions`, `open`, `footnotes` |
 | `canonical` | no | a sentence stating what lives in which file, for readers of the raw JSON |
 
 Everything else about the HTML is fixed: the section skeleton, the status vocabularies, the artifact filenames (`registers.json`, `qa-log.json`, `NOTES.md`, `design-doc.pdf`). The system SVG is hand-edited in `design-doc.html` between the `<!--SYSD-->` markers; `design.py pdf` extracts exactly that block.
@@ -36,6 +36,7 @@ Everything else about the HTML is fixed: the section skeleton, the status vocabu
 | `paths` | `{id, name, budget?, segs[], note}` | `segs` rows are `[step, p50ms, p95ms, description]` |
 | `scaleMarks` | `{ms, label, c}` | log-scale timing strip; `c` is a CSS var color token |
 | `ceilings` | `[resource, ceiling, symptom, guard]` | plus `ceilingsNote`, a trailing caveat string |
+| `numbers` | `{id, t, sub?, cols[], rows[][], note?}` | generic quantitative tables (throughput, capacity, cost, freshness); `id` is `n-<slug>`; each row has one cell per `cols` entry |
 | `decisions` | `{id, t, s, r, x?, round?, by?, date?}` | `s` ∈ resolved/superseded/open; `x` is rejected alternatives; `by` pairs with `s: "superseded"` both ways |
 | `rounds` | dict keyed by round number (string) | condensed `{q, a, n?}` shown under the decision; the verbatim round lives in qa-log.json |
 | `assumptions` | `{id, t, s, b, n?, star?}` | `s` ∈ working/validate; `n` carries revision history; one starred entry |
@@ -65,6 +66,6 @@ An empty or absent rendered register hides its section and nav link, so a fresh 
 
 ## What `design.py check` enforces
 
-Errors (non-zero exit): required `meta` keys; ID shapes and uniqueness (`A\d+`, `DQ\d+`, `c-[a-z0-9-]+`, integer footnote `n`); status vocabularies; dangling references (`arch.dq`, `arch.a`, `constraints.a`, `pipe.card`, `findings` refs shaped like `DQ#` or `V#`, `open.g`, `meta.banner.assumption`, `decisions.by`); supersession integrity in both directions (`by` ⇔ `s: "superseded"`); `[^n]` tokens without a footnote entry; malformed `paths.segs`, `ceilings` rows, or `scaleMarks`.
+Errors (non-zero exit): required `meta` keys; ID shapes and uniqueness (`A\d+`, `DQ\d+`, `c-[a-z0-9-]+`, `n-[a-z0-9-]+`, integer footnote `n`); status vocabularies; dangling references (`arch.dq`, `arch.a`, `constraints.a`, `pipe.card`, `findings` refs shaped like `DQ#` or `V#`, `open.g`, `meta.banner.assumption`, `decisions.by`); supersession integrity in both directions (`by` ⇔ `s: "superseded"`); `[^n]` tokens without a footnote entry; malformed `paths.segs`, `ceilings` rows, `scaleMarks`, or `numbers` tables (missing title, bad `cols`, row arity not matching `cols`).
 
 Warnings (advisory): footnotes never referenced; registers `rounds` entries no decision points at, or missing from qa-log; a decision `round` with no registers `rounds` entry; p95 below p50; qa-log answers that match no offered label (legal — confirm they were intended).

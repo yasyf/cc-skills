@@ -179,6 +179,20 @@ if R.get("paths"):
             w(f"<tr><td>{html.escape(g[0])}</td><td class='num'>{fmt(g[1])}</td><td class='num'>{fmt(g[2])}</td><td>{html.escape(g[3] if len(g)>3 else '')}</td></tr>")
         w(f"</table><p class='pathnote'>{html.escape(p['note'])}</p></div>")
 
+if R.get("numbers"):
+    w("<h2>Numbers</h2>")
+    for nt in R["numbers"]:
+        w(f'<div class="avoid"><h3>{inline(nt["t"])}</h3>')
+        if nt.get("sub"):
+            w(f"<p class='pathnote'>{inline(nt['sub'])}</p>")
+        w("<table><tr>" + "".join(f"<th>{inline(c)}</th>" for c in nt["cols"]) + "</tr>")
+        for row in nt["rows"]:
+            w("<tr>" + "".join(f"<td>{'<b>' + inline(c) + '</b>' if i == 0 else inline(c)}</td>" for i, c in enumerate(row)) + "</tr>")
+        w("</table>")
+        if nt.get("note"):
+            w(f"<p class='pathnote'>{inline(nt['note'])}</p>")
+        w("</div>")
+
 if R.get("ceilings"):
     w("<h2>Load ceilings (E)</h2>")
     w("<table><tr><th>Resource</th><th>Ceiling (E)</th><th>First symptom</th><th>Guard</th></tr>")

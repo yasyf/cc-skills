@@ -217,6 +217,17 @@ def check(args) -> int:
     for m in R.get("scaleMarks", []):
         if not isinstance(m.get("ms"), (int, float)) or m["ms"] <= 0:
             rep.err(f"scaleMarks: bad ms in {m!r}")
+    check_ids(rep, R.get("numbers", []), "id", r"n-[a-z0-9-]+", "numbers")
+    for nt in R.get("numbers", []):
+        if not nt.get("t"):
+            rep.err(f"numbers {nt.get('id')}: missing title 't'")
+        cols = nt.get("cols")
+        if not (isinstance(cols, list) and cols and all(isinstance(c, str) for c in cols)):
+            rep.err(f"numbers {nt.get('id')}: 'cols' must be a non-empty list of strings")
+            continue
+        for row in nt.get("rows", []):
+            if not (isinstance(row, list) and len(row) == len(cols)):
+                rep.err(f"numbers {nt.get('id')}: row {row!r} does not have {len(cols)} cells")
 
     qa_path = root / "qa-log.json"
     if qa_path.exists():

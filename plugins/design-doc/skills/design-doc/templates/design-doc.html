@@ -229,6 +229,7 @@ footer a{cursor:pointer}
   <a href="#ground">Ground rules</a>
   <a href="#architecture">Architecture</a>
   <a href="#paths">Request paths</a>
+  <a href="#numbers">Numbers</a>
   <a href="#ceilings">Load ceilings</a>
   <a href="#decisions">Decisions</a>
   <a href="#assumptions">Assumptions</a>
@@ -298,6 +299,12 @@ footer a{cursor:pointer}
   <div id="wfHost"></div>
 </section>
 
+<section id="numbers">
+  <h2>Numbers</h2>
+  <p class="sub" data-sub="numbers"></p>
+  <div id="numHost"></div>
+</section>
+
 <section id="ceilings">
   <h2>Load ceilings</h2>
   <p class="sub" data-sub="ceilings" id="ceilSub"></p>
@@ -357,7 +364,7 @@ catch(e){
  document.body.innerHTML='<div style="font-family:ui-monospace,monospace;padding:48px;max-width:62ch;margin:0 auto;line-height:1.6"><h2>Data not loaded</h2><p>This page renders from <b>registers.json</b>, and browsers block local-file fetch. Serve this folder over HTTP:</p><pre style="background:#8882;padding:10px 14px;border-radius:8px">python3 -m http.server 8641</pre><p>then open <a href="http://localhost:8641/design-doc.html">localhost:8641/design-doc.html</a>.</p></div>';
  return;
 }
-const {meta:META={},tldr:TLDR=[],constraints:CONS=[],terms:TERMS=[],footnotes:FOOTNOTES=[],scaleMarks:SCALE_MARKS=[],pipe:PIPE=[],pipeBg:PIPE_BG=[],arch:ARCH=[],paths:PATHS=[],ceilings:CEIL=[],ceilingsNote:CEILNOTE="",decisions:DQ=[],rounds:ROUNDS={},assumptions:ASSUM=[],open:OPEN=[],openGroups:OGROUPS={}}=R;
+const {meta:META={},tldr:TLDR=[],constraints:CONS=[],terms:TERMS=[],footnotes:FOOTNOTES=[],scaleMarks:SCALE_MARKS=[],pipe:PIPE=[],pipeBg:PIPE_BG=[],arch:ARCH=[],paths:PATHS=[],numbers:NUMBERS=[],ceilings:CEIL=[],ceilingsNote:CEILNOTE="",decisions:DQ=[],rounds:ROUNDS={},assumptions:ASSUM=[],open:OPEN=[],openGroups:OGROUPS={}}=R;
 const SLUG=META.slug||"design";
 
 /* ---------- tiny markdown ---------- */
@@ -415,6 +422,7 @@ const SUBDEFAULTS={
  ground:"What the system has to do, and the terms the rest of the document uses.",
  architecture:"The main path through the system, then each part. Click a stage to open its section.",
  paths:'Each kind of request, step by step, with the time each step takes. <span class="mono">trace</span> steps through one request.',
+ numbers:"The design in numbers, on whatever axis matters here. Anything marked (E) is an estimate, pending a spike in the open list.",
  ceilings:"What breaks first under load, and the guard in front of it.",
  decisions:"What was chosen, what was rejected, and the question round that decided it where there was one. Superseded entries stay in the log.",
  assumptions:"<i>Working</i> means we're building on it; <i>needs validation</i> means someone outside this document has to say yes first. If one of these is wrong, that's the most useful feedback this document can get.",
@@ -522,6 +530,19 @@ window.setPctl=v=>{pctl=v;drawPath()};
 PATHS.forEach(p=>{const b=el("button","fbtn",p.name);b.dataset.p=p.id;b.onclick=()=>{curPath=p.id;drawPath()};$("#pathBtns").append(b)});
 drawPath();
 
+/* number tables */
+NUMBERS.forEach(nt=>{
+ const blk=el("div");blk.id=nt.id;blk.style.margin="14px 0 26px";
+ let h=`<h3>${inline(nt.t)}</h3>`;
+ if(nt.sub)h+=`<p class="sub" style="margin:2px 0 4px">${inline(nt.sub)}</p>`;
+ h+='<div class="twrap"><table><thead><tr>'+nt.cols.map(c=>`<th>${inline(c)}</th>`).join("")+"</tr></thead><tbody>"+
+  nt.rows.map(r=>"<tr>"+r.map((c,i)=>`<td>${i===0?"<b>"+inline(c)+"</b>":inline(c)}</td>`).join("")+"</tr>").join("")+
+  "</tbody></table></div>";
+ if(nt.note)h+=`<div class="capn">${inline(nt.note)}</div>`;
+ blk.innerHTML=h;
+ $("#numHost").append(blk);
+});
+
 /* ceilings */
 if(CEILNOTE)$("#ceilSub").innerHTML+=" "+inline(CEILNOTE);
 (function(){
@@ -625,7 +646,7 @@ window.openItem=id=>{
 };
 
 /* hide sections whose backing register is empty */
-const EMPTIES={ground:!CONS.length&&!TERMS.length,architecture:!ARCH.length&&!PIPE.length,paths:!PATHS.length,ceilings:!CEIL.length,decisions:!DQ.length,assumptions:!ASSUM.length,open:!OPEN.length,footnotes:!FOOTNOTES.length};
+const EMPTIES={ground:!CONS.length&&!TERMS.length,architecture:!ARCH.length&&!PIPE.length,paths:!PATHS.length,numbers:!NUMBERS.length,ceilings:!CEIL.length,decisions:!DQ.length,assumptions:!ASSUM.length,open:!OPEN.length,footnotes:!FOOTNOTES.length};
 Object.entries(EMPTIES).forEach(([id,empty])=>{
  if(!empty)return;
  const s=document.getElementById(id);if(s)s.hidden=true;
@@ -662,6 +683,18 @@ function buildDocMd(){
   p.segs.forEach(g=>push(`| ${g[0]} | ${fmt(g[1])} | ${fmt(g[2])} | ${g[3]||""} |`));
   push("\n"+p.note+"\n");
  });
+ if(NUMBERS.length){
+  push("## Numbers\n");
+  NUMBERS.forEach(nt=>{
+   push(`### ${nt.t}\n`);
+   if(nt.sub)push(nt.sub+"\n");
+   push("| "+nt.cols.join(" | ")+" |");
+   push("|"+nt.cols.map(()=>"---").join("|")+"|");
+   nt.rows.forEach(r=>push("| "+r.join(" | ")+" |"));
+   if(nt.note)push("\n"+nt.note);
+   push("");
+  });
+ }
  push("## Load ceilings (E)\n\n| Resource | Ceiling | First symptom | Guard |\n|---|---|---|---|");
  CEIL.forEach(([r,c,s,g])=>push(`| ${r} | ${c} | ${s} | ${g} |`));
  push("\n"+CEILNOTE+"\n");

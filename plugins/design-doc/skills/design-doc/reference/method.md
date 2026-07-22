@@ -43,13 +43,16 @@ Run it against the middle draft, after the shape is set but before polish: flaws
 - Disposition every finding: a new or superseding `DQ#`, an open item, or a recorded rejection (a sentence in the relevant decision's `x` field saying why the finding doesn't bite). A finding with no disposition is an open bug in the design.
 - Iterate. After the dispositions land, run the reviewer again on the updated registers: dispositions change the design, and a changed design grows new flaws. Each pass gets its own dated artifact. Stop when a pass yields nothing that changes a decision: one pass is the floor, not the norm.
 
-## Timings, ceilings, spikes
+## The quantitative story
 
-Estimates are honest when they are labeled and falsifiable:
+The doc carries a small library of quantitative components, and the design picks the ones that fit: request paths (with the scale strip) when the story is latency, load ceilings when it is load, and `numbers` tables for any other axis (a throughput budget, storage growth, a cost model, freshness windows), each table bringing its own columns. Latency is one member of the library, not a default; a batch pipeline with no user-facing request may need only a throughput table, and a design with no quantitative story uses none of them (empty registers hide their sections).
+
+Whichever components are in play, estimates are honest when they are labeled and falsifiable:
 
 - Every number that hasn't been measured is marked `(E)`, and every `(E)` is gated on a named spike `V#` in the open list. The pairing is what separates an estimate from a guess.
 - Request paths decompose into segments (`[step, p50, p95, description]`); the doc sums them and animates a trace, so a reader can see where the budget goes.
 - Each load ceiling is a row of four: the resource, the ceiling, the first observable symptom, and the guard in front of it. Naming the first symptom is what makes the ceiling operational: it tells the on-call what they'll see.
+- A `numbers` table earns its place by being checkable: put the unit in the column header, and point a surprising cell at its derivation with a footnote token.
 - The degradation rule: under overload the system backpressures, rejects, or serves stale. If any proposed mechanism has a corruption-shaped failure mode, the mechanism is wrong, not the load.
 
 ## NOTES.md
