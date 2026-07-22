@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Weekly launchd agent for tools/plugin-cache-prune.py. Install as your own user
+  (never root). From the cc-skills checkout:
+
+    SCRIPT="$PWD/tools/plugin-cache-prune.py"
+    LOG="$HOME/Library/Logs/plugin-cache-prune.log"
+    PLIST="$HOME/Library/LaunchAgents/com.yasyf.plugin-cache-prune.plist"
+    sed -e "s#__SCRIPT__#$SCRIPT#" -e "s#__LOG__#$LOG#" \
+      tools/plugin-cache-prune.plist.template > "$PLIST"
+    launchctl bootstrap gui/"$UID" "$PLIST"
+
+  Dry-run once by hand first:  tools/plugin-cache-prune.py
+  Uninstall:  launchctl bootout gui/"$UID" "$PLIST" && rm "$PLIST"
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.yasyf.plugin-cache-prune</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-lc</string>
+    <string>exec "__SCRIPT__" --apply</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__LOG__</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG__</string>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
