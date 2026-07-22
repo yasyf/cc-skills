@@ -16,7 +16,7 @@ $TOOL scaffold --title <name>   # fresh ./<slug>/ directory for this one design 
 $TOOL scaffold --example        # ./tinyq/, a small filled-in worked example
 $TOOL check <dir>               # lint the registers; errors exit non-zero
 $TOOL pdf <dir>                 # render the registers into <dir>/design-doc.pdf
-$TOOL snapshot <dir> --note "…" # stamp a revision; the doc's changes-since view diffs against it
+$TOOL snapshot <dir> --note "…" --item "…" # stamp a revision the changes-since view diffs against; note is the reader-facing headline, each --item one change
 ```
 
 Read [reference/method.md](reference/method.md) before Phase 1, [reference/writing.md](reference/writing.md) before Phase 5, and [reference/publish.md](reference/publish.md) before Phase 6 — the method file is the round/register protocol, the writing file is the voice contract, the publish file is the hosting flow. [reference/schema.md](reference/schema.md) is the field-by-field contract for the JSON files; scaffold the tinyq example when you want a filled register next to the schema.
@@ -77,30 +77,30 @@ Two rules hold whichever components are in play. Every unmeasured number is mark
 
 ## Phase 5 — The document
 
-Read [reference/writing.md](reference/writing.md) first; the voice contract lives there. Fill `meta` in registers.json (title, date, slug, banner for the starred assumption). Hand-draw the system SVG and replace the placeholder between the `<!--SYSD-->` markers. The diagram is the one part of the HTML you edit; everything else renders from the JSON. Write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired. When `wlm profile list` shows a profile for the author, write against their style card and run `wlm adversary critique` on the exported Markdown; the exact invocations are in [reference/writing.md](reference/writing.md). Run `slop-cop check` after each pass. Then `$TOOL pdf <dir>` and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
+Read [reference/writing.md](reference/writing.md) first; the voice contract lives there. Fill `meta` in registers.json (title, date, slug, banner for the starred assumption). Hand-draw the system SVG and replace the placeholder between the `<!--SYSD-->` markers. The diagram is the one part of the HTML you edit; everything else renders from the JSON. Write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired. Run the voice gate — a required step, not an available upgrade: `wlm profile list` first, always; with a profile, read the style card before drafting, then run `wlm -p <profile> adversary critique` on the exported Markdown during the tone pass and fold in or explicitly reject every flag; without one, the fallback contract applies. The numbered checklist with exact invocations is in [reference/writing.md](reference/writing.md). Run `slop-cop check` after each pass. Then `$TOOL pdf <dir>` and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
 
-**Exit criteria:** `$TOOL check` is clean; the doc renders over `python3 -m http.server 8641`; the PDF is built and visually inspected.
+**Exit criteria:** `$TOOL check` is clean; the doc renders over `python3 -m http.server 8641`; the PDF is built and visually inspected; the voice gate ran — `wlm profile list` was checked, and with a profile every adversary-critique flag is folded in or rejected with a reason.
 
 ## Phase 6 — Publish and handoff
 
 Stage a clean deploy folder holding only the files meant to ship:
 
 ```bash
-$TOOL snapshot . --note "<what changed>"
+$TOOL snapshot . --note "<headline>" --item "<one change, for the reader>"
 mkdir -p dist
 cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md design-doc.pdf dist/
 cp -R history dist/
 ```
 
-The snapshot stamps this publish as a revision; from the second one onward, the doc shows a revision picker and greets returning reviewers with an "updated since your last visit" banner that diffs the registers against the revision they last read.
+The snapshot stamps this publish as a revision; from the second one onward, a returning reviewer lands directly in the diff against the revision they last read, unchanged content tucked behind a toggle. The note and `--item` bullets are the first thing that reader sees: write them in plain language for someone coming back after days — what changed and what it means for them, never round numbers or register IDs (the diff panel already lists those). The contract with a worked example is in [reference/publish.md](reference/publish.md), and revision prose passes the same voice gate as the doc — `wlm profile list`, style card, adversary critique over the drafted note — before the snapshot is stamped.
 
 Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md naming the deploy name and live URL — later register edits redeploy through the same name to the same URL, with the exact sequence in [reference/publish.md](reference/publish.md).
 
-**Exit criteria:** the user has the URL or serve command; the changelog records what shipped; the revision snapshot is recorded.
+**Exit criteria:** the user has the URL or serve command; the changelog records what shipped; the revision snapshot is recorded, its note and items having passed the voice gate first.
 
 ## Common issues
 
 - **PDF step fails with "no Chrome found"** — install Chrome/Chromium or set `CHROME=/path/to/chrome`. `$TOOL pdf` exits 2 with instructions.
 - **Doc shows a "Data not loaded" screen** — it was opened as `file://`; browsers block local-file fetch. Serve the folder over HTTP as the screen says.
-- **wlm voice profile absent** — the writing contract in `reference/writing.md` includes a standalone voice fallback; the wlm style card is an upgrade, not a dependency.
+- **wlm voice profile absent** — the fallback voice contract in `reference/writing.md` applies. A missing profile excuses the style card, not the `wlm profile list` check that discovered it.

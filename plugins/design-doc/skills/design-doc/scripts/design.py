@@ -4,7 +4,7 @@
   design.py scaffold [dir] [--title X] [--slug x] [--example]
   design.py check <dir>
   design.py pdf [dir]
-  design.py snapshot [dir] [--note X] [--force]
+  design.py snapshot [dir] [--note X] [--item …] [--force]
 
 scaffold creates a fresh directory for one design doc — named after the
 slug when no dir is given — holding the doc renderer and either the empty
@@ -112,7 +112,10 @@ def snapshot(args) -> int:
     rev = last + 1
     meta["rev"] = rev
     meta["revisions"] = revisions
-    revisions.append({"rev": rev, "date": datetime.date.today().isoformat(), "note": args.note})
+    entry = {"rev": rev, "date": datetime.date.today().isoformat(), "note": args.note}
+    if args.item:
+        entry["items"] = args.item
+    revisions.append(entry)
     payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     previous_path = root / "history" / f"rev-{rev}.json"
     previous_path.parent.mkdir(parents=True, exist_ok=True)
@@ -218,6 +221,13 @@ def check(args) -> int:
                 revision_date = revision.get("date") if isinstance(revision, dict) else None
                 if not isinstance(revision_date, str) or not revision_date:
                     rep.err(f"meta.revisions[{i}].date is missing or empty")
+                if isinstance(revision, dict) and "items" in revision:
+                    items = revision["items"]
+                    if not isinstance(items, list) or not all(isinstance(x, str) and x.strip() for x in items):
+                        rep.err(f"meta.revisions[{i}].items must be a list of non-empty strings")
+                revision_note = revision.get("note") if isinstance(revision, dict) else None
+                if isinstance(revision_note, str) and len(revision_note) > 90:
+                    rep.warn(f"meta.revisions[{i}].note is {len(revision_note)} chars; keep it a short reader-facing headline and move detail into --item bullets")
             last_revision = revisions[-1]
             last_rev = last_revision.get("rev") if isinstance(last_revision, dict) else None
             if rev_valid and isinstance(last_rev, int) and not isinstance(last_rev, bool) and rev != last_rev:
@@ -363,6 +373,7 @@ def main():
     sn = sub.add_parser("snapshot", help="record a revision of the project's registers")
     sn.add_argument("dir", nargs="?", default=".")
     sn.add_argument("--note", default="")
+    sn.add_argument("--item", action="append", help="reader-facing bullet describing this revision; repeatable")
     sn.add_argument("--force", action="store_true")
     sn.set_defaults(fn=snapshot)
     args = ap.parse_args()

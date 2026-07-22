@@ -104,14 +104,12 @@ p{max-width:70ch}
 .scale .mark span{font-family:var(--mono);font-size:11.5px;white-space:nowrap;display:block}
 .banner{display:flex;gap:10px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn);border-radius:10px;padding:12px 16px;margin:18px 0 0;max-width:74ch}
 .banner .mono{color:var(--warn);flex:0 0 auto}
-.banner.rev{background:var(--accent-soft);border-color:var(--accent)}
-.banner.rev .mono{color:var(--accent)}
-.banner.rev .x{margin-left:auto;border:0;background:none;color:var(--ink2);font-family:var(--mono);cursor:pointer;padding:0 2px}
-.banner.rev .x:hover{color:var(--accent)}
 #baseSel{max-width:132px}
 .diffsum{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-top:18px;font-size:14px}
 .diffsum .row{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding:4px 0}
 .diffsum .row b{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);flex-basis:110px}
+body.diffmode:not(.show-unch) .unch{display:none}
+body.diffmode.show-unch .unch{opacity:.45}
 
 /* ground rules */
 .rules{margin:16px 0;display:grid;gap:8px}
@@ -255,7 +253,6 @@ footer a{cursor:pointer}
 <section id="overview">
   <h1 id="docTitle"></h1>
   <p class="date" id="docDate"></p>
-  <div class="banner rev" id="revBanner" hidden></div>
   <div class="tldr">
     <div class="lbl">tl;dr</div>
     <ul id="tldrList"></ul>
@@ -377,6 +374,7 @@ catch(e){
 const {meta:META={},tldr:TLDR=[],constraints:CONS=[],terms:TERMS=[],footnotes:FOOTNOTES=[],scaleMarks:SCALE_MARKS=[],pipe:PIPE=[],pipeBg:PIPE_BG=[],arch:ARCH=[],paths:PATHS=[],numbers:NUMBERS=[],ceilings:CEIL=[],ceilingsNote:CEILNOTE="",decisions:DQ=[],rounds:ROUNDS={},assumptions:ASSUM=[],open:OPEN=[],openGroups:OGROUPS={}}=R;
 const SLUG=META.slug||"design";
 let DIFF=null;
+let toggleUnch=()=>{};
 const dmark=(reg,id)=>DIFF&&DIFF.marks[reg+":"+id]?` <span class="pill p-acc diffpill">${DIFF.marks[reg+":"+id]}</span>`:"";
 
 /* ---------- tiny markdown ---------- */
@@ -562,11 +560,11 @@ const SLBL={resolved:["p-ok","resolved"],superseded:["p-dead","superseded"],open
 let dqF="all",dqQ="";
 function renderDQ(){
  const host=$("#dqList");host.innerHTML="";
- let n=0;
+ const hiding=DIFF&&!document.body.classList.contains("show-unch");
+ let vis=0,hid=0;
  DQ.forEach(d=>{
   if(dqF!=="all"&&d.s!==dqF)return;
   if(dqQ&&!(d.id+" "+d.t+" "+(d.r||"")+" "+(d.x||"")).toLowerCase().includes(dqQ))return;
-  n++;
   const det=el("details","ledger");det.id="item-"+d.id;
   const [pc,pl]=SLBL[d.s];
   let body=`<div class="kv"><b>Resolution${d.date?" · "+d.date:""}</b>${d.r}</div>`;
@@ -575,9 +573,11 @@ function renderDQ(){
   const rd=ROUNDS[d.round];
   if(rd)body+=`<div class="qa"><div class="q">Round ${d.round} — “${rd.q}”</div><div class="a"><b>Answer:</b> “${rd.a}”</div>${rd.n?`<div class="a" style="color:var(--ink2)">${rd.n}</div>`:""}</div>`;
   det.innerHTML=`<summary><span class="id">${d.id}</span><span class="t">${d.t}</span><span class="pill ${pc}">${pl}</span>${dmark("decisions",d.id)}</summary><div class="body">${body}</div>`;
+  if(DIFF&&!DIFF.marks["decisions:"+d.id]){det.classList.add("unch");if(hiding)hid++;else vis++}else vis++;
   host.append(det);
  });
- $("#dqCount").textContent=n+" shown";
+ const cnt=$("#dqCount");cnt.textContent=vis+" shown";
+ if(hid){const a=el("span",null,` · ${hid} unchanged hidden — show`);a.style.cssText="cursor:pointer;color:var(--accent)";a.onclick=toggleUnch;cnt.append(a)}
 }
 (function(){
  const f=$("#dqFilters");
@@ -592,18 +592,22 @@ function renderDQ(){
 const ALBL={working:["p-ok","working"],validate:["p-warn","needs validation"]};
 let aF="all";
 function renderA(){
- const host=$("#aList");host.innerHTML="";let n=0;
+ const host=$("#aList");host.innerHTML="";
+ const hiding=DIFF&&!document.body.classList.contains("show-unch");
+ let vis=0,hid=0;
  ASSUM.forEach(a=>{
-  if(aF!=="all"&&a.s!==aF)return;n++;
+  if(aF!=="all"&&a.s!==aF)return;
   const det=el("details","ledger");det.id="item-"+a.id;
   const [pc,pl]=ALBL[a.s];
   let body=`<p>${a.b}</p>`;
   if(a.n)body+=`<div class="kv"><b>History / notes</b>${a.n}</div>`;
   det.innerHTML=`<summary><span class="id">${a.id}${a.star?" ★":""}</span><span class="t">${a.t}</span><span class="pill ${pc}">${pl}</span>${dmark("assumptions",a.id)}</summary><div class="body">${body}</div>`;
   if(a.star)det.style.borderLeft="3px solid var(--warn)";
+  if(DIFF&&!DIFF.marks["assumptions:"+a.id]){det.classList.add("unch");if(hiding)hid++;else vis++}else vis++;
   host.append(det);
  });
- $("#aCount").textContent=n+" shown";
+ const cnt=$("#aCount");cnt.textContent=vis+" shown";
+ if(hid){const b=el("span",null,` · ${hid} unchanged hidden — show`);b.style.cssText="cursor:pointer;color:var(--accent)";b.onclick=toggleUnch;cnt.append(b)}
 }
 (function(){
  const f=$("#aFilters");
@@ -617,20 +621,26 @@ function renderA(){
 let oF="all";
 function renderO(){
  const host=$("#oList");host.innerHTML="";
+ const hiding=DIFF&&!document.body.classList.contains("show-unch");
+ let hid=0;
  Object.entries(OGROUPS).forEach(([g,label])=>{
   if(oF!=="all"&&oF!==g)return;
   const items=OPEN.filter(o=>o.g===g);
   const card=el("div","card");
   card.innerHTML=`<h3>${label} <span class="chip">${items.length}</span></h3>`+
-   items.map(o=>`<div style="display:flex;gap:10px;padding:5px 0;font-size:14px"><span class="mono" style="color:var(--accent);flex:0 0 44px">${o.id}</span><span>${o.t}</span>${dmark("open",o.id)}</div>`).join("");
+   items.map(o=>{const u=DIFF&&!DIFF.marks["open:"+o.id];if(u&&hiding)hid++;return `<div class="${u?"unch":""}" style="display:flex;gap:10px;padding:5px 0;font-size:14px"><span class="mono" style="color:var(--accent);flex:0 0 44px">${o.id}</span><span>${o.t}</span>${dmark("open",o.id)}</div>`}).join("");
+  if(DIFF&&items.length&&items.every(o=>!DIFF.marks["open:"+o.id]))card.classList.add("unch");
   card.style.marginBottom="12px";
   host.append(card);
  });
+ const cnt=$("#oCount");cnt.textContent="";
+ if(hid){const a=el("span",null,`${hid} unchanged hidden — show`);a.style.cssText="cursor:pointer;color:var(--accent)";a.onclick=toggleUnch;cnt.append(a)}
 }
 (function(){
  const f=$("#oFilters");
  [["all","Everyone"],...Object.entries(OGROUPS)].forEach(([v,l],i)=>{
   const b=el("button","fbtn"+(i===0?" on":""),l);b.onclick=()=>{oF=v;f.querySelectorAll(".fbtn").forEach(x=>x.classList.remove("on"));b.classList.add("on");renderO()};f.append(b)});
+ const ocnt=el("span","count","");ocnt.id="oCount";f.append(ocnt);
  renderO();
 })();
 
@@ -674,7 +684,8 @@ if(typeof META.rev==="number"&&META.rev>=1){
  let stored=0;
  try{stored=parseInt(localStorage.getItem(LSKEY)||"",10)||0}catch(e){}
  const markSeen=()=>{if(cur)try{localStorage.setItem(LSKEY,String(cur))}catch(e){}};
- let diffSeq=0;
+ let diffSeq=0,diffVia="manual";
+ toggleUnch=()=>{document.body.classList.toggle("show-unch");renderDQ();renderA();renderO();renderDiffPanel()};
  const sstr=v=>Array.isArray(v)?"["+v.map(sstr).join(",")+"]":v&&typeof v==="object"?"{"+Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+sstr(v[k])).join(",")+"}":JSON.stringify(v);
 
  function diffList(oldL,newL,key){
@@ -727,10 +738,25 @@ if(typeof META.rev==="number"&&META.rev>=1){
  const SECMAP={tldr:".tldr .lbl",ground:"#ground h2",architecture:"#architecture h2",scale:".scale h3",paths:"#paths h2",ceilings:"#ceilings h2",open:"#open h2"};
  const SECNAMES={tldr:"tl;dr",ground:"ground rules",architecture:"architecture",scale:"timings",ceilings:"ceilings",paths:"request paths",open:"open items"};
  function applyStaticMarks(){
-  ARCH.forEach(c=>{const m=DIFF.marks["arch:"+c.id];if(!m)return;const d=document.getElementById(c.id);if(d){const s=d.querySelector("summary");if(s)s.append(el("span","pill p-acc diffpill",m))}});
-  NUMBERS.forEach(nt=>{const m=DIFF.marks["numbers:"+nt.id];if(!m)return;const b=document.getElementById(nt.id);if(b){const h=b.querySelector("h3");if(h)h.append(el("span","pill p-acc diffpill",m))}});
-  FOOTNOTES.forEach(f=>{const m=DIFF.marks["fn:"+f.n];if(!m)return;const li=document.getElementById("fn-"+f.n);if(li)li.append(el("span","pill p-acc diffpill",m))});
+  ARCH.forEach(c=>{const m=DIFF.marks["arch:"+c.id];const d=document.getElementById(c.id);if(!d)return;if(m){const s=d.querySelector("summary");if(s)s.append(el("span","pill p-acc diffpill",m))}else d.classList.add("unch")});
+  NUMBERS.forEach(nt=>{const m=DIFF.marks["numbers:"+nt.id];const b=document.getElementById(nt.id);if(!b)return;if(m){const h=b.querySelector("h3");if(h)h.append(el("span","pill p-acc diffpill",m))}else b.classList.add("unch")});
+  FOOTNOTES.forEach(f=>{const m=DIFF.marks["fn:"+f.n];const li=document.getElementById("fn-"+f.n);if(!li)return;if(m)li.append(el("span","pill p-acc diffpill",m));else li.classList.add("unch")});
   DIFF.sections.forEach(k=>{const t=document.querySelector(SECMAP[k]);if(t)t.append(el("span","tchip diffpill","changed"))});
+  const markedReg=reg=>Object.keys(DIFF.marks).some(k=>k.startsWith(reg+":")),removedReg=reg=>(DIFF.removed[reg]||[]).length>0;
+  const secChanged={
+   decisions:markedReg("decisions")||removedReg("decisions"),
+   assumptions:markedReg("assumptions")||removedReg("assumptions"),
+   open:markedReg("open")||removedReg("open")||DIFF.sections.includes("open"),
+   footnotes:markedReg("fn")||removedReg("fn"),
+   architecture:markedReg("arch")||removedReg("arch")||DIFF.sections.includes("architecture"),
+   numbers:markedReg("numbers")||removedReg("numbers"),
+   paths:DIFF.paths.added.length||DIFF.paths.changed.length||DIFF.paths.removed.length||DIFF.sections.includes("paths"),
+   ground:DIFF.sections.includes("ground"),
+   ceilings:DIFF.sections.includes("ceilings"),
+  };
+  Object.entries(secChanged).forEach(([id,changed])=>{if(changed)return;const s=document.getElementById(id);if(s)s.classList.add("unch");const a=document.querySelector(`#rail a[href="#${id}"]`);if(a)a.classList.add("unch")});
+  if(!DIFF.sections.includes("tldr")){const t=document.querySelector(".tldr");if(t)t.classList.add("unch")}
+  if(!DIFF.sections.includes("scale")){const t=document.querySelector(".scale");if(t)t.classList.add("unch")}
  }
 
  const gotoEl=id=>{const e=document.getElementById(id);if(e)e.scrollIntoView({block:"center"})};
@@ -747,11 +773,24 @@ if(typeof META.rev==="number"&&META.rev>=1){
  function renderDiffPanel(){
   const host=$("#diffPanel");host.innerHTML="";host.hidden=false;
   const base=DIFF.base,meta=[base.date,base.note].filter(Boolean).join(" · ");
-  const head=el("div");head.style.cssText="display:flex;align-items:baseline;gap:10px;margin-bottom:6px";
-  head.innerHTML=`<b style="font-size:15px">Changes since rev ${base.rev}</b>`+(meta?`<span style="color:var(--ink2);font-size:13px">${esc(meta)}</span>`:"");
-  const clr=el("button",null,"✕ clear");clr.style.cssText="margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:3px 10px;font-family:var(--mono);font-size:12px;color:var(--ink2);cursor:pointer";clr.onclick=clearDiff;
-  head.append(clr);host.append(head);
-  DIFF.notes.forEach(nt=>{const r=el("div");r.style.cssText="font-size:13px;color:var(--ink2);padding:2px 0";r.innerHTML=`<span class="mono">rev ${nt.rev}</span> · ${esc(nt.date||"")} — ${esc(nt.note||"")}`;host.append(r)});
+  const head=el("div");head.style.cssText="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;flex-wrap:wrap";
+  let ctx="";
+  if(diffVia==="visit")ctx=`rev ${base.rev} → rev ${cur} · updated since your last visit`;
+  else if(diffVia==="link")ctx=`rev ${base.rev} → rev ${cur} · shared link (?since=${base.rev})`;
+  head.innerHTML=`<b style="font-size:15px">Changes since rev ${base.rev}</b>`+(ctx?`<span style="color:var(--ink2);font-size:13px">${esc(ctx)}</span>`:"")+(meta?`<span style="color:var(--ink2);font-size:13px">${esc(meta)}</span>`:"");
+  const showing=document.body.classList.contains("show-unch");
+  const btnCss="border:1px solid var(--line);background:var(--card);border-radius:7px;padding:3px 10px;font-family:var(--mono);font-size:12px;color:var(--ink2);cursor:pointer";
+  const tgl=el("button",null,showing?"hide unchanged":"show unchanged");tgl.style.cssText="margin-left:auto;"+btnCss;tgl.onclick=toggleUnch;
+  const clr=el("button",null,"✕ clear");clr.style.cssText=btnCss;clr.onclick=clearDiff;
+  head.append(tgl,clr);host.append(head);
+  const hiddenSecs=document.querySelectorAll("section.unch").length;
+  if(!showing&&hiddenSecs){const r=el("div");r.style.cssText="font-size:13px;padding:2px 0";const a=el("span",null,`${hiddenSecs} unchanged sections hidden — show all`);a.style.cssText="cursor:pointer;color:var(--accent)";a.onclick=toggleUnch;r.append(a);host.append(r)}
+  DIFF.notes.forEach(nt=>{
+   const r=el("div");r.style.cssText="padding:3px 0";
+   let h=`<div style="font-size:13px"><span class="mono" style="color:var(--ink2)">rev ${nt.rev} · ${esc(nt.date||"")}</span>${nt.note?" <b>"+inline(nt.note)+"</b>":""}</div>`;
+   if(Array.isArray(nt.items)&&nt.items.length)h+=`<ul style="margin:2px 0 0;padding-left:20px;font-size:13px;color:var(--ink2)">${nt.items.map(x=>`<li>${inline(x)}</li>`).join("")}</ul>`;
+   r.innerHTML=h;host.append(r);
+  });
   const pushRow=(label,added,changed,rem,click)=>{
    if(!added.length&&!changed.length&&!rem.length)return;
    const row=el("div","row");row.append(el("b",null,esc(label)));
@@ -779,15 +818,16 @@ if(typeof META.rev==="number"&&META.rev>=1){
   if(DIFF.metaChanged){const row=el("div","row");row.innerHTML='<b>Header</b><span style="color:var(--ink2);font-size:13px">document header/prose changed</span>';host.append(row)}
  }
 
- async function showDiff(baseRev){
+ async function showDiff(baseRev,via){
   clearDiff();
-  $("#revBanner").hidden=true;
   const tok=++diffSeq;
   let oldR;
   try{oldR=JSON.parse(await loadFile("history/rev-"+baseRev+".json"))}
   catch(e){if(tok!==diffSeq)return;const p=$("#diffPanel");p.innerHTML=`<div class="row"><span>history/rev-${esc(String(baseRev))}.json could not be loaded</span></div>`;p.hidden=false;baseSel.value="";return}
   if(tok!==diffSeq)return;
   DIFF=computeDiff(oldR,baseRev);
+  diffVia=via||"manual";
+  document.body.classList.add("diffmode");document.body.classList.remove("show-unch");
   renderDQ();renderA();renderO();applyStaticMarks();renderDiffPanel();
   baseSel.value=String(baseRev);
   markSeen();
@@ -796,7 +836,9 @@ if(typeof META.rev==="number"&&META.rev>=1){
  function clearDiff(){
   diffSeq++;
   DIFF=null;
+  document.body.classList.remove("diffmode","show-unch");
   document.querySelectorAll(".diffpill").forEach(n=>n.remove());
+  document.querySelectorAll(".unch").forEach(n=>n.classList.remove("unch"));
   $("#diffPanel").hidden=true;
   renderDQ();renderA();renderO();
   baseSel.value="";
@@ -806,7 +848,7 @@ if(typeof META.rev==="number"&&META.rev>=1){
   baseSel.innerHTML='<option value="">changes since…</option>';
   META.revisions.filter(r=>r.rev<META.rev).sort((a,b)=>b.rev-a.rev).forEach(r=>{
    const o=el("option");o.value=String(r.rev);
-   const note=(r.note||"").length>40?(r.note||"").slice(0,40)+"…":(r.note||"");
+   const note=(r.note||"").length>64?(r.note||"").slice(0,64)+"…":(r.note||"");
    o.textContent=`rev ${r.rev} · ${r.date||""}`+(note?" · "+note:"");
    baseSel.append(o);
   });
@@ -815,16 +857,11 @@ if(typeof META.rev==="number"&&META.rev>=1){
  }
 
  const qs=parseInt(new URLSearchParams(location.search).get("since")||"",10)||0;
- let seen=stored;
- if(!seen&&qs&&revExists(qs)){seen=qs;try{localStorage.setItem(LSKEY,String(qs))}catch(e){}}
- if(cur&&seen&&seen<cur&&revExists(seen)){
-  const b=$("#revBanner");
-  b.innerHTML=`<span class="mono">rev ${seen} → rev ${cur}</span><span>Updated since your last visit — <a href="#" id="revSee">see what changed</a></span>`;
-  const x=el("button","x","✕");b.append(x);
-  b.hidden=false;
-  $("#revSee").onclick=e=>{e.preventDefault();b.hidden=true;showDiff(seen)};
-  x.onclick=()=>{b.hidden=true;markSeen()};
- }else markSeen();
+ let baseline=0,via="";
+ if(qs&&revExists(qs)&&qs<cur){baseline=qs;via="link"}
+ else if(stored&&stored<cur&&revExists(stored)){baseline=stored;via="visit"}
+ if(baseline)showDiff(baseline,via);
+ else markSeen();
 }
 
 /* ---------- markdown builders ---------- */

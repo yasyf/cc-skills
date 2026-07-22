@@ -46,7 +46,14 @@ Run `slop-cop check <file>` after each pass and triage: fix the genuine tells, k
 
 ## Voice
 
-Check for a voice profile first: `wlm profile list` (the `wlm` CLI ships with the write-like-me plugin; profiles live in `~/.wlm/profiles/`). When the author has one, read the style card with `wlm -p <profile> stylecard show` — `-p` is a global option and comes before the subcommand — and write against it: the doc should sound like the person proposing, not like a model. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing; fold in what it flags. When there is no profile, this fallback contract applies:
+The voice gate is a required pass, run for the doc's prose and for revision notes alike:
+
+1. Run `wlm profile list`, always (the `wlm` CLI ships with the write-like-me plugin; profiles live in `~/.wlm/profiles/`). When it lists no profile, apply the fallback contract below.
+2. With a profile, read the style card before drafting: `wlm -p <profile> stylecard show` (`-p` is a global option and comes before the subcommand). Write against it — the doc should sound like the person proposing, not like a model.
+3. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing. Fold in each flag or reject it with a reason; a critique nobody reads is a skipped gate.
+4. Revision notes ride the same rail: write the drafted `--note` headline and `--item` bullets to a scratch file, critique that file, and only then stamp the snapshot.
+
+When there is no profile, this fallback contract applies:
 
 - Contractions everywhere they'd be spoken. Short declaratives over subordinate-clause towers.
 - Numbers over adjectives; when there's no number, say what was observed instead of grading it.
