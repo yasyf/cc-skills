@@ -1,0 +1,24 @@
+name: Autobump
+
+# Dispatch-only for now. Push + weekly-schedule triggers get added in a later
+# commit once the dry-run report reviews clean.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+      strict:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  autobump:
+    uses: ./.github/workflows/plugin-autobump.yml
+    with:
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      strict: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || false }}
+      guard-plugins: "codex"

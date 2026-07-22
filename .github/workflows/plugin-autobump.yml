@@ -1,0 +1,57 @@
+name: Plugin autobump
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        type: boolean
+        default: false
+      guard-plugins:
+        type: string
+        default: ""
+      exclude-paths:
+        type: string
+        default: ""
+      strict:
+        type: boolean
+        default: false
+
+jobs:
+  autobump:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: "plugin-autobump-${{ github.repository }}"
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # An empty job_workflow_sha would silently resolve to the default branch,
+      # breaking the pinned-ref invariant of the script checkout below.
+      - name: Verify pinned script ref
+        run: |
+          if [ -z "${{ github.job_workflow_sha }}" ]; then
+            echo "::error::github.job_workflow_sha is empty — refusing to check out the script from an unpinned ref"
+            exit 1
+          fi
+
+      # Script + workflow stay in lockstep at the caller's pinned ref — never main.
+      - uses: actions/checkout@v7
+        with:
+          repository: yasyf/cc-skills
+          ref: ${{ github.job_workflow_sha }}
+          path: .autobump-src
+          sparse-checkout: .github/scripts
+
+      - uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Detect drift and bump
+        env:
+          AUTOBUMP_DRY_RUN: ${{ inputs.dry-run }}
+          AUTOBUMP_GUARD: ${{ inputs.guard-plugins }}
+          AUTOBUMP_EXCLUDES: ${{ inputs.exclude-paths }}
+          AUTOBUMP_STRICT: ${{ github.event_name == 'schedule' || inputs.strict }}
+        run: uv run .autobump-src/.github/scripts/plugin_autobump.py

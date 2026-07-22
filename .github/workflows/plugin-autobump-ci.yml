@@ -1,0 +1,33 @@
+name: Plugin autobump CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/plugin_autobump.py"
+      - ".github/workflows/plugin-autobump.yml"
+      - ".github/workflows/autobump.yml"
+      - ".github/workflows/plugin-autobump-ci.yml"
+      - "plugins/repo-bootstrap/tests/test_plugin_autobump.py"
+  pull_request:
+    paths:
+      - ".github/scripts/plugin_autobump.py"
+      - ".github/workflows/plugin-autobump.yml"
+      - ".github/workflows/autobump.yml"
+      - ".github/workflows/plugin-autobump-ci.yml"
+      - "plugins/repo-bootstrap/tests/test_plugin_autobump.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Test plugin autobump
+        run: uvx pytest plugins/repo-bootstrap/tests/test_plugin_autobump.py -q
