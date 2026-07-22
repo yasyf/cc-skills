@@ -17,7 +17,7 @@ $TOOL scaffold <dir> --example                # tinyq, a small filled-in worked 
 $TOOL check <dir>                             # lint the registers; errors exit non-zero
 ```
 
-Read [reference/method.md](reference/method.md) before Phase 1 and [reference/writing.md](reference/writing.md) before Phase 5 — the method file is the round/register protocol, the writing file is the voice contract. [reference/schema.md](reference/schema.md) is the field-by-field contract for the JSON files; scaffold the tinyq example when you want a filled register next to the schema.
+Read [reference/method.md](reference/method.md) before Phase 1, [reference/writing.md](reference/writing.md) before Phase 5, and [reference/publish.md](reference/publish.md) before Phase 6 — the method file is the round/register protocol, the writing file is the voice contract, the publish file is the hosting flow. [reference/schema.md](reference/schema.md) is the field-by-field contract for the JSON files; scaffold the tinyq example when you want a filled register next to the schema.
 
 ## Terminology
 
@@ -51,15 +51,15 @@ Collect ground truths through rounds: constraints the design must satisfy, facts
 
 ## Phase 2 — Design rounds
 
-Design by question rounds, one fork at a time. Each round's options carry real consequence descriptions, exactly one is marked "(Recommended)", and the last option is always "Add to open list" — an escape that actually enqueues a `Q#` entry rather than forcing a choice. Each answer becomes a `DQ#` with the resolution, the rejected alternatives, and the round number. When a later round changes an earlier decision, supersede: a new `DQ#`, a `by` pointer on the old one.
+Design by question rounds, one fork at a time. Run each round on a live `cc-present` board when that plugin is installed (one card per question, a choice block whose option hints carry the consequences); fall back to AskUserQuestion when it isn't. Either way the shape holds: options carry real consequence descriptions, exactly one is marked "(Recommended)", and the last option is always "Add to open list" — an escape that actually enqueues a `Q#` entry rather than forcing a choice. The rounds are an interview, not a survey: point out flaws in the current draft, suggest alternatives the user didn't name, push back where the evidence disagrees, and decide nothing yourself. Each answer becomes a `DQ#` with the resolution, the rejected alternatives, and the round number. When a later round changes an earlier decision, supersede: a new `DQ#`, a `by` pointer on the old one.
 
 **Exit criteria:** no undecided fork remains outside the open list; every `DQ#` traces to a round in `qa-log.json`.
 
 ## Phase 3 — Adversarial review
 
-Attack the middle draft, before polish makes flaws harder to see. Use the `codex` plugin skill when it's available; otherwise spawn a fresh-context subagent with no stake in the design and a brief to attack it as a skeptical senior engineer: correctness bugs, missing failure modes, unjustified numbers. Save the output verbatim as `<reviewer>-review-<date>.md`, index each finding in the `findings` register (data only — never rendered), and disposition every one: a new decision, an open item, or a recorded rejection with a reason.
+Attack the middle draft, before polish makes flaws harder to see. Use the `codex` plugin skill when it's available; otherwise spawn a fresh-context subagent with no stake in the design and a brief to attack it as a skeptical senior engineer: correctness bugs, missing failure modes, unjustified numbers. Save the output verbatim as `<reviewer>-review-<date>.md`, index each finding in the `findings` register (data only — never rendered), and disposition every one: a new decision, an open item, or a recorded rejection with a reason. Then run the reviewer again on the updated registers: dispositions change the design, and a changed design grows new flaws. One pass is the floor, not the norm.
 
-**Exit criteria:** every finding has a disposition; none was silently dropped.
+**Exit criteria:** every finding has a disposition, and the latest pass produced nothing that changes a decision.
 
 ## Phase 4 — Timings, ceilings, spikes
 
@@ -83,7 +83,7 @@ cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md design-doc.pdf dist/
 ```
 
-Ask the user where it goes: local serving is `python3 -m http.server 8641`; public hosting is `npm exec --yes wrangler@latest -- deploy dist --name <slug> --compatibility-date <today>` on an authenticated wrangler. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md.
+Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md.
 
 **Exit criteria:** the user has the URL or serve command; the changelog records what shipped.
 
