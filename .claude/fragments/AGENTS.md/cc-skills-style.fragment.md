@@ -32,6 +32,6 @@
 
 **Testing.** Python tests live under `plugins/repo-bootstrap`; run them with `uv run --project plugins/repo-bootstrap pytest`.
 
-**Plugin versioning.** Each plugin versions via its `.claude-plugin/plugin.json`; the plugin cache re-pulls only on a version bump, so bump it with any content change.
+**Plugin versioning.** Each plugin versions via its `.claude-plugin/plugin.json`; the plugin cache re-pulls only on a version bump, so bump it with any content change. The `Autobump` workflow — reusable `plugin-autobump.yml@plugin-v1` — backstops this in CI, auto-committing a patch bump when content drift lands unbumped. Binary-pinned plugins are guard-only; `codex` is this repo's. A release moves their version, and the weekly strict run goes red on persistent unreleased drift.
 
 **Writing docs.** When writing or revising docs, a README, a tutorial, a how-to, or reference, use the `writing-docs` skill (Diataxis modes, voice rules, and runnable code-sample rules) and run `slop-cop check <file> --lang=markdown` before you finish (slop-cop is a Go binary; if it's not on PATH, run the `/slop-cop-check` skill — never `uvx slop-cop`).
