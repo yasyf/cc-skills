@@ -1,7 +1,7 @@
 {
   "name": "cli-demo",
   "description": "Generate a polished animated SVG terminal demo of a CLI with evp. Writes a .tape, renders it (native on Linux x86_64, Docker elsewhere), inspects keyframes, and refines in a loop. Bootstraps the evp binary into the plugin's persistent data dir on session start.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
