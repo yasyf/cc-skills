@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,6 +102,40 @@ func TestRunCodexErrnoSplit(t *testing.T) {
 		t.Setenv("PATH", d1+string(os.PathListSeparator)+d2)
 		if rc := runCodex([]string{"codex"}, devnull, sink); rc != 0 {
 			t.Errorf("non-exec shadowing executable: got %d, want 0", rc)
+		}
+	})
+}
+
+func TestInsideGitRepo(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("no-repo", func(t *testing.T) {
+		t.Chdir(sub)
+		if insideGitRepo() {
+			t.Error("bare temp dir reported as inside a git repo")
+		}
+	})
+	t.Run("dotgit-dir-in-ancestor", func(t *testing.T) {
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(sub)
+		if !insideGitRepo() {
+			t.Error(".git dir two levels up not detected")
+		}
+	})
+	t.Run("dotgit-file-worktree", func(t *testing.T) {
+		wt := t.TempDir()
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: elsewhere\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(wt)
+		if !insideGitRepo() {
+			t.Error(".git worktree file not detected")
 		}
 	})
 }

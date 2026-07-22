@@ -17,6 +17,7 @@ func askMode(args []string) {
 	scratch := ""
 	dispatch := false
 	owner := ""
+	skipGitCheck := false
 	var extraFlags []string
 	var rest []string
 
@@ -56,7 +57,7 @@ loop:
 			extraFlags = append(extraFlags, "--output-schema", nxt)
 			i += 2
 		case a == "--skip-git-repo-check":
-			extraFlags = append(extraFlags, "--skip-git-repo-check")
+			skipGitCheck = true
 			i++
 		case a == "--dispatch":
 			dispatch = true
@@ -166,6 +167,13 @@ loop:
 	// relative to this binary's own path (not cwd).
 	dev := readAgentsMd()
 
+	// codex exec refuses a cwd outside a git repo ("Not inside a trusted
+	// directory"); a non-repo cwd is a normal ad-hoc lane, so skip the check
+	// automatically instead of failing the run.
+	if skipGitCheck || !insideGitRepo() {
+		extraFlags = append(extraFlags, "--skip-git-repo-check")
+	}
+
 	replyTmp := reply + ".tmp"
 	argv := []string{
 		"codex", "exec",
@@ -232,6 +240,25 @@ func readable(path string) bool {
 func isRegularFile(path string) bool {
 	fi, err := os.Stat(path) //nolint:gosec // stats a caller-supplied dispatch path
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// insideGitRepo mirrors codex's trusted-directory walk: any ancestor with a
+// .git entry (dir, or worktree/submodule file) counts.
+func insideGitRepo() bool {
+	dir, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	for {
+		if exists(filepath.Join(dir, ".git")) {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 func readAgentsMd() string {

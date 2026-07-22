@@ -374,8 +374,10 @@ dragging past a few minutes means the question is unbounded — broad open-ended
 prompts are the usual cause.
 
 **"Not inside a trusted directory"**: `codex exec` refuses to run outside a
-git repository — `git init` first, or pass codex-ask's `--skip-git-repo-check`
-flag (it goes before the question argument).
+git repository. codex-ask detects a non-repo cwd and passes codex's
+`--skip-git-repo-check` automatically, so seeing this error means the
+detection missed — pass codex-ask's own `--skip-git-repo-check` flag
+explicitly (it goes before the question argument).
 
 **Turn fails with "flagged for possible cybersecurity risk"**: OpenAI's content
 filter killed the run, not codex-ask. It keys on offensive-security phrasing, so

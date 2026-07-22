@@ -20,9 +20,7 @@ drill:
    `--image`, `--schema <file>`.
 2. **On timeout, run the printed `AWAIT:` line** in a fresh foreground call
    (same timeout), repeatedly until it exits. Never re-ask the question — the
-   run is still finishing and a second ask pays twice. The only other
-   sanctioned second call is the `--skip-git-repo-check` retry after a "Not
-   inside a trusted directory" error.
+   run is still finishing and a second ask pays twice.
 3. **Return the reply**: lead with the `REPLY_FILE:` pointer line, then the
    file's contents verbatim, in the exact shape the caller asked for — a bare
    artifact stays bare. If a workflow schema forces a `StructuredOutput` end,
