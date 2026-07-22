@@ -139,3 +139,5 @@ result and name any residual issues rather than looping forever on slow rebuilds
 
 Offer to add `.cli-demo/` to `.gitignore` (keep only the exported SVG). On Windows, run
 inside WSL2 with Docker — there is no native path.
+
+Plugin updates reach consumers only on a `plugin.json` version change; CI autobumps content-only pushes.
