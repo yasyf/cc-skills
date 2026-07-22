@@ -15,6 +15,9 @@ on:
       strict:
         type: boolean
         default: false
+      script-ref:
+        type: string
+        default: "plugin-v1"
 
 jobs:
   autobump:
@@ -29,23 +32,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      # job_workflow_sha is unreliable (empty even cross-repo); job_workflow_ref carries repo/path@ref
+      # No context magic: job_workflow_sha AND job_workflow_ref observed empty on cross-repo calls
       - name: Resolve pinned script ref
         id: script-ref
         run: |
-          REF="${{ github.job_workflow_sha }}"
-          if [ -z "$REF" ] && [ "${{ github.repository }}" = "yasyf/cc-skills" ]; then
+          if [ "${{ github.repository }}" = "yasyf/cc-skills" ]; then
             REF="${{ github.sha }}"
+          else
+            REF="${{ inputs.script-ref }}"
           fi
-          if [ -z "$REF" ]; then
-            JWR="${{ github.job_workflow_ref }}"
-            REF="${JWR#*@}"
-          fi
-          if [ -z "$REF" ]; then
-            echo "::error::cannot resolve a pinned script ref — refusing an unpinned checkout"
-            exit 1
-          fi
-          echo "resolved script ref: $REF (job_workflow_sha='${{ github.job_workflow_sha }}' job_workflow_ref='${{ github.job_workflow_ref }}')"
+          echo "resolved script ref: $REF"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       # Script + workflow stay in lockstep at the caller's pinned ref — never main.
