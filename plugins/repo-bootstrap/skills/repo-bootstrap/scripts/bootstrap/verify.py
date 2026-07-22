@@ -186,10 +186,7 @@ def _wheel_smoke() -> tuple[bool, str]:
 
 
 def _go_test_cmd() -> list[str]:
-    """The race-suite command, routed through scripts/test.sh when the repo ships
-    it. That harness caps RLIMIT_NPROC so a daemonkit proc.Spawn path that execs a
-    test binary hits EAGAIN instead of fork-bombing the machine; bare `go test` is
-    that exact fork-bomb class, so it is used only when no harness is present."""
+    """The race-suite command, routed through scripts/test.sh when supplied."""
     script = Path("scripts/test.sh")
     if script.is_file():
         return ["bash", str(script), "-race", "./..."]

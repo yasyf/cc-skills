@@ -104,7 +104,7 @@ class Feature:
 class VarSpec:
     name: str
     required_in: tuple[str, ...]
-    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bun_version, bundle_id_prefix, license_id, binary_version_mode, code_root, launchd_mode
+    validate: str | None = None  # one of: identifier, dist_name, py_version, go_version, swift_tools_version, ios_version, bun_version, bundle_id_prefix, license_id, binary_version_mode, code_root
 
 
 @dataclass(frozen=True)

@@ -139,32 +139,6 @@ def test_go_release_feature_gates(go_var_pairs):
     assert ".github/formula/demo-proj.rb.tmpl" not in got
 
 
-DAEMONKIT_DESTS = GO_DESTS | {
-    "cmd/demo-projd/main.go",
-    "internal/daemon/root.go",
-    "internal/daemon/serve.go",
-    "internal/daemon/runtime.go",
-    "internal/daemon/version.go",
-    "internal/daemon/service.go",
-    "internal/daemon/protocol_test.go",
-    "scripts/test.sh",
-}
-
-
-@pytest.mark.parametrize("mode", ["client-spawn", "launchagent"])
-def test_go_daemonkit_surface_is_frozen(go_var_pairs, mode):
-    pairs = go_var_pairs + [f"LAUNCHD_MODE={mode}"]
-    got = dests("go", pairs, features=["daemonkit"])
-    assert got == DAEMONKIT_DESTS
-    assert "internal/daemon/peer.go" not in got
-
-
-def test_go_helper_app_adds_only_release_caller(go_var_pairs):
-    pairs = go_var_pairs + ["LAUNCHD_MODE=launchagent"]
-    got = dests("go", pairs, features=["daemonkit", "helper-app"])
-    assert got == DAEMONKIT_DESTS | {".github/workflows/release-app.yml"}
-
-
 def test_go_overrides_base_for_shared_dest(go_var_pairs):
     r = scaffold.resolve("go", [], [], go_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
@@ -2067,77 +2041,6 @@ def test_real_templates_render_go(go_var_pairs):
     assert '"releases"' in layout
     assert "**Releases.**" in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     assert "brew install janedoe/tap/demo-proj" in plan["README.md"]
-
-
-@pytest.mark.parametrize(
-    ("mode", "restart_policy", "forbidden_policy"),
-    [
-        ("client-spawn", "service.NoRestart", "service.RestartAlways"),
-        ("launchagent", "service.RestartAlways", "service.NoRestart"),
-    ],
-)
-def test_real_templates_render_daemonkit_v1(go_var_pairs, mode, restart_policy, forbidden_policy):
-    pairs = go_var_pairs + [f"LAUNCHD_MODE={mode}"]
-    plan, notices = _real_plan("go", pairs, features=["daemonkit"])
-    assert notices == []
-    assert "internal/daemon/peer.go" not in plan
-    assert "github.com/yasyf/daemonkit v0.3.2" in plan["go.mod"]
-
-    main = plan["cmd/demo-projd/main.go"]
-    assert "proc.CloseInheritedFDs()" in main
-    assert "signal.NotifyContext" not in main
-
-    runtime = plan["internal/daemon/runtime.go"]
-    assert "dkdaemon.NewRuntime" in runtime
-    assert "wire.LifecyclePeer" in runtime
-    assert "(trust.Policy{}).Check" in runtime
-    assert "wire.NewFraming" not in runtime
-    assert "PeerFromConn" not in runtime
-
-    service_template = plan["internal/daemon/service.go"]
-    assert restart_policy in service_template
-    assert forbidden_policy not in service_template
-
-    protocol = plan["internal/daemon/protocol_test.go"]
-    assert "wire.ProtocolVersion != 1" in protocol
-    assert "lifeproto.Version != 1" in protocol
-    assert '"protocol":1' in protocol
-    assert '"v":2' not in protocol
-
-    serve = plan["internal/daemon/serve.go"]
-    assert "serveLifecycle" not in serve
-    assert "handleConn" not in serve
-    assert "wire.NewFraming" not in serve
-    if mode == "client-spawn":
-        assert "dkdaemon.EnsureCurrent" in serve
-        assert "runtime.workers.Start(idle.Run)" in serve
-    else:
-        assert "dkdaemon.EnsureCurrent" not in serve
-
-
-def test_helper_app_release_owns_stable_cask_publication(go_var_pairs):
-    pairs = go_var_pairs + ["LAUNCHD_MODE=launchagent"]
-    plan, notices = _real_plan("go", pairs, features=["daemonkit", "helper-app"])
-    assert notices == []
-    workflow = plan[".github/workflows/release-app.yml"]
-    ref = "f45550932b0c8a42eb04e9ab0e5de8f82ad78b6a"
-
-    assert f"janedoe/homebrew-tap/.github/workflows/release-app.yml@{ref}" in workflow
-    assert "asset_name: demo-proj" in workflow
-    assert "cask_token:" not in workflow
-    assert "cask_template_path:" not in workflow
-    assert "needs.version.outputs.stable == 'true'" in workflow
-    assert "needs.release.outputs.changed == 'true'" in workflow
-    assert "ASSET_FILENAME: ${{ needs.release.outputs.asset_filename }}" in workflow
-    assert "__ASSET_URL__=${{ needs.release.outputs.asset_url }}" in workflow
-    assert "__SHA_APP__=${{ needs.release.outputs.sha256 }}" in workflow
-    assert "__REPO__" not in workflow
-    assert "Formula/${CASK_TOKEN}.rb already exists" in workflow
-    assert "older than registered cask version" in workflow
-    assert "cask template must install the full .app" in workflow
-    assert "cask template must not install this application as a bare binary" in workflow
-    assert f"janedoe/homebrew-tap/.github/actions/render-formula@{ref}" in workflow
-    assert workflow.count(f"janedoe/homebrew-tap/.github/actions/publish@{ref}") == 1
 
 
 def test_go_goreleaser_template_tokens_survive(go_var_pairs):

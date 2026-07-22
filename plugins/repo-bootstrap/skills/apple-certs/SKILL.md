@@ -1,6 +1,6 @@
 ---
 name: apple-certs
-description: Mint and stash the Apple release credentials a signed-app repo needs — a Developer ID Application signing certificate (local CSR, portal upload via agent-browser-with-cookies, full-chain .p12) and an App Store Connect notary API key — verify the identity actually signs, then push both into 1Password and the repo's GitHub secrets. Use when a repo bootstrapped with a Go/Swift signed-app release (release-app.yml / wrap-daemon-bundle) needs MACOS_SIGN_P12 / MACOS_SIGN_PASSWORD / MACOS_NOTARY_* filled, when renewing an expiring Developer ID cert, or when setting up notarization for a new signed macOS app. macOS; you must be signed in to developer.apple.com as the Account Holder.
+description: Mint and stash the Apple release credentials a signed-app repo needs — a Developer ID Application signing certificate (local CSR, portal upload via agent-browser-with-cookies, full-chain .p12) and an App Store Connect notary API key — verify the identity actually signs, then push both into 1Password and the repo's GitHub secrets. Use when a signed-app release (release-app.yml / wrap-daemon-bundle) needs MACOS_SIGN_P12 / MACOS_SIGN_PASSWORD / MACOS_NOTARY_* filled, when renewing an expiring Developer ID cert, or when setting up notarization for a new signed macOS app. macOS; you must be signed in to developer.apple.com as the Account Holder.
 allowed-tools: Bash(bash:*, openssl:*, security:*, codesign:*, curl:*, gh:*, op:*, base64:*, cookiesync:*, open:*, pkill:*), Read
 effort: medium
 ---

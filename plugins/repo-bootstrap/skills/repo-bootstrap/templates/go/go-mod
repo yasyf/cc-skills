@@ -1,7 +1,3 @@
 module {{MODULE_PATH}}
 
 go {{GO_VERSION}}
-{{#FEATURE_DAEMONKIT}}
-
-require github.com/yasyf/daemonkit v0.3.2
-{{/FEATURE_DAEMONKIT}}

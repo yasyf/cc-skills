@@ -28,18 +28,9 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Test (race)
-{{#FEATURE_DAEMONKIT}}
-        run: ./scripts/test.sh -race ./...
-{{/FEATURE_DAEMONKIT}}
-{{^FEATURE_DAEMONKIT}}
         run: go test -race ./...
-{{/FEATURE_DAEMONKIT}}
       - name: Build
         run: go build ./...
-{{#FEATURE_DAEMONKIT}}
-      - name: Build (pure, CGO_ENABLED=0)
-        run: CGO_ENABLED=0 go build ./...
-{{/FEATURE_DAEMONKIT}}
 
   lint:
     runs-on: ubuntu-latest
