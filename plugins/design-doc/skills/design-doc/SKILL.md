@@ -84,7 +84,7 @@ cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md design-doc.pdf dist/
 ```
 
-Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md.
+Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md naming the deploy name and live URL — later register edits redeploy through the same name to the same URL, with the exact sequence in [reference/publish.md](reference/publish.md).
 
 **Exit criteria:** the user has the URL or serve command; the changelog records what shipped.
 
