@@ -500,4 +500,12 @@ FILES = (
         "base",
         extra="plugin",
     ),
+    # Caller for the shared plugin-autobump.yml@plugin-v1 reusable workflow;
+    # binary-pinned plugins uncomment guard-plugins in the stamped copy.
+    FileSpec(
+        ".github/workflows/autobump.yml",
+        "plugin/github/workflows/autobump.yml",
+        "base",
+        extra="plugin",
+    ),
 )
