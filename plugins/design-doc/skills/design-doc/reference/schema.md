@@ -48,7 +48,7 @@ An empty or absent rendered register hides its section and nav link, so a fresh 
 
 | Key | Shape | Purpose |
 |---|---|---|
-| `findings` | `[n, severity, title, decisionRef]` | index of the adversarial review; the prose stays in `<reviewer>-review-<date>.md` |
+| `findings` | `[n, severity, title, ref]` | index of the adversarial review; the prose stays in `<reviewer>-review-<date>.md`. `ref` is the disposition target — usually a `DQ#`, sometimes a spike `V#` or another register's shorthand |
 | `timingComponents` | free | backing derivations for the path numbers |
 | `housekeeping` | strings | internal changelog notes |
 
@@ -65,6 +65,6 @@ An empty or absent rendered register hides its section and nav link, so a fresh 
 
 ## What `design.py check` enforces
 
-Errors (non-zero exit): required `meta` keys; ID shapes and uniqueness (`A\d+`, `DQ\d+`, `c-[a-z0-9-]+`, integer footnote `n`); status vocabularies; dangling references (`arch.dq`, `arch.a`, `constraints.a`, `pipe.card`, `findings` decisionRef, `open.g`, `meta.banner.assumption`, `decisions.by`); supersession integrity in both directions (`by` ⇔ `s: "superseded"`); `[^n]` tokens without a footnote entry; malformed `paths.segs`, `ceilings` rows, or `scaleMarks`.
+Errors (non-zero exit): required `meta` keys; ID shapes and uniqueness (`A\d+`, `DQ\d+`, `c-[a-z0-9-]+`, integer footnote `n`); status vocabularies; dangling references (`arch.dq`, `arch.a`, `constraints.a`, `pipe.card`, `findings` refs shaped like `DQ#` or `V#`, `open.g`, `meta.banner.assumption`, `decisions.by`); supersession integrity in both directions (`by` ⇔ `s: "superseded"`); `[^n]` tokens without a footnote entry; malformed `paths.segs`, `ceilings` rows, or `scaleMarks`.
 
 Warnings (advisory): footnotes never referenced; registers `rounds` entries no decision points at, or missing from qa-log; a decision `round` with no registers `rounds` entry; p95 below p50; qa-log answers that match no offered label (legal — confirm they were intended).

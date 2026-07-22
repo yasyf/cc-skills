@@ -164,11 +164,16 @@ def check(args) -> int:
     for n in R.get("pipe", []):
         if n.get("card") and n["card"] not in c_ids:
             rep.err(f"pipe {n.get('t')!r}: card {n['card']!r} is not an arch id")
+    open_ids = {o.get("id") for o in R.get("open", [])}
     for f in R.get("findings", []):
         if len(f) != 4:
-            rep.err(f"findings: row {f!r} is not [n, severity, title, decisionRef]")
-        elif f[3] and f[3] not in d_ids:
-            rep.err(f"finding {f[0]}: unknown decision {f[3]}")
+            rep.err(f"findings: row {f!r} is not [n, severity, title, ref]")
+            continue
+        ref = f[3]
+        if re.fullmatch(r"DQ\d+", str(ref)) and ref not in d_ids:
+            rep.err(f"finding {f[0]}: unknown decision {ref}")
+        elif re.fullmatch(r"V\d+", str(ref)) and ref not in open_ids:
+            rep.err(f"finding {f[0]}: spike {ref} is not in the open list")
     groups = R.get("openGroups", {})
     for o in R.get("open", []):
         if o.get("g") not in groups:
