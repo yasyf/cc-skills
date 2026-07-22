@@ -24,6 +24,12 @@ Check auth first: `npm exec --yes wrangler@latest -- whoami`.
 npm exec --yes wrangler@latest -- deploy dist --name <slug> --compatibility-date <today>
 ```
 
+Wrangler auto-loads `.env` from its working directory and prefers a `CLOUDFLARE_API_TOKEN` found there over its OAuth login. When the repo keeps such a token for another purpose, an Access-only token for instance, the deploy fails with `Authentication error [code: 10000]`. Run wrangler from inside `dist/` with the variable stripped:
+
+```bash
+( cd dist && env -u CLOUDFLARE_API_TOKEN npm exec --yes wrangler@latest -- deploy . --name <slug> --compatibility-date <today> )
+```
+
 The output ends with the live `<name>.<account>.workers.dev` URL. Redeploying with the same `--name` updates the same URL.
 
 **Unauthenticated** — add `--temporary`:
