@@ -27,7 +27,7 @@ const (
 )
 
 const usageStr = "usage: codex-ask [-m sol|luna] [-s ABS_DIR] [--image] [--schema FILE] " +
-	"[--skip-git-repo-check] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
+	"[--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}
 

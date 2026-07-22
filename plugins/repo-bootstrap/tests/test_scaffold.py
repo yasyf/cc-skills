@@ -450,7 +450,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert not (cwd / ".scratch").exists()
 
     sdir = tmp_path / "scratch"
-    absr = ask("-s", str(sdir), "-m", "luna", "--image", "--skip-git-repo-check", "ping")
+    absr = ask("-s", str(sdir), "-m", "luna", "--image", "ping")
     assert absr.returncode == 0, absr.stderr
     assert re.search(r"^REPLY_FILE: (.+)$", absr.stdout, re.M).group(1).startswith(str(sdir) + os.sep)
     luna_log = Path(re.search(r"^LOG_FILE: (.+)$", absr.stdout, re.M).group(1)).read_text()

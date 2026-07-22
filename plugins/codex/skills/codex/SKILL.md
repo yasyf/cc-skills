@@ -16,7 +16,8 @@ Every codex call runs through `codex-ask`, the executable this plugin ships (a
 plugin's `bin/` rides the Bash tool's PATH while the plugin is enabled). The
 script owns every mechanic: it pins `-c model=gpt-5.6-sol
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
-`--sandbox danger-full-access`, feeds the plugin's `AGENTS.md` via
+`--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
+any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules; no ccx/MCP inside lanes), disables
 MCP server mounts on the exec line, unsets `OPENAI_API_KEY` so codex always
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
@@ -372,12 +373,6 @@ successful over an untouched, scoped tree diff never actually ran.
 **Timeout**: exec mode never prompts and the fast tier is pinned, so a call
 dragging past a few minutes means the question is unbounded — broad open-ended
 prompts are the usual cause.
-
-**"Not inside a trusted directory"**: `codex exec` refuses to run outside a
-git repository. codex-ask detects a non-repo cwd and passes codex's
-`--skip-git-repo-check` automatically, so seeing this error means the
-detection missed — pass codex-ask's own `--skip-git-repo-check` flag
-explicitly (it goes before the question argument).
 
 **Turn fails with "flagged for possible cybersecurity risk"**: OpenAI's content
 filter killed the run, not codex-ask. It keys on offensive-security phrasing, so
