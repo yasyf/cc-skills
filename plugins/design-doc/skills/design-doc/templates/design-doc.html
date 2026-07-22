@@ -418,19 +418,10 @@ if(META.banner&&META.banner.text){
  b.hidden=false;
 }
 if(META.footerNote)$("#footerNote").textContent=" · "+META.footerNote;
-const SUBDEFAULTS={
- ground:"What the system has to do, and the terms the rest of the document uses.",
- architecture:"The main path through the system, then each part. Click a stage to open its section.",
- paths:'Each kind of request, step by step, with the time each step takes. <span class="mono">trace</span> steps through one request.',
- numbers:"The design in numbers, on whatever axis matters here. Anything marked (E) is an estimate, pending a spike in the open list.",
- ceilings:"What breaks first under load, and the guard in front of it.",
- decisions:"What was chosen, what was rejected, and the question round that decided it where there was one. Superseded entries stay in the log.",
- assumptions:"<i>Working</i> means we're building on it; <i>needs validation</i> means someone outside this document has to say yes first. If one of these is wrong, that's the most useful feedback this document can get.",
- open:"What still needs an answer before this design is settled.",
- footnotes:"The mechanics behind the claims above."};
+/* section sub-copy renders only when meta.sections authors it; headers stand alone by default */
 document.querySelectorAll("[data-sub]").forEach(p=>{
- const k=p.dataset.sub,o=(META.sections||{})[k];
- p.innerHTML=(o&&o.sub!=null)?inline(o.sub):SUBDEFAULTS[k];
+ const o=(META.sections||{})[p.dataset.sub];
+ if(o&&o.sub)p.innerHTML=inline(o.sub);else p.hidden=true;
 });
 
 /* tl;dr, rules, terms */
@@ -544,7 +535,7 @@ NUMBERS.forEach(nt=>{
 });
 
 /* ceilings */
-if(CEILNOTE)$("#ceilSub").innerHTML+=" "+inline(CEILNOTE);
+if(CEILNOTE){const cs=$("#ceilSub");cs.hidden=false;cs.innerHTML+=(cs.innerHTML?" ":"")+inline(CEILNOTE)}
 (function(){
  const t=$("#ceilTable");
  t.innerHTML="<thead><tr><th>Resource</th><th>Ceiling (E)</th><th>First symptom</th><th>Guard</th></tr></thead>";

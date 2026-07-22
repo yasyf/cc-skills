@@ -32,6 +32,7 @@ The reasoning, its dependency, and the feedback wanted, all checkable.
 - Plain section names that say what the section is: "Timings", "Request paths", "Open items". A clever name costs a beat of decoding on every visit to the nav.
 - Deep mechanics go in numbered footnotes (`[^n]`). The body stays readable at a walking pace; the footnotes reward the reader who wants the commit-ordering argument.
 - Cut captions that restate what the eye already sees. Under a list visibly grouped by owner, "Grouped by who can answer them" says nothing.
+- Section headers stand alone. The template renders no sub-copy under a header unless `meta.sections` authors it, and the bar for authoring one is that it carries design content ("DQ15 is the only design question still open"), not an explainer of what the section is ("The main path through the system, then each part").
 - Counts describe the system, not the effort. "27 decisions" and "9 spikes pending" are progress-report numbers; a design doc reader needs neither.
 
 ## The two passes

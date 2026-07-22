@@ -17,7 +17,7 @@ The contract between `registers.json`, `qa-log.json`, the HTML renderer, and the
 | `banner` | no | `{assumption, text}` — the warning card for the starred assumption; `assumption` must be a real `A#`; omit the key to omit the card |
 | `diagramCaption`, `timingsCaption` | no | captions under the diagram and timing strip |
 | `footerNote` | no | appended to the footer and the date lines |
-| `sections` | no | `{<sectionId>: {sub: "…"}}` overrides for section sub-copy; ids are `ground`, `architecture`, `paths`, `numbers`, `ceilings`, `decisions`, `assumptions`, `open`, `footnotes` |
+| `sections` | no | `{<sectionId>: {sub: "…"}}` one-line sub-copy under a section header; by default headers stand alone, so author one only when it carries design content the section body doesn't. Ids are `ground`, `architecture`, `paths`, `numbers`, `ceilings`, `decisions`, `assumptions`, `open`, `footnotes` |
 | `canonical` | no | a sentence stating what lives in which file, for readers of the raw JSON |
 
 Everything else about the HTML is fixed: the section skeleton, the status vocabularies, the artifact filenames (`registers.json`, `qa-log.json`, `NOTES.md`, `design-doc.pdf`). The system SVG is hand-edited in `design-doc.html` between the `<!--SYSD-->` markers; `design.py pdf` extracts exactly that block.
