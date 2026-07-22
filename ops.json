@@ -1,0 +1,1 @@
+{"v":1,"lamport":1,"session":"d30071c4-4607-47a2-abf5-149cd7f2d40f","ops":[{"kind":"create_log","nonce":"d86d4bcfd5addaf600af9c927fafad7e","title":"Plugin lifecycle: autobump machinery + fleet friction audit (2026-07)","tags":null,"anchors":[{"kind":"dir","value":"plugins"},{"kind":"dir","value":".github"}]}]}
