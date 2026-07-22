@@ -16,6 +16,7 @@ $TOOL scaffold --title <name>   # fresh ./<slug>/ directory for this one design 
 $TOOL scaffold --example        # ./tinyq/, a small filled-in worked example
 $TOOL check <dir>               # lint the registers; errors exit non-zero
 $TOOL pdf <dir>                 # render the registers into <dir>/design-doc.pdf
+$TOOL snapshot <dir> --note "…" # stamp a revision; the doc's changes-since view diffs against it
 ```
 
 Read [reference/method.md](reference/method.md) before Phase 1, [reference/writing.md](reference/writing.md) before Phase 5, and [reference/publish.md](reference/publish.md) before Phase 6 — the method file is the round/register protocol, the writing file is the voice contract, the publish file is the hosting flow. [reference/schema.md](reference/schema.md) is the field-by-field contract for the JSON files; scaffold the tinyq example when you want a filled register next to the schema.
@@ -85,14 +86,18 @@ Read [reference/writing.md](reference/writing.md) first; the voice contract live
 Stage a clean deploy folder holding only the files meant to ship:
 
 ```bash
+$TOOL snapshot . --note "<what changed>"
 mkdir -p dist
 cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md design-doc.pdf dist/
+cp -R history dist/
 ```
+
+The snapshot stamps this publish as a revision; from the second one onward, the doc shows a revision picker and greets returning reviewers with an "updated since your last visit" banner that diffs the registers against the revision they last read.
 
 Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md naming the deploy name and live URL — later register edits redeploy through the same name to the same URL, with the exact sequence in [reference/publish.md](reference/publish.md).
 
-**Exit criteria:** the user has the URL or serve command; the changelog records what shipped.
+**Exit criteria:** the user has the URL or serve command; the changelog records what shipped; the revision snapshot is recorded.
 
 ## Common issues
 

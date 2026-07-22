@@ -13,6 +13,8 @@ An entry is never deleted and never edited into a different claim. It is revised
 
 The point of supersession is that a reader can watch the design change its mind. A register that only shows final answers hides exactly the reasoning a reviewer needs.
 
+Supersession is the semantic history inside the register; `design.py snapshot` adds the mechanical history between publishes. Each publish archives the registers as `history/rev-<N>.json`, and the doc diffs the live registers against any archived revision, so a returning reviewer sees what changed since they last read it without replaying the whole record.
+
 ## The round protocol
 
 Every design fork goes through a question round. The round surface is a live `cc-present` board: at the start of the interview, look for `cc-present:present` (the `/cc-present` command) in the available-skills list and load it with the Skill tool, then compose each round per its instructions — one card per question with a `choice` block, consequence hints on the options, and a submit bar naming what the round decides; the clicks stream back while you keep working. Use AskUserQuestion only when `present` is not in the skill list. The shape is the same on either surface:

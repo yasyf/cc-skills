@@ -104,6 +104,14 @@ p{max-width:70ch}
 .scale .mark span{font-family:var(--mono);font-size:11.5px;white-space:nowrap;display:block}
 .banner{display:flex;gap:10px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn);border-radius:10px;padding:12px 16px;margin:18px 0 0;max-width:74ch}
 .banner .mono{color:var(--warn);flex:0 0 auto}
+.banner.rev{background:var(--accent-soft);border-color:var(--accent)}
+.banner.rev .mono{color:var(--accent)}
+.banner.rev .x{margin-left:auto;border:0;background:none;color:var(--ink2);font-family:var(--mono);cursor:pointer;padding:0 2px}
+.banner.rev .x:hover{color:var(--accent)}
+#baseSel{max-width:132px}
+.diffsum{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-top:18px;font-size:14px}
+.diffsum .row{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;padding:4px 0}
+.diffsum .row b{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2);flex-basis:110px}
 
 /* ground rules */
 .rules{margin:16px 0;display:grid;gap:8px}
@@ -237,6 +245,7 @@ footer a{cursor:pointer}
   <a href="#footnotes">Footnotes</a>
   <div class="spacer"></div>
   <div class="tools">
+    <select id="baseSel" class="toolbtn" hidden title="Show changes since a revision"></select>
     <button class="toolbtn" id="exportMd" title="Download as Markdown">↓</button>
     <button class="toolbtn" id="pdfBtn" title="Open the PDF">PDF</button>
   </div>
@@ -246,6 +255,7 @@ footer a{cursor:pointer}
 <section id="overview">
   <h1 id="docTitle"></h1>
   <p class="date" id="docDate"></p>
+  <div class="banner rev" id="revBanner" hidden></div>
   <div class="tldr">
     <div class="lbl">tl;dr</div>
     <ul id="tldrList"></ul>
@@ -273,6 +283,7 @@ footer a{cursor:pointer}
     <div class="capn" id="timingsCapn"></div>
   </div>
   <div class="banner" id="banner" hidden></div>
+  <div class="diffsum" id="diffPanel" hidden></div>
 </section>
 
 <section id="ground">
@@ -365,6 +376,8 @@ catch(e){
 }
 const {meta:META={},tldr:TLDR=[],constraints:CONS=[],terms:TERMS=[],footnotes:FOOTNOTES=[],scaleMarks:SCALE_MARKS=[],pipe:PIPE=[],pipeBg:PIPE_BG=[],arch:ARCH=[],paths:PATHS=[],numbers:NUMBERS=[],ceilings:CEIL=[],ceilingsNote:CEILNOTE="",decisions:DQ=[],rounds:ROUNDS={},assumptions:ASSUM=[],open:OPEN=[],openGroups:OGROUPS={}}=R;
 const SLUG=META.slug||"design";
+let DIFF=null;
+const dmark=(reg,id)=>DIFF&&DIFF.marks[reg+":"+id]?` <span class="pill p-acc diffpill">${DIFF.marks[reg+":"+id]}</span>`:"";
 
 /* ---------- tiny markdown ---------- */
 const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -407,7 +420,7 @@ const fmt=ms=> ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+"s" : ms>=1?(ms%1?ms.to
 document.title=(META.title?META.title+" — ":"")+(META.subtitle||"Design proposal");
 $("#navBrand").textContent=META.title||"";
 $("#docTitle").textContent=META.title||"Untitled design";
-$("#docDate").textContent=[META.subtitle||"Design proposal",META.phase,META.date].filter(Boolean).join(" · ");
+$("#docDate").textContent=[META.subtitle||"Design proposal",META.phase,META.date,META.rev?"rev "+META.rev:null].filter(Boolean).join(" · ");
 if(META.diagramCaption){const c=$("#diagramCapn");c.innerHTML=inline(META.diagramCaption);c.hidden=false}
 $("#timingsCapn").innerHTML=inline(META.timingsCaption||"Log scale.");
 if(META.banner&&META.banner.text){
@@ -561,7 +574,7 @@ function renderDQ(){
   if(d.by)body+=`<div class="kv"><b>Superseded by</b><a href="#decisions" onclick="openItem('${d.by}')" class="chip">${d.by}</a></div>`;
   const rd=ROUNDS[d.round];
   if(rd)body+=`<div class="qa"><div class="q">Round ${d.round} — “${rd.q}”</div><div class="a"><b>Answer:</b> “${rd.a}”</div>${rd.n?`<div class="a" style="color:var(--ink2)">${rd.n}</div>`:""}</div>`;
-  det.innerHTML=`<summary><span class="id">${d.id}</span><span class="t">${d.t}</span><span class="pill ${pc}">${pl}</span></summary><div class="body">${body}</div>`;
+  det.innerHTML=`<summary><span class="id">${d.id}</span><span class="t">${d.t}</span><span class="pill ${pc}">${pl}</span>${dmark("decisions",d.id)}</summary><div class="body">${body}</div>`;
   host.append(det);
  });
  $("#dqCount").textContent=n+" shown";
@@ -586,7 +599,7 @@ function renderA(){
   const [pc,pl]=ALBL[a.s];
   let body=`<p>${a.b}</p>`;
   if(a.n)body+=`<div class="kv"><b>History / notes</b>${a.n}</div>`;
-  det.innerHTML=`<summary><span class="id">${a.id}${a.star?" ★":""}</span><span class="t">${a.t}</span><span class="pill ${pc}">${pl}</span></summary><div class="body">${body}</div>`;
+  det.innerHTML=`<summary><span class="id">${a.id}${a.star?" ★":""}</span><span class="t">${a.t}</span><span class="pill ${pc}">${pl}</span>${dmark("assumptions",a.id)}</summary><div class="body">${body}</div>`;
   if(a.star)det.style.borderLeft="3px solid var(--warn)";
   host.append(det);
  });
@@ -609,7 +622,7 @@ function renderO(){
   const items=OPEN.filter(o=>o.g===g);
   const card=el("div","card");
   card.innerHTML=`<h3>${label} <span class="chip">${items.length}</span></h3>`+
-   items.map(o=>`<div style="display:flex;gap:10px;padding:5px 0;font-size:14px"><span class="mono" style="color:var(--accent);flex:0 0 44px">${o.id}</span><span>${o.t}</span></div>`).join("");
+   items.map(o=>`<div style="display:flex;gap:10px;padding:5px 0;font-size:14px"><span class="mono" style="color:var(--accent);flex:0 0 44px">${o.id}</span><span>${o.t}</span>${dmark("open",o.id)}</div>`).join("");
   card.style.marginBottom="12px";
   host.append(card);
  });
@@ -652,10 +665,172 @@ const navLinks=[...document.querySelectorAll("#rail a")];
 const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){navLinks.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+e.target.id))}})},{rootMargin:"-30% 0px -60% 0px"});
 secs.forEach(s=>io.observe(s));
 
+/* ---------- changes since rev X ---------- */
+if(typeof META.rev==="number"&&META.rev>=1){
+ const baseSel=$("#baseSel");
+ const LSKEY="design-doc-rev:"+SLUG, cur=META.rev|0;
+ const revExists=n=>Array.isArray(META.revisions)&&META.revisions.some(r=>r.rev===n);
+ const hasBaseline=Array.isArray(META.revisions)&&META.revisions.some(r=>r.rev<META.rev);
+ let stored=0;
+ try{stored=parseInt(localStorage.getItem(LSKEY)||"",10)||0}catch(e){}
+ const markSeen=()=>{if(cur)try{localStorage.setItem(LSKEY,String(cur))}catch(e){}};
+ let diffSeq=0;
+ const sstr=v=>Array.isArray(v)?"["+v.map(sstr).join(",")+"]":v&&typeof v==="object"?"{"+Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+sstr(v[k])).join(",")+"}":JSON.stringify(v);
+
+ function diffList(oldL,newL,key){
+  const om=Object.create(null),nm=Object.create(null),added=[],changed=[],removed=[];
+  (oldL||[]).forEach(e=>om[key(e)]=e);
+  (newL||[]).forEach(e=>nm[key(e)]=e);
+  (newL||[]).forEach(e=>{const k=key(e);if(!(k in om))added.push(k);else if(sstr(om[k])!==sstr(e))changed.push(k)});
+  (oldL||[]).forEach(e=>{if(!(key(e) in nm))removed.push(e)});
+  return {added,changed,removed};
+ }
+
+ function computeDiff(oldR,baseRev){
+  const o=oldR||{},marks=Object.create(null),removed=Object.create(null),sections=[];
+  const idk=e=>e.id;
+  const reg=(newL,oldL,key,name)=>{
+   const d=diffList(oldL,newL,key);
+   d.added.forEach(id=>marks[name+":"+id]="new");
+   d.changed.forEach(id=>{if(marks[name+":"+id]!=="new")marks[name+":"+id]="changed"});
+   removed[name]=d.removed;
+  };
+  reg(DQ,o.decisions,idk,"decisions");
+  reg(ASSUM,o.assumptions,idk,"assumptions");
+  reg(OPEN,o.open,idk,"open");
+  reg(ARCH,o.arch,idk,"arch");
+  reg(NUMBERS,o.numbers,idk,"numbers");
+  reg(FOOTNOTES,o.footnotes,e=>String(e.n),"fn");
+  const oldRounds=o.rounds||{};
+  new Set([...Object.keys(oldRounds),...Object.keys(ROUNDS)]).forEach(k=>{
+   if(!(k in oldRounds)||!(k in ROUNDS)||sstr(oldRounds[k])!==sstr(ROUNDS[k]))
+    DQ.forEach(d=>{if(String(d.round)===k&&marks["decisions:"+d.id]!=="new")marks["decisions:"+d.id]="changed"});
+  });
+  const chg=(a,b)=>sstr(a)!==sstr(b);
+  if(chg(o.tldr||[],TLDR))sections.push("tldr");
+  if(chg([o.constraints||[],o.terms||[]],[CONS,TERMS]))sections.push("ground");
+  if(chg([o.pipe||[],o.pipeBg||[]],[PIPE,PIPE_BG]))sections.push("architecture");
+  if(chg(o.scaleMarks||[],SCALE_MARKS))sections.push("scale");
+  if(chg([o.ceilings||[],o.ceilingsNote||""],[CEIL,CEILNOTE]))sections.push("ceilings");
+  if(chg(o.openGroups||{},OGROUPS))sections.push("open");
+  const pd=diffList(o.paths,PATHS,idk);
+  const pnm=id=>{const p=PATHS.find(x=>x.id===id);return p?p.name:""};
+  const paths={added:pd.added.map(id=>id+" — "+pnm(id)),changed:pd.changed.map(id=>id+" — "+pnm(id)),removed:pd.removed.map(p=>p.id+" — "+p.name)};
+  if(pd.added.length||pd.changed.length||pd.removed.length)sections.push("paths");
+  const stripMeta=m=>{const c=JSON.parse(JSON.stringify(m||{}));delete c.rev;delete c.revisions;delete c.date;return c};
+  const metaChanged=sstr(stripMeta(o.meta))!==sstr(stripMeta(META));
+  const base=META.revisions.find(r=>r.rev===baseRev)||{rev:baseRev};
+  const notes=META.revisions.filter(r=>r.rev>base.rev).sort((a,b)=>a.rev-b.rev);
+  return {base,marks,removed,sections,metaChanged,notes,paths};
+ }
+
+ const SECMAP={tldr:".tldr .lbl",ground:"#ground h2",architecture:"#architecture h2",scale:".scale h3",paths:"#paths h2",ceilings:"#ceilings h2",open:"#open h2"};
+ const SECNAMES={tldr:"tl;dr",ground:"ground rules",architecture:"architecture",scale:"timings",ceilings:"ceilings",paths:"request paths",open:"open items"};
+ function applyStaticMarks(){
+  ARCH.forEach(c=>{const m=DIFF.marks["arch:"+c.id];if(!m)return;const d=document.getElementById(c.id);if(d){const s=d.querySelector("summary");if(s)s.append(el("span","pill p-acc diffpill",m))}});
+  NUMBERS.forEach(nt=>{const m=DIFF.marks["numbers:"+nt.id];if(!m)return;const b=document.getElementById(nt.id);if(b){const h=b.querySelector("h3");if(h)h.append(el("span","pill p-acc diffpill",m))}});
+  FOOTNOTES.forEach(f=>{const m=DIFF.marks["fn:"+f.n];if(!m)return;const li=document.getElementById("fn-"+f.n);if(li)li.append(el("span","pill p-acc diffpill",m))});
+  DIFF.sections.forEach(k=>{const t=document.querySelector(SECMAP[k]);if(t)t.append(el("span","tchip diffpill","changed"))});
+ }
+
+ const gotoEl=id=>{const e=document.getElementById(id);if(e)e.scrollIntoView({block:"center"})};
+ const openArch=id=>{const e=document.getElementById(id);if(e){e.open=true;e.scrollIntoView({block:"center"})}};
+ const dchip=(cls,txt,fn)=>{const s=el("span",cls,esc(txt));s.style.cursor="pointer";s.onclick=fn;return s};
+ const REGROWS=[
+  {label:"Decisions",list:DQ,id:e=>e.id,title:e=>e.t,reg:"decisions",click:id=>openItem(id)},
+  {label:"Assumptions",list:ASSUM,id:e=>e.id,title:e=>e.t,reg:"assumptions",click:id=>openItem(id)},
+  {label:"Open items",list:OPEN,id:e=>e.id,title:e=>e.t,reg:"open",click:()=>gotoEl("open")},
+  {label:"Architecture",list:ARCH,id:e=>e.id,title:e=>e.t,reg:"arch",click:openArch},
+  {label:"Numbers",list:NUMBERS,id:e=>e.id,title:e=>e.t,reg:"numbers",click:id=>gotoEl(id)},
+  {label:"Footnotes",list:FOOTNOTES,id:e=>String(e.n),title:e=>e.b,reg:"fn",click:id=>gotoEl("fn-"+id)},
+ ];
+ function renderDiffPanel(){
+  const host=$("#diffPanel");host.innerHTML="";host.hidden=false;
+  const base=DIFF.base,meta=[base.date,base.note].filter(Boolean).join(" · ");
+  const head=el("div");head.style.cssText="display:flex;align-items:baseline;gap:10px;margin-bottom:6px";
+  head.innerHTML=`<b style="font-size:15px">Changes since rev ${base.rev}</b>`+(meta?`<span style="color:var(--ink2);font-size:13px">${esc(meta)}</span>`:"");
+  const clr=el("button",null,"✕ clear");clr.style.cssText="margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:3px 10px;font-family:var(--mono);font-size:12px;color:var(--ink2);cursor:pointer";clr.onclick=clearDiff;
+  head.append(clr);host.append(head);
+  DIFF.notes.forEach(nt=>{const r=el("div");r.style.cssText="font-size:13px;color:var(--ink2);padding:2px 0";r.innerHTML=`<span class="mono">rev ${nt.rev}</span> · ${esc(nt.date||"")} — ${esc(nt.note||"")}`;host.append(r)});
+  const pushRow=(label,added,changed,rem,click)=>{
+   if(!added.length&&!changed.length&&!rem.length)return;
+   const row=el("div","row");row.append(el("b",null,esc(label)));
+   const wrap=el("span");wrap.style.cssText="display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;flex:1";
+   added.forEach(id=>wrap.append(dchip("tchip",id,()=>click(id))));
+   changed.forEach(id=>wrap.append(dchip("chip",id,()=>click(id))));
+   rem.forEach(txt=>{const s=el("span",null,`${esc(txt)} `);s.style.cssText="color:var(--ink2);font-size:13px";s.append(el("span","pill p-dead","removed"));wrap.append(s)});
+   row.append(wrap);host.append(row);
+  };
+  REGROWS.forEach(cfg=>{
+   const added=cfg.list.filter(e=>DIFF.marks[cfg.reg+":"+cfg.id(e)]==="new").map(cfg.id);
+   const changed=cfg.list.filter(e=>DIFF.marks[cfg.reg+":"+cfg.id(e)]==="changed").map(cfg.id);
+   const rem=(DIFF.removed[cfg.reg]||[]).map(e=>cfg.id(e)+" — "+cfg.title(e));
+   pushRow(cfg.label,added,changed,rem,cfg.click);
+  });
+  const P=DIFF.paths;
+  if(P.added.length||P.changed.length||P.removed.length){
+   const row=el("div","row");row.append(el("b",null,"Request paths"));
+   const wrap=el("span");wrap.style.cssText="display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;flex:1";
+   const put=(list,pc,pl)=>list.forEach(t=>{const s=el("span",null,`${esc(t)} `);s.style.cssText="color:var(--ink2);font-size:13px";s.append(el("span",pc,pl));wrap.append(s)});
+   put(P.added,"pill p-acc","new");put(P.changed,"pill p-acc","changed");put(P.removed,"pill p-dead","removed");
+   row.append(wrap);host.append(row);
+  }
+  if(DIFF.sections.length){const row=el("div","row");row.innerHTML=`<b>Sections</b><span style="color:var(--ink2);font-size:13px">${esc(DIFF.sections.map(k=>SECNAMES[k]||k).join(", "))}</span>`;host.append(row)}
+  if(DIFF.metaChanged){const row=el("div","row");row.innerHTML='<b>Header</b><span style="color:var(--ink2);font-size:13px">document header/prose changed</span>';host.append(row)}
+ }
+
+ async function showDiff(baseRev){
+  clearDiff();
+  $("#revBanner").hidden=true;
+  const tok=++diffSeq;
+  let oldR;
+  try{oldR=JSON.parse(await loadFile("history/rev-"+baseRev+".json"))}
+  catch(e){if(tok!==diffSeq)return;const p=$("#diffPanel");p.innerHTML=`<div class="row"><span>history/rev-${esc(String(baseRev))}.json could not be loaded</span></div>`;p.hidden=false;baseSel.value="";return}
+  if(tok!==diffSeq)return;
+  DIFF=computeDiff(oldR,baseRev);
+  renderDQ();renderA();renderO();applyStaticMarks();renderDiffPanel();
+  baseSel.value=String(baseRev);
+  markSeen();
+ }
+
+ function clearDiff(){
+  diffSeq++;
+  DIFF=null;
+  document.querySelectorAll(".diffpill").forEach(n=>n.remove());
+  $("#diffPanel").hidden=true;
+  renderDQ();renderA();renderO();
+  baseSel.value="";
+ }
+
+ if(hasBaseline){
+  baseSel.innerHTML='<option value="">changes since…</option>';
+  META.revisions.filter(r=>r.rev<META.rev).sort((a,b)=>b.rev-a.rev).forEach(r=>{
+   const o=el("option");o.value=String(r.rev);
+   const note=(r.note||"").length>40?(r.note||"").slice(0,40)+"…":(r.note||"");
+   o.textContent=`rev ${r.rev} · ${r.date||""}`+(note?" · "+note:"");
+   baseSel.append(o);
+  });
+  baseSel.hidden=false;
+  baseSel.onchange=()=>{baseSel.value?showDiff(+baseSel.value):clearDiff()};
+ }
+
+ const qs=parseInt(new URLSearchParams(location.search).get("since")||"",10)||0;
+ let seen=stored;
+ if(!seen&&qs&&revExists(qs)){seen=qs;try{localStorage.setItem(LSKEY,String(qs))}catch(e){}}
+ if(cur&&seen&&seen<cur&&revExists(seen)){
+  const b=$("#revBanner");
+  b.innerHTML=`<span class="mono">rev ${seen} → rev ${cur}</span><span>Updated since your last visit — <a href="#" id="revSee">see what changed</a></span>`;
+  const x=el("button","x","✕");b.append(x);
+  b.hidden=false;
+  $("#revSee").onclick=e=>{e.preventDefault();b.hidden=true;showDiff(seen)};
+  x.onclick=()=>{b.hidden=true;markSeen()};
+ }else markSeen();
+}
+
 /* ---------- markdown builders ---------- */
 function buildDocMd(){
  const L=[];const push=s=>L.push(s);
- push(`# ${META.title||"Untitled design"} — ${META.subtitle||"Design proposal"}\n\n_${[META.date,META.footerNote].filter(Boolean).join(" · ")}_\n`);
+ push(`# ${META.title||"Untitled design"} — ${META.subtitle||"Design proposal"}\n\n_${[META.date,META.rev?"rev "+META.rev:null,META.footerNote].filter(Boolean).join(" · ")}_\n`);
  push("## TL;DR\n");
  TLDR.forEach(t=>push("- "+t));
  push("\n## Ground rules\n");

@@ -4,6 +4,7 @@
   design.py scaffold [dir] [--title X] [--slug x] [--example]
   design.py check <dir>
   design.py pdf [dir]
+  design.py snapshot [dir] [--note X] [--force]
 
 scaffold creates a fresh directory for one design doc — named after the
 slug when no dir is given — holding the doc renderer and either the empty
@@ -11,10 +12,11 @@ starter registers or the tinyq worked example. check lints the registers:
 ID shapes and uniqueness, dangling cross-references, supersession
 integrity, footnote tokens, and the qa-log round linkage; errors exit
 non-zero, warnings are advisory. pdf renders the project's registers into
-its design-doc.pdf via the generic build-pdf.py beside this script.
-Stdlib only.
+its design-doc.pdf via the generic build-pdf.py beside this script. snapshot
+records a revision of the registers in the project's history directory. Stdlib
+only.
 """
-import argparse, datetime, json, re, shutil, subprocess, sys
+import argparse, copy, datetime, json, re, shutil, subprocess, sys
 from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -75,6 +77,51 @@ def pdf(args) -> int:
     return subprocess.run([sys.executable, str(builder), args.dir]).returncode
 
 
+def snapshot(args) -> int:
+    root = Path(args.dir)
+    registers_path = root / "registers.json"
+    try:
+        data = json.loads(registers_path.read_text())
+    except (OSError, ValueError) as e:
+        print(f"snapshot: cannot load registers.json: {e}", file=sys.stderr)
+        return 1
+    if not isinstance(data, dict):
+        print("snapshot: registers.json must be a JSON object", file=sys.stderr)
+        return 1
+
+    meta = data.setdefault("meta", {})
+    revisions = meta.get("revisions") or []
+    last = max(meta.get("rev") or 0, max((r.get("rev") or 0 for r in revisions), default=0))
+    previous_path = root / "history" / f"rev-{last}.json"
+    if not args.force and previous_path.exists():
+        try:
+            previous = json.loads(previous_path.read_text())
+        except (OSError, ValueError):
+            previous = None
+        if isinstance(previous, dict):
+            current = copy.deepcopy(data)
+            previous = copy.deepcopy(previous)
+            for candidate in (current, previous):
+                candidate_meta = candidate.get("meta", {})
+                for key in ("rev", "revisions", "date"):
+                    candidate_meta.pop(key, None)
+            if json.dumps(current, sort_keys=True) == json.dumps(previous, sort_keys=True):
+                print(f"snapshot: no register changes since rev {last} — nothing recorded (use --force to record anyway)")
+                return 0
+
+    rev = last + 1
+    meta["rev"] = rev
+    meta["revisions"] = revisions
+    revisions.append({"rev": rev, "date": datetime.date.today().isoformat(), "note": args.note})
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    previous_path = root / "history" / f"rev-{rev}.json"
+    previous_path.parent.mkdir(parents=True, exist_ok=True)
+    previous_path.write_text(payload)
+    registers_path.write_text(payload)
+    print(f"snapshot: rev {rev} recorded → history/rev-{rev}.json")
+    return 0
+
+
 # ------------------------------------------------------------------- check
 
 class Report:
@@ -130,11 +177,56 @@ def check(args) -> int:
     except (OSError, ValueError) as e:
         print(f"ERROR: cannot load registers.json: {e}")
         return 1
+    if not isinstance(R, dict):
+        print("ERROR: registers.json must be a JSON object")
+        return 1
 
     meta = R.get("meta", {})
     for k in ("title", "slug", "date"):
         if not meta.get(k):
             rep.err(f"meta.{k} is missing or empty")
+
+    if "rev" in meta or "revisions" in meta:
+        rev = meta.get("rev")
+        rev_valid = isinstance(rev, int) and not isinstance(rev, bool) and rev > 0
+        if not rev_valid:
+            rep.err("meta.rev must be a positive integer")
+        revisions = meta.get("revisions")
+        if not isinstance(revisions, list) or not revisions:
+            rep.err("meta.revisions must be a non-empty list")
+        else:
+            revs = []
+            for i, revision in enumerate(revisions):
+                revision_rev = revision.get("rev") if isinstance(revision, dict) else None
+                if not isinstance(revision_rev, int) or isinstance(revision_rev, bool):
+                    rep.err(f"meta.revisions[{i}].rev is missing or is not an integer")
+                elif revision_rev < 1:
+                    rep.err(f"meta.revisions[{i}].rev must be >= 1")
+                else:
+                    revs.append(revision_rev)
+                    history_path = root / "history" / f"rev-{revision_rev}.json"
+                    if not history_path.exists():
+                        rep.warn(f"history/rev-{revision_rev}.json is missing; the changes-since picker cannot diff against it")
+                    else:
+                        try:
+                            hist = json.loads(history_path.read_text())
+                        except (OSError, ValueError) as e:
+                            rep.warn(f"history/rev-{revision_rev}.json does not parse: {e}")
+                        else:
+                            if not isinstance(hist, dict):
+                                rep.warn(f"history/rev-{revision_rev}.json is not a JSON object")
+                revision_date = revision.get("date") if isinstance(revision, dict) else None
+                if not isinstance(revision_date, str) or not revision_date:
+                    rep.err(f"meta.revisions[{i}].date is missing or empty")
+            last_revision = revisions[-1]
+            last_rev = last_revision.get("rev") if isinstance(last_revision, dict) else None
+            if rev_valid and isinstance(last_rev, int) and not isinstance(last_rev, bool) and rev != last_rev:
+                rep.err(f"meta.rev {rev} does not match last meta.revisions rev {last_rev}")
+            if len(revs) == len(revisions):
+                if any(a >= b for a, b in zip(revs, revs[1:])):
+                    rep.err("meta.revisions revs must be strictly increasing and unique")
+                if revs != list(range(1, len(revs) + 1)):
+                    rep.warn("meta.revisions revs are not contiguous from 1 (fine if intentional)")
 
     a_ids = check_ids(rep, R.get("assumptions", []), "id", r"A\d+", "assumptions")
     d_ids = check_ids(rep, R.get("decisions", []), "id", r"DQ\d+", "decisions")
@@ -268,6 +360,11 @@ def main():
     pd = sub.add_parser("pdf", help="render the project's registers into its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)
+    sn = sub.add_parser("snapshot", help="record a revision of the project's registers")
+    sn.add_argument("dir", nargs="?", default=".")
+    sn.add_argument("--note", default="")
+    sn.add_argument("--force", action="store_true")
+    sn.set_defaults(fn=snapshot)
     args = ap.parse_args()
     sys.exit(args.fn(args))
 
