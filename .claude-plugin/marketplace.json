@@ -60,6 +60,11 @@
       "name": "show",
       "source": "./plugins/show",
       "description": "Choose the right surface before delivering to the human — prose, AskUserQuestion, a static Artifact page, or a live cc-present board — with a wall-of-text nudge that flags structured deliverables dumped as chat text."
+    },
+    {
+      "name": "design-doc",
+      "source": "./plugins/design-doc",
+      "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc plus a generated PDF, written as a humble proposal."
     }
   ],
   "allowCrossMarketplaceDependenciesOn": ["captain-hook"]

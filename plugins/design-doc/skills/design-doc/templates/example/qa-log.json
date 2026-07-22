@@ -1,0 +1,65 @@
+{
+  "description": "Verbatim log of every design question round: the questions asked, the options offered, and the answers as given (lightly copyedited). Explain-only exchanges are not logged.",
+  "rounds": [
+    {
+      "round": 1,
+      "date": "2026-07-21",
+      "topic": "Durability and delivery",
+      "questions": [
+        {
+          "header": "Storage",
+          "question": "DQ1: What owns durability for a queue?",
+          "options": [
+            { "label": "One SQLite file per tenant", "description": "One WAL per tenant; queues are tables. Isolation without file sprawl. (Recommended)" },
+            { "label": "One shared file", "description": "Simplest possible layout, but every tenant shares one flush loop." },
+            { "label": "One file per queue", "description": "Maximum isolation; thousands of open files to manage." },
+            { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
+          ],
+          "answer": "One SQLite file per tenant"
+        },
+        {
+          "header": "Delivery",
+          "question": "DQ2: What do consumers get: at-least-once or exactly-once?",
+          "options": [
+            { "label": "At-least-once (Recommended)", "description": "Duplicates possible on lease expiry; producers set idempotency keys." },
+            { "label": "Exactly-once", "description": "A dedup ledger in the hot path; consumers never see duplicates." },
+            { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
+          ],
+          "answer": "At-least-once, but keep completed keys around so consumers can dedup cheaply"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "date": "2026-07-21",
+      "topic": "Worker transport and v1 scope",
+      "note": "Spike V3 spun out of this round.",
+      "questions": [
+        {
+          "header": "Transport",
+          "question": "DQ3: How do workers receive jobs?",
+          "options": [
+            { "label": "Long-poll HTTP (Recommended)", "description": "Every worker runtime already speaks it; no new client library." },
+            { "label": "WebSockets", "description": "Lower per-dispatch overhead; a connection lifecycle to manage everywhere." },
+            { "label": "Plain polling", "description": "Trivial clients; latency and load scale with the poll interval." },
+            { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
+          ],
+          "answer": "Long-poll HTTP (Recommended)"
+        },
+        {
+          "header": "v1 scope",
+          "question": "Which delivery features are in scope for v1?",
+          "multiSelect": true,
+          "options": [
+            { "label": "Retries with backoff", "description": "Failed jobs re-queue with exponential backoff." },
+            { "label": "Dead-letter queues", "description": "Jobs that exhaust retries land somewhere inspectable." },
+            { "label": "Scheduled jobs", "description": "Enqueue now, run at a future time." },
+            { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
+          ],
+          "answer": "Retries with backoff, Add to open list",
+          "note": "Scheduled jobs recorded as Q2 rather than decided here."
+        }
+      ]
+    }
+  ]
+}

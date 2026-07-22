@@ -1,0 +1,22 @@
+<svg viewBox="0 0 960 220" role="img" aria-label="System diagram: producers enqueue jobs over HTTP into a durable per-tenant job log on SQLite; the dispatcher leases jobs to long-polling workers; completed jobs archive to object storage after 24 hours.">
+      <defs>
+        <marker id="m-arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink2)"/></marker>
+      </defs>
+      <rect class="bxo" x="20" y="70" width="150" height="80" rx="8"/>
+      <text class="tt" x="95" y="103" text-anchor="middle">producers</text>
+      <text x="95" y="121" text-anchor="middle">HTTP · idempotency keys</text>
+      <line class="ln" x1="170" y1="110" x2="300" y2="110" marker-end="url(#m-arr)"/>
+      <text class="sm" x="235" y="100" text-anchor="middle">enqueue</text>
+      <rect class="bx dur" x="302" y="55" width="330" height="110" rx="10"/>
+      <text class="tt" x="467" y="90" text-anchor="middle">job log · SQLite per tenant</text>
+      <text x="467" y="110" text-anchor="middle">group-committed WAL flush</text>
+      <text class="ac" x="467" y="130" text-anchor="middle">ack ~2ms p50 (E)</text>
+      <text class="tag ac" x="622" y="155" text-anchor="end">durable</text>
+      <line class="ln" x1="632" y1="110" x2="790" y2="110" marker-end="url(#m-arr)"/>
+      <text class="sm" x="711" y="100" text-anchor="middle">lease + deliver</text>
+      <rect class="bxo" x="792" y="70" width="150" height="80" rx="8"/>
+      <text class="tt" x="867" y="103" text-anchor="middle">workers</text>
+      <text x="867" y="121" text-anchor="middle">long-poll · renew leases</text>
+      <line class="ln dash" x1="467" y1="165" x2="467" y2="196" marker-end="url(#m-arr)"/>
+      <text class="sm" x="467" y="212" text-anchor="middle">archive after 24h → object storage · restore = replay</text>
+    </svg>

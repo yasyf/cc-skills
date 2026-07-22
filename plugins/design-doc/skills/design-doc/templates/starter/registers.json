@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "title": "PROJECT_TITLE",
+    "subtitle": "Design proposal",
+    "phase": "draft",
+    "date": "PROJECT_DATE",
+    "slug": "PROJECT_SLUG",
+    "tagline": "This is a draft for feedback, not a finished design. The assumptions carry the most weight: if one is wrong, the design changes with it.",
+    "canonical": "This file is the canonical structured register. Verbatim question rounds live in qa-log.json; prose that does not fit structure lives in NOTES.md; design-doc.html renders from this file."
+  },
+  "tldr": [],
+  "constraints": [],
+  "terms": [],
+  "footnotes": [],
+  "arch": [],
+  "paths": [],
+  "timingComponents": [],
+  "scaleMarks": [],
+  "pipe": [],
+  "pipeBg": [],
+  "ceilings": [],
+  "ceilingsNote": "",
+  "decisions": [],
+  "rounds": {},
+  "assumptions": [],
+  "open": [],
+  "openGroups": {},
+  "findings": [],
+  "housekeeping": []
+}

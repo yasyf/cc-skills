@@ -1,0 +1,48 @@
+# PROJECT_TITLE — Notes
+
+The prose companion to the structured registers. Everything with a stable ID
+lives in `registers.json` (canonical; rendered by `design-doc.html`); verbatim
+question rounds live in `qa-log.json`. This file holds what doesn't fit
+structure: method, derivations, longer arguments, and anything homeless.
+
+## Where things live
+
+- `registers.json` — assumptions, decisions, architecture sections, open items,
+  timings, ceilings, plus the doc-facing content: tl;dr, ground rules, terms,
+  footnotes. Edit this to change the design doc.
+- `design-doc.html` — the interactive doc. Renders from registers.json, so it
+  must be served over HTTP (`python3 -m http.server 8641` in this folder);
+  opened as a bare file it shows instructions instead. The ↓ button downloads
+  the synthesized Markdown; the footer links open the registers, question log,
+  and this file as rendered Markdown in a modal.
+- `build-pdf.py` — regenerates `design-doc.pdf` (a clean linear doc, not a
+  page-print) from registers.json via headless Chrome. Rerun after editing
+  registers.json; the doc's PDF button opens the generated file.
+- `qa-log.json` — the full log of every question round: options offered and
+  answers as given (lightly copyedited). Explain-only exchanges are not logged.
+- This file — prose.
+
+## Method
+
+The design runs assumption-first: no design until ground truths are recorded
+with stable IDs and statuses (working / needs validation), then design by
+question rounds — every decision traceable to a question, its options, and the
+answer, always with an "add to open list" escape. Supersessions are recorded,
+never erased.
+
+## The diagnosis
+
+(What is wrong with the current system, stated as root causes rather than
+symptoms. Write this, and get the user to agree with it, before designing.)
+
+## Derivations too long for a register field
+
+(Bold lead-in paragraphs, one per argument.)
+
+## Changelog
+
+- PROJECT_DATE: Registers scaffolded.
+
+## Loose notes
+
+- (Anything homeless.)

@@ -79,6 +79,7 @@ The table below is the full catalog; the `SKILL.md` inside each plugin dir carri
 | [cli-demo](plugins/cli-demo) | Animated SVG terminal demos via `evp`. Write a tape, render, inspect keyframes, refine. |
 | [agent-browser-with-cookies](plugins/agent-browser-with-cookies) | Authenticated `agent-browser` sessions off your local browser login, one Touch ID tap. macOS only. |
 | [show](plugins/show) | Picks the right delivery surface for a deliverable, whether prose, AskUserQuestion, an Artifact page, or a live cc-present board. A hook flags wall-of-text dumps. |
+| [design-doc](plugins/design-doc) | An assumptions-first design method with stable-ID registers and question rounds, shipped as an interactive doc and PDF. Needs Chrome for the PDF step. |
 | [cc-context](https://github.com/yasyf/cc-context) | Compact codebase-context tools, `ccx` over semble and tilth. Lives in its own repo, installs from this marketplace. |
 
 ## Hack on a local checkout
