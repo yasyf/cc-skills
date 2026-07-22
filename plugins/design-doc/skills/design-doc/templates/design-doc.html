@@ -378,7 +378,7 @@ let toggleUnch=()=>{};
 const dmark=(reg,id)=>DIFF&&DIFF.marks[reg+":"+id]?` <span class="pill p-acc diffpill">${DIFF.marks[reg+":"+id]}</span>`:"";
 
 /* ---------- tiny markdown ---------- */
-const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const inline=s=>esc(s)
  .replace(/\[\^(\d+)\]/g,'<sup class="fn"><a href="#fn-$1">$1</a></sup>')
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -629,7 +629,7 @@ function renderO(){
   const card=el("div","card");
   card.innerHTML=`<h3>${label} <span class="chip">${items.length}</span></h3>`+
    items.map(o=>{const u=DIFF&&!DIFF.marks["open:"+o.id];if(u&&hiding)hid++;return `<div class="${u?"unch":""}" style="display:flex;gap:10px;padding:5px 0;font-size:14px"><span class="mono" style="color:var(--accent);flex:0 0 44px">${o.id}</span><span>${o.t}</span>${dmark("open",o.id)}</div>`}).join("");
-  if(DIFF&&items.length&&items.every(o=>!DIFF.marks["open:"+o.id]))card.classList.add("unch");
+  if(DIFF&&!DIFF.groupsChanged.includes(g)&&items.length&&items.every(o=>!DIFF.marks["open:"+o.id]))card.classList.add("unch");
   card.style.marginBottom="12px";
   host.append(card);
  });
@@ -723,16 +723,20 @@ if(typeof META.rev==="number"&&META.rev>=1){
   if(chg([o.pipe||[],o.pipeBg||[]],[PIPE,PIPE_BG]))sections.push("architecture");
   if(chg(o.scaleMarks||[],SCALE_MARKS))sections.push("scale");
   if(chg([o.ceilings||[],o.ceilingsNote||""],[CEIL,CEILNOTE]))sections.push("ceilings");
-  if(chg(o.openGroups||{},OGROUPS))sections.push("open");
+  const oldOG=o.openGroups||{},groupsChanged=[];
+  new Set([...Object.keys(oldOG),...Object.keys(OGROUPS)]).forEach(g=>{if(oldOG[g]!==OGROUPS[g])groupsChanged.push(g)});
+  if(groupsChanged.length)sections.push("open");
   const pd=diffList(o.paths,PATHS,idk);
   const pnm=id=>{const p=PATHS.find(x=>x.id===id);return p?p.name:""};
   const paths={added:pd.added.map(id=>id+" — "+pnm(id)),changed:pd.changed.map(id=>id+" — "+pnm(id)),removed:pd.removed.map(p=>p.id+" — "+p.name)};
   if(pd.added.length||pd.changed.length||pd.removed.length)sections.push("paths");
+  const oldSec=(o.meta&&o.meta.sections)||{},newSec=META.sections||{};
+  new Set([...Object.keys(oldSec),...Object.keys(newSec)]).forEach(id=>{if(sstr(oldSec[id])!==sstr(newSec[id])&&!sections.includes(id))sections.push(id)});
   const stripMeta=m=>{const c=JSON.parse(JSON.stringify(m||{}));delete c.rev;delete c.revisions;delete c.date;return c};
   const metaChanged=sstr(stripMeta(o.meta))!==sstr(stripMeta(META));
   const base=META.revisions.find(r=>r.rev===baseRev)||{rev:baseRev};
   const notes=META.revisions.filter(r=>r.rev>base.rev).sort((a,b)=>a.rev-b.rev);
-  return {base,marks,removed,sections,metaChanged,notes,paths};
+  return {base,marks,removed,sections,metaChanged,notes,paths,groupsChanged};
  }
 
  const SECMAP={tldr:".tldr .lbl",ground:"#ground h2",architecture:"#architecture h2",scale:".scale h3",paths:"#paths h2",ceilings:"#ceilings h2",open:"#open h2"};
@@ -744,12 +748,12 @@ if(typeof META.rev==="number"&&META.rev>=1){
   DIFF.sections.forEach(k=>{const t=document.querySelector(SECMAP[k]);if(t)t.append(el("span","tchip diffpill","changed"))});
   const markedReg=reg=>Object.keys(DIFF.marks).some(k=>k.startsWith(reg+":")),removedReg=reg=>(DIFF.removed[reg]||[]).length>0;
   const secChanged={
-   decisions:markedReg("decisions")||removedReg("decisions"),
-   assumptions:markedReg("assumptions")||removedReg("assumptions"),
+   decisions:markedReg("decisions")||removedReg("decisions")||DIFF.sections.includes("decisions"),
+   assumptions:markedReg("assumptions")||removedReg("assumptions")||DIFF.sections.includes("assumptions"),
    open:markedReg("open")||removedReg("open")||DIFF.sections.includes("open"),
-   footnotes:markedReg("fn")||removedReg("fn"),
+   footnotes:markedReg("fn")||removedReg("fn")||DIFF.sections.includes("footnotes"),
    architecture:markedReg("arch")||removedReg("arch")||DIFF.sections.includes("architecture"),
-   numbers:markedReg("numbers")||removedReg("numbers"),
+   numbers:markedReg("numbers")||removedReg("numbers")||DIFF.sections.includes("numbers"),
    paths:DIFF.paths.added.length||DIFF.paths.changed.length||DIFF.paths.removed.length||DIFF.sections.includes("paths"),
    ground:DIFF.sections.includes("ground"),
    ceilings:DIFF.sections.includes("ceilings"),
