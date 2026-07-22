@@ -4,7 +4,7 @@ The doc is a proposal asking for feedback, not a launch page. The reader should 
 
 ## Stance
 
-Write to explain and to ask, never to convince. The strongest sentence in a humble proposal names its own weak point: "If A1 falls, the answer is probably a managed Postgres, not this document." Confidence lives in the specificity of the numbers and the honesty of the open list, not in adjectives.
+The document exists to solicit feedback; every sentence serves that or gets cut. Write to explain and to ask, never to convince: a bold claim closes a conversation, a small checkable one opens it. Stay dispassionate: report what the design does and what it costs the way a lab notebook would, with no stake in the reader being impressed. The strongest sentence in a humble proposal names its own weak point: "If A1 falls, the answer is probably a managed Postgres, not this document." Confidence lives in the specificity of the numbers and the honesty of the open list, not in adjectives. Aim every section at the posture the assumptions sub-copy models: "if one of these is wrong, that's the most useful feedback this document can get."
 
 <examples>
 <example label="selling">
@@ -14,6 +14,14 @@ Adjectives making claims the reader can't check.
 <example label="explaining">
 "The ack returns after the redo fsync and the SQLite commit both land — ~2–3ms p50 (E), gated on spike V9."
 A number, its conditions, and the experiment that will check it.
+</example>
+<example label="bold claim">
+"SQLite is the right storage engine here."
+A verdict; the reader can only agree or fight.
+</example>
+<example label="soliciting">
+"SQLite fits because the working set is one small file per tenant (A2); if A2 is wrong, DQ1 falls with it — that's the review we want."
+The reasoning, its dependency, and the feedback wanted, all checkable.
 </example>
 </examples>
 
@@ -37,7 +45,7 @@ Run `slop-cop check <file>` after each pass and triage: fix the genuine tells, k
 
 ## Voice
 
-When the `wlm` CLI and a voice profile for the author exist (check `~/.wlm/profiles/`), read the profile's style card and write against it: the doc should sound like the person proposing, not like a model. When there is no profile, this fallback contract applies:
+Check for a voice profile first: `wlm profile list` (the `wlm` CLI ships with the write-like-me plugin; profiles live in `~/.wlm/profiles/`). When the author has one, read the style card with `wlm -p <profile> stylecard show` — `-p` is a global option and comes before the subcommand — and write against it: the doc should sound like the person proposing, not like a model. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing; fold in what it flags. When there is no profile, this fallback contract applies:
 
 - Contractions everywhere they'd be spoken. Short declaratives over subordinate-clause towers.
 - Numbers over adjectives; when there's no number, say what was observed instead of grading it.

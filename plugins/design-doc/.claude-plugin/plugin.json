@@ -1,7 +1,7 @@
 {
   "name": "design-doc",
   "description": "Run an assumptions-first architecture design — registers with stable IDs (A#/DQ#/V#), decision-by-question rounds with a recorded escape hatch, a mid-process adversarial review, timing and load-ceiling estimates gated on named spikes — and ship the result as an interactive single-file HTML doc plus a generated PDF, written as a humble proposal that explains and asks for feedback rather than sells.",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
