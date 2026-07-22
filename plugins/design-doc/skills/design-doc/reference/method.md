@@ -4,7 +4,7 @@ Assumptions first, then decisions, each with a stable ID and a paper trail. The 
 
 ## Registers and lifecycle
 
-`registers.json` is canonical: if a fact has a stable ID, it lives there and nowhere else. The companion files each have one job: `qa-log.json` holds the verbatim question rounds, `NOTES.md` holds prose that doesn't fit structure, `design-doc.html` renders the JSON, `build-pdf.py` prints it. Editing the JSON updates the doc, its Markdown exports, and (after a rerun) the PDF, so there is exactly one place to change a fact.
+`registers.json` is canonical: if a fact has a stable ID, it lives there and nowhere else. The companion files each have one job: `qa-log.json` holds the verbatim question rounds, `NOTES.md` holds prose that doesn't fit structure, `design-doc.html` renders the JSON, `design.py pdf` prints it. Editing the JSON updates the doc, its Markdown exports, and (after a rerun) the PDF, so there is exactly one place to change a fact.
 
 An entry is never deleted and never edited into a different claim. It is revised in place only for wording; when the *substance* changes, the old entry is superseded:
 

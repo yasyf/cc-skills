@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Driver for the design-doc skill.
 
-  design.py scaffold <dir> [--title X] [--slug x] [--example]
+  design.py scaffold [dir] [--title X] [--slug x] [--example]
   design.py check <dir>
+  design.py pdf [dir]
 
-scaffold copies the doc renderer, the PDF builder, and either the empty
-starter registers or the tinyq worked example into <dir>. check lints the
-registers: ID shapes and uniqueness, dangling cross-references, supersession
-integrity, footnote tokens, and the qa-log round linkage. Errors exit
-non-zero; warnings are advisory. Stdlib only.
+scaffold creates a fresh directory for one design doc — named after the
+slug when no dir is given — holding the doc renderer and either the empty
+starter registers or the tinyq worked example. check lints the registers:
+ID shapes and uniqueness, dangling cross-references, supersession
+integrity, footnote tokens, and the qa-log round linkage; errors exit
+non-zero, warnings are advisory. pdf renders the project's registers into
+its design-doc.pdf via the generic build-pdf.py beside this script.
+Stdlib only.
 """
-import argparse, datetime, json, re, shutil, sys
+import argparse, datetime, json, re, shutil, subprocess, sys
 from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -27,7 +31,15 @@ def slugify(s: str) -> str:
 
 
 def scaffold(args) -> int:
-    dest = Path(args.dir)
+    title = args.title
+    slug = args.slug or (slugify(title) if title else ("tinyq" if args.example else None))
+    if args.dir:
+        dest = Path(args.dir)
+    elif slug:
+        dest = Path.cwd() / slug
+    else:
+        print("scaffold: pass --title (the directory is named after its slug) or an explicit directory.", file=sys.stderr)
+        return 1
     if dest.exists() and any(dest.iterdir()):
         print(f"scaffold: {dest} exists and is not empty; refusing to overwrite.", file=sys.stderr)
         return 1
@@ -39,25 +51,28 @@ def scaffold(args) -> int:
         svg = (src / "sysd.svg").read_text().strip()
         html = re.sub(r"<!--SYSD-->.*?<!--/SYSD-->", lambda m: f"<!--SYSD-->\n    {svg}\n    <!--/SYSD-->", html, count=1, flags=re.S)
     (dest / "design-doc.html").write_text(html)
-    shutil.copy(TEMPLATES / "build-pdf.py", dest / "build-pdf.py")
     for name in ("registers.json", "qa-log.json", "NOTES.md"):
         shutil.copy(src / name, dest / name)
 
     if not args.example:
-        title = args.title or "Untitled design"
-        slug = args.slug or slugify(title)
         today = datetime.date.today().isoformat()
         for name in ("registers.json", "NOTES.md"):
             p = dest / name
             p.write_text(p.read_text()
-                         .replace("PROJECT_TITLE", title)
-                         .replace("PROJECT_SLUG", slug)
+                         .replace("PROJECT_TITLE", title or "Untitled design")
+                         .replace("PROJECT_SLUG", slug or "design")
                          .replace("PROJECT_DATE", today))
 
     print(f"scaffolded {dest} ({'tinyq example' if args.example else 'starter'})")
     print(f"serve:  cd {dest} && python3 -m http.server 8641")
     print(f"check:  {Path(__file__).name} check {dest}")
+    print(f"pdf:    {Path(__file__).name} pdf {dest}")
     return 0
+
+
+def pdf(args) -> int:
+    builder = Path(__file__).resolve().parent / "build-pdf.py"
+    return subprocess.run([sys.executable, str(builder), args.dir]).returncode
 
 
 # ------------------------------------------------------------------- check
@@ -230,8 +245,8 @@ def check(args) -> int:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sc = sub.add_parser("scaffold", help="create a new design project directory")
-    sc.add_argument("dir")
+    sc = sub.add_parser("scaffold", help="create a fresh directory for one design doc")
+    sc.add_argument("dir", nargs="?", help="destination (default: ./<slug> from --title)")
     sc.add_argument("--title")
     sc.add_argument("--slug")
     sc.add_argument("--example", action="store_true", help="use the tinyq worked example instead of the empty starter")
@@ -239,6 +254,9 @@ def main():
     ck = sub.add_parser("check", help="lint the registers in a design project directory")
     ck.add_argument("dir")
     ck.set_defaults(fn=check)
+    pd = sub.add_parser("pdf", help="render the project's registers into its design-doc.pdf")
+    pd.add_argument("dir", nargs="?", default=".")
+    pd.set_defaults(fn=pdf)
     args = ap.parse_args()
     sys.exit(args.fn(args))
 

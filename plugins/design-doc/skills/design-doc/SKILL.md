@@ -12,9 +12,10 @@ One command drives the mechanical parts:
 
 ```bash
 TOOL="python3 ${CLAUDE_PLUGIN_ROOT}/skills/design-doc/scripts/design.py"
-$TOOL scaffold <dir> [--title X] [--slug x]   # new project from the empty starter
-$TOOL scaffold <dir> --example                # tinyq, a small filled-in worked example
-$TOOL check <dir>                             # lint the registers; errors exit non-zero
+$TOOL scaffold --title <name>   # fresh ./<slug>/ directory for this one design doc
+$TOOL scaffold --example        # ./tinyq/, a small filled-in worked example
+$TOOL check <dir>               # lint the registers; errors exit non-zero
+$TOOL pdf <dir>                 # render the registers into <dir>/design-doc.pdf
 ```
 
 Read [reference/method.md](reference/method.md) before Phase 1, [reference/writing.md](reference/writing.md) before Phase 5, and [reference/publish.md](reference/publish.md) before Phase 6 — the method file is the round/register protocol, the writing file is the voice contract, the publish file is the hosting flow. [reference/schema.md](reference/schema.md) is the field-by-field contract for the JSON files; scaffold the tinyq example when you want a filled register next to the schema.
@@ -39,7 +40,7 @@ This skill stops at the design. Its outputs are a decision record and a document
 
 ## Phase 0 — Scaffold and diagnosis
 
-Run `$TOOL scaffold <dir> --title <name>`. Interview the user about the current system before proposing anything: what exists, what hurts, and why. Write the diagnosis into NOTES.md as root causes rather than symptoms ("durability latency is S3 latency" rather than "writes are slow"), then explain it back and let the user correct it. Designing against a wrong diagnosis wastes every later phase.
+Run `$TOOL scaffold --title <name>`. Every design doc lives in its own fresh directory — scaffold creates `./<slug>/` (pass an explicit path as a positional argument to put it elsewhere) and refuses a non-empty target, so one design never mixes into another's files or an existing project's. Interview the user about the current system before proposing anything: what exists, what hurts, and why. Write the diagnosis into NOTES.md as root causes rather than symptoms ("durability latency is S3 latency" rather than "writes are slow"), then explain it back and let the user correct it. Designing against a wrong diagnosis wastes every later phase.
 
 **Exit criteria:** the project directory exists; the user has read the diagnosis and agrees with it.
 
@@ -69,7 +70,7 @@ Skip this phase when the system has no latency or load story — the doc hides e
 
 ## Phase 5 — The document
 
-Read [reference/writing.md](reference/writing.md) first; the voice contract lives there. Fill `meta` in registers.json (title, date, slug, tagline, banner for the starred assumption). Hand-draw the system SVG and replace the placeholder between the `<!--SYSD-->` markers. The diagram is the one part of the HTML you edit; everything else renders from the JSON. Write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired. When `wlm profile list` shows a profile for the author, write against their style card and run `wlm adversary critique` on the exported Markdown; the exact invocations are in [reference/writing.md](reference/writing.md). Run `slop-cop check` after each pass. Then `python3 build-pdf.py` and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
+Read [reference/writing.md](reference/writing.md) first; the voice contract lives there. Fill `meta` in registers.json (title, date, slug, tagline, banner for the starred assumption). Hand-draw the system SVG and replace the placeholder between the `<!--SYSD-->` markers. The diagram is the one part of the HTML you edit; everything else renders from the JSON. Write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired. When `wlm profile list` shows a profile for the author, write against their style card and run `wlm adversary critique` on the exported Markdown; the exact invocations are in [reference/writing.md](reference/writing.md). Run `slop-cop check` after each pass. Then `$TOOL pdf <dir>` and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
 
 **Exit criteria:** `$TOOL check` is clean; the doc renders over `python3 -m http.server 8641`; the PDF is built and visually inspected.
 
@@ -89,6 +90,6 @@ Ask the user where it goes, then follow [reference/publish.md](reference/publish
 
 ## Common issues
 
-- **PDF step fails with "no Chrome found"** — install Chrome/Chromium or set `CHROME=/path/to/chrome`. `build-pdf.py` exits 2 with instructions.
+- **PDF step fails with "no Chrome found"** — install Chrome/Chromium or set `CHROME=/path/to/chrome`. `$TOOL pdf` exits 2 with instructions.
 - **Doc shows a "Data not loaded" screen** — it was opened as `file://`; browsers block local-file fetch. Serve the folder over HTTP as the screen says.
 - **wlm voice profile absent** — the writing contract in `reference/writing.md` includes a standalone voice fallback; the wlm style card is an upgrade, not a dependency.

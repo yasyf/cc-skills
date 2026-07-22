@@ -12,7 +12,7 @@ cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md design-doc.pdf dist/
 ```
 
-Rerun `python3 build-pdf.py` first when the registers changed since the last build, so the PDF button serves the current doc. The folder must contain an `index.html`; the renderer fetches its JSON with relative paths, so the flat copy is the whole build.
+Rerun `design.py pdf` first when the registers changed since the last build, so the PDF button serves the current doc. The folder must contain an `index.html`; the renderer fetches its JSON with relative paths, so the flat copy is the whole build.
 
 ## Deploy
 

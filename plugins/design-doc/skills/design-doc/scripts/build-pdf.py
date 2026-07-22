@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
-"""Render registers.json into design-doc.pdf — a clean, linear design doc.
+"""Render a design project's registers.json into its design-doc.pdf.
 
-Usage: python3 build-pdf.py
-Rerun after editing registers.json so the PDF the doc's "PDF" button opens
-stays current. Needs Chrome or Chromium for the print step; set
+Usage: python3 build-pdf.py [target]
+`target` is the design project directory (default: the current one) or a
+path to its registers.json. The project's design-doc.html must sit beside
+the registers (the system SVG is extracted from it), and the PDF lands
+there too, so the doc's "PDF" button serves it. Rerun after editing the
+registers. Needs Chrome or Chromium for the print step; set
 CHROME=/path/to/chrome if discovery misses yours.
 """
-import json, os, re, html, shutil, subprocess, sys, tempfile
+import argparse, json, os, re, html, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
-HERE = Path(__file__).parent
-R = json.load(open(HERE / "registers.json"))
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("target", nargs="?", default=".", help="design project directory, or its registers.json")
+target = Path(ap.parse_args().target)
+if target.suffix == ".json":
+    HERE, registers = target.parent, target
+else:
+    HERE, registers = target, target / "registers.json"
+if not registers.exists():
+    print(f"build-pdf.py: {registers} not found.", file=sys.stderr)
+    sys.exit(1)
+
+R = json.loads(registers.read_text())
 META = R.get("meta", {})
 TITLE = META.get("title", "Untitled design")
 SUBTITLE = META.get("subtitle", "Design proposal")

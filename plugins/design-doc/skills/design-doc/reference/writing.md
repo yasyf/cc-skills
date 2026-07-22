@@ -50,11 +50,11 @@ Check for a voice profile first: `wlm profile list` (the `wlm` CLI ships with th
 - Contractions everywhere they'd be spoken. Short declaratives over subordinate-clause towers.
 - Numbers over adjectives; when there's no number, say what was observed instead of grading it.
 - Em-dashes rarely, and never as a comma substitute mid-list; semicolons only to pair two genuinely contrasted clauses.
-- Backtick tool and file names (`build-pdf.py`, `wrangler`).
+- Backtick tool and file names (`design-doc.html`, `wrangler`).
 - No throat-clearing openers ("It's worth noting that…"), no summary paragraphs restating the section above, none of the LLM tells slop-cop exists to catch.
 
 ## The interface is part of the voice
 
 - Theme follows the system (`prefers-color-scheme`), with both palettes tuned. A theme toggle is a control asking for attention the content should have.
 - Controls are minimal and literal: the Markdown export is a bare `↓`, the PDF button says "PDF" and opens the generated file. `window.print()` produces a cut-off page-print and is not a PDF.
-- The PDF is a separate linear rendering (`build-pdf.py`) of the same JSON — a real document with the diagram and page-break discipline, because that's the artifact people forward.
+- The PDF is a separate linear rendering (`design.py pdf`) of the same JSON — a real document with the diagram and page-break discipline, because that's the artifact people forward.

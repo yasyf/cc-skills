@@ -1,6 +1,6 @@
 # The register schemas
 
-The contract between `registers.json`, `qa-log.json`, the HTML renderer, `build-pdf.py`, and `design.py check`. Markdown-bearing string fields support a mini dialect: `[text](url)` links, `` `code` ``, `**bold**`, `*italic*`, and `[^n]` footnote tokens. The tinyq example (`design.py scaffold <dir> --example`) is a filled instance of everything below.
+The contract between `registers.json`, `qa-log.json`, the HTML renderer, and the `design.py` driver (`check`, `pdf`). Markdown-bearing string fields support a mini dialect: `[text](url)` links, `` `code` ``, `**bold**`, `*italic*`, and `[^n]` footnote tokens. The tinyq example (`design.py scaffold <dir> --example`) is a filled instance of everything below.
 
 ## registers.json
 
@@ -20,7 +20,7 @@ The contract between `registers.json`, `qa-log.json`, the HTML renderer, `build-
 | `sections` | no | `{<sectionId>: {sub: "…"}}` overrides for section sub-copy; ids are `ground`, `architecture`, `paths`, `ceilings`, `decisions`, `assumptions`, `open`, `footnotes` |
 | `canonical` | no | a sentence stating what lives in which file, for readers of the raw JSON |
 
-Everything else about the HTML is fixed: the section skeleton, the status vocabularies, the artifact filenames (`registers.json`, `qa-log.json`, `NOTES.md`, `design-doc.pdf`). The system SVG is hand-edited in `design-doc.html` between the `<!--SYSD-->` markers; `build-pdf.py` extracts exactly that block.
+Everything else about the HTML is fixed: the section skeleton, the status vocabularies, the artifact filenames (`registers.json`, `qa-log.json`, `NOTES.md`, `design-doc.pdf`). The system SVG is hand-edited in `design-doc.html` between the `<!--SYSD-->` markers; `design.py pdf` extracts exactly that block.
 
 ### Rendered registers
 
