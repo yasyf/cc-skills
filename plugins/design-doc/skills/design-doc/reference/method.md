@@ -15,7 +15,7 @@ The point of supersession is that a reader can watch the design change its mind.
 
 ## The round protocol
 
-Every design fork goes through a question round. The round surface is a live `cc-present` board: at the start of the interview, look for `present` (or `cc-present:present`) in the available-skills list and load it with the Skill tool, then compose each round per its instructions — one card per question with a `choice` block, consequence hints on the options, and a submit bar naming what the round decides; the clicks stream back while you keep working. Use AskUserQuestion only when `present` is not in the skill list. The shape is the same on either surface:
+Every design fork goes through a question round. The round surface is a live `cc-present` board: at the start of the interview, look for `cc-present:present` (the `/cc-present` command) in the available-skills list and load it with the Skill tool, then compose each round per its instructions — one card per question with a `choice` block, consequence hints on the options, and a submit bar naming what the round decides; the clicks stream back while you keep working. Use AskUserQuestion only when `present` is not in the skill list. The shape is the same on either surface:
 
 - Prefix the question with the register ID it will settle ("DQ4: How do workers receive jobs?"), so the log and the register cross-reference themselves.
 - Each option carries a consequence description — what choosing it costs and buys — not just a label. Exactly one option ends with "(Recommended)".
