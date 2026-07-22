@@ -1,8 +1,10 @@
 name: Autobump
 
-# Dispatch-only for now. Push + weekly-schedule triggers get added in a later
-# commit once the dry-run report reviews clean.
 on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 10 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
