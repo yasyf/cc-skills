@@ -1,1 +1,6 @@
-fragments = ["install-binary"]
+fragments = [
+  { use = "cc-skills:install-binary-pinned", args = { binary = "codex-ask", brew = "yasyf/tap/codex-ask", plugin = "codex", repo = "yasyf/cc-skills" } },
+]
+
+[sources.cc-skills]
+source = "github:yasyf/cc-skills@main"
