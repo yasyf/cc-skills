@@ -50,8 +50,8 @@ github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9R
 github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
 github.com/yasyf/cc-interact v0.15.0 h1:Pigq/OHqZSDz+Ccbp7rP/lemKz6CCCOaWsExzjZ9hbg=
 github.com/yasyf/cc-interact v0.15.0/go.mod h1:MHdPVfQ8ExxR2JDe1HeFaCpstI3xRcihmZCDWuGt0O8=
-github.com/yasyf/daemonkit v0.3.2 h1:+u9jwUFRVe+Kk8xE8N9/DMNQFh+yNXGB++62oTYygsc=
-github.com/yasyf/daemonkit v0.3.2/go.mod h1:nJvh9FlJ3XPTuDkUb3PMcW0ZupIXsJJCkTGzfE40r/I=
+github.com/yasyf/daemonkit v0.7.1 h1:3ukBqpRrbu7Ex+tA8KNPSZ3A6sFAVj0JvXqr6buQWaE=
+github.com/yasyf/daemonkit v0.7.1/go.mod h1:5tYeENawEKN1GpM12YXTqIZ1fbWv7bj9P4TyIcSZ24Q=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
 github.com/yusufpapurcu/wmi v1.2.4/go.mod h1:SBZ9tNy3G9/m5Oi98Zks0QjeHVDvuK0qfxQmPyzfmi0=
 go.etcd.io/bbolt v1.5.0 h1:S7GAl7Fxv12yohbwFfIbQCGDWbQbtDGPET4P/bD4lxU=
