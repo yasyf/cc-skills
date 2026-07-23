@@ -392,7 +392,7 @@ func TestDispatchBareBinaryEmbedsAgentsMd(t *testing.T) {
 	source := codexAskBin(t)
 	bareDir := mustTempDir(t)
 	bare := filepath.Join(bareDir, "codex-ask")
-	binary, err := os.ReadFile(source)
+	binary, err := os.ReadFile(source) //nolint:gosec // copies the test-built binary fixture
 	if err != nil {
 		t.Fatal(err)
 	}
