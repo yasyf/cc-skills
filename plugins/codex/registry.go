@@ -38,15 +38,17 @@ type laneInfo struct {
 	info      map[string]any
 }
 
+// Unknown fields are omitted, never null: consumers read these records with
+// `.get(key, default)` / jq defaults, and a present-but-null key defeats both.
 type psRecord struct {
 	Dir       string   `json:"dir"`
 	State     string   `json:"state"`
-	Pid       *int     `json:"pid"`
-	Started   *float64 `json:"started"`
-	LogAgeS   *float64 `json:"log_age_s"`
-	Cwd       *string  `json:"cwd"`
-	Session   *string  `json:"session"`
-	ReplyFile *string  `json:"reply_file"`
+	Pid       *int     `json:"pid,omitempty"`
+	Started   *float64 `json:"started,omitempty"`
+	LogAgeS   *float64 `json:"log_age_s,omitempty"`
+	Cwd       *string  `json:"cwd,omitempty"`
+	Session   *string  `json:"session,omitempty"`
+	ReplyFile *string  `json:"reply_file,omitempty"`
 }
 
 // runsBase: the fixed registry root; every run lands here so the filesystem is the
