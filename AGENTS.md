@@ -72,7 +72,7 @@ When you write a plan — in plan mode, or any "here's what I'll do" before you 
 15. **Re-encode JSON tool output** → `ccx format -- <cmd>` (or `… | ccx format`) — a shape classifier picks the leanest encoding (prose, markdown table, CSV/TSV, TOON, TRON, JSONL, or compact JSON), never larger than compact JSON by bytes; `--format=X` forces one encoder
 16. **Map a web page** → `ccx web outline <url>` (heading tree with stable `§` section refs; pages cache 24h, `--refresh` refetches)
 17. **Read one section of a page** → `ccx web read <url> --section <ref>` (budget-capped section subtree + prev/next nav; whole page: `--full`)
-18. **Ask a question of a page** → `ccx web search <url> "<question>"` (top-k relevant chunks with `<url> §2.3#hash` cites; hybrid BM25 + local embeddings, BM25-only with a note when `uv` is absent)
+18. **Ask a question of a page** → `ccx web search <url> "<question>"` (top-k relevant chunks with `<url> §2.3#hash` cites; hybrid BM25 + local embeddings — native in-process, no `uv`; BM25-only with a note when the model weights are unavailable, i.e. offline with an empty cache)
 
 Entries 9–13 are CLI-only (entry 12's `locate` step included) — the MCP mirrors the query surface (1–8) plus exec (14), format (15, as `BashFormat`), and web (16–18, as `ccx_web_outline`/`ccx_web_read`/`ccx_web_search`), not these.
 
