@@ -24,6 +24,14 @@ LINK="$ROOT/bin/$NAME"
 # fall back to its documented default.
 DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/{{plugin}}}"
 
+# Rename-atomic: bare ln -sf unlinks then re-creates, and a concurrent caller
+# exec'ing $LINK in that window sees ENOENT — fatal on the MCP path now that
+# detached refreshes relink while callers run.
+relink() {
+  ln -sf "$1" "$LINK.$$"
+  mv -f "$LINK.$$" "$LINK"
+}
+
 # Pinned mode: the target release is the plugin.json version (single source of truth).
 # head -n 1: a dependencies block carries its own "version" keys; only the first match
 # is the plugin's own version.
@@ -36,13 +44,27 @@ BARE="${TAG#v}"
 # Arms 1+2: exact target exits, a dev build (describe/pseudo-version suffix, or
 # the bare "dev" of an unstamped build) is never clobbered, a stale release or
 # no version output falls through.
+stale=""
 if [ -x "$LINK" ]; then
   case "$("$LINK" --version 2>/dev/null | head -n 1)" in
     "$TAG" | "$BARE") exit 0 ;;
     dev | v[0-9]*[!0-9.]* | [0-9]*[!0-9.]*) exit 0 ;;
-    v[0-9]* | [0-9]*) ;;
+    v[0-9]* | [0-9]*) stale=1 ;;
     *) ;;
   esac
+fi
+
+# A stale-but-working binary never blocks its caller: hooks and MCP entrypoints
+# run this script on their critical path, where a slow brew or GitHub
+# round-trip in arms 3-6 kills MCP registration outright (the client's 30s
+# connect timeout, never retried). Detach the refresh with all three stdio fds
+# off the caller's pipes, keep serving the installed binary, and let the relink
+# land for a later launch. A broken binary (no version output) still refreshes
+# foreground; --sync (the detached child itself, or a caller that must block)
+# forces the foreground path.
+if [ -n "$stale" ] && [ "${1:-}" != "--sync" ]; then
+  sh "$0" --sync </dev/null >/dev/null 2>&1 &
+  exit 0
 fi
 
 mkdir -p "$ROOT/bin"
@@ -84,7 +106,7 @@ if [ -n "$found" ]; then
     "$TAG" | "$BARE" | v[0-9]*[!0-9.]* | [0-9]*[!0-9.]*) ;;
     *) brew upgrade "$BREW_PKG" >/dev/null 2>&1 || true ;;
   esac
-  ln -sf "$found" "$LINK"
+  relink "$found"
   exit 0
 fi
 
@@ -94,7 +116,7 @@ if command -v brew >/dev/null 2>&1; then
   if brew install "$BREW_PKG" >/dev/null 2>&1; then
     found="$(probe)"
     if [ -n "$found" ]; then
-      ln -sf "$found" "$LINK"
+      relink "$found"
       exit 0
     fi
   fi
@@ -143,7 +165,7 @@ dest="$DATA_DIR/bin/$NAME"
 if [ -x "$dest" ]; then
   case "$("$dest" --version 2>/dev/null | head -n 1)" in
     "$TAG" | "$BARE")
-      ln -sf "$dest" "$LINK"
+      relink "$dest"
       exit 0
       ;;
   esac
@@ -175,5 +197,5 @@ fi
 
 chmod +x "$tmp"
 mv -f "$tmp" "$dest"
-ln -sf "$dest" "$LINK"
+relink "$dest"
 echo "$NAME: installed $dest ($("$dest" --version))" >&2

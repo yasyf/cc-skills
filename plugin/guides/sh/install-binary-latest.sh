@@ -24,6 +24,27 @@ LINK="$ROOT/bin/$NAME"
 # fall back to its documented default.
 DATA_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/{{plugin}}}"
 
+# Rename-atomic: bare ln -sf unlinks then re-creates, and a concurrent caller
+# exec'ing $LINK in that window sees ENOENT — fatal on the MCP path now that
+# detached refreshes relink while callers run.
+relink() {
+  ln -sf "$1" "$LINK.$$"
+  mv -f "$LINK.$$" "$LINK"
+}
+
+# A working binary never blocks its caller: hooks and MCP entrypoints run this
+# script on their critical path, and everything from the tag resolve down can
+# hit the network — a slow round-trip there kills MCP registration outright
+# (the client's 30s connect timeout, never retried). Detach the whole
+# resolve+refresh with all three stdio fds off the caller's pipes and keep
+# serving the installed binary; the relink lands for a later launch. A broken
+# binary still resolves foreground; --sync (the detached child itself, or a
+# caller that must block) forces the foreground path.
+if [ "${1:-}" != "--sync" ] && [ -x "$LINK" ] && [ -n "$("$LINK" --version 2>/dev/null | head -n 1)" ]; then
+  sh "$0" --sync </dev/null >/dev/null 2>&1 &
+  exit 0
+fi
+
 # Latest mode: resolve the newest release tag off the releases/latest redirect.
 # Unresolvable (offline) with a working binary in place -> keep what we have.
 effective="$(curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" || true)"
@@ -94,7 +115,7 @@ if [ -n "$found" ]; then
     "$TAG" | "$BARE" | v[0-9]*[!0-9.]* | [0-9]*[!0-9.]*) ;;
     *) brew upgrade "$BREW_PKG" >/dev/null 2>&1 || true ;;
   esac
-  ln -sf "$found" "$LINK"
+  relink "$found"
   exit 0
 fi
 
@@ -104,7 +125,7 @@ if command -v brew >/dev/null 2>&1; then
   if brew install "$BREW_PKG" >/dev/null 2>&1; then
     found="$(probe)"
     if [ -n "$found" ]; then
-      ln -sf "$found" "$LINK"
+      relink "$found"
       exit 0
     fi
   fi
@@ -153,7 +174,7 @@ dest="$DATA_DIR/bin/$NAME"
 if [ -x "$dest" ]; then
   case "$("$dest" --version 2>/dev/null | head -n 1)" in
     "$TAG" | "$BARE")
-      ln -sf "$dest" "$LINK"
+      relink "$dest"
       exit 0
       ;;
   esac
@@ -185,5 +206,5 @@ fi
 
 chmod +x "$tmp"
 mv -f "$tmp" "$dest"
-ln -sf "$dest" "$LINK"
+relink "$dest"
 echo "$NAME: installed $dest ($("$dest" --version))" >&2
