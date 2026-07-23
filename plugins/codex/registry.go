@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -80,6 +81,28 @@ func mintScratch(prefix string) string {
 		die("codex-ask: cannot mint scratch dir: "+err.Error(), 1)
 	}
 	return d
+}
+
+func acquireLaneLock(sdir string, exclusive bool) *os.File {
+	f, err := os.OpenFile(join(sdir, "lane.lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // per-lane coordination file
+	if err != nil {
+		die("codex-ask: cannot open lane lock: "+err.Error(), 1)
+	}
+	how := syscall.LOCK_SH
+	if exclusive {
+		how = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		_ = f.Close()
+		die("codex-ask: cannot acquire lane lock: "+err.Error(), 1)
+	}
+	return f
+}
+
+func releaseLaneLock(f *os.File) {
+	if err := f.Close(); err != nil {
+		die("codex-ask: cannot release lane lock: "+err.Error(), 1)
+	}
 }
 
 // atomicWrite: a unique per-writer temp file, so two concurrent writers (e.g. two

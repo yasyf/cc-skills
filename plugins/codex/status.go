@@ -20,18 +20,15 @@ func awaitMode(target string) {
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --await scratch path
 		sdir = filepath.Dir(target)
 	}
+	laneLock := acquireLaneLock(sdir, false)
+	defer releaseLaneLock(laneLock)
 	if !isFile(join(sdir, "meta")) {
 		die(fmt.Sprintf("codex-ask: no recorded codex-ask run at %s", sdir), 2)
 	}
 	lines := metaLines(join(sdir, "meta"))
 	r, log := lineAt(lines, 0), lineAt(lines, 1)
-	pollStatus(sdir)
-	// Generation re-check: a concurrent reuse may have wiped and rewritten meta
-	// mid-await; reporting this run against the previous generation would mix them.
-	after := metaLines(join(sdir, "meta"))
-	if lineAt(after, 0) != r || lineAt(after, 1) != log {
-		die(fmt.Sprintf("codex-ask: lane %s was reused during --await (generation changed); re-run --await", sdir), 1)
-	}
+	pollStatus(sdir, r, log)
+	verifyGeneration(sdir, r, log)
 	fmt.Printf("REPLY_FILE: %s\n", r)
 	fmt.Printf("LOG_FILE: %s\n", log)
 	reportStatus(readStatus(sdir), r, log)
@@ -40,14 +37,19 @@ func awaitMode(target string) {
 // pollStatus: block until <sdir>/status exists and is non-empty. While the pid is
 // absent wait generously (~15s) for the worker to register it; only a recorded-
 // then-dead pid with no status is a genuine mid-flight death (recovered if the
-// staged reply is complete).
-func pollStatus(sdir string) {
+// staged reply is complete). The generation check protects foreground dispatch
+// waits after their exclusive launch lock has been released.
+func pollStatus(sdir, reply, log string) {
 	status := join(sdir, "status")
 	pidFile := join(sdir, "pid")
 	meta := join(sdir, "meta")
 	waitPid := 0
 	grace := 0
-	for !nonempty(status) {
+	for {
+		verifyGeneration(sdir, reply, log)
+		if nonempty(status) {
+			return
+		}
 		switch {
 		case !exists(pidFile):
 			waitPid++
@@ -68,6 +70,13 @@ func pollStatus(sdir string) {
 			}
 		}
 		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func verifyGeneration(sdir, reply, log string) {
+	current := metaLines(join(sdir, "meta"))
+	if lineAt(current, 0) != reply || lineAt(current, 1) != log {
+		die(fmt.Sprintf("codex-ask: lane %s was reused while waiting (generation changed); use a unique -s directory", sdir), 1)
 	}
 }
 

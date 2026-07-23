@@ -350,9 +350,14 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         "/bin/ps",
         # signal death normalizes to 128+signal so the status still parses
         "128 + int(ws.Signal())",
-        'join(sdir, "status")',
-        'join(sdir, "pid")',
-        # --ps prunes only codex-ask's own minted dirs
+            'join(sdir, "status")',
+            'join(sdir, "pid")',
+            # lane generations publish under a never-swept shared/exclusive lock
+            'join(sdir, "lane.lock")',
+            "syscall.Flock",
+            "syscall.LOCK_SH",
+            "syscall.LOCK_EX",
+            # --ps prunes only codex-ask's own minted dirs
         "runPrefixes",
         # exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
@@ -843,8 +848,9 @@ def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_pat
     assert det.returncode == 1, det.stdout + det.stderr
     assert "integer expected" not in (det.stdout + det.stderr)
 
-    # (2) racy smoke: complete a run, then race an --await against a second run
-    # reusing the same -s dir (whose pre-launch rm can delete the status).
+    # (2) complete a run, then race an --await against a second run reusing the
+    # same -s dir. The shared/exclusive lane lock makes each generation atomic,
+    # so the waiter returns 0 or 1, never absent-run 2.
     shared = tmp_path / "shared"
     first = subprocess.run(
         [str(script), "-s", str(shared), "ping"], cwd=cwd, env=env, text=True, capture_output=True, timeout=30

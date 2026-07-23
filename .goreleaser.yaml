@@ -2,7 +2,7 @@ version: 2
 
 project_name: codex-ask
 
-# Pure Go (CGO_ENABLED=0), darwin-only; Developer ID signed + notarized via codesign.
+# Pure Go (CGO_ENABLED=0), darwin-only; Developer ID signing and notarization are required.
 builds:
   - id: codex-ask
     # dir = go build's working dir (the nested module); main is relative to it.
@@ -20,10 +20,10 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.appVersion={{.Version}}
-    # codesign+notarize via $MACOS_CODESIGN_SCRIPT; guarded so a local snapshot is a no-op.
+    # Fail closed unless the shared release workflow supplied signing and notary state.
     hooks:
       post:
-        - cmd: sh -c 'if [ -n "${MACOS_CODESIGN_SCRIPT:-}" ]; then bash "$MACOS_CODESIGN_SCRIPT" "$1" "$2"; fi' -- "{{ .Path }}" "{{ .Target }}"
+        - cmd: sh -c 'test -n "${MACOS_CODESIGN_SCRIPT:-}" && test -n "${MACOS_SIGN_IDENTITY:-}" && test -n "${MACOS_NOTARY_KEY_FILE:-}" && test -n "${MACOS_NOTARY_KEY_ID:-}" && test -n "${MACOS_NOTARY_ISSUER:-}" || { echo "macos signing and notarization state is required" >&2; exit 1; }; bash "$MACOS_CODESIGN_SCRIPT" "$1" "$2"' -- "{{ .Path }}" "{{ .Target }}"
           output: true
 
 archives:

@@ -127,6 +127,12 @@ loop:
 			os.Exit(2)
 		}
 		sdir = scratch
+	} else {
+		sdir = mintScratch("codex-ask")
+	}
+
+	laneLock := acquireLaneLock(sdir, true)
+	if scratch != "" {
 		// Refuse a still-alive lane; a meta <5s old with no pid is the launch window
 		// before a worker checks in. A finished lane (status written) stays reusable.
 		metaP := join(sdir, "meta")
@@ -139,8 +145,6 @@ loop:
 				die(fmt.Sprintf("codex-ask: lane %s busy; --await it or mint a new lane", sdir), 1)
 			}
 		}
-	} else {
-		sdir = mintScratch("codex-ask")
 	}
 
 	qf, err := os.CreateTemp(sdir, "codex-q-")
@@ -182,8 +186,8 @@ loop:
 	}
 	argv = append(argv, extraFlags...)
 
-	// A reused -s dir must never serve a previous run's state; wiping meta too
-	// establishes "meta present => describes the latest launch attempt".
+	// The exclusive lane lock makes this reset and the replacement metadata one
+	// publication: --await cannot observe the transient empty generation.
 	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd", "register"} {
 		_ = os.Remove(join(sdir, stale)) //nolint:gosec // best-effort sweep of the lane's own stale state files
 	}
@@ -216,13 +220,14 @@ loop:
 	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(invokePath), shlexQuote(sdir))
 
 	detachWorker(sdir)
+	releaseLaneLock(laneLock)
 	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
 	// contract, and the worker wakes the owner on completion — return at once
 	// rather than blocking on the status file.
 	if dispatch {
 		os.Exit(0)
 	}
-	pollStatus(sdir)
+	pollStatus(sdir, reply, logf)
 	reportStatus(readStatus(sdir), reply, logf)
 }
 
