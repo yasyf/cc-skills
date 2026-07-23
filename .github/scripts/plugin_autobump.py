@@ -233,9 +233,11 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
         args += ["-m", m]
     subprocess.run(["git", *args], cwd=repo, env=env, check=True)
     for _ in range(3):
-        pull = subprocess.run(["git", "pull", "--rebase", "origin", branch], cwd=repo)
+        # env carries the bot identity: rebase creates commits too, and a bare
+        # runner has none — without it every retry dies on "empty ident name".
+        pull = subprocess.run(["git", "pull", "--rebase", "origin", branch], cwd=repo, env=env)
         if pull.returncode == 0:
-            push = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], cwd=repo)
+            push = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], cwd=repo, env=env)
             if push.returncode == 0:
                 return True
     return False
