@@ -55,8 +55,6 @@ homebrew_casks:
 
 release:
   prerelease: auto
-  # Lets goreleaser's retry re-upload after a mid-publish failure.
-  replace_existing_artifacts: true
 
 changelog:
   use: github

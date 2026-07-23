@@ -75,10 +75,6 @@ homebrew_casks:
 
 release:
   prerelease: auto
-  # Idempotent re-runs: overwrite same-named assets instead of erroring (HTTP 422). The shared
-  # release-go.yml retries `goreleaser release --clean` past flaky notarization, and a rare
-  # mid-publish failure would otherwise 422 on the retry's asset re-upload.
-  replace_existing_artifacts: true
 
 changelog:
   use: github
