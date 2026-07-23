@@ -118,7 +118,9 @@ once the caller has already unblocked, so it can trail the narration or even a
    be a *visible* `no-run`, not absent). Never hand-mint scratch. Pass the
    lane dirs through the workflow `args`.
 2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
-   `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir.
+   `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir. `-s`
+   takes only a `--mint-root` lane — never the working copy, checkout, or
+   clone under review; codex-ask refuses such in-repo lanes.
 3. **End with a collect stage.** The last deterministic step runs
    `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect "$ROOT"` (a cheap run-this-exact-command agent that
    returns stdout verbatim). It walks the roster and classifies each lane from

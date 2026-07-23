@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -528,8 +527,7 @@ func mintRootMode(lanes []string) {
 }
 
 func rejectOutsideScratch(path, flag string) {
-	top := gitToplevel()
-	if top != "" && strings.HasPrefix(path+"/", strings.TrimRight(top, "/")+"/") {
+	if top := repoToplevelOf(path); top != "" {
 		die(fmt.Sprintf("codex-ask: %s must be outside the repository at %s (lanes are never minted in-repo)", flag, top), 2)
 	}
 	home := os.Getenv("HOME")
@@ -538,12 +536,20 @@ func rejectOutsideScratch(path, flag string) {
 	}
 }
 
-func gitToplevel() string {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return ""
+// repoToplevelOf: the nearest ancestor of the absolute path (itself included)
+// with a .git entry (dir, or a worktree/submodule's file), "" when none. Lexical,
+// no git subprocess — cwd-independent, never fails open on a git error — and it
+// stops before $HOME so a versioned home dir doesn't poison the runs base.
+func repoToplevelOf(path string) string {
+	home := strings.TrimRight(os.Getenv("HOME"), "/")
+	for d := filepath.Clean(path); ; d = filepath.Dir(d) {
+		if d == home || d == filepath.Dir(d) {
+			return ""
+		}
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
 	}
-	return strings.TrimSpace(string(out))
 }
 
 func startsWithRunPrefix(name string) bool {
