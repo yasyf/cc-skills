@@ -220,11 +220,13 @@ loop:
 	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(invokePath), shlexQuote(sdir))
 
 	detachWorker(sdir)
-	releaseLaneLock(laneLock)
 	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
 	// contract, and the worker wakes the owner on completion — return at once
-	// rather than blocking on the status file.
+	// rather than blocking on the status file. Foreground dispatch deliberately
+	// carries the exclusive lock to process exit so no replacement generation can
+	// publish between its final poll and report.
 	if dispatch {
+		releaseLaneLock(laneLock)
 		os.Exit(0)
 	}
 	pollStatus(sdir, reply, logf)

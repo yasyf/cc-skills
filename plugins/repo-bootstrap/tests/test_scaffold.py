@@ -25,6 +25,14 @@ from bootstrap.common import Notice, PlanItem, ScaffoldError, TransformCtx
 DATE = datetime.date(2026, 6, 8)
 
 
+def test_codex_release_cask_preserves_gatekeeper_quarantine():
+    goreleaser = (Path(__file__).parents[3] / ".goreleaser.yaml").read_text()
+    assert "homebrew_casks:" in goreleaser
+    assert "com.apple.quarantine" not in goreleaser
+    assert "/usr/bin/xattr" not in goreleaser
+    assert "MACOS_CODESIGN_SCRIPT" in goreleaser
+
+
 def dests(layer, var_pairs, *, extras=None, features=None, secondary_layer=None):
     r = scaffold.resolve(
         layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE, secondary_layer
@@ -377,6 +385,16 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
     # print-first: the recovery paths print before the worker (and thus codex) launches
     assert text.index("REPLY_FILE:") < text.index("detachWorker(sdir)")
+    # Async launches relinquish the publication lock after detach; foreground
+    # launches have no explicit release and carry it through poll/report to exit.
+    dispatch = (plugin_root / "dispatch.go").read_text()
+    assert dispatch.count("releaseLaneLock(laneLock)") == 1
+    assert re.search(
+        r"if dispatch \{\s+releaseLaneLock\(laneLock\)\s+os\.Exit\(0\)\s+\}"
+        r"\s+pollStatus\(sdir, reply, logf\)"
+        r"\s+reportStatus\(readStatus\(sdir\), reply, logf\)",
+        dispatch,
+    )
     skill_md = plugin_root / "skills" / "codex" / "SKILL.md"
     wrapper_md = plugin_root / "agents" / "codex-wrapper.md"
     for src in (skill_md, wrapper_md):
@@ -1316,9 +1334,10 @@ def test_codex_ask_reply_tmp_removed_on_failure(templates_dir, tmp_path):
     assert not Path(reply + ".tmp").exists()  # and the staging file is cleaned up
 
 
-def test_codex_ask_live_lane_refusal(templates_dir, tmp_path):
-    # Relaunching into a lane whose run is still alive is refused; a finished
-    # lane stays reusable for a redo.
+def test_codex_ask_foreground_lane_reuse_serializes(templates_dir, tmp_path):
+    # Foreground dispatch owns the lane through its final report: a same-lane
+    # replacement blocks without changing generation, then runs after the first
+    # process exits. A finished lane remains reusable for a later redo.
     script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
@@ -1343,22 +1362,31 @@ def test_codex_ask_live_lane_refusal(templates_dir, tmp_path):
         [str(script), "-s", str(lane), "ping"], env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
+    replacement = None
     try:
         pid_file = lane / "pid"
         end = time.monotonic() + 5
         while not pid_file.exists() and time.monotonic() < end:
             time.sleep(0.02)
         assert pid_file.exists(), "run never registered a pid"
-        busy = subprocess.run(
-            [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
+        generation = (lane / "meta").read_text()
+        replacement = subprocess.Popen(
+            [str(script), "-s", str(lane), "ping"], env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
-        assert busy.returncode == 1, busy.stdout + busy.stderr
-        assert "busy" in busy.stderr.lower()
+        time.sleep(0.5)
+        assert replacement.poll() is None, "same-lane replacement escaped the foreground lock"
+        assert (lane / "meta").read_text() == generation, "replacement changed the active generation"
         release.write_text("go")
         assert proc.wait(timeout=15) == 0
+        replacement_out, replacement_err = replacement.communicate(timeout=15)
+        assert replacement.returncode == 0, replacement_out + replacement_err
     finally:
+        release.touch()
         if proc.poll() is None:
             proc.kill()
+        if replacement is not None and replacement.poll() is None:
+            replacement.kill()
 
     reuse = subprocess.run(
         [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30

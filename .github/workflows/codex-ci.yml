@@ -3,10 +3,12 @@ name: codex CI
 on:
   push:
     paths:
+      - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
   pull_request:
     paths:
+      - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
 

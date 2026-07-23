@@ -52,13 +52,6 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/yasyf/cc-skills
     description: The one way the codex plugin runs OpenAI Codex — a pinned, detach-survivable `codex exec` launcher with fan-out mint/collect/await.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/codex-ask"]
-          end
 
 release:
   prerelease: auto

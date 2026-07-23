@@ -37,8 +37,9 @@ func awaitMode(target string) {
 // pollStatus: block until <sdir>/status exists and is non-empty. While the pid is
 // absent wait generously (~15s) for the worker to register it; only a recorded-
 // then-dead pid with no status is a genuine mid-flight death (recovered if the
-// staged reply is complete). The generation check protects foreground dispatch
-// waits after their exclusive launch lock has been released.
+// staged reply is complete). The generation check protects async awaiters and
+// remains a fail-closed invariant even though foreground dispatch retains its
+// exclusive generation lock through reporting.
 func pollStatus(sdir, reply, log string) {
 	status := join(sdir, "status")
 	pidFile := join(sdir, "pid")
