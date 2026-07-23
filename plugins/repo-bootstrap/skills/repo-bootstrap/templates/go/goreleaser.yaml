@@ -56,8 +56,9 @@ notarize:
 checksum:
   name_template: checksums.txt
 
-# Default distribution: a native Homebrew cask published by goreleaser itself to the
-# shared tap (no render/publish step). A cask ships the prebuilt binary as-is. Switch to a
+# Default distribution: a native Homebrew cask rendered by goreleaser, verified against its
+# artifact manifest, and published by the shared release workflow. A cask ships the prebuilt
+# binary as-is. Switch to a
 # formula (native `brews:`, or a rendered `.rb` via the render-formula action) only when you
 # need `brew services`, a runtime `depends_on`, or conditional install — see
 # reference/go-ci-and-release.md § Formula recipe.

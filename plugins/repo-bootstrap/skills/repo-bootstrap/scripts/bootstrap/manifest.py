@@ -328,10 +328,10 @@ FILES = (
         "go",
     ),
     # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1).
-    # Default distribution is a native Homebrew cask, built and published by goreleaser
-    # itself (homebrew_casks: in .goreleaser.yaml); release.yml is a one-liner calling the
-    # shared release-go.yml@v1 reusable workflow. The formula path (render-formula + publish,
-    # or native brews:) is a documented recipe, not a scaffolded file — see
+    # Default distribution is a native Homebrew cask built by goreleaser, then verified and
+    # published by the shared exact-ID release pipeline; release.yml is a one-liner calling
+    # the immutable release-go reusable workflow. The formula path (render-formula, or native
+    # brews:) is a documented recipe, not a scaffolded file — see
     # reference/go-ci-and-release.md.
     FileSpec(".goreleaser.yaml", "go/goreleaser.yaml", "go", feature="release"),
     FileSpec(".github/workflows/release.yml", "go/github/workflows/release.yml", "go", feature="release"),

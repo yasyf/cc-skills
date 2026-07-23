@@ -4,7 +4,7 @@ The go layer ships two workflows and (with feature `release`) a goreleaser pipel
 goreleaser is the **single canonical release tool** for every Go binary — documented here as a
 **base config plus opt-in recipes**, so a repo grows from the base into whatever it needs and the
 next repo inherits the pattern. The shared release infrastructure lives in `yasyf/homebrew-tap`,
-pinned `@v1`: one reusable workflow (`release-go.yml`) and four composite actions
+pinned by an immutable 40-character commit SHA: one reusable workflow (`release-go.yml`) and its shared composite actions
 (`verify-tag-on-main`, `import-developer-id`, `render-formula`, `publish`). A scaffolded repo
 forwards to it; it never vendors the mechanics.
 
@@ -24,17 +24,20 @@ The whole `release.yml` is a **one-liner** that forwards to the shared reusable 
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-go.yml@v1
+    uses: <user>/homebrew-tap/.github/workflows/release-go.yml@3bfe1af3bdc10ec783e79050e7c647152a537801
     secrets: inherit
 ```
 
 `secrets: inherit` forwards `HOMEBREW_TAP_TOKEN` plus the five `MACOS_*` secrets. The reusable
-workflow runs on `ubuntu-latest`: it gates on `verify-tag-on-main`, then runs goreleaser, which
-builds + quill-signs the binaries and **publishes the cask itself**. Pass `setup-bun: true` to the
-reusable workflow when a `before` hook builds a bun/Vite asset.
+workflow runs on `ubuntu-latest`: it gates on `verify-tag-on-main`, then runs goreleaser once with
+publishing disabled. It builds + quill-signs the binaries, classifies the exact uploadable assets,
+verifies their checksums, stages and publishes the release by numeric release ID, then publishes
+the verified Homebrew output. Pass `setup-bun: true` to the reusable workflow when a `before` hook
+builds a bun/Vite asset.
 
-**The default distribution is a native Homebrew cask**, emitted by goreleaser's `homebrew_casks:`
-block straight into the shared tap — no render/publish step. (goreleaser v2 emits *both* casks and
+**The default distribution is a native Homebrew cask**, rendered by goreleaser's `homebrew_casks:`
+block into `dist/homebrew`, verified exactly against `dist/artifacts.json`, and published to the
+shared tap only after the GitHub release becomes public. (goreleaser v2 emits *both* casks and
 formulae; the casks-only premise some older docs carried is false.) The scaffolded `.goreleaser.yaml`
 is **pure Go** (`CGO_ENABLED=0`), darwin/linux × amd64/arm64, version stamped into
 `internal/version` via ldflags, tar.gz archives + checksums, the quill `notarize:` block, and:

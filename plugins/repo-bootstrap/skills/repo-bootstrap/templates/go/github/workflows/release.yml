@@ -9,5 +9,5 @@ permissions:
 
 jobs:
   release:
-    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-go.yml@v1
+    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-go.yml@3bfe1af3bdc10ec783e79050e7c647152a537801
     secrets: inherit

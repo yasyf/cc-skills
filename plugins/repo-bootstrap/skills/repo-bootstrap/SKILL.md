@@ -385,7 +385,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
-| `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds the matrix and publishes a native Homebrew **cask** to `yasyf/homebrew-tap`; `release.yml` is a one-liner forwarding to the shared `release-go.yml@v1` reusable workflow (gates on `verify-tag-on-main`). A formula (services/deps) is a documented recipe, not scaffolded — see `reference/go-ci-and-release.md` |
+| `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds and signs the matrix without publishing; the shared exact-ID pipeline verifies and publishes the release, then its native Homebrew **cask** to `yasyf/homebrew-tap`; `release.yml` is a one-liner pinned to immutable `release-go.yml@3bfe1af3bdc10ec783e79050e7c647152a537801` (gates on `verify-tag-on-main`). A formula (services/deps) is a documented recipe, not scaffolded — see `reference/go-ci-and-release.md` |
 | `.github/workflows/release.yml` | swift + feature `release` | a zero-config one-liner forwarding to the shared `release-swift.yml@swift-v1` reusable workflow (goreleaser can't build Swift): verify-tag-on-main, universal `swift build`, codesign + notarytool, GitHub release, synthesized binary cask to the tap. No goreleaser config, no cask template — see `reference/swift-ci-and-release.md` |
 | `Package.swift`, `Sources/<Module>/`, `Sources/<name>/`, `Tests/<Module>Tests/` | swift | logic-in-library + thin ArgumentParser executable (one `hello` subcommand + Swift Testing smoke tests); `Package.resolved` comes from `swift build` |
 | `<name>.xcodeproj/{project.pbxproj, xcshareddata/xcschemes/<name>.xcscheme}` | swift-app | the committed synced-folder project (objectVersion 77, fixed synthetic UUIDs) — **never regenerate it, never let Xcode "upgrade" it**; adding source files needs no project edit |
@@ -580,8 +580,9 @@ Then, optionally, publish and wire one-time setups:
   signing & notarization. Then run the first release: CHANGELOG entry → tag
   `v0.1.0` on a commit that's on `main` → push tag → watch it with `scripts/watch-release.sh`
   (drop `--pypi`; see `reference/ci-and-release.md`). Go: `release.yml` forwards to the shared
-  `release-go.yml@v1` reusable workflow, which gates on `verify-tag-on-main` then runs goreleaser:
-  it builds the binaries, cuts the GitHub release, and publishes a native Homebrew **cask** to the
+  immutable `release-go.yml@3bfe1af3bdc10ec783e79050e7c647152a537801` reusable workflow, which gates on
+  `verify-tag-on-main`, builds and signs once without publishing, verifies the exact assets, publishes
+  the GitHub release by numeric ID, and only then publishes a native Homebrew **cask** to the
   tap (`reference/go-ci-and-release.md`). Swift: `release.yml` forwards to the shared
   `release-swift.yml@swift-v1` reusable workflow — same gate, then a universal `swift build`,
   codesign + notarytool, the GitHub release, and a synthesized binary **cask** pushed to the tap
@@ -702,7 +703,7 @@ Read these on demand — each is self-contained:
 - `reference/ci-and-release.md` — the three python workflows, one-time PyPI trusted
   publisher + GitHub Pages setup, release procedure.
 - `reference/go-ci-and-release.md` — the go CI workflow, the goreleaser base config,
-  the cask-by-default Homebrew publish flow via the shared `release-go.yml@v1` reusable
+  the cask-by-default Homebrew publish flow via the shared immutable `release-go.yml` reusable
   workflow, the formula recipe (native `brews:` or render-formula), the two signing
   modes, and opt-in recipes (zig CGO, build tags, universal binaries, embed-prebuild,
   `format: binary`, extra cask, auto-tag-on-push); shared-tap one-time setup.
