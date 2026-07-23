@@ -498,7 +498,7 @@ FILES = (
     FileSpec("tests/hello.test.ts", "bun/tests/hello.test.ts", "bun"),
     FileSpec(".github/workflows/ci.yml", "bun/github/workflows/ci.yml", "bun"),
     # feature-gated bun file (the release pipeline; off by default). One caller
-    # workflow forwarding to the shared release-bun.yml@bun-v1 reusable workflow
+    # workflow forwarding to the shared immutable release-bun reusable workflow
     # (native-runner bun --compile matrix + codesign/notarytool + binary cask to the
     # shared tap) — no goreleaser config; goreleaser has no bun builder.
     FileSpec(".github/workflows/release.yml", "bun/github/workflows/release.yml", "bun", feature="release"),

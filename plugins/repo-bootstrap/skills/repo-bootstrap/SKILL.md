@@ -153,7 +153,7 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   **feature** as a `multiSelect` "Optional Bun features" — `release` (a single
   compiled binary per target, built on native runners (platform-native deps rule out cross-compiling),
   signed and notarized with the required `MACOS_*` secrets, published as a Homebrew cask
-  to `yasyf/homebrew-tap` via the shared `release-bun.yml@bun-v1`). **Default
+  to `yasyf/homebrew-tap` via the shared immutable `release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68`). **Default
   unselected (off)**, same rationale as go/swift.
 
 Write `DESCRIPTION` in the writing-docs opener register — it becomes the README
@@ -587,7 +587,7 @@ Then, optionally, publish and wire one-time setups:
   `release-swift.yml@swift-v1` reusable workflow — same gate, then a universal `swift build`,
   codesign + notarytool, the GitHub release, and a synthesized binary **cask** pushed to the tap
   (`reference/swift-ci-and-release.md`). Bun: `release.yml` forwards to the shared
-  `release-bun.yml@bun-v1` reusable workflow — same gate, then a per-target
+  immutable `release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68` reusable workflow — same gate, then a per-target
   `bun build --compile` matrix on native runners, codesign + notarytool on the darwin
   legs, the GitHub release, and a synthesized binary **cask** pushed to the tap
   (`reference/bun-ci-and-release.md`). No PyPI/Pages for any of them.
@@ -719,7 +719,7 @@ Read these on demand — each is self-contained:
   no release feature.
 - `reference/bun-ci-and-release.md` — the bun CI workflow (`.bun-version` pin,
   committed `bun.lock`), the `release` feature flow via the shared
-  `release-bun.yml@bun-v1` reusable workflow (native-runner matrix and why bun
+  immutable `release-bun.yml` reusable workflow (native-runner matrix and why bun
   can't cross-compile here, codesign + notarytool, synthesized 4-platform cask),
   the JIT entitlements escape hatch, version stamping, one-time setup, and
   runner-label drift.

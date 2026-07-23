@@ -2,7 +2,7 @@
 
 The bun layer's CI workflow and its opt-in `release` feature — one single-file
 `bun build --compile` binary per platform, shipped as a Homebrew cask via the
-shared `release-bun.yml@bun-v1` reusable workflow in `yasyf/homebrew-tap`.
+shared immutable `release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68` reusable workflow in `yasyf/homebrew-tap`.
 Scaffolded files: `.github/workflows/ci.yml` (always) and
 `.github/workflows/release.yml` (feature `release`). There is nothing else to
 configure — no goreleaser config, no cask template.
@@ -27,7 +27,7 @@ The scaffolded caller is the entire repo-side configuration:
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-bun.yml@bun-v1
+    uses: <user>/homebrew-tap/.github/workflows/release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68
     secrets: inherit
 ```
 
@@ -103,5 +103,5 @@ First release: CHANGELOG entry → `git tag v0.1.0` on a commit that's on `main`
 The matrix hardcodes GitHub's current native runner labels. Two are worth
 watching: `macos-15-intel` is the end-of-line Intel image (long queues today,
 retirement eventually), and `ubuntu-24.04-arm` is free for public repos only.
-When a label dies, the fix lands once in `release-bun.yml` and reaches every
-caller via a `bun-v1` tag move — never in a consumer repo.
+When a label dies, the fix lands once in `release-bun.yml`; after its CI passes,
+each consumer is explicitly repinned to that immutable commit.

@@ -149,7 +149,10 @@ def test_bun_ci_coupling(templates_dir):
 def test_bun_release_workflow_uses_reusable_workflow(bun_var_pairs):
     plan, _ = _real_plan("bun", bun_var_pairs, features=["release"])
     release = plan[".github/workflows/release.yml"]
-    assert "uses: janedoe/homebrew-tap/.github/workflows/release-bun.yml@bun-v1" in release
+    assert (
+        "uses: janedoe/homebrew-tap/.github/workflows/release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68"
+        in release
+    )
     assert "secrets: inherit" in release
     # zero-config contract: the caller passes no inputs
     assert "with:" not in release
@@ -162,7 +165,9 @@ def test_bun_agents_renders_directives_and_release(bun_var_pairs):
     assert '"cc-skills:version-control"' in layout
     # release on -> the Releases fragment carries the bun release caller and is listed
     assert '"releases"' in layout
-    assert "release-bun.yml@bun-v1" in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
+    assert "release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68" in plan[
+        ".claude/fragments/AGENTS.md/releases.fragment.md"
+    ]
     plan_off, _ = _real_plan("bun", bun_var_pairs, features=[])
     assert ".claude/fragments/AGENTS.md/releases.fragment.md" not in plan_off
     assert '"releases"' not in plan_off[".claude/fragments/AGENTS.md/layout.toml"]

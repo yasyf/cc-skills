@@ -9,5 +9,5 @@ permissions:
 
 jobs:
   release:
-    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-bun.yml@bun-v1
+    uses: {{GITHUB_USER}}/homebrew-tap/.github/workflows/release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68
     secrets: inherit
