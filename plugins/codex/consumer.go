@@ -19,9 +19,9 @@ import (
 	"github.com/yasyf/daemonkit/paths"
 )
 
-// appVersion is the build identity: daemon.Config.Version (gating daemon-upgrade
-// matching) and the --version output install-binary.sh pins on. goreleaser stamps
-// the release value; "dev" marks an unstamped build the installer must not clobber.
+// appVersion is the runtime build identity and the --version output
+// install-binary.sh pins on. goreleaser stamps the release value; "dev" marks
+// an unstamped build the installer must not clobber.
 var appVersion = "dev"
 
 // wakeTimeout bounds the detached worker's owner-wake dial. Every failure inside
@@ -57,8 +57,8 @@ func appPaths() paths.Paths { return paths.Paths{App: appDir} }
 
 func launcher() daemon.Launcher {
 	return daemon.Launcher{
-		Paths: appPaths(), Version: appVersion, LifecycleBuild: appVersion,
-		Args: []string{"daemon"}, DaemonRole: appDaemonRole(),
+		Paths: appPaths(), WireBuild: daemon.WireBuild, RuntimeBuild: appVersion,
+		Args: []string{"daemon"}, StopArgs: []string{daemon.StopControlCommand}, DaemonRole: appDaemonRole(),
 	}
 }
 
@@ -99,8 +99,8 @@ func buildServer() (*daemon.Server, error) {
 	return daemon.New(daemon.Config{
 		AppName:           binaryName,
 		Paths:             appPaths(),
-		Version:           appVersion,
-		LifecycleBuild:    appVersion,
+		WireBuild:         daemon.WireBuild,
+		RuntimeBuild:      appVersion,
 		DaemonRole:        appDaemonRole(),
 		ActiveStatuses:    []string{statusOpen},
 		PresenceEventType: c.Type(),
@@ -186,6 +186,8 @@ func deps() cmd.Deps {
 		NewClient:              newClient,
 		EnsureCurrent:          func(ctx context.Context) error { return launcher().EnsureCurrent(ctx, daemon.UpgradeTimeout) },
 		EnsureCurrentIfRunning: func(ctx context.Context) error { return launcher().EnsureCurrentIfRunning(ctx) },
+		Stop:                   func(ctx context.Context) error { return launcher().Stop(ctx, daemon.UpgradeTimeout) },
+		RunStopControl:         func(ctx context.Context) error { return launcher().RunStopControl(ctx) },
 		ClaudePID:              procs.ClaudePID,
 		WindowAlive:            procs.LiveClaude,
 		TerminalEvent:          func(string) bool { return false },
@@ -287,6 +289,7 @@ func consumerRoot() *cobra.Command {
 	}
 	r.AddCommand(
 		cmd.DaemonCmd(d),
+		cmd.DaemonStopControlCmd(d),
 		cmd.AgentStartCmd(d),
 		cmd.AgentInjectCmd(d),
 		cmd.AgentStopCmd(d),
@@ -301,13 +304,14 @@ func consumerRoot() *cobra.Command {
 // consumerRoot before falling through to askMode. Each is a plain word, so it
 // cannot collide with a leading --flag dispatch case.
 var consumerSubcommands = map[string]bool{
-	"daemon":       true,
-	"agent-start":  true,
-	"agent-inject": true,
-	"agent-stop":   true,
-	"agent-report": true,
-	"channel":      true,
-	"direct":       true,
+	"daemon":                  true,
+	daemon.StopControlCommand: true,
+	"agent-start":             true,
+	"agent-inject":            true,
+	"agent-stop":              true,
+	"agent-report":            true,
+	"channel":                 true,
+	"direct":                  true,
 }
 
 func isConsumerSubcommand(name string) bool { return consumerSubcommands[name] }

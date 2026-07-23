@@ -604,10 +604,10 @@ func waitDaemonReady(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		client, err := newClient(ctx)
 		if err == nil {
-			health, herr := client.Health(ctx)
+			health, herr := client.RuntimeHealth(ctx)
 			_ = client.Close()
 			cancel()
-			if herr == nil && health.Build == appVersion {
+			if herr == nil && health.Ready && health.RuntimeBuild == appVersion && health.ProcessGeneration != "" {
 				return
 			}
 			lastErr = herr
