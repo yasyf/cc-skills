@@ -24,7 +24,7 @@ The whole `release.yml` is a **one-liner** that forwards to the shared reusable 
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-go.yml@4afbb78f9e1814af04f9686ccf101ecafd5aa295
+    uses: <user>/homebrew-tap/.github/workflows/release-go.yml@52b26a1684d94ae2669d124f844148deaa4f5baf
     secrets: inherit
 ```
 
