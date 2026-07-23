@@ -1,7 +1,7 @@
 ---
 name: codex
 description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped, decision-light change to existing code (large net-new code stays on Claude — opus, fable if crucial), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit or clearly-bounded build, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
-allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*), Read, Grep, Glob
+allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*, ${CLAUDE_SKILL_DIR}/../../bin/codex-ask:*), Read, Grep, Glob
 effort: medium
 ---
 
@@ -12,8 +12,11 @@ run a code/diff review, security review/audit, or bug diagnosis, hand it a
 well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen`
 skill to generate images, or offload rote throwaway work.
 
-Every codex call runs through `codex-ask`, the executable this plugin ships (a
-plugin's `bin/` rides the Bash tool's PATH while the plugin is enabled). The
+Every codex call runs through `codex-ask`, the executable this plugin ships.
+Invoke it by its plugin-root path — `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask"`,
+substituted to a real path in this skill's text. The plugin's `bin/` also rides
+the Bash tool's PATH, but bare `codex-ask` resolves by PATH order, where a
+brew-installed binary can shadow the plugin's symlink. The
 script owns every mechanic: it pins `-c model=gpt-5.6-sol
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
@@ -108,7 +111,7 @@ once the caller has already unblocked, so it can trail the narration or even a
 `--collect`. Drive a codex fan-out off that record, not off what the agents say:
 
 1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
-   `ROOT=$(codex-ask --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
+   `ROOT=$("${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
    (lane paths: `sed -n 's/^LANE: //p'`; the `sed` masks a mint failure, so
    guard `[ -n "$ROOT" ]` before use) — the root lands under the fixed runs
    base with one lane dir pre-created per agent (a lane that never runs must
@@ -117,7 +120,7 @@ once the caller has already unblocked, so it can trail the narration or even a
 2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
    `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir.
 3. **End with a collect stage.** The last deterministic step runs
-   `codex-ask --collect "$ROOT"` (a cheap run-this-exact-command agent that
+   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect "$ROOT"` (a cheap run-this-exact-command agent that
    returns stdout verbatim). It walks the roster and classifies each lane from
    disk alone — `no-run` / `pending` / `running` / `died` / `completed` /
    `failed` — as one JSONL record per lane, never inlining reply contents. The
@@ -149,7 +152,7 @@ steering channel instead of a Bash return.
 1. **Know your agent id.** It arrives in your greeting directive, the first
    steering-channel message you see. No greeting means no channel — use the
    blocking flow instead.
-2. **Dispatch async.** `codex-ask --dispatch --owner <agent-id> - <<'QUESTION'`
+2. **Dispatch async.** `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --dispatch --owner <agent-id> - <<'QUESTION'`
    (`--owner` requires `--dispatch`; `--dispatch` alone is fire-and-forget,
    recovered via its `AWAIT:` line). The usual
    `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines print, then the call returns with
@@ -177,7 +180,8 @@ and the terminal `--collect` still gates.
 
 **Top-level sessions use Monitor + `--watch`, not the channel.** From the main
 conversation — the one place Monitor wakes actually deliver — dispatch with
-`--dispatch` alone, then arm `Monitor` on `codex-ask --watch <run-dir>...`
+`--dispatch` alone, then arm `Monitor` on
+`"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch <run-dir>...`
 (fan-out roots expand to their lanes; `--watch --all` covers every in-flight
 run). The watch emits one JSONL record per run as it settles — completed,
 failed, or died, never silence — and exits once all watched runs have
@@ -229,7 +233,7 @@ repeatedly if needed, until it exits. Asking the question again pays for work
 that is already finishing.
 
 ```bash
-codex-ask - <<'QUESTION'
+"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" - <<'QUESTION'
 I have a [component] that fails with [specific error].
 
 Here is the full function:
@@ -254,7 +258,8 @@ QUESTION
 
 In place of `-` (stdin), `codex-ask` also takes a file path or literal text,
 so a short question can go inline:
-`codex-ask "Explain the JPEG progressive AC refinement algorithm"`. Every form
+`"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" "Explain the JPEG progressive AC
+refinement algorithm"`. Every form
 writes the question file, so the exchange keeps a durable record either way.
 
 ### Step 3: Evaluate the Reply
@@ -282,12 +287,13 @@ Every run — ad-hoc or fan-out — lives under
 `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` (override: `CODEX_ASK_RUNS_DIR`,
 absolute and outside any repo). The filesystem is the registry:
 
-- `codex-ask --ps` walks the base and prints one JSONL record per run — state
+- `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps` walks the base and prints one JSONL record per run — state
   (the collect classification), pid, start time, log age, cwd, session —
   pruning only long-terminal runs. A run whose caller died, compacted, or was
   never woken is *not* lost: any session can find it here and recover with
-  `codex-ask --await <run-dir>` (single run) or `codex-ask --collect <root>`
-  (fan-out root).
+  `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await <run-dir>` (single run)
+  or `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect <root>` (fan-out
+  root).
 - Before re-dispatching anything that "seems dead", check `--ps` first — a
   wedged run is visible (old log age, live pid) and killable; a completed one
   has its reply on disk.
@@ -315,7 +321,7 @@ With the shell disabled, codex cannot write into your repo. Generations land in
 reply list the saved paths, then copy and post-process the files yourself.
 
 ```bash
-codex-ask --image - <<'PROMPT'
+"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --image - <<'PROMPT'
 Use $imagegen to create a square 1024x1024 logo for [project]: [subject], flat
 illustration, bold clean shapes, on a solid bright-green background (it will be
 chroma-keyed out locally). If the image_gen tool is unavailable, reply
@@ -365,7 +371,8 @@ in a fresh foreground Bash call (same 10-minute timeout), repeating until it
 exits.
 
 **Reported result doesn't match the tree**: trust the disk, not the narration.
-Run `codex-ask --collect` over the lane root (or `--ps` for ad-hoc runs). A
+Run `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect` over the lane root
+(or `--ps` for ad-hoc runs). A
 lane reported failed whose record says `completed` is a paperwork failure —
 recover the answer from its `reply_file`, don't re-dispatch. A lane reported
 successful over an untouched, scoped tree diff never actually ran.

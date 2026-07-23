@@ -234,7 +234,7 @@ func collectLane(d, lane string) {
 	li := classify(d)
 	awaitCmd := ""
 	if !contains(terminal, li.state) {
-		awaitCmd = shlexQuote(selfPath) + " --await " + shlexQuote(d)
+		awaitCmd = shlexQuote(invokePath) + " --await " + shlexQuote(d)
 	}
 	record := `{"lane":"` + jsonEscape(lane) + `","state":"` + li.state + `",` +
 		`"reply_file":"` + jsonEscape(li.reply) + `","reply_size":` + strconv.FormatInt(li.replySize, 10) + `,` +

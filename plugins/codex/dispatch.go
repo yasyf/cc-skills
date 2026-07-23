@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -212,7 +213,7 @@ loop:
 	// --await recipe in the returned partial stdout.
 	fmt.Printf("REPLY_FILE: %s\n", reply)
 	fmt.Printf("LOG_FILE: %s\n", logf)
-	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(selfPath), shlexQuote(sdir))
+	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(invokePath), shlexQuote(sdir))
 
 	detachWorker(sdir)
 	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
@@ -234,20 +235,22 @@ func isRegularFile(path string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
+//go:embed AGENTS.md
+var embeddedAgentsMd string
+
 func readAgentsMd() string {
-	// The plugin provisions bin/codex-ask as a symlink to the brew binary, and only
-	// the symlink's root carries AGENTS.md — so try the unresolved invocation path.
+	// Disk copies override the embedded developer feed; try the invocation layout first.
 	if exe, err := os.Executable(); err == nil {
 		if b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), "AGENTS.md")); err == nil { //nolint:gosec // reads the plugin's own AGENTS.md, by design
 			return strings.TrimRight(string(b), "\n")
 		}
 	}
-	// Fail closed like Python line 767: no dev feed means codex browses the desktop.
+	// Try the resolved binary layout before using the always-present embedded copy.
 	root := filepath.Dir(filepath.Dir(selfPath))
 	path := filepath.Join(root, "AGENTS.md")
 	b, err := os.ReadFile(path) //nolint:gosec // reads the plugin's own AGENTS.md by resolved path, by design
-	if err != nil {
-		die("codex-ask: cannot read developer instructions at "+path+": "+err.Error(), 1)
+	if err == nil {
+		return strings.TrimRight(string(b), "\n")
 	}
-	return strings.TrimRight(string(b), "\n")
+	return strings.TrimRight(embeddedAgentsMd, "\n")
 }

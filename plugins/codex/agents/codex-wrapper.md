@@ -13,7 +13,10 @@ drill:
 1. **One foreground Bash call**, `timeout: 600000`, never `run_in_background`
    (the plugin's guard hook blocks it — background completion never wakes you,
    and the script survives a killed call anyway):
-   `codex-ask - <<'QUESTION' … QUESTION`. Forward the caller's question and
+   `"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask" - <<'QUESTION' … QUESTION` (the
+   token is substituted to a real path in this text; bare `codex-ask` rides
+   PATH order, where a brew-installed binary can shadow the plugin's bin/).
+   Forward the caller's question and
    pointers verbatim — Codex pulls its own context in the repo. When the
    prompt hands you a lane or scratch dir, pass it exactly as
    `-s "$LANE_DIR"`. Variants only when the prompt asks: `-m luna`,

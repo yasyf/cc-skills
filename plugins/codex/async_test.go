@@ -178,6 +178,22 @@ func stdoutLine(out, prefix string) string {
 	return ""
 }
 
+func developerInstructions(t *testing.T, sdir string) string {
+	t.Helper()
+	var spec cmdSpec
+	if err := json.Unmarshal([]byte(readFile(filepath.Join(sdir, "cmd"))), &spec); err != nil {
+		t.Fatalf("read cmd: %v", err)
+	}
+	const prefix = "developer_instructions="
+	for _, arg := range spec.Argv {
+		if strings.HasPrefix(arg, prefix) {
+			return strings.TrimPrefix(arg, prefix)
+		}
+	}
+	t.Fatal("cmd argv has no developer_instructions element")
+	return ""
+}
+
 // TestDispatchAsyncReturnsWithoutBlocking proves --dispatch returns at once (the
 // stub codex sleeps far past the call), prints the recovery contract, and lands
 // the lane in the registry.
@@ -299,9 +315,116 @@ func TestDispatchThroughSymlinkFindsAgentsMd(t *testing.T) {
 	if err := c.Run(); err != nil {
 		t.Fatalf("dispatch via symlink: %v\nstderr: %s", err, stderr.String())
 	}
-	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
+	out := stdout.String()
+	reply := stdoutLine(out, "REPLY_FILE: ")
+	sdir := filepath.Dir(reply)
+	t.Cleanup(func() { killLane(sdir) })
 	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
 		t.Fatalf("reply = %q, want pong (stderr: %s)", got, stderr.String())
+	}
+	if got := developerInstructions(t, sdir); got != "symlink-layout developer instructions" {
+		t.Fatalf("developer instructions = %q, want symlink-layout override", got)
+	}
+	await := stdoutLine(out, "AWAIT: ")
+	if !strings.Contains(await, link) {
+		t.Fatalf("AWAIT = %q, want symlink invocation path %q", await, link)
+	}
+	if strings.Contains(await, target) {
+		t.Fatalf("AWAIT = %q, contains resolved target path %q", await, target)
+	}
+}
+
+func TestCollectAwaitUsesInvokePath(t *testing.T) {
+	bin := codexAskBin(t)
+	target, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := shortHome(t)
+	runs := mustTempDir(t)
+
+	pluginRoot := mustTempDir(t)
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "symlink-layout developer instructions\n")
+	link := filepath.Join(pluginRoot, "bin", "codex-ask")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	rootDir, err := os.MkdirTemp(runs, "codex-root.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := filepath.Join(rootDir, "lane-a")
+	if err := os.Mkdir(lane, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	reply := filepath.Join(lane, "codex-r-x")
+	logf := filepath.Join(lane, "codex-q-x.log")
+	writeFile(t, filepath.Join(lane, "meta"), reply+"\n"+logf+"\n")
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(link, "--collect", rootDir) //nolint:gosec // drives the symlinked binary under test
+	c.Env = dispatchEnv(home, "", runs, mustTempDir(t), rootDir)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("collect via symlink: %v\nstderr: %s", err, stderr.String())
+	}
+	var rec struct {
+		Await string `json:"await"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout.String())), &rec); err != nil {
+		t.Fatalf("bad collect record %q: %v", stdout.String(), err)
+	}
+	if !strings.Contains(rec.Await, link) {
+		t.Fatalf("await = %q, want symlink invocation path %q", rec.Await, link)
+	}
+	if strings.Contains(rec.Await, target) {
+		t.Fatalf("await = %q, contains resolved target path %q", rec.Await, target)
+	}
+}
+
+// TestDispatchBareBinaryEmbedsAgentsMd proves a binary without a disk AGENTS.md
+// still passes the embedded developer feed to codex.
+func TestDispatchBareBinaryEmbedsAgentsMd(t *testing.T) {
+	source := codexAskBin(t)
+	bareDir := mustTempDir(t)
+	bare := filepath.Join(bareDir, "codex-ask")
+	binary, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bare, binary, 0o755); err != nil { //nolint:gosec // test fixture binary must be executable
+		t.Fatal(err)
+	}
+
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(bare, "ping") //nolint:gosec // drives the copied binary under test
+	c.Dir = scope
+	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("dispatch bare binary: %v\nstderr: %s", err, stderr.String())
+	}
+	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
+	if reply == "" {
+		t.Fatalf("no REPLY_FILE printed:\n%s", stdout.String())
+	}
+	sdir := filepath.Dir(reply)
+	t.Cleanup(func() { killLane(sdir) })
+	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
+		t.Fatalf("reply = %q, want pong (stderr: %s)", got, stderr.String())
+	}
+	if got := developerInstructions(t, sdir); !strings.Contains(got, "agent-browser") {
+		t.Fatalf("embedded developer instructions missing agent-browser sentinel")
 	}
 }
 

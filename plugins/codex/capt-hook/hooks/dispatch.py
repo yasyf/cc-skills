@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from cc_transcript.command import Command, parse_command_line
 
@@ -20,6 +21,8 @@ from captain_hook.util.shell import normalize_executable
 
 # Backstop for natural agent-written forms only. Launchers that detach with no shell `&` on the
 # command line (screen/tmux/coproc) and wrapper scripts that hide the codex call are out of scope.
+
+PLUGIN_BIN = str(Path(__file__).resolve().parents[2] / "bin" / "codex-ask")
 
 DETACH_WRAPPERS = frozenset({"nohup", "setsid"})
 EXEC_SUBCOMMANDS = frozenset({"exec", "e"})  # `e` is codex's documented alias for `exec`.
@@ -154,9 +157,9 @@ hook(
         "codex-ask must run in the FOREGROUND — backgrounding it (run_in_background, a trailing "
         "&, or nohup/setsid/disown) strands the finished reply on disk: background Bash "
         "completion never wakes an in-process subagent (anthropics/claude-code#78782). Async is "
-        "sanctioned, but routed: an owner subagent runs `codex-ask --dispatch --owner "
+        f"sanctioned, but routed: an owner subagent runs `{PLUGIN_BIN} --dispatch --owner "
         "<agent-id>` foreground (returns at once) and parks on the await tool; a top-level "
-        "session runs `--dispatch` and arms Monitor on `codex-ask --watch <run-dir>`. A "
+        f"session runs `--dispatch` and arms Monitor on `{PLUGIN_BIN} --watch <run-dir>`. A "
         "blocking call already survives a Bash-tool timeout — rerun the printed AWAIT: line "
         "foreground with timeout: 600000 to recover. Parallelism comes from parallel wrapper "
         "agents or a workflow fan-out, never from backgrounding."
@@ -200,7 +203,7 @@ hook(
         "pins the model, reasoning effort, service tier, and OAuth auth, feeds "
         "developer_instructions from the plugin AGENTS.md, disables MCP server mounts, and owns "
         "the disk protocol (absolute scratch, staged reply on rc 0, and --await/--collect "
-        "recovery). Rerun as `codex-ask [-s <lane>] - <<'Q' … Q` in the foreground."
+        f"recovery). Rerun as `{PLUGIN_BIN} [-s <lane>] - <<'Q' … Q` in the foreground."
     ),
     block=True,
     tests={

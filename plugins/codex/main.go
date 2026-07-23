@@ -37,6 +37,9 @@ var runPrefixes = []string{"codex-ask.", "codex-root."}
 // selfPath is the resolved absolute path of this binary (Python's SELF).
 var selfPath string
 
+// Resolved Caskroom paths die on upgrade; invokePath survives atomic relinking.
+var invokePath string
+
 func main() {
 	// The ambient OPENAI_API_KEY is billing-capped and blocks the hosted image_gen
 	// tool, so every mode drops it and codex OAuth-auths.
@@ -77,6 +80,10 @@ func initSelf() {
 	if err != nil {
 		return
 	}
+	if absolute, e := filepath.Abs(exe); e == nil {
+		exe = absolute
+	}
+	invokePath = exe
 	if resolved, e := filepath.EvalSymlinks(exe); e == nil {
 		exe = resolved
 	}
