@@ -54,7 +54,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
     "Package.swift",
     "Sources/DemoProj/Hello.swift", "Sources/demo-proj/Main.swift",
     "Tests/DemoProjTests/HelloTests.swift",
-    ".swiftformat", ".swiftlint.yml", ".pre-commit-config.yaml",
+    ".swiftformat", ".swiftlint.yml", ".claude/fragments/.pre-commit-config.yaml/layout.toml",
     ".github/workflows/ci.yml",
 }
 
@@ -71,7 +71,7 @@ SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     "demo-proj/Assets.xcassets/AccentColor.colorset/Contents.json",
     "demo-proj/Assets.xcassets/AppIcon.appiconset/Contents.json",
     "demo-projTests/ScaffoldSmokeTests.swift",
-    ".swiftformat", ".swiftlint.yml", ".pre-commit-config.yaml",
+    ".swiftformat", ".swiftlint.yml", ".claude/fragments/.pre-commit-config.yaml/layout.toml",
     ".github/workflows/ci.yml",
 }
 
@@ -119,6 +119,10 @@ def test_swift_overrides_base_for_shared_dest(swift_var_pairs):
         items[".claude/fragments/.mcp.json/layout.toml"].src
         == "swift/claude/fragments/mcp.json/layout.toml"
     )
+    assert (
+        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        == "swift/claude/fragments/pre-commit-config.yaml/layout.toml"
+    )
 
 
 def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
@@ -129,7 +133,8 @@ def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
     for dest in ("STYLEGUIDE.md", ".claude/fragments/.mcp.json/layout.toml",
                  ".claude/fragments/.claude/settings.json/layout.toml",
                  ".swiftformat", ".swiftlint.yml",
-                 ".pre-commit-config.yaml", ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
+                 ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+                 ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
         assert items[dest].src.startswith("swift/"), f"{dest} forked from {items[dest].src}"
     # AGENTS prose is app-specific, so swift-app ships its own AGENTS layout dir
     assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "swift-app/claude/fragments/AGENTS.md/layout.toml"
@@ -355,6 +360,16 @@ def test_swift_mcp_layout_imports_swift_variant(swift_var_pairs, swift_app_var_p
         assert ".mcp.json" not in plan
 
 
+def test_swift_precommit_layout_imports_swift_variant(swift_var_pairs, swift_app_var_pairs):
+    expected = ["cc-skills:precommit-base", "cc-skills:precommit-swift"]
+    for layer, var_pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
+        plan, _ = _real_plan(layer, var_pairs)
+        layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+        assert layout["fragments"] == expected
+        assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
+        assert ".pre-commit-config.yaml" not in plan
+
+
 def test_swift_settings_layout_imports_swift_variant(swift_var_pairs):
     # settings.json composes from pack fragments: the swift layout imports
     # settings-base + settings-swift (swift perms; no ty/go), never the go/python
@@ -371,7 +386,9 @@ def test_swift_precommit_local_system_hooks(templates_dir):
     # Deliberately local system hooks against the brew binaries: the upstream
     # SwiftFormat/SwiftLint pre-commit hooks build from source via SPM
     # (minutes-long). Guard against someone "upgrading" back to them.
-    config = (templates_dir / "swift/pre-commit-config.yaml").read_text()
+    config = (
+        templates_dir.parents[4] / "plugin" / "guides" / "yml" / "precommit-swift.yml"
+    ).read_text()
     assert "repo: local" in config
     assert config.count("\n        language: system\n") == 2
     assert "id: swiftformat" in config

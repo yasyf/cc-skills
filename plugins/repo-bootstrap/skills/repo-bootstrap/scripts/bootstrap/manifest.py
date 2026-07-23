@@ -226,7 +226,11 @@ FILES = (
     FileSpec("pyproject.toml", "python/pyproject.toml", "python"),
     FileSpec(".python-version", "python/python-version", "python"),
     FileSpec(".github/workflows/ci.yml", "python/github/workflows/ci.yml", "python"),
-    FileSpec(".pre-commit-config.yaml", "python/pre-commit-config.yaml", "python"),
+    FileSpec(
+        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        "python/claude/fragments/pre-commit-config.yaml/layout.toml",
+        "python",
+    ),
     FileSpec("{{PACKAGE}}/__init__.py", "python/package/__init__.py", "python"),
     FileSpec("{{PACKAGE}}/__main__.py", "python/package/__main__.py", "python"),
     FileSpec("{{PACKAGE}}/cli.py", "python/package/cli.py", "python"),
@@ -318,7 +322,11 @@ FILES = (
     FileSpec(".golangci.yml", "go/golangci.yml", "go"),
     FileSpec(".editorconfig", "go/editorconfig", "go"),
     FileSpec(".github/workflows/ci.yml", "go/github/workflows/ci.yml", "go"),
-    FileSpec(".pre-commit-config.yaml", "go/pre-commit-config.yaml", "go"),
+    FileSpec(
+        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        "go/claude/fragments/pre-commit-config.yaml/layout.toml",
+        "go",
+    ),
     # feature-gated go files (the release pipeline; off by default — see SKILL Phase 1).
     # Default distribution is a native Homebrew cask, built and published by goreleaser
     # itself (homebrew_casks: in .goreleaser.yaml); release.yml is a one-liner calling the
@@ -372,7 +380,11 @@ FILES = (
     FileSpec("Tests/{{MODULE_NAME}}Tests/HelloTests.swift", "swift/Tests/HelloTests.swift", "swift"),
     FileSpec(".swiftformat", "swift/swiftformat", "swift"),
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift"),
-    FileSpec(".pre-commit-config.yaml", "swift/pre-commit-config.yaml", "swift"),
+    FileSpec(
+        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        "swift/claude/fragments/pre-commit-config.yaml/layout.toml",
+        "swift",
+    ),
     FileSpec(".github/workflows/ci.yml", "swift/github/workflows/ci.yml", "swift"),
     # feature-gated swift file (the release pipeline; off by default). One caller
     # workflow forwarding to the shared release-swift.yml@swift-v1 reusable workflow
@@ -441,7 +453,11 @@ FILES = (
     FileSpec("{{PROJECT_NAME}}Tests/ScaffoldSmokeTests.swift", "swift-app/tests/ScaffoldSmokeTests.swift", "swift-app"),
     FileSpec(".swiftformat", "swift/swiftformat", "swift-app"),
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift-app"),
-    FileSpec(".pre-commit-config.yaml", "swift/pre-commit-config.yaml", "swift-app"),
+    FileSpec(
+        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        "swift/claude/fragments/pre-commit-config.yaml/layout.toml",
+        "swift-app",
+    ),
     FileSpec(".github/workflows/ci.yml", "swift-app/github/workflows/ci.yml", "swift-app"),
     # --- bun layer (single-binary TypeScript CLI/TUI; overrides base where dest
     # collides). No .mcp.json override (base's empty server map suffices — no bun MCP

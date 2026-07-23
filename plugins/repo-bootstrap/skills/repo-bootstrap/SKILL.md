@@ -378,7 +378,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `pyproject.toml`, `.python-version` | python | `pyproject` gains a `docs` dependency group only with feature `docs` |
 | `.claude/fragments/great-docs.yml/` → `great-docs.yml` | python + feature `docs` | omitted entirely without `docs`; a cc-guides rendered artifact: a repo-local head (module, repo, urls, hero) + `cc-skills:great-docs-fleet` (shared display keys) + `cc-skills:great-docs-prerender` (the `pre_render` titles entry — gd-build materializes the script into `docs/scripts/.gd-build/` at build time — the docs `.gitignore` ignores `.gd-build/` at any depth; see `reference/docs-site.md`) |
 | `.github/workflows/ci.yml` | python, go, swift, **or** swift-app | always; go runs `go vet`/`go test -race`/`go build` + golangci-lint + govulncheck; swift runs one `macos-26` job (macOS minutes bill 10× — deliberately not a matrix): swiftformat --lint, swiftlint, `swift build`, `swift test` (SPM cache keyed on `Package.resolved`); swift-app the same but `xcodebuild test` on an iOS Simulator destination |
-| `.pre-commit-config.yaml` | python, go, **or** swift | python: `ruff` + `ty`; go: gofumpt + golangci-lint; swift: swiftformat + swiftlint as `repo: local` system hooks against the brew binaries (the upstream hooks build from source via SPM — minutes-long) — via prek, activate with `uvx prek install` |
+| `.claude/fragments/.pre-commit-config.yaml/` → `.pre-commit-config.yaml` | python, go, **or** swift | a rendered artifact composed by cc-guides: `cc-skills:precommit-base` (the `repos:` key + the prek-native builtin hygiene hooks) plus the language fragment — `cc-skills:precommit-python` (`ruff` + `ty`), `cc-skills:precommit-go` (gofumpt + golangci-lint), `cc-skills:precommit-swift` (swiftformat + swiftlint as `repo: local` system hooks against the brew binaries; the upstream hooks build from source via SPM — minutes-long). The pack fragments live in `cc-skills` `plugin/guides/yml/`; edit or rev-bump them there, not in the scaffolded repo. Via prek, activate with `uvx prek install` |
 | `.swiftformat`, `.swiftlint.yml` | swift, swift-app | nicklockwood SwiftFormat (NOT Apple's swift-format), minimal SwiftLint (`force_unwrapping` opt-in, warnings never block) |
 | `.claude/fragments/.github/workflows/docs.yml/` → `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build, a cc-guides rendered artifact: a repo-local preamble (triggers, paths filter) + the shared `cc-skills:docs-build-{head,sync,tail}` + `cc-skills:docs-publish` pieces; the build step runs gd-build (Quarto pinned 1.9.38, version-gated perf patches, pre_render titles absorbed — see `reference/ci-and-release.md`) |
 | `.github/workflows/release-pypi.yml` | python + feature `pypi` | caller: build via shared `release-pypi-build.yml@pypi-v1`, then OIDC publish + github-release in-repo (PyPI Trusted Publishing must run in the caller, not the reusable workflow); feature `maturin` adds `maturin: true` |
@@ -655,8 +655,10 @@ explicitly deferred with the user).
   `enabledPlugins` in `settings-overrides.fragment.json` (then re-run `cc-guides render`) —
   disabling the plugin drops dispatch entirely, builtin and plugin packs alike. Delete
   `.claude/hooks/` too if the repo's local hooks should go with it.
-- **No commit hooks wanted**: delete `.pre-commit-config.yaml` (and skip
-  `uvx prek install`). If you already ran `uvx prek install`, also run
+- **No commit hooks wanted**: delete the `.claude/fragments/.pre-commit-config.yaml/`
+  layout dir and the rendered `.pre-commit-config.yaml` (deleting only the rendered file
+  resurrects it on the next `cc-guides render`), and skip
+  `uvx prek install`. If you already ran `uvx prek install`, also run
   `uvx prek uninstall` — deleting the config alone orphans the hook and aborts every
   commit. (python) To drop only the ty hook, delete its `repo:` block there and the CI
   ty step. (go) The config runs gofumpt + golangci-lint; the `go` capt-hook pack blocks

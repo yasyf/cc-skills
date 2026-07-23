@@ -32,7 +32,11 @@ find .claude/fragments -name layout.toml 2>/dev/null | while IFS= read -r lay; d
   target="${dir#./}"
   target="${target#.claude/fragments/}"
   mkdir -p "$(dirname "$target")"
-  echo "# stub-rendered $target from $dir" > "$target"
+  if [ "$target" = ".pre-commit-config.yaml" ]; then
+    printf 'repos: []\n' > "$target"
+  else
+    echo "# stub-rendered $target from $dir" > "$target"
+  fi
   echo "rendered $dir -> $target" >> .cc-guides-stub
 done
 echo "stub cc-guides render complete"

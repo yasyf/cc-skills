@@ -119,8 +119,9 @@ backend — so async tests run with no extra wiring. This house is async-native 
 centralizes on `anyio`, not `pytest-asyncio` (see § Async by Default).
 
 **`[tool.ty.rules]` + `[tool.pyright]`** — **ty (Astral) is the default type checker**; it runs
-on every commit via the prek hook (`astral-sh/ty-pre-commit` in `.pre-commit-config.yaml` — the
-rev pins the ty version, `uvx prek autoupdate` bumps it) and re-runs in CI
+on every commit via the prek hook (`astral-sh/ty-pre-commit`, composed into the rendered
+`.pre-commit-config.yaml` from the shared `cc-skills:precommit-python` fragment — its `rev`
+pins the ty version; bump it in `cc-skills` `plugin/guides/yml/` and re-render) and re-runs in CI
 (`uvx prek run ty --all-files`), since prek activation is opt-in per clone. In both places it is
 **warning-only, never blocking**: `[tool.ty.rules]` sets `all = "warn"`, ty exits nonzero only on
 error-level diagnostics, so warnings print and the commit/CI step proceeds. ty is fast, handles

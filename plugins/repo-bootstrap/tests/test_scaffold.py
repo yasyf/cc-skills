@@ -71,6 +71,8 @@ def test_python_both_features_substitutes_package(py_var_pairs):
     got = dests("python", py_var_pairs)
     assert "demo_proj/cli.py" in got and "demo_proj/__init__.py" in got
     assert ".claude/ty-quiet.toml" in got  # python-only ty silence config (absent from BASE_DESTS)
+    assert ".claude/fragments/.pre-commit-config.yaml/layout.toml" in got
+    assert ".pre-commit-config.yaml" not in got
     assert ".claude/fragments/great-docs.yml/layout.toml" in got  # docs
     assert ".github/workflows/release-pypi.yml" in got  # pypi
     assert got >= BASE_DESTS  # python implies base
@@ -112,7 +114,7 @@ GO_DESTS = FRAGMENT_DESTS | {
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
     "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
-    ".pre-commit-config.yaml", ".github/workflows/ci.yml",
+    ".claude/fragments/.pre-commit-config.yaml/layout.toml", ".github/workflows/ci.yml",
     "go.mod", "cmd/demo-proj/main.go",
     "internal/cli/root.go", "internal/cli/hello.go", "internal/cli/hello_test.go",
     "internal/version/version.go", "internal/log/log.go",
@@ -151,6 +153,10 @@ def test_go_overrides_base_for_shared_dest(go_var_pairs):
     assert (
         items[".claude/fragments/.claude/settings.json/layout.toml"].src
         == "go/claude/fragments/settings.json/layout.toml"
+    )
+    assert (
+        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        == "go/claude/fragments/pre-commit-config.yaml/layout.toml"
     )
     assert items["README.md"].src == "go/README.md"
     assert items["STYLEGUIDE.md"].src == "go/STYLEGUIDE.md"
@@ -1653,7 +1659,9 @@ def test_maturin_is_opt_in():
 
 
 def test_ty_runs_via_prek_hook_warning_only(templates_dir):
-    cfg = (templates_dir / "python/pre-commit-config.yaml").read_text()
+    cfg = (
+        templates_dir.parents[4] / "plugin" / "guides" / "yml" / "precommit-python.yml"
+    ).read_text()
     assert "astral-sh/ty-pre-commit" in cfg
     assert "- id: ty" in cfg
     ci = (templates_dir / "python/github/workflows/ci.yml").read_text()
@@ -1737,6 +1745,10 @@ def test_python_overrides_base_for_shared_dest(py_var_pairs):
     assert (
         items[".claude/fragments/AGENTS.md/demo-proj-style.fragment.md"].src
         == "python/claude/fragments/AGENTS.md/style.fragment.md"
+    )
+    assert (
+        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        == "python/claude/fragments/pre-commit-config.yaml/layout.toml"
     )
     assert items["README.md"].src == "python/README.md"
 
@@ -2254,6 +2266,22 @@ def test_mcp_json_composes_from_pack_fragments(base_var_pairs):
     assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
     assert json.loads(plan[".claude/fragments/.mcp.json/mcp-overrides.fragment.json"]) == {}
     assert ".mcp.json" not in plan
+
+
+def test_python_precommit_composes_from_pack_fragments(py_var_pairs):
+    plan, _ = _real_plan("python", py_var_pairs, features=[])
+    layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+    assert layout["fragments"] == ["cc-skills:precommit-base", "cc-skills:precommit-python"]
+    assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
+    assert ".pre-commit-config.yaml" not in plan
+
+
+def test_go_precommit_composes_from_pack_fragments(go_var_pairs):
+    plan, _ = _real_plan("go", go_var_pairs, features=[])
+    layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+    assert layout["fragments"] == ["cc-skills:precommit-base", "cc-skills:precommit-go"]
+    assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
+    assert ".pre-commit-config.yaml" not in plan
 
 
 # --- run(): post-write cc-guides render (stubbed on PATH) ---

@@ -10,6 +10,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUIDES_JSON = REPO_ROOT / "plugin" / "guides" / "json"
+GUIDES_YML = REPO_ROOT / "plugin" / "guides" / "yml"
 TEMPLATES = (
     REPO_ROOT / "plugins" / "repo-bootstrap" / "skills" / "repo-bootstrap" / "templates"
 )
@@ -48,6 +49,21 @@ def test_mcp_fragments_are_exact():
 def test_copy_once_mcp_templates_are_gone():
     assert not (TEMPLATES / "base" / "mcp.json").exists()
     assert not (TEMPLATES / "swift" / "mcp.json").exists()
+
+
+def test_copy_once_precommit_templates_are_gone():
+    assert not (TEMPLATES / "python" / "pre-commit-config.yaml").exists()
+    assert not (TEMPLATES / "go" / "pre-commit-config.yaml").exists()
+    assert not (TEMPLATES / "swift" / "pre-commit-config.yaml").exists()
+
+
+def test_precommit_fragment_names_are_exact():
+    assert {path.stem for path in GUIDES_YML.glob("precommit-*.yml")} == {
+        "precommit-base",
+        "precommit-go",
+        "precommit-python",
+        "precommit-swift",
+    }
 
 
 def test_scaffold_and_json_guides_do_not_reference_semble():

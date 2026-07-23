@@ -48,7 +48,8 @@ The python layer ships **two** unrelated hook systems that both go by "hooks":
 
 ## Git-level commit hooks (prek: ruff + ty)
 
-`.pre-commit-config.yaml` pins two Astral hook repos and is driven by
+`.pre-commit-config.yaml` — a cc-guides rendered artifact composed from the shared
+`cc-skills:precommit-*` fragments — pins two Astral hook repos and is driven by
 [prek](https://github.com/j178/prek) — a fast Rust drop-in for pre-commit that reads
 `.pre-commit-config.yaml` unchanged and ships as a single binary, so running it through
 `uvx prek` adds nothing to `pyproject.toml`:
@@ -72,13 +73,16 @@ After that, every commit auto-fixes mechanical issues and prints type warnings. 
 **rewrites** a file the commit aborts (prek exits non-zero so you can review the change) —
 re-`git add` the fixed files and commit again. To clean everything up-front instead, run
 `uvx prek run --all-files` (allowed by `toolchain.py`'s ruff guard). The pinned `rev`s are the
-single source of truth for the hooks' ruff and ty versions across every clone — bump them with
-`uvx prek autoupdate`. The first commit after `uvx prek install` is slow (prek clones the hook
+single source of truth for the hooks' ruff and ty versions across every clone — they live in
+the shared `cc-skills:precommit-python` fragment (`cc-skills` `plugin/guides/yml/`), so bump
+them there and re-render; `uvx prek autoupdate` against the rendered config gets clobbered by
+the next `cc-guides render`. The first commit after `uvx prek install` is slow (prek clones the hook
 repos and builds their envs; cached afterwards). CI does **not** run ruff — the commit hook is
 the only mechanical-lint enforcement — but it **does** re-run the ty hook
 (`uvx prek run ty --all-files`, advisory) as the backstop for clones that never ran
-`uvx prek install`. To drop both hooks, run `uvx prek uninstall` **and** delete
-`.pre-commit-config.yaml` — deleting the config alone leaves the installed
+`uvx prek install`. To drop both hooks, run `uvx prek uninstall` **and** delete the
+`.claude/fragments/.pre-commit-config.yaml/` layout dir along with the rendered
+`.pre-commit-config.yaml` — deleting the rendered config alone leaves the installed
 `.git/hooks/pre-commit` orphaned, which aborts every commit with
 `No prek.toml or .pre-commit-config.yaml found` (recover with `uvx prek uninstall`, or a
 one-off `PREK_ALLOW_NO_CONFIG=1 git commit`). To drop only ty, delete its `repo:` block and
