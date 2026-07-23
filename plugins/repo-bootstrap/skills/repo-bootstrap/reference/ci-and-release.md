@@ -83,7 +83,7 @@ permissions `pages: write` + `id-token: write`, environment `github-pages` with
 ## release-pypi.yml
 
 The repo's `release-pypi.yml` is a **caller**: it delegates the build to the fleet's shared
-reusable workflow `<owner>/homebrew-tap/.github/workflows/release-pypi-build.yml@pypi-v1` (the
+reusable workflow `<owner>/homebrew-tap/.github/workflows/release-pypi-build.yml@8f422c652d836c40f9cc5a9d893d4120b26bc681` (the
 Python sibling of the immutable Go `release-go.yml` caller), then runs the OIDC **publish** + **github-release**
 jobs *itself*. Publish must run in this repo's workflow, not the reusable one: PyPI Trusted
 Publishing authenticates via the OIDC `job_workflow_ref` claim, which inside a reusable workflow

@@ -1640,7 +1640,11 @@ def test_pypi_release_workflow_uses_reusable_workflow(py_var_pairs):
     # publish + github-release IN THIS repo — PyPI Trusted Publishing matches job_workflow_ref,
     # so publish must run in the caller, not inside the reusable workflow.
     wf = _real_plan("python", py_var_pairs)[0][".github/workflows/release-pypi.yml"]
-    assert "janedoe/homebrew-tap/.github/workflows/release-pypi-build.yml@pypi-v1" in wf
+    assert (
+        "janedoe/homebrew-tap/.github/workflows/"
+        "release-pypi-build.yml@8f422c652d836c40f9cc5a9d893d4120b26bc681"
+        in wf
+    )
     assert "secrets: inherit" in wf
     assert "dist-name: demo-proj" in wf
     assert 'python-version: "3.12"' in wf

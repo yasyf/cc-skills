@@ -141,7 +141,7 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   (`SWIFT_TOOLS_VERSION`, default `6.2`), and the one **feature** as a `multiSelect`
   "Optional Swift features" — `release` (a universal arm64+x86_64 binary, signed and
   notarized with the required `MACOS_*` secrets, published as a Homebrew cask to
-  `yasyf/homebrew-tap` via the shared `release-swift.yml@swift-v1`). **Default
+  `yasyf/homebrew-tap` via the shared immutable `release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735`). **Default
   unselected (off)**, same rationale as go.
 - **Swift app additionally**: `MODULE_NAME` (names the `<Module>App` type and the
   test target's import), the reverse-DNS bundle prefix (`BUNDLE_ID_PREFIX`, default
@@ -381,12 +381,12 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `.claude/fragments/.pre-commit-config.yaml/` → `.pre-commit-config.yaml` | python, go, **or** swift | a rendered artifact composed by cc-guides: `cc-skills:precommit-base` (the `repos:` key + the prek-native builtin hygiene hooks) plus the language fragment — `cc-skills:precommit-python` (`ruff` + `ty`), `cc-skills:precommit-go` (gofumpt + golangci-lint), `cc-skills:precommit-swift` (swiftformat + swiftlint as `repo: local` system hooks against the brew binaries; the upstream hooks build from source via SPM — minutes-long). The pack fragments live in `cc-skills` `plugin/guides/yml/`; edit or rev-bump them there, not in the scaffolded repo. Via prek, activate with `uvx prek install` |
 | `.swiftformat`, `.swiftlint.yml` | swift, swift-app | nicklockwood SwiftFormat (NOT Apple's swift-format), minimal SwiftLint (`force_unwrapping` opt-in, warnings never block) |
 | `.claude/fragments/.github/workflows/docs.yml/` → `.github/workflows/docs.yml` | python + feature `docs` | Pages docs build, a cc-guides rendered artifact: a repo-local preamble (triggers, paths filter) + the shared `cc-skills:docs-build-{head,sync,tail}` + `cc-skills:docs-publish` pieces; the build step runs gd-build (Quarto pinned 1.9.38, version-gated perf patches, pre_render titles absorbed — see `reference/ci-and-release.md`) |
-| `.github/workflows/release-pypi.yml` | python + feature `pypi` | caller: build via shared `release-pypi-build.yml@pypi-v1`, then OIDC publish + github-release in-repo (PyPI Trusted Publishing must run in the caller, not the reusable workflow); feature `maturin` adds `maturin: true` |
+| `.github/workflows/release-pypi.yml` | python + feature `pypi` | caller: build via shared immutable `release-pypi-build.yml@8f422c652d836c40f9cc5a9d893d4120b26bc681`, then OIDC publish + github-release in-repo (PyPI Trusted Publishing must run in the caller, not the reusable workflow); feature `maturin` adds `maturin: true` |
 | `<PACKAGE>/{__init__,__main__,cli}.py`, `<PACKAGE>/py.typed` | python | Click + loguru starter |
 | `tests/{__init__,test_cli}.py` | python | strict CliRunner tests |
 | `go.mod`, `cmd/<name>/main.go`, `internal/{cli,version,log}/*.go`, `Taskfile.yml`, `.golangci.yml`, `.editorconfig` | go | cobra + slog starter (one `hello` command + one smoke test); `go.sum` comes from `go mod tidy` |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | go + feature `release` | goreleaser builds and signs the matrix without publishing; the shared exact-ID pipeline verifies and publishes the release, then its native Homebrew **cask** to `yasyf/homebrew-tap`; `release.yml` is a one-liner pinned to immutable `release-go.yml@4afbb78f9e1814af04f9686ccf101ecafd5aa295` (gates on `verify-tag-on-main`). A formula (services/deps) is a documented recipe, not scaffolded — see `reference/go-ci-and-release.md` |
-| `.github/workflows/release.yml` | swift + feature `release` | a zero-config one-liner forwarding to the shared `release-swift.yml@swift-v1` reusable workflow (goreleaser can't build Swift): verify-tag-on-main, universal `swift build`, codesign + notarytool, GitHub release, synthesized binary cask to the tap. No goreleaser config, no cask template — see `reference/swift-ci-and-release.md` |
+| `.github/workflows/release.yml` | swift + feature `release` | a zero-config one-liner forwarding to the shared immutable `release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735` reusable workflow (goreleaser can't build Swift): verify-tag-on-main, universal `swift build`, codesign + notarytool, GitHub release, synthesized binary cask to the tap. No goreleaser config, no cask template — see `reference/swift-ci-and-release.md` |
 | `Package.swift`, `Sources/<Module>/`, `Sources/<name>/`, `Tests/<Module>Tests/` | swift | logic-in-library + thin ArgumentParser executable (one `hello` subcommand + Swift Testing smoke tests); `Package.resolved` comes from `swift build` |
 | `<name>.xcodeproj/{project.pbxproj, xcshareddata/xcschemes/<name>.xcscheme}` | swift-app | the committed synced-folder project (objectVersion 77, fixed synthetic UUIDs) — **never regenerate it, never let Xcode "upgrade" it**; adding source files needs no project edit |
 | `<name>/App/*.swift`, `<name>/Assets.xcassets/*`, `<name>Tests/` | swift-app | SwiftUI `@main` app + ContentView, stock asset catalog, Swift Testing smoke test (`@testable import <Module>`) |
@@ -584,7 +584,7 @@ Then, optionally, publish and wire one-time setups:
   `verify-tag-on-main`, builds and signs once without publishing, verifies the exact assets, publishes
   the GitHub release by numeric ID, and only then publishes a native Homebrew **cask** to the
   tap (`reference/go-ci-and-release.md`). Swift: `release.yml` forwards to the shared
-  `release-swift.yml@swift-v1` reusable workflow — same gate, then a universal `swift build`,
+  immutable `release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735` reusable workflow — same gate, then a universal `swift build`,
   codesign + notarytool, the GitHub release, and a synthesized binary **cask** pushed to the tap
   (`reference/swift-ci-and-release.md`). Bun: `release.yml` forwards to the shared
   immutable `release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68` reusable workflow — same gate, then a per-target
@@ -714,7 +714,7 @@ Read these on demand — each is self-contained:
   XcodeBuildMCP wiring, the app + local-SPM-package recipe).
 - `reference/swift-ci-and-release.md` — the swift CI workflows (macos-26 rationale,
   simulator-destination drift, SPM caching), the `release` feature flow via the shared
-  `release-swift.yml@swift-v1` reusable workflow (universal binary, codesign +
+  immutable `release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735` reusable workflow (universal binary, codesign +
   notarytool, synthesized cask), version stamping, one-time setup, and why apps get
   no release feature.
 - `reference/bun-ci-and-release.md` — the bun CI workflow (`.bun-version` pin,
