@@ -70,7 +70,7 @@ The single canonical agent-conventions doc. Section by section:
   MCP tools — the default for reading/searching/reviewing code, because it returns
   token-bounded output and the `ccx` capt-hook guard pack blocks the token-heavy
   primitives. The ladder: `ccx repo overview` (orient), `ccx code search` (intent,
-  semble-backed), `ccx code symbol`/`grok` (a named symbol), `ccx code grep`
+  native in-process engine), `ccx code symbol`/`grok` (a named symbol), `ccx code grep`
   (literal), `ccx repo find` (list files), `ccx code outline` + `ccx code read
   --section` (read), `ccx code edit` (hash-verified write), `ccx vcs diff`/`show`/
   `history` (review changes, one commit, a file's evolution), `ccx repo locate`
@@ -80,7 +80,7 @@ The single canonical agent-conventions doc. Section by section:
   **not** `ccx vcs ship`/`show`/`history` or `ccx repo locate`, which are CLI-only.
   Durable prose cites code as `path:line#hash`; ccx re-anchors the cite by content
   even after the file drifts. LSP for exhaustive/structural answers, `Grep`/`Glob`
-  only for literal content in non-source files. The facade (semble + tilth) ships inside the
+  only for literal content in non-source files. The facade ships inside the
   `cc-context@cc-context` plugin enabled in `.claude/settings.json`, **not** a per-project
   `.mcp.json` server — and the same plugin ships the `ccx` guard pack, so
   the `ccx` heading and the `cc-context@cc-context` plugin are the cross-reference invariant,
