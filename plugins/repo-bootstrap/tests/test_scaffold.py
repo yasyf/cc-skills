@@ -2170,7 +2170,7 @@ def test_go_release_workflow_uses_reusable_workflow(go_var_pairs):
     # every secret (HOMEBREW_TAP_TOKEN + the five MACOS_*); it no longer names them inline.
     wf = _real_plan("go", go_var_pairs, features=["release"])[0][".github/workflows/release.yml"]
     assert (
-        "janedoe/homebrew-tap/.github/workflows/release-go.yml@3bfe1af3bdc10ec783e79050e7c647152a537801" in wf
+        "janedoe/homebrew-tap/.github/workflows/release-go.yml@4afbb78f9e1814af04f9686ccf101ecafd5aa295" in wf
     )
     assert "secrets: inherit" in wf
     # the old inline goreleaser job + per-secret env are gone
