@@ -31,15 +31,16 @@ archives:
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
-# Sign + notarize the darwin binaries with our Apple Developer ID — but only when the
-# MACOS_* secrets are set, so repos without Apple creds still release (unsigned) unchanged.
+# Sign + notarize every darwin binary with our Apple Developer ID. The shared release
+# workflow rejects missing MACOS_* secrets before goreleaser runs, and this unconditional
+# setting keeps direct goreleaser releases fail-closed too.
 # goreleaser's built-in quill signer is pure Go and runs on the linux runner (no macOS runner).
 # REQUIRES a full-chain p12 (leaf + Developer ID intermediate + Apple Root CA): without the
 # root, quill emits an unsatisfiable `certificate root[…6.2.6…]` designated requirement that
 # macOS SIGKILLs at exec. Bare-binary only (no .app bundle). See reference/go-ci-and-release.md.
 notarize:
   macos:
-    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
+    - enabled: true
       ids:
         - {{PROJECT_NAME}}
       sign:
@@ -70,13 +71,6 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: {{REPO_URL}}
     description: {{DESCRIPTION}}
-    # Strip the quarantine attribute so the (notarized, or unsigned) binary runs on first launch.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/{{PROJECT_NAME}}"]
-          end
 
 release:
   prerelease: auto

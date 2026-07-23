@@ -52,7 +52,7 @@ notarizes it via the canonical `macos-codesign.sh` (no staple — a bare binary
 can't be stapled; Gatekeeper checks the cdhash online, exactly like the Go quill
 path) → ditto-zips it to `<name>-<tag>-darwin-universal.zip` + checksums →
 creates the GitHub release with generated notes → renders a standard binary cask
-(quarantine-strip postflight, `depends_on macos: ">= :sequoia"`) → pushes it to
+(Gatekeeper quarantine preserved, `depends_on macos: ">= :sequoia"`) → pushes it to
 the tap.
 
 **The zero-config contract:** the SPM executable product must be named exactly
@@ -65,9 +65,9 @@ match `Package.swift`'s platforms floor (`.macOS(.v15)` → sequoia) — raise b
 together or the cask installs where the binary won't run.
 
 **Signing** is always the native codesign + notarytool path (the job is already
-on a macOS runner, so quill buys nothing). With the `MACOS_*` secrets absent the
-release ships unsigned with a warning; the cask's postflight strips the
-quarantine xattr so an unsigned binary still runs after `brew install`.
+on a macOS runner, so quill buys nothing). The release rejects missing `MACOS_*`
+secrets before building and never publishes an unsigned Darwin artifact. The
+cask preserves quarantine so Gatekeeper verifies the notarized binary after install.
 
 **Versioning the binary:** the starter's `CommandConfiguration(version:
 "0.0.0-dev")` is a compile-time string. To stamp the release tag into
@@ -79,7 +79,7 @@ the committed-constant approach is the simple one.
 ## One-time setup
 
 Same as go: the tap repo must exist, and the repo needs `HOMEBREW_TAP_TOKEN`
-(+ optionally the five `MACOS_*` secrets) —
+plus all five `MACOS_*` secrets —
 `scripts/set-release-secrets.sh <owner>/<repo>` pushes all six from 1Password
 (SKILL Phase 6). Mint the Apple credentials once per
 `reference/go-ci-and-release.md` § macOS signing & notarization — the same
@@ -89,11 +89,13 @@ First release: CHANGELOG entry → `git tag v0.1.0` on a commit that's on `main`
 push the tag → `scripts/watch-release.sh v0.1.0` (no `--pypi`). Verify with
 `brew install <user>/tap/<name>` and `<name> --version`.
 
-## Why apps get no release feature
+## Why apps get no generic release feature
 
 `swift-app` scaffolds an iOS app: its distribution is TestFlight/App Store —
-provisioning, review, and release trains are product work, not scaffolding. A
-macOS `.app` shipped as a Homebrew cask is possible but hand-composed per repo
-(xcodebuild archive → the tap's `sign-notarize-app` action → `render-formula` +
-`publish`); the cc-pool status widget's release job is the worked example of that
-pipeline.
+provisioning, review, and release trains are product work, not scaffolding. A fixed
+signed macOS product app is built, signed, notarized, and stapled by its consumer,
+published as an asset of the same release as its CLI, and reconciled by that CLI into
+`~/Applications/<MeaningfulProduct>.app` using an exact version, SHA-256, Team ID, and
+bundle identifier. It is not a separate holder, release, or cask, and its installer
+never strips quarantine. See the Go reference's same-release product application
+delivery contract.

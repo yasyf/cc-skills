@@ -41,7 +41,7 @@ Gatekeeper checks the cdhash online, exactly like the Go and Swift paths) →
 zips each to `<name>-<tag>-<platform>.zip` with per-zip `.sha256` files and an
 aggregate `checksums.txt` → creates ONE GitHub release holding all four zips →
 renders the standard 4-platform binary cask (on_macos/on_linux ×
-on_arm/on_intel, quarantine-strip postflight) → pushes it to the tap. A
+on_arm/on_intel, with Gatekeeper quarantine preserved) → pushes it to the tap. A
 hyphenated tag (`v0.1.0-rc.1`) publishes a prerelease and skips the cask —
 brew has no prerelease channel, so the tap only advances on final tags.
 
@@ -63,10 +63,10 @@ for the rare exception: `entry-point`, `name`, `auto-tag`, `pre-build`,
 on_linux stanzas) and plain-zip consumers; the cask's first-class home is
 macOS.
 
-**Signing** is the native codesign + notarytool path on the darwin legs. With
-the `MACOS_*` secrets absent the release ships unsigned with a warning; the
-cask postflight strips the quarantine xattr so an unsigned binary still runs
-after `brew install`. Signed builds get bun's documented codesign entitlements
+**Signing** is the native codesign + notarytool path on the darwin legs. The
+release rejects missing `MACOS_*` secrets before building and never publishes
+an unsigned Darwin artifact. The cask preserves quarantine so Gatekeeper verifies
+the notarized binary after `brew install`. Signed builds get bun's documented codesign entitlements
 by default (allow-jit, allow-unsigned-executable-memory,
 disable-executable-page-protection, allow-dyld-environment-variables,
 disable-library-validation); `entitlements:` replaces the whole set with a
@@ -88,7 +88,7 @@ artifact before anything ships.
 ## One-time setup
 
 Same as go and swift: the tap repo must exist, and the repo needs
-`HOMEBREW_TAP_TOKEN` (+ optionally the five `MACOS_*` secrets) —
+`HOMEBREW_TAP_TOKEN` plus all five `MACOS_*` secrets —
 `scripts/set-release-secrets.sh <owner>/<repo>` pushes all six from 1Password
 (SKILL Phase 6). Mint the Apple credentials once per
 `reference/go-ci-and-release.md` § macOS signing & notarization — the same

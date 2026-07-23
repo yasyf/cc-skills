@@ -49,22 +49,16 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: <repo-url>
     description: <description>
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/<name>"]
-          end
 ```
 
-The `xattr -dr com.apple.quarantine` post-install hook lets the (notarized, or unsigned) binary run
-on first launch. A cask ships the prebuilt binary as-is — pick a **formula** instead only when you
-need `brew services`, a runtime `depends_on`, or conditional install (§ Formula recipe).
+The cask preserves Gatekeeper quarantine. Every Darwin artifact is signed and notarized before
+publication; neither generated nor hand-written installers strip `com.apple.quarantine`. Pick a
+**formula** instead only when you need `brew services`, a runtime `depends_on`, or conditional
+install (§ Formula recipe).
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
-2. Set the release secrets from 1Password in one shot (best-effort — skips any not in the vault,
-   never blocks):
+2. Set the complete release-secret set from 1Password in one shot:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo>
@@ -72,8 +66,8 @@ need `brew services`, a runtime `depends_on`, or conditional install (§ Formula
 
    It pushes `HOMEBREW_TAP_TOKEN` (the fine-grained tap PAT — reused from 1Password, no per-repo
    mint; standardize on this name, older configs used `TAP_GITHUB_TOKEN`) plus the five `MACOS_*`
-   sign/notarize secrets when present (§ macOS signing & notarization). Absent `MACOS_*` → the
-   release still runs, unsigned.
+   sign/notarize secrets (§ macOS signing & notarization). The setup script and reusable release
+   workflow both fail closed when any required value is absent.
 3. First release: write the CHANGELOG entry, then `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
    Watch the run to completion with the bundled helper — it resolves the release run for the tag,
    reports per-job results, and lists the GitHub release assets (drop `--pypi` for go):
@@ -137,8 +131,8 @@ path.
 
 ## macOS signing & notarization
 
-Two modes. Both no-op when the `MACOS_*` secrets are unset, so a repo without Apple creds still
-releases (unsigned).
+Two modes. Both require the complete `MACOS_*` secret set and fail before publication when it is
+missing or invalid. Unsigned Darwin releases are not supported.
 
 ### (1) quill on ubuntu — the default
 
@@ -148,7 +142,7 @@ The scaffold's quill `notarize:` block signs the darwin binaries on the **`ubunt
 ```yaml
 notarize:
   macos:
-    - enabled: '{{ if envOrDefault "MACOS_SIGN_P12" "" }}true{{ else }}false{{ end }}'
+    - enabled: true
       ids: [<binary-id>]          # the build that emits the darwin binary
       sign:
         certificate: "{{ .Env.MACOS_SIGN_P12 }}"
@@ -173,12 +167,10 @@ notarize:
 Notes:
 - **`ids` must reference the build that emits the darwin binary** — base config: the single `<name>`
   build; with a universal-binary / FUSE recipe use that build's id.
-- **`enabled` uses `envOrDefault … non-empty`, not `isEnvSet`** — GitHub Actions exports an unset
-  secret as a *set-but-empty* var, which would make `isEnvSet` sign against an empty cert. The
-  workflow always passes the five `MACOS_*` env vars; the guard skips them when empty.
+- **`enabled: true` is deliberate** — direct goreleaser runs fail closed, and the shared workflow
+  rejects empty credentials before invoking goreleaser.
 - **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The default cask carries the `xattr -dr com.apple.quarantine`
-  post-install hook so an unsigned bare binary still runs on first launch.
+  and checked online by Gatekeeper. The cask preserves quarantine so that check remains active.
 
 ### (2) native codesign — when the release already runs on a macOS runner
 
@@ -191,7 +183,7 @@ and drops `$MACOS_CODESIGN_SCRIPT` (the canonical `macos-codesign.sh`, which now
 action — repos must not vendor a copy):
 
 ```yaml
-# .goreleaser.yaml — sign each darwin binary before archiving (no-op without the signing env):
+# .goreleaser.yaml — sign each darwin binary before archiving:
 builds:
   - id: <name>
     hooks:
@@ -212,7 +204,7 @@ goreleaser:
       with: { args: release --clean }
 ```
 
-The signing script runs for `darwin_*` targets only and no-ops without the env:
+The signing script runs for `darwin_*` targets only and rejects missing signing inputs:
 `codesign --force --options runtime --timestamp -s "$MACOS_SIGN_IDENTITY"` then
 `xcrun notarytool submit … --wait`. Used by: **slop-cop**, **cc-orchestrate** (cgo darwin builds),
 and the formula repos **cc-notes** / **claude-pool**. App bundles (claude-pool's `CCPoolStatus.app`)
@@ -257,8 +249,9 @@ repo reuses the same credentials.
 
 ### Setting the secrets per repo
 
-Push them all (the five `MACOS_*` plus `HOMEBREW_TAP_TOKEN`) from 1Password in one shot — accepts
-any number of repos, reads each secret from the vault once, and skips whatever isn't there:
+Push them all (the five `MACOS_*` plus `HOMEBREW_TAP_TOKEN`) from 1Password in one shot. The script
+accepts any number of repos, reads each secret from the vault once, and changes nothing unless all
+six values are present:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/repo-bootstrap/scripts/set-release-secrets.sh" <owner>/<repo> [<owner>/<repo> ...]
@@ -389,30 +382,19 @@ archives:
 installer also expects `--version` to print the bare tag on its first line. Used by:
 **cc-context**, **cc-review** (their Claude Code plugins download the raw binary).
 
-### Extra hand-maintained cask (externally-built artifact)
+### Same-release product application delivery
 
-goreleaser builds Go binaries, not Xcode/Swift `.app` bundles. For a macOS app built by a separate
-job (xcodegen + xcodebuild + `ditto` zip), keep that job, render its cask `.rb`, and publish it via
-the shared `publish` action (§ Formula recipe). The Go binary ships as a cask (or formula), and the
-app's cask lives beside it in `yasyf/homebrew-tap`; stage both under `tap-staging/` as
-`Casks/<app>.rb` (plus `Formula/<name>.rb` if the Go side is a formula).
+When a Go product embeds a fixed signed macOS `.app`, publish the signed, notarized, and stapled app
+archive as an asset of the **same product release** as its CLI. The CLI pins that exact app version
+and SHA-256, verifies the Developer ID Team and bundle identifier, and atomically reconciles the
+bundle into `~/Applications/<MeaningfulProduct>.app` during install, service startup, and an explicit
+repair command.
 
-A hand-maintained app cask must strip Homebrew's download quarantine itself — the goreleaser
-template's post_install hook only covers goreleaser-built casks. Add a postflight to the `.rb.tmpl`
-(best-effort, so a headless install never fails the cask):
-
-```ruby
-postflight do
-  # Strip Homebrew's download quarantine so first launch is silent (notarized+stapled).
-  system_command "/usr/bin/xattr",
-                 args: ["-dr", "com.apple.quarantine", "#{appdir}/<App>.app"],
-                 must_succeed: false
-end
-```
-
-Skip it only when quarantine is load-bearing (e.g. `cookiesync-keyhelper` deliberately keeps it).
-
-Used by: **claude-pool** (the `cc-pool-status` widget app), **fusekit** (`fusekit-holder`).
+The application is a product identity, not a FuseKit identity. Use a meaningful visible product
+name such as `CCPoolStatus.app`; reserve `*Helper.app` for helper-only processes. Do not create a
+standalone holder product, separate release, Homebrew cask, `/Applications` install, or
+`fusekit-holder`. Do not strip quarantine. FuseKit provides the embedded runtime and deployment
+plan; the consumer owns delivery and reconciliation of its signed app.
 
 ### Auto-tag-on-push (preserve "push to main auto-releases")
 

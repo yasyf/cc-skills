@@ -2108,18 +2108,61 @@ def test_go_goreleaser_cask_block(go_var_pairs):
     assert "name: demo-proj" in gor  # cask name (PROJECT_NAME substituted)
     assert "owner: janedoe" in gor  # tap repo owner (GITHUB_USER substituted)
     assert "name: homebrew-tap" in gor
+    assert "com.apple.quarantine" not in gor
+    assert "/usr/bin/xattr" not in gor
 
 
 def test_go_goreleaser_notarize_block(go_var_pairs):
     gor = _real_plan("go", go_var_pairs, features=["release"])[0][".goreleaser.yaml"]
     assert "notarize:" in gor
-    # the env-guard (non-empty, not isEnvSet) and all five MACOS_* env tokens pass through untouched
-    assert "enabled: '{{ if envOrDefault \"MACOS_SIGN_P12\" \"\" }}true{{ else }}false{{ end }}'" in gor
+    # Signing is unconditional: the shared workflow and direct goreleaser runs both fail closed.
+    assert "enabled: true" in gor
+    assert "envOrDefault" not in gor
     for tok in ("MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD", "MACOS_NOTARY_ISSUER_ID",
                 "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY"):
         assert "{{ .Env." + tok + " }}" in gor
     # the notarize ids: list has PROJECT_NAME substituted (8-space indent, distinct from the cask binaries list)
     assert "ids:\n        - demo-proj" in gor
+
+
+def test_release_secret_setup_is_fail_closed():
+    script = (Path(__file__).parents[1] / "skills/repo-bootstrap/scripts/set-release-secrets.sh").read_text()
+    assert 'die "1Password CLI unavailable or not signed in' in script
+    assert 'die "missing required release secrets in 1Password' in script
+    assert "release will run unsigned" not in script
+
+
+def test_release_secret_setup_validates_every_secret_before_writing(tmp_path):
+    script = Path(__file__).parents[1] / "skills/repo-bootstrap/scripts/set-release-secrets.sh"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "gh.log"
+    (bin_dir / "gh").write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        '  "auth status") exit 0 ;;\n'
+        '  "repo view") echo repo; exit 0 ;;\n'
+        '  "secret set") echo "$*" >> "$GH_LOG"; cat >/dev/null; exit 0 ;;\n'
+        "esac\n"
+        "exit 1\n"
+    )
+    (bin_dir / "op").write_text(
+        "#!/bin/sh\n"
+        '[ "$1" = whoami ] && exit 0\n'
+        'case "$2" in *MACOS_NOTARY_KEY/credential) exit 1 ;; esac\n'
+        "printf secret\n"
+    )
+    for stub in (bin_dir / "gh", bin_dir / "op"):
+        stub.chmod(0o755)
+    env = os.environ | {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "GH_LOG": str(log),
+        "TMPDIR": str(tmp_path),
+    }
+    result = subprocess.run([script, "yasyf/example"], env=env, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "MACOS_NOTARY_KEY" in result.stderr
+    assert not log.exists(), "a repo secret was changed before the complete set was validated"
 
 
 def test_go_release_workflow_uses_reusable_workflow(go_var_pairs):

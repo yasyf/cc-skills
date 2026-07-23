@@ -3,12 +3,10 @@
 #
 #   set-release-secrets.sh [OWNER/REPO ...] [--vault VAULT] [-n|--dry-run]
 #
-# For each release secret, reads op://VAULT/<NAME>/credential and, when 1Password
-# returns a non-empty value, sets it as a repo secret with `gh secret set`. Secrets
-# absent from 1Password are skipped: the release still runs — unsigned when a MACOS_*
-# is missing, and without a cask push when HOMEBREW_TAP_TOKEN is missing. Idempotent:
-# re-running overwrites with the current 1Password values. Run this AFTER the repo
-# exists (e.g. after `gh repo create`).
+# Reads every required release secret from op://VAULT/<NAME>/credential, verifies the
+# complete set before changing any repo, then writes it with `gh secret set`. Missing
+# signing, notarization, or tap credentials are fatal. Re-running overwrites the repo
+# secrets with the current 1Password values. Run this AFTER the repo exists.
 #
 # The secrets (all stored at op://VAULT/<NAME>/credential):
 #   HOMEBREW_TAP_TOKEN        fine-grained PAT that pushes the Homebrew cask to the tap
@@ -23,13 +21,11 @@
 #                 current directory. Each secret is read from 1Password once and reused
 #                 across every repo.
 #   --vault       1Password vault holding the credentials (default: OpenClaw)
-#   -n,--dry-run  report which secrets would be set/skipped without setting any; still
+#   -n,--dry-run  report which secrets would be set without setting any; still
 #                 reads from 1Password (so presence is real — may prompt for Touch ID)
 #
-# Needs `gh` (authenticated). 1Password is best-effort: without `op` (or with a locked
-# session) the script prints the names to set by hand and exits 0, so it never blocks a
-# bootstrap. The first `op read` may prompt for Touch ID to unlock the vault. Exits
-# non-zero only on hard errors (no/unauthenticated gh, repo not resolvable).
+# Needs authenticated `gh` and `op`. The first `op read` may prompt for Touch ID.
+# Any missing prerequisite or secret exits non-zero before a repo is changed.
 set -euo pipefail
 
 die() { echo "set-release-secrets.sh: $*" >&2; exit 1; }
@@ -56,58 +52,46 @@ if [ -z "$REPOS" ]; then
     || die "could not infer repo — pass OWNER/REPO (create the repo first?)"
 fi
 
-# 1Password is best-effort: if it isn't reachable, list the secrets to set by hand and
-# bow out cleanly so a bootstrap is never blocked. `op whoami` tells us op is usable; it
-# does NOT promise an unlocked vault — the per-read tolerance below handles a locked item.
 if ! command -v op >/dev/null 2>&1 || ! op whoami >/dev/null 2>&1; then
-  echo "set-release-secrets.sh: 1Password CLI unavailable or not signed in — set these by hand:" >&2
-  for name in $SECRETS; do echo "  gh secret set $name -R <owner>/<repo>   # op://$VAULT/$name/credential" >&2; done
-  exit 0
+  die "1Password CLI unavailable or not signed in; refusing incomplete release configuration"
 fi
 
 echo "set-release-secrets.sh: reading release secrets from 1Password (vault $VAULT) — may prompt for Touch ID" >&2
 
-# Read each secret once; reuse across every repo (avoids a Touch ID prompt per repo).
-# Values are single-line (base64 or token), so command substitution + `printf '%s'`
-# round-trips them byte-for-byte; no trailing-newline trim is needed or wanted.
-present=""; absent=""
+# Read each secret once into a private temporary directory, then reuse those exact bytes
+# across every repo. This prevents a vault relock from producing a partial configuration.
+SECRETS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/repo-bootstrap-release-secrets.XXXXXX")"
+chmod 700 "$SECRETS_DIR"
+trap 'rm -rf "$SECRETS_DIR"' EXIT
+
+absent=""
 for name in $SECRETS; do
-  if [ -n "$(op read "op://$VAULT/$name/credential" 2>/dev/null || true)" ]; then
-    present="${present:+$present }$name"
-  else
+  if ! op read "op://$VAULT/$name/credential" >"$SECRETS_DIR/$name" 2>/dev/null \
+      || [ ! -s "$SECRETS_DIR/$name" ]; then
     absent="${absent:+$absent }$name"
   fi
+  chmod 600 "$SECRETS_DIR/$name"
 done
 
-if [ -z "$present" ]; then
-  echo "set-release-secrets.sh: 0 of 6 secrets found in vault '$VAULT' — check --vault and item names" >&2
+if [ -n "$absent" ]; then
+  die "missing required release secrets in 1Password vault '$VAULT': $absent"
 fi
+
+for repo in $REPOS; do
+  gh repo view "$repo" --json id >/dev/null 2>&1 \
+    || die "repo not reachable: $repo"
+done
 
 set_secret() {  # name repo
   [ -n "$DRY" ] && return 0
-  printf '%s' "$(op read "op://$VAULT/$1/credential")" | gh secret set "$1" -R "$2"
+  gh secret set "$1" -R "$2" <"$SECRETS_DIR/$1"
 }
 
 for repo in $REPOS; do
   echo
   echo "=== $repo ==="
-  gh repo view "$repo" --json id >/dev/null 2>&1 \
-    || { echo "skipped — repo not reachable (create it first)"; continue; }
-  for name in $present; do
+  for name in $SECRETS; do
     set_secret "$name" "$repo"
     echo "${DRY:+would }set: $name"
   done
-  for name in $absent; do
-    echo "skipped (not in 1Password): $name"
-  done
 done
-
-# A missing tap token breaks the cask push; missing MACOS_* only means an unsigned release.
-case " $absent " in
-  *" HOMEBREW_TAP_TOKEN "*)
-    echo >&2
-    echo "set-release-secrets.sh: WARNING — HOMEBREW_TAP_TOKEN not set; the Homebrew cask push will fail." >&2 ;;
-esac
-case "$absent" in
-  *MACOS_*) echo "set-release-secrets.sh: note — some MACOS_* absent; the release will run unsigned." >&2 ;;
-esac

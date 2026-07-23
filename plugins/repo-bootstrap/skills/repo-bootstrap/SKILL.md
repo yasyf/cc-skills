@@ -140,7 +140,7 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   `FusekitKit`, not `Fusekit`. The project name names the executable target), the tools version
   (`SWIFT_TOOLS_VERSION`, default `6.2`), and the one **feature** as a `multiSelect`
   "Optional Swift features" — `release` (a universal arm64+x86_64 binary, signed and
-  notarized when the `MACOS_*` secrets exist, published as a Homebrew cask to
+  notarized with the required `MACOS_*` secrets, published as a Homebrew cask to
   `yasyf/homebrew-tap` via the shared `release-swift.yml@swift-v1`). **Default
   unselected (off)**, same rationale as go.
 - **Swift app additionally**: `MODULE_NAME` (names the `<Module>App` type and the
@@ -152,7 +152,7 @@ language keeps the root `STYLEGUIDE.md` while the secondary lands beside its own
   matrix both read; find the current release with `bun --version`), and the one
   **feature** as a `multiSelect` "Optional Bun features" — `release` (a single
   compiled binary per target, built on native runners (platform-native deps rule out cross-compiling),
-  signed and notarized when the `MACOS_*` secrets exist, published as a Homebrew cask
+  signed and notarized with the required `MACOS_*` secrets, published as a Homebrew cask
   to `yasyf/homebrew-tap` via the shared `release-bun.yml@bun-v1`). **Default
   unselected (off)**, same rationale as go/swift.
 
@@ -575,10 +575,9 @@ Then, optionally, publish and wire one-time setups:
   It pushes `HOMEBREW_TAP_TOKEN` (the tap PAT — required for the cask push) plus the five
   `MACOS_*` sign/notarize secrets (`MACOS_SIGN_P12`, `MACOS_SIGN_PASSWORD`,
   `MACOS_NOTARY_ISSUER_ID`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_KEY`) from
-  `op://OpenClaw/<NAME>/credential`, skipping any not present (absent `MACOS_*` → the release
-  runs unsigned; mint missing macOS creds once per `reference/go-ci-and-release.md` § macOS
-  signing & notarization). It's best-effort — if 1Password is locked or absent it lists the
-  secrets to set by hand and doesn't block. Then run the first release: CHANGELOG entry → tag
+  `op://OpenClaw/<NAME>/credential`. It fails before changing any repo unless all six values
+  are present; mint missing macOS credentials once per `reference/go-ci-and-release.md` § macOS
+  signing & notarization. Then run the first release: CHANGELOG entry → tag
   `v0.1.0` on a commit that's on `main` → push tag → watch it with `scripts/watch-release.sh`
   (drop `--pypi`; see `reference/ci-and-release.md`). Go: `release.yml` forwards to the shared
   `release-go.yml@v1` reusable workflow, which gates on `verify-tag-on-main` then runs goreleaser:
