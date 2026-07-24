@@ -1,0 +1,79 @@
+name: slop-cop descriptor
+
+# Pull-based refresh of the canonical slop-cop marketplace copy. slop-cop's
+# own release job cannot push here (HOMEBREW_TAP_TOKEN carries no cc-skills
+# write scope), so this workflow pulls the latest yasyf/slop-cop release and
+# moves plugins/slop-cop's descriptor + plugin.json together in one commit,
+# gated on the two agreeing — the same uniformity rule every descriptor
+# refresh job follows. Daily schedule + manual dispatch for immediate syncs.
+
+on:
+  schedule:
+    - cron: "23 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare latest release to pinned descriptor
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(gh release view --repo yasyf/slop-cop --json tagName -q .tagName)"
+          pinned="$(tail -n +2 plugins/slop-cop/bin/slop-cop.binrun | jq -r .version.static)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$tag" = "v$pinned" ]; then
+            echo "descriptor already pins $tag"
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-go@v6
+        if: steps.latest.outputs.fresh == 'false'
+        with:
+          go-version: stable
+      - name: Render descriptor + lockstep plugin.json
+        if: steps.latest.outputs.fresh == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          mkdir -p "$RUNNER_TEMP/dist"
+          gh release download "$TAG" --repo yasyf/slop-cop \
+            --dir "$RUNNER_TEMP/dist" --pattern '*.tar.gz' --pattern 'checksums.txt'
+          sh plugins/slop-cop/scripts/render-descriptor.sh "$RUNNER_TEMP/dist" "$version" \
+            > plugins/slop-cop/bin/slop-cop.binrun
+          chmod +x plugins/slop-cop/bin/slop-cop.binrun
+          tmp="$(mktemp)"
+          jq --arg v "$version" '.version = $v' plugins/slop-cop/.claude-plugin/plugin.json > "$tmp" \
+            && mv "$tmp" plugins/slop-cop/.claude-plugin/plugin.json
+          test "$(jq -r .version plugins/slop-cop/.claude-plugin/plugin.json)" \
+             = "$(tail -n +2 plugins/slop-cop/bin/slop-cop.binrun | jq -r .version.static)"
+          cd "$RUNNER_TEMP"
+          go run github.com/yasyf/binrun/cmd/binrun@v0.1.1 -- parse \
+            "$GITHUB_WORKSPACE/plugins/slop-cop/bin/slop-cop.binrun"
+      - name: Commit + push
+        if: steps.latest.outputs.fresh == 'false'
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/slop-cop/bin/slop-cop.binrun plugins/slop-cop/.claude-plugin/plugin.json
+          if git diff --cached --quiet; then
+            echo "already at ${TAG#v}"
+            exit 0
+          fi
+          git commit -m "chore(slop-cop): refresh binrun descriptor + plugin.json to ${TAG#v} [skip ci]"
+          for _ in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+          done
+          echo "::error::could not push after 3 attempts"
+          exit 1
