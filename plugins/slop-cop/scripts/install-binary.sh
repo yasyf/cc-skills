@@ -16,10 +16,9 @@
 #   6. static download into the data dir              -> sha256-verify, symlink
 #
 # Consumer extension point: a sibling scripts/install-binary.extras.sh, when
-# present, is sourced before the detach guard and any arm runs —
-# plugin-specific migrations go there, and redefining extras_on_exit() adds
-# work to the EXIT trap. Ships from the consumer's own fragments; most plugins
-# have none.
+# present, is sourced after TAG/BARE and before any arm runs — plugin-specific
+# migrations go there, and redefining extras_on_exit() adds work to the EXIT
+# trap. Ships from the consumer's own fragments; most plugins have none.
 set -eu
 
 NAME="slop-cop"
@@ -92,54 +91,45 @@ acquire_brew_lock() {
   BREW_LOCK_HELD=1
 }
 
+# Pinned mode: the target release is the plugin.json version (single source of truth).
+# head -n 1: a dependencies block carries its own "version" keys; only the first match
+# is the plugin's own version.
+TAG="v$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)"
+
+# Version output is compared v-stripped: goreleaser release binaries print the
+# bare tag (v0.5.0) while brew formula builds stamp their own ldflags (0.5.0).
+BARE="${TAG#v}"
+
 extras_on_exit() { :; }
 if [ -f "$ROOT/scripts/install-binary.extras.sh" ]; then
   . "$ROOT/scripts/install-binary.extras.sh"
 fi
 trap 'release_brew_lock; extras_on_exit' EXIT
 
-# A working binary never blocks its caller: hooks and MCP entrypoints run this
-# script on their critical path, and everything from the tag resolve down can
-# hit the network — a slow round-trip there kills MCP registration outright
-# (the client's 30s connect timeout, never retried). Detach the whole
-# resolve+refresh with all three stdio fds off the caller's pipes and keep
-# serving the installed binary; the relink lands for a later launch. A broken
-# binary still resolves foreground; --sync (the detached child itself, or a
-# caller that must block) forces the foreground path.
-if [ "${1:-}" != "--sync" ] && [ -x "$LINK" ] && [ -n "$("$LINK" --version 2>/dev/null | head -n 1)" ]; then
-  sh "$0" --sync </dev/null >/dev/null 2>&1 &
-  exit 0
-fi
-
-# Latest mode: resolve the newest release tag off the releases/latest redirect.
-# Unresolvable (offline) with a working binary in place -> keep what we have.
-effective="$(curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" || true)"
-TAG="${effective##*/tag/}"
-case "$TAG" in
-  v[0-9]*) ;;
-  *)
-    if [ -x "$LINK" ] && "$LINK" --version >/dev/null 2>&1; then
-      exit 0
-    fi
-    echo "$NAME: could not resolve the latest $REPO release (got '$effective')" >&2
-    exit 1
-    ;;
-esac
-
-# Version output is compared v-stripped: goreleaser release binaries print the
-# bare tag (v0.5.0) while brew formula builds stamp their own ldflags (0.5.0).
-BARE="${TAG#v}"
-
 # Arms 1+2: exact target exits, a dev build (describe/pseudo-version suffix, or
 # the bare "dev" of an unstamped build) is never clobbered, a stale release or
 # no version output falls through.
+stale=""
 if [ -x "$LINK" ]; then
   case "$("$LINK" --version 2>/dev/null | head -n 1)" in
     "$TAG" | "$BARE") exit 0 ;;
     dev | v[0-9]*[!0-9.]* | [0-9]*[!0-9.]*) exit 0 ;;
-    v[0-9]* | [0-9]*) ;;
+    v[0-9]* | [0-9]*) stale=1 ;;
     *) ;;
   esac
+fi
+
+# A stale-but-working binary never blocks its caller: hooks and MCP entrypoints
+# run this script on their critical path, where a slow brew or GitHub
+# round-trip in arms 3-6 kills MCP registration outright (the client's 30s
+# connect timeout, never retried). Detach the refresh with all three stdio fds
+# off the caller's pipes, keep serving the installed binary, and let the relink
+# land for a later launch. A broken binary (no version output) still refreshes
+# foreground; --sync (the detached child itself, or a caller that must block)
+# forces the foreground path.
+if [ -n "$stale" ] && [ "${1:-}" != "--sync" ]; then
+  sh "$0" --sync </dev/null >/dev/null 2>&1 &
+  exit 0
 fi
 
 mkdir -p "$ROOT/bin"
