@@ -9,7 +9,7 @@ Five fragment kinds, one directory each:
 | Directory | Contents |
 |-----------|----------|
 | `md/` | `AGENTS.md`/`CLAUDE.md` prose fragments: `ask-before-assuming`, `ccx`, `claude-rules`, `code-review-response`, `parallelize`, `version-control`, `writing-plans` |
-| `sh/` | `install-binary-latest.sh`, `install-binary-pinned.sh` |
+| `sh/` | `binrun-shim.sh` (the binrun wrapper) + `render-descriptor.sh` (per-release descriptor render), and `install-binary-pinned.sh` (the transitional direct installer for consumers not yet on binrun) |
 | `json/` | `settings-base.json` plus `settings-go`/`settings-python`/`settings-swift`/`settings-bun`, deep-merged |
 | `yml/` | Docs-site workflow pieces (`docs-build-*`, `docs-publish`, `great-docs-*`) and the prek `.pre-commit-config.yaml` pieces: `precommit-base` owns the `repos:` key and carries the `repo: builtin` hygiene hooks; `precommit-go`/`precommit-python`/`precommit-swift` continue the list and hold the centrally managed rev pins |
 | `gitignore/` | Root-`.gitignore` pieces — `gitignore-base` plus per-layer `gitignore-python`/`gitignore-go`/`gitignore-swift`/`gitignore-bun` and the docs-feature `gitignore-docs`, concatenated in layout order; a consumer's repo-specific residue rides last in its local `gitignore-local` fragment so negations win |

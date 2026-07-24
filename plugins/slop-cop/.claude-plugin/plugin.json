@@ -1,7 +1,7 @@
 {
   "name": "slop-cop",
   "description": "Run the slop-cop CLI on a file (or stdin) to detect LLM-generated prose tells, and report the violations. Maintains bin/slop-cop as a symlink to a brew-installed binary or a durable sha256-verified download, refreshed on session start.",
-  "version": "0.1.4",
+  "version": "0.1.55",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
