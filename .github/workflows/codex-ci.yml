@@ -22,6 +22,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+      # The plugin manifest and the binrun descriptor must pin the same version
+      # (the marketplace serves plugin.json; hooks and MCP resolve the pinned
+      # artifact through bin/codex-ask.binrun).
+      - name: Assert plugin manifest and descriptor agree on version
+        run: |
+          manifest="$(jq -r .version plugins/codex/.claude-plugin/plugin.json)"
+          descriptor="$(tail -n +2 plugins/codex/bin/codex-ask.binrun | jq -r .version.static)"
+          test "$manifest" = "$descriptor" \
+            || { echo "version drift: plugin.json=$manifest descriptor=$descriptor" >&2; exit 1; }
       - uses: actions/setup-go@v6
         with:
           go-version-file: plugins/codex/go.mod

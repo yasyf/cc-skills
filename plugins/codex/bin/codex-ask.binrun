@@ -1,0 +1,29 @@
+#!/usr/bin/env binrun
+{
+  "schema": 1,
+  "name": "codex-ask",
+  "kind": "release-binary",
+  "version": {"static": "1.5.0"},
+  "platforms": {
+    "macos-aarch64": {
+      "size": 6234943,
+      "hash": "sha256",
+      "digest": "9ac730748a194805e3fb3e5c2619f5d34959b80abf6e89d1c87defa437035a9f",
+      "format": "tar.gz",
+      "path": "codex-ask",
+      "providers": [
+        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.5.0", "name": "codex-ask_darwin_arm64.tar.gz"}
+      ]
+    },
+    "macos-x86_64": {
+      "size": 6548786,
+      "hash": "sha256",
+      "digest": "52bd024c3c77f16ccefd8ad0a02955899f48d23179f1b0b465b88792d11453a8",
+      "format": "tar.gz",
+      "path": "codex-ask",
+      "providers": [
+        {"type": "github-release", "repo": "yasyf/cc-skills", "tag": "v1.5.0", "name": "codex-ask_darwin_amd64.tar.gz"}
+      ]
+    }
+  }
+}

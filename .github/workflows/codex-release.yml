@@ -9,21 +9,13 @@ permissions:
 
 jobs:
   # codex is the only plugin here shipping a binary, so a bare v* tag is a codex
-  # release. install-binary.sh pins the download to plugin.json's version, so a
-  # mismatched tag ships a plugin that 404s.
-  verify-plugin-version:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: plugin.json version matches the tag
-        run: |
-          # First match only: the dependencies entries carry "version" keys of their own.
-          V="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugins/codex/.claude-plugin/plugin.json | head -n 1)"
-          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
-            echo "::error file=plugins/codex/.claude-plugin/plugin.json::plugin.json version is $V but the tag is $GITHUB_REF_NAME — set it to ${GITHUB_REF_NAME#v} in the release commit, then retag"
-            exit 1
-          fi
-
+  # release. plugin.json is deliberately NOT pre-bumped to the tag: the binrun
+  # shim resolves the download from the committed descriptor
+  # (plugins/codex/bin/codex-ask.binrun), not plugin.json, and the descriptor
+  # job below moves both to the released version in one post-release commit. A
+  # pre-release plugin.json bump would lead the descriptor and trip the codex-ci
+  # version-agreement gate on every release-prep commit (red on a failed
+  # release, which never reaches the descriptor job).
   verify-signing-secrets:
     runs-on: ubuntu-latest
     steps:
@@ -44,10 +36,71 @@ jobs:
           done
 
   release:
-    needs: [verify-plugin-version, verify-signing-secrets]
+    needs: [verify-signing-secrets]
     uses: yasyf/homebrew-tap/.github/workflows/release-go.yml@52b26a1684d94ae2669d124f844148deaa4f5baf
     secrets: inherit
     with:
       runner: macos-latest
       signer: codesign
       go-version-file: plugins/codex/go.mod
+
+  # Refresh the committed binrun descriptor (plugins/codex/bin/codex-ask.binrun)
+  # to pin the just-released version, and move the plugin manifest to the same
+  # version in the SAME commit. It gates on `release` (rather than a
+  # `release: published` trigger) because a release goreleaser creates with the
+  # default GITHUB_TOKEN does not fire `release` events for other workflows. Both
+  # files are committed back to main because the plugin marketplace serves main
+  # HEAD, and the descriptor is re-uploaded to the release for parity. Bumping
+  # plugin.json here (not in a separate hand commit) keeps it in lockstep with
+  # the descriptor, so the CI agreement gate stays green after every release.
+  descriptor:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/codex/go.mod
+          cache: true
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --dir dist --pattern '*.tar.gz' --pattern 'checksums.txt'
+      - name: Render descriptor and sync manifest version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          plugins/codex/scripts/render-descriptor.sh dist "$version" > plugins/codex/bin/codex-ask.binrun
+          chmod +x plugins/codex/bin/codex-ask.binrun
+          jq --arg v "$version" '.version = $v' plugins/codex/.claude-plugin/plugin.json > plugins/codex/.claude-plugin/plugin.json.tmp
+          mv plugins/codex/.claude-plugin/plugin.json.tmp plugins/codex/.claude-plugin/plugin.json
+      - name: Validate descriptor
+        run: go run github.com/yasyf/binrun/cmd/binrun@v0.1.1 -- parse plugins/codex/bin/codex-ask.binrun
+      - name: Assert manifest and descriptor agree on version
+        run: |
+          manifest="$(jq -r .version plugins/codex/.claude-plugin/plugin.json)"
+          descriptor="$(tail -n +2 plugins/codex/bin/codex-ask.binrun | jq -r .version.static)"
+          test "$manifest" = "$descriptor" \
+            || { echo "version drift: plugin.json=$manifest descriptor=$descriptor" >&2; exit 1; }
+      - name: Commit refreshed descriptor and manifest to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json; then
+            echo "descriptor and manifest already current for ${GITHUB_REF_NAME}"
+          else
+            git add plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json
+            git commit -m "chore(codex): sync codex-ask.binrun + manifest to ${GITHUB_REF_NAME}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+      - name: Upload descriptor to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" plugins/codex/bin/codex-ask.binrun --repo "${GITHUB_REPOSITORY}" --clobber

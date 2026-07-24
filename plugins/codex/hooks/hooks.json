@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask\" --version >/dev/null 2>&1",
             "async": true
           }
         ]

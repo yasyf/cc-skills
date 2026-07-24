@@ -30,7 +30,9 @@ archives:
   - id: codex-ask
     ids: [codex-ask]
     formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    # Versioned so the binrun descriptor's per-platform asset names are unique
+    # across releases (render-descriptor.sh + descriptor/codex-ask.binrun.tmpl).
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   # Bare per-arch binaries for the plugin's install-binary.sh; the cask keeps the tar.gz.
   - id: binary
     ids: [codex-ask]
