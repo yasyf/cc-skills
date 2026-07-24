@@ -13,16 +13,15 @@
 set -eu
 
 # --- Central runner pin: edited here, in cc-skills, for the whole fleet --------
-# TODO(release): pin binrun v0.1.0 — swap RUNNER_TAG and the four digests for the
-# release tag and its checksums.txt sha256 values once binrun cuts its first
-# release. Until then only the bootstrap arm is inert; a host with binrun already
-# on PATH or at ~/.daemonkit/bin/binrun resolves normally.
+# Pinned to a binrun release: RUNNER_TAG and the four digests are the release tag
+# and its checksums.txt sha256 values for binrun_<version>_<os>_<arch>.tar.gz.
+# Bump all five together when adopting a newer binrun.
 RUNNER_REPO="yasyf/binrun"
-RUNNER_TAG="v0.0.0-unreleased"
-RUNNER_SHA_darwin_arm64="0000000000000000000000000000000000000000000000000000000000000000"
-RUNNER_SHA_darwin_amd64="0000000000000000000000000000000000000000000000000000000000000000"
-RUNNER_SHA_linux_amd64="0000000000000000000000000000000000000000000000000000000000000000"
-RUNNER_SHA_linux_arm64="0000000000000000000000000000000000000000000000000000000000000000"
+RUNNER_TAG="v0.1.1"
+RUNNER_SHA_darwin_arm64="11a6ed5837171e8ae1b005f14be0fdd79286ef6bce039362bcfad7c944b9abdf"
+RUNNER_SHA_darwin_amd64="b168fd14d1c87d6457aaa064243fba53ac9fc83a1a084df615e6e426a7f8e157"
+RUNNER_SHA_linux_amd64="e33d95055002e1ebff80db5bb175e60ee0be83f031778a659e29ab3f8bffb7ec"
+RUNNER_SHA_linux_arm64="7a1fff9270843f66df1a41edccb5d7f1c61e94da024d501634c2f888fa7d2929"
 # ------------------------------------------------------------------------------
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
