@@ -14,18 +14,15 @@ rewrite the file unless the user asks.
 
 ## Resolve the binary
 
-`bin/slop-cop` under the plugin root is a symlink that
-`scripts/install-binary.sh` maintains silently — pointing at a brew-installed
-binary, a durable download under the plugin data dir, or a local dev build.
-The plugin's `SessionStart` hook normally runs the installer before you do,
-so the symlink is usually already in place. Resolve the symlink first, PATH
-second:
+`bin/slop-cop` under the plugin root is a committed wrapper — a symlink to a
+shim that locates the `binrun` runner and execs the exact slop-cop release
+pinned in `bin/slop-cop.binrun`, downloading and caching it on first call.
+The plugin's `SessionStart` hook pre-warms it, so the wrapper is usually a
+cache hit by the time you need it. Resolve the wrapper first, PATH second:
 
 ```bash
-# Provision or refresh the managed symlink. Silent, idempotent, and tracks
-# the newest release — once per session is plenty.
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-binary.sh" || true
-# 1. The managed symlink (normal path).
+# 1. The committed binrun wrapper (normal path). The first call resolves and
+#    caches the pinned release; every later call execs from the cache.
 if [ -x "${CLAUDE_PLUGIN_ROOT}/bin/slop-cop" ]; then
   SLOP_COP="${CLAUDE_PLUGIN_ROOT}/bin/slop-cop"
 # 2. PATH fallback (CI, scripting, or a standalone install).
@@ -35,10 +32,9 @@ fi
 ```
 
 `${CLAUDE_PLUGIN_ROOT}` is substituted to a real path in this skill's text.
-The installer prefers a brew-installed binary; otherwise it sha256-verifies a
-download of the latest [`yasyf/slop-cop`](https://github.com/yasyf/slop-cop)
-release into the plugin data dir (a location that survives plugin updates).
-No Go toolchain is required.
+The wrapper sha256-verifies the pinned [`yasyf/slop-cop`](https://github.com/yasyf/slop-cop)
+release into a shared content-addressed cache (a location that survives plugin
+updates). No Go toolchain is required.
 
 ## Run
 

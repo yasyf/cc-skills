@@ -23,4 +23,4 @@ jobs:
     with:
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
       strict: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || false }}
-      guard-plugins: "codex"
+      guard-plugins: "codex slop-cop"
