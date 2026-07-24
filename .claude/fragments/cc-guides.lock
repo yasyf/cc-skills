@@ -1,8 +1,8 @@
 # Written by 'cc-guides render' — do not edit.
 schema = 1
 version = "0.1.49"
-artifacts = [".claude/settings.json", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", "AGENTS.md", "CLAUDE.md", "plugins/codex/scripts/install-binary.sh", "plugins/codex/scripts/render-descriptor.sh", "plugins/slop-cop/scripts/install-binary.sh"]
+artifacts = [".claude/settings.json", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", "AGENTS.md", "CLAUDE.md", "plugins/codex/scripts/install-binary.sh", "plugins/codex/scripts/render-descriptor.sh", "plugins/slop-cop/scripts/install-binary.sh", "plugins/slop-cop/scripts/render-descriptor.sh"]
 
 [sources.cc-skills]
 spec = "github:yasyf/cc-skills@main"
-commit = "8ad6bac0c0b075896bfad95541d3eccd35ea295c"
+commit = "4b99c76cb982ac4239ff250b169ea10240ee239b"
