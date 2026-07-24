@@ -43,6 +43,7 @@ jobs:
       runner: macos-latest
       signer: codesign
       go-version-file: plugins/codex/go.mod
+      pre-build: echo "MACOS_CODESIGN_IDENTIFIER=com.yasyf.codex-ask" >> "$GITHUB_ENV"
 
   # Refresh the committed binrun descriptor (plugins/codex/bin/codex-ask.binrun)
   # to pin the just-released version, and move the plugin manifest to the same

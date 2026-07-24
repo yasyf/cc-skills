@@ -58,7 +58,7 @@ func appPaths() paths.Paths { return paths.Paths{App: appDir} }
 func launcher() daemon.Launcher {
 	return daemon.Launcher{
 		Paths: appPaths(), WireBuild: daemon.WireBuild, RuntimeBuild: appVersion,
-		Args: []string{"daemon"}, StopArgs: []string{daemon.StopControlCommand}, DaemonRole: appDaemonRole(),
+		Agent: appAgent(), Roles: appRoles(),
 	}
 }
 
@@ -96,12 +96,17 @@ func agentGreeting(info agent.Info) string {
 // registry is the filesystem, not the daemon — and mounts no HTTP bridge.
 func buildServer() (*daemon.Server, error) {
 	c := channel.Connectivity{}
+	policy, err := appTrustPolicy()
+	if err != nil {
+		return nil, err
+	}
 	return daemon.New(daemon.Config{
 		AppName:           binaryName,
 		Paths:             appPaths(),
 		WireBuild:         daemon.WireBuild,
 		RuntimeBuild:      appVersion,
-		DaemonRole:        appDaemonRole(),
+		TrustPolicy:       policy,
+		Roles:             appRoles(),
 		ActiveStatuses:    []string{statusOpen},
 		PresenceEventType: c.Type(),
 		OnPresenceChange:  c.OnPresenceChange,
@@ -187,7 +192,6 @@ func deps() cmd.Deps {
 		EnsureCurrent:          func(ctx context.Context) error { return launcher().EnsureCurrent(ctx, daemon.UpgradeTimeout) },
 		EnsureCurrentIfRunning: func(ctx context.Context) error { return launcher().EnsureCurrentIfRunning(ctx) },
 		Stop:                   func(ctx context.Context) error { return launcher().Stop(ctx, daemon.UpgradeTimeout) },
-		RunStopControl:         func(ctx context.Context) error { return launcher().RunStopControl(ctx) },
 		ClaudePID:              procs.ClaudePID,
 		WindowAlive:            procs.LiveClaude,
 		TerminalEvent:          func(string) bool { return false },
@@ -289,7 +293,7 @@ func consumerRoot() *cobra.Command {
 	}
 	r.AddCommand(
 		cmd.DaemonCmd(d),
-		cmd.DaemonStopControlCmd(d),
+		cmd.StopCmd(d),
 		cmd.AgentStartCmd(d),
 		cmd.AgentInjectCmd(d),
 		cmd.AgentStopCmd(d),
@@ -304,14 +308,14 @@ func consumerRoot() *cobra.Command {
 // consumerRoot before falling through to askMode. Each is a plain word, so it
 // cannot collide with a leading --flag dispatch case.
 var consumerSubcommands = map[string]bool{
-	"daemon":                  true,
-	daemon.StopControlCommand: true,
-	"agent-start":             true,
-	"agent-inject":            true,
-	"agent-stop":              true,
-	"agent-report":            true,
-	"channel":                 true,
-	"direct":                  true,
+	"daemon":       true,
+	"stop":         true,
+	"agent-start":  true,
+	"agent-inject": true,
+	"agent-stop":   true,
+	"agent-report": true,
+	"channel":      true,
+	"direct":       true,
 }
 
 func isConsumerSubcommand(name string) bool { return consumerSubcommands[name] }
