@@ -1,0 +1,43 @@
+#!/bin/sh
+# Render descriptor/{{binary}}.binrun.tmpl into a concrete {{binary}}.binrun,
+# filling the version and per-platform size/digest/asset-name from a release
+# dist tree. Renders to a plugin's scripts/render-descriptor.sh; a release
+# workflow runs it after the build and ships the result beside the wrapper so
+# binrun resolves the version-exact artifact offline. The generalization of
+# binrun's own scripts/render-descriptor.sh.
+#
+# Usage: scripts/render-descriptor.sh <dist-dir> <version>   (writes to stdout)
+#   <dist-dir>  a dir holding the release .tar.gz archives and checksums.txt
+#               (goreleaser's dist/, or the assets downloaded from a release)
+#   <version>   the bare release version, e.g. 0.1.0 (no leading "v")
+#
+# Assumes the goreleaser default archive layout — tar.gz named
+# "{{binary}}_<version>_<os>_<arch>.tar.gz", the shape binrun ships. A plugin
+# whose release publishes a bare-binary asset instead adjusts the name and the
+# descriptor template's format/path accordingly.
+set -eu
+
+dist="${1:?usage: render-descriptor.sh <dist-dir> <version>}"
+version="${2:?usage: render-descriptor.sh <dist-dir> <version>}"
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+tmpl="$here/descriptor/{{binary}}.binrun.tmpl"
+checksums="$dist/checksums.txt"
+
+file_size() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
+
+# One sed program, applied once: __VERSION__ plus per-platform NAME/DIGEST/SIZE.
+# Digests, sizes, asset names, and versions are all [A-Za-z0-9._-] — free of the
+# sed metacharacters (/, &, ;, \) the program uses as delimiters.
+prog="s/__VERSION__/$version/g"
+for pair in MACOS_AARCH64:darwin_arm64 MACOS_X86_64:darwin_amd64 LINUX_X86_64:linux_amd64 LINUX_AARCH64:linux_arm64; do
+  key="${pair%%:*}"
+  osarch="${pair##*:}"
+  name="{{binary}}_${version}_${osarch}.tar.gz"
+  digest="$(awk -v n="$name" '$2 == n {print $1}' "$checksums")"
+  [ -n "$digest" ] || { echo "render-descriptor: no checksum for $name in $checksums" >&2; exit 1; }
+  size="$(file_size "$dist/$name")"
+  prog="$prog;s/__NAME_${key}__/$name/g;s/__DIGEST_${key}__/$digest/g;s/__SIZE_${key}__/$size/g"
+done
+
+sed "$prog" "$tmpl"
