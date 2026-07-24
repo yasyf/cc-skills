@@ -14,7 +14,10 @@
 # Assumes the goreleaser default archive layout — tar.gz named
 # "{{binary}}_<version>_<os>_<arch>.tar.gz", the shape binrun ships. A plugin
 # whose release publishes a bare-binary asset instead adjusts the name and the
-# descriptor template's format/path accordingly.
+# descriptor template's format/path accordingly. Platforms absent from
+# checksums.txt are skipped, so a darwin-only tool just ships a two-platform
+# template; the template's platform set is authoritative — a token left
+# unfilled after the render (a platform the release didn't ship) fails loud.
 set -eu
 
 dist="${1:?usage: render-descriptor.sh <dist-dir> <version>}"
@@ -30,14 +33,24 @@ file_size() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
 # Digests, sizes, asset names, and versions are all [A-Za-z0-9._-] — free of the
 # sed metacharacters (/, &, ;, \) the program uses as delimiters.
 prog="s/__VERSION__/$version/g"
+matched=0
 for pair in MACOS_AARCH64:darwin_arm64 MACOS_X86_64:darwin_amd64 LINUX_X86_64:linux_amd64 LINUX_AARCH64:linux_arm64; do
   key="${pair%%:*}"
   osarch="${pair##*:}"
   name="{{binary}}_${version}_${osarch}.tar.gz"
   digest="$(awk -v n="$name" '$2 == n {print $1}' "$checksums")"
-  [ -n "$digest" ] || { echo "render-descriptor: no checksum for $name in $checksums" >&2; exit 1; }
+  [ -n "$digest" ] || continue
+  matched=$((matched + 1))
   size="$(file_size "$dist/$name")"
   prog="$prog;s/__NAME_${key}__/$name/g;s/__DIGEST_${key}__/$digest/g;s/__SIZE_${key}__/$size/g"
 done
+[ "$matched" -gt 0 ] || { echo "render-descriptor: no {{binary}}_${version}_<os>_<arch>.tar.gz archives in $checksums" >&2; exit 1; }
 
-sed "$prog" "$tmpl"
+out="$(sed "$prog" "$tmpl")"
+case "$out" in
+  *__NAME_* | *__DIGEST_* | *__SIZE_*)
+    echo "render-descriptor: template expects a platform missing from $checksums" >&2
+    exit 1
+    ;;
+esac
+printf '%s\n' "$out"
