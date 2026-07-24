@@ -6,7 +6,7 @@ struct Root: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "{{PROJECT_NAME}}",
         abstract: "{{DESCRIPTION}}",
-        version: "0.0.0-dev",
+        version: ReleaseVersion.current,
         subcommands: [Hello.self]
     )
 }

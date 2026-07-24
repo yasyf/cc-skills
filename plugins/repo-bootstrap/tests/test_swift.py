@@ -53,6 +53,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
     "LICENSE",
     "Package.swift",
     "Sources/DemoProj/Hello.swift", "Sources/demo-proj/Main.swift",
+    "Sources/demo-proj/Version.swift",
     "Tests/DemoProjTests/HelloTests.swift",
     ".swiftformat", ".swiftlint.yml", ".claude/fragments/.pre-commit-config.yaml/layout.toml",
     ".github/workflows/ci.yml",
@@ -238,6 +239,8 @@ def test_swift_sources_render(swift_var_pairs):
     plan, _ = _real_plan("swift", swift_var_pairs)
     assert "import DemoProj" in plan["Sources/demo-proj/Main.swift"]
     assert 'commandName: "demo-proj"' in plan["Sources/demo-proj/Main.swift"]
+    assert "version: ReleaseVersion.current" in plan["Sources/demo-proj/Main.swift"]
+    assert 'static let current = "0.1.0"' in plan["Sources/demo-proj/Version.swift"]
     assert "@testable import DemoProj" in plan["Tests/DemoProjTests/HelloTests.swift"]
     assert "import Testing" in plan["Tests/DemoProjTests/HelloTests.swift"]
 
@@ -289,7 +292,7 @@ def test_swift_agents_renders_directives_and_release(swift_var_pairs):
     # release on -> the Releases fragment carries the swift release caller and is listed
     assert '"releases"' in layout
     assert (
-        "release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735"
+        "release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518"
         in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     )
     plan_off, _ = _real_plan("swift", swift_var_pairs, features=[])
@@ -348,7 +351,7 @@ def test_swift_release_workflow_uses_reusable_workflow(swift_var_pairs):
     release = plan[".github/workflows/release.yml"]
     assert (
         "uses: janedoe/homebrew-tap/.github/workflows/"
-        "release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735"
+        "release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518"
         in release
     )
     assert "secrets: inherit" in release

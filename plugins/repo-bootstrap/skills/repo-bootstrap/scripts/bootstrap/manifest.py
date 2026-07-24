@@ -376,6 +376,7 @@ FILES = (
     FileSpec("Package.swift", "swift/Package.swift", "swift"),
     FileSpec("Sources/{{MODULE_NAME}}/Hello.swift", "swift/Sources/lib/Hello.swift", "swift"),
     FileSpec("Sources/{{PROJECT_NAME}}/Main.swift", "swift/Sources/cli/Main.swift", "swift"),
+    FileSpec("Sources/{{PROJECT_NAME}}/Version.swift", "swift/Sources/cli/Version.swift", "swift"),
     FileSpec("Tests/{{MODULE_NAME}}Tests/HelloTests.swift", "swift/Tests/HelloTests.swift", "swift"),
     FileSpec(".swiftformat", "swift/swiftformat", "swift"),
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift"),
@@ -386,7 +387,7 @@ FILES = (
     ),
     FileSpec(".github/workflows/ci.yml", "swift/github/workflows/ci.yml", "swift"),
     # feature-gated swift file (the release pipeline; off by default). One caller
-    # workflow forwarding to the shared release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735 reusable workflow
+    # workflow forwarding to the shared release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518 reusable workflow
     # (universal swift build + codesign/notarytool + binary cask to the shared tap) —
     # no goreleaser config; goreleaser has no Swift builder.
     FileSpec(".github/workflows/release.yml", "swift/github/workflows/release.yml", "swift", feature="release"),

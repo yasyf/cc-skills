@@ -273,6 +273,12 @@ def test_end_to_end_swift(tmp_path, cc_guides_stub):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "All checks passed" in result.stdout
+    version = subprocess.run(
+        ["swift", "run", "demo-proj", "--version"],
+        cwd=tmp_path, capture_output=True, text=True, env=env,
+    )
+    assert version.returncode == 0, version.stdout + version.stderr
+    assert version.stdout.strip() == "0.1.0"
     # Package.resolved is written by the build — the SKILL tells users to commit it.
     assert (tmp_path / "Package.resolved").is_file()
 

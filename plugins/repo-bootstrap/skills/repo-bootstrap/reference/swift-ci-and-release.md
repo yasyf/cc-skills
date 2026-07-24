@@ -1,7 +1,7 @@
 # Swift CI & Release
 
 The swift/swift-app CI workflows and the swift layer's opt-in `release` feature —
-a universal-binary Homebrew cask via the shared `release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735`
+a universal-binary Homebrew cask via the shared `release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518`
 reusable workflow in `yasyf/homebrew-tap`. Scaffolded files: `.github/workflows/
 ci.yml` (always) and `.github/workflows/release.yml` (feature `release`, swift
 only). There is nothing else to configure — no goreleaser config, no cask
@@ -39,7 +39,7 @@ The scaffolded caller is the entire repo-side configuration:
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-swift.yml@83ee384b1d4fe25a8e4aa7258bb76d55e1593735
+    uses: <user>/homebrew-tap/.github/workflows/release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518
     secrets: inherit
 ```
 
@@ -69,12 +69,13 @@ on a macOS runner, so quill buys nothing). The release rejects missing `MACOS_*`
 secrets before building and never publishes an unsigned Darwin artifact. The
 cask preserves quarantine so Gatekeeper verifies the notarized binary after install.
 
-**Versioning the binary:** the starter's `CommandConfiguration(version:
-"0.0.0-dev")` is a compile-time string. To stamp the release tag into
-`--version`, generate it in a build-tool step or just keep a one-line
-`Sources/<name>/Version.swift` (`let version = "0.1.0"`) that the release
-CHANGELOG commit bumps alongside the tag — SPM has no `-ldflags` equivalent, so
-the committed-constant approach is the simple one.
+**Versioning the binary:** the starter keeps the compile-time version in
+`Sources/<name>/Version.swift`, and `CommandConfiguration` exposes it through
+`--version`. Bump `ReleaseVersion.current` in the release commit alongside the
+CHANGELOG and tag. The shared workflow executes the exact universal binary it
+will package and requires its stdout to equal the tag without the leading `v`
+before signing or publication. SPM has no `-ldflags` equivalent, so the
+committed constant plus the artifact-owner assertion is the complete contract.
 
 ## One-time setup
 
