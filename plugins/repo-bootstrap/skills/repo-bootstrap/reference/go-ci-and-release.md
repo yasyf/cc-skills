@@ -356,22 +356,80 @@ before:
 
 Used by: **cc-review**.
 
-### `format: binary` archive (keep direct-download installers working)
+### binrun descriptor + wrapper (plugin binary provisioning)
 
-Plugin binary provisioning has a single source of truth: the `install-binary-pinned` and
-`install-binary-latest` fragments in `cc-skills` `plugin/guides/sh/`. The `plugin` extra scaffolds a
-`.claude/fragments/plugin/scripts/install-binary.sh/layout.toml` that imports one of them (with
-`binary`/`repo`/`brew`/`plugin` args); `cc-guides render` composes it into the consumer plugin's
-`plugin/scripts/install-binary.sh` (never forked). It keeps `<plugin>/bin/<name>` only ever a
-symlink, resolving in order to a brew-installed binary, a durable download under
-`CLAUDE_PLUGIN_DATA`, or a local dev build it refuses to clobber. The target release is pinned to
-the plugin.json version (`BINARY_VERSION_MODE=pinned`, the default) or floated off the
-`releases/latest` redirect (`latest`). The composed artifact carries a `cc-guides` GENERATED marker,
-and the source sha is pinned in `.claude/fragments/cc-guides.lock`.
+Plugin binaries resolve through **binrun** — one central "give me the binary that matches my
+version" runner (`github.com/yasyf/binrun`). A plugin ships two files beside each other, and neither
+carries the download logic itself:
 
-The installer's static-download arm fetches the *bare binary* asset `<name>_<os>_<arch>` (not a
-tarball) and verifies it against goreleaser's `checksums.txt`, so the release must publish a
-binary-format archive alongside the tar.gz:
+- **The wrapper** `plugin/scripts/install-binary.sh`, rendered by `cc-guides` from the
+  `cc-skills:binrun-shim` fragment. The `plugin` extra scaffolds
+  `.claude/fragments/plugin/scripts/install-binary.sh/layout.toml` importing it with a single
+  `binary` arg. `bin/<name>` is a committed symlink to it, so hooks, MCP servers, and the CLI reach
+  the wrapper with the tool's own arguments. Its whole job is to find binrun — on `PATH`, at the
+  shared `~/.daemonkit/bin/binrun`, or by a one-time sha256-verified bootstrap of the pinned runner
+  release — and hand off to `binrun bin/<name>.binrun "$@"`. Every failure exits 1; **exit 2 is
+  reserved for a real hook verdict**, so the wrapper never leaks it.
+- **The descriptor** `plugin/bin/<name>.binrun`, committed to the plugin. It is an executable
+  `#!/usr/bin/env binrun` shebang over a dotslash-dialect JSON body (`schema: 1`, `name`, `kind`, a
+  version source, and per-platform `{size, hash, digest, format, path, providers}`). binrun resolves
+  it to the version-exact artifact, verifies the digest, caches it content-addressed under
+  `~/.daemonkit/cache`, and execs it — offline after the first materialization.
+
+The runner tag and its per-platform sha256 digests are pinned **centrally**, in the `binrun-shim`
+fragment in `cc-skills` `plugin/guides/sh/`, so the whole fleet upgrades the runner from one place
+(placeholders until binrun cuts its first release; see the `TODO(release)` marker there). The
+composed wrapper carries a `cc-guides` GENERATED marker, and the source sha is pinned in
+`.claude/fragments/cc-guides.lock`.
+
+**Kinds** (the descriptor's `kind`, chosen per plugin):
+
+- `release-binary` — a goreleaser github-release asset pinned by exact tag and sha256. The version
+  source is `{"static": "<version>"}`, baked at release time with the per-platform digests.
+- `python-tool` — a PyPI distribution materialized via `uv tool install <dist>==<version>`. uv
+  enforces PyPI hashes, so the descriptor carries no digest and the version source may be dynamic
+  (`{"command": [...], "json_field": "..."}`, host-authoritative). Its content is static across
+  releases — commit it once.
+- `signed-app` — a Developer-ID-signed `.app`, resolved through daemonkit's `deployment` controller
+  or attested in place with a `brew upgrade --cask` handoff.
+
+**Rendering a `release-binary` descriptor (release time).** The per-platform digests are known only
+after the build, so a follow-on release-workflow job renders and ships the descriptor, mirroring
+binrun's own `descriptor` job. Keep a `descriptor/<name>.binrun.tmpl` with `__VERSION__` /
+`__DIGEST_<KEY>__` / `__SIZE_<KEY>__` / `__NAME_<KEY>__` placeholders and a `scripts/render-descriptor.sh`
+that fills them from the release dist (a `{binary}`-parameterized copy of binrun's
+`scripts/render-descriptor.sh`), then:
+
+```yaml
+descriptor:
+  needs: release
+  runs-on: ubuntu-latest
+  permissions: { contents: write }
+  steps:
+    - uses: actions/checkout@v7
+    - name: Download release assets
+      env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      run: |
+        mkdir -p dist
+        gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+          --dir dist --pattern '*.tar.gz' --pattern 'checksums.txt'
+    - name: Render descriptor
+      run: scripts/render-descriptor.sh dist "${GITHUB_REF_NAME#v}" > bin/<name>.binrun
+    - name: Validate descriptor
+      run: binrun -- parse bin/<name>.binrun
+    - name: Ship descriptor
+      env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      run: gh release upload "${GITHUB_REF_NAME}" bin/<name>.binrun --repo "${GITHUB_REPOSITORY}" --clobber
+```
+
+Ship the rendered descriptor to where the wrapper reads it — committed at `bin/<name>.binrun` (CI
+commits it back, or CI asserts a hand-committed descriptor's digests match the built assets and
+fails loudly on a mismatch). A `dynamic` descriptor skips this job entirely: its body never changes,
+so it is committed once.
+
+The descriptor's `format`/`path`/`providers.name` reference whichever archive the release publishes.
+binrun itself ships `tar.gz`; a plugin that keeps a bare-binary asset publishes it as a
+binary-format archive alongside the tar.gz so `checksums.txt` covers both:
 
 ```yaml
 archives:
@@ -381,9 +439,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 ```
 
-`checksums.txt` (emitted by default) covers the tar.gz and bare-binary entries alike; the
-installer also expects `--version` to print the bare tag on its first line. Used by:
-**cc-context**, **cc-review** (their Claude Code plugins download the raw binary).
+Used by: **cc-context**, **cc-review** (release-binary), **captain-hook** (python-tool).
 
 ### Same-release product application delivery
 

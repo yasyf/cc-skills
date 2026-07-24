@@ -99,8 +99,6 @@ def validate_vars(variables: dict[str, str], layer: str) -> None:
             raise ScaffoldError(f"{name} must be a reverse-DNS prefix like com.yasyf, got {value!r}")
         if kind == "license_id" and value.lower() == "none" and value != "none":
             raise ScaffoldError(f"{name} must be lowercase 'none' for no license, got {value!r}")
-        if kind == "binary_version_mode" and value not in ("pinned", "latest"):
-            raise ScaffoldError(f"{name} must be 'pinned' or 'latest', got {value!r}")
         if kind == "code_root" and (not CODE_ROOT_RE.fullmatch(value) or {".", ".."} & set(value.split("/"))):
             raise ScaffoldError(f"{name} must be a repo-root-relative subdir like plugin/hooks, got {value!r}")
     # Cross-var checks for the swift layers:
@@ -176,11 +174,6 @@ def resolve(
     # HAS_LICENSE is var-derived, unlike FEATURE_*: it applies in every layer.
     if variables["LICENSE_ID"] != "none":
         enabled.add("HAS_LICENSE")
-    # The plugin extra's installer resolves its target release from plugin.json
-    # (PINNED, the default) or the releases/latest redirect (LATEST). Var-derived
-    # like HAS_LICENSE — extras carry no section tokens of their own.
-    if "plugin" in extras:
-        enabled.add("LATEST" if variables.get("BINARY_VERSION_MODE") == "latest" else "PINNED")
     # A secondary layer's `## <Lang> Style` fragment is gated by this section in every
     # layout.toml.
     if secondary_layer is not None:

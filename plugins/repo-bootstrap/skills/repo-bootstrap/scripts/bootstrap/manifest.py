@@ -78,18 +78,17 @@ VARS = (
     # `bun-version-file` and the release matrix both read it. Exact X.Y.Z: setup-bun
     # downloads an exact version, never a range or `latest`.
     VarSpec("BUN_VERSION", ("bun",), validate="bun_version"),
-    # Tokens for the `plugin` extra's install-binary.sh (the canonical plugin
-    # binary provisioner — see reference/go-ci-and-release.md § format: binary).
-    # required_in is empty because extras are layer-independent; a missing token
-    # still fails loudly via render_plan's unrendered-placeholder scan.
+    # Tokens for the `plugin` extra's binrun wrapper + descriptor (the canonical
+    # plugin binary provisioner — see reference/go-ci-and-release.md § binrun
+    # descriptor + wrapper). required_in is empty because extras are
+    # layer-independent; a missing token still fails loudly via render_plan's
+    # unrendered-placeholder scan. BINARY_NAME names the wrapper's descriptor;
+    # RELEASE_REPO/BREW_PACKAGE/PLUGIN_NAME feed the per-release descriptor
+    # template (github-release provider, cask handoff, plugin identity).
     VarSpec("BINARY_NAME", ()),
     VarSpec("RELEASE_REPO", ()),
     VarSpec("BREW_PACKAGE", ()),
     VarSpec("PLUGIN_NAME", ()),
-    # pinned (target release = plugin.json version; the default) or latest
-    # (releases/latest redirect — for plugins whose version isn't coupled to
-    # binary releases). Drives the PINNED/LATEST sections, never a placeholder.
-    VarSpec("BINARY_VERSION_MODE", (), validate="binary_version_mode"),
     # Repo-root-relative dir holding a --secondary-layer's code, e.g. plugin/hooks.
     # required_in is empty (a secondary layer is layer-independent); resolve() makes
     # it mandatory whenever --secondary-layer is set.
@@ -505,11 +504,11 @@ FILES = (
     # --- extras (apply in any layer) ---
     FileSpec(".env", "extras/env", "base", extra="env"),
     FileSpec(".superset/config.json", "extras/superset-config.json", "base", extra="superset", transform="superset_strip"),
-    # The canonical plugin binary installer, as a cc-guides v3 layout dir: a
-    # layout.toml that imports `cc-skills:install-binary-pinned` (or -latest) with the
-    # binary/repo/brew/plugin args, which `cc-guides render` (the post-write step)
-    # composes into the real installer. bin/<name> is only ever a symlink (brew
-    # binary, durable CLAUDE_PLUGIN_DATA payload, or dev build).
+    # The canonical plugin binary provisioner, as a cc-guides v3 layout dir: a
+    # layout.toml that imports `cc-skills:binrun-shim` with the binary arg, which
+    # `cc-guides render` (the post-write step) composes into the wrapper at
+    # plugin/scripts/install-binary.sh. bin/<name> symlinks to it; the wrapper
+    # locates binrun and execs the sidecar bin/<name>.binrun descriptor.
     FileSpec(
         ".claude/fragments/plugin/scripts/install-binary.sh/layout.toml",
         "plugin/install-binary-layout.toml",

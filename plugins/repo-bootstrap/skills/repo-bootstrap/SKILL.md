@@ -230,8 +230,7 @@ that name; that plus the `.bun-version` pin is the whole calling contract.
 | `BINARY_NAME` | Released binary the plugin provisions (extra `plugin`) | `ccx` |
 | `RELEASE_REPO` | GitHub repo that releases the binary (extra `plugin`) | `yasyf/cc-context` |
 | `BREW_PACKAGE` | Fully-qualified brew formula or cask (extra `plugin`) | `yasyf/tap/ccx` |
-| `PLUGIN_NAME` | Plugin name, for the data-dir default (extra `plugin`) | `cc-context` |
-| `BINARY_VERSION_MODE` | `pinned` (plugin.json version; default) or `latest` (extra `plugin`) | `pinned` |
+| `PLUGIN_NAME` | Plugin name, feeds the per-release descriptor (extra `plugin`) | `cc-context` |
 
 Derived automatically: `REPO_URL`, `DOCS_URL` (GitHub Pages), `PY_TARGET`,
 `MODULE_PATH` (go: `github.com/<user>/<name>`), `BUNDLE_ID` (swift-app:
@@ -392,7 +391,7 @@ nothing to target until the remote exists. See `reference/hooks.md`.
 | `<name>/App/*.swift`, `<name>/Assets.xcassets/*`, `<name>Tests/` | swift-app | SwiftUI `@main` app + ContentView, stock asset catalog, Swift Testing smoke test (`@testable import <Module>`) |
 | `.superset/config.json` | extra `superset` | worktree bootstrap (env copy, direnv, uv sync on python, jj init + identity) |
 | `.env` | extra `env` | `DEBUG=1`; the one local env file, always gitignored |
-| `.claude/fragments/plugin/scripts/install-binary.sh/` → `plugin/scripts/install-binary.sh` | extra `plugin` | the **canonical plugin binary installer**, a rendered artifact — `bin/<name>` only ever a symlink (brew binary first, sha256-verified download into `CLAUDE_PLUGIN_DATA` as fallback, dev builds never clobbered). Scaffold writes a `layout.toml` importing `cc-skills:install-binary-pinned` (or `-latest` with `BINARY_VERSION_MODE=latest`) with `binary`/`repo`/`brew`/`plugin` args; `cc-guides render` composes it into the real installer. See `reference/go-ci-and-release.md` § `format: binary` archive |
+| `.claude/fragments/plugin/scripts/install-binary.sh/` → `plugin/scripts/install-binary.sh` | extra `plugin` | the **canonical plugin binary provisioner**, a rendered binrun wrapper — `bin/<name>` symlinks to it, and it locates binrun and execs the sidecar `bin/<name>.binrun` descriptor. Scaffold writes a `layout.toml` importing `cc-skills:binrun-shim` with a `binary` arg; `cc-guides render` composes it into the wrapper. The plugin also ships its `bin/<name>.binrun` descriptor, rendered per release. See `reference/go-ci-and-release.md` § binrun descriptor + wrapper |
 | `docs/assets/{logo.png,readme-banner.webp,social-preview.jpg}` | base | **generated, not scaffolded** — Phase 3 creates them via the gen-image skill's brand pipeline; the README banner (inside the H1) and Great Docs logo auto-detection point here, and Phase 6 uploads the social card as the repo's GitHub social preview |
 | `docs/assets/demo.png` + `docs/scripts/demo.sh` (or `.cli-demo/demo.tape`) | base | **generated, not scaffolded** — Phase 4's demo step freezes a real run of the get-started command and commits the generator beside it; `verify` NOTEs a README demo reference with no asset or no committed generator |
 

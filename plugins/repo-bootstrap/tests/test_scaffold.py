@@ -1726,44 +1726,13 @@ def test_plugin_extra_gating(base_var_pairs, go_var_pairs):
     assert dest in dests("go", go_var_pairs, extras=["plugin"], features=[])
 
 
-def test_plugin_extra_mode_sections(base_var_pairs, plugin_var_pairs):
-    # exactly one of PINNED/LATEST, defaulting to pinned; absent without the extra
-    pinned = scaffold.resolve("base", ["plugin"], [], plugin_var_pairs, DATE)
-    assert "PINNED" in pinned.enabled_sections and "LATEST" not in pinned.enabled_sections
-    latest = scaffold.resolve(
-        "base", ["plugin"], [], plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], DATE
-    )
-    assert "LATEST" in latest.enabled_sections and "PINNED" not in latest.enabled_sections
-    plain = scaffold.resolve("base", [], [], base_var_pairs, DATE)
-    assert not {"PINNED", "LATEST"} & plain.enabled_sections
-
-
-def test_bad_binary_version_mode(plugin_var_pairs):
-    pairs = plugin_var_pairs + ["BINARY_VERSION_MODE=nightly"]
-    with pytest.raises(ScaffoldError):
-        scaffold.resolve("base", ["plugin"], [], pairs, DATE)
-
-
-def test_plugin_installer_renders_pinned(plugin_var_pairs):
-    # the layout.toml imports the pinned installer fragment with the binary args;
-    # `cc-guides render` (post-write) composes it into the real installer upstream.
+def test_plugin_installer_renders_binrun_shim(plugin_var_pairs):
+    # the layout.toml imports the binrun-shim wrapper fragment with the binary arg;
+    # `cc-guides render` (post-write) composes it into the wrapper upstream.
     plan, _ = _real_plan("base", plugin_var_pairs, extras=["plugin"])
     toml = plan[".claude/fragments/plugin/scripts/install-binary.sh/layout.toml"]
     assert toml == (
-        'fragments = [{ use = "cc-skills:install-binary-pinned", args = '
-        '{ binary = "demo-proj", brew = "janedoe/tap/demo-proj", '
-        'plugin = "demo-proj", repo = "janedoe/demo-proj" } }]\n\n'
-        '[sources.cc-skills]\nsource = "github:yasyf/cc-skills@main"\n'
-    )
-
-
-def test_plugin_installer_renders_latest(plugin_var_pairs):
-    plan, _ = _real_plan("base", plugin_var_pairs + ["BINARY_VERSION_MODE=latest"], extras=["plugin"])
-    toml = plan[".claude/fragments/plugin/scripts/install-binary.sh/layout.toml"]
-    assert toml == (
-        'fragments = [{ use = "cc-skills:install-binary-latest", args = '
-        '{ binary = "demo-proj", brew = "janedoe/tap/demo-proj", '
-        'plugin = "demo-proj", repo = "janedoe/demo-proj" } }]\n\n'
+        'fragments = [{ use = "cc-skills:binrun-shim", args = { binary = "demo-proj" } }]\n\n'
         '[sources.cc-skills]\nsource = "github:yasyf/cc-skills@main"\n'
     )
 
