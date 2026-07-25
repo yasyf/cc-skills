@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/cc-interact/store"
+	"github.com/yasyf/daemonkit/trust"
 )
 
 // TestMain doubles the test binary as the async fixtures. A "daemon" argv (what
@@ -25,6 +27,13 @@ import (
 // (os.Exit inside), exercising status-write-then-wake with os.Executable as the
 // broken autostart target.
 func TestMain(m *testing.M) {
+	if handled, err := trust.RunVerifierChild(os.Args[1:], os.Stdout); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		os.Exit(1)
 	}
