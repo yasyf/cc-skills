@@ -1,1 +1,1 @@
-{"v":1,"lamport":5,"session":"9412fa26-d5c6-4349-bc14-48aab925777e","ops":[{"kind":"set_criterion_status","id":"26c3f9cea60e6ca1aa8680ae2ce2b2e5","status":"met","note":"Inline hook tests updated (bounded prompts now expect Warn pattern \"opus\"; new sweep-prompt test expects \"gpt-5.6\"). Full suite green locally (uv run pytest, exit 0) and CI success on ee596b5 (run 30153518171)."}]}
+{"v":1,"lamport":6,"session":"9412fa26-d5c6-4349-bc14-48aab925777e","ops":[{"kind":"set_status","status":"done"},{"kind":"link_commit","sha":"555b45526c5b86a3b818f325cd127991c0722356"}]}
