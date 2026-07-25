@@ -122,7 +122,7 @@ shared AGENTS.md:
   at the main-agent level, and routine docs/prose edits skip dynamic workflows and
   adversarial verify while keeping Models-table routing and the `## Workflow Plan`
   line; delegated agents are routed by the **Models** table —
-  opus-4.8 `xhigh` by default (when in doubt, opus; ambiguous, large-refactor,
+  opus-5 `xhigh` by default (when in doubt, opus; ambiguous, large-refactor,
   or long-run implementation — including sustained hands-on tool-driving like
   browser automation — delegates here rather than editing inline on fable),
   fable-5 for orchestration, design review,

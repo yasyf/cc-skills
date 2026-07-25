@@ -160,13 +160,13 @@ For agents, encode behavior as reusable XML contract blocks rather than prose. E
 - `<dependency_checks>` — resolve prerequisite lookups before acting; don't skip them because the final action seems obvious.
 - `<parallel_tool_calling>` — parallelize independent lookups; run dependent steps sequentially.
 
-Claude's latest models default to action and parallelize well: they make independent tool calls simultaneously, and respond to "investigate before answering" by reading referenced files before claiming anything about code. They favor reasoning over tool calls by default, so raising effort is the lever that increases tool usage. The full Claude blocks are in `reference/claude.md`.
+Claude's latest models default to action and parallelize well: they make independent tool calls simultaneously, and respond to "investigate before answering" by reading referenced files before claiming anything about code. Opus 5 delegates to subagents readily and verifies its own work unprompted, so steer both down (spawn caps, no carried-over verification scaffolding) rather than encouraging them. The full Claude blocks are in `reference/claude.md`.
 
 ## Provider knobs at a glance
 
 | Provider | Reasoning / effort (default) | Verbosity | Thinking default |
 |---|---|---|---|
-| Anthropic Opus 4.8 | `effort`: `low`–`max`, default `high`; set `xhigh` for coding/agentic | calibrated to task complexity; prompt to constrain | adaptive thinking **off** unless `thinking: {type: "adaptive"}` |
+| Anthropic Opus 5 | `effort`: `low`–`max`, default `high`; `low`/`medium` are the cost levers, `xhigh` for demanding coding/agentic | longer by default; effort doesn't shorten visible output — prompt for length | adaptive thinking **on** by default; `disabled` allowed only at effort `high` or below |
 | OpenAI GPT-5.5 | `reasoning_effort`: `none`–`xhigh`, default `medium` | `verbosity`, default `medium`; `low` is often a good start | internal reasoning; no explicit CoT prompt |
 | Google Gemini 3 | `thinkingLevel`: `minimal`–`high`; Pro can't fully disable thinking | — | thinking on; keep `temperature` at `1.0` |
 

@@ -235,12 +235,12 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
-    # 2026-07-03 flip: opus-4.8 xhigh is the delegation default — opus is ~2x
+    # 2026-07-03 flip: opus xhigh is the delegation default — opus is ~2x
     # cheaper AND less capable than fable, so fable→opus is a down-route and
     # escalation flows opus→fable only. Regressing either phrase would re-route
     # implementation subagents back to fable (or resurrect the backwards
     # escalation direction).
-    assert "| opus-4.8 | 4 | 8 | 8 |" in claude
+    assert "| opus-5 | 4 | 8 | 8 |" in claude
     assert "when in doubt, opus" in claude
     assert "when in doubt, fable" not in claude
     assert "escalation after fable misses the bar" not in claude

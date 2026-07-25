@@ -1,72 +1,89 @@
 # Claude (Anthropic)
 
-Guidance for Claude Opus 4.8 (model id `claude-opus-4-8`), the current Anthropic frontier model. Sourced from Anthropic's prompting best practices and migration guide. Claude Opus 4.8 performs well on existing Opus 4.7 prompts out of the box; the patterns below cover what most often needs tuning.
+Guidance for Claude Opus 5 (model id `claude-opus-5`), the current Anthropic frontier Opus. Sourced from Anthropic's Opus 5 prompting guide and migration guide. Claude Opus 5 performs well out of the box on existing Opus 4.8 prompts; the patterns below cover what most often needs tuning.
 
 ## Response length and verbosity
 
-Opus 4.8 calibrates response length to how complex it judges the task to be, instead of defaulting to a fixed verbosity. Simple lookups get shorter answers; open-ended analysis gets much longer ones. If your product depends on a fixed style or length, tune the prompt. To reduce verbosity:
+Opus 5's default user-facing responses run longer than prior Opus models'. The `effort` parameter controls how much the model *thinks*, not how much it *says*: lowering effort can reduce thinking volume without reliably shortening the visible response. To control response length, prompt for it explicitly:
 
 ```text
-Provide concise, focused responses. Skip non-essential context, and keep examples minimal.
+Keep responses focused, brief, and concise. Keep disclaimers and caveats short, and spend most of the response on the main answer. When asked to explain something, give a high-level summary unless an in-depth explanation is specifically requested.
 ```
 
-> "Positive examples showing how Claude can communicate with the appropriate level of concision tend to be more effective than negative examples or instructions that tell the model what not to do."
+In a long system prompt, pair that with a short reminder near the end (`<tone_preference>Keep outputs reasonably concise.</tone_preference>`). Positive examples of the concision you want still beat instructions about what not to do.
+
+## Written deliverable length
+
+Separate from conversational verbosity, files Opus 5 writes to disk (reports, Markdown docs, summaries) are often longer than on prior models. If your product includes Claude-authored documents, calibrate explicitly:
+
+```text
+Match the length of written documents to what the task needs: cover the substance, but do not pad with filler sections, redundant summaries, or boilerplate.
+```
 
 ## Effort parameter
 
-`effort` trades intelligence against token spend and latency. On Opus 4.8 the default is `high` across all surfaces. Levels, per Anthropic:
+`effort` trades intelligence against token spend and latency. On Opus 5 the default is `high` on the Claude API and Claude Code. Per Anthropic:
 
-- **`max`** — "can deliver performance gains in some use cases, but may show diminishing returns from increased token usage. This setting can also sometimes be prone to overthinking." Test it for intelligence-demanding tasks.
-- **`xhigh`** — "the best setting for most coding and agentic use cases."
-- **`high`** — balances tokens and intelligence; "use a minimum of `high` effort" for most intelligence-sensitive work. Default on 4.8.
-- **`medium`** — cost-sensitive work that can trade off some intelligence.
-- **`low`** — "Reserve for short, scoped tasks and latency-sensitive workloads that are not intelligence-sensitive."
+- **`max`** — test it where maximum capability matters more than token spend; "can deliver gains on the most demanding tasks but may show diminishing returns from increased token usage and can be prone to overthinking on simpler ones."
+- **`xhigh`** — step up here "for demanding coding and agentic work."
+- **`high`** — the default; start here and adjust from your evals.
+- **`low` / `medium`** — "produce strong quality at a fraction of the tokens and latency of higher settings." Use them liberally as the primary control for token cost and response time wherever quality holds.
 
-Opus 4.8 respects effort strictly, especially at the low end: at `low` and `medium` it scopes work to what was asked. That is good for latency and cost, but moderately complex tasks at `low` risk under-thinking.
+If you carried an effort default over from a prior model, re-run an effort sweep on your own evals rather than trusting the old setting. At `xhigh` or `max`, set a large max output budget (start at 64k tokens) so the model has room to think and act across tool calls and subagents. Note the new coupling: `xhigh` and `max` require thinking enabled (see below).
 
-> "If you observe shallow reasoning on complex problems, raise effort to `high` or `xhigh` rather than prompting around it."
+## Thinking defaults and disabling
 
-Effort matters more for this model than for any prior Opus, so experiment with it when you upgrade. At `max` or `xhigh`, set a large max output budget (start at 64k tokens) so the model has room to think and act across tool calls and subagents.
+Thinking is **on by default**: a request with no `thinking` field runs with adaptive thinking. On Opus 4.8 the same request ran without thinking, so this flips for workloads that never set the field. `max_tokens` remains a hard limit on total output, thinking plus response text; revisit it for workloads that ran thinking-off on 4.8.
 
-## Adaptive thinking
+You can still pass `thinking: {type: "disabled"}`, but only at effort `high` or below — combining it with `xhigh` or `max` returns a 400, validated on every request. Prefer keeping thinking on and lowering effort instead: for most tasks, thinking enabled at `low` effort beats thinking disabled at similar cost.
 
-Thinking is off unless you set `thinking: {type: "adaptive"}`. With adaptive thinking on, Claude decides when and how much to think, calibrated by `effort` and query complexity. Higher effort and harder queries elicit more thinking; easy queries get a direct response.
-
-The triggering behavior is steerable. Large or complex system prompts can make the model think more often than you want. To steer it back:
+With thinking disabled, two artifacts can occasionally appear in visible output: tool calls written as plain text, where the call never runs and the leaked text pollutes agentic history, and internal XML tags such as `<thinking>`. If your system prompt tells the model not to think or reason, remove that rule — it increases tag leakage. For integrations that must keep thinking disabled, one combined instruction mitigates both:
 
 ```text
-Thinking adds latency and should only be used when it will meaningfully improve answer quality — typically for problems that require multi-step reasoning. When in doubt, respond directly.
+When you use a tool, you may say a brief sentence first. If no tool can express what the user asked for, say so instead of guessing. Do not include internal or system XML tags in your response.
 ```
 
-If you run hard workloads at `medium` and see under-thinking, raise effort first; prompt for more thinking only if you need finer control. Prefer general thinking guidance ("think thoroughly") over hand-written step-by-step plans — Claude's reasoning frequently exceeds what a human would prescribe. You can put `<thinking>` tags inside few-shot examples to show the reasoning pattern, and append "Before you finish, verify your answer against [criteria]" to catch errors.
+Instructions that name thinking tags specifically are less effective than this general form.
 
-## Tool use triggering
+## Task scope
 
-Opus 4.8 favors reasoning over tool calls, which produces better results in most cases. Tool usage rises with effort:
+Opus 5 can expand the scope of a task — adding steps that weren't requested or applying its own judgment about what the task should be. For narrow tasks, constrain scope explicitly:
 
-> "`high` or `xhigh` effort settings show substantially more tool usage in agentic search and coding."
+```text
+Deliver what was asked, at the scope intended. Make routine judgment calls yourself, and check in only when different readings of the request would lead to materially different work. If the request seems mistaken or a better approach exists, say so in a sentence and continue with the task as asked rather than quietly narrowing, widening, or transforming it. Finish the whole task, and stop short of actions that are clearly beyond what was asked.
+```
 
-When you want more tool use, raise effort, and describe explicitly when and how to use the tool. If the model is not using your web search tool, say clearly why and how it should.
+## Over-verification and self-correction
 
-## Literal instruction following
+Opus 5 verifies its own work and catches its own mistakes without being told to. Remove carried-over verification scaffolding ("include a final verification step," "use a subagent to verify," "double-check your answer") — these compound with the model's own behavior, causing over-verification that wastes tokens with no quality gain.
 
-> "Claude Opus 4.8 interprets prompts literally and explicitly, particularly at lower effort levels. It does not silently generalize an instruction from one item to another, and it does not infer requests you didn't make."
+The model also narrates corrections to its earlier statements more than prior models. To limit that in user-facing products:
 
-The upside is precision and less thrash, which helps structured extraction and tuned pipelines. The cost: if you want an instruction applied broadly, state the scope. For example, "Apply this formatting to every section, not just the first one."
+```text
+Only correct an earlier statement when the error would change the user's code, conclusions, or decisions. State corrections plainly and briefly, then continue the task. For slips that change nothing for the user, make the fix and move on without noting it.
+```
 
 ## Progress updates
 
-Opus 4.8 gives more regular, higher-quality interim updates during long agentic traces. If you added scaffolding to force status messages ("After every 3 tool calls, summarize progress"), remove it. If the updates are not calibrated to your use case, describe what they should look like and give examples.
+Opus 5 narrates readily during agentic work — it announces what it's about to do, and per-message output in agentic sessions runs longer than prior models'. Describe the cadence and shape you want rather than relying on defaults. To tune narration down:
+
+```text
+Before your first tool call, say in one sentence what you're about to do. While working, give a brief update only when you find something important or change direction. When you finish, lead with the outcome: your first sentence should answer "what happened" or "what did you find," with supporting detail after it for readers who want it.
+```
+
+To tune narration up or restyle it, the same lever runs the other way: describe what updates should look like and give positive examples.
 
 ## Subagent spawning
 
-Opus 4.8 spawns fewer subagents by default, and the behavior is steerable. Give explicit guidance on when subagents are wanted:
+Opus 5 delegates to subagents **more readily** than prior models; Opus 4.8 had the opposite lean and spawned fewer. It coordinates agent teams well, with effective writer-verifier patterns and few overwrite collisions, but delegation multiplies cost and time on small tasks. Give explicit guidance on what warrants delegation, or set deterministic spawn caps:
 
 ```text
-Do not spawn a subagent for work you can complete directly in a single response (e.g. refactoring a function you can already see).
-
-Spawn multiple subagents in the same turn when fanning out across items or reading multiple files.
+Delegate to a subagent only for large tasks that are genuinely independent and parallelizable, such as a wide multi-file investigation. Do not delegate work you can finish yourself in a handful of tool calls, and do not use subagents to verify or double-check your own work. If one subagent can complete the task, use one rather than several, and keep spawn counts low.
 ```
+
+## Tool use triggering
+
+When you want more tool use, describe explicitly when and how to use the tool — if the model is not using your web search tool, say clearly why and how it should. Vision work in particular is strongest when the model has tools to iteratively analyze, crop, and verify; tool access is a more cost-effective lever there than thinking alone.
 
 ## Default-to-action vs hold
 
@@ -112,11 +129,13 @@ Never speculate about code you have not opened. If the user references a specifi
 
 ## Code-review harnesses (precision/recall)
 
-Opus 4.8 finds bugs better than prior models, with higher recall and precision in Anthropic's internal evals. But a harness tuned for an older model can show *lower measured recall* because the model now follows filter instructions more faithfully:
+Opus 5 reviews code with high precision and recall: it finds real bugs at a high rate per pass, and its additional findings are mostly real issues rather than false positives. Accuracy holds at lower effort settings, which supports a fast pass at review time and a more thorough pass later.
 
-> "When a review prompt says things like 'only report high-severity issues,' 'be conservative,' or 'don't nitpick,' Claude Opus 4.8 may follow that instruction more faithfully than earlier models did: it may investigate the code just as thoroughly, identify the bugs, and then not report findings it judges to be below your stated bar."
+The literal-filter caveat from 4.8 still applies:
 
-This is a harness effect, not a capability regression. Fix it by making the finding step about coverage and pushing the filter downstream:
+> "If your review prompt says 'only report high-severity issues' or 'be conservative,' the model may follow that instruction literally and report less; ask it to report everything and filter in a separate pass instead."
+
+Make the finding step about coverage and push the filter downstream:
 
 ```text
 Report every issue you find, including ones you are uncertain about or consider low-severity. Do not filter for importance or confidence at this stage - a separate verification step will do that. Your goal here is coverage: it is better to surface a finding that later gets filtered out than to silently drop a real bug. For each finding, include your confidence level and an estimated severity so a downstream filter can rank them.
@@ -126,12 +145,12 @@ If you do want single-pass self-filtering, set a concrete bar instead of qualita
 
 ## Frontend default house style
 
-Opus 4.8 has strong design instincts and a persistent default house style: warm cream/off-white backgrounds (~`#F4F1EA`), serif display type, italic word-accents, terracotta/amber accents. It reads well for editorial and portfolio briefs but feels off for dashboards, dev tools, fintech, healthcare, or enterprise apps, and it shows up in slide decks too. Generic instructions ("don't use cream," "make it clean and minimal") tend to shift to a different fixed palette rather than producing variety. Two approaches work:
+An Opus 4.8-era observation, not yet re-documented for Opus 5 — re-validate before assuming it carries over: 4.8 had a persistent default house style (warm cream/off-white `#F4F1EA` backgrounds, serif display type, italic word-accents, terracotta/amber accents) that suited editorial briefs and clashed with dashboards, dev tools, and enterprise apps. Generic instructions ("don't use cream") shift the model to a different fixed palette rather than producing variety. Two approaches work on either model:
 
 1. **Specify a concrete alternative** — give an explicit palette, type, and layout spec; the model follows it precisely.
 2. **Have the model propose options before building** — "propose 4 distinct visual directions tailored to this brief... Ask the user to pick one, then implement only that direction." This breaks the default and replaces the variety you used to get from `temperature`.
 
-Opus 4.8 needs less frontend prompting than prior models to avoid "AI slop." A short snippet suffices:
+A short anti-slop snippet still suffices:
 
 ```text
 <frontend_aesthetics>
@@ -144,30 +163,35 @@ NEVER use generic AI-generated aesthetics like overused font families (Inter, Ro
 To have Claude identify itself and choose model strings correctly:
 
 ```text
-The assistant is Claude, created by Anthropic. The current model is Claude Opus 4.8.
+The assistant is Claude, created by Anthropic. The current model is Claude Opus 5.
 ```
 
 ```text
-When an LLM is needed, please default to Claude Opus 4.8 unless the user requests otherwise. The exact model string for Claude Opus 4.8 is claude-opus-4-8.
+When an LLM is needed, please default to Claude Opus 5 unless the user requests otherwise. The exact model string for Claude Opus 5 is claude-opus-5.
 ```
 
-## Migration: Opus 4.7 to 4.8
+## Migration: Opus 4.8 to 5
 
-> "There are no breaking API changes for code already running on Claude Opus 4.7."
+Swap the model id `claude-opus-4-8` to `claude-opus-5` (a fixed, dateless ID like its predecessor; pricing is unchanged at $5/$25 per MTok) and handle two breaking changes:
 
-Swap the model id `claude-opus-4-7` to `claude-opus-4-8` and check these behavior differences:
+- **Thinking on by default.** Requests without a `thinking` field now run with adaptive thinking. Revisit `max_tokens` (a hard limit on thinking plus response text), or pass `thinking: {type: "disabled"}` to preserve the old behavior — subject to the next item.
+- **Disabling thinking is capped at `high` effort.** `thinking: {type: "disabled"}` with effort `xhigh` or `max` returns a 400, enforced independently on every request. Re-enable thinking or lower the effort.
 
-- **Effort defaults to `high`** across all surfaces, including the Messages API. For coding and high-autonomy work, set `xhigh` explicitly. The token allocation per level also shifts: `medium` allows somewhat more thinking, `high` somewhat less, `xhigh` substantially more — re-baseline if you tuned a level against 4.7.
-- **1M context window is the default** with no beta header and no long-context premium (200k on Microsoft Foundry). Remove any context-window beta header.
-- **Mid-conversation system messages** are now allowed: Opus 4.8 accepts `role: "system"` messages after a user turn in the `messages` array (earlier models reject them with a 400). Use the top-level `system` field for instructions that apply from the start. You can use mid-conversation system messages to update instructions while preserving prompt-cache hits on earlier turns.
-- **Refusal `stop_details` are now publicly documented.** On a refusal the model identifies the refusal category alongside the existing `refusal` stop reason. No beta header, no opt-out — verify your stop-reason handling reads `stop_details`.
-- **Lower prompt-caching minimum** (1,024 tokens) — short prompts that could not cache on 4.7 now can, with no code changes.
+Recommended follow-ups:
 
-### Coming from 4.6 or earlier
+- **Re-run an effort sweep** on your own evals instead of carrying a tuned setting over; `low`/`medium` are strong cost controls, and `max` is worth testing where capability outweighs spend. Raise `max_tokens` to ≥64k at `xhigh`/`max`.
+- **Consider `fallbacks: "default"`** (beta header `server-side-fallback-2026-07-01`): Opus 5's cybersecurity safety classifiers can refuse with the cyber category, and default-mode fallback re-runs refused requests on a recommended model (e.g. Opus 4.8) automatically. Keep handling `stop_reason: "refusal"` either way.
+- **Cache shorter prompts** — the minimum cacheable prompt drops to 512 tokens (from 1,024 on 4.8), with no code changes required.
+- **Change tools mid-conversation** (beta header `mid-conversation-tool-changes-2026-07-01`) — add or remove tools between turns without invalidating prompt-cache hits on earlier turns.
+- **Re-tune length prompts and remove verification scaffolding** — see the verbosity, deliverable-length, and over-verification sections above.
+- **Priority Tier is not supported on Opus 5** (Opus 4.8 keeps it) — plan committed capacity separately.
 
-Apply the **4.7 migration steps first** — they include breaking changes the 4.8 upgrade alone does not cover:
+### Coming from 4.7 or earlier
+
+Apply the earlier breaking changes first — the 4.8→5 delta alone does not cover them:
 
 - **Sampling parameters rejected.** Setting `temperature`, `top_p`, or `top_k` to any non-default value returns a 400. Omit them; guide behavior through prompting. `temperature = 0` never guaranteed identical outputs anyway.
-- **Manual extended thinking gone.** `thinking: {type: "enabled", budget_tokens: N}` returns a 400. Switch to `thinking: {type: "adaptive"}` and control depth with `effort`. Adaptive thinking is off by default; set it explicitly to enable.
-- **New tokenizer.** Opus 4.7 introduced a new tokenizer that can use roughly 1x to 1.35x as many tokens for the same text (up to ~35% more). Re-budget `max_tokens` and re-test any client-side token estimates.
+- **Manual extended thinking gone.** `thinking: {type: "enabled", budget_tokens: N}` returns a 400. Control depth with `effort`.
+- **New tokenizer** (introduced with 4.7) can use roughly 1x to 1.35x as many tokens for the same text. Re-budget `max_tokens` and re-test any client-side token estimates.
 - **Prefill removed** (carried from 4.6): prefilling the last assistant message returns a 400. Use structured outputs, system-prompt instructions, or `output_config.format` instead.
+- 4.8 additions carry forward: mid-conversation `role: "system"` messages, 1M-token default context window with no long-context premium, and documented refusal `stop_details`.
