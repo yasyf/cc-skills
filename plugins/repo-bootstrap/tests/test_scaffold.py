@@ -33,6 +33,25 @@ def test_codex_release_cask_preserves_gatekeeper_quarantine():
     assert "MACOS_CODESIGN_SCRIPT" in goreleaser
 
 
+def test_postrelease_workflows_dispatch_exact_commit():
+    root = Path(__file__).parents[3]
+    ci = (root / ".github/workflows/codex-ci.yml").read_text()
+    guides = (root / ".github/workflows/guides.yml").read_text()
+    for workflow in (ci, guides):
+        assert "commit:" in workflow
+        assert "required: true" in workflow
+    assert "ref: ${{ inputs.commit || github.sha }}" in ci
+    assert "commit: ${{ inputs.commit || github.sha }}" in guides
+    for name in ("codex-release.yml", "slop-cop-descriptor.yml"):
+        release = (root / ".github/workflows" / name).read_text()
+        assert "actions: write" in release
+        assert 'echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"' in release
+        assert "for workflow in codex-ci.yml guides.yml" in release
+        assert "X-GitHub-Api-Version: 2026-03-10" in release
+        assert "gh run watch" in release
+        assert 'wait "$pid" || status=1' in release
+
+
 def dests(layer, var_pairs, *, extras=None, features=None, secondary_layer=None):
     r = scaffold.resolve(
         layer, extras or [], features if features is not None else ["docs", "pypi"], var_pairs, DATE, secondary_layer
@@ -2295,6 +2314,9 @@ def test_base_emits_guides_yml(base_var_pairs):
     assert "secrets: inherit" in gy
     assert "permissions: {contents: write}" in gy
     assert "types: [cc-guides-render]" in gy
+    assert "description: Exact commit to render and verify" in gy
+    assert "required: true" in gy
+    assert "commit: ${{ inputs.commit || github.sha }}" in gy
     assert "action-v1" not in gy
 
 

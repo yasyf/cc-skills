@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -60,6 +61,7 @@ jobs:
           go run github.com/yasyf/binrun/cmd/binrun@v0.1.1 -- parse \
             "$GITHUB_WORKSPACE/plugins/slop-cop/bin/slop-cop.binrun"
       - name: Commit + push
+        id: commit
         if: steps.latest.outputs.fresh == 'false'
         env:
           TAG: ${{ steps.latest.outputs.tag }}
@@ -67,13 +69,42 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add plugins/slop-cop/bin/slop-cop.binrun plugins/slop-cop/.claude-plugin/plugin.json
-          if git diff --cached --quiet; then
-            echo "already at ${TAG#v}"
-            exit 0
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(slop-cop): refresh binrun descriptor + plugin.json to ${TAG#v} [skip ci]"
+            pushed=false
+            for _ in 1 2 3; do
+              if git pull --rebase origin main && git push origin HEAD:main; then
+                pushed=true
+                break
+              fi
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::could not push after 3 attempts"
+              exit 1
+            fi
           fi
-          git commit -m "chore(slop-cop): refresh binrun descriptor + plugin.json to ${TAG#v} [skip ci]"
-          for _ in 1 2 3; do
-            git pull --rebase origin main && git push origin HEAD:main && exit 0
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Dispatch and wait for post-refresh checks
+        if: steps.latest.outputs.fresh == 'false'
+        env:
+          COMMIT: ${{ steps.commit.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pids=()
+          for workflow in codex-ci.yml guides.yml; do
+            response="$(
+              jq -n --arg commit "$COMMIT" '{ref: "main", inputs: {commit: $commit}}' |
+                gh api --method POST \
+                  -H "X-GitHub-Api-Version: 2026-03-10" \
+                  "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+                  --input -
+            )"
+            run_id="$(jq -er '.workflow_run_id' <<<"$response")"
+            gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status &
+            pids+=("$!")
           done
-          echo "::error::could not push after 3 attempts"
-          exit 1
+          status=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || status=1
+          done
+          exit "$status"
