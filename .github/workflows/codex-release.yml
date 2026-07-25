@@ -96,7 +96,7 @@ jobs:
           if git diff --quiet -- plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json; then
             echo "descriptor and manifest already current for ${GITHUB_REF_NAME}"
           else
-            git add plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json
+            git add -f plugins/codex/bin/codex-ask.binrun plugins/codex/.claude-plugin/plugin.json
             git commit -m "chore(codex): sync codex-ask.binrun + manifest to ${GITHUB_REF_NAME}"
             git pull --rebase origin main
             git push origin HEAD:main
