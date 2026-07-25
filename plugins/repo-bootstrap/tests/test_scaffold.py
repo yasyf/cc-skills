@@ -272,12 +272,13 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "hands-on tool-driving" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
-    # v5 2026-07-14 decision-density split: sol owns bounded decision-light impl,
-    # opus keeps ambiguous/decision-dense — regressing collapses the lanes.
+    # v6 2026-07-25 Opus 5 recalibration: bounded decision-light impl returns to
+    # opus-5; sol keeps the N-unit sweep lane — regressing collapses the lanes.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
-    assert "the default implementation lane for bounded, decision-light changes to existing code" in claude
-    assert "fans out to gpt-5.6-sol" in claude
+    assert "Also the default lane for individual bounded, decision-light implementation" in claude
+    assert "the sweep lane: repetitive bounded implementation at scale" in claude
+    assert "sweeps fan out to gpt-5.6-sol" in claude
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, long-horizon, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude

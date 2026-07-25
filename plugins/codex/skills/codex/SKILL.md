@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, hand it a well-scoped, decision-light change to existing code (large net-new code stays on Claude — opus, fable if crucial), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a fully specified edit or clearly-bounded build, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, fan a repetitive bounded sweep (N-unit migrations, test conversions, mechanical refactors) across parallel codex lanes (individual bounded changes and large net-new code stay on Claude — opus, fable if crucial), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a sweep of fully specified edits, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
 allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*, ${CLAUDE_SKILL_DIR}/../../bin/codex-ask:*), Read, Grep, Glob
 effort: medium
 ---
@@ -8,8 +8,8 @@ effort: medium
 # Codex CLI
 
 Get a second perspective from OpenAI's Codex CLI when stuck on difficult problems,
-run a code/diff review, security review/audit, or bug diagnosis, hand it a
-well-scoped edit or clearly-bounded implementation, use its built-in `$imagegen`
+run a code/diff review, security review/audit, or bug diagnosis, fan a
+repetitive bounded sweep across parallel lanes, use its built-in `$imagegen`
 skill to generate images, or offload rote throwaway work.
 
 Every codex call runs through `codex-ask`, the executable this plugin ships.
@@ -62,16 +62,19 @@ question returns in ~2 minutes, an open-ended design essay does not.
 - Rote, throwaway work -- one-off scripts, scratch harnesses, bulk data munging --
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
-- Well-scoped, decision-light changes to existing code -- the change is fully
-  specifiable up front: a scoped edit, a signature change, threading a parameter
-  through, a bounded refactor, a well-specified small feature. Bounded
-  terminal/shell-heavy execution fits here too. Large amounts of net-new code
-  stay on Claude (opus xhigh, fable if crucial) -- sol is much stronger at
-  modifying existing code than at authoring a large new subsystem from scratch;
+- Repetitive bounded sweeps at scale -- N-unit test conversions, migrations, and
+  mechanical refactor passes fanned out as parallel lanes, where sol's per-task
+  token efficiency multiplied across the sweep still beats opus. Bounded
+  terminal/shell-heavy execution fits here too. An individual bounded,
+  decision-light change (a scoped edit, a signature change, a well-specified
+  small feature) now defaults to Claude opus -- since Opus 5 the two are tied on
+  capability with opus output cheaper -- and large amounts of net-new code stay
+  on Claude (opus xhigh, fable if crucial): sol is much stronger at modifying
+  existing code than at authoring a large new subsystem from scratch, and
   ambiguous or exploratory builds, decision-dense refactors, and long agentic
   runs stay on opus too, since sol drifts out of scope and fails to converge on
-  open-ended work. Production edits are in range at xhigh; review the diff as you
-  would any other contributor's.
+  open-ended work. Production sweep edits are in range at xhigh; review the diff
+  as you would any other contributor's.
 
 Model variants: pass `-m luna` for the rote/bulk and recon lanes. Routing,
 escalation, and when each variant applies live in the fleet Models table

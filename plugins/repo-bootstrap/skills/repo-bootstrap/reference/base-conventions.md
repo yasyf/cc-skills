@@ -122,9 +122,11 @@ shared AGENTS.md:
   at the main-agent level, and routine docs/prose edits skip dynamic workflows and
   adversarial verify while keeping Models-table routing and the `## Workflow Plan`
   line; delegated agents are routed by the **Models** table —
-  opus-5 `xhigh` by default (when in doubt, opus; ambiguous, large-refactor,
-  or long-run implementation — including sustained hands-on tool-driving like
-  browser automation — delegates here rather than editing inline on fable),
+  opus-5 by default — `xhigh`, or `high` for bounded decision-light changes
+  (when in doubt, opus; ambiguous, large-refactor, or long-run implementation —
+  including sustained hands-on tool-driving like browser automation — delegates
+  here rather than editing inline on fable, and individual bounded
+  decision-light changes land here too since Opus 5),
   fable-5 for orchestration, design review,
   hard planning, all prose/writing (never down-route writing), sensitive or
   error-prone implementation, review-findings synthesis, and as the escalation
@@ -134,10 +136,11 @@ shared AGENTS.md:
   single-fact mechanical steps), gpt-5.6-sol via the
   codex skill for code/diff review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
-  it stays fable), bug diagnosis, bounded decision-light changes to existing code
-  and terminal-heavy execution (large net-new code stays on opus — fable if
-  crucial; ambiguous, large-refactor, or long-horizon work stays on opus too, and
-  sol is not cheaper than opus — output costs ~20% more), second
+  it stays fable), bug diagnosis, repetitive bounded sweeps at scale and
+  terminal-heavy execution (individual bounded changes default to opus-5; large
+  net-new code stays on opus — fable if crucial; ambiguous, large-refactor, or
+  long-horizon work stays on opus too, and sol is not cheaper than opus — output
+  costs 20% more with the capability gap closed by Opus 5), second
   opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
   rote/bulk lane and carries the recon lane at xhigh; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
@@ -152,8 +155,8 @@ shared AGENTS.md:
   improvising a detour or punting the decision to a cheaper model (transient
   failures stay autonomous); delegated results verify against the disk record
   and the lane-scoped tree diff, never the agent's narration — a failed codex
-  lane gets a `codex-ask --collect` check before any redo; effort `xhigh` by default (fable implementation may
-  run `high`), `max` only after xhigh falls short, verification at same-or-higher
+  lane gets a `codex-ask --collect` check before any redo; effort `xhigh` by default (fable and opus-5
+  bounded decision-light implementation may run `high`), `max` only after xhigh falls short, verification at same-or-higher
   tier with table-routed gpt-5.6-sol lanes counting as same-tier; every plan's
   `## Workflow Plan` table names each phase's model, effort, and `Blocks on`
   dependency (AGENTS.md § Writing Plans).
