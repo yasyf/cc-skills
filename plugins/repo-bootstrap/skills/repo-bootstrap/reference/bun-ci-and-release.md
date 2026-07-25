@@ -2,7 +2,7 @@
 
 The bun layer's CI workflow and its opt-in `release` feature — one single-file
 `bun build --compile` binary per platform, shipped as a Homebrew cask via the
-shared immutable `release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68` reusable workflow in `yasyf/homebrew-tap`.
+shared immutable `release-bun.yml@7cc8a6c981cbec10fcb7f19bd75b36e9ee65ea7e` reusable workflow in `yasyf/homebrew-tap`.
 Scaffolded files: `.github/workflows/ci.yml` (always) and
 `.github/workflows/release.yml` (feature `release`). There is nothing else to
 configure — no goreleaser config, no cask template.
@@ -27,7 +27,7 @@ The scaffolded caller is the entire repo-side configuration:
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-bun.yml@a9ecff42ac7721452905327071316bca2b49bb68
+    uses: <user>/homebrew-tap/.github/workflows/release-bun.yml@7cc8a6c981cbec10fcb7f19bd75b36e9ee65ea7e
     secrets: inherit
 ```
 
