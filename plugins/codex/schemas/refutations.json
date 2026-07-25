@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "description": "Adversarial refuter reply: one assessment per input finding, plus anything the finder missed.",
+  "properties": {
+    "assessments": {
+      "type": "array",
+      "description": "Exactly one entry per input finding, in the input order.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding": {
+            "type": "string",
+            "description": "The input finding, by its id or a quote sufficient to match it."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["confirmed", "refuted", "revised"],
+            "description": "confirmed: re-derived against the code. refuted: disproved by the cited evidence. revised: real defect with wrong severity, location, or fix."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "The cite that proves this verdict — the line that confirms the defect, or the exact line that disproves it."
+          },
+          "revision": {
+            "type": ["string", "null"],
+            "description": "For revised: the corrected severity, cite, or fix in one sentence. Null for confirmed and refuted."
+          }
+        },
+        "required": ["finding", "verdict", "evidence", "revision"],
+        "additionalProperties": false
+      }
+    },
+    "missed": {
+      "type": "array",
+      "description": "Findings the finder pass missed; empty when its coverage held. Same shape as review findings.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "nit"],
+            "description": "blocker: wrong results, data loss, exploitable. major: a real defect off the happy path. minor: works, but fragile or misleading. nit: style."
+          },
+          "cite": {
+            "type": "string",
+            "description": "Evidence address: file:line for a repo claim; the exact command plus the relevant output line for a runtime claim; URL or section for an external doc."
+          },
+          "defect": {
+            "type": "string",
+            "description": "The defect in one sentence."
+          },
+          "fix": {
+            "type": "string",
+            "description": "The concrete fix, specific enough to apply without re-deriving the analysis."
+          },
+          "unverified": {
+            "type": ["string", "null"],
+            "description": "Why the claim could not be verified against its cite; null when verified."
+          }
+        },
+        "required": ["severity", "cite", "defect", "fix", "unverified"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["assessments", "missed"],
+  "additionalProperties": false
+}

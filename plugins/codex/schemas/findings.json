@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "description": "Review/audit reply: a verdict plus finding blocks, per AGENTS.md § Replies.",
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["lgtm", "issues"],
+      "description": "lgtm only after a full sweep of the stated scope produced zero findings."
+    },
+    "swept": {
+      "type": "string",
+      "description": "One line naming what was actually swept (files, hunks, checks), so the verdict is auditable."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Empty exactly when verdict is lgtm. Ordered by severity, blocker first.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "nit"],
+            "description": "blocker: wrong results, data loss, exploitable. major: a real defect off the happy path. minor: works, but fragile or misleading. nit: style."
+          },
+          "cite": {
+            "type": "string",
+            "description": "Evidence address: file:line for a repo claim; the exact command plus the relevant output line for a runtime claim; URL or section for an external doc."
+          },
+          "defect": {
+            "type": "string",
+            "description": "The defect in one sentence."
+          },
+          "fix": {
+            "type": "string",
+            "description": "The concrete fix, specific enough to apply without re-deriving the analysis."
+          },
+          "unverified": {
+            "type": ["string", "null"],
+            "description": "Why the claim could not be verified against its cite; null when verified."
+          }
+        },
+        "required": ["severity", "cite", "defect", "fix", "unverified"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["verdict", "swept", "findings"],
+  "additionalProperties": false
+}

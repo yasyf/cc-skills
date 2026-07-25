@@ -1,7 +1,7 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +18,8 @@ func askMode(args []string) {
 	scratch := ""
 	dispatch := false
 	owner := ""
+	lane := ""
+	schemaName := ""
 	var extraFlags []string
 	var rest []string
 
@@ -49,12 +51,29 @@ loop:
 		case a == "--image":
 			extraFlags = append(extraFlags, "--disable", "shell_tool")
 			i++
+		case a == "--lane":
+			// Checked before any scratch dir is created, so a bad lane mints nothing.
+			if !contains(laneNames, nxt) {
+				die("codex-ask: --lane takes one of "+strings.Join(laneNames, ", "), 2)
+			}
+			lane = nxt
+			i += 2
 		case a == "--schema":
 			// Checked before any scratch dir is created, so a bad schema mints nothing.
-			if nxt == "" || !readable(nxt) {
-				die("codex-ask: --schema needs a readable JSON Schema file", 2)
+			switch {
+			case strings.Contains(nxt, "/") || strings.HasSuffix(nxt, ".json"):
+				if !readable(nxt) {
+					die("codex-ask: --schema needs a readable JSON Schema file", 2)
+				}
+				extraFlags = append(extraFlags, "--output-schema", nxt)
+			case contains(schemaNames, nxt):
+				schemaName = nxt
+			default:
+				// A bare word is always a shipped name, never a cwd probe: a stray file named
+				// verdict must not shadow the shipped schema. ./NAME reaches such a file.
+				die("codex-ask: --schema takes one of "+strings.Join(schemaNames, ", ")+
+					", or a file path (./NAME for an extensionless one)", 2)
 			}
-			extraFlags = append(extraFlags, "--output-schema", nxt)
 			i += 2
 		case a == "--dispatch":
 			dispatch = true
@@ -164,9 +183,28 @@ loop:
 		die("codex-ask: cannot write question: "+err.Error(), 1)
 	}
 
+	// Staged per dispatch like the question and reply: a fixed name would survive
+	// the stale sweep below and outlive its generation in a reused --scratch lane.
+	if schemaName != "" {
+		sf, err := os.CreateTemp(sdir, "codex-schema-")
+		if err != nil {
+			die("codex-ask: cannot stage schema: "+err.Error(), 1)
+		}
+		schema := sf.Name()
+		_ = sf.Close()
+		if err := os.WriteFile(schema, readShipped(embeddedSchemas, "schemas/"+schemaName+".json"), 0o644); err != nil { //nolint:gosec // 0o644 matches the Python spec's question-file mode
+			die("codex-ask: cannot write schema: "+err.Error(), 1)
+		}
+		extraFlags = append(extraFlags, "--output-schema", schema)
+	}
+
 	// developer_instructions carries the browser + ccx/MCP-off directives, resolved
 	// relative to this binary's own path (not cwd).
 	dev := readAgentsMd()
+	// The lane contract lands after the baseline so the cached prefix stays stable.
+	if lane != "" {
+		dev += "\n\n" + strings.TrimRight(string(readShipped(embeddedLanes, "lanes/"+lane+".md")), "\n")
+	}
 
 	replyTmp := reply + ".tmp"
 	argv := []string{
@@ -260,4 +298,31 @@ func readAgentsMd() string {
 		return strings.TrimRight(string(b), "\n")
 	}
 	return strings.TrimRight(embeddedAgentsMd, "\n")
+}
+
+//go:embed lanes/*.md
+var embeddedLanes embed.FS
+
+//go:embed schemas/*.json
+var embeddedSchemas embed.FS
+
+var laneNames = []string{"review", "refute", "security", "diagnose", "implement", "recon"}
+
+var schemaNames = []string{"verdict", "findings", "refutations"}
+
+// readShipped resolves one shipped file (slash-separated, relative to the plugin
+// root) the way readAgentsMd resolves AGENTS.md: disk copies from either
+// invocation layout override the always-present embedded copy.
+func readShipped(embedded embed.FS, rel string) []byte {
+	if exe, err := os.Executable(); err == nil {
+		if b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), rel)); err == nil { //nolint:gosec // reads the plugin's own shipped file, by design
+			return b
+		}
+	}
+	root := filepath.Dir(filepath.Dir(selfPath))
+	if b, err := os.ReadFile(filepath.Join(root, rel)); err == nil { //nolint:gosec // reads the plugin's own shipped file by resolved path, by design
+		return b
+	}
+	b, _ := embedded.ReadFile(rel)
+	return b
 }

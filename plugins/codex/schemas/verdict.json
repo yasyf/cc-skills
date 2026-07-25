@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "description": "Micro-verdict for gate lanes: the status field is the entire verdict.",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked"],
+      "description": "pass: every check the prompt names ran and succeeded. fail: at least one named check failed. blocked: a named check could not run at all."
+    },
+    "summary": {
+      "type": "string",
+      "description": "At most two sentences, carrying the one evidence cite (file:line, or command plus output line) that proves the status. For fail, lead with the first failing check; for blocked, name the obstacle without guessing the outcome; for pass, name what ran."
+    }
+  },
+  "required": ["status", "summary"],
+  "additionalProperties": false
+}

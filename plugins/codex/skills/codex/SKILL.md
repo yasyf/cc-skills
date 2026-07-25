@@ -21,7 +21,9 @@ script owns every mechanic: it pins `-c model=gpt-5.6-sol
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
-`-c developer_instructions` (browser rules; no ccx/MCP inside lanes), disables
+`-c developer_instructions` (browser rules, the § Replies reply contract, no
+ccx/MCP inside lanes — so every run arrives knowing the house reply shape),
+disables
 MCP server mounts on the exec line, unsets `OPENAI_API_KEY` so codex always
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
 billing-capped and never mounts the hosted `image_gen` tool), and keeps every
@@ -141,10 +143,11 @@ once the caller has already unblocked, so it can trail the narration or even a
    ships: the commit and push happen natively after reconciliation
    (`ccx vcs ship`), never inside a lane.
 
-**Returns by lane kind.** Verdict lanes enforce their `{status, summary}`
-micro-schema natively with `codex-ask --schema <file>` (→ codex
-`--output-schema`). Implementation lanes return prose led by their
-`REPLY_FILE:` pointer line.
+**Returns by lane kind.** Verdict lanes enforce a shipped schema by name —
+`codex-ask --schema verdict` for the `{status, summary}` micro-verdict,
+`--schema findings` for a finder pass, `--schema refutations` for a refuter
+pass (→ codex `--output-schema`; a JSON Schema file path still works).
+Implementation lanes return prose led by their `REPLY_FILE:` pointer line.
 
 ## Async Dispatch (owner subagents and the steering channel)
 
@@ -217,8 +220,12 @@ carries:
   question. An unscoped "run the tests" invites a ten-minute re-run of work
   that is already done.
 - What has already been tried and why it failed
-- The specific questions to answer, and the expected answer shape
-  ("reply with ONLY the edited function", "a finding list with file:line")
+- The specific questions to answer. The reply shape ships with the plugin —
+  every run carries the § Replies contract (answer first, fixed severities,
+  an evidence cite per claim), and `--lane <name>` sharpens it for a standing
+  lane — so spell out a shape only when you need a non-default one: a bare
+  artifact ("reply with ONLY the edited function"), which the contract
+  defers to
 - **Never a ship instruction** — don't ask Codex to commit, push, or ship: a
   lane's deliverable is edits in the working tree plus its reply file, and
   the caller ships natively (codex edits, Claude ships)
@@ -236,6 +243,15 @@ caller's death, a killed or timed-out Bash call loses nothing: rerun the
 `AWAIT:` line (`codex-ask --await <run-dir>`) in a fresh foreground call,
 repeatedly if needed, until it exits. Asking the question again pays for work
 that is already finishing.
+
+Two flags shape the reply, and they are orthogonal — never auto-coupled.
+`--lane <name>` appends the sharpened contract for one of the six standing
+lanes (`review`, `refute`, `security`, `diagnose`, `implement`, `recon`) on
+top of the § Replies shape every run already carries; it shapes prose.
+`--schema <name|file>` resolves a shipped schema by name — `verdict`,
+`findings`, `refutations` — or takes a JSON Schema file, and maps to codex
+`--output-schema`, which constrains the final assistant message itself: the
+reply becomes that JSON in place of prose, never a JSON block decorating it.
 
 ```bash
 "${CLAUDE_SKILL_DIR}/../../bin/codex-ask" - <<'QUESTION'
@@ -267,6 +283,17 @@ so a short question can go inline:
 refinement algorithm"`. Every form
 writes the question file, so the exchange keeps a durable record either way.
 
+A review pass carries no format instructions — the lane contract already pins
+the shape (verdict line, severity-ordered findings, a cite per claim):
+
+```bash
+"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --lane review - <<'QUESTION'
+Review the uncommitted diff in internal/render/ (run `git diff -- internal/render`).
+Scope: every hunk. Focus: error handling and resource lifetimes.
+Out of scope: pre-existing debt outside the diff.
+QUESTION
+```
+
 ### Step 3: Evaluate the Reply
 
 Read the reply file printed on the `REPLY_FILE:` line; it persists as a
@@ -280,7 +307,10 @@ of your question or changes the task's shape -- the bug isn't where you said,
 the spec means something else, the fix belongs in a different layer -- stop
 rather than improvising a detour: surface the finding with 2-4 concrete options
 and let the user (or the fable orchestrator that delegated to you) pick. See
-AGENTS.md § Ask Before Assuming.
+AGENTS.md § Ask Before Assuming. The same stop rules ride into codex itself
+via § Replies, so a surprise arrives flagged -- a wrong premise led with, a
+shape-change returned as findings plus 2-4 options -- rather than buried in
+an improvised detour.
 
 Return the answer in the exact shape the caller asked for — a bare artifact
 (an edited function, a file path) stays bare, never wrapped in analysis
@@ -385,6 +415,19 @@ successful over an untouched, scoped tree diff never actually ran.
 **Timeout**: exec mode never prompts and the fast tier is pinned, so a call
 dragging past a few minutes means the question is unbounded — broad open-ended
 prompts are the usual cause.
+
+**Reply ignores the contract** (buried verdict, missing severities, uncited
+claims): every run carries AGENTS.md § Replies as developer instructions, and
+the caller's requested shape wins over it — so first check the prompt for a
+stray shape instruction. When the run fits a standing lane, re-ask with
+`--lane <name>`: the lane contract pins the shape harder than the house
+default.
+
+**Asked for prose, got JSON** (or wanted JSON, got prose): `--schema` maps to
+codex `--output-schema`, which constrains the final assistant message — the
+reply is that JSON in place of prose, never alongside it. Drop `--schema` for
+a narrative answer; add it for a machine-checkable one. `--lane` shapes prose
+and never implies a schema.
 
 **Turn fails with "flagged for possible cybersecurity risk"**: OpenAI's content
 filter killed the run, not codex-ask. It keys on offensive-security phrasing, so

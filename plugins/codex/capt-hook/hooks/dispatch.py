@@ -15,6 +15,7 @@ from captain_hook import (
     Or,
     Tool,
     ToolInput,
+    Warn,
     hook,
 )
 from captain_hook.util.shell import normalize_executable
@@ -37,6 +38,17 @@ CODEX_VALUE_FLAGS = frozenset(
 )
 SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "ash", "fish", "csh", "tcsh"})
 NESTED_DEPTH = 3
+# Literal openers of a hand-rolled reply contract, deliberately narrow: a false nudge on every
+# codex-ask call costs more than a missed paraphrase.
+HANDROLLED_FORMAT = re.compile(
+    r"reply as a finding list"
+    r"|verdict\s*\(\s*lgtm"
+    r"|answer each with a verdict"
+    r"|verdict \+ file:line"
+    r"|report\s+(?:the\s+)?findings\s+as\b[^\n]{0,40}\bjson"
+    r"|output format\s*:",
+    re.IGNORECASE,
+)
 
 
 def safe_parse(text: str):
@@ -146,6 +158,28 @@ class CodexExecDirect(CustomCommandLineCondition):
         )
 
 
+class HandRolledReplyFormat(CustomCommandLineCondition):
+    """The command text (a heredoc body included) states a reply format the shipped contract
+    already covers — matched on literal openers only, never inferred from the prompt's shape."""
+
+    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
+        return HANDROLLED_FORMAT.search(cl.raw) is not None
+
+
+class LaneSelected(CustomCommandLineCondition):
+    """A ``codex-ask`` invocation passes ``--lane``, so the caller already picked a sharpened
+    contract and whatever format text rides along is deliberate. Any occurrence suppresses the
+    whole command: cc_transcript gives a heredoc body no owning occurrence, so a command mixing
+    a laned and an unlaned call resolves to one verdict. Advisory-only, so the cost is a stray
+    nudge or a missed one, never a block."""
+
+    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
+        return any(
+            head_program(occ.command) == "codex-ask" and "--lane" in unwrapped_argv(occ.command)
+            for occ in walk_occurrences(cl)
+        )
+
+
 hook(
     Event.PreToolUse,
     only_if=[
@@ -221,5 +255,43 @@ hook(
         Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview\nQ"): Allow(),
         Input(command="git log -S 'codex exec'"): Allow(),
         Input(command="grep codex-ask notes.md"): Allow(),
+    },
+)
+
+hook(
+    Event.PreToolUse,
+    only_if=[Tool("Bash"), CodexAskInvoked(), HandRolledReplyFormat()],
+    skip_if=[LaneSelected()],
+    message=(
+        "This prompt hand-rolls a reply format the plugin already ships: the reply contract "
+        "lives in the codex plugin's AGENTS.md and reaches every run as developer_instructions, "
+        "so restating the verdict/severity/cite/fix shape here is redundant and can fight it. To "
+        "sharpen the shape instead, pass `--lane <name>` — review, refute, security, diagnose, "
+        "implement, or recon — and for a machine-checkable JSON reply, `--schema "
+        "verdict|findings|refutations`."
+    ),
+    tests={
+        Input(
+            command="codex-ask -s /tmp/x/lane - <<'Q'\nReview this diff. Reply as a finding list: "
+            "VERDICT (LGTM / ISSUE) per question, each issue with file:line and a concrete fix.\nQ"
+        ): Warn(pattern="--lane"),
+        Input(
+            command="codex-ask -s /tmp/x/lane - <<'Q'\nQuestions (answer each with a verdict + "
+            "file:line evidence): does the retry loop terminate?\nQ"
+        ): Warn(),
+        Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nOutput format: one line per symbol.\nQ"): Warn(),
+        Input(
+            command="codex-ask --lane review -s /tmp/x/lane - <<'Q'\nReply as a finding list: "
+            "VERDICT (LGTM / ISSUE) per question.\nQ"
+        ): Allow(),
+        Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ"): Allow(),
+        Input(command="codex-ask 'why does the retry loop hang?'"): Allow(),
+        Input(command="grep 'output format:' notes.md"): Allow(),
+        # AGENTS.md § Replies defers to a caller who asks for a bare artifact, so naming one
+        # is the contract working, not a hand-rolled format to nudge away.
+        Input(
+            command="codex-ask -s /tmp/x/lane - <<'Q'\nFix the parser. Reply with ONLY the "
+            "edited function.\nQ"
+        ): Allow(),
     },
 )

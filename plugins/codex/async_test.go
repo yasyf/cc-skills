@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -187,14 +188,28 @@ func stdoutLine(out, prefix string) string {
 	return ""
 }
 
-func developerInstructions(t *testing.T, sdir string) string {
+func cmdArgv(t *testing.T, sdir string) []string {
 	t.Helper()
 	var spec cmdSpec
 	if err := json.Unmarshal([]byte(readFile(filepath.Join(sdir, "cmd"))), &spec); err != nil {
 		t.Fatalf("read cmd: %v", err)
 	}
+	return spec.Argv
+}
+
+func flagValue(argv []string, flag string) string {
+	for i, arg := range argv {
+		if arg == flag && i+1 < len(argv) {
+			return argv[i+1]
+		}
+	}
+	return ""
+}
+
+func developerInstructions(t *testing.T, sdir string) string {
+	t.Helper()
 	const prefix = "developer_instructions="
-	for _, arg := range spec.Argv {
+	for _, arg := range cmdArgv(t, sdir) {
 		if strings.HasPrefix(arg, prefix) {
 			return strings.TrimPrefix(arg, prefix)
 		}
@@ -434,6 +449,246 @@ func TestDispatchBareBinaryEmbedsAgentsMd(t *testing.T) {
 	}
 	if got := developerInstructions(t, sdir); !strings.Contains(got, "agent-browser") {
 		t.Fatalf("embedded developer instructions missing agent-browser sentinel")
+	}
+}
+
+// askRun drives the built binary against a stub codex under the given runs dir,
+// returning stdout, stderr, and the exit code.
+func askRun(t *testing.T, runs, stub string, args ...string) (string, string, int) {
+	t.Helper()
+	home := shortHome(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stub)
+	scope := canonicalScope(t)
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(codexAskBin(t), args...) //nolint:gosec // drives the built binary under test
+	c.Dir = scope
+	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	code := 0
+	if err := c.Run(); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("run codex-ask %v: %v\nstderr: %s", args, err, stderr.String())
+		}
+		code = exit.ExitCode()
+	}
+	return stdout.String(), stderr.String(), code
+}
+
+// laneDir returns the lane a run minted, arming its cleanup.
+func laneDir(t *testing.T, stdout string) string {
+	t.Helper()
+	reply := stdoutLine(stdout, "REPLY_FILE: ")
+	if reply == "" {
+		t.Fatalf("no REPLY_FILE printed:\n%s", stdout)
+	}
+	sdir := filepath.Dir(reply)
+	t.Cleanup(func() { killLane(sdir) })
+	return sdir
+}
+
+func mustBeEmpty(t *testing.T, runs, what string) {
+	t.Helper()
+	entries, err := os.ReadDir(runs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("%s minted %d entries in the runs dir, want none", what, len(entries))
+	}
+}
+
+// TestLaneAppendsAfterAgentsBaseline proves --lane lands its contract block after
+// the AGENTS.md baseline. The test PLUGIN_ROOT carries AGENTS.md alone, so the
+// lane text can only come from the embed — the golden harness's layout.
+func TestLaneAppendsAfterAgentsBaseline(t *testing.T) {
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexReply, "--lane", "review", "ping")
+	if code != 0 {
+		t.Fatalf("--lane review exit %d\nstderr: %s", code, stderr)
+	}
+	dev := developerInstructions(t, laneDir(t, stdout))
+	const sentinel = "## Lane: review"
+	baseline, lane := strings.Index(dev, "agent-browser"), strings.Index(dev, sentinel)
+	if baseline < 0 || lane < 0 {
+		t.Fatalf("developer instructions missing the baseline or the lane block:\n%s", dev)
+	}
+	if baseline > lane {
+		t.Fatalf("lane block precedes the AGENTS.md baseline:\n%s", dev)
+	}
+	if !strings.Contains(dev, "\n\n"+sentinel) {
+		t.Fatalf("lane block not separated from the baseline by a blank line:\n%s", dev)
+	}
+	if !strings.Contains(dev, "Finder pass over the stated scope") {
+		t.Fatalf("lane block truncated:\n%s", dev)
+	}
+}
+
+func TestUnknownLaneRefusesBeforeMinting(t *testing.T) {
+	runs := mustTempDir(t)
+	_, stderr, code := askRun(t, runs, stubCodexReply, "--lane", "nope", "ping")
+	if code != 2 {
+		t.Fatalf("unknown --lane exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	for _, name := range []string{"review", "refute", "security", "diagnose", "implement", "recon"} {
+		if !strings.Contains(stderr, name) {
+			t.Fatalf("stderr does not name lane %q:\n%s", name, stderr)
+		}
+	}
+	mustBeEmpty(t, runs, "a refused --lane")
+}
+
+func TestNamedSchemaMaterializesInLane(t *testing.T) {
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexReply, "--schema", "verdict", "ping")
+	if code != 0 {
+		t.Fatalf("--schema verdict exit %d\nstderr: %s", code, stderr)
+	}
+	sdir := laneDir(t, stdout)
+	got := flagValue(cmdArgv(t, sdir), "--output-schema")
+	if filepath.Dir(got) != sdir {
+		t.Fatalf("--output-schema = %q, want a file staged in the lane %q", got, sdir)
+	}
+	// Staged like codex-q-/codex-r-, so a reused --scratch lane never reuses it.
+	if !strings.HasPrefix(filepath.Base(got), "codex-schema-") {
+		t.Fatalf("--output-schema = %q, want the per-dispatch codex-schema- prefix", got)
+	}
+	var doc struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(readFile(got)), &doc); err != nil {
+		t.Fatalf("materialized schema is not JSON: %v", err)
+	}
+	if len(doc.Required) != 2 || doc.Required[0] != "status" {
+		t.Fatalf("materialized schema required = %v, want the shipped verdict schema", doc.Required)
+	}
+}
+
+// TestSchemaStagingIsPerDispatch proves a reused --scratch lane stages a fresh
+// schema each generation rather than inheriting the previous one: the stale sweep
+// clears only status/pid/lstart/meta/cmd/register.
+func TestSchemaStagingIsPerDispatch(t *testing.T) {
+	sdir := filepath.Join(mustTempDir(t), "lane-a")
+	runs := mustTempDir(t)
+	t.Cleanup(func() { killLane(sdir) })
+	first := stageSchemaOnce(t, runs, sdir, "verdict")
+	second := stageSchemaOnce(t, runs, sdir, "findings")
+	if first == second {
+		t.Fatalf("both dispatches staged the same schema file %q", first)
+	}
+	if !isFile(first) || !isFile(second) {
+		t.Fatalf("staged schemas missing: %q %q", first, second)
+	}
+}
+
+// stageSchemaOnce runs one lane generation to completion, so the next dispatch
+// clears the busy-lane guard, and returns the schema path it staged.
+func stageSchemaOnce(t *testing.T, runs, sdir, name string) string {
+	t.Helper()
+	_, stderr, code := askRun(t, runs, stubCodexReply, "-s", sdir, "--schema", name, "ping")
+	if code != 0 {
+		t.Fatalf("--schema %s exit %d\nstderr: %s", name, code, stderr)
+	}
+	return flagValue(cmdArgv(t, sdir), "--output-schema")
+}
+
+// TestLaneAndSchemaNamesRejectTraversal pins the closed-set check on the names
+// that get joined into a plugin path. --schema only joins a bare name; a value
+// with a slash is a caller-supplied path by design and never reaches the join.
+func TestLaneAndSchemaNamesRejectTraversal(t *testing.T) {
+	cases := []struct{ flag, name string }{
+		{"--lane", "../../../../etc/hostname"},
+		{"--lane", ".."},
+		{"--schema", ".."},
+	}
+	for _, tc := range cases {
+		runs := mustTempDir(t)
+		_, stderr, code := askRun(t, runs, stubCodexReply, tc.flag, tc.name, "ping")
+		if code != 2 {
+			t.Fatalf("%s %s exit %d, want 2\nstderr: %s", tc.flag, tc.name, code, stderr)
+		}
+		mustBeEmpty(t, runs, tc.flag+" "+tc.name)
+	}
+}
+
+func TestUnknownSchemaNameRefusesBeforeMinting(t *testing.T) {
+	runs := mustTempDir(t)
+	_, stderr, code := askRun(t, runs, stubCodexReply, "--schema", "nope", "ping")
+	if code != 2 {
+		t.Fatalf("unknown --schema name exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	for _, name := range []string{"verdict", "findings", "refutations"} {
+		if !strings.Contains(stderr, name) {
+			t.Fatalf("stderr does not name schema %q:\n%s", name, stderr)
+		}
+	}
+	mustBeEmpty(t, runs, "a refused --schema name")
+}
+
+// TestSchemaExtensionlessFileReachableByPath pins the escape hatch for the
+// name-vs-path grammar: a bare word is always a shipped name, so an
+// extensionless schema file is reached by a path form, and the refusal says so.
+func TestSchemaExtensionlessFileReachableByPath(t *testing.T) {
+	schema := filepath.Join(mustTempDir(t), "schema")
+	writeFile(t, schema, "{\"type\":\"object\"}\n")
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexReply, "--schema", schema, "ping")
+	if code != 0 {
+		t.Fatalf("--schema %s exit %d\nstderr: %s", schema, code, stderr)
+	}
+	if got := flagValue(cmdArgv(t, laneDir(t, stdout)), "--output-schema"); got != schema {
+		t.Fatalf("--output-schema = %q, want the extensionless path %q", got, schema)
+	}
+
+	_, stderr, code = askRun(t, mustTempDir(t), stubCodexReply, "--schema", "schema", "ping")
+	if code != 2 {
+		t.Fatalf("bare unknown name exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "./NAME") {
+		t.Fatalf("refusal does not advertise the ./NAME escape hatch:\n%s", stderr)
+	}
+}
+
+// TestSchemaPathFormUnchanged pins the pre-existing path form: a readable file
+// passes straight through, and an unreadable one keeps its original refusal.
+func TestSchemaPathFormUnchanged(t *testing.T) {
+	schema := filepath.Join(mustTempDir(t), "schema.json")
+	writeFile(t, schema, "{\"type\":\"object\"}\n")
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexReply, "--schema", schema, "ping")
+	if code != 0 {
+		t.Fatalf("--schema %s exit %d\nstderr: %s", schema, code, stderr)
+	}
+	if got := flagValue(cmdArgv(t, laneDir(t, stdout)), "--output-schema"); got != schema {
+		t.Fatalf("--output-schema = %q, want the caller's path %q", got, schema)
+	}
+
+	runs := mustTempDir(t)
+	missing := filepath.Join(mustTempDir(t), "nope.json")
+	_, stderr, code = askRun(t, runs, stubCodexReply, "--schema", missing, "ping")
+	if code != 2 {
+		t.Fatalf("unreadable --schema exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(strings.ToLower(stderr), "readable json schema") {
+		t.Fatalf("stderr = %q, want the unreadable-schema refusal", stderr)
+	}
+	mustBeEmpty(t, runs, "an unreadable --schema")
+}
+
+func TestLaneComposesWithScratchModelAndDispatch(t *testing.T) {
+	sdir := filepath.Join(mustTempDir(t), "lane-a")
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexSleep,
+		"-s", sdir, "-m", "luna", "--lane", "diagnose", "--dispatch", "ping")
+	if code != 0 {
+		t.Fatalf("composed dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	t.Cleanup(func() { killLane(sdir) })
+	if got := filepath.Dir(stdoutLine(stdout, "REPLY_FILE: ")); got != sdir {
+		t.Fatalf("reply staged in %q, want the --scratch lane %q", got, sdir)
+	}
+	if argv := cmdArgv(t, sdir); !contains(argv, "model="+modelLuna) {
+		t.Fatalf("argv = %v, want model=%s", argv, modelLuna)
+	}
+	if got := developerInstructions(t, sdir); !strings.Contains(got, "## Lane: diagnose") {
+		t.Fatalf("developer instructions missing the diagnose lane block:\n%s", got)
 	}
 }
 

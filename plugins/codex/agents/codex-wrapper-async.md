@@ -22,7 +22,8 @@ drill:
    real path in this text; bare `codex-ask` rides PATH order, where a
    brew-installed binary can shadow the plugin's bin/). Forward the caller's
    question and pointers verbatim; variants
-   only when the prompt asks (`-m luna`, `--image`, `--schema <file>`). Record
+   only when the prompt asks (`-m luna`, `--image`, `--lane <name>`,
+   `--schema <name|file>`). Record
    the printed `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines. One dispatch per
    owner: a second `--dispatch --owner` from the same agent lands both
    completions in one mailbox, where one park drains them together — a second
