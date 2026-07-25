@@ -1,1 +1,1 @@
-{"v":1,"lamport":4,"session":"9412fa26-d5c6-4349-bc14-48aab925777e","ops":[{"kind":"set_criterion_status","id":"c98219cea5254bbb03c6a5b8cf7723d0","status":"met","note":"Exact-commit checkout (ref: inputs.commit || github.sha) untouched; 2da9cee's guide/workflow_contract_test.go green in the full suite and in the v0.1.50 release-gate test job."}]}
+{"v":1,"lamport":5,"session":"9412fa26-d5c6-4349-bc14-48aab925777e","ops":[{"kind":"set_status","status":"done"},{"kind":"link_commit","sha":"eae5af0dafaf44468924cd2d23a876226b26da46"}]}
