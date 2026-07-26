@@ -283,19 +283,26 @@ func isRegularFile(path string) bool {
 //go:embed AGENTS.md
 var embeddedAgentsMd string
 
-func readAgentsMd() string {
-	// Disk copies override the embedded developer feed; try the invocation layout first.
+// pluginRoots lists the plugin roots whose disk copies override the embedded
+// fallbacks, most authoritative first: the root the binrun shim exports (under
+// binrun the binary runs from a cache shard, so neither path layout resolves),
+// then the invocation layout, then the resolved-binary layout.
+func pluginRoots() []string {
+	var roots []string
+	if root := os.Getenv("BINRUN_PLUGIN_ROOT"); root != "" {
+		roots = append(roots, root)
+	}
 	if exe, err := os.Executable(); err == nil {
-		if b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), "AGENTS.md")); err == nil { //nolint:gosec // reads the plugin's own AGENTS.md, by design
+		roots = append(roots, filepath.Dir(filepath.Dir(exe)))
+	}
+	return append(roots, filepath.Dir(filepath.Dir(selfPath)))
+}
+
+func readAgentsMd() string {
+	for _, root := range pluginRoots() {
+		if b, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err == nil { //nolint:gosec // reads the plugin's own AGENTS.md, by design
 			return strings.TrimRight(string(b), "\n")
 		}
-	}
-	// Try the resolved binary layout before using the always-present embedded copy.
-	root := filepath.Dir(filepath.Dir(selfPath))
-	path := filepath.Join(root, "AGENTS.md")
-	b, err := os.ReadFile(path) //nolint:gosec // reads the plugin's own AGENTS.md by resolved path, by design
-	if err == nil {
-		return strings.TrimRight(string(b), "\n")
 	}
 	return strings.TrimRight(embeddedAgentsMd, "\n")
 }
@@ -311,17 +318,13 @@ var laneNames = []string{"review", "refute", "security", "diagnose", "implement"
 var schemaNames = []string{"verdict", "findings", "refutations"}
 
 // readShipped resolves one shipped file (slash-separated, relative to the plugin
-// root) the way readAgentsMd resolves AGENTS.md: disk copies from either
-// invocation layout override the always-present embedded copy.
+// root) the way readAgentsMd resolves AGENTS.md: a disk copy under any
+// pluginRoots entry overrides the always-present embedded copy.
 func readShipped(embedded embed.FS, rel string) []byte {
-	if exe, err := os.Executable(); err == nil {
-		if b, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), rel)); err == nil { //nolint:gosec // reads the plugin's own shipped file, by design
+	for _, root := range pluginRoots() {
+		if b, err := os.ReadFile(filepath.Join(root, rel)); err == nil { //nolint:gosec // reads the plugin's own shipped file, by design
 			return b
 		}
-	}
-	root := filepath.Dir(filepath.Dir(selfPath))
-	if b, err := os.ReadFile(filepath.Join(root, rel)); err == nil { //nolint:gosec // reads the plugin's own shipped file by resolved path, by design
-		return b
 	}
 	b, _ := embedded.ReadFile(rel)
 	return b

@@ -452,6 +452,54 @@ func TestDispatchBareBinaryEmbedsAgentsMd(t *testing.T) {
 	}
 }
 
+// TestDispatchEnvPluginRootOverridesEmbed covers the binrun layout: the binary
+// runs from a cache shard that carries no plugin files, so only the plugin root
+// the shim exports can point at the disk AGENTS.md and lanes/.
+func TestDispatchEnvPluginRootOverridesEmbed(t *testing.T) {
+	source := codexAskBin(t)
+	shard := mustTempDir(t)
+	cached := filepath.Join(shard, "codex-ask")
+	binary, err := os.ReadFile(source) //nolint:gosec // copies the test-built binary fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cached, binary, 0o755); err != nil { //nolint:gosec // test fixture binary must be executable
+		t.Fatal(err)
+	}
+
+	pluginRoot := mustTempDir(t)
+	writeFile(t, filepath.Join(pluginRoot, "AGENTS.md"), "binrun-layout developer instructions\n")
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "lanes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pluginRoot, "lanes", "review.md"), "binrun-layout review lane\n")
+
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(cached, "--lane", "review", "ping") //nolint:gosec // drives the copied binary under test
+	c.Dir = scope
+	c.Env = append(dispatchEnv(home, "", runs, stubDir, scope), "BINRUN_PLUGIN_ROOT="+pluginRoot)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("dispatch with exported plugin root: %v\nstderr: %s", err, stderr.String())
+	}
+	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
+	if reply == "" {
+		t.Fatalf("no REPLY_FILE printed:\n%s", stdout.String())
+	}
+	sdir := filepath.Dir(reply)
+	t.Cleanup(func() { killLane(sdir) })
+	want := "binrun-layout developer instructions\n\nbinrun-layout review lane"
+	if got := developerInstructions(t, sdir); got != want {
+		t.Fatalf("developer instructions = %q, want %q", got, want)
+	}
+}
+
 // askRun drives the built binary against a stub codex under the given runs dir,
 // returning stdout, stderr, and the exit code.
 func askRun(t *testing.T, runs, stub string, args ...string) (string, string, int) {
