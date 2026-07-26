@@ -20,6 +20,11 @@ const (
 	effort    = "xhigh"
 
 	pruneAgeS = 7 * 24 * 3600
+
+	// registerGraceS bounds the registration window: a dispatch publishes meta, then
+	// the detached worker's pid. Past it with no pid the dispatching process died
+	// before recording one, so --await gives up and classify calls the lane died.
+	registerGraceS = 15
 )
 
 const (

@@ -786,6 +786,53 @@ func TestWatchEmitsOnSettleAndExits(t *testing.T) {
 	}
 }
 
+// TestWatchSettlesExpiredRegistration arms --watch on a lane whose dispatcher died
+// inside the registration window (meta published, no pid ever recorded): the watch
+// settles it as died instead of polling a forever-pending lane.
+func TestWatchSettlesExpiredRegistration(t *testing.T) {
+	bin := codexAskBin(t)
+	home := shortHome(t)
+	runs := mustTempDir(t)
+
+	sdir, err := os.MkdirTemp(runs, "codex-ask.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := filepath.Join(sdir, "meta")
+	reply := filepath.Join(sdir, "codex-r-x")
+	writeFile(t, meta, reply+"\n"+filepath.Join(sdir, "codex-q-x.log")+"\n")
+	aged := time.Now().Add(-(registerGraceS + 1) * time.Second)
+	if err := os.Chtimes(meta, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	c := exec.Command(bin, "--watch", sdir) //nolint:gosec // drives the built binary under test
+	c.Env = dispatchEnv(home, "", runs, mustTempDir(t), sdir)
+	var stdout bytes.Buffer
+	c.Stdout = &stdout
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.Wait() }()
+	select {
+	case werr := <-done:
+		if werr != nil {
+			t.Fatalf("watch exited non-zero: %v\n%s", werr, stdout.String())
+		}
+	case <-time.After(15 * time.Second):
+		_ = c.Process.Kill()
+		t.Fatalf("watch never settled an expired registration; output: %s", stdout.String())
+	}
+	var rec psRecord
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout.String())), &rec); err != nil {
+		t.Fatalf("bad watch record %q: %v", stdout.String(), err)
+	}
+	if rec.State != "died" {
+		t.Fatalf("record = %+v, want died", rec)
+	}
+}
+
 // TestOwnerWakeFallsBackToClaudePID seeds the subject with a claude pid, then
 // wakes with a rotated session id: resolution must fall back to (pid, scope) —
 // the production survival path when CLAUDE_CODE_SESSION_ID rotates mid-run.

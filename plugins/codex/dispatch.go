@@ -151,6 +151,9 @@ loop:
 	}
 
 	laneLock := acquireLaneLock(sdir, true)
+	// Never runs (every path ends in os.Exit) but anchors laneLock against the
+	// os.File finalizer, whose early close would release the flock mid-run.
+	defer releaseLaneLock(laneLock)
 	if scratch != "" {
 		// Refuse a still-alive lane; a meta <5s old with no pid is the launch window
 		// before a worker checks in. A finished lane (status written) stays reusable.
@@ -224,6 +227,13 @@ loop:
 	}
 	argv = append(argv, extraFlags...)
 
+	// Reap the prior generation's staged reply temp (a SIGKILLed worker can't run
+	// its own cleanup) — but only a lane-local codex-r-* path, so a corrupt meta
+	// can never name an arbitrary victim.
+	if old := lineAt(metaLines(join(sdir, "meta")), 0); strings.HasPrefix(filepath.Base(old), "codex-r-") &&
+		filepath.Dir(old) == filepath.Clean(sdir) {
+		_ = os.Remove(old + ".tmp") //nolint:gosec // best-effort sweep of the lane's own staged reply temp
+	}
 	// The exclusive lane lock makes this reset and the replacement metadata one
 	// publication: --await cannot observe the transient empty generation.
 	for _, stale := range []string{"status", "pid", "lstart", "meta", "cmd", "register"} {
@@ -264,7 +274,6 @@ loop:
 	// carries the exclusive lock to process exit so no replacement generation can
 	// publish between its final poll and report.
 	if dispatch {
-		releaseLaneLock(laneLock)
 		os.Exit(0)
 	}
 	pollStatus(sdir, reply, logf)

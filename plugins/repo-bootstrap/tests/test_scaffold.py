@@ -405,12 +405,16 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
     assert "codex-q-$$" not in text and "codex-r-$$" not in text
     # print-first: the recovery paths print before the worker (and thus codex) launches
     assert text.index("REPLY_FILE:") < text.index("detachWorker(sdir)")
-    # Async launches relinquish the publication lock after detach; foreground
-    # launches have no explicit release and carry it through poll/report to exit.
+    # The publication lock is deferred at acquisition as a GC anchor and no branch
+    # releases early: the flock rides to process exit on every path.
     dispatch = (plugin_root / "dispatch.go").read_text()
     assert dispatch.count("releaseLaneLock(laneLock)") == 1
     assert re.search(
-        r"if dispatch \{\s+releaseLaneLock\(laneLock\)\s+os\.Exit\(0\)\s+\}"
+        r"laneLock := acquireLaneLock\(sdir, true\)\s+(?://[^\n]*\s+)*defer releaseLaneLock\(laneLock\)",
+        dispatch,
+    )
+    assert re.search(
+        r"if dispatch \{\s+os\.Exit\(0\)\s+\}"
         r"\s+pollStatus\(sdir, reply, logf\)"
         r"\s+reportStatus\(readStatus\(sdir\), reply, logf\)",
         dispatch,
@@ -1317,12 +1321,14 @@ def test_codex_ask_ps_lists_and_prunes(templates_dir, tmp_path):
     assert recs2["notmine"]["state"] == "completed"
     assert safe.exists(), "a non-codex-ask-named dir must never be pruned"
 
-    # a non-terminal run is never pruned, however old, even with the prefix
+    # a non-terminal run is never pruned, however old, even with the prefix: an aged
+    # pid-less lane reads died once the registration grace lapses, and died is not
+    # terminal
     pend = _craft_lane(runs / "codex-ask.oldpending")
     for p in [pend, *pend.rglob("*")]:
         os.utime(p, (stale, stale))
     recs3 = _ps_records(script, runs)
-    assert recs3["codex-ask.oldpending"]["state"] == "pending"
+    assert recs3["codex-ask.oldpending"]["state"] == "died"
     assert pend.exists()
 
 
@@ -1395,7 +1401,12 @@ def test_codex_ask_foreground_lane_reuse_serializes(templates_dir, tmp_path):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         time.sleep(0.5)
-        assert replacement.poll() is None, "same-lane replacement escaped the foreground lock"
+        if replacement.poll() is not None:
+            escaped_out, escaped_err = replacement.communicate(timeout=15)
+            raise AssertionError(
+                "same-lane replacement escaped the foreground lock: "
+                f"rc={replacement.returncode} stdout={escaped_out!r} stderr={escaped_err!r}"
+            )
         assert (lane / "meta").read_text() == generation, "replacement changed the active generation"
         release.write_text("go")
         assert proc.wait(timeout=15) == 0
@@ -1604,9 +1615,9 @@ def test_codex_ask_runs_dir_guard(templates_dir, tmp_path):
     assert not (cwd / "runs").exists()
 
 
-def test_codex_ask_stale_tmp_swept_on_read(templates_dir, tmp_path):
-    # A terminal lane with a leftover <reply>.tmp (a SIGKILLed worker couldn't run
-    # its finally) has the .tmp reaped when --collect classifies it.
+def test_codex_ask_classify_never_mutates_the_lane(templates_dir, tmp_path):
+    # Classifying is read-only: a leftover <reply>.tmp survives --collect, because a
+    # lane holding one may still have a live worker staging its reply into it.
     script = _codex_ask(templates_dir)
     root = tmp_path / "root"
     root.mkdir()
@@ -1615,7 +1626,7 @@ def test_codex_ask_stale_tmp_swept_on_read(templates_dir, tmp_path):
     stale.write_text("orphaned partial\n")
     _, lanes = _collect_lanes(script, root)
     assert lanes["done"]["state"] == "completed"
-    assert not stale.exists(), "stale reply.tmp should be swept at read time"
+    assert stale.exists(), "--collect must not mutate the lane it classifies"
 
 
 def test_codex_ask_await_generation_recheck(templates_dir, tmp_path):

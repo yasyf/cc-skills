@@ -65,13 +65,20 @@ func runsBase() string {
 		base = override
 	} else {
 		xdg := os.Getenv("XDG_CACHE_HOME")
-		if xdg == "" {
+		switch {
+		case xdg == "":
 			home, _ := os.UserHomeDir()
 			xdg = filepath.Join(home, ".cache")
+		case !strings.HasPrefix(xdg, "/"):
+			die("codex-ask: XDG_CACHE_HOME must be an absolute path", 2)
 		}
 		base = filepath.Join(xdg, "codex-ask", "runs")
 	}
 	_ = os.MkdirAll(base, 0o755) //nolint:gosec // 0o755 matches the Python spec's runs-dir mode
+	// Canonical, so the prune containment check compares real paths (macOS /var).
+	if resolved, err := filepath.EvalSymlinks(base); err == nil {
+		base = resolved
+	}
 	return base
 }
 
@@ -97,6 +104,24 @@ func acquireLaneLock(sdir string, exclusive bool) *os.File {
 		die("codex-ask: cannot acquire lane lock: "+err.Error(), 1)
 	}
 	return f
+}
+
+// tryLaneLock: the non-blocking acquire — contention or any open failure returns
+// false. The pruner skips such a lane; --watch retries it next poll.
+func tryLaneLock(sdir string, exclusive bool) (*os.File, bool) {
+	f, err := os.OpenFile(join(sdir, "lane.lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // per-lane coordination file
+	if err != nil {
+		return nil, false
+	}
+	how := syscall.LOCK_SH
+	if exclusive {
+		how = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return nil, false
+	}
+	return f, true
 }
 
 func releaseLaneLock(f *os.File) {
@@ -235,7 +260,11 @@ func classify(d string) laneInfo {
 			state = "failed"
 		}
 	case !isFile(pidFile):
-		state = "pending"
+		if registrationExpired(d) {
+			state = "died"
+		} else {
+			state = "pending"
+		}
 	case alive:
 		state = "running"
 	case nonempty(r) && (!turnStarted(log) || hasCompletedMarker(log)):
@@ -244,11 +273,6 @@ func classify(d string) laneInfo {
 		state = "died"
 	}
 
-	// Stale-.tmp sweep: a SIGKILLed worker can't run its cleanup, so reap the
-	// orphaned "<reply>.tmp" once the run is no longer in flight.
-	if r != "" && state != "running" && state != "pending" {
-		_ = os.Remove(r + ".tmp") //nolint:gosec // best-effort sweep of the lane's own staged reply temp
-	}
 	return laneInfo{state, r, log, replySize, excerpt, qcount, pid, info}
 }
 
@@ -317,14 +341,14 @@ func psMode() {
 	now := nowSec()
 	entries, _ := os.ReadDir(base)
 	for _, e := range entries {
-		if isDir(join(base, e.Name())) { // follow symlinks, like Python's is_dir()
-			psWalk(join(base, e.Name()), now)
+		if e.IsDir() { // lstat-based: the pruning walk never descends a symlinked entry
+			psWalk(join(base, e.Name()), base, now)
 		}
 	}
 	os.Exit(0)
 }
 
-func psWalk(d string, now float64) {
+func psWalk(d, base string, now float64) {
 	hasRunState := exists(join(d, "meta")) || exists(join(d, "status")) || exists(join(d, "pid"))
 	if !hasRunState {
 		// A fan-out container holds lane subdirs and no run state of its own:
@@ -332,26 +356,33 @@ func psWalk(d string, now float64) {
 		var subdirs []string
 		if entries, err := os.ReadDir(d); err == nil {
 			for _, e := range entries {
-				if isDir(join(d, e.Name())) { // follow symlinks, like Python's is_dir()
+				if e.IsDir() { // lstat-based: the pruning walk never descends a symlinked entry
 					subdirs = append(subdirs, join(d, e.Name()))
 				}
 			}
 		}
 		if len(subdirs) > 0 {
 			for _, c := range subdirs {
-				psWalk(c, now)
+				psWalk(c, base, now)
 			}
 			return
 		}
 	}
 	li := classify(d)
-	// Prune-and-skip before emitting: reclassify once more right before rmtree to
-	// close the classify->delete TOCTOU (a reuse mid-walk flips it non-terminal).
+	// Prune only under a non-blocking lane lock; reverify state, age, and
+	// canonical containment right before rmtree (classify->delete TOCTOU).
 	if startsWithRunPrefix(filepath.Base(d)) && isFile(join(d, "meta")) &&
-		contains(terminal, li.state) && now-runMtime(d) > pruneAgeS &&
-		contains(terminal, classify(d).state) {
-		_ = os.RemoveAll(d)
-		return
+		contains(terminal, li.state) && now-runMtime(d) > pruneAgeS {
+		if lock, ok := tryLaneLock(d, true); ok {
+			resolved, err := filepath.EvalSymlinks(d)
+			if err == nil && strings.HasPrefix(resolved+"/", base+"/") &&
+				contains(terminal, classify(d).state) && now-runMtime(d) > pruneAgeS {
+				_ = os.RemoveAll(d)
+				releaseLaneLock(lock)
+				return
+			}
+			releaseLaneLock(lock)
+		}
 	}
 	var logAge *float64
 	if li.log != "" && exists(li.log) {
@@ -377,6 +408,8 @@ func psWalk(d string, now float64) {
 // watchMode: the registry stream for a top-level Monitor watch. Emits one JSONL
 // psRecord per watched run when it settles (any state but pending/running) and
 // exits once all have settled; a run already settled at arm time emits at once.
+// Non-blocking shared locks, held to settle, pin each watched generation; an
+// exclusively-held lane reads unsettled, never stalling the rest.
 func watchMode(args []string) {
 	all := false
 	var targets []string
@@ -406,12 +439,27 @@ func watchMode(args []string) {
 		}
 	}
 	settled := map[string]bool{}
+	locks := map[string]*os.File{}
+	gens := map[string][2]string{}
 	for {
 		done := true
 		for _, d := range watched {
 			if settled[d] {
 				continue
 			}
+			if locks[d] == nil {
+				f, ok := tryLaneLock(d, false)
+				switch {
+				case ok:
+					locks[d] = f
+					lines := metaLines(join(d, "meta"))
+					gens[d] = [2]string{lineAt(lines, 0), lineAt(lines, 1)}
+				case isDir(d): // an exclusive holder is mid-flight: unsettled by definition
+					done = false
+					continue
+				}
+			}
+			verifyGeneration(d, gens[d][0], gens[d][1])
 			li := classify(d)
 			if li.state == "pending" || li.state == "running" {
 				done = false
@@ -419,6 +467,10 @@ func watchMode(args []string) {
 			}
 			settled[d] = true
 			emitWatchRecord(d, li)
+			if lock := locks[d]; lock != nil {
+				releaseLaneLock(lock)
+				locks[d] = nil
+			}
 		}
 		if done {
 			os.Exit(0)

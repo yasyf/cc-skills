@@ -20,6 +20,7 @@ func awaitMode(target string) {
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --await scratch path
 		sdir = filepath.Dir(target)
 	}
+	rejectOutsideScratch(sdir, "--await target")
 	laneLock := acquireLaneLock(sdir, false)
 	defer releaseLaneLock(laneLock)
 	if !isFile(join(sdir, "meta")) {
@@ -35,16 +36,15 @@ func awaitMode(target string) {
 }
 
 // pollStatus: block until <sdir>/status exists and is non-empty. While the pid is
-// absent wait generously (~15s) for the worker to register it; only a recorded-
-// then-dead pid with no status is a genuine mid-flight death (recovered if the
-// staged reply is complete). The generation check protects async awaiters and
-// remains a fail-closed invariant even though foreground dispatch retains its
+// absent wait out the registration window for the worker to register it; only a
+// recorded-then-dead pid with no status is a genuine mid-flight death (recovered
+// if the staged reply is complete). The generation check protects async awaiters
+// and remains a fail-closed invariant even though foreground dispatch retains its
 // exclusive generation lock through reporting.
 func pollStatus(sdir, reply, log string) {
 	status := join(sdir, "status")
 	pidFile := join(sdir, "pid")
 	meta := join(sdir, "meta")
-	waitPid := 0
 	grace := 0
 	for {
 		verifyGeneration(sdir, reply, log)
@@ -53,8 +53,7 @@ func pollStatus(sdir, reply, log string) {
 		}
 		switch {
 		case !exists(pidFile):
-			waitPid++
-			if waitPid >= 60 {
+			if registrationExpired(sdir) {
 				die(fmt.Sprintf("codex-ask: run at %s never registered a pid", sdir), 1)
 			}
 		case pidAlive(sdir):
@@ -113,6 +112,14 @@ func reportStatus(st, rfile, lfile string) {
 
 func readStatus(sdir string) string { return readFile(join(sdir, "status")) }
 
+// registrationExpired: registerGraceS has passed since meta was published, so a
+// lane still holding no pid never will — its dispatching process died inside the
+// registration window.
+func registrationExpired(sdir string) bool {
+	fi, err := os.Stat(join(sdir, "meta")) //nolint:gosec // stats the lane's own meta file, by design
+	return err == nil && nowSec()-float64(fi.ModTime().UnixNano())/1e9 > registerGraceS
+}
+
 // pidAlive: kill-0 AND the recorded start-time still matches, so a recycled pid
 // reads dead. A blank/missing recorded lstart degrades to bare kill-0.
 func pidAlive(sdir string) bool {
@@ -148,8 +155,10 @@ func readPid(pidFile string) (int, bool) {
 	if !allDigits(s) {
 		return 0, false
 	}
+	// kill(0, 0) signals the caller's own process group, so a corrupt "0" would
+	// read alive forever.
 	n, err := strconv.Atoi(s)
-	return n, err == nil
+	return n, err == nil && n > 0
 }
 
 func kill0(pid int) bool {
