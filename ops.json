@@ -1,1 +1,1 @@
-{"v":1,"lamport":6,"session":"053e6c67-586d-4121-ba6e-50f636dbdf07","ops":[{"kind":"remove_criterion","id":"5315095d3e8dc4aeff964a65a6e29621"}]}
+{"v":1,"lamport":7,"session":"053e6c67-586d-4121-ba6e-50f636dbdf07","ops":[{"kind":"add_criterion","id":"3127ae5b55d0fa50a6740779efa59cf1","text":"cc-context: task test and task lint pass over the fully reconciled tree (all four phases plus both new subcommands).","script":""}]}
