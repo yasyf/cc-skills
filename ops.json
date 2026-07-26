@@ -1,1 +1,1 @@
-{"v":1,"lamport":2,"session":"053e6c67-586d-4121-ba6e-50f636dbdf07","ops":[{"kind":"remove_criterion","id":"9e7002800d602693e9eea1f44a9521f2"}]}
+{"v":1,"lamport":3,"session":"053e6c67-586d-4121-ba6e-50f636dbdf07","ops":[{"kind":"add_criterion","id":"5315095d3e8dc4aeff964a65a6e29621","text":"cc-context: task test and task lint pass, and every pre-existing expected argv sequence changes by exactly one thing — the addition of a single leading {\"git\",\"config\",\"--get\",\"ccx.nogt\"} record. No other record added, removed, reordered, or altered.","script":""}]}
