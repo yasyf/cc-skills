@@ -1,0 +1,10 @@
+{
+  "name": "open-pr",
+  "description": "Open a pull request that reads like the repo's own maintainers wrote it: contribution rules and PR template via `ccx vcs guidelines`, house style scouted from a bot-filtered sample of recent human-authored merged PRs, register calibrated against a local wlm voice profile, a politeness and standards-conformance pass on repos you do not own, shipped through `ccx vcs ship`, and a background watcher that clears mechanical CI and bot failures. Use when opening, submitting, or contributing a PR, or when iterating one to green.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}
