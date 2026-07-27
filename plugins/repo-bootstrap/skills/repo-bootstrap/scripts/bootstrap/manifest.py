@@ -387,7 +387,7 @@ FILES = (
     ),
     FileSpec(".github/workflows/ci.yml", "swift/github/workflows/ci.yml", "swift"),
     # feature-gated swift file (the release pipeline; off by default). One caller
-    # workflow forwarding to the shared release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518 reusable workflow
+    # workflow forwarding to the shared release-swift.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b reusable workflow
     # (universal swift build + codesign/notarytool + binary cask to the shared tap) —
     # no goreleaser config; goreleaser has no Swift builder.
     FileSpec(".github/workflows/release.yml", "swift/github/workflows/release.yml", "swift", feature="release"),

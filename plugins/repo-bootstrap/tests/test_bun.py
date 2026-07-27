@@ -150,7 +150,7 @@ def test_bun_release_workflow_uses_reusable_workflow(bun_var_pairs):
     plan, _ = _real_plan("bun", bun_var_pairs, features=["release"])
     release = plan[".github/workflows/release.yml"]
     assert (
-        "uses: janedoe/homebrew-tap/.github/workflows/release-bun.yml@7cc8a6c981cbec10fcb7f19bd75b36e9ee65ea7e"
+        "uses: janedoe/homebrew-tap/.github/workflows/release-bun.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b"
         in release
     )
     assert "secrets: inherit" in release
@@ -165,7 +165,7 @@ def test_bun_agents_renders_directives_and_release(bun_var_pairs):
     assert '"cc-skills:version-control"' in layout
     # release on -> the Releases fragment carries the bun release caller and is listed
     assert '"releases"' in layout
-    assert "release-bun.yml@7cc8a6c981cbec10fcb7f19bd75b36e9ee65ea7e" in plan[
+    assert "release-bun.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b" in plan[
         ".claude/fragments/AGENTS.md/releases.fragment.md"
     ]
     plan_off, _ = _real_plan("bun", bun_var_pairs, features=[])

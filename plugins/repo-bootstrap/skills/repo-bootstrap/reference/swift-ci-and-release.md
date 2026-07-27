@@ -1,7 +1,7 @@
 # Swift CI & Release
 
 The swift/swift-app CI workflows and the swift layer's opt-in `release` feature —
-a universal-binary Homebrew cask via the shared `release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518`
+a universal-binary Homebrew cask via the shared `release-swift.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b`
 reusable workflow in `yasyf/homebrew-tap`. Scaffolded files: `.github/workflows/
 ci.yml` (always) and `.github/workflows/release.yml` (feature `release`, swift
 only). There is nothing else to configure — no goreleaser config, no cask
@@ -39,7 +39,7 @@ The scaffolded caller is the entire repo-side configuration:
 ```yaml
 jobs:
   release:
-    uses: <user>/homebrew-tap/.github/workflows/release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518
+    uses: <user>/homebrew-tap/.github/workflows/release-swift.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b
     secrets: inherit
 ```
 

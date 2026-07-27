@@ -292,7 +292,7 @@ def test_swift_agents_renders_directives_and_release(swift_var_pairs):
     # release on -> the Releases fragment carries the swift release caller and is listed
     assert '"releases"' in layout
     assert (
-        "release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518"
+        "release-swift.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b"
         in plan[".claude/fragments/AGENTS.md/releases.fragment.md"]
     )
     plan_off, _ = _real_plan("swift", swift_var_pairs, features=[])
@@ -351,7 +351,7 @@ def test_swift_release_workflow_uses_reusable_workflow(swift_var_pairs):
     release = plan[".github/workflows/release.yml"]
     assert (
         "uses: janedoe/homebrew-tap/.github/workflows/"
-        "release-swift.yml@1125c8b0424d70bfed2059432ee9df639ff61518"
+        "release-swift.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b"
         in release
     )
     assert "secrets: inherit" in release
