@@ -239,7 +239,7 @@ def expand_partials(text: str, read: Callable[[str], str], _stack: tuple[str, ..
 
     ``_partials/`` seeds are the only partial mechanism left: shared cc-guides
     fragments are now composed by ``cc-guides render`` through the scaffolded
-    ``.claude/fragments/<target>/`` layout dirs, never inlined here. Any other
+    ``.claude/fragments/`` layout dirs, never inlined here. Any other
     ``{{> …}}`` directive is therefore a mistake and fails loudly."""
 
     def repl(m: re.Match[str]) -> str:
@@ -394,7 +394,7 @@ def template_exists(src: str) -> bool:
 
 
 def render_sources(target: Path, force: bool) -> None:
-    """Compose every ``.claude/fragments/<target>/`` layout dir the scaffold wrote
+    """Compose every ``.claude/fragments/`` layout dir the scaffold wrote
     (AGENTS.md, CLAUDE.md, .gitignore, .claude/settings.json, .mcp.json, and the plugin
     installer) into its artifact via a full ``cc-guides render``. cc-guides resolves the imported
     shared fragments from ``github:yasyf/cc-skills@main`` and stamps each artifact.

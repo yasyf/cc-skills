@@ -124,7 +124,8 @@ DERIVED = (
 FILES = (
     # --- base layer ---
     # cc-guides v3 artifacts (AGENTS.md, CLAUDE.md, settings.json, .mcp.json): scaffold
-    # writes a `.claude/fragments/<target>/` layout dir; `cc-guides render` composes it.
+    # writes a `.claude/fragments/` layout dir; `cc-guides render` composes it into the
+    # artifact its `target` key names, defaulting to the dir's own path.
     FileSpec(".claude/fragments/AGENTS.md/layout.toml", "base/claude/fragments/AGENTS.md/layout.toml", "base"),
     FileSpec(
         ".claude/fragments/AGENTS.md/{{PROJECT_NAME}}-development-guide.fragment.md",
@@ -160,12 +161,12 @@ FILES = (
         "base",
     ),
     FileSpec(
-        ".claude/fragments/.mcp.json/layout.toml",
+        ".claude/fragments/mcp.json/layout.toml",
         "base/claude/fragments/mcp.json/layout.toml",
         "base",
     ),
     FileSpec(
-        ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
+        ".claude/fragments/mcp.json/mcp-overrides.fragment.json",
         "base/claude/fragments/mcp.json/mcp-overrides.fragment.json",
         "base",
     ),
@@ -179,9 +180,9 @@ FILES = (
     FileSpec(".claude/hooks/STYLEGUIDE.md", "base/claude/hooks/STYLEGUIDE.md", "base"),
     # .gitignore is a cc-guides artifact: the layout composes `cc-skills:gitignore-*`
     # (base + language variant + docs) then `gitignore-local` last, like settings.json.
-    FileSpec(".claude/fragments/.gitignore/layout.toml", "base/claude/fragments/gitignore/layout.toml", "base"),
+    FileSpec(".claude/fragments/gitignore/layout.toml", "base/claude/fragments/gitignore/layout.toml", "base"),
     FileSpec(
-        ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",
+        ".claude/fragments/gitignore/gitignore-local.fragment.gitignore",
         "base/claude/fragments/gitignore/gitignore-local.fragment.gitignore",
         "base",
     ),
@@ -215,7 +216,7 @@ FILES = (
     # python gitignore layout imports gitignore-python on top of gitignore-base, plus
     # gitignore-docs when FEATURE_DOCS is enabled (the layout.toml gates it inline).
     FileSpec(
-        ".claude/fragments/.gitignore/layout.toml",
+        ".claude/fragments/gitignore/layout.toml",
         "python/claude/fragments/gitignore/layout.toml",
         "python",
     ),
@@ -226,7 +227,7 @@ FILES = (
     FileSpec(".python-version", "python/python-version", "python"),
     FileSpec(".github/workflows/ci.yml", "python/github/workflows/ci.yml", "python"),
     FileSpec(
-        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        ".claude/fragments/pre-commit-config.yaml/layout.toml",
         "python/claude/fragments/pre-commit-config.yaml/layout.toml",
         "python",
     ),
@@ -304,7 +305,7 @@ FILES = (
         "go",
     ),
     FileSpec(
-        ".claude/fragments/.gitignore/layout.toml",
+        ".claude/fragments/gitignore/layout.toml",
         "go/claude/fragments/gitignore/layout.toml",
         "go",
     ),
@@ -322,7 +323,7 @@ FILES = (
     FileSpec(".editorconfig", "go/editorconfig", "go"),
     FileSpec(".github/workflows/ci.yml", "go/github/workflows/ci.yml", "go"),
     FileSpec(
-        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        ".claude/fragments/pre-commit-config.yaml/layout.toml",
         "go/claude/fragments/pre-commit-config.yaml/layout.toml",
         "go",
     ),
@@ -360,14 +361,14 @@ FILES = (
     # both swift layers share one gitignore layout (Xcode + SwiftPM + XcodeBuildMCP
     # state), as they shared the one swift/gitignore template.
     FileSpec(
-        ".claude/fragments/.gitignore/layout.toml",
+        ".claude/fragments/gitignore/layout.toml",
         "swift/claude/fragments/gitignore/layout.toml",
         "swift",
     ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift"),
     FileSpec("README.md", "swift/README.md", "swift"),
     FileSpec(
-        ".claude/fragments/.mcp.json/layout.toml",
+        ".claude/fragments/mcp.json/layout.toml",
         "swift/claude/fragments/mcp.json/layout.toml",
         "swift",
     ),
@@ -381,7 +382,7 @@ FILES = (
     FileSpec(".swiftformat", "swift/swiftformat", "swift"),
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift"),
     FileSpec(
-        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        ".claude/fragments/pre-commit-config.yaml/layout.toml",
         "swift/claude/fragments/pre-commit-config.yaml/layout.toml",
         "swift",
     ),
@@ -417,14 +418,14 @@ FILES = (
     # gitignore layout is identical to the swift layer's (shared Xcode/SwiftPM state),
     # so share the one src rather than forking a copy.
     FileSpec(
-        ".claude/fragments/.gitignore/layout.toml",
+        ".claude/fragments/gitignore/layout.toml",
         "swift/claude/fragments/gitignore/layout.toml",
         "swift-app",
     ),
     FileSpec("STYLEGUIDE.md", "swift/STYLEGUIDE.md", "swift-app"),
     FileSpec("README.md", "swift-app/README.md", "swift-app"),
     FileSpec(
-        ".claude/fragments/.mcp.json/layout.toml",
+        ".claude/fragments/mcp.json/layout.toml",
         "swift/claude/fragments/mcp.json/layout.toml",
         "swift-app",
     ),
@@ -454,7 +455,7 @@ FILES = (
     FileSpec(".swiftformat", "swift/swiftformat", "swift-app"),
     FileSpec(".swiftlint.yml", "swift/swiftlint.yml", "swift-app"),
     FileSpec(
-        ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+        ".claude/fragments/pre-commit-config.yaml/layout.toml",
         "swift/claude/fragments/pre-commit-config.yaml/layout.toml",
         "swift-app",
     ),
@@ -485,7 +486,7 @@ FILES = (
         "bun",
     ),
     FileSpec(
-        ".claude/fragments/.gitignore/layout.toml",
+        ".claude/fragments/gitignore/layout.toml",
         "bun/claude/fragments/gitignore/layout.toml",
         "bun",
     ),

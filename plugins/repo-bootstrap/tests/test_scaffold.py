@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from bootstrap import scaffold
+from bootstrap import manifest, scaffold
 from bootstrap.common import Notice, PlanItem, ScaffoldError, TransformCtx
 
 DATE = datetime.date(2026, 6, 8)
@@ -70,10 +70,10 @@ FRAGMENT_DESTS = {
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
-    ".claude/fragments/.mcp.json/layout.toml",
-    ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
-    ".claude/fragments/.gitignore/layout.toml",  # root .gitignore layout (base + language variant)
-    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",  # repo-local overlay seed
+    ".claude/fragments/mcp.json/layout.toml",
+    ".claude/fragments/mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/gitignore/layout.toml",  # root .gitignore layout (base + language variant)
+    ".claude/fragments/gitignore/gitignore-local.fragment.gitignore",  # repo-local overlay seed
 }
 
 BASE_DESTS = FRAGMENT_DESTS | {
@@ -83,6 +83,47 @@ BASE_DESTS = FRAGMENT_DESTS | {
     ".github/workflows/guides.yml",  # cc-guides shim onto the reusable Guides workflow
     "LICENSE",
 }
+
+# A layout dir's path below .claude/fragments/ IS the artifact path unless the layout
+# declares `target`, so these three de-dot their dir and name the dot-path via `target`.
+DEDOTTED_LAYOUTS = {
+    "gitignore": ".gitignore",
+    "mcp.json": ".mcp.json",
+    "pre-commit-config.yaml": ".pre-commit-config.yaml",
+}
+# .claude/ and .github/ are real directories in a scaffolded tree, so a dot-named
+# fragment dir at either shadows no file and keeps its name.
+DIR_ARTIFACT_ROOTS = (".claude", ".github")
+
+
+def fragment_heads():
+    prefix = ".claude/fragments/"
+    return {
+        (spec.dest[len(prefix):].split("/")[0], spec)
+        for spec in manifest.FILES
+        if spec.dest.startswith(prefix)
+    }
+
+
+def test_no_fragment_dir_shadows_a_file():
+    for head, spec in fragment_heads():
+        assert not head.startswith(".") or head in DIR_ARTIFACT_ROOTS, (
+            f"{spec.dest} puts a file-shadowing dir at .claude/fragments/{head}"
+        )
+
+
+def test_dedotted_layouts_declare_their_target():
+    templates = Path(__file__).parents[1] / "skills" / "repo-bootstrap" / "templates"
+    seen = set()
+    for head, spec in fragment_heads():
+        if head not in DEDOTTED_LAYOUTS or not spec.dest.endswith("/layout.toml"):
+            continue
+        seen.add(head)
+        body = (templates / spec.src).read_text()
+        assert f'target = "{DEDOTTED_LAYOUTS[head]}"\n' in body, (
+            f"{spec.src} must declare target = \"{DEDOTTED_LAYOUTS[head]}\" or it renders to {head}"
+        )
+    assert seen == set(DEDOTTED_LAYOUTS)
 
 
 def test_base_selection_exact(base_var_pairs):
@@ -98,7 +139,7 @@ def test_python_both_features_substitutes_package(py_var_pairs):
     got = dests("python", py_var_pairs)
     assert "demo_proj/cli.py" in got and "demo_proj/__init__.py" in got
     assert ".claude/ty-quiet.toml" in got  # python-only ty silence config (absent from BASE_DESTS)
-    assert ".claude/fragments/.pre-commit-config.yaml/layout.toml" in got
+    assert ".claude/fragments/pre-commit-config.yaml/layout.toml" in got
     assert ".pre-commit-config.yaml" not in got
     assert ".claude/fragments/great-docs.yml/layout.toml" in got  # docs
     assert ".github/workflows/release-pypi.yml" in got  # pypi
@@ -141,7 +182,7 @@ GO_DESTS = FRAGMENT_DESTS | {
     ".claude/jj-config.toml", ".claude/hooks/STYLEGUIDE.md",
     ".github/workflows/guides.yml",
     "LICENSE", ".editorconfig", ".golangci.yml", "Taskfile.yml",
-    ".claude/fragments/.pre-commit-config.yaml/layout.toml", ".github/workflows/ci.yml",
+    ".claude/fragments/pre-commit-config.yaml/layout.toml", ".github/workflows/ci.yml",
     "go.mod", "cmd/demo-proj/main.go",
     "internal/cli/root.go", "internal/cli/hello.go", "internal/cli/hello_test.go",
     "internal/version/version.go", "internal/log/log.go",
@@ -182,7 +223,7 @@ def test_go_overrides_base_for_shared_dest(go_var_pairs):
         == "go/claude/fragments/settings.json/layout.toml"
     )
     assert (
-        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        items[".claude/fragments/pre-commit-config.yaml/layout.toml"].src
         == "go/claude/fragments/pre-commit-config.yaml/layout.toml"
     )
     assert items["README.md"].src == "go/README.md"
@@ -1785,7 +1826,7 @@ def test_python_overrides_base_for_shared_dest(py_var_pairs):
         == "python/claude/fragments/AGENTS.md/style.fragment.md"
     )
     assert (
-        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        items[".claude/fragments/pre-commit-config.yaml/layout.toml"].src
         == "python/claude/fragments/pre-commit-config.yaml/layout.toml"
     )
     assert items["README.md"].src == "python/README.md"
@@ -1914,7 +1955,7 @@ def test_gitignore_layout_python_docs_order(py_var_pairs):
     # base first, then the language variant, then gitignore-docs (FEATURE_DOCS),
     # then repo-local gitignore-local LAST — gitignore is order-sensitive.
     plan, _ = _real_plan("python", py_var_pairs, features=["docs"])
-    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    fragments = tomllib.loads(plan[".claude/fragments/gitignore/layout.toml"])["fragments"]
     assert fragments == [
         "cc-skills:gitignore-base",
         "cc-skills:gitignore-python",
@@ -1925,7 +1966,7 @@ def test_gitignore_layout_python_docs_order(py_var_pairs):
 
 def test_gitignore_layout_python_without_docs_drops_docs(py_var_pairs):
     plan, _ = _real_plan("python", py_var_pairs, features=[])
-    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    fragments = tomllib.loads(plan[".claude/fragments/gitignore/layout.toml"])["fragments"]
     assert "cc-skills:gitignore-docs" not in fragments
     assert fragments == [
         "cc-skills:gitignore-base",
@@ -1936,7 +1977,7 @@ def test_gitignore_layout_python_without_docs_drops_docs(py_var_pairs):
 
 def test_gitignore_layout_go_order(go_var_pairs):
     plan, _ = _real_plan("go", go_var_pairs, features=[])
-    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    fragments = tomllib.loads(plan[".claude/fragments/gitignore/layout.toml"])["fragments"]
     assert fragments == [
         "cc-skills:gitignore-base",
         "cc-skills:gitignore-go",
@@ -2347,16 +2388,16 @@ def test_settings_json_composes_from_pack_fragments(base_var_pairs):
 
 def test_mcp_json_composes_from_pack_fragments(base_var_pairs):
     plan, _ = _real_plan("base", base_var_pairs)
-    layout = tomllib.loads(plan[".claude/fragments/.mcp.json/layout.toml"])
+    layout = tomllib.loads(plan[".claude/fragments/mcp.json/layout.toml"])
     assert layout["fragments"] == ["cc-skills:mcp-base", "mcp-overrides"]
     assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
-    assert json.loads(plan[".claude/fragments/.mcp.json/mcp-overrides.fragment.json"]) == {}
+    assert json.loads(plan[".claude/fragments/mcp.json/mcp-overrides.fragment.json"]) == {}
     assert ".mcp.json" not in plan
 
 
 def test_python_precommit_composes_from_pack_fragments(py_var_pairs):
     plan, _ = _real_plan("python", py_var_pairs, features=[])
-    layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+    layout = tomllib.loads(plan[".claude/fragments/pre-commit-config.yaml/layout.toml"])
     assert layout["fragments"] == ["cc-skills:precommit-base", "cc-skills:precommit-python"]
     assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
     assert ".pre-commit-config.yaml" not in plan
@@ -2364,7 +2405,7 @@ def test_python_precommit_composes_from_pack_fragments(py_var_pairs):
 
 def test_go_precommit_composes_from_pack_fragments(go_var_pairs):
     plan, _ = _real_plan("go", go_var_pairs, features=[])
-    layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+    layout = tomllib.loads(plan[".claude/fragments/pre-commit-config.yaml/layout.toml"])
     assert layout["fragments"] == ["cc-skills:precommit-base", "cc-skills:precommit-go"]
     assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
     assert ".pre-commit-config.yaml" not in plan

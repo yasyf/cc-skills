@@ -21,9 +21,10 @@ TEMPLATES = SCRIPTS.parent / "templates"
 
 # A stub `cc-guides` binary for the post-write render step, so scaffolds run offline
 # and independent of any installed cc-guides. It proves it ran in the target dir (a
-# marker file lands in cwd) and composes each `.claude/fragments/<target>/` layout dir
-# into a stub `<target>` artifact (real composition needs the network). Tests must NOT
-# depend on a real cc-guides on the machine.
+# marker file lands in cwd) and composes each `.claude/fragments/` layout dir into a
+# stub artifact at the path the layout's `target` key names, defaulting to the dir's
+# own path below `.claude/fragments/` (real composition needs the network). Tests must
+# NOT depend on a real cc-guides on the machine.
 _STUB_CC_GUIDES = r"""#!/bin/sh
 [ "$1" = "render" ] || exit 0
 : > .cc-guides-stub
@@ -31,6 +32,8 @@ find .claude/fragments -name layout.toml 2>/dev/null | while IFS= read -r lay; d
   dir="${lay%/layout.toml}"
   target="${dir#./}"
   target="${target#.claude/fragments/}"
+  declared=$(sed -n 's/^target = "\(.*\)"$/\1/p' "$lay")
+  [ -n "$declared" ] && target="$declared"
   mkdir -p "$(dirname "$target")"
   if [ "$target" = ".pre-commit-config.yaml" ]; then
     printf 'repos: []\n' > "$target"

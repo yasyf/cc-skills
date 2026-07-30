@@ -39,10 +39,10 @@ FRAGMENT_DESTS = {
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
-    ".claude/fragments/.mcp.json/layout.toml",
-    ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
-    ".claude/fragments/.gitignore/layout.toml",
-    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",
+    ".claude/fragments/mcp.json/layout.toml",
+    ".claude/fragments/mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/gitignore/layout.toml",
+    ".claude/fragments/gitignore/gitignore-local.fragment.gitignore",
 }
 
 SWIFT_DESTS = FRAGMENT_DESTS | {
@@ -55,7 +55,7 @@ SWIFT_DESTS = FRAGMENT_DESTS | {
     "Sources/DemoProj/Hello.swift", "Sources/demo-proj/Main.swift",
     "Sources/demo-proj/Version.swift",
     "Tests/DemoProjTests/HelloTests.swift",
-    ".swiftformat", ".swiftlint.yml", ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+    ".swiftformat", ".swiftlint.yml", ".claude/fragments/pre-commit-config.yaml/layout.toml",
     ".github/workflows/ci.yml",
 }
 
@@ -72,7 +72,7 @@ SWIFT_APP_DESTS = FRAGMENT_DESTS | {
     "demo-proj/Assets.xcassets/AccentColor.colorset/Contents.json",
     "demo-proj/Assets.xcassets/AppIcon.appiconset/Contents.json",
     "demo-projTests/ScaffoldSmokeTests.swift",
-    ".swiftformat", ".swiftlint.yml", ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+    ".swiftformat", ".swiftlint.yml", ".claude/fragments/pre-commit-config.yaml/layout.toml",
     ".github/workflows/ci.yml",
 }
 
@@ -117,11 +117,11 @@ def test_swift_overrides_base_for_shared_dest(swift_var_pairs):
     assert items[".claude/fragments/AGENTS.md/layout.toml"].src == "swift/claude/fragments/AGENTS.md/layout.toml"
     assert items["README.md"].src == "swift/README.md"
     assert (
-        items[".claude/fragments/.mcp.json/layout.toml"].src
+        items[".claude/fragments/mcp.json/layout.toml"].src
         == "swift/claude/fragments/mcp.json/layout.toml"
     )
     assert (
-        items[".claude/fragments/.pre-commit-config.yaml/layout.toml"].src
+        items[".claude/fragments/pre-commit-config.yaml/layout.toml"].src
         == "swift/claude/fragments/pre-commit-config.yaml/layout.toml"
     )
 
@@ -131,10 +131,10 @@ def test_swift_app_shares_swift_srcs(swift_app_var_pairs):
     # consumed by both layers — swift-app must not fork its own copies.
     r = scaffold.resolve("swift-app", [], [], swift_app_var_pairs, DATE)
     items = {item.dest: item for item in scaffold.select_files(r)}
-    for dest in ("STYLEGUIDE.md", ".claude/fragments/.mcp.json/layout.toml",
+    for dest in ("STYLEGUIDE.md", ".claude/fragments/mcp.json/layout.toml",
                  ".claude/fragments/.claude/settings.json/layout.toml",
                  ".swiftformat", ".swiftlint.yml",
-                 ".claude/fragments/.pre-commit-config.yaml/layout.toml",
+                 ".claude/fragments/pre-commit-config.yaml/layout.toml",
                  ".claude/skills/xcodebuildmcp-cli/SKILL.md"):
         assert items[dest].src.startswith("swift/"), f"{dest} forked from {items[dest].src}"
     # AGENTS prose is app-specific, so swift-app ships its own AGENTS layout dir
@@ -363,10 +363,10 @@ def test_swift_mcp_layout_imports_swift_variant(swift_var_pairs, swift_app_var_p
     expected = ["cc-skills:mcp-base", "cc-skills:mcp-swift", "mcp-overrides"]
     for layer, var_pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
         plan, _ = _real_plan(layer, var_pairs)
-        layout = tomllib.loads(plan[".claude/fragments/.mcp.json/layout.toml"])
+        layout = tomllib.loads(plan[".claude/fragments/mcp.json/layout.toml"])
         assert layout["fragments"] == expected
         assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
-        assert json.loads(plan[".claude/fragments/.mcp.json/mcp-overrides.fragment.json"]) == {}
+        assert json.loads(plan[".claude/fragments/mcp.json/mcp-overrides.fragment.json"]) == {}
         assert ".mcp.json" not in plan
 
 
@@ -374,7 +374,7 @@ def test_swift_precommit_layout_imports_swift_variant(swift_var_pairs, swift_app
     expected = ["cc-skills:precommit-base", "cc-skills:precommit-swift"]
     for layer, var_pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
         plan, _ = _real_plan(layer, var_pairs)
-        layout = tomllib.loads(plan[".claude/fragments/.pre-commit-config.yaml/layout.toml"])
+        layout = tomllib.loads(plan[".claude/fragments/pre-commit-config.yaml/layout.toml"])
         assert layout["fragments"] == expected
         assert layout["sources"]["cc-skills"]["source"] == "github:yasyf/cc-skills@main"
         assert ".pre-commit-config.yaml" not in plan
@@ -412,7 +412,7 @@ def test_swift_gitignore_layout(swift_var_pairs, swift_app_var_pairs):
     # repo-local seed last; never the go/python variants.
     for layer, pairs in (("swift", swift_var_pairs), ("swift-app", swift_app_var_pairs)):
         plan, _ = _real_plan(layer, pairs)
-        fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+        fragments = tomllib.loads(plan[".claude/fragments/gitignore/layout.toml"])["fragments"]
         assert fragments == [
             "cc-skills:gitignore-base",
             "cc-skills:gitignore-swift",

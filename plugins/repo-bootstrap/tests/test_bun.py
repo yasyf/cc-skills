@@ -39,10 +39,10 @@ FRAGMENT_DESTS = {
     ".claude/fragments/CLAUDE.md/layout.toml",
     ".claude/fragments/.claude/settings.json/layout.toml",
     ".claude/fragments/.claude/settings.json/settings-overrides.fragment.json",
-    ".claude/fragments/.mcp.json/layout.toml",
-    ".claude/fragments/.mcp.json/mcp-overrides.fragment.json",
-    ".claude/fragments/.gitignore/layout.toml",
-    ".claude/fragments/.gitignore/gitignore-local.fragment.gitignore",
+    ".claude/fragments/mcp.json/layout.toml",
+    ".claude/fragments/mcp.json/mcp-overrides.fragment.json",
+    ".claude/fragments/gitignore/layout.toml",
+    ".claude/fragments/gitignore/gitignore-local.fragment.gitignore",
 }
 
 BUN_DESTS = FRAGMENT_DESTS | {
@@ -89,7 +89,7 @@ def test_bun_overrides_base_for_shared_dest(bun_var_pairs):
         == "bun/claude/fragments/settings.json/layout.toml"
     )
     # bun ships no .mcp.json variant — the base layout (empty server map) serves it.
-    assert items[".claude/fragments/.mcp.json/layout.toml"].src == "base/claude/fragments/mcp.json/layout.toml"
+    assert items[".claude/fragments/mcp.json/layout.toml"].src == "base/claude/fragments/mcp.json/layout.toml"
 
 
 # --- vars: validation ---
@@ -184,7 +184,7 @@ def test_bun_readme_install_follows_release(bun_var_pairs):
 def test_bun_gitignore_layout(bun_var_pairs):
     # base + gitignore-bun then the repo-local seed last; no swift/go variant bleeding in.
     plan, _ = _real_plan("bun", bun_var_pairs)
-    fragments = tomllib.loads(plan[".claude/fragments/.gitignore/layout.toml"])["fragments"]
+    fragments = tomllib.loads(plan[".claude/fragments/gitignore/layout.toml"])["fragments"]
     assert fragments == [
         "cc-skills:gitignore-base",
         "cc-skills:gitignore-bun",

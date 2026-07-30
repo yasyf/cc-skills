@@ -15,7 +15,11 @@ shared `cc-skills:<name>` fragments (`cc-skills:ccx`, `cc-skills:claude-rules`,
 `cc-skills:version-control`, `cc-skills:settings-base`, …), with an explicit `[sources.cc-skills]` pointing at
 `github:yasyf/cc-skills@main` — then the post-write step runs `cc-guides render`, which
 composes each `<target>`: markdown/shell get a line-1 `GENERATED …` marker, JSON is
-deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). During
+deep-merged and written raw (tracked in `.claude/fragments/cc-guides.lock`). The layout
+dir's path below `.claude/fragments/` is the artifact path unless the `layout.toml`
+declares `target = "<path>"`, which the dot-leading artifacts use so the layout dir
+never shadows the file it renders: `gitignore/` → `.gitignore`, `mcp.json/` →
+`.mcp.json`, `pre-commit-config.yaml/` → `.pre-commit-config.yaml`. During
 bootstrap, edit the fragments and re-run `cc-guides render`. In an onboarded repo,
 never render locally: commit and push the fragment alone, and the `Guides` workflow
 (`.github/workflows/guides.yml`, a shim onto `yasyf/cc-guides`) re-renders and commits
@@ -186,7 +190,7 @@ boundaries only.
 ```
 
 A rendered artifact, like `.claude/settings.json`: `cc-guides render` composes it
-from `.claude/fragments/.mcp.json/` — the shared `cc-skills:mcp-base` fragment
+from `.claude/fragments/mcp.json/` — the shared `cc-skills:mcp-base` fragment
 deep-merged with the repo-local `mcp-overrides.fragment.json` (the swift layers'
 layout adds `cc-skills:mcp-swift` for `xcodebuildmcp`). Code search no longer ships
 a per-project `semble` MCP server here — the `cc-context` facade (semble + tilth,

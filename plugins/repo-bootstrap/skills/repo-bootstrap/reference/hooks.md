@@ -81,7 +81,7 @@ repos and builds their envs; cached afterwards). CI does **not** run ruff — th
 the only mechanical-lint enforcement — but it **does** re-run the ty hook
 (`uvx prek run ty --all-files`, advisory) as the backstop for clones that never ran
 `uvx prek install`. To drop both hooks, run `uvx prek uninstall` **and** delete the
-`.claude/fragments/.pre-commit-config.yaml/` layout dir along with the rendered
+`.claude/fragments/pre-commit-config.yaml/` layout dir along with the rendered
 `.pre-commit-config.yaml` — deleting the rendered config alone leaves the installed
 `.git/hooks/pre-commit` orphaned, which aborts every commit with
 `No prek.toml or .pre-commit-config.yaml found` (recover with `uvx prek uninstall`, or a
