@@ -1,5 +1,8 @@
+target = ".mcp.json"
+
 fragments = [
-  "cc-skills:precommit-base",
+  "cc-skills:mcp-base",
+  "mcp-overrides",
 ]
 
 [sources.cc-skills]

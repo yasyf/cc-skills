@@ -1,6 +1,7 @@
+target = ".pre-commit-config.yaml"
+
 fragments = [
-  "cc-skills:mcp-base",
-  "mcp-overrides",
+  "cc-skills:precommit-base",
 ]
 
 [sources.cc-skills]
