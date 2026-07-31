@@ -4,5 +4,5 @@ version = "0.1.53"
 artifacts = [".claude/settings.json", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", "AGENTS.md", "CLAUDE.md", "plugins/codex/scripts/install-binary.sh", "plugins/codex/scripts/render-descriptor.sh", "plugins/slop-cop/scripts/install-binary.sh", "plugins/slop-cop/scripts/render-descriptor.sh"]
 
 [sources.cc-skills]
-spec = "github:yasyf/cc-skills@ac0ef67835bff67901a4e79a25b406e08e815c31"
-commit = "ac0ef67835bff67901a4e79a25b406e08e815c31"
+spec = "github:yasyf/cc-skills@main"
+commit = "65bfa5aeecd14cbac6e196886c2ae12956597d2e"
