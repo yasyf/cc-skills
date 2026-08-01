@@ -138,7 +138,8 @@ PreToolUse. Eight hooks:
   bounded and decision-light) and repetitive bounded sweeps plus terminal-heavy
   execution route to gpt-5.6-sol via the `codex:codex-wrapper` agent. Judged, not pattern-matched,
   because fable is often intentional — design/prose review, writing, hard planning,
-  and sensitive implementation stay there (code/diff and security review route to
+  long-horizon agentic driving, sustained tool-driving, and very sensitive or
+  error-prone implementation stay there (code/diff and security review route to
   gpt-5.6-sol via their own nudges); when uncertain it stays silent.
 - **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
   run code/diff review, a security review/audit or verification of security-sensitive

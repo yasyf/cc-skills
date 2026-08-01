@@ -295,11 +295,12 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
-    # 2026-07-03 flip: opus xhigh is the delegation default — opus is ~2x
-    # cheaper AND less capable than fable, so fable→opus is a down-route and
-    # escalation flows opus→fable only. Regressing either phrase would re-route
-    # implementation subagents back to fable (or resurrect the backwards
-    # escalation direction).
+    # 2026-07-03 flip, rebalanced 2026-08-01: opus xhigh is the delegation
+    # default and the implementation lane at every horizon; fable keeps
+    # long-horizon agentic driving plus the sensitive carve-out, and an
+    # implementation miss crosses models (opus <-> sol at xhigh) before
+    # reaching fable. Regressing either phrase would re-route implementation
+    # subagents back to fable (or resurrect the backwards escalation direction).
     assert "| opus-5 | 4 | 8 | 8 |" in claude
     assert "when in doubt, opus" in claude
     assert "when in doubt, fable" not in claude
@@ -308,9 +309,14 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # main loop — direct edits are where implementation actually happens (the
     # capt-hook main-loop nudge enforces the same directive).
     assert "rather than editing inline on fable" in claude
-    # Sustained hands-on tool-driving (browser automation, QA sweeps) delegates too,
-    # not just code edits — the capt-hook browser nudge enforces the same directive.
+    # Sustained hands-on tool-driving (browser automation, QA sweeps) is fable's
+    # lane since the 2026-08-01 rebalance — the phrase now lives in the fable row.
     assert "hands-on tool-driving" in claude
+    assert "long-horizon agentic driving" in claude
+    assert "an implementation miss crosses models first" in claude
+    assert "an opus miss retries on gpt-5.6-sol `xhigh`, a sol miss on opus `xhigh`" in claude
+    assert "reaches fable only after both cross-model attempts fall short" in claude
+    assert "the one implementation lane fable keeps" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
     # v6 2026-07-25 Opus 5 recalibration: bounded decision-light impl returns to
@@ -321,7 +327,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "the sweep lane: repetitive bounded implementation at scale" in claude
     assert "sweeps fan out to gpt-5.6-sol" in claude
     assert "terminal/shell-heavy" in claude
-    assert "ambiguous, exploratory, long-horizon, decision-dense, or large net-new" in claude
+    assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
     assert "synthesis/accept-reject" in claude
     # All prose/writing routes to fable (capt-hook blocks non-fable pins on
@@ -342,6 +348,10 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "gpt-5.6-luna" in claude
     assert "recon lane" in claude
     assert "net-new code stay on opus" in claude
+    # "fable if crucial" was a second, broader implementation carve-out — only
+    # "very sensitive or error-prone" keeps fable (refuter finding, 2026-08-01).
+    assert "fable if crucial" not in claude
+    assert "fable if the surface is very crucial" not in claude
     assert "ultra execution mode" in claude
     assert "is not a retry rung" in claude
     assert "gpt-5.5" not in claude

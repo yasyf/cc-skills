@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, fan a repetitive bounded sweep (N-unit migrations, test conversions, mechanical refactors) across parallel codex lanes (individual bounded changes and large net-new code stay on Claude — opus, fable if crucial), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a sweep of fully specified edits, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, fan a repetitive bounded sweep (N-unit migrations, test conversions, mechanical refactors) across parallel codex lanes (individual bounded changes and large net-new code stay on Claude — opus, fable only when the surface is very sensitive or error-prone), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a sweep of fully specified edits, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
 allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*, ${CLAUDE_SKILL_DIR}/../../bin/codex-ask:*), Read, Grep, Glob
 effort: medium
 ---
@@ -71,17 +71,20 @@ question returns in ~2 minutes, an open-ended design essay does not.
   decision-light change (a scoped edit, a signature change, a well-specified
   small feature) now defaults to Claude opus -- since Opus 5 the two are tied on
   capability with opus output cheaper -- and large amounts of net-new code stay
-  on Claude (opus xhigh, fable if crucial): sol is much stronger at modifying
+  on Claude (opus xhigh, fable only when the surface is very sensitive or
+  error-prone): sol is much stronger at modifying
   existing code than at authoring a large new subsystem from scratch, and
-  ambiguous or exploratory builds, decision-dense refactors, and long agentic
-  runs stay on opus too, since sol drifts out of scope and fails to converge on
-  open-ended work. Production sweep edits are in range at xhigh; review the diff
-  as you would any other contributor's.
+  ambiguous or exploratory builds and decision-dense refactors stay on opus
+  too, since sol drifts out of scope and fails to converge on open-ended work;
+  long agentic runs are fable's lane. Production sweep edits are in range at
+  xhigh; review the diff as you would any other contributor's.
 
 Model variants: pass `-m luna` for the rote/bulk and recon lanes. Routing,
 escalation, and when each variant applies live in the fleet Models table
 (CLAUDE.md § Plan Execution & Orchestration) — the script pins tier and effort
-regardless of variant.
+regardless of variant. Escalation is cross-model for implementation: a sol
+miss retries on opus xhigh, an opus miss on sol xhigh, and fable comes only
+after both.
 
 ## Browser Access
 
