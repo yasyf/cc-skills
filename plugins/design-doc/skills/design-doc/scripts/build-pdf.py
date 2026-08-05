@@ -27,6 +27,7 @@ R = json.loads(registers.read_text())
 META = R.get("meta", {})
 TITLE = META.get("title", "Untitled design")
 SUBTITLE = META.get("subtitle", "Design proposal")
+DRAFT_NOTE = "This document is in progress and will change. It is not ready for review."
 
 
 def find_chrome():
@@ -71,7 +72,7 @@ svg = svg.group(1) if svg else ""
 out = []
 w = out.append
 w(f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(TITLE)} — {html.escape(SUBTITLE)}</title><style>
-:root{{--bg:#fff;--bg2:#F1EFE9;--ink:#1E2227;--ink2:#5A6068;--line:#DDD9CF;--accent:#0B7568;--warn:#A66308;--crit:#B3362B;--ok:#2E7D46;--card:#fff;
+:root{{--bg:#fff;--bg2:#F1EFE9;--ink:#1E2227;--ink2:#5A6068;--line:#DDD9CF;--accent:#0B7568;--warn:#A66308;--crit:#B3362B;--ok:#2E7D46;--dead:#7A828C;--dead-soft:#7A828C1A;--card:#fff;
 --mono:ui-monospace,"SF Mono",Menlo,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}}
 @page{{size:letter;margin:22mm 19mm}}
 body{{font:10.5pt/1.55 var(--sans);color:var(--ink);margin:0}}
@@ -97,6 +98,9 @@ td{{padding:3.5pt 7pt;border-bottom:.5pt solid var(--line);vertical-align:top}}
 .entry p{{margin:2pt 0;font-size:9.5pt}}
 .entry .rej{{color:var(--ink2)}}
 .banner{{border:1px solid var(--warn);border-radius:6pt;padding:7pt 10pt;font-size:9.5pt;margin:10pt 0;page-break-inside:avoid}}
+.draftbar{{background:var(--dead-soft);border:1px solid var(--dead);border-radius:6pt;padding:8pt 11pt;margin:0 0 12pt;page-break-inside:avoid}}
+.draftbar b{{display:block;font-family:var(--mono);font-size:8.5pt;letter-spacing:.18em;text-transform:uppercase;color:var(--dead)}}
+.draftbar span{{display:block;margin-top:2pt;font-size:9.5pt;color:var(--ink2)}}
 .fnote{{font-size:9pt;margin:0 0 7pt;display:flex;gap:8pt}}
 .fnote .n{{font-family:var(--mono);color:var(--accent);flex:0 0 14pt;text-align:right}}
 .diagram{{margin:12pt 0;page-break-inside:avoid}}
@@ -118,6 +122,10 @@ td{{padding:3.5pt 7pt;border-bottom:.5pt solid var(--line);vertical-align:top}}
 section{{page-break-inside:auto}}
 .avoid{{page-break-inside:avoid}}
 </style></head><body>""")
+
+if META.get("draft"):
+    note = META.get("draftNote") or DRAFT_NOTE
+    w(f'<div class="draftbar"><b>Draft</b><span>{inline(note)}</span></div>')
 
 w(f"<h1>{html.escape(TITLE)}</h1>")
 dateline = " · ".join(str(x) for x in (SUBTITLE, META.get("phase"), META.get("date"), META.get("footerNote")) if x)

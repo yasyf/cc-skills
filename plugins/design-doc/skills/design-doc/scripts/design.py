@@ -189,6 +189,11 @@ def check(args) -> int:
         if not meta.get(k):
             rep.err(f"meta.{k} is missing or empty")
 
+    if "draft" in meta and not isinstance(meta["draft"], bool):
+        rep.err("meta.draft must be true or false")
+    if "draftNote" in meta and not (isinstance(meta["draftNote"], str) and meta["draftNote"].strip()):
+        rep.err("meta.draftNote must be a non-empty string")
+
     if "rev" in meta or "revisions" in meta:
         rev = meta.get("rev")
         rev_valid = isinstance(rev, int) and not isinstance(rev, bool) and rev > 0
