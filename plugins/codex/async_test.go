@@ -504,6 +504,11 @@ func TestDispatchEnvPluginRootOverridesEmbed(t *testing.T) {
 // returning stdout, stderr, and the exit code.
 func askRun(t *testing.T, runs, stub string, args ...string) (string, string, int) {
 	t.Helper()
+	return askRunSession(t, runs, "", stub, args...)
+}
+
+func askRunSession(t *testing.T, runs, session, stub string, args ...string) (string, string, int) {
+	t.Helper()
 	home := shortHome(t)
 	stubDir := mustTempDir(t)
 	writeStub(t, stubDir, stub)
@@ -512,7 +517,7 @@ func askRun(t *testing.T, runs, stub string, args ...string) (string, string, in
 	var stdout, stderr bytes.Buffer
 	c := exec.Command(codexAskBin(t), args...) //nolint:gosec // drives the built binary under test
 	c.Dir = scope
-	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	c.Env = dispatchEnv(home, session, runs, stubDir, scope)
 	c.Stdout, c.Stderr = &stdout, &stderr
 	code := 0
 	if err := c.Run(); err != nil {

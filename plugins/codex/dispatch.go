@@ -16,6 +16,7 @@ import (
 func askMode(args []string) {
 	model := modelSol
 	scratch := ""
+	laneName := ""
 	dispatch := false
 	owner := ""
 	lane := ""
@@ -47,6 +48,12 @@ loop:
 				die("codex-ask: --scratch must be an absolute path (never repo-relative)", 2)
 			}
 			scratch = nxt
+			i += 2
+		case a == "-l" || a == "--name":
+			if nxt == "" {
+				die("codex-ask: -l takes LANE or RUN/LANE", 2)
+			}
+			laneName = nxt
 			i += 2
 		case a == "--image":
 			extraFlags = append(extraFlags, "--disable", "shell_tool")
@@ -106,6 +113,14 @@ loop:
 	if owner != "" && !dispatch {
 		die("codex-ask: --owner requires --dispatch", 2)
 	}
+	if scratch != "" && laneName != "" {
+		die("codex-ask: -l and -s are mutually exclusive", 2)
+	}
+	// Resolved before the question is read, so a bad name mints nothing.
+	named := ""
+	if laneName != "" {
+		named = resolveLaneName(laneName)
+	}
 	// An unroutable wake (no session id, no claude ancestor) would enqueue
 	// nothing, silently: refuse before anything is minted.
 	ownerSession, ownerPID := "", 0
@@ -140,13 +155,19 @@ loop:
 	}
 
 	var sdir string
-	if scratch != "" {
+	switch {
+	case scratch != "":
 		rejectOutsideScratch(scratch, "--scratch")
 		if err := os.MkdirAll(scratch, 0o755); err != nil { //nolint:gosec // 0o755 matches the Python spec's scratch-dir mode
 			os.Exit(2)
 		}
 		sdir = scratch
-	} else {
+	case named != "":
+		if err := os.MkdirAll(named, 0o755); err != nil { //nolint:gosec // 0o755 matches the Python spec's scratch-dir mode
+			os.Exit(2)
+		}
+		sdir = named
+	default:
 		sdir = mintScratch("codex-ask")
 	}
 
@@ -154,7 +175,7 @@ loop:
 	// Never runs (every path ends in os.Exit) but anchors laneLock against the
 	// os.File finalizer, whose early close would release the flock mid-run.
 	defer releaseLaneLock(laneLock)
-	if scratch != "" {
+	if scratch != "" || named != "" {
 		// Refuse a still-alive lane; a meta <5s old with no pid is the launch window
 		// before a worker checks in. A finished lane (status written) stays reusable.
 		metaP := join(sdir, "meta")
@@ -258,7 +279,7 @@ loop:
 	}
 	ib, _ := json.Marshal(info)
 	if err := atomicWrite(join(sdir, "meta"), reply+"\n"+logf+"\n"+string(ib)+"\n"); err != nil {
-		die(fmt.Sprintf("codex-ask: %s is in use by a concurrent run; pass a unique -s dir or omit it", sdir), 1)
+		die(fmt.Sprintf("codex-ask: %s is in use by a concurrent run; pass a unique -l/-s lane or omit both", sdir), 1)
 	}
 
 	// Print recovery paths BEFORE codex starts: a killed Bash call still leaves the

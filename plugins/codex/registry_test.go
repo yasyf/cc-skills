@@ -573,3 +573,221 @@ func waitForSharedLock(t *testing.T, path string) {
 	}
 	t.Fatal("watch never took the shared lane lock")
 }
+
+// TestNamedLaneMintsUnderRegistry: -l RUN/LANE owns the path — the lane lands
+// under the registry's codex-run.<RUN> container, no caller-supplied dir.
+func TestNamedLaneMintsUnderRegistry(t *testing.T) {
+	runs := canonicalScope(t)
+	stdout, stderr, code := askRun(t, runs, stubCodexReply, "-l", "myrun/review", "ping")
+	if code != 0 {
+		t.Fatalf("exit %d\nstderr: %s", code, stderr)
+	}
+	lane := filepath.Join(runs, "codex-run.myrun", "review")
+	if got := filepath.Dir(stdoutLine(stdout, "REPLY_FILE: ")); got != lane {
+		t.Fatalf("reply landed in %q, want %q", got, lane)
+	}
+	if got := strings.TrimSpace(readFile(filepath.Join(lane, "status"))); got != "0" {
+		t.Fatalf("status = %q, want 0", got)
+	}
+}
+
+// TestBareLaneNameGroupsBySession: -l LANE without RUN groups under the calling
+// Claude session's run, so same-session fan-out lanes share a container with
+// zero coordination.
+func TestBareLaneNameGroupsBySession(t *testing.T) {
+	runs := canonicalScope(t)
+	_, stderr, code := askRunSession(t, runs, "sess-1", stubCodexReply, "-l", "review", "ping")
+	if code != 0 {
+		t.Fatalf("exit %d\nstderr: %s", code, stderr)
+	}
+	if !isFile(filepath.Join(runs, "codex-run.sess-1", "review", "status")) {
+		t.Fatal("lane did not land under the session run")
+	}
+
+	_, stderr, code = askRun(t, runs, stubCodexReply, "-l", "review", "ping")
+	if code != 2 {
+		t.Fatalf("bare -l without a session exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "CLAUDE_CODE_SESSION_ID") {
+		t.Fatalf("missing session hint:\n%s", stderr)
+	}
+}
+
+// TestLaneNameRejectsBadOperands: a bad -l mints nothing — path-segment rules
+// match --mint-root's, and -l/-s never combine.
+func TestLaneNameRejectsBadOperands(t *testing.T) {
+	runs := mustTempDir(t)
+	bads := [][]string{
+		{"-l", "../evil", "ping"},
+		{"-l", "a/b/c", "ping"},
+		{"-l", ".hidden", "ping"},
+		{"-l", "", "ping"},
+		{"-l", "ok", "-s", "/tmp/x", "ping"},
+	}
+	for _, args := range bads {
+		if _, stderr, code := askRun(t, runs, stubCodexReply, args...); code != 2 {
+			t.Fatalf("%v exit %d, want 2\nstderr: %s", args, code, stderr)
+		}
+	}
+	if entries, _ := os.ReadDir(runs); len(entries) != 0 {
+		t.Fatalf("refused -l still minted: %v", entries)
+	}
+}
+
+// TestMintRunRosterIsNameOnlyAndIdempotent: --mint-run speaks names on both
+// sides — no path crosses the CLI — and re-minting an existing run is a no-op
+// that never removes state.
+func TestMintRunRosterIsNameOnlyAndIdempotent(t *testing.T) {
+	runs := mustTempDir(t)
+	stdout, stderr, code := askRun(t, runs, stubCodexReply, "--mint-run", "sweep", "review", "refute")
+	if code != 0 {
+		t.Fatalf("exit %d\nstderr: %s", code, stderr)
+	}
+	for _, want := range []string{"RUN: sweep\n", "LANE: sweep/review\n", "LANE: sweep/refute\n"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("missing %q in:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, runs) {
+		t.Fatalf("--mint-run leaked a path:\n%s", stdout)
+	}
+	for _, lane := range []string{"review", "refute"} {
+		if !isDir(filepath.Join(runs, "codex-run.sweep", lane)) {
+			t.Fatalf("lane %s not minted", lane)
+		}
+	}
+	marker := filepath.Join(runs, "codex-run.sweep", "review", "status")
+	writeFile(t, marker, "0\n")
+	if _, stderr, code := askRun(t, runs, stubCodexReply, "--mint-run", "sweep", "review", "refute"); code != 0 {
+		t.Fatalf("re-mint exit %d\nstderr: %s", code, stderr)
+	}
+	if !isFile(marker) {
+		t.Fatal("re-mint removed lane state")
+	}
+	if _, _, code := askRun(t, runs, stubCodexReply, "--mint-run", "sweep"); code != 2 {
+		t.Fatalf("laneless --mint-run exit %d, want 2", code)
+	}
+}
+
+// TestCollectAndWatchByRunName: the gate side speaks the same names as -l — a
+// RUN operand resolves to its registry container, and --collect with no operand
+// collects the calling session's run.
+func TestCollectAndWatchByRunName(t *testing.T) {
+	runs := canonicalScope(t)
+	for _, lane := range []string{"a", "b"} {
+		if _, stderr, code := askRun(t, runs, stubCodexReply, "-l", "grp/"+lane, "ping"); code != 0 {
+			t.Fatalf("lane %s exit %d\nstderr: %s", lane, code, stderr)
+		}
+	}
+	stdout, stderr, code := askRun(t, runs, stubCodexReply, "--collect", "grp")
+	if code != 0 {
+		t.Fatalf("--collect grp exit %d\nstderr: %s", code, stderr)
+	}
+	for _, want := range []string{`"lane":"a"`, `"lane":"b"`} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("missing %s in:\n%s", want, stdout)
+		}
+	}
+
+	if _, stderr, code := askRunSession(t, runs, "sess-2", stubCodexReply, "-l", "solo", "ping"); code != 0 {
+		t.Fatalf("session lane exit %d\nstderr: %s", code, stderr)
+	}
+	stdout, stderr, code = askRunSession(t, runs, "sess-2", stubCodexReply, "--collect")
+	if code != 0 {
+		t.Fatalf("bare --collect exit %d\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"lane":"solo"`) {
+		t.Fatalf("session collect missed its lane:\n%s", stdout)
+	}
+	if _, stderr, code := askRun(t, runs, stubCodexReply, "--collect"); code != 2 {
+		t.Fatalf("bare --collect without a session exit %d, want 2\nstderr: %s", code, stderr)
+	}
+
+	stdout, stderr, code = askRun(t, runs, stubCodexReply, "--watch", "grp")
+	if code != 0 {
+		t.Fatalf("--watch grp exit %d\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"state":"completed"`) {
+		t.Fatalf("watch by name emitted no settled record:\n%s", stdout)
+	}
+}
+
+// TestAwaitByRunLaneName: --await RUN/LANE recovers a named dispatch without
+// the printed absolute path.
+func TestAwaitByRunLaneName(t *testing.T) {
+	runs := canonicalScope(t)
+	lane := filepath.Join(runs, "codex-run.grp2", "a")
+	t.Cleanup(func() { killLane(lane) })
+	stdout, stderr, code := askRun(t, runs, stubCodexReply, "-l", "grp2/a", "--dispatch", "ping")
+	if code != 0 {
+		t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	reply := stdoutLine(stdout, "REPLY_FILE: ")
+	out, errOut, code := askRun(t, runs, stubCodexReply, "--await", "grp2/a")
+	if code != 0 {
+		t.Fatalf("--await grp2/a exit %d\nstderr: %s", code, errOut)
+	}
+	if got := stdoutLine(out, "REPLY_FILE: "); got != reply {
+		t.Fatalf("--await grp2/a printed reply %q, want %q", got, reply)
+	}
+	if _, errOut, code := askRun(t, runs, stubCodexReply, "--await", "grp2"); code != 2 {
+		t.Fatalf("laneless --await name exit %d, want 2\nstderr: %s", code, errOut)
+	}
+}
+
+func agedNamedLane(t *testing.T, container, name string) string {
+	t.Helper()
+	sdir := filepath.Join(container, name)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	reply := filepath.Join(sdir, "codex-r-x")
+	writeFile(t, reply, "pong\n")
+	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+filepath.Join(sdir, "codex-q-x.log")+"\n")
+	writeFile(t, filepath.Join(sdir, "status"), "0\n")
+	aged := time.Now().Add(-(pruneAgeS + 3600) * time.Second)
+	for _, f := range []string{"meta", "status"} {
+		if err := os.Chtimes(filepath.Join(sdir, f), aged, aged); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return sdir
+}
+
+// TestPruneReapsMintedContainer: fan-out containers used to leak forever — lane
+// basenames carry no run prefix, so the prune never matched them and the
+// container never emptied. Lanes inside a minted container (aged roster no-runs
+// included) now prune, and the emptied container goes with them; unaged lanes
+// and caller-named containers survive.
+func TestPruneReapsMintedContainer(t *testing.T) {
+	runs := mustTempDir(t)
+	container := filepath.Join(runs, "codex-root.42")
+	agedNamedLane(t, container, "review")
+	rosterLane := filepath.Join(container, "refute")
+	if err := os.MkdirAll(rosterLane, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().Add(-(pruneAgeS + 3600) * time.Second)
+	if err := os.Chtimes(rosterLane, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	freshLane := filepath.Join(runs, "codex-run.fresh", "review")
+	if err := os.MkdirAll(freshLane, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	foreign := filepath.Join(runs, "keep")
+	agedNamedLane(t, foreign, "lane")
+
+	runPs(t, runs)
+	if _, err := os.Stat(container); !os.IsNotExist(err) {
+		t.Fatal("aged fan-out container survived the prune")
+	}
+	if !isDir(freshLane) {
+		t.Fatal("unaged roster lane was pruned")
+	}
+	if !isFile(filepath.Join(foreign, "lane", "meta")) {
+		t.Fatal("pruned a lane inside a caller-named container")
+	}
+}

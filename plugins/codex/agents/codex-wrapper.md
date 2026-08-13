@@ -18,8 +18,8 @@ drill:
    PATH order, where a brew-installed binary can shadow the plugin's bin/).
    Forward the caller's question and
    pointers verbatim — Codex pulls its own context in the repo. When the
-   prompt hands you a lane or scratch dir, pass it exactly as
-   `-s "$LANE_DIR"`. Variants only when the prompt asks: `-m luna`,
+   prompt hands you a lane name, pass it exactly as `-l "$LANE"`; a
+   scratch dir, `-s "$LANE_DIR"`. Variants only when the prompt asks: `-m luna`,
    `--image`, `--lane <name>`, `--schema <name|file>`.
 2. **On timeout, run the printed `AWAIT:` line** in a fresh foreground call
    (same timeout), repeatedly until it exits. Never re-ask the question — the

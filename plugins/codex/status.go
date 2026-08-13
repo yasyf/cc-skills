@@ -14,7 +14,13 @@ import (
 
 func awaitMode(target string) {
 	if !strings.HasPrefix(target, "/") {
-		die("codex-ask: --await needs an absolute scratch dir or reply-file path", 2)
+		if !strings.Contains(target, "/") {
+			die("codex-ask: --await needs an absolute scratch dir, a reply-file path, or RUN/LANE", 2)
+		}
+		target = resolveRunOperand(target, "--await")
+		if fi, err := os.Stat(target); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own resolved --await lane
+			die("codex-ask: --await: no such directory: "+target, 2)
+		}
 	}
 	sdir := target
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --await scratch path
@@ -76,7 +82,7 @@ func pollStatus(sdir, reply, log string) {
 func verifyGeneration(sdir, reply, log string) {
 	current := metaLines(join(sdir, "meta"))
 	if lineAt(current, 0) != reply || lineAt(current, 1) != log {
-		die(fmt.Sprintf("codex-ask: lane %s was reused while waiting (generation changed); use a unique -s directory", sdir), 1)
+		die(fmt.Sprintf("codex-ask: lane %s was reused while waiting (generation changed); use a unique -l/-s lane", sdir), 1)
 	}
 }
 

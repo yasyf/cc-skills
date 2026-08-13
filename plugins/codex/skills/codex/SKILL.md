@@ -118,20 +118,23 @@ same dir, but best-effort and only after `status`: the orphaned worker writes it
 once the caller has already unblocked, so it can trail the narration or even a
 `--collect`. Drive a codex fan-out off that record, not off what the agents say:
 
-1. **Mint the root and the roster.** Before the fan-out the orchestrator runs
-   `ROOT=$("${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --mint-root <lane> [<lane>...] | sed -n 's/^ROOT: //p')`
-   (lane paths: `sed -n 's/^LANE: //p'`; the `sed` masks a mint failure, so
-   guard `[ -n "$ROOT" ]` before use) — the root lands under the fixed runs
-   base with one lane dir pre-created per agent (a lane that never runs must
-   be a *visible* `no-run`, not absent). Never hand-mint scratch. Pass the
-   lane dirs through the workflow `args`.
-2. **Each prompt carries its lane.** Every wrapper prompt includes a literal
-   `-s "$ROOT/<lane>"`, so its state lands in the caller-minted dir. `-s`
-   takes only a `--mint-root` lane — never the working copy, checkout, or
-   clone under review; codex-ask refuses such in-repo lanes.
+1. **Mint the roster by name.** Before the fan-out the orchestrator runs
+   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --mint-run <run> <lane> [<lane>...]`
+   — names in, names out (`RUN:`/`LANE:` lines, never a path). The lanes land
+   under the fixed runs base with one dir pre-created per agent (a lane that
+   never runs must be a *visible* `no-run`, not absent). Never hand-mint
+   scratch or compute a lane path. Pass the `<run>/<lane>` names through the
+   workflow `args`.
+2. **Each prompt carries its lane name.** Every wrapper prompt includes a
+   literal `-l <run>/<lane>`; codex-ask owns where it lives. Bare `-l <lane>`
+   groups under the calling Claude session's run, enough when every lane
+   dispatches from one session. `-s ABS_DIR` survives as the explicit
+   path-form override; either way, never the working copy, checkout, or
+   clone under review — codex-ask refuses such in-repo lanes.
 3. **End with a collect stage.** The last deterministic step runs
-   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect "$ROOT"` (a cheap run-this-exact-command agent that
-   returns stdout verbatim). It walks the roster and classifies each lane from
+   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --collect <run>` (a cheap run-this-exact-command agent that
+   returns stdout verbatim; from the dispatching session, bare `--collect`
+   collects the session run). It walks the roster and classifies each lane from
    disk alone — `no-run` / `pending` / `running` / `died` / `completed` /
    `failed` — as one JSONL record per lane, never inlining reply contents. The
    gate consumes that JSONL against the roster; skipping collect starves the
@@ -184,15 +187,15 @@ steering channel instead of a Bash return.
    finished before the wake landed gets collected by the relay: its parent is
    nudged to wake it, and that wake is authorized — call `await` to collect.
 
-The fan-out shape above composes unchanged: the parent mints the root, spawns
+The fan-out shape above composes unchanged: the parent mints the roster, spawns
 one owner subagent per lane, each owner dispatches `--dispatch --owner` into
-its lane with `-s` and parks; the daemon wakes owners as their runs finish,
+its lane with `-l` and parks; the daemon wakes owners as their runs finish,
 and the terminal `--collect` still gates.
 
 **Top-level sessions use Monitor + `--watch`, not the channel.** From the main
 conversation — the one place Monitor wakes actually deliver — dispatch with
 `--dispatch` alone, then arm `Monitor` on
-`"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch <run-dir>...`
+`"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch <run-or-dir>...`
 (fan-out roots expand to their lanes; `--watch --all` covers every in-flight
 run). The watch emits one JSONL record per run as it settles — completed,
 failed, or died, never silence — and exits once all watched runs have

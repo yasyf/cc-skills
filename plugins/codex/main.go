@@ -33,13 +33,13 @@ const (
 	turnFailedMarker    = `"type":"turn.failed"`
 )
 
-const usageStr = "usage: codex-ask [-m sol|luna] [-s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
+const usageStr = "usage: codex-ask [-m sol|luna] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
 	"[--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}
 
 // runPrefixes: --ps prunes only codex-ask's own minted dirs, never a caller lane.
-var runPrefixes = []string{"codex-ask.", "codex-root."}
+var runPrefixes = []string{"codex-ask.", "codex-root.", runDirPrefix}
 
 // selfPath is the resolved absolute path of this binary (Python's SELF).
 var selfPath string
@@ -72,6 +72,8 @@ func main() {
 		collectMode(argOrEmpty(args, 1))
 	case len(args) >= 1 && args[0] == "--mint-root":
 		mintRootMode(args[1:])
+	case len(args) >= 1 && args[0] == "--mint-run":
+		mintRunMode(args[1:])
 	case len(args) == 1 && args[0] == "--ps":
 		psMode()
 	case len(args) >= 1 && args[0] == "--watch":

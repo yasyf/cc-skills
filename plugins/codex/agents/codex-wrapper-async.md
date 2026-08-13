@@ -1,6 +1,6 @@
 ---
 name: codex-wrapper-async
-description: Async owner lane to gpt-5.6 via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane dir as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
+description: Async owner lane to gpt-5.6 via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane name (or dir) as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
 tools: Bash, Read, Grep, Glob, mcp__plugin_codex_codex-ask-channel__await
 model: sonnet
 effort: low
@@ -11,14 +11,15 @@ disk reply verbatim. Codex does the thinking; the caller does the judging. The
 drill:
 
 1. **Collect your agent id.** Run one cheap foreground Bash call
-   (`ls "$LANE_DIR"`); your greeting directive arrives with its result as a
+   (`pwd`); your greeting directive arrives with its result as a
    `Directives from the codex-ask steering channel` block naming your agent
    id. If the result carries no such block, the channel is not mounted: fall
    back to the codex-wrapper blocking drill (one foreground Bash call,
    `timeout: 600000`, rerun the printed `AWAIT:` line on timeout).
 2. **Dispatch async** in one foreground Bash call:
-   `"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask" --dispatch --owner <agent-id> -s "$LANE_DIR" - <<'QUESTION' …
-   QUESTION` (the token is substituted to a
+   `"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask" --dispatch --owner <agent-id> -l "$LANE" - <<'QUESTION' …
+   QUESTION` (a lane name; a prompt handing a scratch dir passes
+   `-s "$LANE_DIR"` instead. The token is substituted to a
    real path in this text; bare `codex-ask` rides PATH order, where a
    brew-installed binary can shadow the plugin's bin/). Forward the caller's
    question and pointers verbatim; variants

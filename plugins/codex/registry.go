@@ -90,6 +90,59 @@ func mintScratch(prefix string) string {
 	return d
 }
 
+const runDirPrefix = "codex-run."
+
+func requirePlainSegments(what string, values ...string) {
+	for _, v := range values {
+		if v == "" || v[0] == '.' || v[0] == '-' || strings.Contains(v, "/") || strings.Contains(v, "\n") {
+			die("codex-ask: "+what+" must be plain path segments "+
+				"(no /, newlines, empty, or leading . or -): "+v, 2)
+		}
+	}
+}
+
+func sessionRun(hint string) string {
+	sid := os.Getenv("CLAUDE_CODE_SESSION_ID")
+	if sid == "" {
+		die("codex-ask: "+hint, 2)
+	}
+	requirePlainSegments("session run ids", sid)
+	return sid
+}
+
+// resolveLaneName maps -l's [RUN/]LANE to its lane dir under the registry; a
+// bare LANE groups under the calling Claude session's run.
+func resolveLaneName(name string) string {
+	parts := strings.Split(name, "/")
+	switch len(parts) {
+	case 1:
+		parts = []string{sessionRun("-l LANE needs CLAUDE_CODE_SESSION_ID; pass -l RUN/LANE"), parts[0]}
+	case 2:
+	default:
+		die("codex-ask: -l takes LANE or RUN/LANE", 2)
+	}
+	requirePlainSegments("-l names", parts...)
+	return join(runsBase(), runDirPrefix+parts[0], parts[1])
+}
+
+// resolveRunOperand maps a name-form operand (RUN or RUN/LANE) to its registry
+// path; absolute operands pass through unchanged.
+func resolveRunOperand(operand, flag string) string {
+	if strings.HasPrefix(operand, "/") {
+		return operand
+	}
+	parts := strings.Split(operand, "/")
+	if len(parts) > 2 {
+		die("codex-ask: "+flag+" takes RUN or RUN/LANE", 2)
+	}
+	requirePlainSegments(flag+" names", parts...)
+	resolved := join(runsBase(), runDirPrefix+parts[0])
+	if len(parts) == 2 {
+		resolved = join(resolved, parts[1])
+	}
+	return resolved
+}
+
 func acquireLaneLock(sdir string, exclusive bool) *os.File {
 	f, err := os.OpenFile(join(sdir, "lane.lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // per-lane coordination file
 	if err != nil {
@@ -294,8 +347,11 @@ func collectLane(d, lane string) {
 }
 
 func collectMode(root string) {
-	if !strings.HasPrefix(root, "/") {
-		die("codex-ask: --collect needs an absolute lane-root or lane dir", 2)
+	if root == "" {
+		root = join(runsBase(), runDirPrefix+sessionRun(
+			"--collect with no operand needs CLAUDE_CODE_SESSION_ID; pass a RUN name or an absolute root"))
+	} else {
+		root = resolveRunOperand(root, "--collect")
 	}
 	rejectOutsideScratch(root, "--collect root")
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --collect scratch root
@@ -342,17 +398,18 @@ func psMode() {
 	entries, _ := os.ReadDir(base)
 	for _, e := range entries {
 		if e.IsDir() { // lstat-based: the pruning walk never descends a symlinked entry
-			psWalk(join(base, e.Name()), base, now)
+			psWalk(join(base, e.Name()), base, now, false)
 		}
 	}
 	os.Exit(0)
 }
 
-func psWalk(d, base string, now float64) {
+func psWalk(d, base string, now float64, owned bool) {
 	hasRunState := exists(join(d, "meta")) || exists(join(d, "status")) || exists(join(d, "pid"))
 	if !hasRunState {
 		// A fan-out container holds lane subdirs and no run state of its own:
-		// classify its children, never the container itself (and never prune it).
+		// classify its children, then reap a codex-ask-minted container once its
+		// lanes have all been pruned (os.Remove refuses a non-empty dir).
 		var subdirs []string
 		if entries, err := os.ReadDir(d); err == nil {
 			for _, e := range entries {
@@ -362,21 +419,32 @@ func psWalk(d, base string, now float64) {
 			}
 		}
 		if len(subdirs) > 0 {
+			minted := owned || startsWithRunPrefix(filepath.Base(d))
 			for _, c := range subdirs {
-				psWalk(c, base, now)
+				psWalk(c, base, now, minted)
+			}
+			if minted {
+				_ = os.Remove(d)
 			}
 			return
 		}
 	}
 	li := classify(d)
 	// Prune only under a non-blocking lane lock; reverify state, age, and
-	// canonical containment right before rmtree (classify->delete TOCTOU).
-	if startsWithRunPrefix(filepath.Base(d)) && isFile(join(d, "meta")) &&
+	// canonical containment right before rmtree (classify->delete TOCTOU). An
+	// owned lane (inside a minted container) needs no meta: a roster lane that
+	// never dispatched is aged no-run residue, and requiring meta left every
+	// fan-out container unreapable — lane basenames carry no run prefix.
+	if (startsWithRunPrefix(filepath.Base(d)) && isFile(join(d, "meta")) || owned) &&
 		contains(terminal, li.state) && now-runMtime(d) > pruneAgeS {
 		if lock, ok := tryLaneLock(d, true); ok {
+			// A no-run lane's only mtime is the dir's, which creating lane.lock
+			// just bumped; its age holds from the pre-lock check — under the
+			// exclusive lock a still-no-run lane cannot be gaining a dispatch.
 			resolved, err := filepath.EvalSymlinks(d)
+			st := classify(d).state
 			if err == nil && strings.HasPrefix(resolved+"/", base+"/") &&
-				contains(terminal, classify(d).state) && now-runMtime(d) > pruneAgeS {
+				contains(terminal, st) && (st == "no-run" || now-runMtime(d) > pruneAgeS) {
 				_ = os.RemoveAll(d)
 				releaseLaneLock(lock)
 				return
@@ -482,9 +550,7 @@ func watchMode(args []string) {
 // watchTargets resolves one --watch operand: a run dir watches itself, a fan-out
 // root watches its lane children — the same split --collect makes.
 func watchTargets(root string) []string {
-	if !strings.HasPrefix(root, "/") {
-		die("codex-ask: --watch needs absolute run or root dirs", 2)
-	}
+	root = resolveRunOperand(root, "--watch")
 	rejectOutsideScratch(root, "--watch target")
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { //nolint:gosec // stats the caller's own --watch target
 		die(fmt.Sprintf("codex-ask: --watch: no such directory: %s", root), 2)
@@ -564,13 +630,26 @@ func emitWatchRecord(d string, li laneInfo) {
 }
 
 func mintRootMode(lanes []string) {
+	requirePlainSegments("--mint-root lanes", lanes...)
+	requireUniqueLanes("--mint-root", lanes)
+	root := mintScratch("codex-root")
 	for _, lane := range lanes {
-		if lane == "" || lane[0] == '.' || lane[0] == '-' || strings.Contains(lane, "/") || strings.Contains(lane, "\n") {
-			die("codex-ask: --mint-root lanes must be plain path segments "+
-				"(no /, newlines, empty, or leading . or -): "+lane, 2)
+		if err := os.MkdirAll(join(root, lane), 0o755); err != nil { //nolint:gosec // 0o755 matches the Python spec's scratch-dir mode
+			_ = os.RemoveAll(root)
+			os.Exit(1)
 		}
 	}
-	// Case-insensitive dedup: case-insensitive filesystems collapse review/Review.
+	// All-or-nothing: nothing prints until the whole roster exists.
+	fmt.Printf("ROOT: %s\n", root)
+	for _, lane := range lanes {
+		fmt.Printf("LANE: %s\n", join(root, lane))
+	}
+	os.Exit(0)
+}
+
+// requireUniqueLanes: case-insensitive dedup — case-insensitive filesystems
+// collapse review/Review.
+func requireUniqueLanes(flag string, lanes []string) {
 	seen := map[string]bool{}
 	var dups []string
 	for _, lane := range lanes {
@@ -584,19 +663,30 @@ func mintRootMode(lanes []string) {
 		}
 	}
 	if len(dups) > 0 {
-		die("codex-ask: --mint-root got duplicate lane names: "+strings.Join(dups, " "), 2)
+		die("codex-ask: "+flag+" got duplicate lane names: "+strings.Join(dups, " "), 2)
 	}
-	root := mintScratch("codex-root")
+}
+
+// mintRunMode: the name-form roster mint — lanes land under the named run's
+// registry dir so a lane that never dispatches still collects as a visible
+// no-run. Idempotent: re-minting an existing run adds missing lanes and never
+// removes state, so a mkdir failure exits without cleanup.
+func mintRunMode(args []string) {
+	if len(args) < 2 {
+		die("codex-ask: --mint-run takes RUN LANE [LANE...]", 2)
+	}
+	run, lanes := args[0], args[1:]
+	requirePlainSegments("--mint-run names", args...)
+	requireUniqueLanes("--mint-run", lanes)
+	root := join(runsBase(), runDirPrefix+run)
 	for _, lane := range lanes {
 		if err := os.MkdirAll(join(root, lane), 0o755); err != nil { //nolint:gosec // 0o755 matches the Python spec's scratch-dir mode
-			_ = os.RemoveAll(root)
-			os.Exit(1)
+			die("codex-ask: cannot mint lane "+run+"/"+lane+": "+err.Error(), 1)
 		}
 	}
-	// All-or-nothing: nothing prints until the whole roster exists.
-	fmt.Printf("ROOT: %s\n", root)
+	fmt.Printf("RUN: %s\n", run)
 	for _, lane := range lanes {
-		fmt.Printf("LANE: %s\n", join(root, lane))
+		fmt.Printf("LANE: %s/%s\n", run, lane)
 	}
 	os.Exit(0)
 }
