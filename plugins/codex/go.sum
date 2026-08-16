@@ -48,6 +48,8 @@ github.com/yasyf/cc-interact v0.30.1 h1:BChatpHvWhmjUp59WsuO39rf8Hfkv87bmaBc4NYY
 github.com/yasyf/cc-interact v0.30.1/go.mod h1:gUG1hfTE8BU5uIWY+0vJCMdXvvM5udfQon8D0YiVCmM=
 github.com/yasyf/cc-interact v0.32.0 h1:t4RyVvHrkGI8iz1tMV04tGSINIBWm7C+xHaSL0Kk5kE=
 github.com/yasyf/cc-interact v0.32.0/go.mod h1:VX/mRfKBnI/zyMi7vGknKwQycwDIVVwAALMoQ18JZH4=
+github.com/yasyf/cc-interact v0.32.1 h1:z+K+25SOVvv79CCgzT14leUEYnCpUXx40Pju0T789cM=
+github.com/yasyf/cc-interact v0.32.1/go.mod h1:1prAJrpqfVXsMb+7gjRqniFZejVJ7tJQC97zFqSdzOA=
 github.com/yasyf/daemonkit v0.19.1 h1:oluQyXlsyafo52IPjdQPhZjo2dNOdccKk+4o8itFvCc=
 github.com/yasyf/daemonkit v0.19.1/go.mod h1:5tYeENawEKN1GpM12YXTqIZ1fbWv7bj9P4TyIcSZ24Q=
 github.com/yasyf/daemonkit v0.21.4 h1:95xJR6bv0Ih2fhbkesrvQFUd3QnAvzYgEBUJaZNYnjM=
