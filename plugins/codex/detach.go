@@ -120,7 +120,7 @@ func runWorker(sdir string) {
 	// Terminal status is durable; wake the dispatching owner subagent, if any —
 	// bounded and fail-open, so a dead daemon never crashes the worker.
 	if loaded && cmd.Owner != "" {
-		wakeOwner(sdir, cmd)
+		wakeOwner(deps(), sdir, cmd)
 	}
 	// The parent's pollStatus already unblocked on the status write above, so the
 	// registration runs on time no caller is waiting for (worker orphaned to PID 1).

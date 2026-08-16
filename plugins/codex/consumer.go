@@ -231,14 +231,14 @@ func directWake(ctx context.Context, d cmd.Deps, session, scope string, claudePI
 // names the terminal state and the reply/log paths, never the reply payload. The
 // dial is bounded (wakeTimeout) and fail-open — a dead daemon is swallowed (at
 // most a line in the lane log), so the worker still exits with status intact.
-func wakeOwner(sdir string, c cmdSpec) {
+func wakeOwner(d cmd.Deps, sdir string, c cmdSpec) {
 	text := fmt.Sprintf(
 		"codex dispatch %s. Read the reply from disk at %s (log: %s). "+
 			"Wake-only completion notice — the result is in the file, not in this message.",
 		classify(sdir).state, c.Reply, c.Log)
 	ctx, cancel := context.WithTimeout(context.Background(), wakeTimeout)
 	defer cancel()
-	if _, err := directWake(ctx, deps(), c.Session, c.Scope, c.ClaudePID, c.Owner, event.OriginSystem, text); err != nil {
+	if _, err := directWake(ctx, d, c.Session, c.Scope, c.ClaudePID, c.Owner, event.OriginSystem, text); err != nil {
 		appendLine(c.Log, "codex-ask: owner wake failed (fail-open): "+err.Error())
 	}
 }

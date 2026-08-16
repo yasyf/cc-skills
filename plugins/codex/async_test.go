@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-interact/cmd"
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/cc-interact/store"
 )
@@ -265,28 +266,12 @@ func TestDispatchAsyncReturnsWithoutBlocking(t *testing.T) {
 	}
 }
 
-// TestOwnerWakeDirectiveLands drives a real in-process daemon: seed the subject,
-// register the owner via OpAgentStart, dispatch --dispatch --owner, and observe
-// the worker's wake directive arrive naming the reply file and carrying no payload.
 func TestOwnerWakeDirectiveLands(t *testing.T) {
-	bin := codexAskBin(t)
-	home := shortHome(t)
+	shortHome(t)
+	srv := serveInProcess(t)
 
-	srv, err := buildServer()
-	if err != nil {
-		t.Fatal(err)
-	}
 	const session = "sess-wake"
 	scope := canonicalScope(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ctx) }()
-	defer func() {
-		cancel()
-		<-served
-	}()
-	waitDaemonReady(t)
 	sub, err := store.NewSubjectStore(srv.DB()).
 		Create(context.Background(), "0123456789abcdef0123456789abcdef", "codex-wake", session, scope, 0, statusOpen)
 	if err != nil {
@@ -294,23 +279,13 @@ func TestOwnerWakeDirectiveLands(t *testing.T) {
 	}
 	registerOwner(t, session, scope, "owner-1")
 
-	runs := mustTempDir(t)
-	stubDir := mustTempDir(t)
-	writeStub(t, stubDir, stubCodexReply)
-	var stdout, stderr bytes.Buffer
-	c := exec.Command(bin, "--dispatch", "--owner", "owner-1", "ping") //nolint:gosec // drives the built binary under test
-	c.Dir = scope
-	c.Env = dispatchEnv(home, session, runs, stubDir, scope)
-	c.Stdout, c.Stderr = &stdout, &stderr
-	if err := c.Run(); err != nil {
-		t.Fatalf("dispatch: %v\nstderr: %s", err, stderr.String())
-	}
-	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
-	if reply == "" {
-		t.Fatalf("no REPLY_FILE printed:\n%s", stdout.String())
-	}
-	t.Cleanup(func() { killLane(filepath.Dir(reply)) })
+	sdir, reply, logf := completedLane(t)
+	wakeOwner(wakeDeps(), sdir, cmdSpec{
+		Reply: reply, Log: logf,
+		Owner: "owner-1", Session: session, Scope: scope, ClaudePID: 0,
+	})
 
+	assertWakeDialed(t, logf)
 	waitForWake(t, srv.DB(), sub.ID, "owner-1", reply)
 }
 
@@ -846,25 +821,10 @@ func TestWatchSettlesExpiredRegistration(t *testing.T) {
 // wakes with a rotated session id: resolution must fall back to (pid, scope) —
 // the production survival path when CLAUDE_CODE_SESSION_ID rotates mid-run.
 func TestOwnerWakeFallsBackToClaudePID(t *testing.T) {
-	testExe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := shortHome(t)
+	shortHome(t)
+	srv := serveInProcess(t)
 
-	srv, err := buildServer()
-	if err != nil {
-		t.Fatal(err)
-	}
 	scope := canonicalScope(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(ctx) }()
-	defer func() {
-		cancel()
-		<-served
-	}()
-	waitDaemonReady(t)
 	sub, err := store.NewSubjectStore(srv.DB()).
 		Create(context.Background(), "fedcba9876543210fedcba9876543210", "codex-rot", "sess-original", scope, 4242, statusOpen)
 	if err != nil {
@@ -872,38 +832,13 @@ func TestOwnerWakeFallsBackToClaudePID(t *testing.T) {
 	}
 	registerOwner(t, "sess-original", scope, "owner-rot")
 
-	runs := mustTempDir(t)
-	stubDir := mustTempDir(t)
-	writeStub(t, stubDir, stubCodexReply)
-	stub := filepath.Join(stubDir, "codex")
-
-	sdir, err := os.MkdirTemp(runs, "codex-ask.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reply := filepath.Join(sdir, "codex-r-x")
-	replyTmp := reply + ".tmp"
-	question := filepath.Join(sdir, "codex-q-x")
-	logf := filepath.Join(sdir, "codex-q-x.log")
-	writeFile(t, question, "ping\n")
-	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+logf+"\n")
-	spec := cmdSpec{
-		Argv: []string{stub, "-o", replyTmp}, Question: question, Reply: reply, ReplyTmp: replyTmp, Log: logf,
+	sdir, reply, logf := completedLane(t)
+	wakeOwner(wakeDeps(), sdir, cmdSpec{
+		Reply: reply, Log: logf,
 		Owner: "owner-rot", Session: "sess-rotated", Scope: scope, ClaudePID: 4242,
-	}
-	cb, _ := json.Marshal(spec)
-	writeFile(t, filepath.Join(sdir, "cmd"), string(cb))
+	})
 
-	child := exec.Command(testExe, "-test.run=XXX_NO_TEST_XXX") //nolint:gosec // re-execs the test binary as the worker child
-	child.Env = append(os.Environ(),
-		"HOME="+home,
-		"CODEX_ASK_TEST_WORKER_SDIR="+sdir,
-		"CODEX_ASK_TEST_WAKE_MS=5000",
-		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-	)
-	if out, cerr := child.CombinedOutput(); cerr != nil {
-		t.Fatalf("worker exited non-zero: %v\n%s", cerr, out)
-	}
+	assertWakeDialed(t, logf)
 	waitForWake(t, srv.DB(), sub.ID, "owner-rot", reply)
 }
 
@@ -964,8 +899,54 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// waitDaemonReady polls the business lane until the daemon dispatches, so a
-// test never races the bind.
+func serveInProcess(t *testing.T) *daemon.Server {
+	t.Helper()
+	srv, err := buildServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-served
+	})
+	waitDaemonReady(t)
+	return srv
+}
+
+func wakeDeps() cmd.Deps {
+	d := deps()
+	// EnsureCurrent is stubbed: converging would replace the in-process daemon
+	// this test serves with the test binary's own build, closing its database.
+	d.EnsureCurrent = func(context.Context) error { return nil }
+	return d
+}
+
+func completedLane(t *testing.T) (sdir, reply, logf string) {
+	t.Helper()
+	sdir = mustTempDir(t)
+	reply = filepath.Join(sdir, "codex-r-x")
+	logf = filepath.Join(sdir, "codex-q-x.log")
+	writeFile(t, filepath.Join(sdir, "codex-q-x"), "ping\n")
+	writeFile(t, logf, "")
+	writeFile(t, reply, "pong\n")
+	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+logf+"\n")
+	writeFile(t, filepath.Join(sdir, "status"), "0\n")
+	if got := classify(sdir).state; got != "completed" {
+		t.Fatalf("lane state = %q, want completed", got)
+	}
+	return sdir, reply, logf
+}
+
+func assertWakeDialed(t *testing.T, logf string) {
+	t.Helper()
+	if got := readFile(logf); strings.Contains(got, "owner wake failed") {
+		t.Fatalf("wake failed open: %s", strings.TrimSpace(got))
+	}
+}
+
 func waitDaemonReady(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
