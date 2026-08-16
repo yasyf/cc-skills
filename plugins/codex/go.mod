@@ -2,6 +2,8 @@ module github.com/yasyf/cc-skills/plugins/codex
 
 go 1.26.5
 
+toolchain go1.26.6
+
 require (
 	github.com/spf13/cobra v1.10.2
 	github.com/yasyf/cc-interact v0.32.1
