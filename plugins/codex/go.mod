@@ -4,8 +4,8 @@ go 1.26.5
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-interact v0.30.1
-	github.com/yasyf/daemonkit v0.19.1
+	github.com/yasyf/cc-interact v0.32.0
+	github.com/yasyf/daemonkit v0.21.4
 )
 
 require (

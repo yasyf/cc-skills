@@ -5,17 +5,18 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-interact/daemon"
-	"github.com/yasyf/daemonkit/service"
+	"github.com/yasyf/daemonkit"
 )
 
 func TestConsumerUsesExactRuntimeWiring(t *testing.T) {
 	got := launcher()
-	if got.WireBuild != daemon.WireBuild || got.RuntimeBuild != appVersion {
-		t.Fatalf("launcher identities = %q, %q", got.WireBuild, got.RuntimeBuild)
+	if got.RuntimeBuild != appVersion || got.Paths != appPaths() {
+		t.Fatalf("launcher identities = %q, %#v", got.RuntimeBuild, got.Paths)
 	}
-	if got.Agent.Label != codexServiceLabel || got.Agent.RestartPolicy != service.RestartOnFailure ||
-		!slices.Equal(got.Agent.Args, []string{"daemon"}) || got.Roles != appRoles() {
-		t.Fatalf("launcher runtime = %#v, %#v", got.Agent, got.Roles)
+	if got.Daemon.Label != codexServiceLabel || got.Daemon.Restart != daemonkit.RestartOnFailure ||
+		!slices.Equal(got.Daemon.Args, []string{"daemon"}) ||
+		!slices.Equal(got.Daemon.Schemas, []daemonkit.Schema{daemon.WireBuild}) {
+		t.Fatalf("launcher runtime = %#v", got.Daemon)
 	}
 }
 

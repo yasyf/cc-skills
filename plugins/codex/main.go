@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/yasyf/daemonkit/trust"
 )
 
 const (
@@ -48,13 +46,6 @@ var selfPath string
 var invokePath string
 
 func main() {
-	if handled, err := trust.RunVerifierChild(os.Args[1:], os.Stdout); handled {
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return
-	}
 	// The ambient OPENAI_API_KEY is billing-capped and blocks the hosted image_gen
 	// tool, so every mode drops it and codex OAuth-auths.
 	_ = os.Unsetenv("OPENAI_API_KEY")

@@ -8,44 +8,49 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-interact/daemon"
-	"github.com/yasyf/daemonkit/service"
-	"github.com/yasyf/daemonkit/trust"
+	"github.com/yasyf/daemonkit"
 )
 
-func TestDaemonRuntimeUsesExactServiceAndRoles(t *testing.T) {
-	agent := appAgent()
-	if agent.Label != codexServiceLabel || agent.RestartPolicy != service.RestartOnFailure {
-		t.Fatalf("service identity = %q, %d", agent.Label, agent.RestartPolicy)
-	}
-	if !filepath.IsAbs(agent.Program) || !slices.Equal(agent.Args, []string{"daemon"}) {
-		t.Fatalf("service program = %q %#v", agent.Program, agent.Args)
-	}
-	roles := appRoles()
-	if roles != (daemon.Roles{
-		Business: trust.UnprotectedRole, Lifecycle: codexLifecycleRole, StopControl: codexStopControlRole,
-	}) {
-		t.Fatalf("roles = %#v", roles)
-	}
-}
-
-func TestDaemonRuntimePinsSignedControlAuthority(t *testing.T) {
-	policy, err := appTrustPolicy()
+func TestDaemonSpecPinsExactRuntimeIdentity(t *testing.T) {
+	spec, err := appSpec()
 	if err != nil {
 		t.Fatal(err)
 	}
-	roles := appRoles()
-	for _, role := range []trust.PeerRole{roles.Lifecycle, roles.StopControl} {
-		requirement, ok := policy.Requirement(role)
-		if !ok {
-			t.Fatalf("missing requirement for %q", role)
-		}
-		if requirement.TeamID != codexSigningTeamID || requirement.SigningIdentifier != codexSigningIdentifier {
-			t.Fatalf("requirement for %q = %#v", role, requirement)
-		}
+	if spec.Label != codexServiceLabel || spec.Restart != daemonkit.RestartOnFailure {
+		t.Fatalf("daemon identity = %q, %v", spec.Label, spec.Restart)
 	}
-	if !policy.AllowsUnprotected() || !policy.AllowsReceipt(roles.Lifecycle) ||
-		!policy.AllowsReadiness(roles.Lifecycle) || !policy.AllowsStop(roles.StopControl) {
-		t.Fatal("trust policy does not grant the exact runtime authorities")
+	if !slices.Equal(spec.Args, []string{"daemon"}) || spec.Log != appPaths().LogPath() {
+		t.Fatalf("daemon job = %#v, %q", spec.Args, spec.Log)
+	}
+	if !slices.Equal(spec.Schemas, []daemonkit.Schema{daemon.WireBuild}) {
+		t.Fatalf("schemas = %#v", spec.Schemas)
+	}
+}
+
+func TestDaemonSpecPinsSignedControlAuthority(t *testing.T) {
+	spec, err := appSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	control := spec.Trust.Control
+	if control == nil {
+		t.Fatal("control lane states no requirement")
+	}
+	if control.TeamID != codexSigningTeamID || control.SigningIdentifier != codexSigningIdentifier {
+		t.Fatalf("control requirement = %#v", *control)
+	}
+}
+
+// TestDaemonSpecOpensAsClient pins the posture v0.21 refuses by default: Open
+// runs ValidateForClient, so an unstated Trust.Serving fails here rather than on
+// the first call.
+func TestDaemonSpecOpensAsClient(t *testing.T) {
+	spec, err := appSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemonkit.Open(spec); err != nil {
+		t.Fatalf("open: %v", err)
 	}
 }
 

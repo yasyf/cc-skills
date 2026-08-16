@@ -56,13 +56,14 @@ const (
 func appPaths() paths.Paths { return paths.Paths{App: appDir} }
 
 func launcher() daemon.Launcher {
-	return daemon.Launcher{
-		Paths: appPaths(), WireBuild: daemon.WireBuild, RuntimeBuild: appVersion,
-		Agent: appAgent(), Roles: appRoles(),
+	spec, err := appSpec()
+	if err != nil {
+		panic(err)
 	}
+	return daemon.Launcher{Daemon: spec, Paths: appPaths(), RuntimeBuild: appVersion}
 }
 
-func newClient(ctx context.Context) (*daemon.Client, error) { return launcher().NewClient(ctx) }
+func newClient(context.Context) (*daemon.Client, error) { return launcher().NewClient() }
 
 // cwdOr resolves the scope: the explicit flag, else the process working directory.
 func cwdOr(cwd string) string {
@@ -96,17 +97,15 @@ func agentGreeting(info agent.Info) string {
 // registry is the filesystem, not the daemon — and mounts no HTTP bridge.
 func buildServer() (*daemon.Server, error) {
 	c := channel.Connectivity{}
-	policy, err := appTrustPolicy()
+	spec, err := appSpec()
 	if err != nil {
 		return nil, err
 	}
 	return daemon.New(daemon.Config{
 		AppName:           binaryName,
 		Paths:             appPaths(),
-		WireBuild:         daemon.WireBuild,
+		Daemon:            spec,
 		RuntimeBuild:      appVersion,
-		TrustPolicy:       policy,
-		Roles:             appRoles(),
 		ActiveStatuses:    []string{statusOpen},
 		PresenceEventType: c.Type(),
 		OnPresenceChange:  c.OnPresenceChange,

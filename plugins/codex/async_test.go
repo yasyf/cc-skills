@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/cc-interact/store"
-	"github.com/yasyf/daemonkit/trust"
 )
 
 // TestMain doubles the test binary as the async fixtures. A "daemon" argv (what
@@ -28,13 +26,6 @@ import (
 // (os.Exit inside), exercising status-write-then-wake with os.Executable as the
 // broken autostart target.
 func TestMain(m *testing.M) {
-	if handled, err := trust.RunVerifierChild(os.Args[1:], os.Stdout); handled {
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		os.Exit(1)
 	}
@@ -122,8 +113,15 @@ func envWithoutGOROOT() []string {
 	return env
 }
 
-// shortHome points HOME at a short /tmp dir (the daemon socket path must stay
-// under the sun_path limit) and returns it.
+// daemonkitHomeEnv relocates every daemonkit home-derived path: the state
+// directory, the socket, the owner record, and Stable's staged program. HOME
+// alone would leave all four on the live agent's, since daemonkit resolves them
+// through the passwd entry.
+const daemonkitHomeEnv = "DAEMONKIT_HOME"
+
+// shortHome points HOME and DAEMONKIT_HOME at a short, symlink-free /tmp dir:
+// the daemon socket path must stay under the sun_path limit, and launchd
+// refuses a program path reached through a symlink (/tmp is one).
 func shortHome(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cax-")
@@ -131,8 +129,13 @@ func shortHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("HOME", dir)
-	return dir
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", resolved)
+	t.Setenv(daemonkitHomeEnv, resolved)
+	return resolved
 }
 
 func mustTempDir(t *testing.T) string {
@@ -166,6 +169,7 @@ func writeStub(t *testing.T, dir, script string) {
 func dispatchEnv(home, session, runs, stubDir, scope string) []string {
 	env := []string{
 		"HOME=" + home,
+		daemonkitHomeEnv + "=" + home,
 		"CODEX_ASK_RUNS_DIR=" + runs,
 		"PATH=" + stubDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"PWD=" + scope,
@@ -960,6 +964,8 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+// waitDaemonReady polls the business lane until the daemon dispatches, so a
+// test never races the bind.
 func waitDaemonReady(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -968,13 +974,13 @@ func waitDaemonReady(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		client, err := newClient(ctx)
 		if err == nil {
-			health, herr := client.RuntimeHealth(ctx)
+			reply, probeErr := client.Do(ctx, daemon.Envelope{Op: daemon.OpStatus, Scope: "/not/a/repo"})
 			_ = client.Close()
 			cancel()
-			if herr == nil && health.Ready && health.RuntimeBuild == appVersion && health.ProcessGeneration != "" {
+			if probeErr == nil && reply.OK {
 				return
 			}
-			lastErr = herr
+			lastErr = probeErr
 			time.Sleep(20 * time.Millisecond)
 			continue
 		}
