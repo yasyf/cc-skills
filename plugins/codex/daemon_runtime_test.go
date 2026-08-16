@@ -52,7 +52,12 @@ func TestDaemonSpecOpensAsClient(t *testing.T) {
 	}
 }
 
-func TestDaemonSpecRendersTheStagedProgramAndOwnerMarker(t *testing.T) {
+// Genuine here: spec.Program is daemonkit.Stable(), and launchd's renderEnv
+// injects the ownership marker itself. Reconstructed: the staged path, built
+// from daemonkit's documented rule because v0.21.4 exports no dry-run render
+// (Program has no exported methods) — so ProgramArguments proves Plist echoes
+// a staged path, not that Ensure stages that one.
+func TestDaemonSpecPinsStableProgramAndPlistInjectsOwnerMarker(t *testing.T) {
 	home := shortHome(t)
 	spec, err := appSpec()
 	if err != nil {

@@ -193,13 +193,18 @@ func stdoutLine(out, prefix string) string {
 	return ""
 }
 
-func cmdArgv(t *testing.T, sdir string) []string {
+func cmdRecord(t *testing.T, sdir string) cmdSpec {
 	t.Helper()
 	var spec cmdSpec
 	if err := json.Unmarshal([]byte(readFile(filepath.Join(sdir, "cmd"))), &spec); err != nil {
 		t.Fatalf("read cmd: %v", err)
 	}
-	return spec.Argv
+	return spec
+}
+
+func cmdArgv(t *testing.T, sdir string) []string {
+	t.Helper()
+	return cmdRecord(t, sdir).Argv
 }
 
 func flagValue(argv []string, flag string) string {
@@ -263,6 +268,62 @@ func TestDispatchAsyncReturnsWithoutBlocking(t *testing.T) {
 	psOut, _ := ps.CombinedOutput()
 	if !strings.Contains(string(psOut), sdir) {
 		t.Fatalf("--ps did not list %s:\n%s", sdir, psOut)
+	}
+}
+
+// claudeShim builds the dispatch command behind a /bin/sh symlink named claude,
+// so procs.ClaudePID resolves a known non-zero ancestor (isClaude matches
+// filepath.Base(argv[0])). The `; exit $?` tail stops sh exec'ing itself away,
+// which would erase the very ancestor the shim exists to provide.
+func claudeShim(t *testing.T, bin string, args ...string) *exec.Cmd {
+	t.Helper()
+	shim := filepath.Join(mustTempDir(t), "claude")
+	if err := os.Symlink("/bin/sh", shim); err != nil {
+		t.Fatal(err)
+	}
+	return exec.Command(shim, append([]string{"-c", `"$0" "$@"; exit $?`, bin}, args...)...) //nolint:gosec // drives the built binary under test through the test's own shim
+}
+
+// TestDispatchOwnerRoutingFieldsPersist drives --dispatch --owner through the
+// built binary and reads all four routing fields back off the lane's cmd record.
+// The worker is orphaned to PID 1 and cannot re-derive any of them, so a
+// mis-parsed --owner or a dropped field silently unroutes every wake.
+func TestDispatchOwnerRoutingFieldsPersist(t *testing.T) {
+	bin := codexAskBin(t)
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexSleep)
+	scope := canonicalScope(t)
+
+	const session = "sess-dispatch-owner"
+	var stdout, stderr bytes.Buffer
+	c := claudeShim(t, bin, "--dispatch", "--owner", "owner-flag", "ping")
+	c.Dir = scope
+	c.Env = dispatchEnv(home, session, runs, stubDir, scope)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("dispatch: %v\nstderr: %s", err, stderr.String())
+	}
+	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
+	if reply == "" {
+		t.Fatalf("no REPLY_FILE line:\n%s", stdout.String())
+	}
+	sdir := filepath.Dir(reply)
+	t.Cleanup(func() { killLane(sdir) })
+
+	spec := cmdRecord(t, sdir)
+	if spec.Owner != "owner-flag" {
+		t.Fatalf("cmd.owner = %q, want owner-flag — --owner never reached the dispatch record", spec.Owner)
+	}
+	if spec.Session != session {
+		t.Fatalf("cmd.session = %q, want %q", spec.Session, session)
+	}
+	if spec.Scope != scope {
+		t.Fatalf("cmd.scope = %q, want the dispatch cwd %q", spec.Scope, scope)
+	}
+	if spec.ClaudePID != c.Process.Pid {
+		t.Fatalf("cmd.claude_pid = %d, want the claude shim's pid %d", spec.ClaudePID, c.Process.Pid)
 	}
 }
 
@@ -889,6 +950,9 @@ func TestWorkerWakeFailsOpenWhenDaemonUnreachable(t *testing.T) {
 	}
 	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
 		t.Fatalf("reply = %q, want pong", got)
+	}
+	if got := readFile(logf); !strings.Contains(got, "owner wake failed (fail-open)") {
+		t.Fatalf("lane log carries no fail-open note, so runWorker never called wakeOwner:\n%s", got)
 	}
 }
 
