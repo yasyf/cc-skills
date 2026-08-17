@@ -7,21 +7,36 @@
 #   CHECK   <name> <bucket> <link>
 #   REVIEW  <author> <state> <id>
 #   COMMENT <author> <id> <first-80-chars-of-body>
-#   DONE    all-green | merged | closed | checks-failed
+#   QUEUED  <author> <id>
+#   DONE    all-green | merged | queue-merged | closed | checks-failed
 #
-# Exits 0 after DONE. A fresh state file watches from now on; pre-seed
-# .watermarks to replay a PR's existing comments and reviews.
+# Exits 0 after DONE. QUEUED — the PR entered the merge queue — is not
+# terminal: the PR is still in flight and the watch continues.
+#
+# A merge queue that squash-merges leaves the PR CLOSED with mergedAt null, so
+# the closed path resolves the real terminal state from the CLOSED_EVENT actor:
+# the queue bot closed it means queue-merged, a human means closed.
+#
+# A fresh state file watches from now on; pre-seed .watermarks to replay a PR's
+# existing comments and reviews.
 set -euo pipefail
 
 STATE_SCHEMA=1
 EMPTY_PASSES_BEFORE_GREEN=3
+INTERVAL_FLOOR_PER_PR=10
+QUEUE_BOT=graphite-app
 
 usage() {
   cat >&2 <<'EOF'
 usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
 
-  Polls every PR_POLL_INTERVAL seconds (default 30, floor 10) and prints one
-  CHECK / REVIEW / COMMENT line per new event, then DONE and exit 0.
+  Polls every PR_POLL_INTERVAL seconds and prints one CHECK / REVIEW /
+  COMMENT / QUEUED line per new event, then DONE and exit 0.
+
+  PR_POLL_INTERVAL defaults to 30. Each pass spends ~5 API calls, and every
+  watcher on a stack spends them against one shared hourly budget, so the
+  interval is floored at 10 seconds per concurrently watched PR: set
+  PR_POLL_STACK to the number of PRs being watched at once (default 1).
 EOF
   exit 2
 }
@@ -40,10 +55,16 @@ STATE_FILE=$3
 
 [[ $REPO =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || usage
 [[ $PR =~ ^[0-9]+$ ]] || usage
+OWNER=${REPO%%/*}
+NAME=${REPO#*/}
+
+STACK="${PR_POLL_STACK:-1}"
+[[ $STACK =~ ^[1-9][0-9]*$ ]] || STACK=1
+FLOOR=$((INTERVAL_FLOOR_PER_PR * STACK))
 
 INTERVAL="${PR_POLL_INTERVAL:-30}"
 [[ $INTERVAL =~ ^[0-9]+$ ]] || INTERVAL=30
-[ "$INTERVAL" -ge 10 ] || INTERVAL=10
+[ "$INTERVAL" -ge "$FLOOR" ] || INTERVAL=$FLOOR
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$(dirname "$STATE_FILE")"
@@ -88,8 +109,26 @@ finish() {
   exit 0
 }
 
+closed_verdict() {
+  local actor
+  actor=$(gh api graphql -F owner="$OWNER" -F name="$NAME" -F pr="$PR" -f query='
+    query($owner: String!, $name: String!, $pr: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $pr) {
+          timelineItems(last: 5, itemTypes: [CLOSED_EVENT]) {
+            nodes { ... on ClosedEvent { actor { login } } }
+          }
+        }
+      }
+    }' --jq '[.data.repository.pullRequest.timelineItems.nodes[].actor.login] | last // empty' \
+    2>/dev/null) || return 0
+
+  [ -n "$actor" ] || return 0
+  if [ "$actor" = "$QUEUE_BOT" ]; then printf 'queue-merged\n'; else printf 'closed\n'; fi
+}
+
 poll() {
-  local view checks head prev seen items wm_c wm_r next_c next_r pr_state merged n_checks verdict
+  local view checks head prev seen items wm_c wm_r next_c next_r pr_state merged closed_as n_checks verdict
 
   view=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,headRefOid,statusCheckRollup \
     --jq '{state, mergedAt, headRefOid, n_checks: (.statusCheckRollup | length)}' 2>/dev/null || true)
@@ -135,6 +174,10 @@ poll() {
     map(select(.at > $wm)) | sort_by(.at) | .[]
     | "COMMENT \(.author) \(.id) \((.body // "") | gsub("[\r\n]+"; " ") | .[0:80])"
   ' <<<"$items")"
+  emit "$(jq -rs --arg wm "$wm_c" --arg bot "${QUEUE_BOT}[bot]" '
+    map(select(.at > $wm and .author == $bot and ((.body // "") | contains("merge queue"))))
+    | sort_by(.at) | .[] | "QUEUED \(.author) \(.id)"
+  ' <<<"$items")"
   next_c=$(jq -rs --arg wm "$wm_c" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_c=$wm_c
 
   STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" \
@@ -144,7 +187,11 @@ poll() {
   pr_state=$(jq -r '.state // ""' <<<"$view")
   merged=$(jq -r '.mergedAt // ""' <<<"$view")
   if [ -n "$merged" ] || [ "$pr_state" = MERGED ]; then finish merged; fi
-  if [ "$pr_state" = CLOSED ]; then finish closed; fi
+  if [ "$pr_state" = CLOSED ]; then
+    closed_as=$(closed_verdict)
+    if [ -n "$closed_as" ]; then finish "$closed_as"; fi
+    return 0
+  fi
 
   n_checks=$(jq -r '.n_checks // -1' <<<"$view")
   if [ "$n_checks" = 0 ]; then

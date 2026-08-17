@@ -1,12 +1,12 @@
-# Triage: fix now or bring it back
+# Triage: fix, rebut, or ask
 
-One question sorts every event: does the failure itself determine the fix?
-When the tool prints the corrected content, when exactly one edit resolves
-the error, when the reviewer wrote the replacement text — the fix is
-determined, and applying it is mechanical. When fixing requires choosing
-what the code should do — which behaviour is right, which approach wins,
-whose consent is needed — the choice belongs to the human, framed as 2–4
-concrete options with a recommendation.
+Asking is the default verdict; fix and rebut are the two narrow exceptions.
+Fix without asking only when the failure or the reviewer already wrote the
+fix — the tool prints the corrected content, exactly one edit resolves the
+error, the suggestion block carries the replacement. Rebut when a review
+bot is wrong and the code proves it. Everything else — every failure with
+two live resolutions, every opinion, everything needing consent — belongs
+to the human, framed as 2–4 concrete options with a recommendation.
 
 Every fix, however determined, passes the four gates in SKILL.md first.
 
@@ -72,8 +72,36 @@ thread once it lands.
 
 "use `errors.Is(err, os.ErrNotExist)` here" — the replacement is quoted;
 apply it. A bot comment naming a problem without its replacement ("this
-could be simplified") is a review opinion, and review opinions come back as
-options.
+could be simplified") is a review opinion: rebut it when the code refutes
+it, bring it back otherwise.
+
+## Rebut
+
+A review bot is a pattern-matcher, and a false finding is a normal round,
+not an edge case. When the code checkably refutes the claim, the verdict is
+a rebuttal: a thread reply quoting the evidence — the guard the bot missed,
+the test that already covers the path, the invariant that makes the "bug"
+unreachable — and no code change. It beats fixing when applying the
+suggestion would churn or worsen correct code; it beats asking when the
+code itself settles the claim, so the human would only be asked to confirm
+what the file already says.
+
+<example label="rebut">
+A bot flags an unchecked error return on a call whose error the next line
+wraps and returns. Reply quoting the two lines, resolve the thread. Fixing
+would duplicate the handling; asking would hand the human a question the
+file answers.
+</example>
+<example label="looks like a rebuttal, is a decision">
+A bot flags a missing timeout on an HTTP call, and the codebase has no
+convention either way. The bot may be right — adding one is a design
+choice; bring back "add a 30s timeout, adopt the client default, or decline
+with a reply?"
+</example>
+
+A human reviewer's wrong claim never gets an autonomous rebuttal: the reply
+commits the author to a position, and that voice is the human's. Draft the
+rebuttal and carry it into the bring-back as an option.
 
 ## Bring it back
 
@@ -174,9 +202,10 @@ time, and where a human eye should look first.
   check goes green, so a fresh failure on new commits starts a fresh count.
   This map is what carries the two-attempt cap across a restart or session
   boundary — an in-memory count evaporates with the session.
-- `applied` — one record per shipped fix: timestamp, target check, the
-  action taken, the commit. The loop's audit trail, and the material for
-  the bring-back after a second failed attempt.
+- `applied` — one record per shipped fix or posted rebuttal: timestamp,
+  target check or thread, the action taken, the commit where one exists.
+  The loop's audit trail, and the material for the bring-back after a
+  second failed attempt.
 
 Update `attempts` and `applied` in the same step as the ship, before
 returning to the watch — a fix shipped but unrecorded invites a third
@@ -207,13 +236,14 @@ gates; anything else joins the next bring-back.
 ```
 Agent(subagent_type: "cc-context:pr-review-triage",
       prompt: "PR #<pr> on <owner/repo>, review <review-id>. Per comment:
-               a verdict (mechanical fix, needs decision, or reply only),
+               a verdict (mechanical fix, rebuttal, or needs decision),
                the concrete change, a draft reply, and the gh api recipe
                to post it.")
 ```
 
 One spawn per burst — a review with nine comments is one delegation.
 Mechanical verdicts (suggestion blocks, named replacements) go through the
-gates, and their drafted replies post after the ship; decision verdicts
-carry their drafts into the bring-back for the human to approve before
-anything posts.
+gates, and their drafted replies post after the ship; rebuttal verdicts
+post with their evidence on a bot's thread, and only through the bring-back
+on a human's; decision verdicts carry their drafts into the bring-back for
+the human to approve before anything posts.
