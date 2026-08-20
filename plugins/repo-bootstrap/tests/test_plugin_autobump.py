@@ -147,7 +147,7 @@ def test_discovery_and_independent_baselines(repo):
     assert autobump.find_baseline(repo, _manifest_path("plugins/b")) == create
 
 
-# 6 — .github/.claude/.gitignore inside the root don't count
+# 6 — .github/.claude/.gitignore/.cursor-plugin inside the root don't count
 def test_infra_paths_do_not_count_as_drift(repo):
     m = _manifest_path("plugins/a")
     _write(repo, m, _manifest_text("a", "0.1.0"))
@@ -157,6 +157,7 @@ def test_infra_paths_do_not_count_as_drift(repo):
     _write(repo, "plugins/a/.github/ci.yml", "on: push\n")
     _write(repo, "plugins/a/.claude/settings.json", "{}\n")
     _write(repo, "plugins/a/.gitignore", "dist/\n")
+    _write(repo, "plugins/a/.cursor-plugin/plugin.json", _manifest_text("a", "0.2.0"))
     _commit(repo, "infra only")
 
     assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "clean"
@@ -331,3 +332,18 @@ def test_malformed_manifest_is_error(repo):
     (r,) = autobump.analyze(repo, set(), [])
     assert r.verdict == "error"
     assert "valid JSON" in r.message
+
+
+# 16 — a release bumps .claude-plugin first and mirrors it into .cursor-plugin
+# in a later commit. The mirror moving is not the plugin's content drifting, so
+# a guarded plugin stays clean and the strict weekly run does not cry wolf.
+def test_cursor_manifest_mirror_is_not_drift_for_a_guarded_plugin(repo):
+    m = _manifest_path("plugins/a")
+    _write(repo, m, _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, m, _manifest_text("a", "0.2.0"))
+    _commit(repo, "descriptor: sync manifest to 0.2.0")
+    _write(repo, "plugins/a/.cursor-plugin/plugin.json", _manifest_text("a", "0.2.0"))
+    _commit(repo, "cursor-bump: mirror manifest to 0.2.0")
+
+    assert _by_name(autobump.analyze(repo, {"a"}, []), "a").verdict == "clean"

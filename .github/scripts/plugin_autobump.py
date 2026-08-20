@@ -29,7 +29,7 @@ from pathlib import Path
 
 BOT_NAME = "github-actions[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
-ROOT_EXCLUDES = (".claude-plugin", ".github", ".claude", ".gitignore")
+ROOT_EXCLUDES = (".claude-plugin", ".cursor-plugin", ".github", ".claude", ".gitignore")
 
 
 def _git(repo: Path, *args: str, text: bool = True) -> subprocess.CompletedProcess:
