@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Locate the binrun runner and exec the {{binary}} descriptor.
 #
 # This renders to plugin scripts/install-binary.sh — the successor to the
@@ -10,6 +10,10 @@
 # resolves and execs the version-exact artifact the sidecar bin/{{binary}}.binrun
 # descriptor pins. Every failure here exits 1: exit 2 is reserved for a real
 # hook verdict, and the only other codes come from the exec'd artifact itself.
+#
+# bash, not sh: this runs once per hook invocation, and an endpoint-security agent
+# that deep-inspects /bin/sh as a living-off-the-land interpreter can put seconds on
+# every exec of it. The body is POSIX either way.
 set -eu
 
 # --- Central runner pin: edited here, in cc-skills, for the whole fleet --------
