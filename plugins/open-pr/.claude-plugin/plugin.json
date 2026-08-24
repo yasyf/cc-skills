@@ -1,7 +1,7 @@
 {
   "name": "open-pr",
   "description": "Open a pull request that reads like the repo's own maintainers wrote it: an express lane for \"just open the PR\" that orients, writes, and ships without the research passes, or a full lane with contribution rules and PR template via `ccx vcs guidelines`, house style scouted from a bot-filtered sample of recent human-authored merged PRs, register calibrated against a local wlm voice profile, and a politeness and standards-conformance pass on repos you do not own. Ships through `ccx vcs ship` so the PR opens ready with its body, never as a draft, and hands off to a background watcher that reports CI, bot comments, the merge queue, and the merge. Use when opening, submitting, or contributing a PR, or when iterating one to green.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
