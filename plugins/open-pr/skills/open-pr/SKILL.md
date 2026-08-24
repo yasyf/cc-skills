@@ -124,7 +124,7 @@ ccx vcs ship -m "<subject>" --no-watch --pr-title "<title>" --pr-body-file "$BOD
 
 On the gt lane one submit can create several PRs, and every PR in the submit that has no body yet gets one. `--pr-title` and `--pr-body-file` repeat and scope by branch (`--pr-body-file <branch>=<path>`; a bare value applies to the tip); `ccx vcs lane --json` is what tells you which downstack PRs are bodyless.
 
-A refusal is information, not a retry: `nothing to commit` means a prior ship already landed this; a gt `needs_restack` means `ccx vcs restack` first, then re-run.
+A refusal is information, not a retry: `nothing to commit` means a prior ship already landed this; a gt `needs_restack` means `ccx vcs stack restack` first, then re-run.
 
 Ship reports the branch, the PR number and URL, and the head sha. The handoff needs all four.
 
