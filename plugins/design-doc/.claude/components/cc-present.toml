@@ -1,0 +1,24 @@
+host_api = 1
+name = "design-doc"
+version = "0.1.3"
+description = "Interview blocks for the design-doc skill: the live register panel, a claim sweep, and a design fork with a real escape hatch."
+entry = "dist/pack.js"
+reference = "reference/blocks.md"
+
+[blocks.registers]
+description = "The live design state: assumptions, decisions and open items, each row confirmable or challengeable."
+schema = "schema/registers.json"
+interaction = "schema/registers.interaction.json"
+examples = ["examples/registers.json"]
+
+[blocks.claims]
+description = "A list of claims the human confirms, corrects, or rejects in one pass, each carrying what breaks if it falls."
+schema = "schema/claims.json"
+interaction = "schema/claims.interaction.json"
+examples = ["examples/claims.json"]
+
+[blocks.fork]
+description = "One design fork: options with their consequences, and an escape hatch that returns a titled open question."
+schema = "schema/fork.json"
+interaction = "schema/fork.interaction.json"
+examples = ["examples/fork.json"]

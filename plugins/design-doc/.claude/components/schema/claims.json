@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-doc.claims",
+  "type": "object",
+  "required": ["id", "type", "prompt", "claims"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "design-doc.claims" },
+    "prompt": { "type": "string", "minLength": 1 },
+    "verdicts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "because": { "type": "string", "minLength": 1 },
+          "ifFalse": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

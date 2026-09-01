@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-doc.registers",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "design-doc.registers" },
+    "title": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "challengeable": { "type": "boolean" },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "t", "s"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^A[0-9]+$" },
+          "t": { "type": "string", "minLength": 1 },
+          "s": { "enum": ["working", "validate"] },
+          "b": { "type": "string" },
+          "n": { "type": "string" },
+          "star": { "type": "boolean" }
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "t", "s"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^DQ[0-9]+$" },
+          "t": { "type": "string", "minLength": 1 },
+          "s": { "enum": ["resolved", "superseded", "open"] },
+          "r": { "type": "string" },
+          "x": { "type": "string" },
+          "by": { "type": "string", "pattern": "^DQ[0-9]+$" },
+          "round": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "open": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "t"],
+        "additionalProperties": false,
+        "properties": {
+          "g": { "type": "string", "minLength": 1 },
+          "id": { "type": "string", "minLength": 1 },
+          "t": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "openGroups": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  }
+}

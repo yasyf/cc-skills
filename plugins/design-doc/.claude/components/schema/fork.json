@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-doc.fork",
+  "type": "object",
+  "required": ["id", "type", "question", "options"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "design-doc.fork" },
+    "question": { "type": "string", "minLength": 1 },
+    "round": { "type": "integer", "minimum": 1 },
+    "decides": { "type": "string", "minLength": 1 },
+    "options": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "consequence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "consequence": { "type": "string", "minLength": 1 },
+          "recommended": { "type": "boolean" },
+          "pros": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "cons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "escape": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "placeholder": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-doc.claims interaction",
+  "type": "object",
+  "required": ["verdicts"],
+  "additionalProperties": false,
+  "properties": {
+    "verdicts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["verdict"],
+        "additionalProperties": false,
+        "properties": {
+          "verdict": { "type": "string", "minLength": 1 },
+          "correction": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@cc-present/design-doc-pack",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "smoke": "bun scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "react": "^19",
+    "typescript": "^5",
+    "vite": "^7"
+  }
+}
