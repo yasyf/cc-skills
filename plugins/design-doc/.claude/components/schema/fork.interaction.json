@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "design-doc.fork interaction",
+  "type": "object",
+  "additionalProperties": false,
+  "oneOf": [{ "required": ["choice"] }, { "required": ["defer"] }],
+  "properties": {
+    "choice": { "type": "string", "minLength": 1 },
+    "defer": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "why": { "type": "string" }
+      }
+    }
+  }
+}

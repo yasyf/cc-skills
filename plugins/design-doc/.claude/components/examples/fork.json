@@ -1,0 +1,28 @@
+{
+  "id": "r3-transport",
+  "type": "design-doc.fork",
+  "round": 3,
+  "question": "How do workers receive dispatched jobs?",
+  "decides": "DQ5",
+  "options": [
+    {
+      "id": "long-poll",
+      "label": "Long-poll HTTP",
+      "consequence": "Every worker runtime speaks it today; a dispatch costs one held connection per idle worker.",
+      "recommended": true,
+      "pros": ["No new dependency", "Works through every proxy the fleet already has"],
+      "cons": ["One held connection per idle worker", "Dispatch latency floors at the poll timeout"]
+    },
+    {
+      "id": "websocket",
+      "label": "WebSocket push",
+      "consequence": "Sub-millisecond dispatch, and the broker now owns connection state for every worker.",
+      "pros": ["Lowest dispatch latency"],
+      "cons": ["Connection state to reconcile on broker restart", "Two client libraries to maintain"]
+    }
+  ],
+  "escape": {
+    "label": "Add to open list",
+    "placeholder": "What has to be true before this can be decided?"
+  }
+}

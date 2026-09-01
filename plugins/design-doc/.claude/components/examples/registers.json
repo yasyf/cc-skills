@@ -1,0 +1,46 @@
+{
+  "id": "state",
+  "type": "design-doc.registers",
+  "title": "Where the design stands",
+  "phase": "2 — design rounds",
+  "challengeable": true,
+  "assumptions": [
+    {
+      "id": "A1",
+      "t": "At-least-once delivery is acceptable",
+      "s": "validate",
+      "star": true,
+      "b": "Every current consumer either dedups on an idempotency key or is naturally idempotent.",
+      "n": "If this falls, the design gains an exactly-once ledger in the hot path and most of the simplicity argument goes with it."
+    },
+    {
+      "id": "A2",
+      "t": "Single-machine durability is enough",
+      "s": "working",
+      "b": "A job must survive the loss of any one machine. Multi-region durability is out of scope for v1."
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DQ1",
+      "t": "One SQLite file per tenant",
+      "s": "resolved",
+      "r": "One file per tenant, one table per queue. Tenants never share a WAL.",
+      "x": "Rejected one shared file (cross-tenant flush coupling) and one file per queue (thousands of open files).",
+      "round": 1
+    },
+    {
+      "id": "DQ3",
+      "t": "Worker transport: long-poll HTTP",
+      "s": "superseded",
+      "by": "DQ4",
+      "r": "Long-poll HTTP chosen for dispatch; every worker runtime already speaks it.",
+      "round": 2
+    }
+  ],
+  "open": [
+    { "g": "product", "id": "Q1", "t": "Confirm A1 with every consuming team, in writing." },
+    { "g": "spikes", "id": "V1", "t": "Measure enqueue and dispatch latency under 1k concurrent producers." }
+  ],
+  "openGroups": { "product": "Platform team", "spikes": "Spikes & benchmarks" }
+}

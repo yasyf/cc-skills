@@ -1,0 +1,18 @@
+{
+  "id": "diagnosis",
+  "type": "design-doc.claims",
+  "prompt": "Is this what today's queue actually does?",
+  "claims": [
+    {
+      "id": "c1",
+      "label": "Retries are unbounded",
+      "because": "The worker re-enqueues on any exception and nothing counts attempts.",
+      "ifFalse": "The backlog spikes are somebody else's bug and this redesign starts from the wrong root cause."
+    },
+    {
+      "id": "c2",
+      "label": "Every tenant shares one Postgres table",
+      "because": "queue_jobs has a tenant_id column and no partitioning."
+    }
+  ]
+}
