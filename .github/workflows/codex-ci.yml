@@ -6,11 +6,13 @@ on:
       - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
+      - "plugins/repo-bootstrap/tests/test_codex_hooks.py"
   pull_request:
     paths:
       - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
+      - "plugins/repo-bootstrap/tests/test_codex_hooks.py"
   workflow_dispatch:
     inputs:
       commit:
@@ -55,6 +57,8 @@ jobs:
         run: cd plugins/codex && CGO_ENABLED=0 go build -o /dev/null .
       - name: repo-bootstrap codex-ask goldens
         run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests/test_scaffold.py -k codex_ask -q
+      - name: codex capt-hook helpers
+        run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests/test_codex_hooks.py -q
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=11.0.0' pack test plugins/codex
       - uses: golangci/golangci-lint-action@v9

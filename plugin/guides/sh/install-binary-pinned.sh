@@ -23,7 +23,9 @@ set -eu
 NAME="{{binary}}"
 REPO="{{repo}}"
 BREW_PKG="{{brew}}"
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# ${0%/*}, not dirname: skips an exec an endpoint-security agent can serialize fleet-wide.
+case "$0" in */*) d=${0%/*} ;; *) d=. ;; esac
+ROOT="$(cd "$d/.." && pwd)"
 LINK="$ROOT/bin/$NAME"
 # CLAUDE_PLUGIN_DATA is only exported to hook/MCP subprocesses; bare shell runs
 # fall back to its documented default.
