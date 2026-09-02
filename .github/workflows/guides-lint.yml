@@ -14,6 +14,7 @@ on:
       - ".claude/fragments/**"
       - ".claude/settings.json"
       - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
+      - "plugins/repo-bootstrap/tests/test_guides_sh.py"
       - ".github/workflows/guides-lint.yml"
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - ".claude/fragments/**"
       - ".claude/settings.json"
       - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
+      - "plugins/repo-bootstrap/tests/test_guides_sh.py"
       - ".github/workflows/guides-lint.yml"
   workflow_dispatch:
 
@@ -88,3 +90,5 @@ jobs:
 
       - name: Guard settings fragments (settings-in-lock + captain-hook enabled)
         run: uvx pytest plugins/repo-bootstrap/tests/test_guides_fragments.py -q
+      - name: Guard shell guides (plugin-root resolver execs nothing)
+        run: uvx pytest plugins/repo-bootstrap/tests/test_guides_sh.py -q
