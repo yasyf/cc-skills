@@ -49,6 +49,7 @@ HANDROLLED_FORMAT = re.compile(
     r"|output format\s*:",
     re.IGNORECASE,
 )
+HEREDOC_OPENER = re.compile(r"""<<[-~]?[ \t]*(?P<q>['"]?)(?P<word>[A-Za-z_][A-Za-z0-9_]*)(?P=q)""")
 
 
 def safe_parse(text: str):
@@ -101,17 +102,40 @@ def walk_occurrences(cl, depth=NESTED_DEPTH):
                 yield from walk_occurrences(inner, depth - 1)
 
 
+def without_heredoc_bodies(gap: str) -> str:
+    """``gap`` with every heredoc body elided, opener and terminator line kept. A command's span
+    ends at its last argv token, so the body of a ``codex-ask … - <<'Q'`` prompt lands in the gap
+    the ``&`` scan reads; prose saying ``Option<&Foo>`` or ``grow & shed`` is not a control
+    operator. An unterminated heredoc keeps its body: the terminator is what proves where the
+    prompt stops, and ``Q &`` is a background of the whole command, not a terminator."""
+    kept, pos = [], 0
+    while (opener := HEREDOC_OPENER.search(gap, pos)) is not None:
+        body = gap.find("\n", opener.end())
+        if body == -1:
+            break
+        kept.append(gap[pos:body])
+        terminator = re.compile(rf"^[ \t]*{re.escape(opener.group('word'))}[ \t]*$", re.MULTILINE)
+        if (end := terminator.search(gap, body + 1)) is None:
+            kept.append(gap[body:])
+            return "".join(kept)
+        pos = end.end()
+    kept.append(gap[pos:])
+    return "".join(kept)
+
+
 def is_background_amp(occ) -> bool:
-    """True when a bare ``&`` (not ``&&``, not a ``2>&1``/``&>`` redirect, not a quoted arg)
-    backgrounds this occurrence's command — detected in the raw byte-gap after the command's span
-    up to the next command's span (or line end), so a quoted ``&`` inside the span never counts."""
+    """True when a bare ``&`` (not ``&&``, not a ``2>&1``/``&>`` redirect, not a quoted arg, not
+    heredoc prose) backgrounds this occurrence's command — detected in the raw byte-gap after the
+    command's span up to the next command's span (or line end), so a quoted ``&`` inside the span
+    never counts."""
     cmd = occ.command
     if cmd.span is None:
         return False
     occs = occ.line.occurrences
     nxt = occs[occ.index + 1] if occ.index + 1 < len(occs) else None
     end = nxt.command.span[0] if nxt is not None and nxt.command.span is not None else len(occ.line.raw)
-    return re.search(r"(?<![>&])&(?![>&])", occ.line.raw[cmd.span[1] : end]) is not None
+    gap = without_heredoc_bodies(occ.line.raw[cmd.span[1] : end])
+    return re.search(r"(?<![>&])&(?![>&])", gap) is not None
 
 
 def codex_subcommand(args: tuple[str, ...]) -> str | None:
@@ -220,6 +244,11 @@ hook(
             tool_input={"command": "grep codex-ask notes.md", "run_in_background": True},
         ): Allow(),
         Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ"): Allow(),
+        Input(command="codex-ask -l r - <<'Q'\nshards per pool (`Option<&Bucket>`)\nQ"): Allow(),
+        Input(command="codex-ask -l r - <<'Q'\ngrow & shed races under the mutex\nQ"): Allow(),
+        Input(command="cd /tmp && codex-ask -l r - <<'Q'\ngrow & shed\nQ"): Allow(),
+        Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ\ncodex-ask -l s - <<'R'\nfoo & bar\nR"): Allow(),
+        Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ &"): Block(),
         Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff'"): Allow(),
         Input(command="codex-ask --watch --all"): Allow(),
         Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff' &"): Block(),
