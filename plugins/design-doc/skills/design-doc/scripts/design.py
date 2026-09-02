@@ -26,6 +26,7 @@ from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "sysd.svg", "summary.html")
+SNAPSHOT_FILES = {"summary": "summary.html", "sysd": "sysd.svg"}
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -187,7 +188,7 @@ def snapshot(args) -> int:
     revisions = meta.get("revisions") or []
     last = max(meta.get("rev") or 0, max((r.get("rev") or 0 for r in revisions), default=0))
 
-    files = {k: d for k, d in (("summary", digest(root / "summary.html")), ("sysd", digest(root / "sysd.svg"))) if d}
+    files = {k: digest(root / name) for k, name in SNAPSHOT_FILES.items() if (root / name).exists()}
     recorded = (revisions[-1].get("files") or {}) if revisions and isinstance(revisions[-1], dict) else {}
     changed = sorted(k for k in set(files) | set(recorded) if files.get(k) != recorded.get(k))
 
@@ -382,6 +383,12 @@ def check(args) -> int:
                     rep.err("meta.revisions revs must be strictly increasing and unique")
                 if revs != list(range(1, len(revs) + 1)):
                     rep.warn("meta.revisions revs are not contiguous from 1 (fine if intentional)")
+            current = next((r for r in revisions if isinstance(r, dict) and r.get("rev") == rev), None)
+            recorded_files = (current or {}).get("files")
+            if isinstance(recorded_files, dict):
+                for key, name in SNAPSHOT_FILES.items():
+                    if key in recorded_files and digest(root / name) != recorded_files[key]:
+                        rep.strict_warn(f"{name} changed since rev {rev}; run design.py snapshot")
 
     a_ids = check_ids(rep, R.get("assumptions", []), "id", r"A\d+", "assumptions")
     d_ids = check_ids(rep, R.get("decisions", []), "id", r"DQ\d+", "decisions")
