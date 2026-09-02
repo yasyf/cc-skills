@@ -8,7 +8,7 @@
       "questions": [
         {
           "header": "Storage",
-          "question": "DQ1: What owns durability for a queue?",
+          "question": "What owns durability for a queue?",
           "options": [
             { "label": "One SQLite file per tenant", "description": "One WAL per tenant; queues are tables. Isolation without file sprawl. (Recommended)" },
             { "label": "One shared file", "description": "Simplest possible layout, but every tenant shares one flush loop." },
@@ -19,7 +19,7 @@
         },
         {
           "header": "Delivery",
-          "question": "DQ2: What do consumers get: at-least-once or exactly-once?",
+          "question": "What do consumers get: at-least-once or exactly-once?",
           "options": [
             { "label": "At-least-once (Recommended)", "description": "Duplicates possible on lease expiry; producers set idempotency keys." },
             { "label": "Exactly-once", "description": "A dedup ledger in the hot path; consumers never see duplicates." },
@@ -37,7 +37,7 @@
       "questions": [
         {
           "header": "Transport",
-          "question": "DQ3: How do workers receive jobs?",
+          "question": "How do workers receive jobs?",
           "options": [
             { "label": "Long-poll HTTP (Recommended)", "description": "Every worker runtime already speaks it; no new client library." },
             { "label": "WebSockets", "description": "Lower per-dispatch overhead; a connection lifecycle to manage everywhere." },

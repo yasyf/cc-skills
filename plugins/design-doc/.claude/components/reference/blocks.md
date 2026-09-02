@@ -34,7 +34,9 @@ a note field.
 | `openGroups` | object | no | Maps a `g` key to its display label. |
 
 `star` marks the load-bearing assumption; `n` is the "if this falls" line, `b`
-the basis. A decision with `by` renders as `DQ3 → DQ4`.
+the basis. Every row leads with its title and carries its id as a trailing chip;
+a decision with `by` reads `Worker transport: long-poll HTTP` `superseded`
+`DQ3` `→ replaced by Worker transport: long-poll HTTP, renewals TBD` `DQ4`.
 
 ```json
 {
@@ -114,9 +116,10 @@ the `Q#` lands without a follow-up round.
 |-------|------|----------|-------|
 | `id` | string | yes | Unique block id. |
 | `type` | `"design-doc.fork"` | yes | The dotted wire type. |
-| `question` | string | yes | The fork, as a question. |
+| `question` | string | yes | The fork, as a plain question a person can answer cold; the register id belongs in `decides`, never in the text. |
 | `round` | integer | no | Round number, shown in the caps meta line. |
 | `decides` | string | no | The `DQ#` this round will write. |
+| `decidesTitle` | string | no | That decision's title. The meta line reads `settles "Worker transport"` when it is set and falls back to `decides DQ5` when it is not. |
 | `options` | array, ≥2 | yes | `{ id, label, consequence, recommended?, pros?, cons? }`. |
 | `escape` | object | no | `{ label?, placeholder? }` — defaults to "Add to open list". |
 
@@ -130,6 +133,7 @@ of the label. Mark at most one option `recommended`.
   "round": 3,
   "question": "How do workers receive dispatched jobs?",
   "decides": "DQ5",
+  "decidesTitle": "Worker transport",
   "options": [
     { "id": "long-poll", "label": "Long-poll HTTP", "recommended": true,
       "consequence": "Every worker runtime speaks it today; a dispatch costs one held connection per idle worker.",

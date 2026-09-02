@@ -43,6 +43,7 @@ export function Fork({ block, value, submit, disabled }: PackComponentProps) {
   const escape = (block.escape as Escape | undefined) ?? {};
   const round = block.round as number | undefined;
   const decides = block.decides as string | undefined;
+  const decidesTitle = block.decidesTitle as string | undefined;
   const answer = (value as Answer | null | undefined) ?? {};
 
   const [detailFor, setDetailFor] = usePackState<string>('detailFor', '');
@@ -63,9 +64,8 @@ export function Fork({ block, value, submit, disabled }: PackComponentProps) {
     toast({ kind: 'info', text: 'Added to the open list' });
   }, [submit, deferTitle, deferWhy]);
 
-  const meta = [round !== undefined ? `round ${round}` : null, decides ? `decides ${decides}` : null]
-    .filter(Boolean)
-    .join(' · ');
+  const settles = decidesTitle ? `settles "${decidesTitle}"` : decides ? `decides ${decides}` : null;
+  const meta = [round !== undefined ? `round ${round}` : null, settles].filter(Boolean).join(' · ');
 
   return (
     <Panel title={block.question as string} meta={meta || undefined}>

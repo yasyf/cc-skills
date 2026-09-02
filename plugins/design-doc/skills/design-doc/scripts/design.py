@@ -2,28 +2,127 @@
 """Driver for the design-doc skill.
 
   design.py scaffold [dir] [--title X] [--slug x] [--example]
-  design.py check <dir>
+  design.py check <dir> [--strict]
+  design.py summary-text <dir>
   design.py pdf [dir]
   design.py snapshot [dir] [--note X] [--item …] [--force]
 
 scaffold creates a fresh directory for one design doc — named after the
-slug when no dir is given — holding the doc renderer and either the empty
-starter registers or the tinyq worked example. check lints the registers:
-ID shapes and uniqueness, dangling cross-references, supersession
-integrity, footnote tokens, and the qa-log round linkage; errors exit
-non-zero, warnings are advisory. pdf renders the project's registers into
-its design-doc.pdf via the generic build-pdf.py beside this script. snapshot
-records a revision of the registers in the project's history directory. Stdlib
-only.
+slug when no dir is given — holding the doc renderer, the system diagram
+and executive-summary files, and either the empty starter registers or the
+tinyq worked example. check lints the registers: ID shapes and uniqueness,
+dangling cross-references, supersession integrity, footnote tokens, the
+qa-log round linkage, and the executive summary; errors exit non-zero,
+warnings are advisory, and --strict promotes the warnings a published doc
+must not carry into errors. summary-text prints summary.html as plain text,
+the input for the voice gate. pdf renders the project's registers into its
+design-doc.pdf via the generic build-pdf.py beside this script. snapshot
+records a revision of the registers in the project's history directory.
+Stdlib only.
 """
-import argparse, copy, datetime, json, re, shutil, subprocess, sys
+import argparse, copy, datetime, hashlib, json, re, shutil, subprocess, sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "sysd.svg", "summary.html")
+SNAPSHOT_FILES = {"summary": "summary.html", "sysd": "sysd.svg"}
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
+ID_TOKEN = re.compile(r"\b(?:DQ\d+|A\d+|Q\d+|V\d+|c-[a-z0-9-]+)\b")
+LEADING_ID = re.compile(r"^\s*(DQ\d+|A\d+|Q\d+|V\d+|c-[a-z0-9-]+)\b")
+FINDING_BY_NUMBER = re.compile(r"finding \d+", re.I)
+PAGE_TAG = re.compile(r"<\s*/?\s*(html|head|body|script)\b", re.I)
+EMBED_TAG = re.compile(r"<\s*/?\s*(iframe|object|embed)\b", re.I)
+EVENT_ATTR = re.compile(r"\s(on[a-z]+)\s*=", re.I)
+JS_URL = re.compile(r"\b(href|src|xlink:href)\s*=\s*[\"']?\s*javascript:", re.I)
+URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+
+
+def foreign_scheme(url: str):
+    m = URL_SCHEME.match(re.sub(r"[\s\x00-\x1f]", "", url))
+    return m.group(1) if m and m.group(1).lower() not in ("http", "https") else None
+
+
+class FragmentText(HTMLParser):
+    HEADINGS = {f"h{n}": "#" * n for n in range(1, 7)}
+    BLOCKS = {"p", "li", "div", "section", "figure", "figcaption", "blockquote", "pre", "tr", "td", "th"} | set(HEADINGS)
+    SKIPPED = {"svg", "script", "style"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.lines, self.buf, self.cells, self.skip = [], [], [], 0
+
+    def _take(self) -> str:
+        text = re.sub(r"\s+", " ", "".join(self.buf)).strip()
+        self.buf = []
+        return text
+
+    def _emit(self, text: str):
+        if text:
+            self.lines.append(text)
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIPPED:
+            self.skip += 1
+        elif self.skip:
+            return
+        elif tag == "br":
+            self.buf.append(" ")
+        elif tag in self.BLOCKS:
+            self._emit(self._take())
+            if tag == "tr":
+                self.cells = []
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIPPED:
+            self.skip = max(0, self.skip - 1)
+            return
+        if self.skip:
+            return
+        if tag in ("td", "th"):
+            self.cells.append(self._take())
+        elif tag == "tr":
+            self.cells.append(self._take())
+            row = [c for c in self.cells if c]
+            self.cells = []
+            if row:
+                self._emit("| " + " | ".join(row) + " |")
+        elif tag in self.HEADINGS:
+            text = self._take()
+            self._emit(f"{self.HEADINGS[tag]} {text}" if text else "")
+        elif tag == "li":
+            text = self._take()
+            self._emit(f"- {text}" if text else "")
+        elif tag in self.BLOCKS:
+            self._emit(self._take())
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.buf.append(data)
+
+    def close(self):
+        super().close()
+        self._emit(self._take())
+
+
+def fragment_text(fragment: str) -> str:
+    parser = FragmentText()
+    parser.feed(fragment)
+    parser.close()
+    out = []
+    for line in parser.lines:
+        run = line[:2] in ("- ", "| ")
+        if out and not (run and out[-1][:2] == line[:2]):
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def digest(path: Path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.exists() else None
 
 
 # ---------------------------------------------------------------- scaffold
@@ -48,12 +147,8 @@ def scaffold(args) -> int:
     dest.mkdir(parents=True, exist_ok=True)
 
     src = TEMPLATES / ("example" if args.example else "starter")
-    html = (TEMPLATES / "design-doc.html").read_text()
-    if args.example:
-        svg = (src / "sysd.svg").read_text().strip()
-        html = re.sub(r"<!--SYSD-->.*?<!--/SYSD-->", lambda m: f"<!--SYSD-->\n    {svg}\n    <!--/SYSD-->", html, count=1, flags=re.S)
-    (dest / "design-doc.html").write_text(html)
-    for name in ("registers.json", "qa-log.json", "NOTES.md"):
+    (dest / "design-doc.html").write_text((TEMPLATES / "design-doc.html").read_text())
+    for name in PROJECT_FILES:
         shutil.copy(src / name, dest / name)
 
     if not args.example:
@@ -92,8 +187,13 @@ def snapshot(args) -> int:
     meta = data.setdefault("meta", {})
     revisions = meta.get("revisions") or []
     last = max(meta.get("rev") or 0, max((r.get("rev") or 0 for r in revisions), default=0))
+
+    files = {k: digest(root / name) for k, name in SNAPSHOT_FILES.items() if (root / name).exists()}
+    recorded = (revisions[-1].get("files") or {}) if revisions and isinstance(revisions[-1], dict) else {}
+    changed = sorted(k for k in set(files) | set(recorded) if files.get(k) != recorded.get(k))
+
     previous_path = root / "history" / f"rev-{last}.json"
-    if not args.force and previous_path.exists():
+    if not args.force and not changed and previous_path.exists():
         try:
             previous = json.loads(previous_path.read_text())
         except (OSError, ValueError):
@@ -106,7 +206,7 @@ def snapshot(args) -> int:
                 for key in ("rev", "revisions", "date"):
                     candidate_meta.pop(key, None)
             if json.dumps(current, sort_keys=True) == json.dumps(previous, sort_keys=True):
-                print(f"snapshot: no register changes since rev {last} — nothing recorded (use --force to record anyway)")
+                print(f"snapshot: nothing changed since rev {last} — no registers, summary or diagram edits (use --force to record anyway)")
                 return 0
 
     rev = last + 1
@@ -115,27 +215,44 @@ def snapshot(args) -> int:
     entry = {"rev": rev, "date": datetime.date.today().isoformat(), "note": args.note}
     if args.item:
         entry["items"] = args.item
+    if changed and revisions:
+        entry["changed"] = changed
+    if files:
+        entry["files"] = files
     revisions.append(entry)
     payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     previous_path = root / "history" / f"rev-{rev}.json"
     previous_path.parent.mkdir(parents=True, exist_ok=True)
     previous_path.write_text(payload)
     registers_path.write_text(payload)
-    print(f"snapshot: rev {rev} recorded → history/rev-{rev}.json")
+    note = f" (changed: {', '.join(entry['changed'])})" if entry.get("changed") else ""
+    print(f"snapshot: rev {rev} recorded → history/rev-{rev}.json{note}")
+    return 0
+
+
+def summary_text(args) -> int:
+    path = Path(args.dir) / "summary.html"
+    if not path.exists():
+        print(f"summary-text: {path} not found.", file=sys.stderr)
+        return 1
+    print(fragment_text(path.read_text()))
     return 0
 
 
 # ------------------------------------------------------------------- check
 
 class Report:
-    def __init__(self):
-        self.errors, self.warnings = [], []
+    def __init__(self, strict=False):
+        self.errors, self.warnings, self.strict = [], [], strict
 
     def err(self, msg):
         self.errors.append(msg)
 
     def warn(self, msg):
         self.warnings.append(msg)
+
+    def strict_warn(self, msg):
+        (self.errors if self.strict else self.warnings).append(msg)
 
     def finish(self) -> int:
         for m in self.errors:
@@ -172,8 +289,18 @@ def check_ids(rep, entries, key, pattern, label):
     return seen
 
 
+def lint_question(rep, where, s):
+    if not isinstance(s, str) or not s.strip():
+        return
+    lead = LEADING_ID.match(s)
+    if lead:
+        rep.warn(f"{where} opens with the register id {lead.group(1)}; ask a question a person can answer cold and leave the id to the fork block")
+    if FINDING_BY_NUMBER.search(s):
+        rep.warn(f"{where} names a review finding by number; say what the reviewer found in words")
+
+
 def check(args) -> int:
-    rep = Report()
+    rep = Report(args.strict)
     root = Path(args.dir)
     try:
         R = json.loads((root / "registers.json").read_text())
@@ -193,6 +320,19 @@ def check(args) -> int:
         rep.err("meta.draft must be true or false")
     if "draftNote" in meta and not (isinstance(meta["draftNote"], str) and meta["draftNote"].strip()):
         rep.err("meta.draftNote must be a non-empty string")
+
+    home = meta.get("homeLink")
+    if home is not None:
+        if not isinstance(home, dict):
+            rep.err("meta.homeLink must be an object with 'href' and 'label'")
+        else:
+            for k in ("href", "label"):
+                if not (isinstance(home.get(k), str) and home[k].strip()):
+                    rep.err(f"meta.homeLink.{k} must be a non-empty string")
+            if isinstance(home.get("href"), str):
+                scheme = foreign_scheme(home["href"])
+                if scheme:
+                    rep.err(f"meta.homeLink.href uses the {scheme}: scheme; it must be relative or an http(s) URL")
 
     if "rev" in meta or "revisions" in meta:
         rev = meta.get("rev")
@@ -214,7 +354,7 @@ def check(args) -> int:
                     revs.append(revision_rev)
                     history_path = root / "history" / f"rev-{revision_rev}.json"
                     if not history_path.exists():
-                        rep.warn(f"history/rev-{revision_rev}.json is missing; the changes-since picker cannot diff against it")
+                        rep.strict_warn(f"history/rev-{revision_rev}.json is missing; the changes-since picker cannot diff against it")
                     else:
                         try:
                             hist = json.loads(history_path.read_text())
@@ -226,10 +366,11 @@ def check(args) -> int:
                 revision_date = revision.get("date") if isinstance(revision, dict) else None
                 if not isinstance(revision_date, str) or not revision_date:
                     rep.err(f"meta.revisions[{i}].date is missing or empty")
-                if isinstance(revision, dict) and "items" in revision:
-                    items = revision["items"]
-                    if not isinstance(items, list) or not all(isinstance(x, str) and x.strip() for x in items):
-                        rep.err(f"meta.revisions[{i}].items must be a list of non-empty strings")
+                for key in ("items", "changed"):
+                    if isinstance(revision, dict) and key in revision:
+                        values = revision[key]
+                        if not isinstance(values, list) or not all(isinstance(x, str) and x.strip() for x in values):
+                            rep.err(f"meta.revisions[{i}].{key} must be a list of non-empty strings")
                 revision_note = revision.get("note") if isinstance(revision, dict) else None
                 if isinstance(revision_note, str) and len(revision_note) > 90:
                     rep.warn(f"meta.revisions[{i}].note is {len(revision_note)} chars; keep it a short reader-facing headline and move detail into --item bullets")
@@ -242,6 +383,12 @@ def check(args) -> int:
                     rep.err("meta.revisions revs must be strictly increasing and unique")
                 if revs != list(range(1, len(revs) + 1)):
                     rep.warn("meta.revisions revs are not contiguous from 1 (fine if intentional)")
+            current = next((r for r in revisions if isinstance(r, dict) and r.get("rev") == rev), None)
+            recorded_files = (current or {}).get("files")
+            if isinstance(recorded_files, dict):
+                for key, name in SNAPSHOT_FILES.items():
+                    if key in recorded_files and digest(root / name) != recorded_files[key]:
+                        rep.strict_warn(f"{name} changed since rev {rev}; run design.py snapshot")
 
     a_ids = check_ids(rep, R.get("assumptions", []), "id", r"A\d+", "assumptions")
     d_ids = check_ids(rep, R.get("decisions", []), "id", r"DQ\d+", "decisions")
@@ -268,9 +415,10 @@ def check(args) -> int:
             rep.warn(f"{did}: round {d['round']} has no entry in registers rounds (fine if it lives only in qa-log)")
 
     referenced_rounds = {str(d["round"]) for d in R.get("decisions", []) if d.get("round") is not None}
-    for k in rounds:
+    for k, r in rounds.items():
         if k not in referenced_rounds:
             rep.warn(f"rounds[{k}] is referenced by no decision")
+        lint_question(rep, f"rounds[{k}].q", r.get("q") if isinstance(r, dict) else None)
 
     for c in R.get("arch", []):
         for x in c.get("dq", []):
@@ -286,7 +434,7 @@ def check(args) -> int:
     for n in R.get("pipe", []):
         if n.get("card") and n["card"] not in c_ids:
             rep.err(f"pipe {n.get('t')!r}: card {n['card']!r} is not an arch id")
-    open_ids = {o.get("id") for o in R.get("open", [])}
+    open_ids = check_ids(rep, R.get("open", []), "id", r"[A-Za-z0-9][A-Za-z0-9-]*", "open")
     for f in R.get("findings", []):
         if len(f) != 4:
             rep.err(f"findings: row {f!r} is not [n, severity, title, ref]")
@@ -324,7 +472,7 @@ def check(args) -> int:
     for m in R.get("scaleMarks", []):
         if not isinstance(m.get("ms"), (int, float)) or m["ms"] <= 0:
             rep.err(f"scaleMarks: bad ms in {m!r}")
-    check_ids(rep, R.get("numbers", []), "id", r"n-[a-z0-9-]+", "numbers")
+    n_ids = check_ids(rep, R.get("numbers", []), "id", r"n-[a-z0-9-]+", "numbers")
     for nt in R.get("numbers", []):
         if not nt.get("t"):
             rep.err(f"numbers {nt.get('id')}: missing title 't'")
@@ -335,6 +483,33 @@ def check(args) -> int:
         for row in nt.get("rows", []):
             if not (isinstance(row, list) and len(row) == len(cols)):
                 rep.err(f"numbers {nt.get('id')}: row {row!r} does not have {len(cols)} cells")
+
+    summary_path = root / "summary.html"
+    if not summary_path.exists():
+        rep.strict_warn("summary.html is missing; the doc opens without an executive summary")
+    else:
+        fragment = summary_path.read_text()
+        for tag in sorted({t.lower() for t in PAGE_TAG.findall(fragment)}):
+            rep.err(f"summary.html contains a <{tag}> tag; it is a body-level fragment, not a page")
+        for tag in sorted({t.lower() for t in EMBED_TAG.findall(fragment)}):
+            rep.err(f"summary.html contains a <{tag}> tag; the summary carries prose and diagrams, not embedded content")
+        for attr in sorted({a.lower() for a in EVENT_ATTR.findall(fragment)}):
+            rep.err(f"summary.html carries an inline {attr}= handler; the renderer strips it, so the behaviour belongs outside the fragment")
+        for attr in sorted({a.lower() for a in JS_URL.findall(fragment)}):
+            rep.err(f"summary.html has a javascript: URL in {attr}; link to a document, not to a script")
+        if "TODO" in fragment:
+            rep.strict_warn("summary.html is still the scaffold skeleton (it carries a TODO); the doc opens without an executive summary")
+        known = a_ids | d_ids | c_ids | open_ids | n_ids | {p.get("id") for p in R.get("paths", [])}
+        for cited in sorted(set(ID_TOKEN.findall(fragment_text(fragment))) - known):
+            rep.warn(f"summary.html cites {cited}, which no register defines")
+
+    sysd_path = root / "sysd.svg"
+    if sysd_path.exists() and "viewBox" not in sysd_path.read_text():
+        rep.strict_warn("sysd.svg has no viewBox; the doc cannot scale the diagram to the reading column")
+
+    index_path = root / "index.html"
+    if index_path.exists() and "GENERATED" not in index_path.read_text():
+        rep.strict_warn("index.html carries no GENERATED stamp; it looks copied rather than generated from the current renderer")
 
     qa_path = root / "qa-log.json"
     if qa_path.exists():
@@ -348,7 +523,10 @@ def check(args) -> int:
             if k not in qa_rounds:
                 rep.warn(f"registers rounds[{k}] has no matching round in qa-log.json")
         for r in Q.get("rounds", []):
+            lint_question(rep, f"qa round {r.get('round')} topic", r.get("topic"))
             for q in r.get("questions", []):
+                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} header", q.get("header"))
+                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} question", q.get("question"))
                 labels = [o.get("label") for o in q.get("options", [])]
                 ans = q.get("answer", "")
                 parts = [a.strip() for a in ans.split(",")] if q.get("multiSelect") else [ans]
@@ -371,7 +549,11 @@ def main():
     sc.set_defaults(fn=scaffold)
     ck = sub.add_parser("check", help="lint the registers in a design project directory")
     ck.add_argument("dir")
+    ck.add_argument("--strict", action="store_true", help="treat the warnings a published doc must not carry as errors")
     ck.set_defaults(fn=check)
+    st = sub.add_parser("summary-text", help="print summary.html as plain text, for the voice gate")
+    st.add_argument("dir")
+    st.set_defaults(fn=summary_text)
     pd = sub.add_parser("pdf", help="render the project's registers into its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)

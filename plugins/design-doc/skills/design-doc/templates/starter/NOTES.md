@@ -10,6 +10,12 @@ structure: method, derivations, longer arguments, and anything homeless.
 - `registers.json` — assumptions, decisions, architecture sections, open items,
   timings, ceilings, plus the doc-facing content: tl;dr, ground rules, terms,
   footnotes. Edit this to change the design doc.
+- `summary.html` — the executive summary, hand-written for people and never
+  parsed: a body-level HTML fragment the doc injects at the top and the PDF
+  reprints. Use the doc's own CSS variables and the `.xs-*` kit classes so it
+  themes in light and dark, and draw its figures as inline SVG.
+- `sysd.svg` — the system diagram. Both the doc and the PDF read it from here,
+  so it keeps its `viewBox` and the `grp/bx/bxo/dur/ln/tt/ac/sm/tag` classes.
 - `design-doc.html` — the interactive doc. Renders from registers.json, so it
   must be served over HTTP (`python3 -m http.server 8641` in this folder);
   opened as a bare file it shows instructions instead. The ↓ button downloads
@@ -26,10 +32,10 @@ structure: method, derivations, longer arguments, and anything homeless.
 ## Method
 
 The design runs assumption-first: no design until ground truths are recorded
-with stable IDs and statuses (working / needs validation), then design by
-question rounds — every decision traceable to a question, its options, and the
-answer, always with an "add to open list" escape. Supersessions are recorded,
-never erased.
+with stable IDs and statuses (Assumed / Needs someone to confirm), then
+design by question rounds — every decision traceable to a question, its
+options, and the answer, always with an "add to open list" escape.
+Supersessions are recorded, never erased.
 
 ## The diagnosis
 

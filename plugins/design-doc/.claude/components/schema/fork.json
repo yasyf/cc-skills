@@ -10,6 +10,7 @@
     "question": { "type": "string", "minLength": 1 },
     "round": { "type": "integer", "minimum": 1 },
     "decides": { "type": "string", "minLength": 1 },
+    "decidesTitle": { "type": "string", "minLength": 1 },
     "options": {
       "type": "array",
       "minItems": 2,
