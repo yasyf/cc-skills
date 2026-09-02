@@ -4,6 +4,7 @@
   "round": 3,
   "question": "How do workers receive dispatched jobs?",
   "decides": "DQ5",
+  "decidesTitle": "Worker transport",
   "options": [
     {
       "id": "long-poll",

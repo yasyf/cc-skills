@@ -4,7 +4,7 @@ The doc is a proposal asking for feedback, not a launch page. The reader should 
 
 ## Stance
 
-The document exists to solicit feedback; every sentence serves that or gets cut. Write to explain and to ask, never to convince: a bold claim closes a conversation, a small checkable one opens it. Stay dispassionate: report what the design does and what it costs the way a lab notebook would, with no stake in the reader being impressed. The strongest sentence in a humble proposal names its own weak point: "If A1 falls, the answer is probably a managed Postgres, not this document." Confidence lives in the specificity of the numbers and the honesty of the open list, not in adjectives. And the doc never talks about itself: no stance lines ("a draft for feedback, written to be corrected, not defended"), no process talk ("an adversarial review shaped this draft"), no announcements of its own humility. The posture shows in sentences that are easy to check and easy to disagree with; a doc that declares it wants correction is selling its modesty the same way a launch page sells its product.
+The document exists to solicit feedback; every sentence serves that or gets cut. Write to explain and to ask, never to convince: a bold claim closes a conversation, a small checkable one opens it. Stay dispassionate: report what the design does and what it costs the way a lab notebook would, with no stake in the reader being impressed. The strongest sentence in a humble proposal names its own weak point: "If the one-file-per-tenant assumption falls (A1), the answer is probably a managed Postgres, not this document." Confidence lives in the specificity of the numbers and the honesty of the open list, not in adjectives. And the doc never talks about itself: no stance lines ("a draft for feedback, written to be corrected, not defended"), no process talk ("an adversarial review shaped this draft"), no announcements of its own humility. The posture shows in sentences that are easy to check and easy to disagree with; a doc that declares it wants correction is selling its modesty the same way a launch page sells its product.
 
 <examples>
 <example label="selling">
@@ -20,20 +20,41 @@ A number, its conditions, and the experiment that will check it.
 A verdict; the reader can only agree or fight.
 </example>
 <example label="soliciting">
-"SQLite fits because the working set is one small file per tenant (A2); if A2 is wrong, DQ1 falls with it — that's the review we want."
+"SQLite fits because the working set is one small file per tenant (A2); if that's wrong, the storage decision (DQ1) falls with it — that's the review we want."
 The reasoning, its dependency, and the feedback wanted, all checkable.
 </example>
 </examples>
 
 ## Structure rules
 
-- Open with a tl;dr: a handful of bullets a reader can absorb in thirty seconds, with links for every technology named. A mission-statement paragraph makes the reader work for what the bullets hand over.
+- The doc opens on the executive summary (its own section below), then a tl;dr: a handful of bullets a reader can absorb in thirty seconds, with links for every technology named. A mission-statement paragraph makes the reader work for what the bullets hand over.
 - Definitions before use. Ground rules and a terms glossary come before the architecture; internal shorthand gets a plain-language name at first appearance ("stale-ok read" first, the internal enum name in parentheses if at all). A term the reader has to reverse-engineer is a small tax charged on every later sentence.
-- Plain section names that say what the section is: "Timings", "Request paths", "Open items". A clever name costs a beat of decoding on every visit to the nav.
+- Plain section names that say what the section is: "Request paths", "What stays the same", "Where we want pushback". A clever name costs a beat of decoding on every visit to the nav.
 - Deep mechanics go in numbered footnotes (`[^n]`). The body stays readable at a walking pace; the footnotes reward the reader who wants the commit-ordering argument.
 - Cut captions that restate what the eye already sees. Under a list visibly grouped by owner, "Grouped by who can answer them" says nothing.
-- Section headers stand alone. The template renders no sub-copy under a header unless `meta.sections` authors it, and the bar for authoring one is that it carries design content ("DQ15 is the only design question still open"), not an explainer of what the section is ("The main path through the system, then each part").
+- Section headers stand alone. The template renders no sub-copy under a header unless `meta.sections` authors it, and the bar for authoring one is that it carries design content ("Only the archival window is still open (DQ15)"), not an explainer of what the section is ("The main path through the system, then each part").
 - Counts describe the system, not the effort. "27 decisions" and "9 spikes pending" are progress-report numbers; a design doc reader needs neither.
+
+## Write for the person, not the register
+
+The registers are for agents and `check`; the doc is for a colleague deciding whether to object. Register IDs are citations, never subjects: "the redo log (DQ1) absorbs the write" reads, "DQ1 puts the write in the redo log" is a ledger. The renderer leads every entry with its title and demotes the ID to a small chip, and a trailing citation like "(A2)" becomes a hoverable reference that shows the entry's title. Prose that cites in parentheses gets linked for free; prose that leads with an ID reads as bookkeeping on every surface, the PDF included. Statuses in prose use the rendered words (decided, replaced, still open; assumed, needs someone to confirm), never the JSON values. The same rule runs backwards into the interview: a question is a plain question, and the ID it settles rides in the block's `decides` field ([method.md](method.md)).
+
+## The executive summary
+
+`summary.html` is the page for the reader who reads nothing else, and the one place to spend the strongest sentences: it's their first screen, and for most reviewers the only one. The diagnosis in NOTES.md settles its shape:
+
+- A change to a system that exists today compares what we do now against what this proposes, topic by topic, then says what stays the same.
+- A net-new design, with nothing behind it but requirements, lists each requirement and, under it, the answer and its trade-off.
+
+Either way the order is fixed:
+
+1. A lede that says in two sentences what this is and why now.
+2. Headline numbers in tiles, each measured or marked estimated with the spike that will measure it.
+3. One figure: the before/after diagram pair, or the shape of the new system.
+4. The comparison or requirement rows, one topic each, with before and after as parallel sentences ("Every worker scans the table every 500 ms" / "A worker holds a long-poll and receives a lease") and the optional why line one clause long.
+5. Two or three short headed sections that answer "Why this shape", "What we are not changing", and "Where we want pushback".
+
+IDs trail as citations and never lead, and nothing appears that the registers don't back ([method.md](method.md)). The fragment kit, with an example, is in [schema.md](schema.md); `design.py summary-text <dir>` prints the fragment as text, which is what the voice gate reads.
 
 ## The two passes
 
@@ -50,7 +71,7 @@ The voice gate is a required pass, run for the doc's prose and for revision note
 
 1. Run `wlm profile list`, always (the `wlm` CLI ships with the write-like-me plugin; profiles live in `~/.wlm/profiles/`). When it lists no profile, apply the fallback contract below.
 2. With a profile, read the style card before drafting: `wlm -p <profile> stylecard show` (`-p` is a global option and comes before the subcommand). Write against it — the doc should sound like the person proposing, not like a model.
-3. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing. Fold in each flag or reject it with a reason; a critique nobody reads is a skipped gate.
+3. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing, then the same over `design.py summary-text <dir> > summary.md`; the summary is where most readers stop, so it gets its own critique. Fold in each flag or reject it with a reason; a critique nobody reads is a skipped gate.
 4. Revision notes ride the same rail: write the drafted `--note` headline and `--item` bullets to a scratch file, critique that file, and only then stamp the snapshot.
 
 When there is no profile, this fallback contract applies:
@@ -64,5 +85,5 @@ When there is no profile, this fallback contract applies:
 ## The interface is part of the voice
 
 - Theme follows the system (`prefers-color-scheme`), with both palettes tuned. A theme toggle is a control asking for attention the content should have.
-- Controls are minimal and literal: the Markdown export is a bare `↓`, the PDF button says "PDF" and opens the generated file. `window.print()` produces a cut-off page-print and is not a PDF.
+- Controls are minimal and literal: the Markdown export is a download glyph labelled "Markdown", the PDF button says "PDF" and opens the generated file. `window.print()` produces a cut-off page-print and is not a PDF.
 - The PDF is a separate linear rendering (`design.py pdf`) of the same JSON — a real document with the diagram and page-break discipline, because that's the artifact people forward.

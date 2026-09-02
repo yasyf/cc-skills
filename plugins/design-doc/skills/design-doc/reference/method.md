@@ -4,7 +4,7 @@ Assumptions first, then decisions, each with a stable ID and a paper trail. The 
 
 ## Registers and lifecycle
 
-`registers.json` is canonical: if a fact has a stable ID, it lives there and nowhere else. The companion files each have one job: `qa-log.json` holds the verbatim question rounds, `NOTES.md` holds prose that doesn't fit structure, `design-doc.html` renders the JSON, `design.py pdf` prints it. Editing the JSON updates the doc, its Markdown exports, and (after a rerun) the PDF, so there is exactly one place to change a fact.
+`registers.json` is canonical: if a fact has a stable ID, it lives there and nowhere else. The companion files each have one job: `qa-log.json` holds the verbatim question rounds, `NOTES.md` holds prose that doesn't fit structure, `summary.html` is the executive summary written for people, `sysd.svg` is the hand-drawn system diagram, `design-doc.html` renders all of it, `design.py pdf` prints it. Editing the JSON updates the doc, its Markdown exports, and (after a rerun) the PDF, so there is exactly one place to change a fact.
 
 An entry is never deleted and never edited into a different claim. It is revised in place only for wording; when the *substance* changes, the old entry is superseded:
 
@@ -13,22 +13,27 @@ An entry is never deleted and never edited into a different claim. It is revised
 
 The point of supersession is that a reader can watch the design change its mind. A register that only shows final answers hides exactly the reasoning a reviewer needs.
 
-Supersession is the semantic history inside the register; `design.py snapshot` adds the mechanical history between publishes. Each publish archives the registers as `history/rev-<N>.json`, and the doc diffs the live registers against any archived revision, so a returning reviewer sees what changed since they last read it without replaying the whole record.
+Supersession is the semantic history inside the register; `design.py snapshot` adds the mechanical history between publishes. Each publish archives the registers as `history/rev-<N>.json`, and the doc diffs the live registers against any archived revision, so a returning reviewer sees what changed since they last read it without replaying the whole record. The snapshot hashes `summary.html` and `sysd.svg` along with the registers, so an edit to either records a revision of its own, marked `changed`, and the doc flags the section for that reviewer.
+
+## The executive summary
+
+`summary.html` is a rendering, not a register. The Phase 0 diagnosis supplies the before (or, for a net-new design, the requirements) and the resolved decisions supply the after. Nothing in it may lack a register entry behind it. A number in a tile is a `numbers` cell or a path segment, marked estimated with its spike when nobody has measured it. A row in the comparison is a decision, cited in a trailing parenthesis. A line on what stays the same is a constraint or an assumption. When the summary wants to say something the registers don't, the register gets the entry first. It's written in Phase 5, once the decisions it summarises exist; the contract for its content and voice is in [writing.md](writing.md), the fragment's shape in [schema.md](schema.md).
 
 ## The round protocol
 
 Every design fork goes through a question round. The round surface is a live `cc-present` board: at the start of the interview, look for `cc-present:present` (the `/cc-present` command) in the available-skills list and load it with the Skill tool, then compose each round per its instructions; the clicks stream back while you keep working. This plugin ships a `design-doc` block pack — `cc-present pack list` prints its reference fragment — and a round board is built from it: a `design-doc.registers` block showing where the design stands, then a `design-doc.fork` block per fork, or one `design-doc.claims` block when the round is sweeping claims rather than deciding. A missing pack degrades to a `choice` block per card and a `triage` block per sweep, carrying the same shape by hand; AskUserQuestion is the surface of last resort, used only when `present` is not in the skill list. The shape is the same on all three:
 
-- Prefix the question with the register ID it will settle ("DQ4: How do workers receive jobs?"), so the log and the register cross-reference themselves.
-- Each option carries a consequence description — what choosing it costs and buys — not just a label. Exactly one option ends with "(Recommended)".
+- Ask the question a person can answer cold: "How should workers receive jobs?", never "DQ4: How should workers receive jobs?". The register ID the round settles goes in the fork block's `decides` field, where the board's meta line shows it (`decidesTitle` puts the decision's title there instead), or trails the `header` on the AskUserQuestion fallback ("Worker transport (DQ5)"); it never leads the question text. Options are plain labels. When context is needed, name the earlier decision by its title ("this replaces the long-poll transport from round 2"), not its ID.
+- When a review finding drives the round, the question states what the reviewer found, in words: "The reviewer pointed out that a lease can expire during archival and deliver the job twice. How do we close that?" The finding number stays in the `findings` register.
+- Each option carries a consequence description — what choosing it costs and buys — not just a label. A consequence says what happens ("dispatch latency floors at the poll timeout"), never which entry it supersedes. Exactly one option ends with "(Recommended)".
 - Every fork carries an escape from deciding. On `design-doc.fork` it is the block's own control: the human names the open question and the payload arrives as `{defer: {title, why}}`, ready to enqueue as a `Q#` under the right owner group. On a plain `choice` block it is a last option, **"Add to open list"**, described like "I don't know yet — record it as an open question", and you ask for the title in the next round. Either way, actually enqueue the entry: the escape exists so the user is never forced to decide with insufficient information, and one that silently drops the question would teach them to stop using it.
 - One round can carry several related questions; keep unrelated forks in separate rounds so the log stays legible.
 
 The rounds are an interview, not a survey. Bring an opinion to every question: point out flaws in the current draft (including the user's own proposal), suggest alternatives they didn't name, and say what you'd pick and why — then let them pick. An answer that opens new questions spawns the next round; it never becomes a silent decision.
 
-Log every round to `qa-log.json` verbatim: the question, every option with its description, and the answer as given. Two rules keep the log honest — clean up spelling and grammar in answers but change nothing of substance, and skip explain-only exchanges entirely (it is a decision log, not a transcript). A custom free-text answer is recorded as-is; `check` flags it as a warning only so you can confirm it was intended.
+Log every round to `qa-log.json` verbatim: the question, every option with its description, and the answer as given. Two rules keep the log honest — clean up spelling and grammar in answers but change nothing of substance, and skip explain-only exchanges entirely (it is a decision log, not a transcript). A custom free-text answer is recorded as-is; `check` flags it as a warning only so you can confirm it was intended. The `topic`, `header`, and `question` strings obey the same rule as the board: plain words, no leading register ID, no "finding 27"; `check` warns on either.
 
-After the round, distill it: the decision's `round` field points at a condensed `{q, a, n}` entry in the registers `rounds` dict, which the doc shows inline under the decision.
+After the round, distill it: the decision's `round` field points at a condensed `{q, a, n}` entry in the registers `rounds` dict, which the doc shows inline under the decision. `q` is the question as the person read it and `a` the answer as they gave it, so neither leads with an ID either.
 
 ## Open items
 
@@ -42,7 +47,7 @@ Run it against the middle draft, after the shape is set but before polish: flaws
 - The brief, roughly: "Adversarial review of a design proposal. Read the registers in this directory. Attack it as a skeptical senior engineer: find correctness bugs, missing failure modes, unjustified numbers, and decisions that don't survive their own stated assumptions. Number your findings and rate severity."
 - Save the raw output verbatim as `<reviewer>-review-<date>.md` with a one-line provenance header (tool, model, date, scope).
 - Index each finding in the `findings` register as `[n, severity, title, decisionRef]`. This register is data only — the doc never renders it. The review's value ships as the decisions it drove; a "review findings" section in the doc reads as showing off and gives the reader nothing actionable.
-- Disposition every finding: a new or superseding `DQ#`, an open item, or a recorded rejection (a sentence in the relevant decision's `x` field saying why the finding doesn't bite). A finding with no disposition is an open bug in the design.
+- Disposition every finding: a new or superseding `DQ#`, an open item, or a recorded rejection (a sentence in the relevant decision's `x` field saying why the finding doesn't bite). A disposition that needs the user's call goes through a round asked in words, per the round protocol. A finding with no disposition is an open bug in the design.
 - Iterate. After the dispositions land, run the reviewer again on the updated registers: dispositions change the design, and a changed design grows new flaws. Each pass gets its own dated artifact. Stop when a pass yields nothing that changes a decision: one pass is the floor, not the norm.
 
 ## The quantitative story
@@ -59,4 +64,4 @@ Whichever components are in play, estimates are honest when they are labeled and
 
 ## NOTES.md
 
-The prose overflow, with a fixed skeleton: **Where things live** (the artifact map), **Method** (one paragraph), **The diagnosis** (root causes of the current system's problems — written in Phase 0, before any design), **Derivations too long for a register field** (bold lead-in paragraphs, one per argument), **Changelog** (dated bullets for milestones), **Loose notes**. When a register field wants three paragraphs of argument, the field gets the conclusion and NOTES.md gets the argument.
+The prose overflow, with a fixed skeleton: **Where things live** (the artifact map, `summary.html` and `sysd.svg` included), **Method** (one paragraph), **The diagnosis** (root causes of the current system's problems — written in Phase 0, before any design, and closing with whether the design is a change to a system that exists or net-new, which sets the shape of the executive summary), **Derivations too long for a register field** (bold lead-in paragraphs, one per argument), **Changelog** (dated bullets for milestones), **Loose notes**. When a register field wants three paragraphs of argument, the field gets the conclusion and NOTES.md gets the argument.

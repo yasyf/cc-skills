@@ -1,0 +1,129 @@
+<p class="xs-lede">
+  tinyq replaces the jobs table every worker polls with one durable append-only
+  log per tenant. A job is safe as soon as the log acks it, and a worker already
+  parked on a long poll gets the next job pushed to it, so the wait between
+  "enqueued" and "running" stops being a timer and becomes the work itself.
+</p>
+
+<div class="xs-tiles">
+  <div class="xs-tile">
+    <b>Time to start a job</b>
+    <span class="xs-before">up to 5s</span>
+    <span class="xs-after">~8ms p95</span>
+    <small>Estimated; spike V1 measures it under 1k concurrent producers.</small>
+  </div>
+  <div class="xs-tile">
+    <b>Enqueue ack</b>
+    <span class="xs-value">~2ms p50</span>
+    <small>One group-committed WAL flush, estimated pending V1.</small>
+  </div>
+  <div class="xs-tile">
+    <b>Cost of a backlog</b>
+    <span class="xs-before">grows with the table</span>
+    <span class="xs-after">flat</span>
+    <small>The hot set is the head of the queue, not the history.</small>
+  </div>
+</div>
+
+<div class="xs-cols">
+  <figure class="xs-figure">
+    <svg viewBox="0 0 440 220" role="img" aria-label="Today: three workers each poll one shared jobs table on a five-second timer, and every poll scans the whole table.">
+      <defs>
+        <marker id="xs-arr-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink2)"/></marker>
+      </defs>
+      <rect class="bxo" x="16" y="70" width="150" height="86" rx="8"/>
+      <text class="tt" x="91" y="103" text-anchor="middle">jobs table</text>
+      <text x="91" y="122" text-anchor="middle">shared, in the app DB</text>
+      <text class="sm" x="91" y="141" text-anchor="middle">every poll scans it</text>
+      <rect class="bxo" x="290" y="16" width="134" height="52" rx="8"/>
+      <text class="tt" x="357" y="47" text-anchor="middle">worker</text>
+      <rect class="bxo" x="290" y="86" width="134" height="52" rx="8"/>
+      <text class="tt" x="357" y="117" text-anchor="middle">worker</text>
+      <rect class="bxo" x="290" y="156" width="134" height="52" rx="8"/>
+      <text class="tt" x="357" y="187" text-anchor="middle">worker</text>
+      <line class="ln dash" x1="290" y1="42" x2="170" y2="84" marker-end="url(#xs-arr-a)"/>
+      <line class="ln dash" x1="290" y1="112" x2="170" y2="112" marker-end="url(#xs-arr-a)"/>
+      <line class="ln dash" x1="290" y1="182" x2="170" y2="142" marker-end="url(#xs-arr-a)"/>
+      <text class="sm" x="232" y="98" text-anchor="middle">poll every 5s</text>
+    </svg>
+    <figcaption>Today: the wait is the timer, and the cost is the whole table.</figcaption>
+  </figure>
+  <figure class="xs-figure">
+    <svg viewBox="0 0 440 220" role="img" aria-label="Proposed: producers append to a per-tenant job log that acks after a WAL flush, the dispatcher leases each job to a worker already parked on a long poll, and completed jobs archive after 24 hours.">
+      <defs>
+        <marker id="xs-arr-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink2)"/></marker>
+      </defs>
+      <rect class="bx dur" x="16" y="60" width="176" height="106" rx="10"/>
+      <text class="tt" x="104" y="93" text-anchor="middle">job log</text>
+      <text x="104" y="112" text-anchor="middle">one file per tenant</text>
+      <text class="ac" x="104" y="131" text-anchor="middle">ack ~2ms p50 (E)</text>
+      <text class="tag ac" x="192" y="182" text-anchor="end">durable</text>
+      <rect class="bxo" x="290" y="42" width="134" height="52" rx="8"/>
+      <text class="tt" x="357" y="66" text-anchor="middle">worker</text>
+      <text class="sm" x="357" y="84" text-anchor="middle">parked long-poll</text>
+      <rect class="bxo" x="290" y="126" width="134" height="52" rx="8"/>
+      <text class="tt" x="357" y="150" text-anchor="middle">worker</text>
+      <text class="sm" x="357" y="168" text-anchor="middle">parked long-poll</text>
+      <line class="ln acc" x1="194" y1="92" x2="288" y2="68" marker-end="url(#xs-arr-b)"/>
+      <line class="ln acc" x1="194" y1="134" x2="288" y2="152" marker-end="url(#xs-arr-b)"/>
+      <text class="sm" x="240" y="118" text-anchor="middle">lease and push</text>
+      <line class="ln dash" x1="104" y1="166" x2="104" y2="194" marker-end="url(#xs-arr-b)"/>
+      <text class="sm" x="104" y="212" text-anchor="middle">archive after 24h</text>
+    </svg>
+    <figcaption>Proposed: one durable thing, and everything else rebuilt from it.</figcaption>
+  </figure>
+</div>
+
+<div class="xs-compare">
+  <div class="xs-row">
+    <div class="xs-topic">Getting work to a worker</div>
+    <div class="xs-before">Every worker wakes on a five-second timer and asks the table for work.</div>
+    <div class="xs-after">The dispatcher pushes each job down a connection a worker is already holding.</div>
+    <div class="xs-why">Dispatch latency stops tracking the poll interval (DQ4).</div>
+  </div>
+  <div class="xs-row">
+    <div class="xs-topic">Where a job lives</div>
+    <div class="xs-before">One shared table in the application database, alongside everything else it stores.</div>
+    <div class="xs-after">One append-only log per tenant, in its own SQLite file, acked after the batch's WAL flush.</div>
+    <div class="xs-why">A job survives the loss of any single machine, and no tenant waits on another tenant's flush (DQ1, A2).</div>
+  </div>
+  <div class="xs-row">
+    <div class="xs-topic">Two workers, one job</div>
+    <div class="xs-before">Two polls can race for the same row, and nothing durable records who won.</div>
+    <div class="xs-after">A worker holds a lease it renews; an expired lease re-queues the job, and producers set an idempotency key.</div>
+    <div class="xs-why">Every failure mode collapses into one story, at the price of a duplicate the consumer can detect (DQ2, A1).</div>
+  </div>
+  <div class="xs-row">
+    <div class="xs-topic">Finished work</div>
+    <div class="xs-before">Completed rows stay in the table until somebody prunes them, and the scans get slower.</div>
+    <div class="xs-after">Completed jobs move to object storage after 24 hours; a restore replays the archive plus the live tail.</div>
+    <div class="xs-why">The replay rate is still an estimate until the restore spike runs (V2).</div>
+  </div>
+</div>
+
+<h3>Why this shape</h3>
+<p>
+  The log is the only durable state in the system. Dispatcher memory, queue
+  positions and worker leases are all derived from it, so recovery is one
+  procedure — reopen the file, replay unexpired leases, resume — instead of one
+  per component. That is the whole argument, and every other choice here follows
+  from keeping it true.
+</p>
+
+<h3>What we are not changing</h3>
+<p>
+  Producers still enqueue over HTTP and still choose their own idempotency keys.
+  Payloads stay small, with anything over 64 KB going to object storage behind a
+  pointer (A4). Multi-region durability stays out of scope, and scheduled jobs
+  are recorded as an open question rather than designed here (Q2).
+</p>
+
+<h3>Where we want pushback</h3>
+<p>
+  The load-bearing claim is that every consumer can absorb a duplicate delivery
+  (A1). We believe it, we have not confirmed it in writing, and if one consumer
+  cannot, this becomes an exactly-once design with a dedup ledger in the hot path
+  and most of its simplicity gone. The second thing worth arguing about is
+  whether lease renewals belong on the dispatch connection or an endpoint of
+  their own; we left that open on purpose (DQ4, V3).
+</p>

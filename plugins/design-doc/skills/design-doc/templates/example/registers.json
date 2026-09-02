@@ -5,6 +5,7 @@
     "phase": "draft",
     "date": "2026-07-21",
     "slug": "tinyq",
+    "homeLink": { "href": "../", "label": "← All docs" },
     "banner": {
       "assumption": "A1",
       "text": "Everything here sits downstream of assumption A1: at-least-once delivery is acceptable to every consumer. A1 still needs an explicit yes from the platform team. If it falls, this becomes an exactly-once design with a very different ledger."

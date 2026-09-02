@@ -52,6 +52,7 @@ export function Registers({ block, value, submit, disabled }: PackComponentProps
   const entries = merge((value as { entries?: Record<string, Entry> } | null | undefined)?.entries, pending);
 
   const noteFor = (id: string) => notes[id] ?? entries[id]?.note ?? '';
+  const titleOf = (id: string) => decisions.find((d) => d.id === id)?.t;
 
   const record = useCallback(
     (id: string, action: Action, note: string) => {
@@ -120,14 +121,14 @@ export function Registers({ block, value, submit, disabled }: PackComponentProps
             {assumptions.map((a) => (
               <Row key={a.id} selected={a.star === true}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                  <IdChip id={a.id} />
+                  <span style={{ ...prose(), fontWeight: 600 }}>{a.t}</span>
                   {a.star && (
                     <span aria-label="load-bearing" title="load-bearing" style={{ color: t.accent }}>
                       ★
                     </span>
                   )}
-                  <span style={{ ...prose(), fontWeight: 600 }}>{a.t}</span>
                   <Pill label={a.s} tone={assumptionTone[a.s]} />
+                  <IdChip id={a.id} />
                 </div>
                 {a.b && <p style={dimText()}>{a.b}</p>}
                 {a.n && <p style={{ ...dimText(), fontStyle: 'italic' }}>{a.n}</p>}
@@ -146,15 +147,15 @@ export function Registers({ block, value, submit, disabled }: PackComponentProps
             {decisions.map((d) => (
               <Row key={d.id}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  <span style={{ ...prose(), fontWeight: 600 }}>{d.t}</span>
+                  <Pill label={d.s} tone={decisionTone[d.s]} />
                   <IdChip id={d.id} />
                   {d.by && (
                     <>
-                      <span style={{ color: t.dim }}>→</span>
+                      <span style={dimText()}>→ replaced by {titleOf(d.by)}</span>
                       <IdChip id={d.by} />
                     </>
                   )}
-                  <span style={{ ...prose(), fontWeight: 600 }}>{d.t}</span>
-                  <Pill label={d.s} tone={decisionTone[d.s]} />
                   {d.round !== undefined && <span style={caps()}>round {d.round}</span>}
                 </div>
                 {d.r && <p style={dimText()}>{d.r}</p>}
