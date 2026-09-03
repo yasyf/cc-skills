@@ -3252,7 +3252,7 @@ const AI_SUGGEST={
  open:["What is blocking a decision right now?","Which spike should run first?"],
  footnotes:["What do the footnotes add?"]
 };
-const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",cmd:"›",ai:"✦"};
+const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
 const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
 
 let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
@@ -3531,8 +3531,8 @@ function aiSystem(){
   "",
   "How to answer:",
   "- Answer only from the document below and from what the tools return. When it does not cover something, say so in one sentence and stop; never fill the gap from general knowledge.",
-  "- When one entry carries the answer, call scroll_to on it and then highlight on it before you write your reply, so the reader lands on the row it came from. They are tools: call them, never describe a call or print its arguments.",
-  "- Name an entry by its handle and then its id in round brackets, as a sentence would: \"Tokens expire within a day (24-hour tokens, DQ26).\" Plain round brackets, never square ones. The page turns the id into a live link, so a bare id with no words before it reads as noise; and never invent one.",
+  "- Every answer that rests on one entry leaves the page on that entry: call scroll_to on it and then highlight on it before you write the reply. Reading an entry does not move the page, so read_entry never stands in for that pair. They are tools: call them, never describe a call or print its arguments.",
+  "- Cite an entry by putting its id alone in round brackets after the words it belongs to: \"Tokens expire within a day (DQ26).\" The page renders that id as the entry's handle, so never write the handle or the title beside it, never use square brackets, and never invent an id.",
   "- Read before you answer when an index line is not enough: read_entry, read_section, list_entries.",
   "- Answer in two to four full sentences, or a short list when the answer is a set. A fragment, a label, or a pasted index line is not an answer.",
   "- The reader has the document in front of them, so do not restate it at length.",
@@ -3779,7 +3779,7 @@ async function aiExplain(entry,kind,roleIx,onText){
  const cites=aiCitedBy(entry.id).slice(0,6).map(id=>{const e=aiEntry(id);return e?id+" "+aiHandle(e):id}).join("; ");
  const input=entry.id+"|"+label+"|"+(META.rev||0);
  return aiCached("explain",input,()=>aiOnce([
-  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Name another entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). No preamble."},
+  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Cite another entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No preamble."},
   {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nWhat else names it: "+(cites||"nothing")+"\n\nThe document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nExplain what this means for that reader in three sentences."}
  ],{effort:"low",onText}));
 }
@@ -3787,19 +3787,19 @@ async function aiWhyHere(entry,kind){
  const citers=aiCitedBy(entry.id);
  const detail=citers.slice(0,10).map(id=>{const e=aiEntry(id);return e?id+" — "+plain(e.t):id}).join("\n")||"nothing else in the document names it";
  return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nEverything that names it:\n"+detail}
  ],{effort:"low"}));
 }
 async function aiReviewComment(entry,kind,concern){
  return aiOnce([
-  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern}
  ],{effort:"low"});
 }
 async function aiSummariseSection(id){
  return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). Return markdown bullets and nothing else."},
+  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. Return markdown bullets and nothing else."},
   {role:"user",content:"Section: "+AI_SECTION_NAMES[id]+"\n\n"+aiSectionText(id)}
  ],{effort:"low"}));
 }
@@ -3812,14 +3812,14 @@ async function aiChangedSince(){
  }).join("\n");
  const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
  return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
-  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). No bullet list."},
+  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No bullet list."},
   {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail}
  ],{effort:"medium"}));
 }
 const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiFaq(){
  return aiCached("faq",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and names an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and cites an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
   {role:"user",content:aiContext()}
  ],{effort:"low",schema:AI_FAQ_SCHEMA}));
 }
@@ -4086,15 +4086,9 @@ function aiWireTools(){
  path.id="aiPath";
  path.hidden=true;
  rail.insertBefore(path,rail.querySelector(".spacer"));
- const tools=document.querySelector("#rail .tools");
- const row=el("div","toolrow ai-only");
- const ask=el("button","toolbtn","Ask the doc");
+ const ask=el("button","toolbtn ai-only","Ask the doc");
  ask.onclick=()=>aiOpen();
- const pal=el("button","toolbtn","⌘K");
- pal.title="Everything you can do here";
- pal.onclick=()=>palOpen("");
- row.append(ask,pal);
- tools.append(row);
+ $("#toolrow").prepend(ask);
  const termHead=document.querySelector("#ground h3");
  if(termHead){
   const g=el("button","ai-h2 ai-only","Find undefined terms");
@@ -4318,6 +4312,7 @@ function aiBoot(){
  aiWireSections();
  aiWireKeys();
  palWire();
+ palButton();
  aiConfig().then(cfg=>{
   if(!cfg)return;
   AI=cfg;
@@ -4348,6 +4343,15 @@ function addAiTerms(list){
  termify($("#main"));
 }
 window.ddTerms={terms:TERM_BY,add:addAiTerms};
+function palButton(){
+ const row=el("div","toolrow");
+ row.id="toolrow";
+ const pal=el("button","toolbtn","⌘K");
+ pal.title="Everything you can do here";
+ pal.onclick=()=>palOpen("");
+ row.append(pal);
+ document.querySelector("#rail .tools").append(row);
+}
 function mountedComponents(){
  return [...document.querySelectorAll("[data-component]")]
   .map(h=>[h,COMPONENTS[h.dataset.component],h.dataset.component])
