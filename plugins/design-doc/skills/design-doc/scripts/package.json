@@ -1,0 +1,11 @@
+{
+  "name": "design-doc-components",
+  "version": "0.13.0",
+  "private": true,
+  "description": "Build pack for the author-written Preact components a design doc compiles with design.py build.",
+  "license": "MIT",
+  "dependencies": {
+    "preact": "10.29.8",
+    "vite": "8.2.2"
+  }
+}

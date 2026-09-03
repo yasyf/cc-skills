@@ -1,0 +1,64 @@
+{
+  "kind": "dd.matrix",
+  "title": "Matrix",
+  "summary": "Options against criteria, one cell each, with an optional picked column. Cells carry a tone so the shape of the answer reads before the words do.",
+  "belongs": "A decision's rejected alternatives, or a compare panel with more than two lanes.",
+  "type": "object",
+  "required": ["kind", "rows", "cols", "cells"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.matrix"},
+    "title": {"type": "string", "minLength": 1},
+    "pick": {"type": "string", "minLength": 1, "description": "the label of the column this design chose"},
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "additionalProperties": false,
+        "properties": {"label": {"type": "string", "minLength": 1}}
+      }
+    },
+    "cols": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "additionalProperties": false,
+        "properties": {"label": {"type": "string", "minLength": 1}}
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "object",
+          "required": ["text"],
+          "additionalProperties": false,
+          "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "tone": {"enum": ["ok", "warn", "bad"]}
+          }
+        }
+      }
+    }
+  },
+  "example": {
+    "kind": "dd.matrix",
+    "title": "What we weighed",
+    "pick": "One file per tenant",
+    "rows": [{"label": "Recovery"}, {"label": "Noisy neighbour"}],
+    "cols": [{"label": "One file per tenant"}, {"label": "One shared file"}],
+    "cells": [
+      [{"text": "Reopen and replay one file", "tone": "ok"}, {"text": "Replay every tenant", "tone": "bad"}],
+      [{"text": "Bounded to one tenant", "tone": "ok"}, {"text": "One tenant stalls the rest", "tone": "warn"}]
+    ]
+  }
+}
