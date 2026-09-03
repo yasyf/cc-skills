@@ -76,6 +76,12 @@ Three rules. No register IDs, paths, or finding numbers, the same ban `p` carrie
 
 `design.py plainify` drafts an `h` beside each `p` under a five-word budget and prints both in the review table; edit every draft against its entry. `check` warns on a cited entry with no `h`, and `--strict` makes it an error. The renderer's fallback is the first four words of `t` plus an ellipsis, which reads as a truncation; a doc never ships on it.
 
+## Pull request links
+
+A decision, an open item, and a finding row each carry `links[]`: the pull requests, issues, commits, or docs that land them. One link per entry, on the pull request that lands it, added the moment it opens. Never a list of everything that touched the area: a reader wants to know where the decision became code, not the history of the directory. `closes: true` goes only on an open item, and only on the one link that retires it; a decision's links say where it landed and close nothing, and a finding's link is the fix, so it needs no flag. A bare URL is enough for a link into `meta.repo`, the doc's default repository: the chip reads `#17567`, and the hover card fetches the title. A link anywhere else carries a `label`, a chip's worth of words that follows the capitalisation rules below and reads inside the row ("the edge rejection PR" reads, "PR" does not).
+
+The handle and the twin stay as they were. A link is evidence, not wording: an item whose pull request merged keeps the handle every citation shows for it, and its twin still says what the item asked, not that it shipped. The row says "Closed" on its own, from `s: "closed"` or from a merged `closes` link, whichever comes first. Set `s` when the pull request merges anyway, because the register is read offline too; `design.py links --fetch` reports the two disagreeing.
+
 ## Titles are answers
 
 A decision's `t` is the decision as a noun phrase of at most ten words, never the question it settled. The spotlight headlines `t`, so a reader who sees a question has to open the card to learn the answer. The question lives in `rounds[].q`, where the record wants it. `check` warns on a `t` ending in `?` or running past twelve words.
@@ -135,8 +141,11 @@ Four rules hold on every panel. Every sentence has a verb. No sentence starts wi
 Every panel has a figure, and every figure is drawn for this design: a diagram of these parts, a chart of these numbers, never a stock shape and never a screenshot of text. Pick the form by what the figure shows:
 
 - Mermaid (`<pre class="mermaid">`) for flows and request paths.
-- The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure.
-- Inline SVG when neither fits.
+- `dd.flow` or `dd.lanes`, from the Components table, for the compare panel.
+- The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure on a poster.
+- Inline SVG when none fits.
+
+The compare panel's figure is a kit component, declared in `components` and placed with `<div data-component="…">` inside the panel's `<figure>`. `dd.flow` draws stages as columns with callouts hanging off them, each callout a thing that stage leaks or fixes, marked closed or open; it fits a change whose story is the path and where it breaks. `dd.lanes` draws today beside proposed as two framed stacks of boxes; it fits a change whose story is which parts become which. Both measure their labels in the page and lay themselves out, so a column widens to its callouts and a lane to its boxes, and nothing overlaps at 390 px or 1440 px. A hand-drawn SVG is for a shape neither kind draws; `check` warns on a compare figure drawn by hand with eight or more boxes and names the kind it should be.
 
 Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries an `aria-label` or a `<figcaption>`; `check` warns when one has neither.
 
@@ -152,8 +161,10 @@ A figure moves when a number or a sequence earns it: a number the reader would w
 | a sequence the reader should step through on the diagram | `dd.steps` | How it works; drives the system diagram's highlight |
 | phases with gates | `dd.timeline` | the rollout card; the top of Still open |
 | options against criteria | `dd.matrix` | a decision's rejected alternatives; a compare with more than two lanes |
-| findings laid along a path: columns left to right, each with the callouts that sit on it, solid when closed and dashed when open | `dd.flow` | a compare panel's figure; a callout's `topic` names the `.xs-topic` row it explains, and hovering either highlights the other |
-| what each side holds: two framed lanes of boxes, today beside proposed | `dd.lanes` | a compare panel's figure; the boxes-in-boxes shape, stacked on a narrow screen |
+| stages in columns, with what each one leaks or fixes hanging off it | `dd.flow` | the compare panel of a change whose story is where the path breaks |
+| today beside proposed, as two stacks of boxes | `dd.lanes` | the compare panel of a change whose story is which parts change |
+
+`dd.flow` and `dd.lanes` are figures that lay themselves out, not widgets, so they sit outside the one-or-two ceiling above. A doc with a compare panel has one of them, plus one or two of the others where a number or a sequence earns it.
 
 The declaration sits in `registers.json`; the deck places it with `<div data-component="id"></div>` inside a panel's `<figure>`, and the registers place it through `arch[].component`, `numbers[].component`, or `meta.ceilingsComponent`. A `dd.whatif` for the gallery deck's numbers panel:
 
@@ -181,7 +192,7 @@ When the kit cannot express the figure, write a Preact component in `components/
 
 ## Suggested prompts
 
-`meta.ai.suggest` maps a section id to two or three prompts the popover offers while that section is on screen. Write each as the question a cold reader asks at that point, answerable from the registers, under ten words, with no IDs: `"ceilings": ["What breaks first at ten times today's load?", "Which guard is still an estimate?"]`. The doc answers from the registers and says when it cannot, so a prompt that needs knowledge the registers lack produces a shrug, not an answer; cut it.
+`meta.ai.suggest` maps a section id to two prompts the assistant panel offers while that section is on screen, after its own "TL;DR" of the section. Write each as the question a cold reader asks at that point, answerable from the document, under ten words, with no IDs: `"ceilings": ["What breaks first at ten times today's load?", "Which guard is still an estimate?"]`. The built-in set already asks the open list what has shipped, so a doc with links needs no prompt for that. The doc answers from the document and says when it cannot, so a prompt that needs knowledge the document lacks produces a shrug, not an answer; cut it.
 
 ## The two passes
 

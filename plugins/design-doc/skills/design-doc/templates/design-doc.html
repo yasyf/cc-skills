@@ -1414,7 +1414,7 @@ function ghCardHtml(node){
  const label=node.querySelector(".lt").textContent;
  const open=`<span class="topen" data-href="${esc(node.href)}" role="button" tabindex="0">Open on GitHub →</span>`;
  if(!rec)return `<span class="tkind">${esc(LINK_KIND_LABEL[kind])} · ${esc(key)}</span><span class="ttitle">${esc(label)}</span>`+(GH_PENDING[key]?"<p>Loading…</p>":"")+open;
- const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",rec.checks?`checks ${rec.checks.ok}/${rec.checks.total}`:""].filter(Boolean);
+ const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",rec.checks?`checks ${rec.checks.ok}/${rec.checks.total}`+(rec.checks.state==="success"?"":" "+rec.checks.state):""].filter(Boolean);
  const by=[rec.author?"by "+rec.author:"",rec.updated?"updated "+relTime(rec.updated):""].filter(Boolean).join(", ");
  return `<span class="tkind">${esc(bits.join(" · "))}</span><span class="ttitle">${esc(rec.title||label)}</span><span class="tgh">${esc(key)}${by?" · "+esc(by):""}</span>`+open;
 }
@@ -4120,7 +4120,7 @@ async function ghResolve(key,kind){
  const pr=await ghGet(`${base}/pulls/${n}`);
  if(!pr)return {state:"unknown"};
  const rec={kind,state:pr.merged_at?"merged":pr.draft?"draft":pr.state,title:pr.title,author:pr.user&&pr.user.login,updated:pr.updated_at,mergedAt:pr.merged_at,closedAt:pr.closed_at};
- const [reviews,checks]=await Promise.all([ghGet(`${base}/pulls/${n}/reviews?per_page=100`),ghGet(`${base}/commits/${pr.head.sha}/check-runs?per_page=100`)]);
+ const [reviews,status]=await Promise.all([ghGet(`${base}/pulls/${n}/reviews?per_page=100`),ghGet(`${base}/commits/${pr.head.sha}/status`).catch(e=>{if(e.status===403)return null;throw e})]);
  if(reviews){
   const latest={};
   reviews.forEach(v=>{if(v.state!=="COMMENTED"&&v.user)latest[v.user.login]=v.state});
@@ -4128,7 +4128,7 @@ async function ghResolve(key,kind){
   const changes=count("CHANGES_REQUESTED"),approved=count("APPROVED");
   rec.review=changes?changes+" requested changes":approved?approved+" approved":"";
  }
- if(checks&&checks.check_runs)rec.checks={ok:checks.check_runs.filter(c=>/^(success|skipped|neutral)$/.test(c.conclusion||"")).length,total:checks.total_count};
+ if(status&&status.statuses&&status.statuses.length)rec.checks={ok:status.statuses.filter(c=>c.state==="success").length,total:status.statuses.length,state:status.state};
  return rec;
 }
 function ghNote(text){

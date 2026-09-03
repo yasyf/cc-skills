@@ -43,7 +43,7 @@ After the round, distill it: the decision's `round` field points at a condensed 
 
 ## Open items
 
-Open questions group by **owner** — the person or team who can actually answer, plus a group for spikes. An open list without owners is a wish list; with owners it is an agenda. The `openGroups` map defines the groups and their display order.
+Open questions group by **owner** — the person or team who can actually answer, plus a group for spikes. An open list without owners is a wish list; with owners it is an agenda. The `openGroups` map defines the groups and their display order. The pull request that retires an item goes on its `links[]` with `closes: true`, and a decision carries the pull requests that landed it the same way, so the register records what shipped as well as what was decided.
 
 ## The adversarial review
 
