@@ -7,6 +7,7 @@
   design.py plainify <dir> [--only DQ3,A2] [--provider slop-cop|claude|codex|none] [--dry-run]
   design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
+  design.py build [dir]
   design.py snapshot [dir] [--note X] [--item …] [--force]
 
 scaffold creates a fresh directory for one design doc — named after the
@@ -27,8 +28,10 @@ rendered, and fails on a Mermaid parse error or a diagram that never
 rendered, printing Chrome's stderr and the page's console so a failure
 names its cause. pdf
 prints the served doc to its design-doc.pdf through the template's print
-stylesheet. snapshot records a revision of the registers in the project's
-history directory. Stdlib only.
+stylesheet. build compiles the project's author-written components/*.tsx
+into components.js with the pinned Vite and Preact pack, installed under
+~/.cache/design-doc on first use. snapshot records a revision of the
+registers in the project's history directory. Stdlib only.
 """
 import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, urllib.request
 from html.parser import HTMLParser
@@ -87,6 +90,22 @@ URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
 MEASURED = {"yes", "no"}
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
+SCRIPTS = SKILL / "scripts"
+COMPONENT_SCHEMAS = REFERENCE / "components"
+COMPONENT_PACK = ICON_CACHE / "components-pack"
+COMPONENT_ID = re.compile(r"[a-z][a-z0-9-]*")
+EXPR_TOKEN = re.compile(r"[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+")
+EXPR_FNS = {"min": min, "max": max}
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+TSX_EXPORT = re.compile(r"^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_]\w*)", re.M)
+TSX_BANNED = (
+    (re.compile(r"\bfetch\s*\("), "calls fetch("),
+    (re.compile(r"""\bimport\s*\(\s*["'](?:[a-z]+:)?//"""), "imports from a remote origin"),
+    (re.compile(r"\beval\s*\("), "calls eval("),
+    (re.compile(r"\b(?:innerHTML|dangerouslySetInnerHTML)\b"), "writes raw HTML"),
+)
+SCHEMA_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
+                "number": (int, float), "integer": int}
 
 
 def foreign_scheme(url: str):
@@ -1189,7 +1208,446 @@ def check(args) -> int:
         rep.warn("qa-log.json not found")
 
     check_libs(rep)
+    check_components(rep, R, root, known, node_ids)
     return rep.finish()
+
+
+class ExprError(ValueError):
+    pass
+
+
+def expr_tokens(src: str) -> list:
+    out, at = [], 0
+    for m in EXPR_TOKEN.finditer(src):
+        if m.start() != at:
+            raise ExprError(f"unexpected {src[at]!r}")
+        at = m.end()
+        if not m.group().isspace():
+            out.append(m.group())
+    if at != len(src):
+        raise ExprError(f"unexpected {src[at]!r}")
+    return out
+
+
+def parse_expr(src):
+    t = expr_tokens(str(src))
+    pos = [0]
+
+    def peek():
+        return t[pos[0]] if pos[0] < len(t) else None
+
+    def eat(x):
+        if peek() != x:
+            raise ExprError(f"expected {x!r}")
+        pos[0] += 1
+
+    def expression():
+        node = term()
+        while peek() in ("+", "-"):
+            op = t[pos[0]]
+            pos[0] += 1
+            node = (op, node, term())
+        return node
+
+    def term():
+        node = unary()
+        while peek() in ("*", "/"):
+            op = t[pos[0]]
+            pos[0] += 1
+            node = (op, node, unary())
+        return node
+
+    def unary():
+        if peek() in ("+", "-"):
+            op = t[pos[0]]
+            pos[0] += 1
+            return (op, ("num", 0.0), unary())
+        return primary()
+
+    def primary():
+        x = peek()
+        if x is None:
+            raise ExprError("the expression ends early")
+        if x == "(":
+            pos[0] += 1
+            node = expression()
+            eat(")")
+            return node
+        if x[0].isdigit() or x[0] == ".":
+            pos[0] += 1
+            return ("num", float(x))
+        if x[0].isalpha() or x[0] == "_":
+            pos[0] += 1
+            if peek() != "(":
+                return ("ref", x)
+            pos[0] += 1
+            args = [expression()]
+            while peek() == ",":
+                pos[0] += 1
+                args.append(expression())
+            eat(")")
+            if x not in EXPR_FNS:
+                raise ExprError(f"unknown function {x}(); the grammar has {', '.join(sorted(EXPR_FNS))}")
+            if len(args) < 2:
+                raise ExprError(f"{x}() takes two or more arguments")
+            return ("fn", x, args)
+        raise ExprError(f"unexpected {x!r}")
+
+    node = expression()
+    if pos[0] != len(t):
+        raise ExprError(f"unexpected {t[pos[0]]!r}")
+    return node
+
+
+def expr_refs(node, out: set) -> set:
+    kind = node[0]
+    if kind == "ref":
+        out.add(node[1])
+    elif kind == "fn":
+        for arg in node[2]:
+            expr_refs(arg, out)
+    elif kind != "num":
+        expr_refs(node[1], out)
+        expr_refs(node[2], out)
+    return out
+
+
+def eval_expr(node, values):
+    kind = node[0]
+    if kind == "num":
+        return node[1]
+    if kind == "ref":
+        return values[node[1]]
+    if kind == "fn":
+        return EXPR_FNS[node[1]](*(eval_expr(a, values) for a in node[2]))
+    a, b = eval_expr(node[1], values), eval_expr(node[2], values)
+    if kind == "+":
+        return a + b
+    if kind == "-":
+        return a - b
+    if kind == "*":
+        return a * b
+    if b == 0:
+        raise ExprError("divides by zero")
+    return a / b
+
+
+def finite(v) -> bool:
+    return v == v and abs(v) != float("inf")
+
+
+def schema_errors(value, schema, where: str) -> list:
+    if "const" in schema:
+        return [] if value == schema["const"] else [f"{where} must be {schema['const']!r}"]
+    if "enum" in schema and value not in schema["enum"]:
+        return [f"{where} must be one of {', '.join(map(str, schema['enum']))}"]
+    kind = schema.get("type")
+    want = SCHEMA_TYPES.get(kind)
+    if want and (not isinstance(value, want) or (kind != "boolean" and isinstance(value, bool))):
+        return [f"{where} must be {'an' if kind[0] in 'aoi' else 'a'} {kind}"]
+    out = []
+    if kind == "object":
+        props = schema.get("properties", {})
+        for key in schema.get("required", []):
+            if key not in value:
+                out.append(f"{where} is missing {key!r}")
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in props:
+                    out.append(f"{where} has an unknown property {key!r}")
+        for key, sub in props.items():
+            if key in value:
+                out.extend(schema_errors(value[key], sub, f"{where}.{key}"))
+    elif kind == "array":
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            out.append(f"{where} needs at least {schema['minItems']} entries")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            out.append(f"{where} takes at most {schema['maxItems']} entries")
+        if "items" in schema:
+            for i, item in enumerate(value):
+                out.extend(schema_errors(item, schema["items"], f"{where}[{i}]"))
+    elif kind == "string":
+        if len(value.strip()) < schema.get("minLength", 0):
+            out.append(f"{where} must not be empty")
+        if "pattern" in schema and not re.fullmatch(schema["pattern"].strip("^$"), value):
+            out.append(f"{where} must match {schema['pattern']}")
+    elif kind in ("number", "integer"):
+        if "minimum" in schema and value < schema["minimum"]:
+            out.append(f"{where} must be at least {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            out.append(f"{where} must be at most {schema['maximum']}")
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            out.append(f"{where} must be greater than {schema['exclusiveMinimum']}")
+    return out
+
+
+class ComponentHosts(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hosts, self.open = [], []
+
+    def handle_starttag(self, tag, attrs):
+        name = dict(attrs).get("data-component")
+        if name:
+            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False})
+        elif self.open and tag not in VOID_TAGS:
+            self.open[-1]["depth"] += 1
+        if self.open and tag == "figure":
+            self.open[-1]["figure"] = True
+
+    def handle_endtag(self, tag):
+        if not self.open:
+            return
+        host = self.open[-1]
+        if host["depth"]:
+            host["depth"] -= 1
+        elif tag == host["tag"]:
+            self.hosts.append(self.open.pop())
+
+    def close(self):
+        super().close()
+        while self.open:
+            self.hosts.append(self.open.pop())
+
+
+def component_schemas(rep) -> dict:
+    out = {}
+    for path in sorted(COMPONENT_SCHEMAS.glob("dd.*.json")):
+        try:
+            out[path.stem] = json.loads(path.read_text())
+        except ValueError as e:
+            rep.err(f"reference/components/{path.name} does not parse: {e}")
+    return out
+
+
+def whatif_samples(inputs) -> list:
+    base = {i["id"]: i["value"] for i in inputs}
+    samples = [base, {i["id"]: i["min"] for i in inputs}, {i["id"]: i["max"] for i in inputs}]
+    for one in inputs:
+        for edge in ("min", "max"):
+            sample = dict(base)
+            sample[one["id"]] = one[edge]
+            samples.append(sample)
+    return samples
+
+
+def check_whatif(rep, label, spec, known):
+    ids = [i["id"] for i in spec["inputs"]]
+    for i in spec["inputs"]:
+        if ids.count(i["id"]) > 1:
+            rep.err(f"{label}: two inputs share the id {i['id']!r}")
+        if i["min"] >= i["max"]:
+            rep.err(f"{label}: input {i['id']!r} has min {i['min']} at or above max {i['max']}")
+        elif not i["min"] <= i["value"] <= i["max"]:
+            rep.err(f"{label}: input {i['id']!r} starts at {i['value']}, outside {i['min']}–{i['max']}")
+    samples = whatif_samples(spec["inputs"])
+    for out in spec["outputs"]:
+        where = f"{label}: output {out['label']!r}"
+        try:
+            node = parse_expr(out["expr"])
+        except ExprError as e:
+            rep.err(f"{where} does not parse ({e}); the grammar is + - * / ( ) min max over numbers and input ids")
+            continue
+        unknown = sorted(expr_refs(node, set()) - set(ids))
+        if unknown:
+            rep.err(f"{where} names {', '.join(unknown)}, which is not an input of this component")
+            continue
+        for sample in samples:
+            try:
+                value = eval_expr(node, sample)
+            except ExprError as e:
+                rep.err(f"{where} {e} at " + ", ".join(f"{k}={v}" for k, v in sorted(sample.items())))
+                break
+            if not finite(value):
+                rep.err(f"{where} is not a number at " + ", ".join(f"{k}={v}" for k, v in sorted(sample.items())))
+                break
+    for cited in spec.get("cites", []):
+        if cited not in known:
+            rep.err(f"{label}: cites {cited}, which no register defines")
+
+
+def check_component_props(rep, label, spec, known, node_ids):
+    kind = spec["kind"]
+    if kind == "dd.whatif":
+        check_whatif(rep, label, spec, known)
+    elif kind == "dd.tabs":
+        for i, tab in enumerate(spec["tabs"]):
+            if not (tab.get("md") or tab.get("figure")):
+                rep.err(f"{label}.tabs[{i}] carries neither 'md' nor 'figure'; a pane shows one or both")
+    elif kind == "dd.steps":
+        for i, step in enumerate(spec["steps"]):
+            target = step.get("target")
+            if target is None or node_ids is None:
+                continue
+            ends = target.split(">") if ">" in target else [target]
+            missing = [e for e in ends if e not in node_ids]
+            if missing:
+                rep.err(f"{label}.steps[{i}]: target {target!r} names {', '.join(missing)}, which is not in the diagram source")
+    elif kind == "dd.timeline":
+        for i, phase in enumerate(spec["phases"]):
+            gate = phase.get("gate")
+            if gate and gate not in known:
+                rep.err(f"{label}.phases[{i}]: gate {gate}, which no register defines")
+    elif kind == "dd.matrix":
+        cols, cells = spec["cols"], spec["cells"]
+        if len(cells) != len(spec["rows"]):
+            rep.err(f"{label}: {len(cells)} cell rows for {len(spec['rows'])} rows")
+        for i, row in enumerate(cells):
+            if len(row) != len(cols):
+                rep.err(f"{label}.cells[{i}] has {len(row)} cells for {len(cols)} columns")
+        labels = [c["label"] for c in cols]
+        if spec.get("pick") and spec["pick"] not in labels:
+            rep.err(f"{label}: pick {spec['pick']!r} is not one of {', '.join(labels)}")
+
+
+def check_components(rep, R, root, known, node_ids):
+    declared = R.get("components")
+    if declared is not None and not isinstance(declared, dict):
+        rep.err("components must map a component id to its declaration")
+        declared = None
+    declared = declared or {}
+    sources = {p.stem: p.read_text() for p in sorted((root / "components").glob("*.tsx"))}
+    summary_path = root / "summary.html"
+    hosts = component_hosts(summary_path.read_text()) if summary_path.exists() else []
+    fields = [(f"arch {c.get('id')}", c.get("component")) for c in R.get("arch", [])]
+    fields += [(f"numbers {n.get('id')}", n.get("component")) for n in R.get("numbers", [])]
+    fields.append(("meta.ceilingsComponent", R.get("meta", {}).get("ceilingsComponent")))
+    fields = [(where, name) for where, name in fields if name]
+    if not (declared or sources or hosts or fields):
+        return
+
+    exports = set(sources)
+    for stem, text in sources.items():
+        exports.update(TSX_EXPORT.findall(text))
+        for pattern, what in TSX_BANNED:
+            if pattern.search(text):
+                rep.err(f"components/{stem}.tsx {what}; an author component draws the registers it is handed and reaches nothing else")
+    if sources and not (root / "components.js").exists():
+        rep.strict_warn(f"components/ holds {len(sources)} .tsx component(s) but components.js is missing; run design.py build")
+
+    schemas = component_schemas(rep)
+    for cid, spec in sorted(declared.items()):
+        label = f"components.{cid}"
+        if not COMPONENT_ID.fullmatch(cid):
+            rep.err(f"{label}: a component id is lower-case words joined by hyphens")
+        if not isinstance(spec, dict):
+            rep.err(f"{label} must be an object with a 'kind'")
+            continue
+        schema = schemas.get(spec.get("kind"))
+        if schema is None:
+            rep.err(f"{label}: kind {spec.get('kind')!r} is not in the kit ({', '.join(sorted(schemas))})")
+            continue
+        problems = schema_errors(spec, schema, label)
+        for msg in problems:
+            rep.err(msg)
+        if not problems:
+            check_component_props(rep, label, spec, known, node_ids)
+
+    referenced = set()
+    for where, name in fields:
+        if name in declared:
+            referenced.add(name)
+        else:
+            rep.err(f"{where}: component {name!r} is not an entry in components")
+    for host in hosts:
+        if host["id"] in declared:
+            referenced.add(host["id"])
+        elif host["id"] in exports:
+            if not host["figure"]:
+                rep.err(f"summary.html hosts the author component {host['id']!r} with no <figure> fallback; print and Markdown render the fallback")
+        else:
+            rep.err(f"summary.html hosts {host['id']!r}, which is neither an entry in components nor an export of components/*.tsx")
+    for cid in sorted(set(declared) - referenced):
+        rep.warn(f"components.{cid} is declared but no register field or summary.html host renders it")
+
+
+def component_hosts(fragment: str) -> list:
+    parser = ComponentHosts()
+    parser.feed(fragment)
+    parser.close()
+    return parser.hosts
+
+
+def component_pack() -> Path:
+    COMPONENT_PACK.mkdir(parents=True, exist_ok=True)
+    for name in ("package.json", "package-lock.json"):
+        source, installed = SCRIPTS / name, COMPONENT_PACK / name
+        if not installed.exists() or installed.read_bytes() != source.read_bytes():
+            shutil.copy(source, installed)
+            shutil.rmtree(COMPONENT_PACK / "node_modules", ignore_errors=True)
+    if not (COMPONENT_PACK / "node_modules" / "vite").exists():
+        print(f"build: installing the component pack in {COMPONENT_PACK}", flush=True)
+        subprocess.run(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+                       cwd=COMPONENT_PACK, check=True)
+    return COMPONENT_PACK
+
+
+def entry_source(sources) -> str:
+    lines = ['import { h, render } from "preact";']
+    for i, path in enumerate(sources):
+        lines.append(f"import * as M{i} from {json.dumps('./src/' + path.name)};")
+    pairs = ", ".join(f"[{json.dumps(p.stem)}, M{i}]" for i, p in enumerate(sources))
+    lines += [
+        f"const MODS = [{pairs}];",
+        "const REG = {};",
+        "for (const [stem, mod] of MODS) {",
+        '  for (const [name, value] of Object.entries(mod)) if (name !== "default" && typeof value === "function") REG[name] = value;',
+        '  if (typeof mod.default === "function") REG[stem] = mod.default;',
+        "}",
+        "export const names = Object.keys(REG);",
+        "export function mount(host, name, props) {",
+        "  const Component = REG[name];",
+        "  if (!Component) return false;",
+        "  render(h(Component, props), host);",
+        "  return true;",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def vite_config(work: Path, out: Path) -> str:
+    return (
+        'import { defineConfig } from "vite";\n'
+        "export default defineConfig({\n"
+        f"  root: {json.dumps(str(work))},\n"
+        '  logLevel: "warn",\n'
+        '  esbuild: { jsx: "automatic", jsxImportSource: "preact" },\n'
+        "  build: {\n"
+        f"    outDir: {json.dumps(str(out))},\n"
+        "    emptyOutDir: false,\n"
+        '    target: "es2022",\n'
+        f'    lib: {{ entry: {json.dumps(str(work / "entry.js"))}, formats: ["es"], fileName: () => "components.js" }}\n'
+        "  }\n"
+        "});\n"
+    )
+
+
+def build(args) -> int:
+    root = Path(args.dir)
+    sources = sorted((root / "components").glob("*.tsx"))
+    if not sources:
+        print(f"build: {root}/components holds no .tsx component; the declared kit needs no build")
+        return 0
+    if shutil.which("npm") is None:
+        print("build: npm is not on PATH; compiling components/*.tsx needs node", file=sys.stderr)
+        return 1
+    pack = component_pack()
+    work = pack / "build"
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "src").mkdir(parents=True)
+    for path in sources:
+        shutil.copy(path, work / "src" / path.name)
+    (work / "entry.js").write_text(entry_source(sources))
+    (work / "vite.config.mjs").write_text(vite_config(work, root.resolve()))
+    result = subprocess.run(["node", str(pack / "node_modules" / "vite" / "bin" / "vite.js"),
+                             "build", "--config", str(work / "vite.config.mjs")], cwd=pack)
+    if result.returncode:
+        print("build: vite could not compile the components", file=sys.stderr)
+        return result.returncode
+    bundle = root / "components.js"
+    print(f"build: {', '.join(p.name for p in sources)} → {bundle} ({bundle.stat().st_size // 1024} KB)")
+    return 0
 
 
 def main():
@@ -1221,6 +1679,9 @@ def main():
     pd = sub.add_parser("pdf", help="print the project's doc to its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)
+    bd = sub.add_parser("build", help="compile the project's components/*.tsx into components.js")
+    bd.add_argument("dir", nargs="?", default=".")
+    bd.set_defaults(fn=build)
     sn = sub.add_parser("snapshot", help="record a revision of the project's registers")
     sn.add_argument("dir", nargs="?", default=".")
     sn.add_argument("--note", default="")

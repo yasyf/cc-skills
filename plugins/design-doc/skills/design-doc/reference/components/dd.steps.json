@@ -1,0 +1,37 @@
+{
+  "kind": "dd.steps",
+  "title": "Steps",
+  "summary": "An ordered walk through one flow. A step that names a diagram node or an a>b edge highlights it on the system diagram as the reader steps. Print and Markdown show every step.",
+  "belongs": "How it works, where a sequence (log in, exchange, call the cluster) is the explanation.",
+  "type": "object",
+  "required": ["kind", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.steps"},
+    "title": {"type": "string", "minLength": 1},
+    "steps": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["label", "md"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "md": {"type": "string", "minLength": 1},
+          "target": {"type": "string", "minLength": 1, "description": "a diagram node id, or an edge as from>to"}
+        }
+      }
+    }
+  },
+  "example": {
+    "kind": "dd.steps",
+    "title": "What one job does",
+    "steps": [
+      {"label": "Commit", "md": "The producer's enqueue and its queue position land in one transaction.", "target": "c-log"},
+      {"label": "Wake", "md": "The dispatcher wakes a parked long-poll for that queue.", "target": "c-log>c-lease"},
+      {"label": "Lease", "md": "The worker takes a lease and renews it while the job runs.", "target": "c-lease"}
+    ]
+  }
+}

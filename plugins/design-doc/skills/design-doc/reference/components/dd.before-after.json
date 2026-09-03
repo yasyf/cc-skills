@@ -1,0 +1,65 @@
+{
+  "kind": "dd.before-after",
+  "title": "Before and after",
+  "summary": "Two figures of the same shape, one today and one proposed, behind a toggle or a wipe slider. Print and Markdown show both, labelled.",
+  "belongs": "A thesis panel, or an arch card whose change is a change of path.",
+  "type": "object",
+  "required": ["kind", "before", "after"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.before-after"},
+    "title": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["slider", "toggle"], "description": "slider wipes one figure over the other; toggle swaps them"},
+    "before": {
+      "type": "object",
+      "required": ["label", "figure"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "figure": {
+          "type": "object",
+          "required": ["kind", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"enum": ["mermaid", "svg"]},
+            "source": {"type": "string", "minLength": 1},
+            "caption": {"type": "string", "minLength": 1},
+            "label": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "after": {
+      "type": "object",
+      "required": ["label", "figure"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "figure": {
+          "type": "object",
+          "required": ["kind", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"enum": ["mermaid", "svg"]},
+            "source": {"type": "string", "minLength": 1},
+            "caption": {"type": "string", "minLength": 1},
+            "label": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  },
+  "example": {
+    "kind": "dd.before-after",
+    "title": "Where the wait goes",
+    "mode": "toggle",
+    "before": {
+      "label": "Today",
+      "figure": {"kind": "mermaid", "source": "flowchart LR\n  P[Producer] --> T[Poll timer] --> W[Worker]", "caption": "A job waits for the next tick of the poll timer."}
+    },
+    "after": {
+      "label": "Proposed",
+      "figure": {"kind": "mermaid", "source": "flowchart LR\n  P[Producer] --> D[Dispatcher] --> W[Worker]", "caption": "The dispatcher wakes a parked long-poll on commit."}
+    }
+  }
+}
