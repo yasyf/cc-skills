@@ -29,8 +29,8 @@
   --measure:72ch; --wide:920px;
   --r-fig:14px; --r-node:6px; --r-ctl:8px;
 }
-@media (prefers-color-scheme: dark){:root:not([data-print]){
-  --bg:#161514; --bg2:#1E1C19; --ink:#E8E4DC; --ink2:#A39E95; --line:#E8E4DC1F;
+@media (prefers-color-scheme: dark){:root:not([data-print]):not([data-theme=light]){
+  --bg:#161514; --bg2:#1E1C19; --ink:#E8E4DC; --ink2:#A39E95; --line:#E8E4DC2E;
   --accent:#58BFA5; --accent-ink:#0B2A24; --accent-soft:#58BFA524;
   --ok:#6EC28A; --ok-soft:#6EC28A24; --warn:#E3AA52; --warn-soft:#E3AA5224;
   --dead:#8C877F; --dead-soft:#8C877F26; --crit:#E58274; --crit-soft:#E5827424;
@@ -107,11 +107,13 @@ section{padding:48px 0 8px;border-top:1px solid var(--line)}
 .theme-chip{display:inline-block;font-size:12px;border:1px solid var(--line);border-radius:999px;padding:1px 9px;color:var(--ink2);white-space:nowrap}
 
 .idchip{font-family:var(--mono);font-size:12px;color:var(--ink2);white-space:nowrap}
-a.ref{color:var(--ink);border-bottom:1px solid var(--line)}
-a.ref:hover{text-decoration:none;color:var(--accent);border-bottom-color:var(--accent)}
-.ref-id{font-family:var(--mono);font-size:.82em;color:var(--ink2);margin-left:5px}
-a.cite{font-family:var(--mono);font-size:.86em;color:var(--ink2);border-bottom:1px dotted var(--ink2)}
-a.cite:hover{text-decoration:none;color:var(--accent);border-bottom-color:var(--accent)}
+a.ref{display:inline-flex;align-items:baseline;gap:6px;color:var(--ink);font-size:13.5px;border:1px solid var(--line);border-radius:999px;padding:1px 11px 2px}
+a.ref:hover{text-decoration:none;color:var(--accent);border-color:var(--accent)}
+a.ref .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px;transform:translateY(-1px)}
+a.cite{color:inherit;text-decoration:underline dotted currentColor 1px;text-underline-offset:3px}
+a.cite:hover{text-decoration:underline dotted var(--accent) 1px;color:var(--accent)}
+a.cite .kg{font-style:normal;font-size:.78em;color:var(--ink2);margin-right:3px;vertical-align:1px}
+a.cite:hover .kg{color:var(--accent)}
 a.xlink,.mbody a{text-decoration:underline;text-underline-offset:2px}
 abbr.est{border-bottom:1px dotted var(--ink2);text-decoration:none;cursor:help}
 .starmark{color:var(--warn);cursor:help}
@@ -194,12 +196,15 @@ body.diffmode:not(.show-unch) .unch{display:none}
 body.diffmode.show-unch .unch{opacity:.45}
 
 .rules{margin:18px 0 8px;border-top:1px solid var(--line)}
-.rule{display:flex;gap:16px;align-items:baseline;padding:11px 2px;border-bottom:1px solid var(--line);font-size:15px}
-.rule .rt{flex:1;min-width:0}
-.defs{margin:14px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 32px}
-.def{padding:10px 2px;border-bottom:1px solid var(--line);font-size:14px}
-.def b{font-weight:600;font-size:14.5px;display:block;margin-bottom:2px}
+.rule{padding:11px 2px;border-bottom:1px solid var(--line);font-size:15px}
+.rule .rt{display:block;max-width:var(--measure)}
+.rule .rrefs{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;margin-top:8px}
+.rule.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
+.defs{margin:14px 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.def{padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);font-size:14px;box-shadow:var(--lift)}
+.def b{font-weight:600;font-size:14.5px;display:block;margin-bottom:2px;color:var(--accent)}
 .def span{color:var(--ink2)}
+.defsmore{margin:2px 0 6px}
 
 .ledgers{border-top:1px solid var(--line)}
 details.ledger{border-bottom:1px solid var(--line)}
@@ -220,11 +225,9 @@ details.ledger .body{padding:0 2px 18px 28px;font-size:15px;max-width:var(--meas
 details.ledger .body p{margin:8px 0}
 details.ledger.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
 .plainp{font-size:15.5px;margin:6px 0 12px}
-.exact{border-left:2px solid var(--line);padding-left:14px;margin-top:10px}
-.exact>b{display:block;font-weight:600;font-size:13px;color:var(--ink2);margin-bottom:2px}
 .kv{font-size:14.5px;margin:12px 0}
 .kv b{font-weight:600;font-size:14px;color:var(--ink2);display:block;margin-bottom:2px}
-.qa{background:var(--bg2);border-radius:var(--r-node);padding:11px 15px;margin-top:14px;font-size:14px}
+.qa{background:var(--code-bg);border-radius:var(--r-node);padding:11px 15px;margin-top:14px;font-size:14px}
 .qa p{margin:0 0 6px}
 .qa p:last-child{margin-bottom:0}
 .qa .q{color:var(--ink2)}
@@ -298,10 +301,16 @@ td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabu
 .ogroup{margin:0 0 26px}
 .ogroup h3{margin-bottom:6px}
 .orows{border-top:1px solid var(--line)}
-.orow{display:flex;gap:10px 16px;align-items:baseline;padding:10px 2px;border-bottom:1px solid var(--line);font-size:15px;flex-wrap:wrap}
-.orow .ot{flex:1;min-width:240px}
-.orow .ochips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:baseline}
-.orow .blocks{font-size:12px;color:var(--ink2)}
+details.orow{border-bottom:1px solid var(--line);font-size:15px}
+details.orow>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:10px 16px;padding:10px 2px}
+details.orow>summary::-webkit-details-marker{display:none}
+details.orow .ot{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+details.orow[open]>summary .ot{display:block}
+details.orow .ometa{display:inline-flex;gap:6px;align-items:baseline;white-space:nowrap;font-size:13px;color:var(--ink2)}
+details.orow .obody{padding:0 2px 14px;font-size:14.5px;max-width:var(--measure)}
+details.orow .ochips{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;margin:8px 0}
+.oglyph{color:var(--ink2);margin-right:7px}
+.ocount{font-size:12.5px;color:var(--ink2)}
 
 .fnotes{margin:16px 0;padding:0;list-style:none;border-top:1px solid var(--line)}
 .fnotes li{display:flex;gap:16px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14.5px;max-width:80ch}
@@ -334,9 +343,9 @@ footer a{cursor:pointer}
 .xs-panel>.xs-text{min-width:0}
 .xs-panel>figure{margin:0;min-width:0;--figcap:min(70vh,calc(100svh - 260px))}
 .xs-panel[data-wide]>figure{--figcap:min(40svh,calc(100svh - 520px))}
-.xs-panel>figure svg:not(.xs-connect){display:block;width:100%;height:auto;max-width:calc(var(--figcap) * var(--ar,2.4));max-height:var(--figcap)}
-.xs-panel>figure .mmd-host{overflow:auto;max-height:var(--figcap)}
-.xs-panel>figure .mmd-host svg.mmd{width:max(100%,var(--mmd-min,0px));max-width:none;max-height:none;margin:0 auto}
+.xs-panel>figure svg:not(.xs-connect){display:block;width:100%;height:auto;max-width:min(100%,calc(var(--figcap) * var(--ar,2.4)));max-height:var(--figcap)}
+.xs-panel>figure .mmd-host{overflow:auto;max-height:var(--figcap);max-width:100%;min-width:0}
+.xs-panel>figure .mmd-host svg.mmd{width:100%;max-width:100%;max-height:none;margin:0 auto}
 .xs-panel figcaption{font-size:14px;color:var(--hero-ink2);margin-top:12px;max-width:60ch}
 .xs-panel h1,.xs-panel h2{font-family:var(--display);font-weight:600;letter-spacing:-.005em;text-wrap:balance;margin:0 0 .35em}
 .xs-panel h1{font-size:clamp(44px,5.6vw,84px);line-height:.96}
@@ -352,12 +361,12 @@ footer a{cursor:pointer}
   .xs-panel:not([data-kind=poster]):not([data-wide]):has(>figure){grid-template-columns:minmax(0,2fr) minmax(0,3fr);align-items:center;column-gap:clamp(32px,4vw,72px)}
 }
 .xs-compare{border-top:1px solid var(--hero-line);margin:6px 0 0}
-.xs-heads,.xs-row{display:grid;grid-template-columns:minmax(120px,.8fr) 1fr 1fr;gap:4px 22px}
+.xs-heads,.xs-row{display:grid;grid-template-columns:minmax(140px,.7fr) 1fr 1fr;gap:4px 22px}
 .xs-heads{font-size:13px;color:var(--hero-ink2);padding:10px 0 6px}
 .xs-heads>:nth-child(2){color:var(--before)}
 .xs-heads>:nth-child(3){color:var(--after)}
 .xs-row{padding:13px 0;border-bottom:1px solid var(--hero-line);font-size:15.5px;line-height:1.4}
-.xs-row:not(:has(.xs-before)),.xs-heads:not(:has(:nth-child(3))){grid-template-columns:minmax(120px,.8fr) 2fr}
+.xs-row:not(:has(.xs-before)),.xs-heads:not(:has(:nth-child(3))){grid-template-columns:minmax(140px,.7fr) 2fr}
 .xs-row .xs-topic{font-weight:600}
 .xs-row .xs-before{color:var(--hero-ink2);padding-left:12px;border-left:2px solid var(--before)}
 .xs-row .xs-after{padding-left:12px;border-left:2px solid var(--after)}
@@ -390,10 +399,10 @@ footer a{cursor:pointer}
 .xs-lane>header .xs-eyebrow{display:inline-block;border:1px solid var(--tone);color:var(--tone);border-radius:6px;padding:2px 12px;font-size:14px;margin-top:8px;background:var(--hero-bg)}
 .xs-tier{display:flex;gap:16px;justify-content:center;align-items:flex-start;width:100%;flex-wrap:wrap}
 .xs-stack{display:grid;gap:24px;justify-items:center;align-content:start}
-.xs-node{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:12px;background:var(--tone-soft,transparent);border:1.5px solid var(--tone);border-radius:10px;padding:9px 16px 9px 12px;min-width:150px;max-width:230px;color:var(--hero-ink);position:relative;z-index:1;text-align:left}
+.xs-node{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:12px;background:var(--tone-soft,transparent);border:1.5px solid var(--tone);border-radius:10px;padding:9px 16px 9px 12px;min-width:150px;max-width:260px;color:var(--hero-ink);position:relative;z-index:1;text-align:left}
 .xs-node .xs-icon{grid-row:1/span 2;width:32px;height:32px;color:var(--hero-ink)}
 .xs-node b{font-family:var(--display);font-weight:600;font-size:22px;line-height:1;letter-spacing:.01em;align-self:end}
-.xs-node small{font-family:var(--mono);font-size:11px;line-height:1.35;color:var(--hero-ink2);margin-top:3px;align-self:start}
+.xs-node small{font-family:var(--mono);font-size:11px;line-height:1.35;color:var(--hero-ink2);margin-top:3px;align-self:start;min-width:0;overflow-wrap:anywhere}
 .xs-node:has(small) b{margin-top:2px}
 .xs-node:not(:has(small)) b{grid-row:1/span 2;align-self:center}
 .xs-node[data-dashed]{border-style:dashed;background:transparent}
@@ -450,7 +459,7 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   .doctop{padding-top:30px}
   details.ledger .body{padding-left:2px}
   .ledger .sumline{margin-left:0}
-  .defs{grid-template-columns:1fr;gap:0}
+  .defs{grid-template-columns:1fr;gap:10px}
   .xs-heads{display:none}
   .xs-row{grid-template-columns:1fr;gap:6px}
   .xs-row .xs-why{grid-column:1}
@@ -462,6 +471,83 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   .xs-panel h1{font-size:clamp(40px,11vw,64px)}
   .xs-panel>figure{--figcap:44svh}
   details.spot[open]{grid-column:auto}
+}
+
+#tip.card{max-width:44ch;pointer-events:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-fig);padding:12px 15px;font-size:14px;line-height:1.5;box-shadow:0 12px 36px #00000026}
+#tip.card .tkind{display:block;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
+#tip.card .ttitle{display:block;font-weight:600;font-size:14.5px;line-height:1.35;margin-bottom:5px}
+#tip.card p{margin:0 0 9px;max-width:none;color:var(--ink2);font-size:13.5px}
+#tip.card .topen{font-size:13px;color:var(--accent);cursor:pointer}
+.term{text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px;cursor:help}
+.term:hover,.term:focus{text-decoration-color:var(--accent)}
+
+.xs-panel[data-kind=compare]{grid-template-columns:minmax(0,1fr);scroll-snap-align:none}
+.xs-panel[data-kind=compare]>figure{width:100%}
+.xs-panel[data-kind=compare]>figure svg,.xs-panel[data-kind=compare]>figure figcaption{margin-inline:auto}
+
+.restchip{display:inline-block;font-size:12.5px;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:1px 10px;white-space:nowrap}
+.reflist{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;margin-top:4px}
+details.more{margin-top:12px}
+details.more>summary{list-style:none;cursor:pointer;color:var(--accent);font-size:13.5px}
+details.more>summary::-webkit-details-marker{display:none}
+.chgmark{margin-left:8px;font-size:12.5px;color:var(--accent)}
+.def.hid,details.spot.hid{display:none}
+.spotmore{grid-column:1/-1;justify-self:start}
+.nbd{margin:12px 0 2px;overflow-x:auto}
+.nbd svg.mmd{margin:0 auto;max-width:none}
+.nbdcap{font-size:12.5px;color:var(--ink2);margin-top:4px}
+
+svg.mmd[data-hide-dotted] :is(path.flowchart-link,.edgeLabel,g.node,g.cluster)[data-dotted]{display:none}
+.pzbox[data-static]{overflow:visible}
+.pzbox[data-static] svg{height:auto}
+.mbody .pzbox svg.fit{width:100%;height:100%;max-width:none}
+.figlegend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.figlegend .lg{display:inline-flex;align-items:center;gap:7px}
+.figlegend .lg i{width:22px;height:0;border-top:1.6px solid var(--ink2)}
+.figlegend .lg i.dashed{border-top-style:dotted}
+
+.ceil-cards{display:none;gap:10px;margin:16px 0}
+.ceil-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);padding:12px 14px;font-size:14px}
+.ceil-card h4{margin:0 0 8px;font-size:15px;font-weight:600}
+.ceil-card .cline{display:block;margin:6px 0;color:var(--ink)}
+.ceil-card .cline b{display:block;font-size:12px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
+
+.railmore{margin-top:2px}
+.railmore>summary{list-style:none;cursor:pointer;font-size:13px;color:var(--ink2);padding:6px 2px}
+.railmore>summary::-webkit-details-marker{display:none}
+.railmore>summary:hover{color:var(--accent)}
+.railmore .mitems{display:flex;flex-direction:column;gap:7px;padding:6px 0 2px}
+
+#mbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:40;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line)}
+#mbar button{flex:1;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:9px 10px;font-size:13.5px}
+#secsheet{position:fixed;left:0;right:0;bottom:0;z-index:39;background:var(--card);border-top:1px solid var(--line);max-height:62vh;overflow:auto;padding:8px 12px 80px}
+#secsheet a{display:block;padding:10px 8px;color:var(--ink);border-bottom:1px solid var(--line);font-size:15px}
+#secsheet a:hover{text-decoration:none;color:var(--accent)}
+
+section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line);padding-bottom:12px}
+
+@media (max-width:900px){
+  #mbar{display:flex}
+  main{padding-bottom:150px}
+  .xs-row .xs-before::before{content:"Today";color:var(--before)}
+  .xs-row .xs-after::before{content:"Proposed";color:var(--after)}
+  .xs-row .xs-before::before,.xs-row .xs-after::before{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  #ceilings .twrap{display:none}
+  .ceil-cards{display:grid}
+  .banner{grid-template-columns:minmax(0,1fr)}
+  .banner .lead{flex-direction:row;align-items:center;gap:8px}
+}
+
+@media print{
+  #mbar,#secsheet,.railmore,.defsmore,.spotmore,[data-copy]{display:none!important}
+  .def.hid,details.spot.hid{display:block}
+  svg.mmd[data-hide-dotted] :is(path.flowchart-link,.edgeLabel,g.node,g.cluster)[data-dotted]{display:block}
+  #ceilings .twrap{display:block}
+  .ceil-cards{display:none}
+  details.orow>summary{display:block}
+  details.orow .ot{display:block}
+  .nbd{overflow:visible}
+  .nbd svg.mmd{width:100%!important}
 }
 
 @media print{
@@ -483,7 +569,6 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   .xs-panel[data-wide]>figure{max-width:none}
   .xs-panel>figure svg{max-height:none;max-width:none}
   .xs-panel .mmd-host{max-height:none;overflow:visible}
-  .xs-panel .mmd-host svg.mmd{width:100%!important}
   .xs-panel[data-kind=poster]{page:poster;break-before:page;break-after:page;zoom:.5;padding:0}
   .xs-panel[data-kind=poster] h1{font-size:64px}
   .xs-panel[data-kind=poster] .xs-sub{font-size:20px;margin-bottom:20px}
@@ -507,10 +592,191 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   .svg-pan-zoom_viewport{transform:none!important}
   svg.mmd.dim .node,svg.mmd.dim path.flowchart-link,svg.mmd.dim .edgeLabel{opacity:1}
   a{color:inherit}
-  .exact{border-left-color:#CFCBC2}
   @page{size:A4;margin:16mm 14mm 18mm}
   @page poster{size:A4 landscape;margin:12mm}
 }
+
+.ddc{margin:18px 0;font-size:15px}
+.ddc-head{font-family:var(--display);font-weight:600;font-size:20px;line-height:1.2;margin:0 0 10px}
+.ddc-tabrow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.ddc-tab{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:var(--r-ctl);padding:5px 12px;font-size:13.5px}
+.ddc-tab:hover{border-color:var(--accent);color:var(--accent)}
+.ddc-tab.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ddc-pane{display:none}
+.ddc-pane.on{display:block}
+.ddc-md p{margin:0 0 8px;max-width:var(--measure)}
+.ddc-md>*:last-child{margin-bottom:0}
+.ddc-fig{margin:12px 0 0}
+.ddc-fig svg{display:block;width:100%;height:auto;max-width:100%}
+.ddc-cap{font-size:13px;color:var(--ink2);margin-top:8px;max-width:var(--measure)}
+.ddc-eyebrow{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin-bottom:6px}
+.ddc-ba{position:relative}
+.ddc[data-mode=toggle] .ddc-side{display:none}
+.ddc[data-mode=toggle] .ddc-side.on{display:block}
+.ddc[data-mode=slider] .ddc-side[data-side=after]{position:absolute;inset:0;clip-path:inset(0 0 0 calc(var(--x,50) * 1%))}
+.ddc[data-mode=slider] .ddc-ba::after{content:"";position:absolute;top:0;bottom:0;left:calc(var(--x,50) * 1%);width:1px;background:var(--accent);pointer-events:none}
+.ddc-bactl{display:flex;align-items:center;gap:10px;margin-top:10px}
+.ddc-bactl .ddc-eyebrow{margin:0;white-space:nowrap}
+.ddc-wipe{flex:1;min-width:0;accent-color:var(--accent)}
+.ddc-inputs{display:grid;gap:10px;margin-bottom:14px}
+.ddc-input{display:grid;grid-template-columns:minmax(110px,.9fr) minmax(110px,1.3fr) auto;align-items:center;gap:12px}
+.ddc-il{color:var(--ink2);font-size:14px}
+.ddc-iv{font-size:14px;min-width:6ch;text-align:right}
+.ddc-range{width:100%;accent-color:var(--accent)}
+.ddc-outs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.ddc-out{background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);padding:10px 13px;box-shadow:var(--lift)}
+.ddc-ov{display:block;font-family:var(--display);font-weight:600;font-size:27px;line-height:1.05;font-variant-numeric:tabular-nums}
+.ddc-ol{display:block;font-size:13px;color:var(--ink2);margin-top:3px}
+.ddc-out[data-tone=ok] .ddc-ov{color:var(--ok)}
+.ddc-out[data-tone=warn] .ddc-ov{color:var(--warn)}
+.ddc-out[data-tone=bad] .ddc-ov{color:var(--crit)}
+.ddc-cites{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;font-size:14px}
+.ddc-steps{list-style:none;margin:0;padding:0;counter-reset:ddc}
+.ddc-step{counter-increment:ddc;border-left:2px solid var(--line);padding:0 0 0 16px}
+.ddc-step.on{border-left-color:var(--accent)}
+.ddc-stepb{display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;background:none;border:0;color:var(--ink2);padding:7px 0;font-size:15px}
+.ddc-stepb::before{content:counter(ddc);font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.ddc-step.on .ddc-stepb{color:var(--ink);font-weight:600}
+.ddc-sd{display:none;font-size:14.5px;color:var(--ink2);padding:0 0 10px}
+.ddc-step.on .ddc-sd{display:block}
+.ddc-sd p{margin:0 0 6px;max-width:var(--measure)}
+.ddc-nav{display:flex;gap:8px;margin-top:12px}
+.ddc-nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r-ctl);padding:5px 12px;font-size:13.5px}
+.ddc-nav button:disabled{color:var(--ink2);opacity:.55;cursor:default}
+.ddc-tl{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.ddc-ph{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.ddc-dot{width:9px;height:9px;border-radius:50%;background:var(--dead);flex:0 0 auto;align-self:center}
+.ddc-ph[data-state=done] .ddc-dot{background:var(--ok)}
+.ddc-ph[data-state=next] .ddc-dot{background:var(--accent)}
+.ddc-ph[data-state=blocked] .ddc-dot{background:var(--warn)}
+.ddc-pl{font-weight:600}
+.ddc-pn{color:var(--ink2);font-size:14px;flex:1 1 220px}
+.ddc-pg{font-size:13px;color:var(--ink2);display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:6px;min-width:0}
+table.ddc-mx{border-collapse:collapse;width:100%;font-size:14.5px}
+table.ddc-mx th,table.ddc-mx td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+table.ddc-mx thead th{font-size:13px;color:var(--ink2);font-weight:600}
+table.ddc-mx tbody th{font-weight:600;width:22%}
+table.ddc-mx .on{background:var(--accent-soft)}
+table.ddc-mx td[data-tone=ok]{color:var(--ok)}
+table.ddc-mx td[data-tone=warn]{color:var(--warn)}
+table.ddc-mx td[data-tone=bad]{color:var(--crit)}
+[data-component][data-mounted]>figure.ddc-fallback{display:none}
+@media (max-width:900px){
+  .ddc-input{grid-template-columns:1fr auto;gap:4px 10px}
+  .ddc-il{grid-area:1/1}
+  .ddc-iv{grid-area:1/2}
+  .ddc-range{grid-area:2/1/3/3}
+  .ddc-outs{grid-template-columns:1fr}
+}
+@media print{
+  .ddc-tabrow,.ddc-nav,.ddc-bactl{display:none!important}
+  .ddc-pane{display:block!important;margin-top:10pt}
+  .ddc-pane::before{content:attr(data-label);display:block;font-size:9pt;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin-bottom:4px}
+  .ddc-sd{display:block!important}
+  .ddc-range{display:none}
+  .ddc-input{grid-template-columns:1fr auto}
+  .ddc[data-mode] .ddc-side{display:block!important;position:static!important;clip-path:none!important;margin-top:10pt}
+  .ddc[data-mode=slider] .ddc-ba::after{display:none}
+  .ddc,.ddc-out,.ddc-ph,.ddc-step{break-inside:avoid}
+  [data-component][data-bespoke]>figure.ddc-fallback{display:block}
+  [data-component][data-bespoke]>.ddc-bespoke{display:none}
+}
+html[data-theme=dark]:not([data-print]){
+  --bg:#161514; --bg2:#1E1C19; --ink:#E8E4DC; --ink2:#A39E95; --line:#E8E4DC2E;
+  --accent:#58BFA5; --accent-ink:#0B2A24; --accent-soft:#58BFA524;
+  --ok:#6EC28A; --ok-soft:#6EC28A24; --warn:#E3AA52; --warn-soft:#E3AA5224;
+  --dead:#8C877F; --dead-soft:#8C877F26; --crit:#E58274; --crit-soft:#E5827424;
+  --card:#1C1A17; --code-bg:#252219; --lift:inset 0 1px 0 #FFFFFF0F; --tbox:0; --tbg:transparent;
+  --before:#E27F45; --before-soft:#E27F4522;
+  --hero-bg:#0E0E0D; --hero-band:#181715; --hero-ink:#F3F0E9; --hero-ink2:#ABA69C; --hero-line:#F3F0E92B;
+}
+html:not([data-ai]) .ai-only{display:none!important}
+#ai{position:fixed;right:18px;bottom:18px;z-index:66;width:min(430px,calc(100vw - 36px));max-height:min(72vh,640px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
+#ai[data-wide]{top:0;right:0;bottom:0;width:min(520px,44vw);max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
+body.ai-wide .layout{margin-right:min(520px,44vw)}
+.ai-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.ai-head b{flex:1;font-size:14.5px}
+.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 10px;font-size:12.5px}
+.ai-head button:hover,.ai-x:hover{border-color:var(--accent);color:var(--accent)}
+.ai-tools,.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:9px 14px 0}
+.ai-sug{padding-bottom:4px}
+.ai-chip{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:999px;padding:3px 11px;font-size:12.5px;text-align:left}
+.ai-chip:hover{border-color:var(--accent);color:var(--accent)}
+.ai-log{flex:1;overflow:auto;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
+.ai-log:empty{display:none}
+.ai-msg{margin:0 0 12px;max-width:none}
+.ai-msg p{margin:6px 0;max-width:none}
+.ai-msg h3{font-size:14.5px;margin:2px 0 6px}
+.ai-msg ul{padding-left:20px;margin:6px 0}
+.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink)}
+.ai-wait{color:var(--ink2)}
+.ai-err{color:var(--crit)}
+.ai-used{display:flex;gap:5px;flex-wrap:wrap;margin:-6px 0 12px}
+.ai-tool{font-family:var(--mono);font-size:11px;color:var(--ink2);background:var(--bg2);border-radius:var(--r-node);padding:1px 6px}
+.ai-changed{margin-top:8px}
+.ai-q{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.ai-opt,.ai-btn{display:inline-block;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 10px;font-size:13px;margin:3px 5px 0 0;text-align:left}
+.ai-opt:hover,.ai-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ai-btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ai-opt.ok{border-color:var(--ok);color:var(--ok)}
+.ai-opt.bad{border-color:var(--crit);color:var(--crit)}
+.ai-qa{font-size:13.5px;color:var(--ink2);margin:6px 0 0}
+.ai-note-in{font-size:12.5px;color:var(--ink2)}
+.ai-foot{display:flex;gap:8px;align-items:flex-end;padding:10px 14px;border-top:1px solid var(--line)}
+.ai-foot textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:7px 10px;font:14px/1.4 var(--sans);max-height:120px}
+.ai-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:7px 14px;font-size:13.5px}
+.ai-note{padding:0 14px 10px;font-size:11.5px;color:var(--ink2);display:flex;flex-direction:column;gap:5px}
+.ai-note-tog{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ai-hl{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+.ai-mark{background:var(--accent-soft);border-radius:3px;box-shadow:0 0 0 2px var(--accent-soft)}
+.ai-ask{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1.7;margin-left:6px}
+.ai-ask:hover{border-color:var(--accent);color:var(--accent)}
+.ai-h2{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:1px 11px;font-size:12px;margin-left:10px;vertical-align:3px}
+.ai-h2:hover{border-color:var(--accent);color:var(--accent)}
+.ai-footrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-menu-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
+.ai-menu-head b{flex:1;font-size:14px}
+.ai-menu-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.ai-menu-label{font-size:12.5px;color:var(--ink2)}
+.ai-menu-out{margin-top:8px;font-size:13.5px;line-height:1.5;color:var(--ink)}
+.ai-menu-out p{margin:6px 0;max-width:none}
+.ai-ta{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:6px 9px;font:13.5px/1.4 var(--sans);resize:vertical}
+.ai-sel{position:fixed;z-index:67;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12.5px;box-shadow:0 6px 20px #0003}
+.ai-path{margin:0 22px 12px 0;padding:10px 10px 8px;border:1px solid var(--line);border-radius:var(--r-node);background:var(--card);font-size:12.5px}
+.ai-path-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
+.ai-path-head b{flex:1;font-size:12.5px}
+.ai-path-row{display:grid;grid-template-columns:auto 1fr;gap:2px 7px;padding:4px 0;cursor:pointer;align-items:baseline}
+.ai-path-row input{margin:0}
+.ai-path-t{font-weight:600}
+.ai-path-w{grid-column:2;color:var(--ink2);font-size:11.5px;line-height:1.35}
+.def.ai-def{border:1px dashed var(--line);border-radius:var(--r-node);padding:10px 12px}
+.ai-pill{margin-left:6px;font-size:11px;vertical-align:1px}
+#pal{position:fixed;inset:0;z-index:69;background:#0006;display:flex;align-items:flex-start;justify-content:center;padding:12vh 20px 20px}
+.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:70vh;overflow:hidden}
+.pal-in{border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);padding:14px 18px;font:16px var(--sans);outline:none}
+.pal-list{overflow:auto;padding:6px}
+.pal-row{display:flex;gap:9px;align-items:baseline;padding:7px 11px;border-radius:var(--r-node);cursor:pointer}
+.pal-row.on{background:var(--accent-soft)}
+.pal-row:hover{background:var(--bg2)}
+.pal-g{flex:0 0 14px;color:var(--ink2);font-size:12px;text-align:center}
+.pal-dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:currentColor;transform:translateY(-2px)}
+.pal-l{flex:0 1 auto;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.pal-id{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
+.pal-s{flex:1 1 auto;min-width:0;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-foot{border-top:1px solid var(--line);padding:8px 18px;font-size:12px;color:var(--ink2)}
+@media (max-width:900px){
+  #ai{left:10px;right:10px;bottom:10px;width:auto;max-height:70svh}
+  #ai[data-wide]{left:0;right:0;top:0;width:auto}
+  body.ai-wide .layout{margin-right:0}
+  .ai-path{margin-right:0}
+}
+@media print{
+  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-h2,.ai-path,.ai-footrow{display:none!important}
+  .ai-hl{outline:0}
+  body.ai-wide .layout{margin-right:0}
+}
+figure:has(>[data-component][data-mounted])>svg{display:none}
 </style>
 </head>
 <body>
@@ -541,10 +807,19 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
     <input class="search" id="docSearch" type="search" placeholder="Search the registers" autocomplete="off">
     <select id="baseSel" class="toolbtn" hidden title="Show what changed since an earlier revision" aria-label="Show what changed since an earlier revision"></select>
     <button class="toolbtn" id="wordingBtn" type="button" aria-pressed="false" title="Show every entry in its exact register wording instead of the plain version">Full wording</button>
-    <div class="toolrow">
-      <button class="toolbtn" id="exportMd" title="Download this doc as Markdown" aria-label="Download this doc as Markdown"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7"/><path d="M4.75 6.75 8 10l3.25-3.25"/><path d="M2.75 13.25h10.5"/></svg>Markdown</button>
-      <button class="toolbtn" id="pdfBtn" title="Print this document, or save it as a PDF" aria-label="Print this document, or save it as a PDF">PDF</button>
-    </div>
+    <details class="railmore">
+      <summary>More ▾</summary>
+      <div class="mitems">
+        <div id="moreRev"></div>
+        <div class="toolrow">
+          <button class="toolbtn" id="exportMd" title="Download this doc as Markdown" aria-label="Download this doc as Markdown"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7"/><path d="M4.75 6.75 8 10l3.25-3.25"/><path d="M2.75 13.25h10.5"/></svg>Markdown</button>
+          <button class="toolbtn" id="pdfBtn" title="Print this document, or save it as a PDF" aria-label="Print this document, or save it as a PDF">PDF</button>
+        </div>
+        <button class="toolbtn" id="lnkDoc" type="button">The full document</button>
+        <button class="toolbtn" id="lnkQa" type="button">Every question we asked</button>
+        <button class="toolbtn" id="lnkNotes" type="button">The working notes</button>
+      </div>
+    </details>
   </div>
 </nav>
 <main id="main"><div class="col">
@@ -563,10 +838,12 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
     <h3>In brief</h3>
     <ul id="tldrList"></ul>
   </div>
+  <div class="banner" id="banner" hidden></div>
   <div class="sysd">
-    <div class="fighead"><h3>The system</h3><span class="pzctl" id="sysdPz" hidden><button type="button" data-pz="in" aria-label="Zoom in">+</button><button type="button" data-pz="out" aria-label="Zoom out">&minus;</button><button type="button" data-pz="reset">Reset view</button></span><button class="fullbtn" id="sysdFull" hidden>View full size</button></div>
+    <div class="fighead"><h3>The system</h3><span class="pzctl" id="sysdPz" hidden><button type="button" data-pz="in" aria-label="Zoom in">+</button><button type="button" data-pz="out" aria-label="Zoom out">&minus;</button><button type="button" data-pz="reset">Reset view</button></span><button class="fullbtn" id="sysdDotted" type="button" hidden>Show rollout and detours</button><button class="fullbtn" id="sysdFull" hidden>View full size</button></div>
     <div id="sysdHost"></div>
     <div class="capn" id="diagramCapn" hidden></div>
+    <div class="figlegend" id="sysdLegend" hidden><span class="lg"><i></i>request path</span><span class="lg"><i class="dashed"></i>control and rollout</span></div>
   </div>
   <div class="scale">
     <h3>How long things take</h3>
@@ -575,7 +852,6 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
     <div class="legend" id="scaleLegend"></div>
     <div class="capn" id="timingsCapn"></div>
   </div>
-  <div class="banner" id="banner" hidden></div>
 </section>
 
 <section id="ground">
@@ -610,6 +886,7 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   <h2>Where it breaks</h2>
   <p class="sub" data-sub="ceilings" id="ceilSub"></p>
   <div class="twrap"><table id="ceilTable"></table></div>
+  <div class="ceil-cards" id="ceilCards"></div>
 </section>
 
 <section id="decisions">
@@ -642,7 +919,6 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
 </section>
 
 <footer>
-  <p>This page is generated from a structured record of the design. Open it as <a id="lnkDoc">the full document</a>, <a id="lnkQa">every question we asked</a>, or the <a id="lnkNotes">working notes</a>.</p>
   <p class="capn" id="footerNote"></p>
 </footer>
 
@@ -655,6 +931,13 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   <div class="sfoot"><a class="xbtn" id="sgoto" href="#architecture">Open in How it works</a></div>
 </aside>
 
+<nav id="mbar" aria-label="Document tools">
+  <button type="button" id="mbarSearch">Search</button>
+  <button type="button" id="mbarAsk" hidden>Ask</button>
+  <button type="button" id="mbarSections" aria-expanded="false">Sections</button>
+</nav>
+<div id="secsheet" hidden aria-label="Sections"></div>
+
 <div class="mback" id="mback" role="dialog" aria-modal="true" aria-labelledby="mtitle">
   <div class="modal">
     <div class="mhead"><b id="mtitle"></b><button id="mdl">Download</button><button id="mclose" aria-label="Close">Close</button></div>
@@ -662,6 +945,26 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   </div>
 </div>
 
+<div id="ai" role="dialog" aria-label="Ask this document" hidden>
+  <div class="ai-head"><b>Ask this document</b><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClear" type="button">Clear</button><button id="aiClose" type="button" aria-label="Close">Close</button></div>
+  <div class="ai-tools" id="aiTools"></div>
+  <div class="ai-log" id="aiLog"></div>
+  <div class="ai-sug" id="aiSug"></div>
+  <form class="ai-foot" id="aiForm">
+    <label class="sr-only" for="aiIn">Ask about this document</label>
+    <textarea id="aiIn" rows="1" placeholder="Ask about this document"></textarea>
+    <button class="ai-send" id="aiSend" type="submit">Ask</button>
+  </form>
+  <div class="ai-note" id="aiNote"><span id="aiHost"></span></div>
+</div>
+<div id="pal" role="dialog" aria-label="Everything you can do here" hidden>
+  <div class="pal-box">
+    <label class="sr-only" for="palIn">Search the document, or run a command</label>
+    <input id="palIn" class="pal-in" type="text" placeholder="Search the doc &middot; &gt; for commands &middot; ? to ask" autocomplete="off" spellcheck="false">
+    <div class="pal-list" id="palList" role="listbox"></div>
+    <div class="pal-foot">&#8593;&#8595; move &middot; &#8629; open &middot; esc close</div>
+  </div>
+</div>
 <script>
 "use strict";
 (async function(){
@@ -718,26 +1021,44 @@ const twin=(o,orig)=>(!fullWording&&o&&o.p)?o.p:orig;
 const HAS_TWINS=[...TLDR,...CONS,...DQ,...ASSUM,...OPEN].some(o=>o&&o.p);
 
 const REF=Object.create(null);
+const ENTRY=Object.create(null);
 const SECOF={decision:"decisions",assumption:"assumptions",arch:"architecture",numbers:"numbers",path:"paths",open:"open",fn:"footnotes"};
-const addRef=(id,title,kind)=>{if(id&&!(String(id) in REF))REF[String(id)]={id:String(id),title:title||"",kind}};
-DQ.forEach(d=>addRef(d.id,d.t,"decision"));
-ASSUM.forEach(a=>addRef(a.id,a.t,"assumption"));
-ARCH.forEach(c=>addRef(c.id,c.t,"arch"));
-NUMBERS.forEach(n=>addRef(n.id,n.t,"numbers"));
-PATHS.forEach(p=>addRef(p.id,p.name,"path"));
-OPEN.forEach(o=>addRef(o.id,o.t,"open"));
-FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn"));
+const KIND_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"▦",path:"▷",fn:"※"};
+const KIND_LABEL={decision:"Decision",assumption:"Assumption",open:"Open question",arch:"Component",numbers:"Numbers",path:"Request path",fn:"Footnote"};
+const SLBL={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"]};
+const ALBL={working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
+const addRef=(id,title,kind,e)=>{
+ if(!id||String(id) in REF)return;
+ REF[String(id)]={id:String(id),title:title||"",kind,h:e.h||"",s:e.s||"",theme:e.theme||"",p:e.p||""};
+ ENTRY[String(id)]=e;
+};
+DQ.forEach(d=>addRef(d.id,d.t,"decision",d));
+ASSUM.forEach(a=>addRef(a.id,a.t,"assumption",a));
+ARCH.forEach(c=>addRef(c.id,c.t,"arch",c));
+NUMBERS.forEach(n=>addRef(n.id,n.t,"numbers",n));
+PATHS.forEach(p=>addRef(p.id,p.name,"path",p));
+OPEN.forEach(o=>addRef(o.id,o.t,"open",o));
+FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
 const plain=s=>String(s==null?"":s).replace(/\[\^(\d+)\]/g,"").replace(/\[([^\]]+)\]\([^)]*\)/g,"$1").replace(/[`*]/g,"").replace(/\s+/g," ").trim();
-const titleOf=id=>REF[id]?plain(REF[id].title):"";
 const firstSentence=s=>{const t=plain(s);const m=t.match(/^.*?[.!?](?=\s|$)/);return m?m[0]:t};
 const CITEABLE=Object.keys(REF).filter(k=>/^[A-Za-z][\w-]*$/.test(k)&&!/^fn\d+$/.test(k)).sort((a,b)=>b.length-a.length);
 const reEsc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
 const ID_SRC=CITEABLE.length?"(^|[^\\w-])("+CITEABLE.map(reEsc).join("|")+")(?![\\w-])":null;
 const ID_RE=ID_SRC?new RegExp(ID_SRC,"g"):null;
 const ID_TEST=ID_SRC?new RegExp(ID_SRC):null;
+const statusOf=id=>{
+ const r=REF[id];
+ return SLBL[r.s]||ALBL[r.s]||(r.kind==="open"?["st-warn","Still open"]:["st-dead",""]);
+};
+const handleOf=id=>{
+ const r=REF[id];
+ if(r.h)return plain(r.h);
+ const w=plain(r.title).split(/\s+/).filter(Boolean);
+ return w.slice(0,4).join(" ")+(w.length>4?"…":"");
+};
 function citeTag(id){
- const t=titleOf(id);
- return `<a class="cite" href="#${SECOF[REF[id].kind]}" data-tip="${esc(t)}" data-ref="${esc(id)}">${esc(id)}</a>`;
+ const k=REF[id].kind;
+ return `<a class="cite" href="#${SECOF[k]}" data-ref="${esc(id)}"><i class="kg" aria-hidden="true">${KIND_GLYPH[k]}</i>${esc(handleOf(id))}</a>`;
 }
 function linkIds(html){
  if(!ID_RE)return html;
@@ -752,30 +1073,80 @@ function linkIds(html){
  }
  return out;
 }
-function refChip(id,o){
- const opt=o||{};
+function refChip(id){
  if(!REF[id])return `<span class="chip">${esc(id)}</span>`;
- const t=titleOf(id),href="#"+SECOF[REF[id].kind];
- const inner=opt.lead==="id"?`<span class="idchip">${esc(id)}</span>`
-  :`<span class="ref-t">${esc(t)}</span><span class="ref-id">${esc(id)}</span>`;
- return `<a class="ref" href="${href}" data-tip="${esc(t)}" data-ref="${esc(id)}">${inner}</a>`;
+ const [sc]=statusOf(id);
+ return `<a class="ref" href="#${SECOF[REF[id].kind]}" data-ref="${esc(id)}"><i class="dot ${sc}" aria-hidden="true"></i><span class="ref-t">${esc(handleOf(id))}</span></a>`;
+}
+const PAREN_GROUP=/\(([^()]+)\)/g;
+const CITE_GROUP=/^[A-Za-z][\w-]*(?:\s*(?:,|;|and)\s*[A-Za-z][\w-]*)*$/;
+function stripCiteParens(s){
+ if(!ID_RE)return s;
+ return s.replace(PAREN_GROUP,(all,inner)=>{
+  const t=inner.trim();
+  if(!CITE_GROUP.test(t))return all;
+  const toks=t.split(/\s*(?:,|;|\band\b)\s*/).filter(Boolean);
+  return toks.every(x=>x in REF)?t:all;
+ });
 }
 function linkNode(root){
- if(!ID_TEST)return;
- const skip=/^(A|CODE|ABBR|SCRIPT|STYLE|TEXTAREA|OPTION|PRE)$/;
- const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){
-  for(let p=n.parentNode;p&&p!==root;p=p.parentNode){
-   if(p.namespaceURI==="http://www.w3.org/2000/svg")return NodeFilter.FILTER_REJECT;
-   if(skip.test(p.nodeName))return NodeFilter.FILTER_REJECT;
+ if(ID_TEST){
+  const skip=/^(A|CODE|ABBR|SCRIPT|STYLE|TEXTAREA|OPTION|PRE)$/;
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){
+   for(let p=n.parentNode;p&&p!==root;p=p.parentNode){
+    if(p.namespaceURI==="http://www.w3.org/2000/svg")return NodeFilter.FILTER_REJECT;
+    if(skip.test(p.nodeName))return NodeFilter.FILTER_REJECT;
+   }
+   return ID_TEST.test(n.nodeValue)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;
+  }});
+  const hits=[];while(walker.nextNode())hits.push(walker.currentNode);
+  hits.forEach(n=>{const box=el("span",null,linkIds(stripCiteParens(esc(n.nodeValue))));n.replaceWith(...box.childNodes)});
+ }
+ termify(root);
+}
+const TERM_BY=Object.create(null);
+TERMS.forEach(t=>{TERM_BY[t.k]=t});
+const TERM_LOOK=Object.create(null);
+const TERM_WORDS=[];
+TERMS.forEach(t=>[t.k,...(t.aliases||[])].forEach(a=>{
+ const w=String(a).trim();
+ if(!w||(w.length<5&&w!==w.toUpperCase()&&!/\s/.test(w)))return;
+ TERM_WORDS.push(w);
+ TERM_LOOK[w[0].toLowerCase()+w.slice(1)]=t.k;
+}));
+TERM_WORDS.sort((a,b)=>b.length-a.length);
+const anyCase=c=>c.toLowerCase()===c.toUpperCase()?reEsc(c):"["+c.toUpperCase()+c.toLowerCase()+"]";
+const termRe=()=>TERM_WORDS.length?new RegExp("(^|[^\\w./-])("+TERM_WORDS.map(w=>anyCase(w[0])+reEsc(w.slice(1))).join("|")+")(s?)(?![\\w-]|[./]\\w)"):null;
+let TERM_RE=termRe();
+const TERM_SKIP="a,code,abbr,pre,h1,h2,h3,.def,.cite,.ref,.term,.idchip,.chip,.xs-node,svg";
+const TERM_BLOCK="p,li,td,.sumline,.sp";
+function termify(root){
+ if(!TERM_RE)return;
+ root.querySelectorAll(TERM_BLOCK).forEach(b=>{
+  if(b.closest(TERM_SKIP)||b.querySelector(".term"))return;
+  const walker=document.createTreeWalker(b,NodeFilter.SHOW_TEXT,{acceptNode(n){
+   for(let p=n.parentNode;p&&p!==b;p=p.parentNode)if(p.matches(TERM_SKIP))return NodeFilter.FILTER_REJECT;
+   return NodeFilter.FILTER_ACCEPT;
+  }});
+  let n;
+  while((n=walker.nextNode())){
+   const m=TERM_RE.exec(n.nodeValue);
+   if(!m)continue;
+   const key=TERM_LOOK[m[2][0].toLowerCase()+m[2].slice(1)];
+   if(!key)continue;
+   const hit=n.splitText(m.index+m[1].length);
+   hit.splitText(m[2].length+m[3].length);
+   const span=el("span","term",esc(hit.nodeValue));
+   span.dataset.term=key;
+   span.tabIndex=0;
+   hit.replaceWith(span);
+   break;
   }
-  return ID_TEST.test(n.nodeValue)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;
- }});
- const hits=[];while(walker.nextNode())hits.push(walker.currentNode);
- hits.forEach(n=>{const box=el("span",null,linkIds(esc(n.nodeValue)));n.replaceWith(...box.childNodes)});
+ });
 }
 
 const EST_TIP="Estimate: derived, not measured; pending the named spike";
-const inline=s=>linkIds(esc(s)
+const inline=s=>linkIds(stripCiteParens(esc(s))
  .replace(/\[\^(\d+)\]/g,'<sup class="fn"><a href="#fn-$1">$1</a></sup>')
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a class="xlink" href="$2" target="_blank" rel="noopener">$1</a>')
  .replace(/`([^`]+)`/g,"<code>$1</code>")
@@ -807,21 +1178,55 @@ function mdToHtml(md){
 }
 
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
-let tipFor=null;
-function hideTip(){tipFor=null;TIP.hidden=true}
+const TIP_SEL="[data-tip],[data-ref],[data-term]";
+let tipFor=null,tipTimer=0;
+function hideTip(){clearTimeout(tipTimer);tipFor=null;TIP.hidden=true;TIP.classList.remove("card")}
+function cardHtml(node){
+ const id=node.dataset.ref;
+ if(id){
+  const r=REF[id],[,sl]=statusOf(id);
+  const bits=[KIND_LABEL[r.kind],sl,r.theme?themeLabel(r.theme):""].filter(Boolean);
+  return `<span class="tkind">${esc(bits.join(" · "))}</span><span class="ttitle">${esc(plain(r.title))}</span>`+
+   (r.p?`<p>${esc(plain(r.p))}</p>`:"")+
+   `<span class="topen" data-open="${esc(id)}" role="button" tabindex="0">Open →</span>`;
+ }
+ const t=TERM_BY[node.dataset.term];
+ return `<span class="ttitle">${esc(t.k)}${t.ai?' <span class="pill p-acc ai-pill">AI-defined</span>':""}</span><p>${esc(plain(t.v))}</p><span class="topen" data-open="#ground" role="button" tabindex="0">Terms →</span>`;
+}
 function showTip(node){
+ const card=node.dataset.ref||node.dataset.term;
  const t=node.getAttribute("data-tip");
- if(!t){hideTip();return}
- tipFor=node;TIP.textContent=t;TIP.hidden=false;
+ if(!card&&!t){hideTip();return}
+ clearTimeout(tipTimer);
+ tipFor=node;
+ TIP.classList.toggle("card",!!card);
+ if(card)TIP.innerHTML=cardHtml(node);else TIP.textContent=t;
+ TIP.hidden=false;
  const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
  let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
  let top=r.top-b.height-8;
  if(top<8)top=r.bottom+8;
  TIP.style.left=left+"px";TIP.style.top=top+"px";
 }
-document.addEventListener("pointerover",e=>{const n=e.target.closest&&e.target.closest("[data-tip]");if(n!==tipFor)n?showTip(n):hideTip()});
-document.addEventListener("focusin",e=>{const n=e.target.closest&&e.target.closest("[data-tip]");n?showTip(n):hideTip()});
-document.addEventListener("focusout",hideTip);
+document.addEventListener("pointerover",e=>{
+ if(TIP.contains(e.target)){clearTimeout(tipTimer);return}
+ const n=e.target.closest&&e.target.closest(TIP_SEL);
+ if(n===tipFor){clearTimeout(tipTimer);return}
+ if(n)showTip(n);
+ else if(TIP.classList.contains("card")){clearTimeout(tipTimer);tipTimer=setTimeout(hideTip,200)}
+ else hideTip();
+});
+document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n=e.target.closest&&e.target.closest(TIP_SEL);n?showTip(n):hideTip()});
+document.addEventListener("focusout",e=>{if(TIP.contains(e.relatedTarget))return;hideTip()});
+TIP.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.target.click()}});
+TIP.addEventListener("click",e=>{
+ const o=e.target.closest("[data-open]");
+ if(!o)return;
+ const v=o.dataset.open;
+ hideTip();
+ if(v.startsWith("#")){unveil();const s=document.querySelector(v);if(s)s.scrollIntoView({block:"start"})}
+ else openRef(v);
+});
 addEventListener("scroll",hideTip,true);
 addEventListener("resize",hideTip);
 
@@ -836,7 +1241,7 @@ function fitSvgs(root){
 function vbWidth(svg){const v=(svg.getAttribute("viewBox")||"").split(/[\s,]+/);return v.length===4?parseFloat(v[2]):0}
 function vbHeight(svg){const v=(svg.getAttribute("viewBox")||"").split(/[\s,]+/);return v.length===4?parseFloat(v[3]):0}
 function setAspect(svg){const w=vbWidth(svg),h=vbHeight(svg);if(w>0&&h>0)svg.style.setProperty("--ar",w/h)}
-const MIN_LABEL_PX=12;
+const MIN_LABEL_PX=13;
 const HERO_LABEL_PX=15;
 const SIDE_FIGURE=.6;
 function labelPx(svg){
@@ -848,7 +1253,7 @@ function readableScale(svg,px){return (px||MIN_LABEL_PX)/labelPx(svg)}
 function heroWidth(svg){return vbWidth(svg)*readableScale(svg,HERO_LABEL_PX)}
 function markWide(svg){
  const p=svg&&svg.closest(".xs-panel");
- if(!p)return;
+ if(!p||p.dataset.kind==="compare")return;
  const cs=getComputedStyle(p);
  const inner=p.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
  if(inner<=0)return;
@@ -902,7 +1307,7 @@ if(DIAGRAM_CAPTION){const c=$("#diagramCapn");c.innerHTML=inline(DIAGRAM_CAPTION
 $("#timingsCapn").innerHTML=inline(META.timingsCaption||"Log scale: each mark is one operation's typical time.");
 if(META.banner&&META.banner.text){
  const b=$("#banner"),bid=META.banner.assumption;
- b.innerHTML=`<span class="lead"><span aria-hidden="true">⚠</span>${bid?refChip(bid,{lead:"id"}):""}</span><p>${inline(META.banner.text)}</p>`;
+ b.innerHTML=`<span class="lead"><span aria-hidden="true">⚠</span>${bid?refChip(bid):""}</span><p>${inline(META.banner.text)}</p>`;
  b.hidden=false;
 }
 if(META.footerNote)$("#footerNote").textContent=META.footerNote;
@@ -927,12 +1332,12 @@ function themeVars(){
  const cs=getComputedStyle(HTML);
  const v=n=>cs.getPropertyValue(n).trim();
  return {
-  fontFamily:v("--sans"),fontSize:"14px",
+  fontFamily:v("--sans"),fontSize:"15px",
   background:v("--bg"),mainBkg:v("--card"),primaryColor:v("--card"),primaryTextColor:v("--ink"),primaryBorderColor:v("--ink2"),
   secondaryColor:v("--bg2"),secondaryTextColor:v("--ink"),secondaryBorderColor:v("--line"),
   tertiaryColor:v("--bg2"),tertiaryTextColor:v("--ink"),tertiaryBorderColor:v("--line"),
   lineColor:v("--ink2"),textColor:v("--ink"),nodeTextColor:v("--ink"),nodeBorder:v("--ink2"),
-  clusterBkg:v("--bg2"),clusterBorder:v("--line"),titleColor:v("--ink2"),
+  clusterBkg:v("--bg2"),clusterBorder:v("--line"),titleColor:v("--ink"),
   edgeLabelBackground:v("--bg"),
   noteBkgColor:v("--warn-soft"),noteTextColor:v("--ink"),noteBorderColor:v("--warn"),
   actorBkg:v("--card"),actorBorder:v("--ink2"),actorTextColor:v("--ink"),actorLineColor:v("--ink2"),
@@ -942,7 +1347,7 @@ function themeVars(){
   errorBkgColor:v("--crit-soft"),errorTextColor:v("--crit"),
  };
 }
-function mermaidConfig(){return {startOnLoad:false,theme:"base",themeVariables:themeVars(),htmlLabels:false,flowchart:{htmlLabels:false,curve:"basis",padding:12},securityLevel:"strict",fontFamily:themeVars().fontFamily}}
+function mermaidConfig(){return {startOnLoad:false,theme:"base",themeVariables:themeVars(),htmlLabels:false,layout:"elk",elk:{mergeEdges:true,nodePlacementStrategy:"LINEAR_SEGMENTS"},flowchart:{htmlLabels:false,curve:"basis",padding:12},securityLevel:"strict",fontFamily:themeVars().fontFamily}}
 function mermaidLib(){
  return mermaidP||(mermaidP=(async()=>{
   const [m,e]=await Promise.all([import(LIBS.mermaid),import(LIBS.elk)]);
@@ -954,18 +1359,89 @@ function mermaidLib(){
 }
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error(src));document.head.append(s)})}
 function panzoomLib(){return panzoomP||(panzoomP=loadScript(LIBS.panzoom).then(()=>window.svgPanZoom))}
-const EDGE_DECL=/^\s*([\w-]+)\s+([\w-]+)@\s*[-.=]+(?:[^\n]*?[-.=]+)?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
+const EDGE_DECL=/^\s*([\w-]+)\s+([\w-]+)@\s*<?[-.=]+(?:[^\n]*?[-.=]+)?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
 function authoredEdges(source){
  const m=new Map();
  String(source||"").split("\n").forEach(l=>{const d=EDGE_DECL.exec(l);if(d)m.set(d[2],[d[1],d[3]])});
  return m;
+}
+const SG_OPEN=/^\s*subgraph\s+([\w-]+)/;
+const SG_END=/^\s*end\s*$/;
+const NODE_DECL=/^\s*([\w-]+)\s*[[({]/;
+const EDGE_LINE=/^\s*([\w-]+)\s+(?:[\w-]+@)?<?(?:--|-\.|==)[^>]*?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
+function readDiagram(source){
+ const decl=new Map(),owner=new Map(),head=new Map(),within=new Map(),edges=[],stack=[];
+ String(source||"").split("\n").forEach(l=>{
+  const sg=SG_OPEN.exec(l);
+  if(sg){within.set(sg[1],[...stack]);stack.push(sg[1]);head.set(sg[1],l.trim());return}
+  if(SG_END.test(l)){stack.pop();return}
+  const d=NODE_DECL.exec(l);
+  if(d){decl.set(d[1],l.trim());within.set(d[1],[...stack]);if(stack.length)owner.set(d[1],stack[stack.length-1]);return}
+  const e=EDGE_LINE.exec(l);
+  if(e)edges.push({from:e[1],to:e[2],line:l.trim()});
+ });
+ return {decl,owner,head,within,edges};
+}
+function subgraphMembers(source){
+ const {owner}=readDiagram(source),m=new Map();
+ owner.forEach((k,id)=>{if(!m.has(k))m.set(k,[]);m.get(k).push(id)});
+ return m;
+}
+function neighbourhood(source,nodeId){
+ const {decl,owner,head,edges}=readDiagram(source);
+ const touch=edges.filter(e=>e.from===nodeId||e.to===nodeId);
+ if(!touch.length)return null;
+ const ids=new Set([nodeId]);
+ touch.forEach(e=>{ids.add(e.from);ids.add(e.to)});
+ const out=["flowchart LR"],groups=new Map();
+ ids.forEach(id=>{const k=owner.get(id);if(k){if(!groups.has(k))groups.set(k,[]);groups.get(k).push(id)}});
+ groups.forEach((mem,k)=>{
+  out.push("  "+head.get(k));
+  mem.forEach(id=>out.push("    "+decl.get(id)));
+  out.push("  end");
+ });
+ ids.forEach(id=>{if(!owner.has(id))out.push("  "+(decl.get(id)||id))});
+ touch.forEach(e=>out.push("  "+e.line));
+ return out.join("\n");
+}
+function markDotted(svg,source){
+ let n=0;
+ svg.querySelectorAll("path.flowchart-link").forEach(p=>{
+  const dash=getComputedStyle(p).strokeDasharray.split(/[\s,]+/).map(parseFloat).filter(v=>v>0);
+  if(!dash.length)return;
+  p.dataset.dotted="1";n++;
+  const lbl=svg.querySelector(`.edgeLabel[data-id="${CSS.escape(p.dataset.id||"")}"]`);
+  if(lbl)lbl.dataset.dotted="1";
+ });
+ if(n){markDottedOnly(svg,source);svg.dataset.hideDotted="1"}
+ return n;
+}
+function markDottedOnly(svg,source){
+ const {within}=readDiagram(source);
+ const kin=id=>{
+  const out=new Set([id,...(within.get(id)||[])]);
+  within.forEach((anc,x)=>{if(anc.includes(id))out.add(x)});
+  return out;
+ };
+ const solid=new Set(),detour=new Set();
+ svg.querySelectorAll("path.flowchart-link[data-from]").forEach(p=>{
+  const side=p.dataset.dotted?detour:solid;
+  kin(p.dataset.from).forEach(x=>side.add(x));
+  kin(p.dataset.to).forEach(x=>side.add(x));
+ });
+ detour.forEach(id=>{
+  if(solid.has(id))return;
+  const k=CSS.escape(id);
+  const n=svg.querySelector(`g.node[data-id="${k}"],g.cluster[data-id="${k}"]`);
+  if(n)n.dataset.dotted="1";
+ });
 }
 function tagDiagram(svg,id,source){
  const pre=id+"-flowchart-";
  const authored=authoredEdges(source);
  svg.querySelectorAll("g.node").forEach(n=>{if(n.id.startsWith(pre))n.dataset.id=n.id.slice(pre.length).replace(/-\d+$/,"")});
  svg.querySelectorAll("g.cluster").forEach(c=>{if(c.id.startsWith(id+"-"))c.dataset.id=c.id.slice(id.length+1)});
- const ids=new Set([...svg.querySelectorAll("g.node[data-id]")].map(n=>n.dataset.id));
+ const ids=new Set([...svg.querySelectorAll("g.node[data-id],g.cluster[data-id]")].map(n=>n.dataset.id));
  const split=body=>{for(let i=1;i<body.length;i++){if(body[i]!=="_")continue;const a=body.slice(0,i),b=body.slice(i+1);if(ids.has(a)&&ids.has(b))return [a,b]}return null};
  const ends=did=>{if(authored.has(did))return authored.get(did);const m=/^L_(.+)_\d+$/.exec(did);return m&&split(m[1])};
  svg.querySelectorAll("path.flowchart-link[data-id]").forEach(e=>{
@@ -1010,7 +1486,7 @@ function hlTarget(svg,target){
  }
 }
 const cardForNode=id=>ARCH.find(c=>c.node===id);
-function wireDiagram(svg){
+function wireDiagram(svg,source){
  svg.querySelectorAll("g.node[data-id]").forEach(n=>{
   const card=cardForNode(n.dataset.id);
   if(card){n.dataset.card=card.id;n.setAttribute("tabindex","0");n.setAttribute("role","button");n.setAttribute("aria-label",plain(card.t)+": open the card")}
@@ -1023,6 +1499,27 @@ function wireDiagram(svg){
  const act=n=>{const card=cardForNode(n.dataset.id);if(!card)return;pinned=n.dataset.id;clearHl(svg);hlNode(svg,pinned);openSheet(card,()=>{pinned=null;clearHl(svg)})};
  svg.addEventListener("click",e=>{const n=e.target.closest("g.node[data-id]");if(n)act(n)});
  svg.addEventListener("keydown",e=>{if(e.key!=="Enter"&&e.key!==" ")return;const n=e.target.closest("g.node[data-id]");if(n){e.preventDefault();act(n)}});
+ const members=subgraphMembers(source);
+ svg.querySelectorAll("g.cluster[data-id]").forEach(c=>{
+  const ids=members.get(c.dataset.id);
+  const label=c.querySelector(".cluster-label");
+  if(!ids||!label)return;
+  label.style.cursor="pointer";
+  label.addEventListener("click",ev=>{
+   ev.stopPropagation();
+   const key="cluster:"+c.dataset.id;
+   clearHl(svg);
+   if(pinned===key){pinned=null;return}
+   pinned=key;
+   svg.classList.add("dim");
+   ids.forEach(id=>{const n=svg.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);if(n)n.classList.add("hl")});
+   svg.querySelectorAll("path.flowchart-link[data-from]").forEach(p=>{
+    if(!ids.includes(p.dataset.from)||!ids.includes(p.dataset.to))return;
+    p.classList.add("hl");
+    const l=svg.querySelector(`.edgeLabel[data-id="${CSS.escape(p.dataset.id)}"]`);if(l)l.classList.add("hl");
+   });
+  });
+ });
 }
 const HERO_FONT=18;
 function heroInit(){return {fontSize:HERO_FONT,themeVariables:heroVars(),flowchart:{padding:16,nodeSpacing:56,rankSpacing:64}}}
@@ -1045,7 +1542,7 @@ async function renderMermaid(host,source,label,init){
  s.classList.add("fit","mmd");
  setAspect(s);
  tagDiagram(s,id,source);
- wireDiagram(s);
+ wireDiagram(s,source);
  return s;
 }
 function mermaidJob(host,source,label,after,init){
@@ -1064,17 +1561,50 @@ async function rerenderDiagrams(){
  await Promise.all(MMD_JOBS.map(runMermaidJob));
 }
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{rerenderDiagrams();document.querySelectorAll(".xs-poster").forEach(drawConnectors)});
+matchMedia("(max-width:900px)").addEventListener("change",()=>rerenderDiagrams());
 
 let sheetClose=null;
-function openSheet(card,onClose){
+const restsOn=c=>{
+ const ids=[...(c.a||[]),...(c.dq||[])];
+ return ids.length?`<div class="kv"><b>This rests on</b><span class="reflist">${ids.map(refChip).join("")}</span></div>`:"";
+};
+const typingNow=()=>{const a=document.activeElement;return !!a&&(/^(INPUT|TEXTAREA)$/.test(a.tagName)||a.isContentEditable)};
+function revealSheet(){
  const sh=$("#sheet");
- $("#stitle").textContent=plain(card.t);
- $("#sbody").innerHTML=card.b.map(p=>`<p>${inline(p)}</p>`).join("")+`<div class="kv"><b>This rests on</b>${[...(card.a||[]),...(card.dq||[])].map(x=>refChip(x)).join(" ")}</div>`;
- $("#sgoto").onclick=e=>{e.preventDefault();closeSheet();openRef(card.id)};
- sheetClose=onClose||null;
  sh.hidden=false;
  requestAnimationFrame(()=>sh.classList.add("open"));
+}
+function openSheet(card,onClose){
+ $("#stitle").textContent=plain(card.t);
+ $("#sbody").innerHTML=card.b.map(p=>`<p>${inline(p)}</p>`).join("")+restsOn(card);
+ const go=$("#sgoto");
+ go.textContent="Open in How it works";
+ go.onclick=e=>{e.preventDefault();closeSheet();openRef(card.id)};
+ sheetClose=onClose||null;
+ revealSheet();
  $("#sclose").focus();
+}
+function openRefSheet(id){
+ const r=REF[id];
+ if(!r){openRef(id);return}
+ const e=ENTRY[id],[,sl]=statusOf(id);
+ const bits=[KIND_LABEL[r.kind],sl,r.theme?themeLabel(r.theme):""].filter(Boolean);
+ $("#stitle").textContent=plain(r.title);
+ let body=`<div class="kv"><b>${esc(bits.join(" · "))}</b><span class="idchip">${esc(id)}</span></div>`;
+ if(e.p)body+=`<p class="plainp">${inline(e.p)}</p>`;
+ if(r.kind==="decision")body+=`<div class="kv"><b>What we decided</b>${inline(e.r)}</div>`;
+ else if(r.kind==="assumption")body+=`<div class="kv"><b>Evidence</b>${inline(e.b)}</div>`;
+ else if(r.kind==="arch")body+=`<p>${inline(e.b[0]||"")}</p>`+restsOn(e);
+ else if(r.kind==="open"&&!e.p)body+=`<p>${inline(e.t)}</p>`;
+ if(r.kind==="open"&&(e.blocks||[]).length)body+=`<div class="kv"><b>Holds up</b><span class="reflist">${e.blocks.map(refChip).join("")}</span></div>`;
+ $("#sbody").innerHTML=body;
+ termify($("#sbody"));
+ const go=$("#sgoto");
+ go.textContent="Go there";
+ go.onclick=ev=>{ev.preventDefault();closeSheet();openRef(id)};
+ sheetClose=null;
+ revealSheet();
+ if(!typingNow())$("#sclose").focus();
 }
 function closeSheet(){
  const sh=$("#sheet");
@@ -1086,7 +1616,7 @@ function closeSheet(){
 }
 $("#sclose").onclick=closeSheet;
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#sheet").hidden)closeSheet()});
-document.addEventListener("click",e=>{const sh=$("#sheet");if(sh.hidden||sh.contains(e.target)||e.target.closest("svg.mmd"))return;closeSheet()});
+document.addEventListener("click",e=>{const sh=$("#sheet");if(sh.hidden||sh.contains(e.target)||e.target.closest("svg.mmd")||e.target.closest("[data-ref]")||TIP.contains(e.target))return;closeSheet()});
 
 const ICONS=new Map();
 function iconSvg(name){
@@ -1213,6 +1743,7 @@ function shapePanels(host){
    const rest=[...p.children].filter(c=>c.tagName!=="FIGURE");
    const t=el("div","xs-text");rest.forEach(c=>t.append(c));p.prepend(t);
   }
+  if(p.dataset.kind==="compare")p.dataset.wide="1";
   if(!p.querySelector("h1,h2"))p.dataset.printTitle=KIND_TITLES[p.dataset.kind]||"Summary";
   if(panels.length>1)p.append(el("div","xs-pn",`${i+1} / ${panels.length}`));
   if(i===panels.length-1){
@@ -1231,10 +1762,7 @@ function mermaidBlocks(root){
   const fig=pre.closest("figure"),cap=fig&&fig.querySelector("figcaption");
   const label=pre.getAttribute("aria-label")||(cap?plain(cap.textContent):"Diagram");
   pre.replaceWith(host);
-  return mermaidJob(host,host.dataset.source,label,svg=>{
-   host.style.setProperty("--mmd-min",heroWidth(svg)+"px");
-   markWide(svg);
-  },heroInit);
+  return mermaidJob(host,host.dataset.source,label,markWide,heroInit);
  }));
 }
 function settleDeepLink(){
@@ -1277,30 +1805,57 @@ JOBS.push(summaryLoad.then(async t=>{
   $("#main").scrollIntoView({behavior:reduced()?"instant":"smooth",block:"start"});
  };
  settleDeepLink();
- await Promise.all([inlineIcons(host),mermaidBlocks(host)]);
+ await Promise.all([inlineIcons(host),mermaidBlocks(host),mountComponents(host)]);
  wireConnectors(host);
 }));
 document.querySelector(".skip").addEventListener("click",unveil);
 $("#navSummary").onclick=e=>{e.preventDefault();scrollTo({top:0,behavior:reduced()?"instant":"smooth"})};
 
 let sysdPz=null;
-function pzClone(svg){
- const c=svg.cloneNode(true);
- c.removeAttribute("style");
- c.setAttribute("viewBox",svg.dataset.viewbox);
- const vp=c.querySelector(".svg-pan-zoom_viewport");
- if(vp)vp.removeAttribute("transform");
- c.classList.add("fit");
- c.style.width=vbWidth(c)+"px";c.style.height="auto";
- return c;
+const DIAGRAM_SOURCE=DIAGRAM?DIAGRAM.source:"";
+const OVERVIEW=DIAGRAM&&DIAGRAM.overview;
+let fullDiagBox=null;
+async function openFullDiagram(label){
+ if(!fullDiagBox){fullDiagBox=el("div","pzbox");fullDiagBox.style.height="min(72vh,620px)"}
+ showModalNode(label,fullDiagBox);
+ if(fullDiagBox.dataset.drawn)return;
+ fullDiagBox.dataset.drawn="1";
+ try{
+  const svg=await renderMermaid(fullDiagBox,DIAGRAM_SOURCE,label,null);
+  markDotted(svg,DIAGRAM_SOURCE);
+  delete svg.dataset.hideDotted;
+  const want=readableScale(svg);
+  const pz=await panzoomLib();
+  const inst=pz(svg,{zoomEnabled:true,panEnabled:true,controlIconsEnabled:false,fit:true,center:true,minZoom:.2,maxZoom:10,zoomScaleSensitivity:.3,mouseWheelZoomEnabled:false,dblClickZoomEnabled:false});
+  const cur=inst.getSizes().realZoom;
+  if(cur<want)inst.zoomBy(want/cur);
+  const z=inst.getSizes().realZoom;
+  const box=svg.querySelector(".svg-pan-zoom_viewport").getBBox();
+  fullDiagBox.style.height=Math.min(innerHeight*.72,Math.round(box.height*z)+32)+"px";
+  inst.resize();
+  inst.pan({x:16-box.x*z,y:16-box.y*z});
+ }catch(e){fullDiagBox.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`;delete fullDiagBox.dataset.drawn}
+}
+function dottedControls(svg,source){
+ const legend=$("#sysdLegend");
+ if(!markDotted(svg,source)){legend.hidden=true;$("#sysdDotted").hidden=true;return}
+ legend.hidden=false;
+ const btn=$("#sysdDotted");
+ btn.hidden=false;
+ btn.textContent="Show rollout and detours";
+ btn.onclick=()=>{
+  if(svg.dataset.hideDotted)delete svg.dataset.hideDotted;else svg.dataset.hideDotted="1";
+  btn.textContent=svg.dataset.hideDotted?"Show rollout and detours":"Hide rollout and detours";
+ };
 }
 function sysdMermaid(){
  const host=$("#sysdHost");
  const label=plain(DIAGRAM_CAPTION||"The system");
- return mermaidJob(host,DIAGRAM.source,label,async svg=>{
+ return mermaidJob(host,OVERVIEW||DIAGRAM_SOURCE,label,async svg=>{
   const box=el("div","pzbox");
   svg.replaceWith(box);box.append(svg);
-  const vw=vbWidth(svg),vh=vbHeight(svg),want=readableScale(svg);
+  dottedControls(svg,OVERVIEW||DIAGRAM_SOURCE);
+  const vw=vbWidth(svg),vh=vbHeight(svg),want=OVERVIEW?0:readableScale(svg);
   const PAD=16;
   const boxWidth=()=>box.clientWidth||host.clientWidth||1;
   const boxCap=()=>innerWidth<=900?420:560;
@@ -1309,11 +1864,20 @@ function sysdMermaid(){
   if(HTML.dataset.print)return;
   svg.dataset.viewbox=svg.getAttribute("viewBox");
   const full=$("#sysdFull");
+  full.textContent=OVERVIEW?"See the whole system":"View full size";
+  full.onclick=()=>openFullDiagram(label);
+  if(innerWidth<=900){
+   box.dataset.static="1";
+   box.style.height="auto";
+   full.hidden=false;
+   full.textContent="Open diagram";
+   return;
+  }
   try{
    const pz=await panzoomLib();
    if(sysdPz){try{sysdPz.destroy()}catch(e){}sysdPz=null}
    sysdPz=pz(svg,{zoomEnabled:true,panEnabled:true,controlIconsEnabled:false,fit:true,center:true,minZoom:.5,maxZoom:8,zoomScaleSensitivity:.3,mouseWheelZoomEnabled:false,dblClickZoomEnabled:false});
-   const nodeBoxes=()=>[...svg.querySelectorAll("g.node")].map(n=>{
+   const nodeBoxes=()=>[...svg.querySelectorAll("g.node,g.cluster")].map(n=>{
     const b=n.getBBox(),t=n.transform.baseVal.consolidate();
     const dx=t?t.matrix.e:0,dy=t?t.matrix.f:0;
     return {x:b.x+dx,y:b.y+dy,w:b.width,h:b.height};
@@ -1347,13 +1911,20 @@ function sysdMermaid(){
     if(cur<z)sysdPz.zoomBy(z/cur);
     const win=frame(ns,z,w,h);
     sysdPz.pan({x:win.e,y:h/2-(win.y.lo+win.y.hi)/2*z});
-    full.hidden=z*vw<=w+1;
+    full.hidden=!OVERVIEW&&z*vw<=w+1;
    };
    const ctl=$("#sysdPz");ctl.hidden=false;
    ctl.querySelectorAll("button").forEach(b=>{b.onclick=()=>{if(!sysdPz)return;const k=b.dataset.pz;if(k==="in")sysdPz.zoomIn();else if(k==="out")sysdPz.zoomOut();else view()}});
-   full.onclick=()=>showModalNode(label,pzClone(svg));
    view();
    addEventListener("resize",()=>view());
+   let seenWidth=-1;
+   new ResizeObserver(()=>{
+    const w=boxWidth();
+    if(w===seenWidth)return;
+    seenWidth=w;
+    sysdPz.resize();
+    view();
+   }).observe(box);
   }catch(e){}
  });
 }
@@ -1371,16 +1942,27 @@ if(DIAGRAM&&DIAGRAM.kind==="mermaid"&&DIAGRAM.source){
   .catch(()=>{$("#sysdHost").closest(".sysd").hidden=true}));
 }
 
-function renderTldr(){const u=$("#tldrList");u.innerHTML="";TLDR.forEach(t=>u.append(el("li",null,inline(twin(t,t.md)))))}
+const STAR=` <span class="starmark" data-tip="The load-bearing assumption: if this falls, the proposal falls" aria-hidden="true">★</span><span class="sr-only">Load-bearing assumption: if this falls, the proposal falls.</span>`;
+function renderTldr(){const u=$("#tldrList");u.innerHTML="";TLDR.forEach(t=>u.append(el("li",null,inline(twin(t,t.md)))));termify(u)}
 function renderRules(){
  const host=$("#rulesList");host.innerHTML="";
  CONS.forEach(c=>{
-  const refs=String(c.a||"").split(" ").filter(Boolean).map(a=>refChip(a,{lead:"id"})).join(" ");
-  host.append(el("div","rule",`<span class="rt">${inline(twin(c,c.t))}</span>${refs}`));
+  const ids=String(c.a||"").split(" ").filter(Boolean);
+  host.append(el("div","rule"+(c.star?" loadbearing":""),
+   `<span class="rt">${inline(twin(c,c.t))}${c.star?STAR:""}</span>`+
+   (ids.length?`<span class="rrefs">${ids.map(refChip).join("")}</span>`:"")));
  });
+ termify(host);
 }
 renderTldr();renderRules();
-TERMS.forEach(t=>$("#defsList").append(el("div","def",`<b>${esc(t.k)}</b><span>${inline(t.v)}</span>`)));
+(function(){
+ const host=$("#defsList"),cold=6;
+ TERMS.forEach((t,i)=>host.append(el("div","def"+(i>=cold?" hid":""),`<b>${esc(t.k)}</b><span>${inline(t.v)}</span>`)));
+ if(TERMS.length<=cold)return;
+ const b=el("button","xbtn defsmore",`All ${TERMS.length} terms`);
+ b.onclick=()=>{host.querySelectorAll(".def.hid").forEach(d=>d.classList.remove("hid"));b.remove()};
+ host.after(b);
+})();
 
 const MARKROLE={"var(--ok)":"measured today","var(--accent)":"what this proposes","var(--dead)":"off the request path","var(--warn)":"a number to watch","var(--crit)":"a hard limit"};
 (function(){const t=$("#scaleTrack");t.append(el("div","axis"));
@@ -1403,15 +1985,24 @@ const MARKROLE={"var(--ok)":"measured today","var(--accent)":"what this proposes
  seen.forEach(c=>lg.append(el("span","lg",`<i style="background:${esc(c)}"></i>${esc(MARKROLE[c])}`)));
 })();
 
+const countLabel=(n,one)=>`${n} ${one}${n===1?"":"s"}`;
 ARCH.forEach(c=>{
  const d=el("details","ledger");d.id=c.id;
- const grounded=[...c.a,...c.dq].map(x=>refChip(x)).join(" ");
- d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>`+
-  c.dq.map(x=>`<span class="idchip">${esc(x)}</span>`).join(" ")+
-  `</span><span class="sumline">${esc(firstSentence(c.b[0]||""))}</span></summary><div class="body">`+
-  c.b.map(p=>`<p>${inline(p)}</p>`).join("")+
-  `<div class="kv"><b>This rests on</b>${grounded}</div></div>`;
+ const rests=c.dq.length||c.a.length?`<span class="restchip">rests on ${countLabel(c.dq.length,"decision")}, ${countLabel(c.a.length,"assumption")}</span>`:"";
+ d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>${rests}</span>`+
+  `<span class="sumline">${esc(firstSentence(c.b[0]||""))}</span></summary><div class="body">`+
+  `<p>${inline(c.b[0]||"")}</p>`+
+  restsOn(c)+
+  (c.b.length>1?`<details class="more"><summary>Read the detail</summary>${c.b.slice(1).map(p=>`<p>${inline(p)}</p>`).join("")}</details>`:"")+
+  `</div>`;
  $("#archCards").append(d);
+ const near=c.node&&DIAGRAM_SOURCE?neighbourhood(DIAGRAM_SOURCE,c.node):null;
+ if(!near)return;
+ const box=el("div","nbd");
+ d.querySelector(".body").prepend(box);
+ JOBS.push(mermaidJob(box,near,plain(c.t)+": this component and what it talks to",svg=>{
+  svg.style.width=`max(100%,${Math.round(vbWidth(svg)*readableScale(svg))}px)`;
+ }));
 });
 
 const SEGCOLORS=["#0B7568","#3E8E7E","#6FA79A","#98BFB4","#C0D6CE","#5A6068"];
@@ -1516,9 +2107,14 @@ if(CEILNOTE){const cs=$("#ceilSub");cs.hidden=false;cs.innerHTML+=(cs.innerHTML?
 (function(){
  const t=$("#ceilTable");
  t.innerHTML=`<thead><tr><th>Resource</th><th>Ceiling <abbr class="est" data-tip="${EST_TIP}">(estimated)</abbr></th><th>What you'd see first</th><th>What stops it</th></tr></thead>`;
- const tb=el("tbody");
+ const tb=el("tbody"),cards=$("#ceilCards");
  CEIL.forEach(([r,c,sym,g])=>{
-  tb.append(el("tr",null,`<td><b>${inline(r)}</b></td><td>${inline(c)}</td><td>${inline(sym)}</td><td>${inline(g)}</td>`));
+  const ceil=String(c).replace(/\s*\(E\)/g,"");
+  tb.append(el("tr",null,`<td><b>${inline(r)}</b></td><td>${inline(ceil)}</td><td>${inline(sym)}</td><td>${inline(g)}</td>`));
+  cards.append(el("div","ceil-card",`<h4>${inline(r)}</h4>`+
+   `<span class="cline"><b>Ceiling, estimated</b>${inline(ceil)}</span>`+
+   `<span class="cline"><b>What you'd see first</b>${inline(sym)}</span>`+
+   `<span class="cline"><b>What stops it</b>${inline(g)}</span>`));
  });
  t.append(tb);
 })();
@@ -1578,8 +2174,16 @@ function themeChip(e){return e.theme?`<span class="theme-chip">${esc(themeLabel(
 function spotCard(e,reg,status,bodyHtml){
  const det=el("details","spot");det.id="spot-"+e.id;det.dataset.s=e.s;
  const [sc,sl]=status;
- det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}<span class="idchip">${esc(e.id)}</span></span></summary><div class="body">${bodyHtml}</div>`;
+ det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}</span></summary><div class="body">${bodyHtml}</div>`;
  return det;
+}
+const SPOT_COLD=6;
+function fillSpot(spot,cards){
+ cards.forEach((c,i)=>{if(i>=SPOT_COLD)c.classList.add("hid");spot.append(c)});
+ if(cards.length<=SPOT_COLD)return;
+ const b=el("button","xbtn spotmore",`+${cards.length-SPOT_COLD} more`);
+ b.onclick=()=>{spot.querySelectorAll("details.spot.hid").forEach(c=>c.classList.remove("hid"));b.remove()};
+ spot.append(b);
 }
 function groupedRender(host,list,filtered,rowFn,state,firstOpen){
  const grouped=list.some(e=>e.theme);
@@ -1603,22 +2207,22 @@ function groupedRender(host,list,filtered,rowFn,state,firstOpen){
  });
 }
 
-const SLBL={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"]};
-let dqF="all";
+let dqF="all",dqExpand=null;
 const dqState={all:null};
 function dqBody(d){
- let exact=`<div class="kv"><b>What we decided${d.date?", "+longDate(d.date):""}</b>${inline(d.r)}</div>`;
- if(d.x)exact+=`<div class="kv"><b>What we turned down</b>${inline(d.x)}</div>`;
- if(d.by)exact+=`<div class="kv"><b>Replaced by</b>${refChip(d.by)}</div>`;
+ let out=(!fullWording&&d.p)?`<p class="plainp">${inline(d.p)}</p>`:"";
+ out+=`<div class="kv"><b>What we decided${d.date?", "+longDate(d.date):""}</b>${inline(d.r)}</div>`;
+ let record="";
+ if(d.x)record+=`<div class="kv"><b>What we turned down</b>${inline(d.x)}</div>`;
+ if(d.by)record+=`<div class="kv"><b>Replaced by</b>${refChip(d.by)}</div>`;
  const rd=ROUNDS[d.round];
- if(rd)exact+=`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`;
- if(!fullWording&&d.p)return `<p class="plainp">${inline(d.p)}</p><div class="exact"><b>Exact wording</b>${exact}</div>`;
- return exact;
+ if(rd)record+=`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`;
+ return record?out+`<details class="more"><summary>Show the record</summary>${record}</details>`:out;
 }
 function dqRow(d){
  const det=el("details","ledger");det.id="item-"+d.id;
  const [sc,sl]=SLBL[d.s]||["st-warn",d.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span><span class="idchip">${esc(d.id)}</span>${dmark("decisions",d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("decisions",d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
  if(DIFF&&!DIFF.marks["decisions:"+d.id])det.classList.add("unch");
  if(dqState.all)det.open=true;
  return det;
@@ -1632,39 +2236,40 @@ function renderDQ(){
  const spot=$("#dqSpot");spot.innerHTML="";
  const showSpot=keys.length&&!query&&dqF==="all"&&!DIFF;
  spot.hidden=!showSpot;
- if(showSpot)keys.forEach(d=>spot.append(spotCard(d,"decisions",SLBL[d.s]||["st-warn",d.s],dqBody(d))));
+ if(showSpot)fillSpot(spot,keys.map(d=>spotCard(d,"decisions",SLBL[d.s]||["st-warn",d.s],dqBody(d))));
  groupedRender(host,DQ,filtered,dqRow,dqState,!keys.length);
  let vis=0,hid=0;
  filtered.forEach(d=>{if(DIFF&&!DIFF.marks["decisions:"+d.id]&&hiding)hid++;else vis++});
  if(!vis&&!hid)emptyRow(host,"the decisions");
  const cnt=$("#dqCount");cnt.textContent=`Showing ${vis} of ${DQ.length}`;
+ cnt.hidden=dqExpand.hidden=dqF==="all"&&!query&&!DIFF;
  if(hid){const a=el("span","linkish",` — ${hid} unchanged are hidden, show everything`);a.onclick=toggleUnch;cnt.append(a)}
+ termify($("#decisions"));
 }
 (function(){
  const f=$("#dqFilters");
  filterBar(f,[["all","All"],["resolved","Decided"],["superseded","Replaced"],["open","Still open"]],v=>{dqF=v;renderDQ()});
  const end=el("span","end");
  const s=el("input","search");s.type="search";s.placeholder="Search decisions";s.setAttribute("aria-label","Search decisions");bindSearch(s);
- end.append(s,expandBtn("#dqList",dqState));
+ dqExpand=expandBtn("#dqList",dqState);
+ end.append(s,dqExpand);
  const cnt=el("span","count","");cnt.id="dqCount";end.append(cnt);
  f.append(end);
  renderDQ();
 })();
 
-const ALBL={working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
-let aF="all";
+let aF="all",aExpand=null;
 const aState={all:null};
 function aBody(a){
- let exact=`<p>${inline(a.b)}</p>`;
- if(a.n)exact+=`<div class="kv"><b>How this changed</b>${inline(a.n)}</div>`;
- if(!fullWording&&a.p)return `<p class="plainp">${inline(a.p)}</p><div class="exact"><b>Exact wording</b>${exact}</div>`;
- return exact;
+ let out=(!fullWording&&a.p)?`<p class="plainp">${inline(a.p)}</p>`:"";
+ out+=`<div class="kv"><b>Evidence</b>${inline(a.b)}</div>`;
+ if(a.n)out+=`<div class="kv"><b>How this changed</b>${inline(a.n)}</div>`;
+ return out;
 }
-const STAR=` <span class="starmark" data-tip="The load-bearing assumption: if this falls, the proposal falls" aria-hidden="true">★</span><span class="sr-only">Load-bearing assumption: if this falls, the proposal falls.</span>`;
 function aRow(a){
  const det=el("details","ledger"+(a.star?" loadbearing":""));det.id="item-"+a.id;
  const [sc,sl]=ALBL[a.s]||["st-warn",a.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span><span class="idchip">${esc(a.id)}</span>${dmark("assumptions",a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("assumptions",a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
  if(DIFF&&!DIFF.marks["assumptions:"+a.id])det.classList.add("unch");
  if(aState.all)det.open=true;
  return det;
@@ -1678,26 +2283,41 @@ function renderA(){
  const spot=$("#aSpot");spot.innerHTML="";
  const showSpot=keys.length&&!query&&aF==="all"&&!DIFF;
  spot.hidden=!showSpot;
- if(showSpot)keys.forEach(a=>spot.append(spotCard(a,"assumptions",ALBL[a.s]||["st-warn",a.s],aBody(a))));
+ if(showSpot)fillSpot(spot,keys.map(a=>spotCard(a,"assumptions",ALBL[a.s]||["st-warn",a.s],aBody(a))));
  groupedRender(host,ASSUM,filtered,aRow,aState,!keys.length);
  let vis=0,hid=0;
  filtered.forEach(a=>{if(DIFF&&!DIFF.marks["assumptions:"+a.id]&&hiding)hid++;else vis++});
  if(!vis&&!hid)emptyRow(host,"the assumptions");
  const cnt=$("#aCount");cnt.textContent=`Showing ${vis} of ${ASSUM.length}`;
+ cnt.hidden=aExpand.hidden=aF==="all"&&!query&&!DIFF;
  if(hid){const b=el("span","linkish",` — ${hid} unchanged are hidden, show everything`);b.onclick=toggleUnch;cnt.append(b)}
+ termify($("#assumptions"));
 }
 (function(){
  const f=$("#aFilters");
  filterBar(f,[["all","All"],["working","Assumed"],["validate","Needs someone to confirm"]],v=>{aF=v;renderA()});
  const end=el("span","end");
  const s=el("input","search");s.type="search";s.placeholder="Search assumptions";s.setAttribute("aria-label","Search assumptions");bindSearch(s);
- end.append(s,expandBtn("#aList",aState));
+ aExpand=expandBtn("#aList",aState);
+ end.append(s,aExpand);
  const cnt=el("span","count","");cnt.id="aCount";end.append(cnt);
  f.append(end);
  renderA();
 })();
 
 let oF="all";
+function oRowHtml(o,glyph,unchanged){
+ const head=twin(o,o.t),full=plain(o.t);
+ const blocks=o.blocks||[];
+ const meta=blocks.length===1?`holds up ${refChip(blocks[0])}`
+  :blocks.length?`<span class="restchip">holds up ${blocks.length}</span>`:"";
+ const body=(plain(head)===full?"":`<p>${inline(o.t)}</p>`)+
+  (blocks.length?`<div class="ochips">${blocks.map(refChip).join("")}</div>`:"")+
+  `<span class="idchip">${esc(o.id)}</span> <button class="xbtn" type="button" data-copy="open-${esc(o.id)}">Copy link</button>`;
+ return `<details class="orow${unchanged?" unch":""}" id="open-${esc(o.id)}">`+
+  `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}</span></summary>`+
+  `<div class="obody">${body}</div></details>`;
+}
 function renderO(){
  const host=$("#oList");host.innerHTML="";
  const hiding=DIFF&&!document.body.classList.contains("show-unch");
@@ -1707,20 +2327,29 @@ function renderO(){
   const items=OPEN.filter(o=>o.g===g&&(!query||(o.id+" "+o.t+" "+(o.p||"")).toLowerCase().includes(query)));
   if(!items.length)return;
   shown+=items.length;
+  const glyph=g==="spikes"?'<span class="oglyph" aria-hidden="true">▶</span>':"";
   const block=el("div","ogroup");
-  block.innerHTML=`<h3>${esc(label)}</h3><div class="orows">`+
+  block.innerHTML=`<h3>${esc(label)} · ${items.length}</h3><div class="orows">`+
    items.map(o=>{
     const u=DIFF&&!DIFF.marks["open:"+o.id];if(u&&hiding)hid++;
-    const blocks=(o.blocks||[]).map(b=>`<span class="blocks">blocks ${refChip(b)}</span>`).join(" ");
-    return `<div class="orow${u?" unch":""}" id="open-${esc(o.id)}"><span class="ot">${inline(twin(o,o.t))}</span><span class="ochips"><span class="theme-chip">${esc(label)}</span>${blocks}</span><span class="idchip">${esc(o.id)}</span>${dmark("open",o.id)}</div>`;
+    return oRowHtml(o,glyph,u);
    }).join("")+"</div>";
   if(DIFF&&!DIFF.groupsChanged.includes(g)&&items.every(o=>!DIFF.marks["open:"+o.id]))block.classList.add("unch");
   host.append(block);
  });
  if(!shown&&!hid)emptyRow(host,"the open questions");
  const cnt=$("#oCount");cnt.textContent=`Showing ${shown} of ${OPEN.length}`;
+ cnt.hidden=oF==="all"&&!query&&!DIFF;
  if(hid){const a=el("span","linkish",` — ${hid} unchanged are hidden, show everything`);a.onclick=toggleUnch;cnt.append(a)}
+ termify($("#open"));
 }
+$("#oList").addEventListener("click",e=>{
+ const b=e.target.closest("[data-copy]");
+ if(!b)return;
+ navigator.clipboard.writeText(location.origin+location.pathname+"#"+b.dataset.copy);
+ b.textContent="Copied";
+ setTimeout(()=>{b.textContent="Copy link"},1200);
+});
 (function(){
  const f=$("#oFilters");
  filterBar(f,[["all","Everyone"],...Object.entries(OGROUPS)],v=>{oF=v;renderO()});
@@ -1769,7 +2398,7 @@ window.openRef=id=>{
  else{
   clearFilters();
   if(r.kind==="arch"){const e=document.getElementById(id);if(e){e.open=true;e.scrollIntoView({block:"center"})}}
-  else if(r.kind==="open")setTimeout(()=>{const e=document.getElementById("open-"+id);if(e)e.scrollIntoView({block:"center"})},30);
+  else if(r.kind==="open")setTimeout(()=>{const e=document.getElementById("open-"+id);if(e){e.open=true;e.scrollIntoView({block:"center"})}},30);
   else if(r.kind==="numbers"){const e=document.getElementById(id);if(e)e.scrollIntoView({block:"center"})}
   else if(r.kind==="path"){curPath=id;drawPath();const e=document.getElementById("paths");if(e)e.scrollIntoView({block:"start"})}
   else if(r.kind==="fn"){const e=document.getElementById("fn-"+id.slice(2));if(e)e.scrollIntoView({block:"center"})}
@@ -1782,14 +2411,16 @@ document.addEventListener("click",e=>{
  const a=refTarget(e);
  if(!a)return;
  e.preventDefault();
- openRef(a.dataset.ref);
+ hideTip();
+ openRefSheet(a.dataset.ref);
 });
 document.addEventListener("keydown",e=>{
  if(e.key!=="Enter"&&e.key!==" ")return;
  const a=refTarget(e);
  if(!a)return;
  e.preventDefault();
- openRef(a.dataset.ref);
+ hideTip();
+ openRefSheet(a.dataset.ref);
 });
 
 const EMPTIES={ground:!CONS.length&&!TERMS.length,architecture:!ARCH.length,paths:!PATHS.length,numbers:!NUMBERS.length,ceilings:!CEIL.length,decisions:!DQ.length,assumptions:!ASSUM.length,open:!OPEN.length,footnotes:!FOOTNOTES.length};
@@ -1882,7 +2513,7 @@ if(typeof META.rev==="number"&&META.rev>=1){
   ARCH.forEach(c=>{const m=DIFF.marks["arch:"+c.id];const d=document.getElementById(c.id);if(!d)return;if(m){const s=d.querySelector("summary .lrow");if(s)s.append(el("span","pill p-acc diffpill",m))}else d.classList.add("unch")});
   NUMBERS.forEach(nt=>{const m=DIFF.marks["numbers:"+nt.id];const b=document.getElementById(nt.id);if(!b)return;if(m){const h=b.querySelector("h3");if(h)h.append(el("span","pill p-acc diffpill",m))}else b.classList.add("unch")});
   FOOTNOTES.forEach(f=>{const m=DIFF.marks["fn:"+f.n];const li=document.getElementById("fn-"+f.n);if(!li)return;if(m)li.append(el("span","pill p-acc diffpill",m));else li.classList.add("unch")});
-  DIFF.sections.forEach(k=>{const t=SECMAP[k]&&document.querySelector(SECMAP[k]);if(t)t.append(el("span","tchip diffpill","changed"))});
+  DIFF.sections.forEach(k=>{const t=SECMAP[k]&&document.querySelector(SECMAP[k]);if(t)t.append(el("span","chgmark diffpill","changed"))});
   const markedReg=reg=>Object.keys(DIFF.marks).some(k=>k.startsWith(reg+":")),removedReg=reg=>(DIFF.removed[reg]||[]).length>0;
   const secChanged={
    decisions:markedReg("decisions")||removedReg("decisions")||DIFF.sections.includes("decisions"),
@@ -1998,6 +2629,7 @@ if(typeof META.rev==="number"&&META.rev>=1){
   });
   baseSel.hidden=false;
   baseSel.onchange=()=>{baseSel.value?showDiff(+baseSel.value):clearDiff()};
+  if(!stored)$("#moreRev").append(baseSel);
  }
 
  const qs=parseInt(new URLSearchParams(location.search).get("since")||"",10)||0;
@@ -2028,6 +2660,7 @@ function summaryMd(){
    if(n.classList.contains("xs-pn")||n.classList.contains("hero-more")||n.classList.contains("xs-connect"))continue;
    if(n.classList.contains("xs-panel")){L.push("\n### "+(txt(n.querySelector("h1,h2")||{textContent:""})||KIND_TITLES[n.dataset.kind]||"Summary")+"\n");walk(n);continue}
    if(/^h[1-6]$/.test(tag)){if(n.closest(".xs-panel")&&n===n.closest(".xs-panel").querySelector("h1,h2"))continue;L.push("\n#### "+txt(n)+"\n");continue}
+   if(n.dataset.component){const md=componentMd(n.dataset.component,n);if(md){L.push(md+"\n");continue}}
    if(n.classList.contains("mmd-host")){L.push("```mermaid\n"+(n.dataset.source||"").trim()+"\n```\n");continue}
    if(tag==="p"){if(txt(n))L.push(txt(n)+"\n");continue}
    if(tag==="figcaption"){if(txt(n))L.push("_"+txt(n)+"_\n");continue}
@@ -2082,7 +2715,10 @@ function buildDocMd(){
  TERMS.forEach(t=>push(`- **${t.k}** — ${t.v}`));
  push("\n## How it works\n");
  if(DIAGRAM&&DIAGRAM.kind==="mermaid"&&DIAGRAM.source)push("```mermaid\n"+DIAGRAM.source.trim()+"\n```\n"+(DIAGRAM_CAPTION?"\n_"+DIAGRAM_CAPTION+"_\n":""));
- ARCH.forEach(c=>push(`### ${c.t}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`));
+ ARCH.forEach(c=>{
+  push(`### ${c.t}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`);
+  if(c.component)push(componentMd(c.component)+"\n");
+ });
  push("## Where the time goes\n");
  push("Every number below is an estimate: derived from the design, not measured, and gated on the spikes in Still open.\n");
  PATHS.forEach(p=>{
@@ -2101,6 +2737,7 @@ function buildDocMd(){
    push("|"+nt.cols.map(()=>"---").join("|")+"|");
    nt.rows.forEach(r=>push("| "+r.join(" | ")+" |"));
    if(nt.note)push("\n"+nt.note);
+   if(nt.component)push("\n"+componentMd(nt.component));
    push("");
   });
  }
@@ -2109,6 +2746,7 @@ function buildDocMd(){
  push("| Resource | Ceiling | What you'd see first | What stops it |\n|---|---|---|---|");
  CEIL.forEach(([r,c,s,g])=>push(`| ${r} | ${c} | ${s} | ${g} |`));
  push("\n"+CEILNOTE+"\n");
+ if(META.ceilingsComponent)push(componentMd(META.ceilingsComponent)+"\n");
  push("## Decisions\n");
  DQ.forEach(d=>{
   const st=(SLBL[d.s]||["","",d.s])[1]||d.s;
@@ -2256,11 +2894,1559 @@ window.designDocPrepPrint=prepPrint;
 addEventListener("beforeprint",()=>{prepPrint()});
 addEventListener("afterprint",endPrint);
 $("#pdfBtn").onclick=async()=>{await prepPrint();window.print()};
+(function(){
+ const sheet=$("#secsheet"),btn=$("#mbarSections");
+ const closeSecs=()=>{sheet.hidden=true;btn.setAttribute("aria-expanded","false")};
+ const buildSecs=()=>{
+  sheet.innerHTML="";
+  document.querySelectorAll("#rail a[href^='#']").forEach(a=>{
+   if(a.hidden)return;
+   const c=el("a",null,esc(a.textContent));
+   c.href=a.getAttribute("href");
+   c.onclick=()=>{closeSecs();unveil()};
+   sheet.append(c);
+  });
+ };
+ btn.onclick=()=>{
+  if(!sheet.hidden){closeSecs();return}
+  buildSecs();sheet.hidden=false;btn.setAttribute("aria-expanded","true");
+ };
+ $("#mbarSearch").onclick=()=>{closeSecs();unveil();const s=$("#docSearch");s.scrollIntoView({block:"center"});s.focus()};
+ $("#mbarAsk").onclick=()=>document.dispatchEvent(new CustomEvent("design-doc:ask"));
+ document.addEventListener("click",e=>{if(sheet.hidden||sheet.contains(e.target)||e.target===btn)return;closeSecs()});
+})();
+termify($("#main"));
+const COMPONENTS=R.components||{};
+const WI_TOKEN=/[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+/g;
+const WI_FNS={min:Math.min,max:Math.max};
+function whatifTokens(src){
+ const out=[];let at=0,m;
+ WI_TOKEN.lastIndex=0;
+ while((m=WI_TOKEN.exec(src))){
+  if(m.index!==at)throw new Error(`unexpected "${src[at]}" at ${at}`);
+  at=m.index+m[0].length;
+  if(!/^\s+$/.test(m[0]))out.push(m[0]);
+ }
+ if(at!==src.length)throw new Error(`unexpected "${src[at]}" at ${at}`);
+ return out;
+}
+function whatifParse(src){
+ const t=whatifTokens(String(src));
+ let p=0;
+ const peek=()=>t[p];
+ const eat=x=>{if(t[p]!==x)throw new Error(`expected "${x}"`);p++};
+ const expr=()=>{let n=term();while(peek()==="+"||peek()==="-"){const op=t[p++];n={op,l:n,r:term()}}return n};
+ const term=()=>{let n=unary();while(peek()==="*"||peek()==="/"){const op=t[p++];n={op,l:n,r:unary()}}return n};
+ const unary=()=>{if(peek()==="-"||peek()==="+"){const op=t[p++];return {op,l:{num:0},r:unary()}}return prim()};
+ const prim=()=>{
+  const x=peek();
+  if(x===undefined)throw new Error("the expression ends early");
+  if(x==="("){p++;const n=expr();eat(")");return n}
+  if(/^[0-9.]/.test(x)){p++;return {num:parseFloat(x)}}
+  if(/^[A-Za-z_]/.test(x)){
+   p++;
+   if(peek()!=="(")return {ref:x};
+   p++;
+   const args=[expr()];
+   while(peek()===","){p++;args.push(expr())}
+   eat(")");
+   if(!WI_FNS[x])throw new Error(`unknown function ${x}()`);
+   if(args.length<2)throw new Error(`${x}() takes two or more arguments`);
+   return {fn:x,args};
+  }
+  throw new Error(`unexpected "${x}"`);
+ };
+ const node=expr();
+ if(p!==t.length)throw new Error(`unexpected "${t[p]}"`);
+ return node;
+}
+function whatifEval(n,vals){
+ if("num" in n)return n.num;
+ if("ref" in n)return vals[n.ref];
+ if("fn" in n)return WI_FNS[n.fn](...n.args.map(a=>whatifEval(a,vals)));
+ const a=whatifEval(n.l,vals),b=whatifEval(n.r,vals);
+ return n.op==="+"?a+b:n.op==="-"?a-b:n.op==="*"?a*b:a/b;
+}
+const trimZeros=s=>s.indexOf(".")<0?s:s.replace(/\.?0+$/,"");
+function wiNum(v,decimals){
+ if(!isFinite(v))return "—";
+ if(decimals!=null)return v.toFixed(decimals);
+ if(Math.abs(v-Math.round(v))<1e-9)return String(Math.round(v));
+ return trimZeros(v.toFixed(Math.abs(v)>=100?0:2));
+}
+const wiUnit=(s,unit)=>unit?s+" "+unit:s;
+const sysdSvg=()=>$("#sysdHost svg.mmd");
+function cmptFrame(spec,kind){
+ const box=el("div","ddc");
+ box.dataset.kind=kind;
+ if(spec.title)box.append(el("div","ddc-head",inline(spec.title)));
+ return box;
+}
+const SVG_TAGS=new Set(["svg","g","defs","title","desc","path","rect","circle","ellipse","line","polyline","polygon","text","tspan","marker","use","symbol","lineargradient","radialgradient","stop","clippath","mask","pattern"]);
+const SVG_ATTRS=new Set(["id","class","style","transform","d","x","y","dx","dy","x1","y1","x2","y2","cx","cy","r","rx","ry","width","height","viewbox","preserveaspectratio","fill","fill-opacity","fill-rule","stroke","stroke-width","stroke-linecap","stroke-linejoin","stroke-dasharray","stroke-dashoffset","stroke-opacity","opacity","font-family","font-size","font-weight","font-style","letter-spacing","text-anchor","dominant-baseline","points","offset","stop-color","stop-opacity","gradientunits","gradienttransform","spreadmethod","markerwidth","markerheight","refx","refy","orient","markerunits","patternunits","clip-path","mask","vector-effect","paint-order","xmlns","role","aria-label","aria-hidden"]);
+const SVG_CSS_BAN=/url\s*\(|expression|@import|behavior/i;
+function safeSvg(source){
+ const doc=new DOMParser().parseFromString(String(source),"image/svg+xml");
+ const root=doc.documentElement;
+ if(!root||root.localName!=="svg"||doc.querySelector("parsererror"))return null;
+ [root,...root.querySelectorAll("*")].forEach(n=>{
+  if(!SVG_TAGS.has(n.localName.toLowerCase())){n.remove();return}
+  [...n.attributes].forEach(a=>{
+   if(a.name.toLowerCase().startsWith("xml"))return;
+   const name=a.localName.toLowerCase();
+   if(name==="href")return void(/^#[\w.:-]+$/.test(a.value)||n.removeAttributeNode(a));
+   if(name==="style")return void(SVG_CSS_BAN.test(a.value)&&n.removeAttributeNode(a));
+   if(!SVG_ATTRS.has(name))n.removeAttributeNode(a);
+  });
+ });
+ return document.importNode(root,true);
+}
+function cmptFigure(fig,host,jobs){
+ const f=el("figure","ddc-fig");
+ if(fig.kind==="mermaid"){
+  const mount=el("div","mmd-host");
+  f.append(mount);
+  jobs.push(mermaidJob(mount,fig.source,fig.label||plain(fig.caption||"Diagram"),null,host.closest("#hero")?heroInit:null));
+ }else{
+  const svg=safeSvg(fig.source);
+  if(svg){
+   svg.classList.add("fit");
+   svg.setAttribute("role","img");
+   if(fig.label)svg.setAttribute("aria-label",fig.label);
+   setAspect(svg);
+   f.append(svg);
+  }
+ }
+ if(fig.caption)f.append(el("figcaption","ddc-cap",inline(fig.caption)));
+ return f;
+}
+function cmptTabs(spec,host,jobs){
+ const box=cmptFrame(spec,"dd.tabs");
+ const row=el("div","ddc-tabrow");
+ row.setAttribute("role","tablist");
+ const panes=el("div","ddc-panes");
+ const start=Math.min(Math.max(spec.default||0,0),spec.tabs.length-1);
+ spec.tabs.forEach((t,i)=>{
+  const b=el("button","ddc-tab"+(i===start?" on":""),esc(t.label));
+  b.type="button";b.setAttribute("role","tab");b.setAttribute("aria-selected",String(i===start));
+  const pane=el("div","ddc-pane"+(i===start?" on":""));
+  pane.dataset.label=plain(t.label);
+  if(t.md)pane.append(el("div","ddc-md",mdToHtml(t.md)));
+  if(t.figure)pane.append(cmptFigure(t.figure,host,jobs));
+  b.onclick=()=>{
+   [...row.children].forEach((x,j)=>{x.classList.toggle("on",j===i);x.setAttribute("aria-selected",String(j===i))});
+   [...panes.children].forEach((x,j)=>x.classList.toggle("on",j===i));
+  };
+  row.append(b);panes.append(pane);
+ });
+ box.append(row,panes);
+ return box;
+}
+function cmptBeforeAfter(spec,host,jobs){
+ const box=cmptFrame(spec,"dd.before-after");
+ const mode=spec.mode||"toggle";
+ box.dataset.mode=mode;
+ const wrap=el("div","ddc-ba");
+ const sides=[["before",spec.before],["after",spec.after]].map(([side,o],i)=>{
+  const s=el("div","ddc-side"+(mode==="toggle"&&!i?" on":""));
+  s.dataset.side=side;
+  s.append(el("span","ddc-eyebrow",esc(o.label)),cmptFigure(o.figure,host,jobs));
+  wrap.append(s);
+  return s;
+ });
+ const ctl=el("div","ddc-bactl");
+ if(mode==="slider"){
+  wrap.style.setProperty("--x",50);
+  const r=el("input","ddc-wipe");
+  r.type="range";r.min=0;r.max=100;r.step=1;r.value=50;r.dataset.default=50;
+  r.setAttribute("aria-label",`Wipe between ${plain(spec.before.label)} and ${plain(spec.after.label)}`);
+  r.oninput=()=>wrap.style.setProperty("--x",r.value);
+  ctl.append(el("span","ddc-eyebrow",esc(spec.before.label)),r,el("span","ddc-eyebrow",esc(spec.after.label)));
+ }else{
+  [spec.before.label,spec.after.label].forEach((label,i)=>{
+   const b=el("button","ddc-tab"+(i?"":" on"),esc(label));
+   b.type="button";b.setAttribute("aria-pressed",String(!i));
+   b.onclick=()=>{
+    [...ctl.children].forEach((x,j)=>{x.classList.toggle("on",j===i);x.setAttribute("aria-pressed",String(j===i))});
+    sides.forEach((s,j)=>s.classList.toggle("on",j===i));
+   };
+   ctl.append(b);
+  });
+  ctl.classList.add("ddc-tabrow");
+ }
+ box.append(wrap,ctl);
+ return box;
+}
+function cmptWhatIf(spec){
+ const box=cmptFrame(spec,"dd.whatif");
+ const vals=Object.create(null);
+ const asts=spec.outputs.map(o=>whatifParse(o.expr));
+ const inputs=el("div","ddc-inputs"),outs=el("div","ddc-outs");
+ const cells=spec.outputs.map(o=>{
+  const cell=el("div","ddc-out");
+  if(o.tone)cell.dataset.tone=o.tone;
+  const value=el("span","ddc-ov");
+  cell.append(value,el("span","ddc-ol",inline(o.label)));
+  outs.append(cell);
+  return value;
+ });
+ const recompute=()=>spec.outputs.forEach((o,i)=>{cells[i].textContent=wiUnit(wiNum(whatifEval(asts[i],vals),o.decimals),o.unit)});
+ spec.inputs.forEach(inp=>{
+  vals[inp.id]=inp.value;
+  const row=el("label","ddc-input");
+  const read=el("span","ddc-iv num");
+  const r=el("input","ddc-range");
+  r.type="range";r.min=inp.min;r.max=inp.max;r.step=inp.step==null?1:inp.step;r.value=inp.value;r.dataset.default=inp.value;
+  const show=()=>{read.textContent=wiUnit(wiNum(vals[inp.id]),inp.unit)};
+  r.oninput=()=>{vals[inp.id]=parseFloat(r.value);show();recompute()};
+  show();
+  row.append(el("span","ddc-il",inline(inp.label)),r,read);
+  inputs.append(row);
+ });
+ recompute();
+ box.append(inputs,outs);
+ if((spec.cites||[]).length)box.append(el("div","ddc-cites",spec.cites.map(x=>refChip(x)).join(" ")));
+ return box;
+}
+function cmptSteps(spec){
+ const box=cmptFrame(spec,"dd.steps");
+ const ol=el("ol","ddc-steps");
+ const back=el("button",null,"← Back"),next=el("button",null,"Next →");
+ let at=0;
+ const go=i=>{
+  at=Math.min(Math.max(i,0),spec.steps.length-1);
+  [...ol.children].forEach((li,j)=>li.classList.toggle("on",j===at));
+  back.disabled=at===0;next.disabled=at===spec.steps.length-1;
+  const svg=sysdSvg();
+  if(!svg)return;
+  clearHl(svg);
+  const target=spec.steps[at].target;
+  if(target)hlTarget(svg,target);
+ };
+ spec.steps.forEach((s,i)=>{
+  const li=el("li","ddc-step");
+  if(s.target)li.dataset.target=s.target;
+  const b=el("button","ddc-stepb",`<span class="ddc-sl">${esc(s.label)}</span>`);
+  b.type="button";
+  b.onclick=()=>go(i);
+  li.append(b,el("div","ddc-sd",mdToHtml(s.md)));
+  ol.append(li);
+ });
+ back.type=next.type="button";
+ back.onclick=()=>go(at-1);next.onclick=()=>go(at+1);
+ const nav=el("div","ddc-nav");
+ nav.append(back,next);
+ box.append(ol,nav);
+ go(0);
+ return box;
+}
+const TL_PILL={done:"p-ok",next:"p-acc",blocked:"p-warn"};
+function cmptTimeline(spec){
+ const box=cmptFrame(spec,"dd.timeline");
+ const ol=el("ol","ddc-tl");
+ spec.phases.forEach(ph=>{
+  const li=el("li","ddc-ph",`<span class="ddc-dot" aria-hidden="true"></span><span class="ddc-pl">${inline(ph.label)}</span><span class="pill ${TL_PILL[ph.state]}">${esc(ph.state)}</span>`);
+  li.dataset.state=ph.state;
+  if(ph.note)li.append(el("span","ddc-pn",inline(ph.note)));
+  if(ph.gate)li.append(el("span","ddc-pg",`${ph.state==="blocked"?"waiting on":"gated on"} ${refChip(ph.gate)}`));
+  ol.append(li);
+ });
+ box.append(ol);
+ return box;
+}
+function cmptMatrix(spec){
+ const box=cmptFrame(spec,"dd.matrix");
+ const pick=spec.cols.findIndex(c=>c.label===spec.pick);
+ const head=spec.cols.map((c,i)=>`<th${i===pick?' class="on"':""}>${inline(c.label)}${i===pick?' <span class="pill p-acc">chosen</span>':""}</th>`).join("");
+ const body=spec.rows.map((r,ri)=>`<tr><th>${inline(r.label)}</th>`+
+  (spec.cells[ri]||[]).map((cell,ci)=>`<td${ci===pick?' class="on"':""}${cell.tone?` data-tone="${esc(cell.tone)}"`:""}>${inline(cell.text)}</td>`).join("")+"</tr>").join("");
+ const wrap=el("div","twrap",`<table class="ddc-mx"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table>`);
+ box.append(wrap);
+ return box;
+}
+const CMPT_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix};
+let bespokeP=null;
+const bespokeLib=()=>bespokeP||(bespokeP=import("./components.js").catch(()=>null));
+async function mountBespoke(host,name){
+ const mod=await bespokeLib();
+ if(!mod)return null;
+ const root=el("div","ddc ddc-bespoke");
+ host.prepend(root);
+ if(!mod.mount(root,name,{registers:R,id:name})){root.remove();return null}
+ host.dataset.bespoke="1";
+ linkNode(root);
+ return root;
+}
+async function mountComponent(host){
+ const name=host.dataset.component;
+ host.dataset.cmpt="1";
+ host.querySelectorAll(":scope > figure").forEach(f=>f.classList.add("ddc-fallback"));
+ const spec=COMPONENTS[name];
+ try{
+  if(!spec){
+   if(!await mountBespoke(host,name)){host.dataset.cmptFailed="1";return}
+  }else{
+   const jobs=[];
+   const node=CMPT_KINDS[spec.kind](spec,host,jobs);
+   host.prepend(node);
+   linkNode(node);
+   await Promise.all(jobs);
+  }
+ }catch(e){host.dataset.cmptFailed="1";return}
+ host.dataset.mounted="1";
+}
+function mountComponents(root){
+ return Promise.all([...root.querySelectorAll("[data-component]:not([data-cmpt])")].map(mountComponent));
+}
+function componentSlot(host,name){
+ const div=el("div");
+ div.dataset.component=name;
+ host.append(div);
+ return mountComponent(div);
+}
+function mountRegisterComponents(){
+ const jobs=[];
+ ARCH.forEach(c=>{if(c.component)jobs.push(componentSlot(document.getElementById(c.id).querySelector(".body"),c.component))});
+ NUMBERS.forEach(nt=>{if(nt.component)jobs.push(componentSlot(document.getElementById(nt.id),nt.component))});
+ if(META.ceilingsComponent)jobs.push(componentSlot($("#ceilings"),META.ceilingsComponent));
+ return Promise.all(jobs);
+}
+const cmptFigMd=f=>f.kind==="mermaid"
+ ? "```mermaid\n"+f.source.trim()+"\n```\n"+(f.caption?"\n_"+plain(f.caption)+"_\n":"")
+ : (f.label?plain(f.label)+"\n":"")+(f.caption?"\n_"+plain(f.caption)+"_\n":"");
+function fallbackMd(host){
+ const fig=host.querySelector(":scope > figure");
+ if(!fig)return "";
+ const cap=fig.querySelector("figcaption");
+ const svg=fig.querySelector("svg[aria-label]");
+ const body=svg?plain(svg.getAttribute("aria-label"))
+  :plain([...fig.childNodes].filter(n=>n!==cap).map(n=>n.textContent||"").join(" "));
+ return [body,cap?"_"+plain(cap.textContent)+"_":""].filter(Boolean).join("\n\n");
+}
+function componentMd(name,host){
+ const spec=COMPONENTS[name];
+ if(!spec)return host?fallbackMd(host):"";
+ const L=[];
+ if(spec.title)L.push(`**${plain(spec.title)}**\n`);
+ if(spec.kind==="dd.tabs")spec.tabs.forEach(t=>{
+  L.push(`_${plain(t.label)}_\n`);
+  if(t.md)L.push(t.md+"\n");
+  if(t.figure)L.push(cmptFigMd(t.figure));
+ });
+ if(spec.kind==="dd.before-after")[spec.before,spec.after].forEach(o=>{
+  L.push(`_${plain(o.label)}_\n`);
+  L.push(cmptFigMd(o.figure));
+ });
+ if(spec.kind==="dd.whatif"){
+  const vals=Object.create(null);
+  spec.inputs.forEach(i=>{vals[i.id]=i.value});
+  L.push("| Input | Value |\n|---|---|");
+  spec.inputs.forEach(i=>L.push(`| ${plain(i.label)} | ${wiUnit(wiNum(i.value),i.unit)} |`));
+  L.push("\n| Output | At those inputs |\n|---|---|");
+  spec.outputs.forEach(o=>L.push(`| ${plain(o.label)} | ${wiUnit(wiNum(whatifEval(whatifParse(o.expr),vals),o.decimals),o.unit)} |`));
+  if((spec.cites||[]).length)L.push(`\n_Rests on ${spec.cites.map(mdRef).join(", ")}_`);
+  L.push("");
+ }
+ if(spec.kind==="dd.steps")spec.steps.forEach((s,i)=>L.push(`${i+1}. **${plain(s.label)}** — ${plain(s.md)}`));
+ if(spec.kind==="dd.timeline")spec.phases.forEach(ph=>L.push(
+  `- **${plain(ph.label)}** — ${ph.state}${ph.note?". "+plain(ph.note):""}${ph.gate?` _(gated on ${mdRef(ph.gate)})_`:""}`));
+ if(spec.kind==="dd.matrix"){
+  L.push("| | "+spec.cols.map(c=>plain(c.label)+(c.label===spec.pick?" (chosen)":"")).join(" | ")+" |");
+  L.push("|"+["---",...spec.cols.map(()=>"---")].join("|")+"|");
+  spec.rows.forEach((r,ri)=>L.push(`| **${plain(r.label)}** | `+(spec.cells[ri]||[]).map(c=>plain(c.text)).join(" | ")+" |"));
+  L.push("");
+ }
+ return L.join("\n");
+}
+function resetComponentsForPrint(){
+ document.querySelectorAll(".ddc-range,.ddc-wipe").forEach(r=>{
+  if(r.value===r.dataset.default)return;
+  r.value=r.dataset.default;
+  r.dispatchEvent(new Event("input"));
+ });
+}
+new MutationObserver(()=>{if(HTML.dataset.print)resetComponentsForPrint()}).observe(HTML,{attributeFilter:["data-print"]});
+JOBS.push(mountRegisterComponents());
+
 window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  await document.fonts.ready;
  await new Promise(r=>setTimeout(r,0));
+ if(HTML.dataset.ai)$("#mbarAsk").hidden=false;
  HTML.dataset.ready="1";
 });
+const AI_CFG_KEY="design-doc-ai";
+const AI_ROUNDS=6;
+const AI_RPM=30;
+const AI_RATE_KEY="design-doc-ai-rate";
+const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
+const AI_SECTION_NAMES={overview:"Overview",ground:"Ground rules",architecture:"How it works",paths:"Where the time goes",numbers:"Numbers",ceilings:"Where it breaks",decisions:"Decisions",assumptions:"Assumptions",open:"Still open",footnotes:"Footnotes"};
+const AI_SUGGEST={
+ overview:["What is this proposing, in a paragraph?","What breaks today that this fixes?"],
+ ground:["Which ground rule is most likely to move?","What is fixed before the design starts?"],
+ architecture:["Walk me through one request end to end.","Which part of this is new?"],
+ paths:["Where does the time actually go?","Which step would I attack first?"],
+ numbers:["Which number is load-bearing?","What did we measure and what did we guess?"],
+ ceilings:["Which ceiling is closest?","What would I see first when it breaks?"],
+ decisions:["What was the hardest call, and what did it turn down?","Which decisions are still open?"],
+ assumptions:["Which assumption is load-bearing?","What falls if it is wrong?"],
+ open:["What is blocking a decision right now?","Which spike should run first?"],
+ footnotes:["What do the footnotes add?"]
+};
+const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
+const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
+
+let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let aiChat=[];
+const aiMarked=[];
+
+const AI_LOOPBACK=/^(localhost|127\.0\.0\.1|\[::1\])$/;
+function aiEndpoint(raw){
+ if(!raw)return null;
+ let u;
+ try{u=new URL(raw)}catch(e){return null}
+ if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
+ return u.href.replace(/\/+$/,"");
+}
+function aiNormalise(j){
+ if(!j||typeof j!=="object")return null;
+ if(j.disabled===true)return {disabled:true};
+ const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
+ const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key");
+ if(!endpoint||!model||!key)return null;
+ return {endpoint,model,key};
+}
+async function aiConfig(){
+ let stored=null;
+ try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)stored=aiNormalise(JSON.parse(raw))}catch(e){}
+ if(stored)return stored.disabled?null:stored;
+ for(const path of ["../ai.json","ai.json"]){
+  let j=null;
+  try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
+  const c=aiNormalise(j);
+  if(c)return c.disabled?null:c;
+ }
+ return null;
+}
+function aiWait(ms,signal){
+ return new Promise((resolve,reject)=>{
+  const stop=()=>reject(new DOMException("aborted","AbortError"));
+  if(signal&&signal.aborted)return stop();
+  const onAbort=()=>{clearTimeout(timer);stop()};
+  const timer=setTimeout(()=>{if(signal)signal.removeEventListener("abort",onAbort);resolve()},Math.max(0,ms));
+  if(signal)signal.addEventListener("abort",onAbort,{once:true});
+ });
+}
+function aiRecent(){
+ const now=Date.now();
+ let saved=[];
+ try{saved=JSON.parse(localStorage.getItem(AI_RATE_KEY)||"[]")}catch(e){}
+ return (Array.isArray(saved)?saved:[]).filter(t=>typeof t==="number"&&now-t<60000).sort((a,b)=>a-b);
+}
+async function aiSlot(signal){
+ for(;;){
+  const recent=aiRecent();
+  if(recent.length<AI_RPM){
+   recent.push(Date.now());
+   try{localStorage.setItem(AI_RATE_KEY,JSON.stringify(recent.slice(-AI_RPM)))}catch(e){}
+   return;
+  }
+  await aiWait(60000-(Date.now()-recent[0])+50,signal);
+ }
+}
+function aiRetryAfter(header){
+ if(!header)return null;
+ const raw=String(header).trim();
+ if(/^\d+(\.\d+)?$/.test(raw))return parseFloat(raw)*1000;
+ const at=Date.parse(raw);
+ return isNaN(at)?null:Math.max(0,at-Date.now());
+}
+async function aiPost(body,signal){
+ for(let attempt=0;;attempt++){
+  await aiSlot(signal);
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  if(r.status===429&&attempt<3){
+   const wait=aiRetryAfter(r.headers.get("retry-after"));
+   await aiWait(wait==null?2000:wait,signal);
+   continue;
+  }
+  if(!r.ok){
+   const detail=await r.text().catch(()=>"");
+   throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
+  }
+  return r;
+ }
+}
+async function aiStream(body,signal,onText){
+ const r=await aiPost(Object.assign({},body,{stream:true}),signal);
+ const reader=r.body.getReader(),dec=new TextDecoder();
+ let buf="",text="";
+ const calls=[];
+ for(;;){
+  const {value,done}=await reader.read();
+  if(done)break;
+  buf+=dec.decode(value,{stream:true});
+  let nl;
+  while((nl=buf.indexOf("\n"))>=0){
+   const line=buf.slice(0,nl).trim();buf=buf.slice(nl+1);
+   if(!line.startsWith("data:"))continue;
+   const data=line.slice(5).trim();
+   if(!data||data==="[DONE]")continue;
+   let j;try{j=JSON.parse(data)}catch(e){continue}
+   const choice=(j.choices||[])[0];
+   if(j.usage)aiPrompt=j.usage.prompt_tokens||aiPrompt;
+   if(!choice)continue;
+   const d=choice.delta||{};
+   if(d.content){text+=d.content;if(onText)onText(text)}
+   (d.tool_calls||[]).forEach(tc=>{
+    const ix=tc.index||0;
+    const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
+    if(tc.id)c.id=tc.id;
+    if(tc.function&&tc.function.name)c.name+=tc.function.name;
+    if(tc.function&&tc.function.arguments)c.args+=tc.function.arguments;
+   });
+  }
+ }
+ return {text,calls:calls.filter(Boolean)};
+}
+async function aiOnce(messages,opt){
+ const o=opt||{};
+ const body={model:AI.model,messages,reasoning_effort:o.effort||"low"};
+ if(o.onText&&!o.schema)return (await aiStream(body,o.signal,o.onText)).text;
+ if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
+ const r=await aiPost(body,o.signal);
+ const j=await r.json();
+ aiPrompt=(j.usage&&j.usage.prompt_tokens)||aiPrompt;
+ const content=((j.choices||[])[0]||{}).message||{};
+ const text=content.content||"";
+ return o.schema?JSON.parse(text||"{}"):text;
+}
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+async function aiCached(feature,input,make){
+ const key="ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+ try{const hit=localStorage.getItem(key);if(hit)return JSON.parse(hit)}catch(e){}
+ const out=await make();
+ try{localStorage.setItem(key,JSON.stringify(out))}catch(e){}
+ return out;
+}
+
+const aiHandle=e=>{
+ if(!e)return "";
+ if(e.h&&String(e.h).trim())return plain(e.h);
+ const t=plain(e.t||e.name||e.b||"");
+ const w=t.split(/\s+/);
+ return w.slice(0,4).join(" ")+(w.length>4?"…":"");
+};
+const aiStatus=e=>(AI_STATUS[e&&e.s]||["st-warn",e&&e.s||""])[1];
+const aiEntry=id=>DQ.find(d=>d.id===id)||ASSUM.find(a=>a.id===id)||OPEN.find(o=>o.id===id)||ARCH.find(c=>c.id===id)||NUMBERS.find(n=>n.id===id)||PATHS.find(p=>p.id===id)||null;
+const aiKind=id=>REF[id]?REF[id].kind:"";
+function aiEl(id){
+ return document.getElementById("item-"+id)||document.getElementById("open-"+id)||document.getElementById(id)||document.getElementById("spot-"+id)||null;
+}
+function aiReverseIndex(){
+ const map=Object.create(null);
+ const add=(cited,by)=>{if(cited===by)return;(map[cited]||(map[cited]=[])).push(by)};
+ const scan=(text,by)=>{
+  if(!ID_RE||!text)return;
+  String(text).replace(ID_RE,(all,pre,id)=>{add(id,by);return all});
+ };
+ DQ.forEach(d=>[d.t,d.p,d.r,d.x].forEach(s=>scan(s,d.id)));
+ ASSUM.forEach(a=>[a.t,a.p,a.b,a.n].forEach(s=>scan(s,a.id)));
+ OPEN.forEach(o=>{[o.t,o.p].forEach(s=>scan(s,o.id));(o.blocks||[]).forEach(b=>add(b,o.id))});
+ ARCH.forEach(c=>{(c.b||[]).forEach(s=>scan(s,c.id));[...(c.a||[]),...(c.dq||[])].forEach(x=>add(x,c.id))});
+ NUMBERS.forEach(n=>[n.t,n.sub,n.note].concat((n.rows||[]).map(r=>r.join(" "))).forEach(s=>scan(s,n.id)));
+ CONS.forEach((c,i)=>{scan(c.t,"ground rule "+(i+1));String(c.a||"").split(" ").filter(Boolean).forEach(a=>add(a,"ground rule "+(i+1)))});
+ CEIL.forEach(row=>scan(row.join(" "),"a ceiling in Where it breaks"));
+ TLDR.forEach((t,i)=>scan(t.md,"In brief bullet "+(i+1)));
+ return map;
+}
+let AI_CITED=null;
+const aiCitedBy=id=>{if(!AI_CITED)AI_CITED=aiReverseIndex();return [...new Set(AI_CITED[id]||[])]};
+
+function aiEntryText(e,kind){
+ if(!e)return "";
+ const L=[];
+ if(kind==="decision"){
+  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  L.push("What we decided: "+plain(e.r));
+  if(e.x)L.push("What we turned down: "+plain(e.x));
+  if(e.by)L.push("Replaced by: "+e.by);
+  const rd=ROUNDS[e.round];
+  if(rd)L.push("We asked: "+plain(rd.q)+" / You said: "+plain(rd.a)+(rd.n?" / "+plain(rd.n):""));
+ }else if(kind==="assumption"){
+  L.push(e.id+" · assumption · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.star?" · load-bearing":""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  L.push("Basis: "+plain(e.b));
+  if(e.n)L.push("How this changed: "+plain(e.n));
+ }else if(kind==="open"){
+  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  if((e.blocks||[]).length)L.push("Blocks: "+e.blocks.join(", "));
+ }else if(kind==="arch"){
+  L.push(e.id+" · component");
+  L.push("Title: "+plain(e.t));
+  (e.b||[]).forEach(p=>L.push(plain(p)));
+  L.push("Rests on: "+[...(e.a||[]),...(e.dq||[])].join(", "));
+ }else if(kind==="numbers"){
+  L.push(e.id+" · numbers table");
+  L.push("Title: "+plain(e.t)+(e.sub?" ("+plain(e.sub)+")":""));
+  L.push("| "+(e.cols||[]).join(" | ")+" |");
+  (e.rows||[]).forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
+  if(e.note)L.push(plain(e.note));
+ }else if(kind==="path"){
+  L.push(e.id+" · request path · "+plain(e.name));
+  (e.segs||[]).forEach(g=>L.push(g[0]+": p50 "+fmt(g[1])+", p95 "+fmt(g[2])+(g[3]?" — "+plain(g[3]):"")));
+  if(e.note)L.push(plain(e.note));
+ }
+ return L.join("\n");
+}
+function aiSectionText(id){
+ const L=[];
+ if(id==="overview"){
+  L.push("In brief:");
+  TLDR.forEach(t=>L.push("- "+plain(t.md)));
+  if(META.banner&&META.banner.text)L.push("Banner: "+plain(META.banner.text)+(META.banner.assumption?" ("+META.banner.assumption+")":""));
+  if(DIAGRAM_CAPTION)L.push("Diagram caption: "+plain(DIAGRAM_CAPTION));
+ }else if(id==="ground"){
+  CONS.forEach(c=>L.push("- "+plain(c.t)+(c.a?" (rests on "+c.a+")":"")));
+  TERMS.forEach(t=>L.push("- "+t.k+": "+plain(t.v)));
+ }else if(id==="architecture"){
+  ARCH.forEach(c=>L.push(aiEntryText(c,"arch")));
+  if(DIAGRAM&&DIAGRAM.source)L.push("Diagram source:\n"+DIAGRAM.source);
+ }else if(id==="paths"){
+  PATHS.forEach(p=>L.push(aiEntryText(p,"path")));
+ }else if(id==="numbers"){
+  NUMBERS.forEach(n=>L.push(aiEntryText(n,"numbers")));
+ }else if(id==="ceilings"){
+  L.push("| Resource | Ceiling | What you would see first | What stops it |");
+  CEIL.forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
+  if(CEILNOTE)L.push(plain(CEILNOTE));
+ }else if(id==="decisions"){
+  DQ.forEach(d=>L.push(aiEntryText(d,"decision")));
+ }else if(id==="assumptions"){
+  ASSUM.forEach(a=>L.push(aiEntryText(a,"assumption")));
+ }else if(id==="open"){
+  OPEN.forEach(o=>L.push(aiEntryText(o,"open")));
+ }else if(id==="footnotes"){
+  FOOTNOTES.forEach(f=>L.push(f.n+". "+plain(f.b)));
+ }
+ const out=L.join("\n\n");
+ return out.length>14000?out.slice(0,14000)+"\n[truncated: read single entries with read_entry]":out;
+}
+function aiIndex(){
+ const L=[];
+ const row=(e,kind)=>{
+  const bits=[e.id,kind];
+  const st=aiStatus(e);
+  if(st)bits.push(st);
+  if(e.theme)bits.push(themeLabel(e.theme));
+  if(e.g)bits.push(OGROUPS[e.g]||e.g);
+  if(e.key)bits.push("key");
+  if(e.star)bits.push("load-bearing");
+  return bits.join(" · ")+" — “"+aiHandle(e)+"” — "+plain(e.t||e.name||"")+(e.p?" — "+plain(e.p):"");
+ };
+ L.push("# "+(META.title||"")+" — "+(META.subtitle||"design proposal")+(META.rev?", revision "+META.rev:"")+(META.date?", "+META.date:""));
+ if(META.draft)L.push("This document is a draft in progress.");
+ L.push("\n## In brief");
+ TLDR.forEach(t=>L.push("- "+plain(t.p||t.md)));
+ if(META.banner&&META.banner.text)L.push("Warning banner: "+plain(META.banner.text));
+ L.push("\n## Ground rules");
+ CONS.forEach(c=>L.push("- "+plain(c.p||c.t)+(c.a?" ["+c.a+"]":"")));
+ if(TERMS.length){
+  L.push("\n## Terms");
+  TERMS.forEach(t=>L.push("- "+t.k+": "+plain(t.v)));
+ }
+ if(ARCH.length){
+  L.push("\n## How it works (components)");
+  ARCH.forEach(c=>L.push(c.id+" — “"+aiHandle(c)+"” — "+plain(c.t)+" — "+firstSentence(c.b&&c.b[0]||"")));
+ }
+ if(PATHS.length){
+  L.push("\n## Where the time goes");
+  PATHS.forEach(p=>L.push(p.id+" — "+plain(p.name)+" — p50 "+fmt(p.segs.reduce((s,g)=>s+g[1],0))+", p95 "+fmt(p.segs.reduce((s,g)=>s+g[2],0))));
+ }
+ if(NUMBERS.length){
+  L.push("\n## Numbers");
+  NUMBERS.forEach(n=>L.push(n.id+" — “"+aiHandle(n)+"” — "+plain(n.t)+(n.sub?" ("+plain(n.sub)+")":"")+" — "+(n.rows||[]).length+" rows"));
+ }
+ if(CEIL.length){
+  L.push("\n## Where it breaks");
+  CEIL.forEach(r=>L.push("- "+plain(r[0])+": "+plain(r[1])+" — first sign: "+plain(r[2])));
+ }
+ L.push("\n## Decisions ("+DQ.length+")");
+ DQ.forEach(d=>L.push(row(d,"decision")));
+ L.push("\n## Assumptions ("+ASSUM.length+")");
+ ASSUM.forEach(a=>L.push(row(a,"assumption")));
+ L.push("\n## Still open ("+OPEN.length+")");
+ OPEN.forEach(o=>L.push(row(o,"open")));
+ if(FOOTNOTES.length){
+  L.push("\n## Footnotes");
+  FOOTNOTES.forEach(f=>L.push(f.n+". "+plain(f.b)));
+ }
+ return L.join("\n");
+}
+function aiContext(){
+ if(aiCtxText)return aiCtxText;
+ const L=[aiIndex()];
+ const deck=summaryMd();
+ if(deck)L.push("\n## The summary deck, as the reader sees it first\n"+deck);
+ const comps=aiComponentsMd();
+ if(comps)L.push("\n## The interactive figures on the page, flattened\n"+comps);
+ L.push("\n## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n"));
+ aiCtxText=L.join("\n");
+ return aiCtxText;
+}
+function aiSystem(){
+ return [
+  "You are the reading companion built into this design document. You answer questions about it for someone reading it cold, and you can move the page for them.",
+  "",
+  "How to answer:",
+  "- Answer only from the document below and from what the tools return. When it does not cover something, say so in one sentence and stop; never fill the gap from general knowledge.",
+  "- Every answer that rests on one entry leaves the page on that entry: call scroll_to on it and then highlight on it before you write the reply. Reading an entry does not move the page, so read_entry never stands in for that pair. They are tools: call them, never describe a call or print its arguments.",
+  "- Cite an entry by putting its id alone in round brackets after the words it belongs to: \"Tokens expire within a day (DQ26).\" The page renders that id as the entry's handle, so never write the handle or the title beside it, never use square brackets, and never invent an id.",
+  "- Read before you answer when an index line is not enough: read_entry, read_section, list_entries.",
+  "- Answer in two to four full sentences, or a short list when the answer is a set. A fragment, a label, or a pasted index line is not an answer.",
+  "- The reader has the document in front of them, so do not restate it at length.",
+  "",
+  "The document:",
+  aiContext()
+ ].join("\n");
+}
+
+const aiStr=(d)=>({type:"string",description:d});
+const aiOpt=(d)=>({type:["string","null"],description:d});
+const aiTool=(name,description,props)=>({type:"function",function:{name,description,strict:true,parameters:{type:"object",properties:props,required:Object.keys(props),additionalProperties:false}}});
+const AI_TOOLS=[
+ aiTool("scroll_to","Scroll the page to a register entry or a section so the reader sees it.",{id:aiStr("A register id such as DQ26, A3, Q2, c-auth-frontend, n-restate-traffic, or a section id such as decisions or open.")}),
+ aiTool("highlight","Outline an entry on the page. Use it right after scroll_to so the reader's eye lands on the right row.",{id:aiStr("A register id.")}),
+ aiTool("open_entry","Open an entry's card so its full body, including what was turned down, is on screen.",{id:aiStr("A register id.")}),
+ aiTool("filter","Filter one register section.",{section:aiStr("decisions, assumptions or open."),value:aiStr("For decisions: all, resolved, superseded or open. For assumptions: all, working or validate. For open: all or a group key.")}),
+ aiTool("show_diagram","Scroll to the system diagram, optionally highlighting one node.",{node:aiOpt("A diagram node id, or null for the whole diagram.")}),
+ aiTool("read_entry","Read one entry in full: exact wording, what was turned down, the round it came from.",{id:aiStr("A register id.")}),
+ aiTool("read_section","Read a whole section of the document as text.",{section:aiStr("overview, ground, architecture, paths, numbers, ceilings, decisions, assumptions, open or footnotes.")}),
+ aiTool("list_entries","List one register compactly, id and handle per line.",{register:aiStr("decisions, assumptions, open, arch or numbers."),status:aiOpt("Status to keep, or null for all."),theme:aiOpt("Theme key or open group key to keep, or null for all.")}),
+ aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
+ aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
+];
+function aiMark(id){
+ const node=aiEl(id);
+ if(!node)return false;
+ node.classList.add("ai-hl");
+ aiMarked.push(node);
+ return true;
+}
+function clearAiMarks(){
+ aiMarked.splice(0).forEach(n=>{
+  if(n.classList&&n.classList.contains("ai-hl")){n.classList.remove("ai-hl");return}
+  if(n.parentNode){const t=document.createTextNode(n.textContent);const p=n.parentNode;n.replaceWith(t);p.normalize()}
+ });
+ const svg=$("#sysdHost svg.mmd");
+ if(svg)clearHl(svg);
+}
+function setStatusFilter(section,value){
+ const v=String(value||"all");
+ if(section==="decisions")dqF=v;
+ else if(section==="assumptions")aF=v;
+ else if(section==="open")oF=v;
+ else return false;
+ resetFilterButtons();
+ renderDQ();renderA();renderO();
+ return true;
+}
+function aiSelectText(text){
+ const needle=String(text||"").trim().slice(0,240);
+ if(!needle)return "no text given";
+ const walker=document.createTreeWalker($("#main"),NodeFilter.SHOW_TEXT);
+ const low=needle.toLowerCase();
+ while(walker.nextNode()){
+  const n=walker.currentNode,i=n.nodeValue.toLowerCase().indexOf(low);
+  if(i<0)continue;
+  const range=document.createRange();
+  range.setStart(n,i);range.setEnd(n,i+needle.length);
+  const span=el("span","ai-mark");
+  try{range.surroundContents(span)}catch(e){return "that passage spans several elements, so it cannot be selected"}
+  aiMarked.push(span);
+  const sel=getSelection();sel.removeAllRanges();
+  const r2=document.createRange();r2.selectNodeContents(span);sel.addRange(r2);
+  span.scrollIntoView({block:"center"});
+  return "selected on the page: "+needle;
+ }
+ return "that text is not on the page right now";
+}
+function aiRenderPath(title,items){
+ const host=$("#aiPath");
+ const rows=items.filter(x=>x&&x.id).slice(0,10);
+ if(!rows.length)return "no entries in that path";
+ host.innerHTML="";
+ const head=el("div","ai-path-head",`<b>${esc(title||"Read this first")}</b>`);
+ const close=el("button","ai-x","Clear");
+ close.onclick=()=>{host.hidden=true};
+ head.append(close);
+ host.append(head);
+ rows.forEach((x,i)=>{
+  const e=aiEntry(x.id);
+  const row=el("label","ai-path-row",`<input type="checkbox"><span class="ai-path-t">${esc(aiHandle(e)||x.id)}</span><span class="ai-path-w">${esc(plain(x.why||""))}</span>`);
+  row.querySelector("input").onchange=()=>{openRef(x.id);aiMark(x.id)};
+  row.title=plain((e&&e.t)||x.id);
+  host.append(row);
+ });
+ host.hidden=false;
+ return "pinned "+rows.length+" entries in the sidebar";
+}
+async function aiExec(name,args){
+ if(name==="scroll_to"){
+  const id=String(args.id||"");
+  if(REF[id]){openRef(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
+  const sec=document.getElementById(id);
+  if(sec){unveil();sec.scrollIntoView({block:"start"});return "scrolled to the "+(AI_SECTION_NAMES[id]||id)+" section"}
+  return "no entry or section with id "+id;
+ }
+ if(name==="highlight")return aiMark(String(args.id||""))?"highlighted "+args.id:"nothing on the page with id "+args.id;
+ if(name==="open_entry"){
+  const id=String(args.id||"");
+  if(!REF[id])return "no entry with id "+id;
+  openRef(id);
+  setTimeout(()=>{const n=aiEl(id);if(n&&n.tagName==="DETAILS")n.open=true;aiMark(id)},60);
+  return "opened "+id;
+ }
+ if(name==="filter")return setStatusFilter(String(args.section||""),args.value)?"filtered "+args.section+" to "+args.value:"cannot filter "+args.section;
+ if(name==="show_diagram"){
+  const box=document.querySelector(".sysd");
+  if(!box||box.hidden)return "this document has no system diagram";
+  unveil();box.scrollIntoView({block:"center"});
+  const svg=$("#sysdHost svg.mmd");
+  if(args.node&&svg){clearHl(svg);return hlNode(svg,String(args.node))?"showed node "+args.node:"the diagram has no node "+args.node}
+  return "showed the system diagram";
+ }
+ if(name==="read_entry"){
+  const id=String(args.id||"");
+  const e=aiEntry(id);
+  if(!e){
+   const fn=FOOTNOTES.find(f=>"fn"+f.n===id||String(f.n)===id);
+   if(fn)return "Footnote "+fn.n+": "+plain(fn.b);
+   return "no entry with id "+id;
+  }
+  return aiEntryText(e,aiKind(id));
+ }
+ if(name==="read_section"){
+  const s=String(args.section||"");
+  return AI_SECTION_NAMES[s]?aiSectionText(s):"no section called "+s;
+ }
+ if(name==="list_entries"){
+  const reg=String(args.register||"");
+  const src={decisions:DQ,assumptions:ASSUM,open:OPEN,arch:ARCH,numbers:NUMBERS}[reg];
+  if(!src)return "no register called "+reg;
+  const st=args.status&&args.status!=="all"?String(args.status):null;
+  const th=args.theme&&args.theme!=="all"?String(args.theme):null;
+  const rows=src.filter(e=>(!st||e.s===st)&&(!th||e.theme===th||e.g===th));
+  if(!rows.length)return "nothing in "+reg+" matches";
+  return rows.map(e=>e.id+" — "+aiHandle(e)+(e.s?" ("+aiStatus(e)+")":"")).join("\n");
+ }
+ if(name==="select_text")return aiSelectText(args.text);
+ if(name==="set_reading_path")return aiRenderPath(args.title,Array.isArray(args.items)?args.items:[]);
+ return "no tool called "+name;
+}
+async function aiRun(question,opt){
+ const o=opt||{};
+ const msgs=[{role:"system",content:aiSystem()}];
+ aiChat.forEach(m=>msgs.push({role:m.role,content:m.content}));
+ msgs.push({role:"user",content:question});
+ let answer="";
+ for(let round=0;round<AI_ROUNDS;round++){
+  const prefix=answer?answer+"\n\n":"";
+  const res=await aiStream({model:AI.model,messages:msgs,tools:AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
+  if(res.text)answer=prefix+res.text;
+  if(!res.calls.length)break;
+  msgs.push({role:"assistant",content:res.text||"",tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  const results=await Promise.all(res.calls.map(async c=>{
+   let args={};
+   try{args=JSON.parse(c.args||"{}")}catch(e){return {c,out:"the arguments did not parse as JSON"}}
+   if(o.onTool)o.onTool(c.name,args);
+   try{return {c,out:await aiExec(c.name,args)}}
+   catch(e){return {c,out:"that tool failed: "+e.message}}
+  }));
+  results.forEach(r=>msgs.push({role:"tool",tool_call_id:r.c.id,content:String(r.out).slice(0,6000)}));
+ }
+ return {answer};
+}
+
+function aiChatKey(){return "ai:"+SLUG+":chat"}
+function aiSaveChat(){try{sessionStorage.setItem(aiChatKey(),JSON.stringify(aiChat.slice(-12)))}catch(e){}}
+function aiLoadChat(){
+ try{const raw=sessionStorage.getItem(aiChatKey());if(raw)aiChat=JSON.parse(raw)||[]}catch(e){aiChat=[]}
+ aiChat.forEach(m=>aiBubble(m.role,m.content));
+}
+function aiScrollLog(){const log=$("#aiLog");log.scrollTop=log.scrollHeight}
+function aiBubble(role,text){
+ const box=el("div","ai-msg ai-"+role);
+ if(role==="user")box.textContent=text;
+ else{box.innerHTML=mdToHtml(text||"…");scrub(box)}
+ $("#aiLog").append(box);
+ aiScrollLog();
+ return box;
+}
+function aiNode(node){$("#aiLog").append(node);aiScrollLog();return node}
+function aiOpen(seed){
+ const pop=$("#ai");
+ pop.hidden=false;
+ aiSuggest();
+ if(seed!=null){const box=$("#aiIn");box.value=seed;box.focus();aiGrow(box)}
+ else $("#aiIn").focus();
+ aiScrollLog();
+}
+function aiClose(){$("#ai").hidden=true}
+function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.scrollHeight)+"px"}
+function aiSuggest(){
+ const host=$("#aiSug");host.innerHTML="";
+ const meta=(META.ai&&META.ai.suggest)||{};
+ const list=[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
+ list.forEach(q=>{
+  const b=el("button","ai-chip",esc(q));
+  b.onclick=()=>aiAsk(q);
+  host.append(b);
+ });
+}
+function aiStop(){if(aiAbort)aiAbort.abort()}
+async function aiAsk(question,opt){
+ const q=String(question||"").trim();
+ if(!q||aiBusy)return;
+ clearAiMarks();
+ const o=opt||{};
+ $("#ai").hidden=false;
+ aiBubble("user",q);
+ const bubble=aiBubble("assistant","…");
+ const tools=el("div","ai-used");
+ aiNode(tools);
+ const ctrl=new AbortController();
+ aiBusy=true;
+ aiAbort=ctrl;
+ $("#aiSend").textContent="Stop";
+ let pending=0,latest="";
+ const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
+ try{
+  const {answer}=await aiRun(q,{
+   effort:o.effort||"low",
+   signal:ctrl.signal,
+   onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
+   onTool:(name,args)=>{
+    tools.append(el("span","ai-tool",esc(name+(args&&args.id?" "+args.id:""))));
+    aiScrollLog();
+   }
+  });
+  if(pending)cancelAnimationFrame(pending);
+  latest=answer||"No answer came back.";
+  paint();
+  aiChat.push({role:"user",content:q},{role:"assistant",content:answer});
+  aiSaveChat();
+ }catch(e){
+  if(pending)cancelAnimationFrame(pending);
+  if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
+ }finally{
+  if(aiAbort===ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
+  aiScrollLog();
+ }
+}
+
+async function aiExplain(entry,kind,roleIx,onText){
+ const [label,role]=AI_ROLES[roleIx];
+ const cites=aiCitedBy(entry.id).slice(0,6).map(id=>{const e=aiEntry(id);return e?id+" "+aiHandle(e):id}).join("; ");
+ const input=entry.id+"|"+label+"|"+(META.rev||0);
+ return aiCached("explain",input,()=>aiOnce([
+  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Cite another entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No preamble."},
+  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nWhat else names it: "+(cites||"nothing")+"\n\nThe document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nExplain what this means for that reader in three sentences."}
+ ],{effort:"low",onText}));
+}
+async function aiWhyHere(entry,kind){
+ const citers=aiCitedBy(entry.id);
+ const detail=citers.slice(0,10).map(id=>{const e=aiEntry(id);return e?id+" — "+plain(e.t):id}).join("\n")||"nothing else in the document names it";
+ return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nEverything that names it:\n"+detail}
+ ],{effort:"low"}));
+}
+async function aiReviewComment(entry,kind,concern){
+ return aiOnce([
+  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern}
+ ],{effort:"low"});
+}
+async function aiSummariseSection(id){
+ return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. Return markdown bullets and nothing else."},
+  {role:"user",content:"Section: "+AI_SECTION_NAMES[id]+"\n\n"+aiSectionText(id)}
+ ],{effort:"low"}));
+}
+async function aiChangedSince(){
+ if(!DIFF)return "";
+ const marks=Object.entries(DIFF.marks);
+ const detail=marks.slice(0,40).map(([k,v])=>{
+  const id=k.split(":")[1],e=aiEntry(id);
+  return k+" "+v+(e?" — "+plain(e.t):"");
+ }).join("\n");
+ const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
+ return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
+  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No bullet list."},
+  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail}
+ ],{effort:"medium"}));
+}
+const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
+async function aiFaq(){
+ return aiCached("faq",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and cites an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
+  {role:"user",content:aiContext()}
+ ],{effort:"low",schema:AI_FAQ_SCHEMA}));
+}
+const AI_GLOSS_SCHEMA={name:"glossary",schema:{type:"object",properties:{terms:{type:"array",items:{type:"object",properties:{k:{type:"string"},v:{type:"string"}},required:["k","v"],additionalProperties:false}}},required:["terms"],additionalProperties:false}};
+async function aiGlossary(){
+ const known=TERMS.map(t=>t.k).join(", ");
+ return aiCached("glossary",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You find the terms a design document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."},
+  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\n"+aiContext()}
+ ],{effort:"low",schema:AI_GLOSS_SCHEMA}));
+}
+const AI_PATH_SCHEMA={name:"reading_path",schema:{type:"object",properties:{title:{type:"string"},items:{type:"array",items:{type:"object",properties:{id:{type:"string"},why:{type:"string"}},required:["id","why"],additionalProperties:false}}},required:["title","items"],additionalProperties:false}};
+async function aiReadAs(roleIx){
+ const [label,role]=AI_ROLES[roleIx];
+ return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You pick the six entries of a design document that one reader must read, in order, and give one line each on why. Use ids exactly as they appear."},
+  {role:"user",content:"Reader: "+role+" (title the path for them).\n\n"+aiContext()}
+ ],{effort:"medium",schema:AI_PATH_SCHEMA}));
+}
+const AI_QUIZ_SCHEMA={name:"quiz",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},options:{type:"array",items:{type:"string"}},answer:{type:"integer"},id:{type:"string"}},required:["q","options","answer","id"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
+async function aiQuiz(){
+ return aiCached("quiz",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You write five multiple-choice questions that check whether a reviewer understood a design document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."},
+  {role:"user",content:aiContext()}
+ ],{effort:"medium",schema:AI_QUIZ_SCHEMA}));
+}
+
+function aiBusyNode(label){
+ const box=el("div","ai-msg ai-assistant");
+ box.append(el("span","ai-wait",esc(label)));
+ return aiNode(box);
+}
+function aiFail(box,e){box.innerHTML="";box.append(el("span","ai-err",esc("Sorry — "+e.message)))}
+async function aiFeature(label,run){
+ $("#ai").hidden=false;
+ const box=aiBusyNode(label+"…");
+ try{await run(box)}catch(e){aiFail(box,e)}
+ aiScrollLog();
+}
+function aiShowFaq(){
+ return aiFeature("Working out the questions people ask",async box=>{
+  const out=await aiFaq();
+  box.innerHTML="<h3>Questions people ask</h3>"+(out.items||[]).map(it=>`<p><b>${esc(it.q)}</b><br>${inline(it.a)}</p>`).join("");
+  scrub(box);
+ });
+}
+function aiShowChanged(){
+ if(!DIFF)return aiFeature("Comparing revisions",async box=>{box.textContent="Pick a revision to compare against first."});
+ return aiFeature("Reading the diff",async box=>{
+  const text=await aiChangedSince();
+  const chips=Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,12);
+  box.innerHTML=mdToHtml(text)+(chips.length?`<p class="ai-changed">Changed: ${chips.map(id=>refChip(id)).join(" ")}</p>`:"");
+  scrub(box);
+ });
+}
+function aiShowQuiz(){
+ return aiFeature("Writing five questions",async box=>{
+  const out=await aiQuiz();
+  box.innerHTML="<h3>Check my understanding</h3>";
+  (out.items||[]).forEach((q,qi)=>{
+   const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
+   (q.options||[]).forEach((opt,oi)=>{
+    const b=el("button","ai-opt",esc(opt));
+    b.onclick=()=>{
+     wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
+     b.classList.add(oi===q.answer?"ok":"bad");
+     const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
+     if(REF[q.id]){
+      const a=el("a","ref","Show me");
+      a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
+      foot.append(a);
+     }
+     wrap.append(foot);
+    };
+    wrap.append(b);
+   });
+   box.append(wrap);
+  });
+ });
+}
+function aiShowReadAs(roleIx){
+ return aiFeature("Picking what "+AI_ROLES[roleIx][0]+" should read",async box=>{
+  const out=await aiReadAs(roleIx);
+  aiRenderPath(out.title||("Read as "+AI_ROLES[roleIx][0]),out.items||[]);
+  box.innerHTML=`<h3>${esc(out.title||"Read this first")}</h3>`+(out.items||[]).map(x=>{
+   const e=aiEntry(x.id);
+   return `<p>${e?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`;
+  }).join("")+'<p class="ai-note-in">Pinned in the sidebar; tick a row to jump to it.</p>';
+  scrub(box);
+ });
+}
+function aiShowGlossary(){
+ return aiFeature("Looking for terms the document never defines",async box=>{
+  const out=await aiGlossary();
+  const terms=(out.terms||[]).filter(t=>t&&t.k&&t.v);
+  window.ddTerms.add(terms);
+  const host=$("#defsList");
+  if(host)terms.forEach(t=>{
+   if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
+   const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
+   card.dataset.aiTerm=t.k;
+   host.append(card);
+  });
+  box.innerHTML="<h3>Terms the document never defines</h3>"+terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
+  const copy=el("button","ai-btn","Copy as JSON");
+  copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
+  box.append(copy);
+  const go=el("button","ai-btn","Show them in Terms");
+  go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
+  box.append(go);
+ });
+}
+
+function aiRowMenu(anchor,entry,kind){
+ document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+ const menu=el("div","ai-menu");
+ const head=el("div","ai-menu-head",`<b>${esc(aiHandle(entry))}</b><span class="idchip">${esc(entry.id)}</span>`);
+ menu.append(head);
+ const out=el("div","ai-menu-out");
+ const roles=el("div","ai-menu-row");
+ roles.append(el("span","ai-menu-label","Explain for"));
+ AI_ROLES.forEach(([label],ix)=>{
+  const b=el("button","ai-btn",label);
+  b.onclick=async()=>{
+   roles.querySelectorAll(".ai-btn").forEach(x=>x.classList.remove("on"));
+   b.classList.add("on");
+   out.textContent="…";
+   try{
+    const text=await aiExplain(entry,kind,ix,t=>{out.innerHTML=mdToHtml(t);scrub(out)});
+    out.innerHTML=mdToHtml(text);scrub(out);
+   }catch(e){out.textContent="Sorry — "+e.message}
+  };
+  roles.append(b);
+ });
+ menu.append(roles);
+ const acts=el("div","ai-menu-row");
+ const why=el("button","ai-btn","Why is this here");
+ why.onclick=async()=>{
+  out.textContent="…";
+  try{const text=await aiWhyHere(entry,kind);out.innerHTML=mdToHtml(text);scrub(out)}
+  catch(e){out.textContent="Sorry — "+e.message}
+ };
+ const review=el("button","ai-btn","Draft a review comment");
+ review.onclick=()=>{
+  out.innerHTML="";
+  const ta=el("textarea","ai-ta");ta.placeholder="What worries you about this?";ta.rows=2;
+  const go=el("button","ai-btn","Draft it");
+  go.onclick=async()=>{
+   const concern=ta.value.trim();
+   if(!concern)return;
+   out.textContent="…";
+   try{
+    const text=await aiReviewComment(entry,kind,concern);
+    out.innerHTML=mdToHtml(text);scrub(out);
+    const copy=el("button","ai-btn","Copy");
+    copy.onclick=()=>navigator.clipboard.writeText(text).then(()=>{copy.textContent="Copied"});
+    out.append(copy);
+   }catch(e){out.textContent="Sorry — "+e.message}
+  };
+  out.append(ta,go);ta.focus();
+ };
+ const ask=el("button","ai-btn","Ask about this");
+ ask.onclick=()=>{menu.remove();aiOpen("About "+aiHandle(entry)+" ("+entry.id+"): ")};
+ acts.append(why,review,ask);
+ menu.append(acts,out);
+ document.body.append(menu);
+ const r=anchor.getBoundingClientRect();
+ menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
+ menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+}
+function aiAskButton(row,entry,kind){
+ if(row.querySelector(":scope > .ai-ask, :scope > summary .ai-ask"))return;
+ const b=el("button","ai-ask ai-only","Ask");
+ b.type="button";
+ b.title="Explain this, or ask about it";
+ b.onclick=ev=>{ev.preventDefault();ev.stopPropagation();aiRowMenu(b,entry,kind)};
+ const host=row.querySelector(":scope > summary .lrow")||row.querySelector(":scope > summary .meta")||row.querySelector(":scope > summary")||row;
+ host.append(b);
+}
+function aiWireRows(){
+ document.addEventListener("pointerover",e=>{
+  if(!HTML.dataset.ai||!e.target.closest)return;
+  const row=e.target.closest("details.ledger[id^='item-'],details.spot,.orow,details.ledger[id^='c-']");
+  if(!row)return;
+  const id=row.id.replace(/^(item-|spot-|open-)/,"");
+  const entry=aiEntry(id);
+  if(entry)aiAskButton(row,entry,aiKind(id));
+ });
+ document.addEventListener("click",e=>{
+  const menu=document.querySelector(".ai-menu");
+  if(!menu)return;
+  const path=e.composedPath?e.composedPath():[];
+  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest(".ai-ask")))return;
+  menu.remove();
+ });
+}
+function aiWireSelection(){
+ const chip=el("button","ai-sel ai-only","Ask about this");
+ chip.hidden=true;
+ document.body.append(chip);
+ chip.onclick=()=>{
+  const text=String(getSelection()).trim().slice(0,600);
+  chip.hidden=true;
+  aiOpen("About this passage: “"+text+"”\n\n");
+ };
+ document.addEventListener("pointerup",()=>{
+  setTimeout(()=>{
+   if(!HTML.dataset.ai)return;
+   const sel=getSelection(),text=String(sel).trim();
+   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)){chip.hidden=true;return}
+   const r=sel.getRangeAt(0).getBoundingClientRect();
+   chip.style.left=Math.min(Math.max(8,r.left),innerWidth-160)+"px";
+   chip.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
+   chip.hidden=false;
+  },10);
+ });
+ document.addEventListener("pointerdown",e=>{if(!e.target.closest(".ai-sel"))chip.hidden=true});
+}
+function aiWireSections(){
+ const secs=[...document.querySelectorAll("main section")].filter(s=>!s.hidden);
+ const io=new IntersectionObserver(entries=>{
+  entries.forEach(en=>{
+   if(!en.isIntersecting)return;
+   aiSec=en.target.id;
+   if(!$("#ai").hidden)aiSuggest();
+  });
+ },{rootMargin:"-25% 0px -60% 0px"});
+ secs.forEach(s=>io.observe(s));
+ secs.forEach(s=>{
+  const h=s.querySelector("h2");
+  if(!h||!AI_SECTION_NAMES[s.id])return;
+  const b=el("button","ai-h2 ai-only","Summarise");
+  b.type="button";
+  b.onclick=async()=>{
+   b.disabled=true;b.textContent="…";
+   try{
+    const md=await aiSummariseSection(s.id);
+    const box=s.querySelector(".ai-sub")||el("div","sub ai-sub");
+    box.innerHTML=mdToHtml(md);
+    scrub(box);
+    const sub=s.querySelector("p.sub");
+    (sub&&!sub.hidden?sub:h).after(box);
+    b.textContent="Summarise";b.disabled=false;
+   }catch(e){b.textContent="Summarise";b.disabled=false;alert("Sorry — "+e.message)}
+  };
+  h.append(b);
+ });
+}
+function aiWireDiffPanel(){
+ const panel=$("#diffPanel");
+ const add=()=>{
+  if(panel.hidden||!DIFF||panel.querySelector(".ai-changed-btn"))return;
+  const b=el("button","xbtn ai-changed-btn ai-only","What changed, in prose");
+  b.onclick=aiShowChanged;
+  const head=panel.querySelector("div");
+  if(head)head.append(b);
+ };
+ new MutationObserver(add).observe(panel,{childList:true,attributes:true,attributeFilter:["hidden"]});
+ add();
+}
+function aiWireTools(){
+ const rail=document.querySelector("#rail");
+ const path=el("div","ai-path ai-only");
+ path.id="aiPath";
+ path.hidden=true;
+ rail.insertBefore(path,rail.querySelector(".spacer"));
+ const ask=el("button","toolbtn ai-only","Ask the doc");
+ ask.onclick=()=>aiOpen();
+ $("#toolrow").prepend(ask);
+ const termHead=document.querySelector("#ground h3");
+ if(termHead){
+  const g=el("button","ai-h2 ai-only","Find undefined terms");
+  g.onclick=aiShowGlossary;
+  termHead.append(g);
+ }
+ const foot=document.querySelector("footer");
+ if(foot){
+  const p=el("p","ai-only ai-footrow");
+  const quiz=el("button","xbtn","Check my understanding");
+  quiz.onclick=aiShowQuiz;
+  const faq=el("button","xbtn","Questions people ask");
+  faq.onclick=aiShowFaq;
+  p.append(quiz,faq);
+  foot.append(p);
+ }
+}
+
+function palItems(){
+ const items=[];
+ const push=(kind,label,sub,run)=>items.push({kind,label,sub,run});
+ Object.entries(AI_SECTION_NAMES).forEach(([id,name])=>{
+  const sec=document.getElementById(id);
+  if(sec&&!sec.hidden)push("section",name,"Go to",()=>{unveil();sec.scrollIntoView({block:"start"})});
+ });
+ if(!$("#navSummary").hidden)push("section","Summary","Go to",()=>scrollTo({top:0,behavior:"smooth"}));
+ Object.keys(REF).forEach(id=>{
+  const e=aiEntry(id);
+  if(!e)return;
+  const st=AI_STATUS[e.s]||["",""];
+  push(aiKind(id),aiHandle(e),plain(e.p||e.t||""),()=>{openRef(id);aiMark(id)});
+  Object.assign(items[items.length-1],{dot:st[0],rid:id});
+ });
+ TERMS.forEach(t=>push("term",t.k,plain(t.v),()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}}));
+ mountedComponents().forEach(([host,spec,name])=>push("component",plain(spec.title||name),"Go to the figure",()=>{unveil();host.scrollIntoView({block:"center"})}));
+ const cmd=(label,run)=>push("cmd",label,"Command",run);
+ if(DQ.length){
+  cmd("Decisions: everything",()=>setStatusFilter("decisions","all"));
+  cmd("Decisions: only Decided",()=>setStatusFilter("decisions","resolved"));
+  cmd("Decisions: only Replaced",()=>setStatusFilter("decisions","superseded"));
+  cmd("Decisions: only Still open",()=>setStatusFilter("decisions","open"));
+ }
+ if(ASSUM.length){
+  cmd("Assumptions: everything",()=>setStatusFilter("assumptions","all"));
+  cmd("Assumptions: only Assumed",()=>setStatusFilter("assumptions","working"));
+  cmd("Assumptions: Needs someone to confirm",()=>setStatusFilter("assumptions","validate"));
+ }
+ Object.entries(OGROUPS).forEach(([g,label])=>cmd("Still open: "+label,()=>{setStatusFilter("open",g);const s=document.getElementById("open");if(s){unveil();s.scrollIntoView({block:"start"})}}));
+ Object.entries(THEMES).forEach(([k,label])=>cmd("Theme: "+label,()=>{
+  setStatusFilter("decisions","all");
+  const det=[...document.querySelectorAll("#dqList details.theme")].find(d=>plain(d.querySelector(".t").textContent)===label);
+  if(det){det.open=true;unveil();det.scrollIntoView({block:"start"})}
+ }));
+ cmd("Expand all",()=>document.querySelectorAll("#dqList details,#aList details,#archCards details,#oList details").forEach(d=>{d.open=true}));
+ cmd("Collapse all",()=>document.querySelectorAll("#dqList details,#aList details,#archCards details,#oList details").forEach(d=>{d.open=false}));
+ if(!$("#wordingBtn").hidden)cmd("Full wording: toggle",()=>$("#wordingBtn").click());
+ cmd("Theme: dark",()=>aiTheme("dark"));
+ cmd("Theme: light",()=>aiTheme("light"));
+ cmd("Theme: follow the system",()=>aiTheme(""));
+ cmd("Print, or save as PDF",()=>$("#pdfBtn").click());
+ cmd("Copy the whole document as Markdown",()=>navigator.clipboard.writeText(buildDocMd()));
+ cmd("Copy this section as Markdown",()=>navigator.clipboard.writeText("## "+(AI_SECTION_NAMES[aiSec]||aiSec)+"\n\n"+aiSectionText(aiSec)));
+ cmd("Copy the selection, citations resolved",()=>{
+  const text=String(getSelection()).trim();
+  navigator.clipboard.writeText(ID_RE?text.replace(ID_RE,(all,pre,id)=>pre+mdRef(id)):text);
+ });
+ const baseSel=$("#baseSel");
+ if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
+ if(DIAGRAM_SOURCE)cmd("Open the system diagram, full size",()=>openFullDiagram(DIAGRAM.caption?plain(DIAGRAM.caption):"The system"));
+ if(PATHS.length)cmd("Play the request",()=>{const b=document.querySelector(".tracebtn");if(b){b.scrollIntoView({block:"center"});b.click()}});
+ if(!HTML.dataset.ai)return items;
+ const ai=(label,run)=>push("ai",label,"Ask",run);
+ ai("Questions people ask",aiShowFaq);
+ ai("Check my understanding",aiShowQuiz);
+ ai("Find undefined terms",aiShowGlossary);
+ AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));
+ if(DIFF)ai("What changed, in prose",aiShowChanged);
+ ai("Summarise this section",async()=>{
+  const b=document.querySelector("#"+aiSec+" .ai-h2");
+  if(b)b.click();
+ });
+ ai("Ask anything",()=>aiOpen());
+ return items;
+}
+function palScore(item,q){
+ const hay=(item.label+" "+(item.rid||"")+" "+(item.sub||"")).toLowerCase();
+ const i=hay.indexOf(q);
+ if(i<0)return -1;
+ return (item.label.toLowerCase().startsWith(q)?0:1)+(i>item.label.length?1:0)+i/400;
+}
+let palList=[],palIx=0,palAll=null;
+function palRender(){
+ const box=$("#palList");box.innerHTML="";
+ palList.forEach((it,ix)=>{
+  const row=el("div","pal-row"+(ix===palIx?" on":""),
+   `<span class="pal-g">${esc(AI_GLYPH[it.kind]||"›")}</span>`+
+   (it.dot?`<i class="pal-dot ${esc(it.dot)}"></i>`:"")+
+   `<span class="pal-l">${esc(it.label)}</span>`+
+   (it.rid?`<span class="pal-id">${esc(it.rid)}</span>`:"")+
+   `<span class="pal-s">${esc((it.sub||"").slice(0,90))}</span>`);
+  row.onclick=()=>palRun(ix);
+  box.append(row);
+ });
+ const on=box.querySelector(".pal-row.on");
+ if(on)on.scrollIntoView({block:"nearest"});
+}
+function palSearch(raw){
+ const all=palAll||(palAll=palItems());
+ const s=String(raw||"");
+ const mode=s[0]===">"?"cmd":s[0]==="?"&&HTML.dataset.ai?"ai":"";
+ const q=(mode?s.slice(1):s).trim().toLowerCase();
+ let pool=mode==="cmd"?all.filter(i=>i.kind==="cmd"):mode==="ai"?all.filter(i=>i.kind==="ai"):all;
+ if(q){
+  pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
+ }else if(!mode){
+  pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
+ }
+ palList=pool.slice(0,40);
+ if(q&&!mode&&HTML.dataset.ai)palList.push({kind:"ai",label:"Ask the doc for “"+q+"”",sub:"No exact match — ask instead",run:()=>aiAsk(q)});
+ palIx=0;
+ palRender();
+}
+function palRun(ix){
+ const it=palList[ix];
+ if(!it)return;
+ palClose();
+ it.run();
+}
+function palOpen(seed){
+ const pal=$("#pal");
+ palAll=null;
+ pal.hidden=false;
+ const input=$("#palIn");
+ input.placeholder=HTML.dataset.ai?"Search the doc · > for commands · ? to ask":"Search the doc · > for commands";
+ input.value=seed||"";
+ palSearch(input.value);
+ input.focus();
+ input.select();
+}
+function palClose(){$("#pal").hidden=true}
+function palWire(){
+ const input=$("#palIn");
+ input.oninput=()=>palSearch(input.value);
+ input.onkeydown=e=>{
+  if(e.key==="ArrowDown"){e.preventDefault();palIx=Math.min(palList.length-1,palIx+1);palRender()}
+  else if(e.key==="ArrowUp"){e.preventDefault();palIx=Math.max(0,palIx-1);palRender()}
+  else if(e.key==="Enter"){e.preventDefault();palRun(palIx)}
+  else if(e.key==="Escape"){e.preventDefault();palClose()}
+ };
+ $("#pal").addEventListener("pointerdown",e=>{if(e.target.id==="pal")palClose()});
+}
+function aiTheme(mode){
+ if(mode)HTML.dataset.theme=mode;else delete HTML.dataset.theme;
+ try{mode?localStorage.setItem("design-doc-theme",mode):localStorage.removeItem("design-doc-theme")}catch(e){}
+ rerenderDiagrams();
+ document.querySelectorAll(".xs-poster").forEach(drawConnectors);
+}
+function aiTyping(){return /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)||document.activeElement.isContentEditable}
+function aiWireKeys(){
+ document.addEventListener("keydown",e=>{
+  const meta=e.metaKey||e.ctrlKey;
+  if(meta&&e.key.toLowerCase()==="k"){e.preventDefault();$("#pal").hidden?palOpen(""):palClose();return}
+  if(e.key==="Escape"&&!$("#pal").hidden){palClose();return}
+  if(!HTML.dataset.ai)return;
+  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();$("#ai").hidden?aiOpen():aiClose();return}
+  if(e.key==="?"&&!aiTyping()){e.preventDefault();aiOpen();return}
+  if(e.key==="Escape"){
+   document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+   clearAiMarks();
+   if(!$("#ai").hidden&&!aiBusy)aiClose();
+   if(aiBusy)aiStop();
+  }
+ });
+}
+function aiWirePopover(){
+ $("#aiClose").onclick=aiClose;
+ $("#aiWide").onclick=()=>{
+  const pop=$("#ai");
+  if(pop.dataset.wide)delete pop.dataset.wide;else pop.dataset.wide="1";
+  document.body.classList.toggle("ai-wide",!!pop.dataset.wide);
+ };
+ $("#aiClear").onclick=()=>{
+  aiChat=[];
+  $("#aiLog").innerHTML="";
+  clearAiMarks();
+  aiSaveChat();
+ };
+ const box=$("#aiIn");
+ box.addEventListener("input",()=>aiGrow(box));
+ box.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#aiForm").requestSubmit()}
+ });
+ $("#aiForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  if(aiBusy){aiStop();return}
+  const q=box.value.trim();
+  if(!q)return;
+  box.value="";aiGrow(box);
+  aiAsk(q);
+ });
+ const strip=$("#aiTools");
+ [["Questions people ask",aiShowFaq],["Read as a role",()=>aiShowReadAs(0)],["Check my understanding",aiShowQuiz],["Find undefined terms",aiShowGlossary]].forEach(([label,run])=>{
+  const b=el("button","ai-chip",esc(label));
+  b.onclick=run;
+  strip.append(b);
+ });
+ const notes=el("label","ai-note-tog",'<input type="checkbox"> Include the working notes and question log');
+ notes.querySelector("input").onchange=async e=>{
+  if(!e.target.checked){aiCtxText=null;return}
+  const extra=[];
+  for(const f of ["NOTES.md","qa-log.json"]){
+   try{extra.push("\n## "+f+"\n"+(await loadFile(f)).slice(0,20000))}catch(err){}
+  }
+  aiCtxText=aiContext()+extra.join("\n");
+ };
+ $("#aiNote").append(notes);
+ $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
+}
+function aiBoot(){
+ try{const t=localStorage.getItem("design-doc-theme");if(t)HTML.dataset.theme=t}catch(e){}
+ aiWireSections();
+ aiWireKeys();
+ palWire();
+ palButton();
+ aiConfig().then(cfg=>{
+  if(!cfg)return;
+  AI=cfg;
+  HTML.dataset.ai="1";
+  aiWireTools();
+  aiWirePopover();
+  aiWireRows();
+  aiWireSelection();
+  aiWireDiffPanel();
+  aiLoadChat();
+  aiSuggest();
+ });
+}
+function addAiTerms(list){
+ let added=false;
+ (list||[]).forEach(t=>{
+  if(!t||!t.k||TERM_BY[t.k])return;
+  TERM_BY[t.k]={k:t.k,v:t.v,ai:true};
+  const w=String(t.k).trim();
+  if(w.length<5&&w!==w.toUpperCase()&&!/\s/.test(w))return;
+  TERM_WORDS.push(w);
+  TERM_LOOK[w[0].toLowerCase()+w.slice(1)]=t.k;
+  added=true;
+ });
+ if(!added)return;
+ TERM_WORDS.sort((a,b)=>b.length-a.length);
+ TERM_RE=termRe();
+ termify($("#main"));
+}
+window.ddTerms={terms:TERM_BY,add:addAiTerms};
+function palButton(){
+ const row=el("div","toolrow");
+ row.id="toolrow";
+ const pal=el("button","toolbtn","⌘K");
+ pal.title="Everything you can do here";
+ pal.onclick=()=>palOpen("");
+ row.append(pal);
+ document.querySelector("#rail .tools").append(row);
+}
+function mountedComponents(){
+ return [...document.querySelectorAll("[data-component]")]
+  .map(h=>[h,COMPONENTS[h.dataset.component],h.dataset.component])
+  .filter(([,spec])=>spec);
+}
+function aiComponentsMd(){
+ const seen=new Set(),L=[];
+ const add=name=>{
+  if(!name||seen.has(name)||!COMPONENTS[name])return;
+  seen.add(name);
+  const md=componentMd(name);
+  if(md)L.push(md);
+ };
+ ARCH.forEach(c=>add(c.component));
+ NUMBERS.forEach(n=>add(n.component));
+ add(META.ceilingsComponent);
+ return L.join("\n\n");
+}
+window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
+aiBoot();
 })();
 </script>
 </body>

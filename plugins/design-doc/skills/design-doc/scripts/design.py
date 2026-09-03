@@ -4,9 +4,11 @@
   design.py scaffold [dir] [--title X] [--slug x] [--example]
   design.py check <dir> [--strict]
   design.py summary-text <dir>
+  design.py glossary <dir>
   design.py plainify <dir> [--only DQ3,A2] [--provider slop-cop|claude|codex|none] [--dry-run]
   design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
+  design.py build [dir]
   design.py snapshot [dir] [--note X] [--item …] [--force]
 
 scaffold creates a fresh directory for one design doc — named after the
@@ -14,23 +16,30 @@ slug when no dir is given — holding the doc renderer, the executive-summary
 fragment, and either the empty starter registers or the tinyq worked
 example. check lints the registers: ID shapes and uniqueness, dangling
 cross-references, supersession integrity, footnote tokens, the qa-log round
-linkage, the Mermaid diagram's structure, the plain twins, keys and themes,
-and the summary deck; errors exit non-zero, warnings are advisory, and
---strict promotes the warnings a published doc must not carry into errors.
+linkage, the Mermaid diagram's structure and its overview, the plain twins,
+the handles citations show, noun-phrase decision titles, label
+capitalisation, the word caps each section reads at, the glossary, keys and
+themes, and the summary deck; errors exit non-zero, warnings are advisory,
+and --strict promotes the warnings a published doc must not carry into
+errors.
 summary-text prints summary.html as plain text, one "## <kind>" section per
-panel, the input for the voice gate. plainify writes a plain-language twin
-for every rendered entry that lacks one, through `slop-cop plainify` by
-default or the claude or codex CLI, and prints a review table carrying
-whatever slop-cop grades against. render-check opens the doc in headless Chrome
+panel, the input for the voice gate. glossary prints the recurring terms the
+registers never define, as JSON to paste into terms[]. plainify writes a
+plain-language twin for every rendered entry that lacks one and a handle for
+every entry that has none, through `slop-cop plainify` by default or the
+claude or codex CLI, and prints a review table carrying whatever slop-cop
+grades against. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error or a diagram that never
 rendered, printing Chrome's stderr and the page's console so a failure
 names its cause. pdf
 prints the served doc to its design-doc.pdf through the template's print
-stylesheet. snapshot records a revision of the registers in the project's
-history directory. Stdlib only.
+stylesheet. build compiles the project's author-written components/*.tsx
+into components.js with the pinned Vite and Preact pack, installed under
+~/.cache/design-doc on first use. snapshot records a revision of the
+registers in the project's history directory. Stdlib only.
 """
-import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, urllib.request
+import argparse, copy, datetime, hashlib, importlib.util, itertools, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -40,6 +49,7 @@ REFERENCE = SKILL / "reference"
 ICON_CACHE = Path.home() / ".cache" / "design-doc"
 ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/flat"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
+AI_CONFIG_KEYS = ("endpoint", "model", "key")
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -52,7 +62,8 @@ KEY_RANGE = (3, 8)
 TWINNED = (("tldr", "md"), ("constraints", "t"), ("decisions", "r"), ("assumptions", "b"), ("open", "t"))
 IDENTIFIED = ("assumptions", "decisions", "arch", "open", "numbers", "paths")
 TWIN_KIND = {"tldr": "summary bullet", "constraints": "ground rule", "decisions": "decision",
-             "assumptions": "assumption", "open": "open question"}
+             "assumptions": "assumption", "open": "open question", "arch": "architecture card",
+             "numbers": "numbers table"}
 PLAIN_PROVIDERS = ("slop-cop", "claude", "codex", "none")
 PLAIN_TIMEOUT = 180
 RENDER_TIMEOUT = 60
@@ -63,8 +74,9 @@ MERMAID_KEYWORDS = {"flowchart", "flowchart-elk", "graph", "subgraph", "end", "d
                     "LR", "RL", "TB", "TD", "BT"}
 MERMAID_STATEMENT = re.compile(r"^\s*(?:style|classDef|linkStyle|click)\b.*$", re.M)
 MERMAID_FRONTMATTER = re.compile(r"\A\s*---.*?^---[ \t]*$", re.S | re.M)
-MERMAID_EDGE_TEXT = re.compile(r"(?:--|-\.|==)\s[^\n]*?\s(?:-->|\.->|==>|---|-\.-|===)")
-MERMAID_ARROW = re.compile(r"[<>]?[-=.]{2,}[>xo]?|[<>]?[-=.]+>")
+MERMAID_EDGE_TEXT = re.compile(r"[ox](?:--|-\.|==)\s[^\n]*?\s(?:--|\.-|==)[ox]"
+                               r"|(?:--|-\.|==)\s[^\n]*?\s(?:--[->]|-\.-|\.->?|===|==>)")
+MERMAID_ARROW = re.compile(r"o[-=.]{2,}o|x[-=.]{2,}x|[<>]?[-=.]{2,}[>xo]?|[<>]?[-=.]+>")
 MERMAID_TOKEN = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)@?")
 NODE_DOM_ID = re.compile(r"flowchart-(.+)-\d+$")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
@@ -87,6 +99,82 @@ URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
 MEASURED = {"yes", "no"}
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
+SECTION_IDS = ("overview", "ground", "architecture", "paths", "numbers", "ceilings", "decisions",
+               "assumptions", "open", "footnotes")
+HANDLED = ("decisions", "assumptions", "open", "arch", "numbers")
+HANDLE_RANGE = (2, 5)
+TITLE_WORDS = 12
+BANNER_WORDS = 40
+TERM_COUNT = 12
+OVERVIEW_NODES = 10
+CEILING_ROWS = 8
+CEILING_CELL_WORDS = 20
+ARCH_BLOCKS = 4
+ARCH_BLOCK_WORDS = 70
+ARCH_LEAD_WORDS = 25
+WORD_CAPS = (("constraints", "p", 25, "a ground rule's plain twin"),
+             ("terms", "v", 20, "a term's definition"),
+             ("decisions", "r", 80, "what we decided"),
+             ("decisions", "x", 80, "what we turned down"),
+             ("assumptions", "b", 60, "an assumption's basis"),
+             ("assumptions", "n", 40, "an assumption's history note"),
+             ("open", "t", 40, "an open item's title"),
+             ("open", "p", 20, "an open item's plain twin"),
+             ("numbers", "sub", 15, "a numbers sub-line"),
+             ("numbers", "note", 30, "a numbers note"),
+             ("footnotes", "b", 60, "a footnote"))
+ACRONYMS = ("API", "SSO", "JWT", "DPoP", "TLS", "mTLS", "HTTP", "HTTPS", "gRPC", "k8s", "S3", "R2", "IAM", "SQL",
+            "DB", "ID", "URL", "JSON", "YAML", "CLI", "UI", "UX", "CI", "CD", "PR", "RPM", "TPM", "QPS", "CPU",
+            "GPU", "RAM", "AWS", "GCP", "OIDC", "OAuth", "SAML", "DNS", "CDN", "VPC", "RDS", "KMS", "ELK", "SVG",
+            "PDF", "HTML", "CSS", "JS", "TSX", "LLM", "AI", "FDE", "SLA", "SLO", "P95", "P99", "RLS", "NLB",
+            "EBS", "SNI", "WAF", "DDoS", "GraphQL", "SDK", "WAL", "Postgres", "SQLite", "GitHub", "Kubernetes",
+            "Pulumi", "Datadog", "Cloudflare", "WorkOS", "SandSQL", "SandDB")
+AMBIGUOUS_PRODUCTS = ("Envoy", "Restate", "Valkey", "Iris", "Sand")
+GLOSS_MIN_ENTRIES = 2
+GLOSS_MAX = 20
+GLOSS_SKIP = {"terms", "diagram", "housekeeping", "acronyms"}
+GLOSS_STOP = {"a", "an", "and", "at", "both", "but", "by", "each", "every", "for", "how", "if", "in", "it", "its",
+              "no", "not", "of", "on", "one", "our", "that", "the", "their", "then", "these", "this", "those",
+              "to", "we", "what", "when", "where", "while", "why", "with"}
+GLOSS_ACRONYM = re.compile(r"\b(?=[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z])[A-Za-z][A-Za-z0-9]{1,15}\b")
+GLOSS_PHRASE = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b")
+MERMAID_NODE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*\"?([^\"\]\)\}\n]*)")
+LABEL_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[_./-][A-Za-z0-9]+)*")
+IDENTIFIER_HEAD = re.compile(r"[A-Za-z0-9]+[_./-]")
+CITE_SKIP = {"id", "node", "source", "overview", "file", "kind", "slug"}
+SCRIPTS = SKILL / "scripts"
+COMPONENT_SCHEMAS = REFERENCE / "components"
+COMPONENT_PACK = ICON_CACHE / "components-pack"
+COMPONENT_ID = re.compile(r"[a-z][a-z0-9-]*")
+EXPR_TOKEN = re.compile(r"[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+")
+EXPR_FNS = {"min": min, "max": max}
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+TSX_EXPORT = re.compile(r"^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_]\w*)", re.M)
+TSX_EXPORT_LIST = re.compile(r"^export\s*\{([^}]*)\}", re.M)
+TSX_EXPORT_DEFAULT = re.compile(r"^export\s+default\b", re.M)
+TSX_EXPORT_NAME = re.compile(r"[A-Za-z_]\w*$")
+TSX_BANNED = (
+    (re.compile(r"\bfetch\s*\("), "calls fetch("),
+    (re.compile(r"""\bimport\s*\(\s*["'](?:[a-z]+:)?//"""), "imports from a remote origin"),
+    (re.compile(r"\beval\s*\("), "calls eval("),
+    (re.compile(r"(?:\.innerHTML\s*=|\bdangerouslySetInnerHTML\b)"), "writes raw HTML"),
+)
+SVG_TAGS = {"svg", "g", "defs", "title", "desc", "path", "rect", "circle", "ellipse", "line", "polyline",
+            "polygon", "text", "tspan", "marker", "use", "symbol", "lineargradient", "radialgradient", "stop",
+            "clippath", "mask", "pattern"}
+SVG_ATTRS = {"id", "class", "style", "transform", "d", "x", "y", "dx", "dy", "x1", "y1", "x2", "y2", "cx", "cy",
+             "r", "rx", "ry", "width", "height", "viewbox", "preserveaspectratio", "fill", "fill-opacity",
+             "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
+             "stroke-dashoffset", "stroke-opacity", "opacity", "font-family", "font-size", "font-weight",
+             "font-style", "letter-spacing", "text-anchor", "dominant-baseline", "points", "offset",
+             "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "spreadmethod", "markerwidth",
+             "markerheight", "refx", "refy", "orient", "markerunits", "patternunits", "clip-path", "mask",
+             "vector-effect", "paint-order", "xmlns", "role", "aria-label", "aria-hidden"}
+SVG_FRAGMENT_HREF = re.compile(r"^#[\w.:-]+$")
+SVG_CSS_BAN = re.compile(r"url\s*\(|expression|@import|behavior", re.I)
+WHATIF_GRID_MAX = 20000
+SCHEMA_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
+                "number": (int, float), "integer": int}
 
 
 def foreign_scheme(url: str):
@@ -253,7 +341,7 @@ def mermaid_ids(source: str) -> set:
     text = re.sub(r'"[^"]*"', " ", text)
     text = re.sub(r"\|[^|\n]*\|", " ", text)
     for _ in range(2):
-        text = re.sub(r"\[[^\[\]]*\]|\([^()]*\)|\{[^{}]*\}|>[^\]\n]*\]", " ", text)
+        text = re.sub(r"\[[^\[\]]*\]|\([^()]*\)|\{[^{}]*\}|(?<![-.=])>[^\]\n]*\]", " ", text)
     text = MERMAID_STATEMENT.sub("", text)
     text = MERMAID_EDGE_TEXT.sub(" ", text)
     text = MERMAID_ARROW.sub(" ", text)
@@ -499,11 +587,11 @@ def slop_cop_binary():
     return binary
 
 
-def ask_plain_batch(binary: str, titles: dict, batch: list) -> dict:
+def ask_plain_batch(binary: str, titles: dict, batch: list, max_words: int = TWIN_WORDS) -> dict:
     with tempfile.TemporaryDirectory() as scratch:
         glossary = Path(scratch) / "glossary.json"
         glossary.write_text(json.dumps(titles, ensure_ascii=False))
-        cmd = [binary, "plainify", "-", "--json", "--max-words", str(TWIN_WORDS),
+        cmd = [binary, "plainify", "-", "--json", "--max-words", str(max_words),
                "--timeout", f"{PLAIN_TIMEOUT}s", "--name-by-title", "--glossary", str(glossary)]
         for pattern in PLAIN_FORBID:
             cmd += ["--forbid", pattern]
@@ -588,12 +676,16 @@ def plainify(args) -> int:
         print("plainify: every rendered entry has a plain twin")
     elif args.provider == "none":
         print(f"plainify: {len(todo)} entr{'y' if len(todo) == 1 else 'ies'} need a twin")
-    if written:
+    handles, handle_rows = draft_handles(args, R)
+    if written or handles:
         (root / "registers.json").write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n")
-        print(f"plainify: wrote {written} twin(s); read each against its original before snapshot")
-    flagged = sum(1 for _, _, twin, issues in rows if twin and issues)
+        if written:
+            print(f"plainify: wrote {written} twin(s); read each against its original before snapshot")
+        if handles:
+            print(f"plainify: wrote {handles} handle(s) h; read each against its title before snapshot")
+    flagged = sum(1 for _, _, draft, issues in rows + handle_rows if draft and issues)
     if flagged:
-        print(f"plainify: {flagged} twin(s) carry issues in the table above; rewrite each before snapshot")
+        print(f"plainify: {flagged} draft(s) carry issues in the tables above; rewrite each before snapshot")
     return 0
 
 
@@ -601,9 +693,12 @@ class RenderedDom(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.rendered, self.failed, self.syntax_error, self.rendered_ids, self.muted = 0, [], False, set(), []
+        self.unmounted = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if a.get("data-component") and a.get("data-mounted") != "1":
+            self.unmounted.append(a["data-component"])
         if a.get("data-id"):
             self.rendered_ids.add(a["data-id"])
         m = NODE_DOM_ID.search(a.get("id") or "")
@@ -657,6 +752,8 @@ def render_check(args) -> int:
     cause = "its source has a syntax error" if dom.rendered or dom.syntax_error else f"no diagram rendered at all, so {builder.NETWORK_HINT}"
     for label in dom.failed:
         problems.append(f"Mermaid did not render {label!r}: {cause}")
+    for name in sorted(set(dom.unmounted)):
+        problems.append(f"the component {name!r} never mounted, so the page shows its fallback")
     if dom.syntax_error and not dom.failed:
         problems.append("a rendered diagram reports a syntax error")
     wanted = set()
@@ -1113,6 +1210,7 @@ def check(args) -> int:
     for n in sorted(fn_nums - used_fns):
         rep.warn(f"footnote {n} is never referenced")
 
+    p_ids = check_ids(rep, R.get("paths", []), "id", r"p-[a-z0-9-]+", "paths")
     for p in R.get("paths", []):
         for g in p.get("segs", []):
             if len(g) < 3 or not all(isinstance(v, (int, float)) for v in g[1:3]):
@@ -1140,7 +1238,7 @@ def check(args) -> int:
             if not (isinstance(row, list) and len(row) == len(cols)):
                 rep.err(f"numbers {nt.get('id')}: row {row!r} does not have {len(cols)} cells")
 
-    known = a_ids | d_ids | c_ids | open_ids | n_ids | {p.get("id") for p in R.get("paths", [])}
+    known = a_ids | d_ids | c_ids | open_ids | n_ids | p_ids
     check_twins(rep, R, root, d_ids, known)
 
     summary_path = root / "summary.html"
@@ -1188,8 +1286,1154 @@ def check(args) -> int:
     else:
         rep.warn("qa-log.json not found")
 
+    check_model(rep, R, root, known, node_ids)
+    check_ai_config(rep, root)
     check_libs(rep)
+    check_components(rep, R, root, known, node_ids)
     return rep.finish()
+
+
+class DeckLabels(HTMLParser):
+    VOID = {"br", "img", "hr", "input", "meta", "link", "source", "area", "col", "embed", "param", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.labels, self.stack, self.buf, self.where, self.depth = [], [], None, None, 0
+
+    def handle_starttag(self, tag, attrs):
+        if self.buf is not None and tag == "br":
+            self.buf.append("\n")
+        if tag in self.VOID:
+            return
+        classes = classes_of(attrs)
+        where = None
+        if tag == "b" and any("xs-node" in c for _, c in self.stack):
+            where = "summary.html .xs-node b"
+        elif tag == "h3" and any("xs-card" in c for _, c in self.stack):
+            where = "summary.html .xs-card h3"
+        elif "xs-badge" in classes:
+            where = "summary.html .xs-badge"
+        elif tag == "pre" and "mermaid" in classes:
+            where = "summary.html mermaid"
+        self.stack.append((tag, classes))
+        if where and self.buf is None:
+            self.buf, self.where, self.depth = [], where, len(self.stack)
+
+    def handle_endtag(self, tag):
+        if tag in self.VOID:
+            return
+        if self.buf is not None and len(self.stack) == self.depth:
+            text = "".join(self.buf)
+            if self.where.endswith("mermaid"):
+                for nid, label in mermaid_labels(text):
+                    self.labels.append((f"summary.html mermaid node {nid}", label))
+            else:
+                text = " ".join(text.split())
+                if text:
+                    self.labels.append((self.where, text))
+            self.buf, self.where = None, None
+        if self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if self.buf is not None:
+            self.buf.append(data)
+
+
+def mermaid_labels(source: str):
+    text = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", source))
+    for nid, label in MERMAID_NODE.findall(text):
+        if nid in MERMAID_KEYWORDS:
+            continue
+        first = re.split(r"<br\s*/?>", label)[0].strip()
+        if first:
+            yield nid, first
+
+
+def acronym_map(meta: dict) -> dict:
+    raw = meta.get("acronyms")
+    extra = [a.strip() for a in raw if isinstance(a, str) and a.strip()] if isinstance(raw, list) else []
+    named = {a.lower() for a in extra}
+    names = list(ACRONYMS) + [p for p in AMBIGUOUS_PRODUCTS if p.lower() in named] + extra
+    return {a.lower(): a for a in names}
+
+
+def check_case(rep, where, label, acronyms, sentence_case=True):
+    head = label.strip()
+    if sentence_case and head[:1].isalpha() and head[:1].islower() and not IDENTIFIER_HEAD.match(head):
+        rep.warn(f"{where}: {first_line(label, 48)!r} opens lower-case; a label is sentence case unless it opens on "
+                 "an identifier in backticks")
+    for word in LABEL_WORD.findall(re.sub(r"`[^`]*`", " ", label)):
+        if any(c in word for c in "_-./"):
+            continue
+        canon = acronyms.get(word.lower())
+        if canon and canon != word:
+            rep.warn(f"{where}: {word!r} should read {canon!r}; acronyms and product names keep their own "
+                     "capitalisation (name a product that is also an ordinary word in meta.acronyms to lint it)")
+
+
+def label_sources(R, root):
+    diagram = R.get("diagram")
+    if isinstance(diagram, dict):
+        for key in ("source", "overview"):
+            source = diagram.get(key)
+            if isinstance(source, str):
+                for nid, label in mermaid_labels(source):
+                    yield f"diagram.{key} node {nid}", label, True
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if isinstance(e, dict) and isinstance(e.get("h"), str) and e["h"].strip():
+                yield f"{entry_id(reg, i, e)}.h", e["h"], False
+    for nt in R.get("numbers") or []:
+        if isinstance(nt, dict):
+            for j, col in enumerate(nt.get("cols") or []):
+                if isinstance(col, str) and col.strip():
+                    yield f"numbers {nt.get('id')}: cols[{j}]", col, True
+    for reg in ("themes", "openGroups"):
+        for key, label in (R.get(reg) or {}).items():
+            if isinstance(label, str) and label.strip():
+                yield f"{reg}[{key}]", label, True
+    fragment = root / "summary.html"
+    if fragment.exists():
+        parser = DeckLabels()
+        parser.feed(fragment.read_text())
+        parser.close()
+        for where, label in parser.labels:
+            yield where, label, True
+    yield from component_labels(R)
+
+
+def cited_ids(R, ids: re.Pattern, prose: str) -> set:
+    found = set(ids.findall(prose))
+
+    def walk(node, key):
+        if isinstance(node, str):
+            if key not in CITE_SKIP:
+                found.update(ids.findall(node))
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, k)
+
+    walk(R, None)
+    return found
+
+
+def handle_range_issue(handle: str):
+    n = words(handle)
+    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
+        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
+    return None
+
+
+def handle_issues(handle: str, ids: re.Pattern) -> list:
+    issues = []
+    range_issue = handle_range_issue(handle)
+    if range_issue:
+        issues.append(range_issue)
+    named = sorted(set(ids.findall(handle)))
+    if named:
+        issues.append("names register ids " + ", ".join(named))
+    return issues
+
+
+def check_handles(rep, R, cited, ids):
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict):
+                continue
+            ident = entry_id(reg, i, e)
+            h = e.get("h")
+            if h is None:
+                if ident in cited:
+                    rep.strict_warn(f"{ident} is cited but has no handle h; write the 2–5 word noun phrase a "
+                                    "citation shows, or run design.py plainify")
+                continue
+            if not (isinstance(h, str) and h.strip()):
+                rep.err(f"{ident}.h must be a non-empty string")
+                continue
+            range_issue = handle_range_issue(h)
+            if range_issue:
+                rep.warn(f"{ident}.h {range_issue}")
+
+
+def check_titles(rep, R, ids):
+    for d in R.get("decisions") or []:
+        t = d.get("t") if isinstance(d, dict) else None
+        if not (isinstance(t, str) and t.strip()):
+            continue
+        if t.rstrip().endswith("?"):
+            rep.warn(f"{d.get('id')}.t is a question; a decision title is the noun phrase it settled, and the "
+                     "question belongs in rounds[].q")
+        if words(t) > TITLE_WORDS:
+            rep.warn(f"{d.get('id')}.t is {words(t)} words; a decision title is a noun phrase of {TITLE_WORDS} "
+                     "words or fewer")
+    for reg in ("constraints",) + HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict):
+                continue
+            for field in ("t", "h"):
+                value = e.get(field)
+                if not isinstance(value, str):
+                    continue
+                named = sorted(set(ids.findall(value)))
+                if named:
+                    rep.strict_warn(f"{entry_id(reg, i, e)}.{field} names register ids {', '.join(named)}; a "
+                                    "rendered string names an entry by its wording and leaves the id to the citation")
+
+
+def cap_where(reg: str, i: int, e: dict) -> str:
+    if reg == "terms":
+        return f"terms[{e.get('k')}]"
+    if reg == "footnotes":
+        return f"footnotes[{e.get('n')}]"
+    return entry_id(reg, i, e)
+
+
+def cap_words(rep, where, text, cap, what):
+    if isinstance(text, str) and text.strip() and words(text) > cap:
+        rep.strict_warn(f"{where} is {words(text)} words; {what} caps at {cap}")
+
+
+def check_caps(rep, R, meta):
+    cap_words(rep, "meta.banner.text", (meta.get("banner") or {}).get("text"), BANNER_WORDS, "the banner")
+    for reg, field, cap, what in WORD_CAPS:
+        for i, e in enumerate(R.get(reg) or []):
+            if isinstance(e, dict):
+                cap_words(rep, f"{cap_where(reg, i, e)}.{field}", e.get(field), cap, what)
+    for i, c in enumerate(R.get("arch") or []):
+        if not isinstance(c, dict):
+            continue
+        where = entry_id("arch", i, c)
+        blocks = c.get("b")
+        if not isinstance(blocks, list):
+            continue
+        if len(blocks) > ARCH_BLOCKS:
+            rep.strict_warn(f"{where}.b has {len(blocks)} paragraphs; a card carries {ARCH_BLOCKS} or fewer")
+        for j, para in enumerate(blocks):
+            cap_words(rep, f"{where}.b[{j}]", para, ARCH_BLOCK_WORDS, "a card paragraph")
+        if blocks and isinstance(blocks[0], str) and blocks[0].strip():
+            cap_words(rep, f"{where}.b[0] first sentence", SENTENCE_END.split(blocks[0].strip())[0],
+                      ARCH_LEAD_WORDS, "the sentence the summary row shows")
+    terms = R.get("terms") or []
+    if len(terms) > TERM_COUNT:
+        rep.strict_warn(f"terms lists {len(terms)} entries; the glossary reads at {TERM_COUNT} or fewer")
+    rows = R.get("ceilings") or []
+    if len(rows) > CEILING_ROWS:
+        rep.strict_warn(f"ceilings has {len(rows)} rows; the table reads at {CEILING_ROWS} or fewer")
+    for i, row in enumerate(rows):
+        if isinstance(row, list):
+            for j, cell in enumerate(row):
+                cap_words(rep, f"ceilings[{i}][{j}]", cell, CEILING_CELL_WORDS, "a ceilings cell")
+
+
+def check_terms(rep, R, prose):
+    corpus = [prose]
+    for reg, entries in R.items():
+        if reg != "terms":
+            corpus.extend(walk_strings(entries))
+    haystack = " ".join(corpus)
+    for i, t in enumerate(R.get("terms") or []):
+        if not isinstance(t, dict):
+            rep.err(f"terms[{i}] is not an object; a term is {{k, v}} with optional aliases")
+            continue
+        k = t.get("k")
+        names = [k] if isinstance(k, str) and k.strip() else []
+        aliases = t.get("aliases")
+        if aliases is not None:
+            if not (isinstance(aliases, list) and aliases and all(isinstance(a, str) and a.strip() for a in aliases)):
+                rep.err(f"terms[{k}]: aliases must be a non-empty list of non-empty strings")
+            else:
+                names += aliases
+        if names and not any(re.search(r"(?<![\w-])" + re.escape(n) + r"s?(?![\w-])", haystack, re.I) for n in names):
+            rep.warn(f"terms[{k}] is defined but never used outside its definition; drop it or name it in the "
+                     "prose (aliases count)")
+
+
+def check_overview(rep, R, node_ids):
+    diagram = R.get("diagram")
+    if not isinstance(diagram, dict) or "overview" not in diagram:
+        return
+    overview = diagram.get("overview")
+    if not (isinstance(overview, str) and overview.strip()):
+        rep.err("diagram.overview must be a non-empty Mermaid string, or absent")
+        return
+    body = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", overview)).strip()
+    if not MERMAID_HEADER.match(body):
+        rep.err("diagram.overview must open with a flowchart or graph header")
+        return
+    ids = mermaid_ids(overview)
+    if len(ids) > OVERVIEW_NODES:
+        rep.strict_warn(f"diagram.overview draws {len(ids)} nodes; the overview card reads at {OVERVIEW_NODES} "
+                        "or fewer")
+    if node_ids is None:
+        rep.err("diagram.overview needs a Mermaid diagram.source to summarise")
+        return
+    for missing in sorted(ids - node_ids):
+        rep.err(f"diagram.overview: {missing!r} is not in diagram.source; the overview draws a subset of the "
+                "full graph, so a card and a highlight resolve in both")
+
+
+def check_ai(rep, meta):
+    acronyms = meta.get("acronyms")
+    if acronyms is not None and not (isinstance(acronyms, list)
+                                     and all(isinstance(a, str) and a.strip() for a in acronyms)):
+        rep.err("meta.acronyms must be a list of non-empty strings")
+    ai = meta.get("ai")
+    if ai is None:
+        return
+    if not isinstance(ai, dict):
+        rep.err("meta.ai must be an object, e.g. {\"suggest\": {\"decisions\": [\"Why 24-hour tokens?\"]}}")
+        return
+    suggest = ai.get("suggest")
+    if suggest is None:
+        return
+    if not isinstance(suggest, dict):
+        rep.err("meta.ai.suggest must map a section id to its list of suggested prompts")
+        return
+    for sid, prompts in suggest.items():
+        if sid not in SECTION_IDS:
+            rep.warn(f"meta.ai.suggest[{sid}] is not a section id ({', '.join(SECTION_IDS)}); its prompts render "
+                     "under no heading")
+        if not (isinstance(prompts, list) and prompts
+                and all(isinstance(p, str) and p.strip() for p in prompts)):
+            rep.err(f"meta.ai.suggest[{sid}] must be a non-empty list of prompt strings")
+
+
+def check_model(rep, R, root, known, node_ids):
+    meta = R.get("meta") or {}
+    fragment = root / "summary.html"
+    prose = fragment_text(fragment.read_text()) if fragment.exists() else ""
+    ids = id_matcher(known)
+    check_handles(rep, R, cited_ids(R, ids, prose), ids)
+    check_titles(rep, R, ids)
+    check_caps(rep, R, meta)
+    check_terms(rep, R, prose)
+    check_overview(rep, R, node_ids)
+    check_ai(rep, meta)
+    acronyms = acronym_map(meta)
+    for where, label, sentence_case in label_sources(R, root):
+        check_case(rep, where, label, acronyms, sentence_case)
+
+
+def handle_todo(R, only):
+    todo = []
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict) or e.get("h") or not isinstance(e.get("t"), str):
+                continue
+            ident = entry_id(reg, i, e)
+            if only is None or ident in only:
+                todo.append((reg, i, e, ident))
+    return todo
+
+
+def with_handle(e: dict, handle: str) -> dict:
+    out = {}
+    for k, v in e.items():
+        out[k] = v
+        if k == "t":
+            out["h"] = handle
+    out.setdefault("h", handle)
+    return out
+
+
+def draft_handles(args, R):
+    only = {s.strip() for s in args.only.split(",") if s.strip()} if args.only else None
+    todo = handle_todo(R, only)
+    if not todo:
+        print("plainify: every entry that can carry a handle h has one")
+        return 0, []
+    if args.provider == "none":
+        print(f"plainify: {len(todo)} entr{'y' if len(todo) == 1 else 'ies'} need a handle h: "
+              + ", ".join(ident for _, _, _, ident in todo))
+        return 0, []
+    graded = {}
+    if args.provider == "slop-cop":
+        binary = slop_cop_binary()
+        if binary is None:
+            return 0, []
+        batch = [{"id": ident, "text": e["t"]} for _, _, e, ident in todo]
+        try:
+            graded = ask_plain_batch(binary, register_titles(R), batch, HANDLE_RANGE[1])
+        except (OSError, ValueError, subprocess.SubprocessError) as err:
+            detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else err
+            print(f"plainify: slop-cop failed on the handles: {detail}", file=sys.stderr)
+            return 0, []
+    prompt = (REFERENCE / "handle.md").read_text().strip()
+    rows, written = [], 0
+    ids = id_matcher(register_ids(R))
+    for reg, i, e, ident in todo:
+        if args.provider == "slop-cop":
+            handle, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
+        else:
+            try:
+                handle, issues = ask_plain(args.provider, prompt, reg, e, e["t"]), []
+            except (OSError, subprocess.SubprocessError) as err:
+                print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
+                return written, rows
+        handle = handle.strip().rstrip(".")
+        issues += handle_issues(handle, ids)
+        rows.append((ident, first_line(e["t"]), handle, issues))
+        if handle and not args.dry_run:
+            R[reg][i] = with_handle(e, handle)
+            written += 1
+    print_review_table(rows)
+    return written, rows
+
+
+def candidate_terms(text: str) -> set:
+    body = FILE_PATH.sub(" ", re.sub(r"`[^`]*`", " ", text))
+    found = {w for w in GLOSS_ACRONYM.findall(body) if not ID_TOKEN.fullmatch(w)}
+    for phrase in GLOSS_PHRASE.findall(body):
+        parts = phrase.split()
+        if parts[0].lower() in GLOSS_STOP:
+            parts = parts[1:]
+        if len(parts) > 1:
+            found.add(" ".join(parts))
+    return found
+
+
+def glossary_units(R, root):
+    for reg, entries in R.items():
+        if reg in GLOSS_SKIP:
+            continue
+        if isinstance(entries, list):
+            for i, e in enumerate(entries):
+                where = entry_id(reg, i, e) if isinstance(e, dict) else f"{reg}[{i}]"
+                yield where, " ".join(walk_strings(e))
+        elif isinstance(entries, dict):
+            for k, v in entries.items():
+                if k not in GLOSS_SKIP:
+                    yield f"{reg}[{k}]", " ".join(walk_strings(v))
+    fragment = root / "summary.html"
+    if fragment.exists():
+        yield "summary.html", fragment_text(fragment.read_text())
+
+
+def glossary(args) -> int:
+    root = Path(args.dir)
+    R = load_registers(root, "glossary")
+    if R is None:
+        return 1
+    defined = {n.lower() for t in R.get("terms") or [] if isinstance(t, dict)
+               for n in [t.get("k")] + list(t.get("aliases") or []) if isinstance(n, str)}
+    seen = {}
+    for where, text in glossary_units(R, root):
+        for candidate in candidate_terms(text):
+            if candidate.lower() not in defined:
+                seen.setdefault(candidate, set()).add(where)
+    rows = sorted(((c, w) for c, w in seen.items() if len(w) >= GLOSS_MIN_ENTRIES),
+                  key=lambda row: (-len(row[1]), row[0].lower()))[:GLOSS_MAX]
+    print(json.dumps([{"k": c, "v": ""} for c, _ in rows], indent=2, ensure_ascii=False))
+    for c, where in rows:
+        print(f"glossary: {c} — {len(where)} entries ({', '.join(sorted(where)[:4])})", file=sys.stderr)
+    if not rows:
+        print(f"glossary: no term recurs across {GLOSS_MIN_ENTRIES} entries outside terms[]", file=sys.stderr)
+    return 0
+
+
+class ExprError(ValueError):
+    pass
+
+
+def expr_tokens(src: str) -> list:
+    out, at = [], 0
+    for m in EXPR_TOKEN.finditer(src):
+        if m.start() != at:
+            raise ExprError(f"unexpected {src[at]!r}")
+        at = m.end()
+        if not m.group().isspace():
+            out.append(m.group())
+    if at != len(src):
+        raise ExprError(f"unexpected {src[at]!r}")
+    return out
+
+
+def parse_expr(src):
+    t = expr_tokens(str(src))
+    pos = [0]
+
+    def peek():
+        return t[pos[0]] if pos[0] < len(t) else None
+
+    def eat(x):
+        if peek() != x:
+            raise ExprError(f"expected {x!r}")
+        pos[0] += 1
+
+    def expression():
+        node = term()
+        while peek() in ("+", "-"):
+            op = t[pos[0]]
+            pos[0] += 1
+            node = (op, node, term())
+        return node
+
+    def term():
+        node = unary()
+        while peek() in ("*", "/"):
+            op = t[pos[0]]
+            pos[0] += 1
+            node = (op, node, unary())
+        return node
+
+    def unary():
+        if peek() in ("+", "-"):
+            op = t[pos[0]]
+            pos[0] += 1
+            return (op, ("num", 0.0), unary())
+        return primary()
+
+    def primary():
+        x = peek()
+        if x is None:
+            raise ExprError("the expression ends early")
+        if x == "(":
+            pos[0] += 1
+            node = expression()
+            eat(")")
+            return node
+        if x[0].isdigit() or x[0] == ".":
+            pos[0] += 1
+            return ("num", float(x))
+        if x[0].isalpha() or x[0] == "_":
+            pos[0] += 1
+            if peek() != "(":
+                return ("ref", x)
+            pos[0] += 1
+            args = [expression()]
+            while peek() == ",":
+                pos[0] += 1
+                args.append(expression())
+            eat(")")
+            if x not in EXPR_FNS:
+                raise ExprError(f"unknown function {x}(); the grammar has {', '.join(sorted(EXPR_FNS))}")
+            if len(args) < 2:
+                raise ExprError(f"{x}() takes two or more arguments")
+            return ("fn", x, args)
+        raise ExprError(f"unexpected {x!r}")
+
+    node = expression()
+    if pos[0] != len(t):
+        raise ExprError(f"unexpected {t[pos[0]]!r}")
+    return node
+
+
+def expr_refs(node, out: set) -> set:
+    kind = node[0]
+    if kind == "ref":
+        out.add(node[1])
+    elif kind == "fn":
+        for arg in node[2]:
+            expr_refs(arg, out)
+    elif kind != "num":
+        expr_refs(node[1], out)
+        expr_refs(node[2], out)
+    return out
+
+
+def eval_expr(node, values):
+    kind = node[0]
+    if kind == "num":
+        return node[1]
+    if kind == "ref":
+        return values[node[1]]
+    if kind == "fn":
+        return EXPR_FNS[node[1]](*(eval_expr(a, values) for a in node[2]))
+    a, b = eval_expr(node[1], values), eval_expr(node[2], values)
+    if kind == "+":
+        return a + b
+    if kind == "-":
+        return a - b
+    if kind == "*":
+        return a * b
+    if b == 0:
+        raise ExprError("divides by zero")
+    return a / b
+
+
+def finite(v) -> bool:
+    return v == v and abs(v) != float("inf")
+
+
+def schema_errors(value, schema, where: str) -> list:
+    if "const" in schema:
+        return [] if value == schema["const"] else [f"{where} must be {schema['const']!r}"]
+    if "enum" in schema and value not in schema["enum"]:
+        return [f"{where} must be one of {', '.join(map(str, schema['enum']))}"]
+    kind = schema.get("type")
+    want = SCHEMA_TYPES.get(kind)
+    if want and (not isinstance(value, want) or (kind != "boolean" and isinstance(value, bool))):
+        return [f"{where} must be {'an' if kind[0] in 'aoi' else 'a'} {kind}"]
+    out = []
+    if kind == "object":
+        props = schema.get("properties", {})
+        for key in schema.get("required", []):
+            if key not in value:
+                out.append(f"{where} is missing {key!r}")
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in props:
+                    out.append(f"{where} has an unknown property {key!r}")
+        for key, sub in props.items():
+            if key in value:
+                out.extend(schema_errors(value[key], sub, f"{where}.{key}"))
+    elif kind == "array":
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            out.append(f"{where} needs at least {schema['minItems']} entries")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            out.append(f"{where} takes at most {schema['maxItems']} entries")
+        if "items" in schema:
+            for i, item in enumerate(value):
+                out.extend(schema_errors(item, schema["items"], f"{where}[{i}]"))
+    elif kind == "string":
+        if len(value.strip()) < schema.get("minLength", 0):
+            out.append(f"{where} must not be empty")
+        if "pattern" in schema and not re.fullmatch(schema["pattern"].strip("^$"), value):
+            out.append(f"{where} must match {schema['pattern']}")
+    elif kind in ("number", "integer"):
+        if "minimum" in schema and value < schema["minimum"]:
+            out.append(f"{where} must be at least {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            out.append(f"{where} must be at most {schema['maximum']}")
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            out.append(f"{where} must be greater than {schema['exclusiveMinimum']}")
+    return out
+
+
+class ComponentHosts(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hosts, self.open = [], []
+
+    def handle_starttag(self, tag, attrs):
+        name = dict(attrs).get("data-component")
+        if name:
+            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False})
+        elif self.open and tag not in VOID_TAGS:
+            self.open[-1]["depth"] += 1
+        if self.open and tag == "figure":
+            self.open[-1]["figure"] = True
+
+    def handle_endtag(self, tag):
+        if not self.open:
+            return
+        host = self.open[-1]
+        if host["depth"]:
+            host["depth"] -= 1
+        elif tag == host["tag"]:
+            self.hosts.append(self.open.pop())
+
+    def close(self):
+        super().close()
+        while self.open:
+            self.hosts.append(self.open.pop())
+
+
+def component_schemas(rep) -> dict:
+    out = {}
+    for path in sorted(COMPONENT_SCHEMAS.glob("dd.*.json")):
+        try:
+            out[path.stem] = json.loads(path.read_text())
+        except ValueError as e:
+            rep.err(f"reference/components/{path.name} does not parse: {e}")
+    return out
+
+
+def check_whatif(rep, label, spec, known):
+    ids = [i["id"] for i in spec["inputs"]]
+    for i in spec["inputs"]:
+        if ids.count(i["id"]) > 1:
+            rep.err(f"{label}: two inputs share the id {i['id']!r}")
+        if i["min"] >= i["max"]:
+            rep.err(f"{label}: input {i['id']!r} has min {i['min']} at or above max {i['max']}")
+        elif not i["min"] <= i["value"] <= i["max"]:
+            rep.err(f"{label}: input {i['id']!r} starts at {i['value']}, outside {i['min']}–{i['max']}")
+    grid = whatif_grid(spec["inputs"])
+    box = {i["id"]: (min(i["min"], i["value"]), max(i["max"], i["value"])) for i in spec["inputs"]}
+    for out in spec["outputs"]:
+        where = f"{label}: output {out['label']!r}"
+        try:
+            node = parse_expr(out["expr"])
+        except ExprError as e:
+            rep.err(f"{where} does not parse ({e}); the grammar is + - * / ( ) min max over numbers and input ids")
+            continue
+        unknown = sorted(expr_refs(node, set()) - set(ids))
+        if unknown:
+            rep.err(f"{where} names {', '.join(unknown)}, which is not an input of this component")
+            continue
+        if grid is None:
+            try:
+                lo, hi = expr_interval(node, box)
+            except ExprError as e:
+                rep.err(f"{where} {e}")
+                continue
+            if not (finite(lo) and finite(hi)):
+                rep.err(f"{where} is not a number across the slider range")
+            continue
+        for sample in grid:
+            try:
+                value = eval_expr(node, sample)
+            except ExprError as e:
+                rep.err(f"{where} {e} at " + ", ".join(f"{k}={v}" for k, v in sorted(sample.items())))
+                break
+            if not finite(value):
+                rep.err(f"{where} is not a number at " + ", ".join(f"{k}={v}" for k, v in sorted(sample.items())))
+                break
+    for cited in spec.get("cites", []):
+        if cited not in known:
+            rep.err(f"{label}: cites {cited}, which no register defines")
+
+
+def check_component_props(rep, label, spec, known, node_ids):
+    kind = spec["kind"]
+    if kind == "dd.whatif":
+        check_whatif(rep, label, spec, known)
+    elif kind == "dd.tabs":
+        for i, tab in enumerate(spec["tabs"]):
+            if not (tab.get("md") or tab.get("figure")):
+                rep.err(f"{label}.tabs[{i}] carries neither 'md' nor 'figure'; a pane shows one or both")
+    elif kind == "dd.steps":
+        for i, step in enumerate(spec["steps"]):
+            target = step.get("target")
+            if target is None or node_ids is None:
+                continue
+            ends = target.split(">") if ">" in target else [target]
+            missing = [e for e in ends if e not in node_ids]
+            if missing:
+                rep.err(f"{label}.steps[{i}]: target {target!r} names {', '.join(missing)}, which is not in the diagram source")
+    elif kind == "dd.timeline":
+        for i, phase in enumerate(spec["phases"]):
+            gate = phase.get("gate")
+            if gate and gate not in known:
+                rep.err(f"{label}.phases[{i}]: gate {gate}, which no register defines")
+    elif kind == "dd.matrix":
+        cols, cells = spec["cols"], spec["cells"]
+        if len(cells) != len(spec["rows"]):
+            rep.err(f"{label}: {len(cells)} cell rows for {len(spec['rows'])} rows")
+        for i, row in enumerate(cells):
+            if len(row) != len(cols):
+                rep.err(f"{label}.cells[{i}] has {len(row)} cells for {len(cols)} columns")
+        labels = [c["label"] for c in cols]
+        if spec.get("pick") and spec["pick"] not in labels:
+            rep.err(f"{label}: pick {spec['pick']!r} is not one of {', '.join(labels)}")
+
+
+def check_components(rep, R, root, known, node_ids):
+    declared = R.get("components")
+    if declared is not None and not isinstance(declared, dict):
+        rep.err("components must map a component id to its declaration")
+        declared = None
+    declared = declared or {}
+    sources = {p.stem: p.read_text() for p in sorted((root / "components").glob("*.tsx"))}
+    summary_path = root / "summary.html"
+    hosts = component_hosts(summary_path.read_text()) if summary_path.exists() else []
+    fields = [(f"arch {c.get('id')}", c.get("component")) for c in R.get("arch", [])]
+    fields += [(f"numbers {n.get('id')}", n.get("component")) for n in R.get("numbers", [])]
+    fields.append(("meta.ceilingsComponent", R.get("meta", {}).get("ceilingsComponent")))
+    fields = [(where, name) for where, name in fields if name]
+    if not (declared or sources or hosts or fields):
+        return
+
+    exports = set()
+    for stem, text in sources.items():
+        code = code_only(text)
+        exports |= tsx_exports(stem, code)
+        for pattern, what in TSX_BANNED:
+            if pattern.search(code):
+                rep.err(f"components/{stem}.tsx {what}; an author component draws the registers it is handed and reaches nothing else")
+    if sources and not (root / "components.js").exists():
+        rep.strict_warn(f"components/ holds {len(sources)} .tsx component(s) but components.js is missing; run design.py build")
+
+    schemas = component_schemas(rep)
+    for cid, spec in sorted(declared.items()):
+        label = f"components.{cid}"
+        if not COMPONENT_ID.fullmatch(cid):
+            rep.err(f"{label}: a component id is lower-case words joined by hyphens")
+        if not isinstance(spec, dict):
+            rep.err(f"{label} must be an object with a 'kind'")
+            continue
+        schema = schemas.get(spec.get("kind"))
+        if schema is None:
+            rep.err(f"{label}: kind {spec.get('kind')!r} is not in the kit ({', '.join(sorted(schemas))})")
+            continue
+        problems = schema_errors(spec, schema, label)
+        for msg in problems:
+            rep.err(msg)
+        if not problems:
+            check_component_props(rep, label, spec, known, node_ids)
+            check_figures(rep, label, spec)
+
+    referenced = set()
+    for where, name in fields:
+        if name in declared:
+            referenced.add(name)
+        else:
+            rep.err(f"{where}: component {name!r} is not an entry in components")
+    for host in hosts:
+        if host["id"] in declared:
+            referenced.add(host["id"])
+        elif host["id"] in exports:
+            if not host["figure"]:
+                rep.err(f"summary.html hosts the author component {host['id']!r} with no <figure> fallback; print and Markdown render the fallback")
+        elif host["id"] in sources:
+            rep.err(f"summary.html hosts {host['id']!r} and components/{host['id']}.tsx exists, but that file has no default export, so the bundle registers nothing under its name")
+        else:
+            rep.err(f"summary.html hosts {host['id']!r}, which is neither an entry in components nor an export of components/*.tsx")
+    for cid in sorted(set(declared) - referenced):
+        rep.warn(f"components.{cid} is declared but no register field or summary.html host renders it")
+
+
+def component_hosts(fragment: str) -> list:
+    parser = ComponentHosts()
+    parser.feed(fragment)
+    parser.close()
+    return parser.hosts
+
+
+def component_pack() -> Path:
+    COMPONENT_PACK.mkdir(parents=True, exist_ok=True)
+    for name in ("package.json", "package-lock.json"):
+        source, installed = SCRIPTS / name, COMPONENT_PACK / name
+        if not installed.exists() or installed.read_bytes() != source.read_bytes():
+            shutil.copy(source, installed)
+            shutil.rmtree(COMPONENT_PACK / "node_modules", ignore_errors=True)
+    if not (COMPONENT_PACK / "node_modules" / "vite").exists():
+        print(f"build: installing the component pack in {COMPONENT_PACK}", flush=True)
+        subprocess.run(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+                       cwd=COMPONENT_PACK, check=True)
+    return COMPONENT_PACK
+
+
+def entry_source(sources) -> str:
+    lines = ['import { h, render } from "preact";']
+    for i, path in enumerate(sources):
+        lines.append(f"import * as M{i} from {json.dumps('./src/' + path.name)};")
+    pairs = ", ".join(f"[{json.dumps(p.stem)}, M{i}]" for i, p in enumerate(sources))
+    lines += [
+        f"const MODS = [{pairs}];",
+        "const REG = {};",
+        "for (const [stem, mod] of MODS) {",
+        '  for (const [name, value] of Object.entries(mod)) if (name !== "default" && typeof value === "function") REG[name] = value;',
+        '  if (typeof mod.default === "function") REG[stem] = mod.default;',
+        "}",
+        "export const names = Object.keys(REG);",
+        "export function mount(host, name, props) {",
+        "  const Component = REG[name];",
+        "  if (!Component) return false;",
+        "  render(h(Component, props), host);",
+        "  return true;",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def vite_config(work: Path, out: Path) -> str:
+    return (
+        'import { defineConfig } from "vite";\n'
+        "export default defineConfig({\n"
+        f"  root: {json.dumps(str(work))},\n"
+        '  logLevel: "warn",\n'
+        '  esbuild: { jsx: "automatic", jsxImportSource: "preact" },\n'
+        "  build: {\n"
+        f"    outDir: {json.dumps(str(out))},\n"
+        "    emptyOutDir: false,\n"
+        '    target: "es2022",\n'
+        f'    lib: {{ entry: {json.dumps(str(work / "entry.js"))}, formats: ["es"], fileName: () => "components.js" }}\n'
+        "  }\n"
+        "});\n"
+    )
+
+
+def build(args) -> int:
+    root = Path(args.dir)
+    sources = sorted((root / "components").glob("*.tsx"))
+    if not sources:
+        print(f"build: {root}/components holds no .tsx component; the declared kit needs no build")
+        return 0
+    if shutil.which("npm") is None:
+        print("build: npm is not on PATH; compiling components/*.tsx needs node", file=sys.stderr)
+        return 1
+    pack = component_pack()
+    work = pack / "build"
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "src").mkdir(parents=True)
+    for path in sources:
+        shutil.copy(path, work / "src" / path.name)
+    (work / "entry.js").write_text(entry_source(sources))
+    (work / "vite.config.mjs").write_text(vite_config(work, root.resolve()))
+    result = subprocess.run(["node", str(pack / "node_modules" / "vite" / "bin" / "vite.js"),
+                             "build", "--config", str(work / "vite.config.mjs")], cwd=pack)
+    if result.returncode:
+        print("build: vite could not compile the components", file=sys.stderr)
+        return result.returncode
+    bundle = root / "components.js"
+    print(f"build: {', '.join(p.name for p in sources)} → {bundle} ({bundle.stat().st_size // 1024} KB)")
+    return 0
+
+
+def check_ai_config(rep, root):
+    path = root / "ai.json"
+    if not path.exists():
+        return
+    try:
+        cfg = json.loads(path.read_text())
+    except ValueError as e:
+        rep.err(f"ai.json does not parse: {e}")
+        return
+    if not isinstance(cfg, dict):
+        rep.err('ai.json must be a JSON object: {"endpoint", "model", "key"}, or {"disabled": true} to turn the assistant off')
+        return
+    if cfg.get("disabled") is True:
+        for k in sorted(set(cfg) - {"disabled"}):
+            rep.warn(f"ai.json disables the assistant, so {k!r} beside it does nothing")
+        return
+    for k in AI_CONFIG_KEYS:
+        v = cfg.get(k)
+        if not (isinstance(v, str) and v.strip()):
+            rep.err(f"ai.json: {k!r} must be a non-empty string")
+    endpoint = cfg.get("endpoint")
+    if isinstance(endpoint, str) and endpoint.strip():
+        problem = ai_endpoint_problem(endpoint.strip())
+        if problem:
+            rep.err(f"ai.json: endpoint {problem}")
+    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
+        rep.warn(f"ai.json carries {k!r}, which the page ignores")
+
+
+def component_figures(spec):
+    kind = spec.get("kind")
+    if kind == "dd.tabs":
+        return [t.get("figure") for t in spec.get("tabs") or [] if isinstance(t, dict)]
+    if kind == "dd.before-after":
+        return [(spec.get(side) or {}).get("figure") for side in ("before", "after")
+                if isinstance(spec.get(side), dict)]
+    return []
+
+
+def component_labels(R):
+    declared = R.get("components")
+    if not isinstance(declared, dict):
+        return
+    for cid, spec in sorted(declared.items()):
+        if not isinstance(spec, dict):
+            continue
+        where = f"components.{cid}"
+        if isinstance(spec.get("title"), str) and spec["title"].strip():
+            yield f"{where}.title", spec["title"], True
+        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols"):
+            for i, item in enumerate(spec.get(field) or []):
+                if isinstance(item, dict) and isinstance(item.get("label"), str) and item["label"].strip():
+                    yield f"{where}.{field}[{i}].label", item["label"], True
+        for side in ("before", "after"):
+            pane = spec.get(side)
+            if isinstance(pane, dict) and isinstance(pane.get("label"), str) and pane["label"].strip():
+                yield f"{where}.{side}.label", pane["label"], True
+        for figure in component_figures(spec):
+            if isinstance(figure, dict) and figure.get("kind") == "mermaid" and isinstance(figure.get("source"), str):
+                for nid, label in mermaid_labels(figure["source"]):
+                    yield f"{where} figure node {nid}", label, True
+
+
+def code_only(src: str) -> str:
+    out, i, n = list(src), 0, len(src)
+    stack = [["code", 0]]
+
+    def blank(start, end):
+        for k in range(start, min(end, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        top = stack[-1]
+        c = src[i]
+        if top[0] == "template":
+            if c == "\\":
+                blank(i, i + 2)
+                i += 2
+            elif c == "`":
+                stack.pop()
+                i += 1
+            elif src[i:i + 2] == "${":
+                stack.append(["code", 0])
+                i += 2
+            else:
+                blank(i, i + 1)
+                i += 1
+            continue
+        if src[i:i + 2] == "//":
+            end = src.find("\n", i)
+            end = n if end < 0 else end
+            blank(i, end)
+            i = end
+        elif src[i:i + 2] == "/*":
+            end = src.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            blank(i, end)
+            i = end
+        elif c in "\"'":
+            j = i + 1
+            while j < n and src[j] != c and src[j] != "\n":
+                j += 2 if src[j] == "\\" else 1
+            if j < n and src[j] == c:
+                blank(i + 1, j)
+                i = j + 1
+            else:
+                i += 1
+        elif c == "`":
+            stack.append(["template", 0])
+            i += 1
+        elif c == "{":
+            top[1] += 1
+            i += 1
+        elif c == "}":
+            if top[1] == 0 and len(stack) > 1:
+                stack.pop()
+            else:
+                top[1] -= 1
+            i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def tsx_exports(stem: str, code: str) -> set:
+    names = set(TSX_EXPORT.findall(code))
+    for group in TSX_EXPORT_LIST.findall(code):
+        for part in group.split(","):
+            m = TSX_EXPORT_NAME.search(part.strip())
+            if m:
+                names.add(m.group(0))
+    if TSX_EXPORT_DEFAULT.search(code):
+        names.add(stem)
+    return names
+
+
+def whatif_axis(inp) -> list:
+    lo, hi = float(inp["min"]), float(inp["max"])
+    step = float(inp.get("step") or 1)
+    values = [lo + k * step for k in range(int((hi - lo) / step + 1e-9) + 1)]
+    if values[-1] < hi:
+        values.append(hi)
+    if float(inp["value"]) not in values:
+        values.append(float(inp["value"]))
+    return values
+
+
+def whatif_grid(inputs):
+    axes, total = [], 1
+    for inp in inputs:
+        axis = whatif_axis(inp)
+        total *= len(axis)
+        if total > WHATIF_GRID_MAX:
+            return None
+        axes.append(axis)
+    ids = [i["id"] for i in inputs]
+    return [dict(zip(ids, point)) for point in itertools.product(*axes)]
+
+
+def expr_interval(node, box):
+    kind = node[0]
+    if kind == "num":
+        return (node[1], node[1])
+    if kind == "ref":
+        return box[node[1]]
+    if kind == "fn":
+        parts = [expr_interval(a, box) for a in node[2]]
+        fn = EXPR_FNS[node[1]]
+        return (fn(*(lo for lo, _ in parts)), fn(*(hi for _, hi in parts)))
+    a, b = expr_interval(node[1], box), expr_interval(node[2], box)
+    if kind == "+":
+        return (a[0] + b[0], a[1] + b[1])
+    if kind == "-":
+        return (a[0] - b[1], a[1] - b[0])
+    if kind == "/" and b[0] <= 0 <= b[1]:
+        raise ExprError("divides by a denominator the sliders can drive to zero")
+    corners = [x * y if kind == "*" else x / y for x in a for y in b]
+    return (min(corners), max(corners))
+
+
+class SvgScan(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.roots, self.depth, self.tags, self.attrs = [], 0, [], []
+
+    def handle_starttag(self, tag, attrs):
+        if self.depth == 0:
+            self.roots.append(tag)
+        if tag not in SVG_TAGS:
+            self.tags.append(tag)
+        for name, value in attrs:
+            if name.startswith("xml"):
+                continue
+            key = name.split(":")[-1]
+            if key == "href":
+                if not SVG_FRAGMENT_HREF.match((value or "").strip()):
+                    self.attrs.append(f"{name}={value!r}")
+            elif key == "style":
+                if SVG_CSS_BAN.search(value or ""):
+                    self.attrs.append(f"{name}={value!r}")
+            elif key not in SVG_ATTRS:
+                self.attrs.append(name)
+        if tag not in VOID_TAGS:
+            self.depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        depth = self.depth
+        self.handle_starttag(tag, attrs)
+        self.depth = depth
+
+    def handle_endtag(self, tag):
+        if self.depth:
+            self.depth -= 1
+
+
+def svg_problems(source: str) -> list:
+    scan = SvgScan()
+    scan.feed(source)
+    scan.close()
+    out = []
+    if len(scan.roots) != 1 or scan.roots[0] != "svg":
+        out.append("is not a single <svg> element; the renderer parses it as XML and drops anything else")
+    if scan.tags:
+        out.append("carries " + ", ".join(f"<{t}>" for t in sorted(set(scan.tags))) +
+                   "; the renderer keeps only drawing elements")
+    if scan.attrs:
+        out.append("carries " + ", ".join(sorted(set(scan.attrs))) +
+                   "; the renderer keeps only drawing attributes and same-document href fragments")
+    return out
+
+
+def check_figures(rep, label, spec):
+    for figure in component_figures(spec):
+        if not isinstance(figure, dict) or figure.get("kind") != "svg":
+            continue
+        if not (isinstance(figure.get("label"), str) and figure["label"].strip()):
+            rep.err(f"{label}: an svg figure needs a 'label'; it is the figure's aria-label and the only "
+                    "wording print and the Markdown export carry")
+        source = figure.get("source")
+        if isinstance(source, str):
+            for problem in svg_problems(source):
+                rep.err(f"{label}: svg figure {problem}")
+
+
+AI_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def ai_endpoint_problem(endpoint: str):
+    parts = urllib.parse.urlsplit(endpoint)
+    if not parts.scheme or not parts.netloc:
+        return "must be an absolute URL; the page calls it with no page-relative base to resolve against"
+    if parts.scheme == "http" and (parts.hostname or "") in AI_LOOPBACK:
+        return None
+    if parts.scheme != "https":
+        return (f"uses the {parts.scheme}: scheme; a page served over https can only call an https endpoint "
+                "(http is allowed on localhost)")
+    return None
 
 
 def main():
@@ -1218,9 +2462,15 @@ def main():
     rc.add_argument("dir")
     rc.add_argument("--timeout", type=float, default=RENDER_TIMEOUT, help="seconds to wait for the page to report every diagram rendered")
     rc.set_defaults(fn=render_check)
+    gl = sub.add_parser("glossary", help="print the terms a doc leans on but never defines, as JSON for terms[]")
+    gl.add_argument("dir")
+    gl.set_defaults(fn=glossary)
     pd = sub.add_parser("pdf", help="print the project's doc to its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)
+    bd = sub.add_parser("build", help="compile the project's components/*.tsx into components.js")
+    bd.add_argument("dir", nargs="?", default=".")
+    bd.set_defaults(fn=build)
     sn = sub.add_parser("snapshot", help="record a revision of the project's registers")
     sn.add_argument("dir", nargs="?", default=".")
     sn.add_argument("--note", default="")

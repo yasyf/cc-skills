@@ -12,7 +12,14 @@
     },
     "timingsCaption": "Log scale. The budget is one enqueue round-trip under 25ms; everything else happens off the request path.",
     "footerNote": "numbers marked (E) are estimates pending the spikes",
-    "canonical": "This file is the canonical structured register. Verbatim question rounds live in qa-log.json; prose that does not fit structure lives in NOTES.md; design-doc.html renders from this file."
+    "canonical": "This file is the canonical structured register. Verbatim question rounds live in qa-log.json; prose that does not fit structure lives in NOTES.md; design-doc.html renders from this file.",
+    "acronyms": ["WAL", "SQLite"],
+    "ai": {
+      "suggest": {
+        "decisions": ["Why one file per tenant?", "What happens when a lease expires mid-job?"],
+        "open": ["What is still in the way of a v1 date?"]
+      }
+    }
   },
   "tldr": [
     {
@@ -31,6 +38,7 @@
   "diagram": {
     "kind": "mermaid",
     "source": "flowchart LR\n  producers[\"Producers<br/>HTTP, idempotency keys\"]\n  c-log[\"Job log<br/>SQLite, one file per tenant\"]\n  c-lease[\"Dispatcher<br/>leases and long-poll\"]\n  workers[\"Workers<br/>renew leases\"]\n  archive[(\"Object storage\")]\n  producers e-enqueue@-- enqueue --> c-log\n  c-log e-lease@-- lease --> c-lease\n  c-lease e-deliver@-- deliver --> workers\n  c-log e-archive@-. archive after 24h .-> archive",
+    "overview": "flowchart LR\n  producers[\"Producers\"] --> c-log[\"Job log\"]\n  c-log --> c-lease[\"Dispatcher\"]\n  c-lease --> workers[\"Workers\"]\n  c-log -. after 24h .-> archive[(\"Object storage\")]",
     "caption": "The job log is the durable piece: a job is safe once the log accepts it. The dispatcher and the workers are stateless and rebuilt from the log."
   },
   "constraints": [
@@ -47,8 +55,8 @@
     }
   ],
   "terms": [
-    { "k": "job", "v": "One unit of work: an opaque payload plus a queue name and an idempotency key chosen by the producer." },
-    { "k": "lease", "v": "A worker's temporary claim on a job. It expires at a deadline unless renewed; expiry re-queues the job." },
+    { "k": "job", "aliases": ["payload"], "v": "One unit of work: an opaque payload plus a queue name and an idempotency key chosen by the producer." },
+    { "k": "lease", "aliases": ["lease deadline"], "v": "A worker's temporary claim on a job. It expires at a deadline unless renewed; expiry re-queues the job." },
     { "k": "spike", "v": "A small time-boxed experiment that turns an estimate marked (E) into a measured number." }
   ],
   "footnotes": [
@@ -70,6 +78,7 @@
       "id": "c-log",
       "node": "c-log",
       "t": "The job log",
+      "h": "The job log",
       "dq": ["DQ1"],
       "a": ["A2"],
       "b": [
@@ -81,6 +90,7 @@
       "id": "c-lease",
       "node": "c-lease",
       "t": "Leases and delivery",
+      "h": "Leases and delivery",
       "dq": ["DQ2", "DQ4"],
       "a": ["A1", "A3"],
       "b": [
@@ -91,7 +101,7 @@
   ],
   "paths": [
     {
-      "id": "enq",
+      "id": "p-enq",
       "name": "Enqueue (acked)",
       "budget": 25,
       "segs": [
@@ -102,7 +112,7 @@
       "note": "The flush dominates; everything else is bookkeeping. Numbers pending spike V1."
     },
     {
-      "id": "disp",
+      "id": "p-disp",
       "name": "Dispatch to a waiting worker",
       "segs": [
         ["wake", 0.2, 1, "dispatcher pops the queue head", "c-lease"],
@@ -123,7 +133,8 @@
     {
       "id": "n-throughput",
       "t": "Throughput budget",
-      "sub": "Sustained rates one tenant is sized for; latency for the same flows is under Request paths.",
+      "h": "Throughput budget",
+      "sub": "Sustained rates one tenant is sized for; latency lives under Request paths.",
       "cols": ["Flow", "Sustained (E)", "Burst (E)", "Limited by"],
       "rows": [
         ["Enqueues", "3k jobs/s", "5k jobs/s for 60s", "the WAL flush loop"],
@@ -133,6 +144,21 @@
       "note": "Per tenant. Both (E) columns are estimates pending spike V1; the ceilings table below says what happens when a rate is exceeded."
     }
   ],
+  "components": {
+    "backlog-cost": {
+      "kind": "dd.whatif",
+      "title": "What a backlog costs per second",
+      "inputs": [
+        {"id": "backlog", "label": "Jobs waiting", "min": 100, "max": 100000, "step": 100, "value": 10000, "unit": "jobs"},
+        {"id": "workers", "label": "Workers", "min": 1, "max": 200, "step": 1, "value": 40}
+      ],
+      "outputs": [
+        {"label": "Rows scanned per second today", "expr": "backlog * workers / 5", "unit": "rows/s", "tone": "warn"},
+        {"label": "Open connections proposed", "expr": "workers", "tone": "ok"}
+      ],
+      "cites": ["DQ4"]
+    }
+  },
   "ceilings": [
     ["WAL flush loop", "~5k jobs/s (E)", "enqueue p95 climbs", "backpressure: 429 with retry-after"],
     ["parked workers", "~10k long-polls (E)", "dispatch latency climbs", "per-tenant cap; new polls rejected"],
@@ -148,6 +174,7 @@
     {
       "id": "DQ1",
       "t": "One SQLite file per tenant",
+      "h": "One file per tenant",
       "s": "resolved",
       "key": true,
       "theme": "durability",
@@ -159,6 +186,7 @@
     {
       "id": "DQ2",
       "t": "Delivery semantics",
+      "h": "At-least-once delivery",
       "s": "resolved",
       "key": true,
       "theme": "delivery",
@@ -170,6 +198,7 @@
     {
       "id": "DQ3",
       "t": "Worker transport: long-poll HTTP",
+      "h": "Long-poll dispatch",
       "s": "superseded",
       "by": "DQ4",
       "key": false,
@@ -181,6 +210,7 @@
     {
       "id": "DQ4",
       "t": "Worker transport: long-poll HTTP, renewals TBD",
+      "h": "Where renewals ride",
       "s": "open",
       "key": true,
       "theme": "delivery",
@@ -204,6 +234,7 @@
     {
       "id": "A1",
       "t": "At-least-once delivery is acceptable",
+      "h": "Duplicates are acceptable",
       "s": "validate",
       "star": true,
       "key": true,
@@ -215,6 +246,7 @@
     {
       "id": "A2",
       "t": "Single-machine durability is enough",
+      "h": "Single-machine durability",
       "s": "working",
       "key": true,
       "theme": "durability",
@@ -224,6 +256,7 @@
     {
       "id": "A3",
       "t": "Workers are cooperative",
+      "h": "Cooperative workers",
       "s": "working",
       "key": false,
       "theme": "delivery",
@@ -233,6 +266,7 @@
     {
       "id": "A4",
       "t": "Payloads stay under 64 KB",
+      "h": "64 KB payload cap",
       "s": "working",
       "key": true,
       "theme": "limits",
@@ -245,7 +279,8 @@
     {
       "g": "product",
       "id": "Q1",
-      "t": "Confirm A1 with every consuming team, in writing.",
+      "t": "Confirm the duplicate-tolerance assumption with every consuming team, in writing.",
+      "h": "Consumer sign-off",
       "p": "Get every team that receives jobs to confirm, in writing, that a repeat is fine.",
       "blocks": ["DQ2"]
     },
@@ -253,24 +288,28 @@
       "g": "product",
       "id": "Q2",
       "t": "Does anyone need scheduled (delayed) jobs in v1?",
+      "h": "Scheduled jobs",
       "p": "Does anyone need jobs that run later rather than as soon as possible?"
     },
     {
       "g": "spikes",
       "id": "V1",
       "t": "Measure enqueue and dispatch latency under 1k concurrent producers.",
+      "h": "Latency under load",
       "p": "Measure how fast jobs are accepted and handed out when a thousand senders are active at once."
     },
     {
       "g": "spikes",
       "id": "V2",
       "t": "Measure restore-from-archive replay rate on a 10 GB log.",
+      "h": "Restore replay rate",
       "p": "Measure how quickly a ten-gigabyte log can be rebuilt from the archive."
     },
     {
       "g": "spikes",
       "id": "V3",
       "t": "Lease renewals on the dispatch connection vs. a separate endpoint.",
+      "h": "Renewal transport spike",
       "p": "Decide whether workers extend a job's timer on the connection they already hold or on a separate one.",
       "blocks": ["DQ4"]
     }
