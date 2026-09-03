@@ -7,6 +7,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask\" --version >/dev/null 2>&1",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask\" --sweep >/dev/null 2>&1",
+            "async": true
           }
         ]
       }
