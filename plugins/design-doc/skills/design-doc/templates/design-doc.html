@@ -233,6 +233,61 @@ details.ledger.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
 .qa .q{color:var(--ink2)}
 .qa .rno{color:var(--ink2);font-size:12.5px;margin-left:6px}
 .qa .n{color:var(--ink2)}
+.qa-replay{display:grid;grid-template-columns:176px minmax(0,1fr);gap:0 24px;align-items:start;margin-bottom:-28px}
+.qa-tl{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding:12px 0;max-height:72vh;overflow:auto}
+.qa-tl button{display:flex;gap:8px;align-items:baseline;min-width:0;text-align:left;border:0;background:none;color:var(--ink2);font-size:13px;line-height:1.3;padding:4px 8px;border-radius:var(--r-node)}
+.qa-tl button b{font-family:var(--mono);font-weight:500;font-size:12px;min-width:18px;font-variant-numeric:tabular-nums}
+.qa-tl button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qa-tl button:hover,.qa-tl button.cur{background:var(--bg2);color:var(--ink)}
+.qa-tl button.cur b{color:var(--accent)}
+.qa-body{min-width:0}
+.qa-round{padding:14px 0 8px;border-top:1px solid var(--line)}
+.qa-round:first-child{border-top:0}
+.qa-rhead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.qa-rhead h3{margin:0}
+.qa-rmeta,.qa-no,.qa-note,.qa-rnote{color:var(--ink2);font-size:13.5px}
+.qa-rnote{margin:6px 0 0}
+.qa-round>.qa{margin-top:10px}
+.qa-rdec,.qa-became{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;margin:10px 0 0}
+.qa-rdec b,.qa-became b{color:var(--ink2);font-weight:600;font-size:13px}
+.qa-card{margin:14px 0 0;padding:12px 16px 14px;border:1px solid var(--line);border-radius:var(--r-node);background:var(--card)}
+.qa-card.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.qa-meta{display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.qa-hdr{font-weight:600;font-size:14.5px}
+.qa-ask{margin:4px 0 8px;font-size:15px}
+.qa-opts{list-style:none;padding:0;margin:0}
+.qa-opt{display:grid;grid-template-columns:18px minmax(0,1fr);column-gap:8px;padding:3px 0;font-size:14px;color:var(--ink2)}
+.qa-opt .qa-glyph{font-style:normal;line-height:1.5}
+.qa-opt .qa-desc{grid-column:2;font-size:13px}
+.qa-opt.on{color:var(--ink)}
+.qa-opt.on .qa-glyph,.qa-opt.on .qa-lbl{color:var(--accent);font-weight:600}
+.qa-opt-defer .qa-lbl{font-style:italic}
+.qa-ans,.qa-def,.qa-note{margin:8px 0 0;font-size:14px}
+.qa-def{color:var(--warn)}
+.qa-ctl{grid-column:1/-1;position:sticky;bottom:-28px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 0 14px;margin-top:14px;background:var(--card);border-top:1px solid var(--line)}
+.qa-ctl button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 12px;font-size:13px}
+.qa-ctl button:hover{border-color:var(--accent);color:var(--accent)}
+.qa-ctl button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.qa-ctl button:disabled{opacity:.45;cursor:default}
+.qa-pos{flex:1;font-family:var(--mono);font-size:12.5px;color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.qa-keys{font-size:12px;color:var(--ink2)}
+.qa-card.compact{padding:10px 14px 12px;font-size:13.5px}
+.qa-card.compact .qa-desc{display:none}
+.qa-card.compact .qa-ask{font-size:14px}
+.qa-card.compact .qa-opt{padding:1px 0;font-size:13.5px}
+.qa-rec .qa-from{display:block;margin-top:10px;font-size:13.5px;background:none;border:0;padding:0}
+.mback.play{background:transparent;pointer-events:none;align-items:flex-end;justify-content:flex-end;padding:18px}
+.mback.play .modal{pointer-events:auto;width:min(480px,calc(100vw - 36px));max-height:min(60vh,560px)}
+.mback.play .qa-replay{grid-template-columns:minmax(0,1fr)}
+.mback.play .qa-tl,.mback.play .qa-round:not(.cur),.mback.play .qa-card:not(.cur),.mback.play .qa-round>.qa,.mback.play .qa-rdec,.mback.play .qa-keys{display:none}
+.mback.play .qa-round{border-top:0;padding-top:4px}
+body.qa-play .layout{margin-right:min(500px,40vw)}
+@media (max-width:700px){
+  .qa-replay{grid-template-columns:minmax(0,1fr)}
+  .qa-tl{position:static;flex-direction:row;overflow-x:auto;max-height:none;padding:6px 0}
+  .qa-tl button span,.qa-keys{display:none}
+  body.qa-play .layout{margin-right:0}
+}
 details.theme{border-bottom:1px solid var(--line)}
 details.theme>summary{list-style:none;padding:14px 2px;cursor:pointer}
 details.theme>summary::-webkit-details-marker{display:none}
@@ -583,7 +638,9 @@ section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line)
   h2,h3{break-after:avoid}
   details>summary{list-style:none}
   .ledger .sumline,details.spot .sp{display:none!important}
-  details.ledger,details.spot,.tldr,.sysd,.scale,.wf,.twrap,figure,.spot,.def,.rule,.orow{break-inside:avoid}
+  details.ledger,details.spot,.tldr,.sysd,.scale,.wf,.twrap,figure,.spot,.def,.rule,.orow,.qa-card{break-inside:avoid}
+  .qa-tl,.qa-ctl,.qa-from{display:none!important}
+  .qa-round{break-inside:auto}
   details.theme>summary{padding-top:10pt}
   .spotlight{grid-template-columns:1fr 1fr;gap:8pt}
   details.spot[open]{grid-column:auto}
@@ -983,6 +1040,7 @@ async function loadFile(name){
  return await r.text();
 }
 const summaryLoad=loadFile("summary.html").catch(()=>"");
+const qaLoad=loadFile("qa-log.json").catch(()=>"");
 let R;
 try{R=JSON.parse(await loadFile("registers.json"));}
 catch(e){
@@ -1592,7 +1650,11 @@ function openRefSheet(id){
  $("#stitle").textContent=plain(r.title);
  let body=`<div class="kv"><b>${esc(bits.join(" · "))}</b><span class="idchip">${esc(id)}</span></div>`;
  if(e.p)body+=`<p class="plainp">${inline(e.p)}</p>`;
- if(r.kind==="decision")body+=`<div class="kv"><b>What we decided</b>${inline(e.r)}</div>`;
+ if(r.kind==="decision"){
+  body+=`<div class="kv"><b>What we decided</b>${inline(e.r)}</div>`;
+  const record=qaRecordHtml(e);
+  if(record)body+=`<details class="more"><summary>Show the record</summary>${record}</details>`;
+ }
  else if(r.kind==="assumption")body+=`<div class="kv"><b>Evidence</b>${inline(e.b)}</div>`;
  else if(r.kind==="arch")body+=`<p>${inline(e.b[0]||"")}</p>`+restsOn(e);
  else if(r.kind==="open"&&!e.p)body+=`<p>${inline(e.t)}</p>`;
@@ -2215,9 +2277,17 @@ function dqBody(d){
  let record="";
  if(d.x)record+=`<div class="kv"><b>What we turned down</b>${inline(d.x)}</div>`;
  if(d.by)record+=`<div class="kv"><b>Replaced by</b>${refChip(d.by)}</div>`;
- const rd=ROUNDS[d.round];
- if(rd)record+=`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`;
+ record+=qaRecordHtml(d);
  return record?out+`<details class="more"><summary>Show the record</summary>${record}</details>`:out;
+}
+const QA_DEFER=/^Add to open list/;
+let QA=null,qaAt=0,qaOpen=false,qaPlaying=false,qaPrintSection=null;
+const qaFor=id=>(QA&&QA.byId[id])||[];
+function qaRecordHtml(d){
+ const qs=qaFor(d.id);
+ if(qs.length)return `<div class="qa-rec">${qs.map(q=>qaCardNode(q,d.id).outerHTML).join("")}<button type="button" class="linkish qa-from" data-replay="${qs[0].ix}">Replay from here</button></div>`;
+ const rd=ROUNDS[d.round];
+ return rd?`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`:"";
 }
 function dqRow(d){
  const det=el("details","ledger");det.id="item-"+d.id;
@@ -2391,6 +2461,9 @@ window.openItem=id=>{
 };
 window.openRef=id=>{
  closeModal();
+ return revealEntry(id);
+};
+function revealEntry(id){
  unveil();
  const r=REF[id];
  if(!r){location.hash="#"+id;return false}
@@ -2405,7 +2478,7 @@ window.openRef=id=>{
  }
  hideTip();
  return false;
-};
+}
 const refTarget=e=>e.target.closest&&e.target.closest("[data-ref]");
 document.addEventListener("click",e=>{
  const a=refTarget(e);
@@ -2773,7 +2846,7 @@ function buildDocMd(){
  return L.join("\n");
 }
 async function buildQaMd(){
- const Q=JSON.parse(await loadFile("qa-log.json"));
+ const Q=(await QA_READY).raw;
  const L=[`# ${META.title||"Untitled design"} — Question log\n`];
  if(Q.description)L.push("_"+Q.description+"_\n");
  (Q.rounds||[]).forEach(r=>{
@@ -2790,6 +2863,160 @@ async function buildQaMd(){
  return L.join("\n");
 }
 
+function qaModel(text){
+ const raw=text?JSON.parse(text):{rounds:[]};
+ const byRound=Object.create(null);
+ DQ.forEach(d=>{if(d.round!=null)(byRound[String(d.round)]||(byRound[String(d.round)]=[])).push(d.id)});
+ const idsIn=s=>ID_RE?[...String(s).matchAll(ID_RE)].map(m=>m[2]).filter(id=>REF[id].kind==="decision"||REF[id].kind==="open"):[];
+ const questions=[];
+ const rounds=(raw.rounds||[]).map(r=>{
+  const key=String(r.round);
+  const decisions=byRound[key]||[];
+  const round={key,n:r.round,date:r.date||"",topic:r.topic||"",note:r.note||"",rec:ROUNDS[key]||null,decisions,questions:[]};
+  (r.questions||[]).forEach((q,i)=>{
+   const options=q.options||[];
+   const labels=options.map(o=>o.label);
+   const answer=String(q.answer||"");
+   const parts=q.multiSelect?answer.split(/,\s*/):[answer];
+   const named=Array.isArray(q.decides)?q.decides.filter(id=>REF[id]):[...new Set(idsIn((q.header||"")+" "+(q.question||"")))];
+   const item={ix:questions.length,n:i+1,round,header:q.header||"",question:q.question||"",options,multi:!!q.multiSelect,
+    chosen:new Set(parts.filter(p=>labels.includes(p))),
+    custom:parts.every(p=>labels.includes(p))?"":answer,
+    deferred:parts.some(p=>QA_DEFER.test(p)),
+    decides:named.length?named:(decisions.length===1?decisions:[]),
+    note:q.note||""};
+   round.questions.push(item);questions.push(item);
+  });
+  return round;
+ });
+ const byId=Object.create(null);
+ questions.forEach(q=>q.decides.forEach(id=>(byId[id]||(byId[id]=[])).push(q)));
+ QA={raw,rounds,questions,byId};
+ return QA;
+}
+const QA_READY=qaLoad.then(qaModel);
+function qaOptionHtml(o,q){
+ const on=q.chosen.has(o.label);
+ const glyph=q.multi?(on?"☑":"☐"):(on?"●":"○");
+ return `<li class="qa-opt${on?" on":""}${QA_DEFER.test(o.label)?" qa-opt-defer":""}"><i class="qa-glyph" aria-hidden="true">${glyph}</i><span class="qa-lbl">${inline(o.label)}${on?'<span class="sr-only"> — chosen</span>':""}</span>${o.description?`<span class="qa-desc">${inline(o.description)}</span>`:""}</li>`;
+}
+function qaCardNode(q,host){
+ const card=el("article","qa-card"+(host?" compact":""));
+ card.dataset.ix=q.ix;
+ const opened=q.deferred?q.decides.filter(id=>REF[id].kind==="open"):[];
+ const became=q.decides.filter(id=>id!==host&&!opened.includes(id));
+ let h=`<div class="qa-meta"><b class="qa-hdr">${inline(q.header)}</b><span class="qa-no">round ${esc(String(q.round.n))} · question ${q.n}</span></div>`;
+ h+=`<p class="qa-ask">${inline(q.question)}</p>`;
+ if(q.options.length)h+=`<ul class="qa-opts">${q.options.map(o=>qaOptionHtml(o,q)).join("")}</ul>`;
+ if(q.custom)h+=`<p class="qa-ans"><b>You answered:</b> ${inline(q.custom)}</p>`;
+ if(q.deferred)h+=`<p class="qa-def">Added to the open list${opened.length?" as "+opened.map(refChip).join(" "):""}</p>`;
+ if(q.note)h+=`<p class="qa-note">${inline(q.note)}</p>`;
+ if(became.length)h+=`<p class="qa-became"><b>Became</b><span class="reflist">${became.map(refChip).join("")}</span></p>`;
+ card.innerHTML=h;
+ return card;
+}
+function qaRoundNode(r){
+ const sec=el("section","qa-round");sec.id="qa-round-"+r.key;
+ let h=`<header class="qa-rhead"><h3>Round ${esc(String(r.n))}</h3><span class="qa-rmeta">${[r.date?longDate(r.date):"",inline(r.topic)].filter(Boolean).join(" · ")}</span></header>`;
+ if(r.note)h+=`<p class="qa-rnote">${inline(r.note)}</p>`;
+ if(r.rec)h+=`<div class="qa"><p class="q">We asked: “${inline(r.rec.q)}”</p><p class="a">You said: “${inline(r.rec.a)}”</p>${r.rec.n?`<p class="n">${inline(r.rec.n)}</p>`:""}</div>`;
+ if(r.decisions.length)h+=`<p class="qa-rdec"><b>Decided in this round</b><span class="reflist">${r.decisions.map(refChip).join("")}</span></p>`;
+ sec.innerHTML=h;
+ r.questions.forEach(q=>sec.append(qaCardNode(q,"")));
+ return sec;
+}
+function qaReplayNode(){
+ const box=el("div","qa-replay");
+ const tl=el("nav","qa-tl");tl.setAttribute("aria-label","Rounds");
+ tl.innerHTML=QA.rounds.map(r=>`<button type="button" data-round="${esc(r.key)}"><b>${esc(String(r.n))}</b><span>${esc(plain(r.topic))}</span></button>`).join("");
+ tl.onclick=e=>{const b=e.target.closest("[data-round]");if(!b)return;const r=QA.rounds.find(x=>x.key===b.dataset.round);if(r.questions.length)qaGo(r.questions[0].ix)};
+ const body=el("div","qa-body");
+ QA.rounds.forEach(r=>body.append(qaRoundNode(r)));
+ linkNode(body);
+ const ctl=el("div","qa-ctl");
+ ctl.innerHTML=`<button type="button" id="qaPrev">Previous</button><button type="button" id="qaNext">Next</button><button type="button" id="qaPlay" aria-pressed="false" title="Dock this card and walk the page to each decision">Play</button><span class="qa-pos" id="qaPos" aria-live="polite"></span><span class="qa-keys">←/k · →/j · p · Home/End</span><button type="button" id="qaPrint">Print</button>`;
+ box.append(tl,body,ctl);
+ return box;
+}
+function qaGo(ix){
+ if(!QA.questions.length)return;
+ qaAt=Math.max(0,Math.min(QA.questions.length-1,ix));
+ const q=QA.questions[qaAt],body=$("#mbody");
+ body.querySelectorAll(".cur").forEach(n=>n.classList.remove("cur"));
+ const card=body.querySelector(`.qa-card[data-ix="${qaAt}"]`);
+ card.classList.add("cur");
+ card.closest(".qa-round").classList.add("cur");
+ body.querySelectorAll(`.qa-tl [data-round="${CSS.escape(q.round.key)}"]`).forEach(b=>b.classList.add("cur"));
+ if(qaPlaying)body.scrollTop=0;
+ else card.scrollIntoView({block:"center",behavior:reduced()?"auto":"smooth"});
+ $("#qaPos").textContent=`${qaAt+1} of ${QA.questions.length}`;
+ $("#qaPrev").disabled=qaAt===0;
+ $("#qaNext").disabled=qaAt===QA.questions.length-1;
+ if(qaPlaying)qaShowOnPage(q);
+}
+function qaShowOnPage(q){
+ clearAiMarks();
+ const id=q.decides[0];
+ if(!id)return;
+ revealEntry(id);
+ aiMark(id);
+ const card=ARCH.find(c=>c.node&&(c.dq||[]).includes(id)),svg=$("#sysdHost svg.mmd");
+ if(card&&svg)hlTarget(svg,card.node);
+}
+function qaPlay(on){
+ qaPlaying=on;
+ $("#mback").classList.toggle("play",on);
+ document.body.classList.toggle("qa-play",on);
+ const b=$("#qaPlay");b.textContent=on?"Stop":"Play";b.setAttribute("aria-pressed",String(on));
+ if(on)qaGo(qaAt);else clearAiMarks();
+}
+function qaLeave(){
+ if(!qaOpen)return;
+ qaOpen=false;
+ if(qaPlaying)qaPlay(false);
+}
+async function showQaReplay(at){
+ await QA_READY;
+ if(!QA.questions.length){showModal("Every question we asked","The question log has no rounds yet.",SLUG+"-question-log.md");return}
+ closeSheet();
+ showModalNode("Every question we asked, and what you answered",qaReplayNode(),await buildQaMd(),SLUG+"-question-log.md");
+ qaOpen=true;
+ $("#qaPrev").onclick=()=>qaGo(qaAt-1);
+ $("#qaNext").onclick=()=>qaGo(qaAt+1);
+ $("#qaPlay").onclick=()=>qaPlay(!qaPlaying);
+ $("#qaPrint").onclick=()=>{closeModal();$("#pdfBtn").click()};
+ qaGo(at||0);
+ if(!at)$("#mbody").scrollTop=0;
+}
+function qaKey(e){
+ if(!qaOpen||e.metaKey||e.ctrlKey||e.altKey||typingNow())return false;
+ const k=e.key;
+ if(k==="ArrowRight"||k==="j")qaGo(qaAt+1);
+ else if(k==="ArrowLeft"||k==="k")qaGo(qaAt-1);
+ else if(k==="p")qaPlay(!qaPlaying);
+ else if(k==="Home")qaGo(0);
+ else if(k==="End")qaGo(QA.questions.length-1);
+ else return false;
+ e.preventDefault();
+ return true;
+}
+async function printQaReplay(){
+ await QA_READY;
+ if(!QA.questions.length||qaPrintSection)return;
+ const sec=el("section","qa-print");sec.id="interview";
+ sec.innerHTML=`<h2>Every question we asked</h2>${QA.raw.description?`<p class="sub">${esc(QA.raw.description)}</p>`:""}`;
+ QA.rounds.forEach(r=>sec.append(qaRoundNode(r)));
+ linkNode(sec);
+ $("#main footer").before(sec);
+ qaPrintSection=sec;
+}
+document.addEventListener("click",e=>{
+ const b=e.target.closest("[data-replay]");
+ if(!b)return;
+ showQaReplay(Number(b.dataset.replay));
+});
+QA_READY.then(()=>{if(QA.questions.length)renderDQ()});
+
 let modalMd="",modalFile="",lastFocus=null;
 function openModal(title){
  lastFocus=document.activeElement;
@@ -2804,14 +3031,15 @@ function showModal(title,md,fname){
  $("#mbody").innerHTML=mdToHtml(md);
  openModal(title);
 }
-function showModalNode(title,node){
- modalMd="";modalFile="";
- $("#mdl").hidden=true;
+function showModalNode(title,node,md="",fname=""){
+ modalMd=md;modalFile=fname;
+ $("#mdl").hidden=!md;
  const b=$("#mbody");b.innerHTML="";b.append(node);
  openModal(title);
 }
 function closeModal(){
  if(!$("#mback").classList.contains("open"))return;
+ qaLeave();
  $("#mback").classList.remove("open");
  if(lastFocus&&lastFocus.focus)lastFocus.focus();
  lastFocus=null;
@@ -2821,6 +3049,7 @@ $("#mback").onclick=e=>{if(e.target.id==="mback")closeModal()};
 document.addEventListener("keydown",e=>{
  if(!$("#mback").classList.contains("open"))return;
  if(e.key==="Escape"){closeModal();return}
+ if(qaKey(e))return;
  if(e.key!=="Tab")return;
  const f=[...$("#mback").querySelectorAll("button:not([hidden]),a[href],[tabindex]:not([tabindex='-1'])")].filter(n=>n.offsetParent!==null);
  if(!f.length)return;
@@ -2833,7 +3062,7 @@ $("#mdl").onclick=()=>{
  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=modalFile;a.click();URL.revokeObjectURL(a.href);
 };
 $("#lnkDoc").onclick=()=>showModal("The whole document, as Markdown",buildDocMd(),SLUG+"-design-doc.md");
-$("#lnkQa").onclick=async()=>showModal("Every question we asked, and what you answered",await buildQaMd(),SLUG+"-question-log.md");
+$("#lnkQa").onclick=()=>showQaReplay();
 $("#lnkNotes").onclick=async()=>{
  try{showModal("Working notes",await loadFile("NOTES.md"),"NOTES.md")}
  catch(e){showModal("Working notes","The working notes are not in this folder.","NOTES.md")}
@@ -2870,6 +3099,7 @@ async function prepPrint(){
  printing=true;
  HTML.dataset.print="1";
  showWholeRegisters();
+ await printQaReplay();
  if(PATHS.length>1)drawAllPaths();
  closedForPrint=[...document.querySelectorAll("details:not([open])")];
  closedForPrint.forEach(d=>{d.open=true});
@@ -2884,6 +3114,7 @@ function endPrint(){
  delete HTML.dataset.print;
  closedForPrint.forEach(d=>{d.open=false});
  closedForPrint=[];
+ if(qaPrintSection){qaPrintSection.remove();qaPrintSection=null}
  restoreRegisters();
  if(PATHS.length>1)drawPath();
  sysdPrintMode(false);
@@ -3698,7 +3929,7 @@ function aiRenderPath(title,items){
 async function aiExec(name,args){
  if(name==="scroll_to"){
   const id=String(args.id||"");
-  if(REF[id]){openRef(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
+  if(REF[id]){revealEntry(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
   const sec=document.getElementById(id);
   if(sec){unveil();sec.scrollIntoView({block:"start"});return "scrolled to the "+(AI_SECTION_NAMES[id]||id)+" section"}
   return "no entry or section with id "+id;
@@ -4234,6 +4465,7 @@ function palItems(){
  if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
  if(DIAGRAM_SOURCE)cmd("Open the system diagram, full size",()=>openFullDiagram(DIAGRAM.caption?plain(DIAGRAM.caption):"The system"));
  if(PATHS.length)cmd("Play the request",()=>{const b=document.querySelector(".tracebtn");if(b){b.scrollIntoView({block:"center"});b.click()}});
+ if(QA&&QA.questions.length)cmd("Replay the interview",()=>showQaReplay());
  if(!HTML.dataset.ai)return items;
  const ai=(label,run)=>push("ai",label,"Ask",run);
  ai("Questions people ask",aiShowFaq);

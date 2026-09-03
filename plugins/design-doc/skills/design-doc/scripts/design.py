@@ -1273,16 +1273,30 @@ def check(args) -> int:
         for k in rounds:
             if k not in qa_rounds:
                 rep.warn(f"registers rounds[{k}] has no matching round in qa-log.json")
+        settled = d_ids | open_ids
+        decided_per_round = {}
+        for d in R.get("decisions", []):
+            if d.get("round") is not None:
+                decided_per_round[str(d["round"])] = decided_per_round.get(str(d["round"]), 0) + 1
         for r in Q.get("rounds", []):
             lint_question(rep, f"qa round {r.get('round')} topic", r.get("topic"))
             for q in r.get("questions", []):
-                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} header", q.get("header"))
-                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} question", q.get("question"))
+                where = f"qa round {r.get('round')} {q.get('header')!r}"
+                lint_question(rep, f"{where} header", q.get("header"))
+                lint_question(rep, f"{where} question", q.get("question"))
                 labels = [o.get("label") for o in q.get("options", [])]
                 ans = q.get("answer", "")
                 parts = [a.strip() for a in ans.split(",")] if q.get("multiSelect") else [ans]
                 if ans and not (ans in labels or all(p in labels for p in parts)):
-                    rep.warn(f"qa round {r.get('round')} {q.get('header')!r}: answer is custom text (not an offered label) — fine if intended")
+                    rep.warn(f"{where}: answer is custom text (not an offered label) — fine if intended")
+                decides = q.get("decides")
+                if decides is not None:
+                    if not isinstance(decides, list) or not decides or not all(isinstance(x, str) and x in settled for x in decides):
+                        rep.err(f"{where}: decides must be a non-empty list of decision or open-item ids, got {decides!r}")
+                elif decided_per_round.get(str(r.get("round")), 0) > 1:
+                    named = set(ID_TOKEN.findall(f"{q.get('header') or ''} {q.get('question') or ''}")) & settled
+                    if not named:
+                        rep.warn(f"{where}: names no decision or open item, and round {r.get('round')} settles {decided_per_round[str(r.get('round'))]} decisions; add a decides field so the replay can map it")
     else:
         rep.warn("qa-log.json not found")
 
