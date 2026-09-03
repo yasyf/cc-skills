@@ -4,6 +4,7 @@
   design.py scaffold [dir] [--title X] [--slug x] [--example]
   design.py check <dir> [--strict]
   design.py summary-text <dir>
+  design.py glossary <dir>
   design.py plainify <dir> [--only DQ3,A2] [--provider slop-cop|claude|codex|none] [--dry-run]
   design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
@@ -14,14 +15,19 @@ slug when no dir is given — holding the doc renderer, the executive-summary
 fragment, and either the empty starter registers or the tinyq worked
 example. check lints the registers: ID shapes and uniqueness, dangling
 cross-references, supersession integrity, footnote tokens, the qa-log round
-linkage, the Mermaid diagram's structure, the plain twins, keys and themes,
-and the summary deck; errors exit non-zero, warnings are advisory, and
---strict promotes the warnings a published doc must not carry into errors.
+linkage, the Mermaid diagram's structure and its overview, the plain twins,
+the handles citations show, noun-phrase decision titles, label
+capitalisation, the word caps each section reads at, the glossary, keys and
+themes, and the summary deck; errors exit non-zero, warnings are advisory,
+and --strict promotes the warnings a published doc must not carry into
+errors.
 summary-text prints summary.html as plain text, one "## <kind>" section per
-panel, the input for the voice gate. plainify writes a plain-language twin
-for every rendered entry that lacks one, through `slop-cop plainify` by
-default or the claude or codex CLI, and prints a review table carrying
-whatever slop-cop grades against. render-check opens the doc in headless Chrome
+panel, the input for the voice gate. glossary prints the recurring terms the
+registers never define, as JSON to paste into terms[]. plainify writes a
+plain-language twin for every rendered entry that lacks one and a handle for
+every entry that has none, through `slop-cop plainify` by default or the
+claude or codex CLI, and prints a review table carrying whatever slop-cop
+grades against. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error or a diagram that never
 rendered, printing Chrome's stderr and the page's console so a failure
@@ -52,7 +58,8 @@ KEY_RANGE = (3, 8)
 TWINNED = (("tldr", "md"), ("constraints", "t"), ("decisions", "r"), ("assumptions", "b"), ("open", "t"))
 IDENTIFIED = ("assumptions", "decisions", "arch", "open", "numbers", "paths")
 TWIN_KIND = {"tldr": "summary bullet", "constraints": "ground rule", "decisions": "decision",
-             "assumptions": "assumption", "open": "open question"}
+             "assumptions": "assumption", "open": "open question", "arch": "architecture card",
+             "numbers": "numbers table"}
 PLAIN_PROVIDERS = ("slop-cop", "claude", "codex", "none")
 PLAIN_TIMEOUT = 180
 RENDER_TIMEOUT = 60
@@ -87,6 +94,51 @@ URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
 MEASURED = {"yes", "no"}
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
+SECTION_IDS = ("overview", "ground", "architecture", "paths", "numbers", "ceilings", "decisions",
+               "assumptions", "open", "footnotes")
+HANDLED = ("decisions", "assumptions", "open", "arch", "numbers")
+HANDLE_RANGE = (2, 5)
+HANDLE_PROMPT = ("Name this entry the way a reader would say it out loud: a noun phrase of two to five words, "
+                 "no register ids, no trailing punctuation. Reply with the phrase alone.")
+TITLE_WORDS = 12
+BANNER_WORDS = 40
+TERM_COUNT = 12
+OVERVIEW_NODES = 10
+CEILING_ROWS = 8
+CEILING_CELL_WORDS = 20
+ARCH_BLOCKS = 4
+ARCH_BLOCK_WORDS = 70
+ARCH_LEAD_WORDS = 25
+WORD_CAPS = (("constraints", "p", 25, "a ground rule's plain twin"),
+             ("terms", "v", 20, "a term's definition"),
+             ("decisions", "r", 80, "what we decided"),
+             ("decisions", "x", 80, "what we turned down"),
+             ("assumptions", "b", 60, "an assumption's basis"),
+             ("assumptions", "n", 40, "an assumption's history note"),
+             ("open", "t", 40, "an open item's title"),
+             ("open", "p", 20, "an open item's plain twin"),
+             ("numbers", "sub", 15, "a numbers sub-line"),
+             ("numbers", "note", 30, "a numbers note"),
+             ("footnotes", "b", 60, "a footnote"))
+ACRONYMS = ("API", "SSO", "JWT", "DPoP", "TLS", "mTLS", "HTTP", "HTTPS", "gRPC", "k8s", "S3", "R2", "IAM", "SQL",
+            "DB", "ID", "URL", "JSON", "YAML", "CLI", "UI", "UX", "CI", "CD", "PR", "RPM", "TPM", "QPS", "CPU",
+            "GPU", "RAM", "AWS", "GCP", "OIDC", "OAuth", "SAML", "DNS", "CDN", "VPC", "RDS", "KMS", "ELK", "SVG",
+            "PDF", "HTML", "CSS", "JS", "TSX", "LLM", "AI", "FDE", "SLA", "SLO", "P95", "P99", "RLS", "NLB",
+            "EBS", "SNI", "WAF", "DDoS", "GraphQL", "SDK", "WAL", "Postgres", "SQLite", "GitHub", "Kubernetes",
+            "Pulumi", "Datadog", "Cloudflare", "Envoy", "Restate", "Valkey", "WorkOS", "SandSQL", "SandDB",
+            "Iris", "Sand")
+GLOSS_MIN_ENTRIES = 2
+GLOSS_MAX = 20
+GLOSS_SKIP = {"terms", "diagram", "housekeeping", "acronyms"}
+GLOSS_STOP = {"a", "an", "and", "at", "both", "but", "by", "each", "every", "for", "how", "if", "in", "it", "its",
+              "no", "not", "of", "on", "one", "our", "that", "the", "their", "then", "these", "this", "those",
+              "to", "we", "what", "when", "where", "while", "why", "with"}
+GLOSS_ACRONYM = re.compile(r"\b(?=[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z])[A-Za-z][A-Za-z0-9]{1,15}\b")
+GLOSS_PHRASE = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b")
+MERMAID_NODE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*\"?([^\"\]\)\}\n]*)")
+LABEL_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[_./-][A-Za-z0-9]+)*")
+IDENTIFIER_HEAD = re.compile(r"[A-Za-z0-9]+[_./-]")
+CITE_SKIP = {"id", "node", "source", "overview", "file", "kind", "slug"}
 
 
 def foreign_scheme(url: str):
@@ -253,7 +305,7 @@ def mermaid_ids(source: str) -> set:
     text = re.sub(r'"[^"]*"', " ", text)
     text = re.sub(r"\|[^|\n]*\|", " ", text)
     for _ in range(2):
-        text = re.sub(r"\[[^\[\]]*\]|\([^()]*\)|\{[^{}]*\}|>[^\]\n]*\]", " ", text)
+        text = re.sub(r"\[[^\[\]]*\]|\([^()]*\)|\{[^{}]*\}|(?<![-.=])>[^\]\n]*\]", " ", text)
     text = MERMAID_STATEMENT.sub("", text)
     text = MERMAID_EDGE_TEXT.sub(" ", text)
     text = MERMAID_ARROW.sub(" ", text)
@@ -499,11 +551,11 @@ def slop_cop_binary():
     return binary
 
 
-def ask_plain_batch(binary: str, titles: dict, batch: list) -> dict:
+def ask_plain_batch(binary: str, titles: dict, batch: list, max_words: int = TWIN_WORDS) -> dict:
     with tempfile.TemporaryDirectory() as scratch:
         glossary = Path(scratch) / "glossary.json"
         glossary.write_text(json.dumps(titles, ensure_ascii=False))
-        cmd = [binary, "plainify", "-", "--json", "--max-words", str(TWIN_WORDS),
+        cmd = [binary, "plainify", "-", "--json", "--max-words", str(max_words),
                "--timeout", f"{PLAIN_TIMEOUT}s", "--name-by-title", "--glossary", str(glossary)]
         for pattern in PLAIN_FORBID:
             cmd += ["--forbid", pattern]
@@ -588,12 +640,16 @@ def plainify(args) -> int:
         print("plainify: every rendered entry has a plain twin")
     elif args.provider == "none":
         print(f"plainify: {len(todo)} entr{'y' if len(todo) == 1 else 'ies'} need a twin")
-    if written:
+    handles, handle_rows = draft_handles(args, R)
+    if written or handles:
         (root / "registers.json").write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n")
-        print(f"plainify: wrote {written} twin(s); read each against its original before snapshot")
-    flagged = sum(1 for _, _, twin, issues in rows if twin and issues)
+        if written:
+            print(f"plainify: wrote {written} twin(s); read each against its original before snapshot")
+        if handles:
+            print(f"plainify: wrote {handles} handle(s) h; read each against its title before snapshot")
+    flagged = sum(1 for _, _, draft, issues in rows + handle_rows if draft and issues)
     if flagged:
-        print(f"plainify: {flagged} twin(s) carry issues in the table above; rewrite each before snapshot")
+        print(f"plainify: {flagged} draft(s) carry issues in the tables above; rewrite each before snapshot")
     return 0
 
 
@@ -1188,8 +1244,449 @@ def check(args) -> int:
     else:
         rep.warn("qa-log.json not found")
 
+    check_model(rep, R, root, known, node_ids)
     check_libs(rep)
     return rep.finish()
+
+
+class DeckLabels(HTMLParser):
+    VOID = {"br", "img", "hr", "input", "meta", "link", "source", "area", "col", "embed", "param", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.labels, self.stack, self.buf, self.where, self.depth = [], [], None, None, 0
+
+    def handle_starttag(self, tag, attrs):
+        if self.buf is not None and tag == "br":
+            self.buf.append("\n")
+        if tag in self.VOID:
+            return
+        classes = classes_of(attrs)
+        where = None
+        if tag == "b" and any("xs-node" in c for _, c in self.stack):
+            where = "summary.html .xs-node b"
+        elif tag == "h3" and any("xs-card" in c for _, c in self.stack):
+            where = "summary.html .xs-card h3"
+        elif "xs-badge" in classes:
+            where = "summary.html .xs-badge"
+        elif tag == "pre" and "mermaid" in classes:
+            where = "summary.html mermaid"
+        self.stack.append((tag, classes))
+        if where and self.buf is None:
+            self.buf, self.where, self.depth = [], where, len(self.stack)
+
+    def handle_endtag(self, tag):
+        if tag in self.VOID:
+            return
+        if self.buf is not None and len(self.stack) == self.depth:
+            text = "".join(self.buf)
+            if self.where.endswith("mermaid"):
+                for nid, label in mermaid_labels(text):
+                    self.labels.append((f"summary.html mermaid node {nid}", label))
+            else:
+                text = " ".join(text.split())
+                if text:
+                    self.labels.append((self.where, text))
+            self.buf, self.where = None, None
+        if self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if self.buf is not None:
+            self.buf.append(data)
+
+
+def mermaid_labels(source: str):
+    text = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", source))
+    for nid, label in MERMAID_NODE.findall(text):
+        if nid in MERMAID_KEYWORDS:
+            continue
+        first = re.split(r"<br\s*/?>", label)[0].strip()
+        if first:
+            yield nid, first
+
+
+def acronym_map(meta: dict) -> dict:
+    names = list(ACRONYMS)
+    extra = meta.get("acronyms")
+    if isinstance(extra, list):
+        names += [a.strip() for a in extra if isinstance(a, str) and a.strip()]
+    return {a.lower(): a for a in names}
+
+
+def check_case(rep, where, label, acronyms, sentence_case=True):
+    head = label.strip()
+    if sentence_case and head[:1].isalpha() and head[:1].islower() and not IDENTIFIER_HEAD.match(head):
+        rep.warn(f"{where}: {first_line(label, 48)!r} opens lower-case; a label is sentence case unless it opens on "
+                 "an identifier in backticks")
+    for word in LABEL_WORD.findall(re.sub(r"`[^`]*`", " ", label)):
+        if any(c in word for c in "_-./"):
+            continue
+        canon = acronyms.get(word.lower())
+        if canon and canon != word:
+            rep.warn(f"{where}: {word!r} should read {canon!r}; acronyms and product names keep their own "
+                     "capitalisation (extend the list with meta.acronyms)")
+
+
+def label_sources(R, root):
+    diagram = R.get("diagram")
+    if isinstance(diagram, dict):
+        for key in ("source", "overview"):
+            source = diagram.get(key)
+            if isinstance(source, str):
+                for nid, label in mermaid_labels(source):
+                    yield f"diagram.{key} node {nid}", label, True
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if isinstance(e, dict) and isinstance(e.get("h"), str) and e["h"].strip():
+                yield f"{entry_id(reg, i, e)}.h", e["h"], False
+    for nt in R.get("numbers") or []:
+        if isinstance(nt, dict):
+            for j, col in enumerate(nt.get("cols") or []):
+                if isinstance(col, str) and col.strip():
+                    yield f"numbers {nt.get('id')}: cols[{j}]", col, True
+    for reg in ("themes", "openGroups"):
+        for key, label in (R.get(reg) or {}).items():
+            if isinstance(label, str) and label.strip():
+                yield f"{reg}[{key}]", label, True
+    fragment = root / "summary.html"
+    if fragment.exists():
+        parser = DeckLabels()
+        parser.feed(fragment.read_text())
+        parser.close()
+        for where, label in parser.labels:
+            yield where, label, True
+
+
+def cited_ids(R, ids: re.Pattern, prose: str) -> set:
+    found = set(ids.findall(prose))
+
+    def walk(node, key):
+        if isinstance(node, str):
+            if key not in CITE_SKIP:
+                found.update(ids.findall(node))
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, k)
+
+    walk(R, None)
+    return found
+
+
+def handle_range_issue(handle: str):
+    n = words(handle)
+    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
+        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
+    return None
+
+
+def handle_issues(handle: str, ids: re.Pattern) -> list:
+    issues = []
+    range_issue = handle_range_issue(handle)
+    if range_issue:
+        issues.append(range_issue)
+    named = sorted(set(ids.findall(handle)))
+    if named:
+        issues.append("names register ids " + ", ".join(named))
+    return issues
+
+
+def check_handles(rep, R, cited, ids):
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict):
+                continue
+            ident = entry_id(reg, i, e)
+            h = e.get("h")
+            if h is None:
+                if ident in cited:
+                    rep.strict_warn(f"{ident} is cited but has no handle h; write the 2–5 word noun phrase a "
+                                    "citation shows, or run design.py plainify")
+                continue
+            if not (isinstance(h, str) and h.strip()):
+                rep.err(f"{ident}.h must be a non-empty string")
+                continue
+            range_issue = handle_range_issue(h)
+            if range_issue:
+                rep.warn(f"{ident}.h {range_issue}")
+
+
+def check_titles(rep, R, ids):
+    for d in R.get("decisions") or []:
+        t = d.get("t") if isinstance(d, dict) else None
+        if not (isinstance(t, str) and t.strip()):
+            continue
+        if t.rstrip().endswith("?"):
+            rep.warn(f"{d.get('id')}.t is a question; a decision title is the noun phrase it settled, and the "
+                     "question belongs in rounds[].q")
+        if words(t) > TITLE_WORDS:
+            rep.warn(f"{d.get('id')}.t is {words(t)} words; a decision title is a noun phrase of {TITLE_WORDS} "
+                     "words or fewer")
+    for reg in ("constraints",) + HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict):
+                continue
+            for field in ("t", "h"):
+                value = e.get(field)
+                if not isinstance(value, str):
+                    continue
+                named = sorted(set(ids.findall(value)))
+                if named:
+                    rep.strict_warn(f"{entry_id(reg, i, e)}.{field} names register ids {', '.join(named)}; a "
+                                    "rendered string names an entry by its wording and leaves the id to the citation")
+
+
+def cap_where(reg: str, i: int, e: dict) -> str:
+    if reg == "terms":
+        return f"terms[{e.get('k')}]"
+    if reg == "footnotes":
+        return f"footnotes[{e.get('n')}]"
+    return entry_id(reg, i, e)
+
+
+def cap_words(rep, where, text, cap, what):
+    if isinstance(text, str) and text.strip() and words(text) > cap:
+        rep.strict_warn(f"{where} is {words(text)} words; {what} caps at {cap}")
+
+
+def check_caps(rep, R, meta):
+    cap_words(rep, "meta.banner.text", (meta.get("banner") or {}).get("text"), BANNER_WORDS, "the banner")
+    for reg, field, cap, what in WORD_CAPS:
+        for i, e in enumerate(R.get(reg) or []):
+            if isinstance(e, dict):
+                cap_words(rep, f"{cap_where(reg, i, e)}.{field}", e.get(field), cap, what)
+    for i, c in enumerate(R.get("arch") or []):
+        if not isinstance(c, dict):
+            continue
+        where = entry_id("arch", i, c)
+        blocks = c.get("b")
+        if not isinstance(blocks, list):
+            continue
+        if len(blocks) > ARCH_BLOCKS:
+            rep.strict_warn(f"{where}.b has {len(blocks)} paragraphs; a card carries {ARCH_BLOCKS} or fewer")
+        for j, para in enumerate(blocks):
+            cap_words(rep, f"{where}.b[{j}]", para, ARCH_BLOCK_WORDS, "a card paragraph")
+        if blocks and isinstance(blocks[0], str) and blocks[0].strip():
+            cap_words(rep, f"{where}.b[0] first sentence", SENTENCE_END.split(blocks[0].strip())[0],
+                      ARCH_LEAD_WORDS, "the sentence the summary row shows")
+    terms = R.get("terms") or []
+    if len(terms) > TERM_COUNT:
+        rep.strict_warn(f"terms lists {len(terms)} entries; the glossary reads at {TERM_COUNT} or fewer")
+    rows = R.get("ceilings") or []
+    if len(rows) > CEILING_ROWS:
+        rep.strict_warn(f"ceilings has {len(rows)} rows; the table reads at {CEILING_ROWS} or fewer")
+    for i, row in enumerate(rows):
+        if isinstance(row, list):
+            for j, cell in enumerate(row):
+                cap_words(rep, f"ceilings[{i}][{j}]", cell, CEILING_CELL_WORDS, "a ceilings cell")
+
+
+def check_terms(rep, R, prose):
+    corpus = [prose]
+    for reg, entries in R.items():
+        if reg != "terms":
+            corpus.extend(walk_strings(entries))
+    haystack = " ".join(corpus)
+    for i, t in enumerate(R.get("terms") or []):
+        if not isinstance(t, dict):
+            rep.err(f"terms[{i}] is not an object; a term is {{k, v}} with optional aliases")
+            continue
+        k = t.get("k")
+        names = [k] if isinstance(k, str) and k.strip() else []
+        aliases = t.get("aliases")
+        if aliases is not None:
+            if not (isinstance(aliases, list) and aliases and all(isinstance(a, str) and a.strip() for a in aliases)):
+                rep.err(f"terms[{k}]: aliases must be a non-empty list of non-empty strings")
+            else:
+                names += aliases
+        if names and not any(re.search(r"(?<![\w-])" + re.escape(n) + r"s?(?![\w-])", haystack, re.I) for n in names):
+            rep.warn(f"terms[{k}] is defined but never used outside its definition; drop it or name it in the "
+                     "prose (aliases count)")
+
+
+def check_overview(rep, R, node_ids):
+    diagram = R.get("diagram")
+    if not isinstance(diagram, dict) or "overview" not in diagram:
+        return
+    overview = diagram.get("overview")
+    if not (isinstance(overview, str) and overview.strip()):
+        rep.err("diagram.overview must be a non-empty Mermaid string, or absent")
+        return
+    body = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", overview)).strip()
+    if not MERMAID_HEADER.match(body):
+        rep.err("diagram.overview must open with a flowchart or graph header")
+        return
+    ids = mermaid_ids(overview)
+    if len(ids) > OVERVIEW_NODES:
+        rep.strict_warn(f"diagram.overview draws {len(ids)} nodes; the overview card reads at {OVERVIEW_NODES} "
+                        "or fewer")
+    if node_ids is None:
+        rep.err("diagram.overview needs a Mermaid diagram.source to summarise")
+        return
+    for missing in sorted(ids - node_ids):
+        rep.err(f"diagram.overview: {missing!r} is not in diagram.source; the overview draws a subset of the "
+                "full graph, so a card and a highlight resolve in both")
+
+
+def check_ai(rep, meta):
+    acronyms = meta.get("acronyms")
+    if acronyms is not None and not (isinstance(acronyms, list)
+                                     and all(isinstance(a, str) and a.strip() for a in acronyms)):
+        rep.err("meta.acronyms must be a list of non-empty strings")
+    ai = meta.get("ai")
+    if ai is None:
+        return
+    if not isinstance(ai, dict):
+        rep.err("meta.ai must be an object, e.g. {\"suggest\": {\"decisions\": [\"Why 24-hour tokens?\"]}}")
+        return
+    suggest = ai.get("suggest")
+    if suggest is None:
+        return
+    if not isinstance(suggest, dict):
+        rep.err("meta.ai.suggest must map a section id to its list of suggested prompts")
+        return
+    for sid, prompts in suggest.items():
+        if sid not in SECTION_IDS:
+            rep.warn(f"meta.ai.suggest[{sid}] is not a section id ({', '.join(SECTION_IDS)}); its prompts render "
+                     "under no heading")
+        if not (isinstance(prompts, list) and prompts
+                and all(isinstance(p, str) and p.strip() for p in prompts)):
+            rep.err(f"meta.ai.suggest[{sid}] must be a non-empty list of prompt strings")
+
+
+def check_model(rep, R, root, known, node_ids):
+    meta = R.get("meta") or {}
+    fragment = root / "summary.html"
+    prose = fragment_text(fragment.read_text()) if fragment.exists() else ""
+    ids = id_matcher(known)
+    check_handles(rep, R, cited_ids(R, ids, prose), ids)
+    check_titles(rep, R, ids)
+    check_caps(rep, R, meta)
+    check_terms(rep, R, prose)
+    check_overview(rep, R, node_ids)
+    check_ai(rep, meta)
+    acronyms = acronym_map(meta)
+    for where, label, sentence_case in label_sources(R, root):
+        check_case(rep, where, label, acronyms, sentence_case)
+
+
+def handle_todo(R, only):
+    todo = []
+    for reg in HANDLED:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict) or e.get("h") or not isinstance(e.get("t"), str):
+                continue
+            ident = entry_id(reg, i, e)
+            if only is None or ident in only:
+                todo.append((reg, i, e, ident))
+    return todo
+
+
+def with_handle(e: dict, handle: str) -> dict:
+    out = {}
+    for k, v in e.items():
+        out[k] = v
+        if k == "t":
+            out["h"] = handle
+    out.setdefault("h", handle)
+    return out
+
+
+def draft_handles(args, R):
+    only = {s.strip() for s in args.only.split(",") if s.strip()} if args.only else None
+    todo = handle_todo(R, only)
+    if not todo:
+        print("plainify: every entry that can carry a handle h has one")
+        return 0, []
+    if args.provider == "none":
+        print(f"plainify: {len(todo)} entr{'y' if len(todo) == 1 else 'ies'} need a handle h: "
+              + ", ".join(ident for _, _, _, ident in todo))
+        return 0, []
+    graded = {}
+    if args.provider == "slop-cop":
+        binary = slop_cop_binary()
+        if binary is None:
+            return 0, []
+        batch = [{"id": ident, "text": e["t"]} for _, _, e, ident in todo]
+        try:
+            graded = ask_plain_batch(binary, register_titles(R), batch, HANDLE_RANGE[1])
+        except (OSError, ValueError, subprocess.SubprocessError) as err:
+            detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else err
+            print(f"plainify: slop-cop failed on the handles: {detail}", file=sys.stderr)
+            return 0, []
+    rows, written = [], 0
+    ids = id_matcher(register_ids(R))
+    for reg, i, e, ident in todo:
+        if args.provider == "slop-cop":
+            handle, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
+        else:
+            try:
+                handle, issues = ask_plain(args.provider, HANDLE_PROMPT, reg, e, e["t"]), []
+            except (OSError, subprocess.SubprocessError) as err:
+                print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
+                return written, rows
+        handle = handle.strip().rstrip(".")
+        issues += handle_issues(handle, ids)
+        rows.append((ident, first_line(e["t"]), handle, issues))
+        if handle and not args.dry_run:
+            R[reg][i] = with_handle(e, handle)
+            written += 1
+    print_review_table(rows)
+    return written, rows
+
+
+def candidate_terms(text: str) -> set:
+    body = FILE_PATH.sub(" ", re.sub(r"`[^`]*`", " ", text))
+    found = {w for w in GLOSS_ACRONYM.findall(body) if not ID_TOKEN.fullmatch(w)}
+    for phrase in GLOSS_PHRASE.findall(body):
+        parts = phrase.split()
+        if parts[0].lower() in GLOSS_STOP:
+            parts = parts[1:]
+        if len(parts) > 1:
+            found.add(" ".join(parts))
+    return found
+
+
+def glossary_units(R, root):
+    for reg, entries in R.items():
+        if reg in GLOSS_SKIP:
+            continue
+        if isinstance(entries, list):
+            for i, e in enumerate(entries):
+                where = entry_id(reg, i, e) if isinstance(e, dict) else f"{reg}[{i}]"
+                yield where, " ".join(walk_strings(e))
+        elif isinstance(entries, dict):
+            for k, v in entries.items():
+                if k not in GLOSS_SKIP:
+                    yield f"{reg}[{k}]", " ".join(walk_strings(v))
+    fragment = root / "summary.html"
+    if fragment.exists():
+        yield "summary.html", fragment_text(fragment.read_text())
+
+
+def glossary(args) -> int:
+    root = Path(args.dir)
+    R = load_registers(root, "glossary")
+    if R is None:
+        return 1
+    defined = {n.lower() for t in R.get("terms") or [] if isinstance(t, dict)
+               for n in [t.get("k")] + list(t.get("aliases") or []) if isinstance(n, str)}
+    seen = {}
+    for where, text in glossary_units(R, root):
+        for candidate in candidate_terms(text):
+            if candidate.lower() not in defined:
+                seen.setdefault(candidate, set()).add(where)
+    rows = sorted(((c, w) for c, w in seen.items() if len(w) >= GLOSS_MIN_ENTRIES),
+                  key=lambda row: (-len(row[1]), row[0].lower()))[:GLOSS_MAX]
+    print(json.dumps([{"k": c, "v": ""} for c, _ in rows], indent=2, ensure_ascii=False))
+    for c, where in rows:
+        print(f"glossary: {c} — {len(where)} entries ({', '.join(sorted(where)[:4])})", file=sys.stderr)
+    if not rows:
+        print(f"glossary: no term recurs across {GLOSS_MIN_ENTRIES} entries outside terms[]", file=sys.stderr)
+    return 0
 
 
 def main():
@@ -1218,6 +1715,9 @@ def main():
     rc.add_argument("dir")
     rc.add_argument("--timeout", type=float, default=RENDER_TIMEOUT, help="seconds to wait for the page to report every diagram rendered")
     rc.set_defaults(fn=render_check)
+    gl = sub.add_parser("glossary", help="print the terms a doc leans on but never defines, as JSON for terms[]")
+    gl.add_argument("dir")
+    gl.set_defaults(fn=glossary)
     pd = sub.add_parser("pdf", help="print the project's doc to its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)

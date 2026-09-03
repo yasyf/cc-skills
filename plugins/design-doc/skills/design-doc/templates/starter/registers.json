@@ -10,7 +10,7 @@
   "tldr": [],
   "diagram": {
     "kind": "mermaid",
-    "source": "flowchart LR\n  todo[\"TODO: draw the system\"] --> cards[\"one node per arch card, named after its id\"]",
+    "source": "flowchart LR\n  todo[\"TODO: draw the system\"] --> cards[\"One node per arch card, named after its ID\"]",
     "caption": "TODO: one sentence on what to notice in the diagram."
   },
   "constraints": [],
