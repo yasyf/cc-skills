@@ -5,7 +5,7 @@
   design.py check <dir> [--strict]
   design.py summary-text <dir>
   design.py plainify <dir> [--only DQ3,A2] [--provider slop-cop|claude|codex|none] [--dry-run]
-  design.py render-check <dir>
+  design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
   design.py snapshot [dir] [--note X] [--item …] [--force]
 
@@ -22,7 +22,10 @@ panel, the input for the voice gate. plainify writes a plain-language twin
 for every rendered entry that lacks one, through `slop-cop plainify` by
 default or the claude or codex CLI, and prints a review table carrying
 whatever slop-cop grades against. render-check opens the doc in headless Chrome
-and fails on a Mermaid parse error or a diagram that never rendered. pdf
+over its debugging pipe, waits for the page to report every diagram
+rendered, and fails on a Mermaid parse error or a diagram that never
+rendered, printing Chrome's stderr and the page's console so a failure
+names its cause. pdf
 prints the served doc to its design-doc.pdf through the template's print
 stylesheet. snapshot records a revision of the registers in the project's
 history directory. Stdlib only.
@@ -52,6 +55,7 @@ TWIN_KIND = {"tldr": "summary bullet", "constraints": "ground rule", "decisions"
              "assumptions": "assumption", "open": "open question"}
 PLAIN_PROVIDERS = ("slop-cop", "claude", "codex", "none")
 PLAIN_TIMEOUT = 180
+RENDER_TIMEOUT = 60
 PLAIN_FORBID = (r"\b(DQ|A|Q|V)\d+\b", r"(?i)\bfinding \d+", r"(?i)\bpass-\d")
 SLOP_COP_FORMULA = "yasyf/tap/slop-cop"
 MERMAID_HEADER = re.compile(r"^\s*(flowchart|graph)(-elk)?\b")
@@ -83,7 +87,6 @@ URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
 MEASURED = {"yes", "no"}
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
-CONSOLE_LINE = re.compile(r":CONSOLE(?::\d+)?\]\s*\"(.*)$")
 
 
 def foreign_scheme(url: str):
@@ -597,12 +600,10 @@ def plainify(args) -> int:
 class RenderedDom(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.ready, self.rendered, self.failed, self.syntax_error, self.rendered_ids, self.muted = False, 0, [], False, set(), []
+        self.rendered, self.failed, self.syntax_error, self.rendered_ids, self.muted = 0, [], False, set(), []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
-        if tag == "html" and a.get("data-ready") == "1":
-            self.ready = True
         if a.get("data-id"):
             self.rendered_ids.add(a["data-id"])
         m = NODE_DOM_ID.search(a.get("id") or "")
@@ -624,20 +625,6 @@ class RenderedDom(HTMLParser):
             self.syntax_error = True
 
 
-def console_messages(stderr: str):
-    messages, current = [], None
-    for line in stderr.splitlines():
-        m = CONSOLE_LINE.search(line)
-        if m:
-            current = [m.group(1)]
-            messages.append(current)
-        elif current is not None:
-            current.append(line)
-        if current is not None and '", source:' in line:
-            current = None
-    return ["\n".join(m).split('", source:')[0] for m in messages]
-
-
 def render_check(args) -> int:
     root = Path(args.dir)
     R = load_registers(root, "render-check")
@@ -648,19 +635,25 @@ def render_check(args) -> int:
     if not page:
         print(f"render-check: {root} holds no design-doc.html or index.html.", file=sys.stderr)
         return 1
-    chrome = builder.require_chrome()
+    chrome = builder.Chrome(builder.require_chrome())
     server, base = builder.serve(root)
+    problems, html = [], ""
     try:
-        res = builder.run_chrome(chrome, base + page, "--enable-logging=stderr", "--v=0", "--dump-dom")
+        session = builder.open_page(chrome, base + page)
+        state = builder.wait_ready(chrome, session, args.timeout)
+        if state["ready"] != "1":
+            problems.append(builder.ready_problem(state, args.timeout))
+        html = builder.evaluate(chrome, session, builder.DOM_JS)
+    except builder.ChromeError as e:
+        problems.append(str(e))
     finally:
+        report = builder.diagnostics(chrome)
         server.shutdown()
+        chrome.close()
 
     dom = RenderedDom()
-    dom.feed(res.stdout)
+    dom.feed(html)
     dom.close()
-    problems = []
-    if not dom.ready:
-        problems.append("the page never set data-ready; its diagrams or connectors did not finish rendering")
     cause = "its source has a syntax error" if dom.rendered or dom.syntax_error else f"no diagram rendered at all, so {builder.NETWORK_HINT}"
     for label in dom.failed:
         problems.append(f"Mermaid did not render {label!r}: {cause}")
@@ -675,12 +668,13 @@ def render_check(args) -> int:
         missing = sorted(wanted - dom.rendered_ids)
         if missing:
             problems.append("diagram ids never rendered: " + ", ".join(missing))
-    for msg in console_messages(res.stderr):
+    for msg in chrome.console:
         if re.search(r"parse error|syntax error|mermaid|diagram", msg, re.I):
             problems.append("console: " + first_line(msg, 160))
     for p in problems:
         print(f"ERROR: {p}")
     if problems:
+        print("\n".join(report))
         return 1
     print(f"render-check: {dom.rendered} Mermaid diagram(s) rendered, {len(wanted)} diagram id(s) resolved")
     return 0
@@ -1222,6 +1216,7 @@ def main():
     pl.set_defaults(fn=plainify)
     rc = sub.add_parser("render-check", help="render the doc in headless Chrome and fail on a Mermaid error")
     rc.add_argument("dir")
+    rc.add_argument("--timeout", type=float, default=RENDER_TIMEOUT, help="seconds to wait for the page to report every diagram rendered")
     rc.set_defaults(fn=render_check)
     pd = sub.add_parser("pdf", help="print the project's doc to its design-doc.pdf")
     pd.add_argument("dir", nargs="?", default=".")

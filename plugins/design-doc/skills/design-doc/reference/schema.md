@@ -177,7 +177,7 @@ The table is the review surface: id, the original's first line, the twin, and it
 
 ## What `design.py render-check` renders
 
-`design.py render-check <dir>` serves the project directory, opens the doc in headless Chrome (the finder `design.py pdf` uses), renders every Mermaid block, and fails on the first parse error with the block's source and Mermaid's message. `check` sees only structure, so this is the only command that proves a diagram draws; `publish.sh` and CI run it. It needs network access to jsdelivr and says so when the import fails.
+`design.py render-check <dir>` serves the project directory, opens the doc in headless Chrome over its debugging pipe (the driver `design.py pdf` uses), and waits up to `--timeout` seconds, 60 by default, for the page to report every diagram rendered. It fails on a parse error, a diagram that never drew, and a page that never got ready, printing Chrome's stderr and the page's console messages so a failure names its cause. `check` sees only structure, so this is the only command that proves a diagram draws; `publish.sh` and CI run it. It needs network access to jsdelivr and says so when the import fails. Set `CHROME=/path/to/chrome` when discovery misses the browser, and `CHROME_ARGS` to pass it extra flags.
 
 ## What `design.py pdf` prints
 

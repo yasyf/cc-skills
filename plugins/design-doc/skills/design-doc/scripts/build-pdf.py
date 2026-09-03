@@ -10,25 +10,20 @@ and connector rendered, runs the template's own print preparation, and
 prints through its print stylesheet, so the PDF is the document the doc's
 PDF button prints. A diagram that failed to render fails the build. The
 page loads Mermaid from jsdelivr, so the build needs network access. Needs
-Chrome or Chromium; set CHROME=/path/to/chrome if discovery misses yours.
+Chrome or Chromium; set CHROME=/path/to/chrome if discovery misses yours,
+and CHROME_ARGS to add command-line flags to the browser it launches.
 """
-import argparse, base64, functools, json, os, select, shutil, subprocess, sys, tempfile, threading, time
+import argparse, base64, functools, json, os, select, shlex, shutil, subprocess, sys, tempfile, textwrap, threading, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VIRTUAL_TIME_BUDGET_MS = 15000
 CHROME_TIMEOUT_S = 180
+CONSOLE_KEPT = 40
+STDERR_LINES = 20
 NETWORK_HINT = "the page loads its diagrams from jsdelivr, so this needs network access"
+NOT_READY = "the page never set data-ready; its diagrams or connectors did not finish rendering"
 DOC_PAGES = ("design-doc.html", "index.html")
-READY_JS = """new Promise((res,rej)=>{
- const t0=Date.now();
- const tick=()=>{
-  if(window.designDocReady)window.designDocReady.then(()=>res(document.documentElement.dataset.ready||""));
-  else if(Date.now()-t0>%d)rej(new Error("the page never exposed designDocReady; it did not load its registers"));
-  else setTimeout(tick,50);
- };
- tick();
-})""" % (CHROME_TIMEOUT_S * 1000)
+DOM_JS = "document.documentElement.outerHTML"
 FAILED_JS = """({failed:[...document.querySelectorAll('[data-failed="1"]')].map(h=>(h.dataset.source||h.id||h.className||"diagram").split("\\n")[0].slice(0,60)),
  rendered:document.querySelectorAll("svg.mmd").length})"""
 PREP_JS = "window.designDocPrepPrint().then(()=>document.fonts.ready).then(()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))))"
@@ -78,10 +73,25 @@ def serve(root: Path):
     return server, f"http://127.0.0.1:{server.server_address[1]}/"
 
 
-def run_chrome(chrome: str, url: str, *actions: str):
-    return subprocess.run([chrome, "--headless=new", "--disable-gpu", "--run-all-compositor-stages-before-draw",
-                           f"--virtual-time-budget={VIRTUAL_TIME_BUDGET_MS}", *actions, url],
-                          capture_output=True, text=True, timeout=CHROME_TIMEOUT_S)
+def ready_js(timeout_s: float) -> str:
+    return """new Promise(res=>{
+ const t0=Date.now(), budget=%d;
+ const state=timedOut=>({ready:document.documentElement.dataset.ready||"",exposed:!!window.designDocReady,timedOut:timedOut});
+ let done=false;
+ const settle=s=>{if(!done){done=true;res(s);}};
+ const tick=()=>{
+  if(done)return;
+  if(window.designDocReady){window.designDocReady.then(()=>settle(state(false)),e=>settle(Object.assign(state(false),{error:String(e&&e.message||e)})));return;}
+  if(Date.now()-t0>budget)return settle(state(true));
+  setTimeout(tick,50);
+ };
+ setTimeout(()=>settle(state(true)),budget);
+ tick();
+})""" % int(timeout_s * 1000)
+
+
+def chrome_args() -> list:
+    return shlex.split(os.environ.get("CHROME_ARGS", ""))
 
 
 class ChromeError(Exception):
@@ -107,12 +117,12 @@ class Chrome:
         with self.log.open("wb") as log:
             self.proc = subprocess.Popen(
                 [chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-                 f"--user-data-dir={self.profile}", "--remote-debugging-pipe", "about:blank"],
+                 f"--user-data-dir={self.profile}", "--remote-debugging-pipe", *chrome_args(), "about:blank"],
                 preexec_fn=bind_debug_pipe(chrome_in, chrome_out), close_fds=False,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
         os.close(chrome_in)
         os.close(chrome_out)
-        self.buf, self.seq = b"", 0
+        self.buf, self.seq, self.console = b"", 0, []
 
     def close(self):
         try:
@@ -136,13 +146,34 @@ class Chrome:
             raise ChromeError(self.exit_reason(f"cannot write to Chrome: {e}"))
         return self.seq
 
+    def stderr_tail(self) -> str:
+        return "\n".join(self.log.read_text(errors="replace").strip().splitlines()[-STDERR_LINES:])
+
     def exit_reason(self, fallback: str) -> str:
-        code = self.proc.poll()
-        if code is None:
+        try:
+            code = self.proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
             return fallback
-        err = self.log.read_text(errors="replace").strip().splitlines()
-        tail = ("; " + err[-1]) if err else ""
-        return f"Chrome exited with status {code}{tail}"
+        return f"Chrome exited with status {code} before the page was ready"
+
+    def note(self, msg: dict):
+        method, params = msg.get("method"), msg.get("params") or {}
+        if method == "Runtime.consoleAPICalled":
+            self.console.append(f"{params.get('type', 'log')}: " + " ".join(describe(a) for a in params.get("args") or []))
+        elif method == "Log.entryAdded":
+            entry = params.get("entry") or {}
+            where = entry.get("url") or entry.get("source") or ""
+            self.console.append(f"{entry.get('level', 'info')}: {entry.get('text', '')}" + (f" [{where}]" if where else ""))
+        elif method == "Runtime.exceptionThrown":
+            detail = params.get("exceptionDetails") or {}
+            self.console.append("exception: " + ((detail.get("exception") or {}).get("description") or detail.get("text") or ""))
+
+    def take(self) -> dict:
+        raw, _, self.buf = self.buf.partition(b"\0")
+        msg = json.loads(raw)
+        if "id" not in msg:
+            self.note(msg)
+        return msg
 
     def recv(self, timeout: float) -> dict:
         deadline = time.monotonic() + timeout
@@ -154,8 +185,26 @@ class Chrome:
             if not chunk:
                 raise ChromeError(self.exit_reason("Chrome closed its debugging pipe"))
             self.buf += chunk
-        raw, _, self.buf = self.buf.partition(b"\0")
-        return json.loads(raw)
+        return self.take()
+
+    def drain(self, timeout: float = 0.5):
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([self.reader], [], [], min(remaining, 0.05))
+            if not ready:
+                break
+            try:
+                chunk = os.read(self.reader, 1 << 16)
+            except OSError:
+                break
+            if not chunk:
+                break
+            self.buf += chunk
+        while b"\0" in self.buf:
+            self.take()
 
     def call(self, method: str, params=None, session=None, timeout: float = CHROME_TIMEOUT_S) -> dict:
         ident = self.send(method, params, session)
@@ -168,17 +217,25 @@ class Chrome:
             return msg.get("result") or {}
 
 
+def describe(arg: dict) -> str:
+    if "value" in arg:
+        return str(arg["value"])
+    return arg.get("description") or arg.get("unserializableValue") or arg.get("type") or ""
+
+
 def open_page(chrome: Chrome, url: str) -> str:
     target = chrome.call("Target.createTarget", {"url": "about:blank"})["targetId"]
     session = chrome.call("Target.attachToTarget", {"targetId": target, "flatten": True})["sessionId"]
     chrome.call("Page.enable", session=session)
     chrome.call("Runtime.enable", session=session)
+    chrome.call("Log.enable", session=session)
     chrome.call("Page.navigate", {"url": url}, session=session)
     return session
 
 
-def evaluate(chrome: Chrome, session: str, expression: str):
-    res = chrome.call("Runtime.evaluate", {"expression": expression, "awaitPromise": True, "returnByValue": True}, session=session)
+def evaluate(chrome: Chrome, session: str, expression: str, timeout: float = CHROME_TIMEOUT_S):
+    res = chrome.call("Runtime.evaluate", {"expression": expression, "awaitPromise": True, "returnByValue": True},
+                      session=session, timeout=timeout)
     detail = res.get("exceptionDetails")
     if detail:
         exc = detail.get("exception") or {}
@@ -186,11 +243,38 @@ def evaluate(chrome: Chrome, session: str, expression: str):
     return (res.get("result") or {}).get("value")
 
 
-def print_page(chrome: Chrome, url: str, pdf: Path):
+def wait_ready(chrome: Chrome, session: str, timeout: float) -> dict:
+    return evaluate(chrome, session, ready_js(timeout), timeout=timeout + 30)
+
+
+def ready_problem(state: dict, timeout: float) -> str:
+    if state.get("error"):
+        return f"{NOT_READY}; the page reported {state['error']}"
+    if not state.get("exposed"):
+        return f"{NOT_READY}; it never exposed designDocReady within {timeout:.0f}s, so it did not load its registers"
+    if state.get("timedOut"):
+        return f"{NOT_READY}; designDocReady never resolved within {timeout:.0f}s"
+    return NOT_READY
+
+
+def diagnostics(chrome: Chrome) -> list:
+    chrome.drain()
+    out = []
+    code = chrome.proc.poll()
+    if code is not None:
+        out.append(f"Chrome exited with status {code}")
+    stderr = chrome.stderr_tail()
+    out.append("Chrome stderr:\n" + textwrap.indent(stderr, "  ") if stderr else "Chrome wrote nothing to stderr")
+    console = chrome.console[-CONSOLE_KEPT:]
+    out.append("page console:\n" + textwrap.indent("\n".join(console), "  ") if console else "the page logged nothing to the console")
+    return out
+
+
+def print_page(chrome: Chrome, url: str, pdf: Path, timeout: float = CHROME_TIMEOUT_S):
     session = open_page(chrome, url)
-    ready = evaluate(chrome, session, READY_JS)
-    if ready != "1":
-        raise ChromeError("the page never set data-ready; its diagrams or connectors did not finish rendering")
+    state = wait_ready(chrome, session, timeout)
+    if state["ready"] != "1":
+        raise ChromeError(ready_problem(state, timeout))
     diagrams = evaluate(chrome, session, FAILED_JS)
     if diagrams["failed"]:
         cause = "its source has a syntax error" if diagrams["rendered"] else f"no diagram rendered at all, so {NETWORK_HINT}"
@@ -213,7 +297,7 @@ def build(root: Path) -> int:
     try:
         print_page(chrome, base + page, pdf)
     except ChromeError as e:
-        print(f"build-pdf.py: {e}", file=sys.stderr)
+        print("\n".join([f"build-pdf.py: {e}", *diagnostics(chrome)]), file=sys.stderr)
         return 1
     finally:
         server.shutdown()
