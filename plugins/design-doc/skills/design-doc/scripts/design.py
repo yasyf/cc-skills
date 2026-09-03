@@ -886,7 +886,8 @@ def normalise_link(link):
     if not (isinstance(url, str) and url.strip()):
         return None, f"{link!r} has no 'url'"
     url = url.strip()
-    if not url.startswith("https://"):
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
         return None, f"{url} is not an https:// URL"
     extra = sorted(set(link) - LINK_FIELDS)
     if extra:
@@ -906,7 +907,7 @@ def normalise_link(link):
     closes = link.get("closes")
     if closes is not None and not isinstance(closes, bool):
         return None, f"{url}: closes must be true or false"
-    if closes and kind not in ("pr", "issue"):
+    if "closes" in link and kind not in ("pr", "issue"):
         return None, f"{url}: closes belongs on a pull request or an issue, not a {kind}"
     out = {"url": url, "kind": kind, "closes": bool(closes)}
     if label:
@@ -929,7 +930,7 @@ def entry_links(rep, where, entry, closes_ok: bool) -> list:
         if problem:
             rep.err(f"{where}: link {problem}")
             continue
-        if norm["closes"] and not closes_ok:
+        if not closes_ok and isinstance(link, dict) and "closes" in link:
             rep.err(f"{where}: link {norm['url']} carries closes; it belongs on the open item the change retires")
             continue
         out.append(norm)

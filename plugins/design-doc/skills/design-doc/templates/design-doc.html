@@ -1195,8 +1195,12 @@ const GH_LINK=/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues|commit
 const GH_KIND={pull:"pr",issues:"issue",commit:"commit"};
 function linkNorm(l){
  if(typeof l==="string")l={url:l};
- if(!l||typeof l!=="object"||typeof l.url!=="string"||!/^https:\/\//.test(l.url.trim()))return null;
- const url=l.url.trim(),m=GH_LINK.exec(url);
+ if(!l||typeof l!=="object"||typeof l.url!=="string")return null;
+ const url=l.url.trim();
+ let u;
+ try{u=new URL(url)}catch(e){return null}
+ if(u.protocol!=="https:"||!u.hostname)return null;
+ const m=GH_LINK.exec(url);
  let gh=null;
  if(m){
   const kind=GH_KIND[m[3]];
@@ -1415,7 +1419,8 @@ function ghCardHtml(node){
  const label=node.querySelector(".lt").textContent;
  const open=`<span class="topen" data-href="${esc(node.href)}" role="button" tabindex="0">Open on GitHub →</span>`;
  if(!rec)return `<span class="tkind">${esc(LINK_KIND_LABEL[kind])} · ${esc(key)}</span><span class="ttitle">${esc(label)}</span>`+(GH_PENDING[key]?"<p>Loading…</p>":"")+open;
- const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",rec.checks?`checks ${rec.checks.ok}/${rec.checks.total}`+(rec.checks.state==="success"?"":" "+rec.checks.state):""].filter(Boolean);
+ const checks=rec.checks?"checks "+(rec.checks.total?rec.checks.ok+"/"+rec.checks.total+(rec.checks.state==="success"?"":" "+rec.checks.state):rec.checks.state):"";
+ const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",checks].filter(Boolean);
  const by=[rec.author?"by "+rec.author:"",rec.updated?"updated "+relTime(rec.updated):""].filter(Boolean).join(", ");
  return `<span class="tkind">${esc(bits.join(" · "))}</span><span class="ttitle">${esc(rec.title||label)}</span><span class="tgh">${esc(key)}${by?" · "+esc(by):""}</span>`+open;
 }
@@ -4008,7 +4013,6 @@ JOBS.push(mountRegisterComponents());
 window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  await document.fonts.ready;
  await new Promise(r=>setTimeout(r,0));
- if(HTML.dataset.ai)$("#mbarAsk").hidden=false;
  HTML.dataset.ready="1";
 });
 const AI_CFG_KEY="design-doc-ai";
@@ -4129,7 +4133,8 @@ async function ghResolve(key,kind){
   const changes=count("CHANGES_REQUESTED"),approved=count("APPROVED");
   rec.review=changes?changes+" requested changes":approved?approved+" approved":"";
  }
- if(status&&status.statuses&&status.statuses.length)rec.checks={ok:status.statuses.filter(c=>c.state==="success").length,total:status.statuses.length,state:status.state};
+ if(!status)rec.checks={state:"unknown"};
+ else if(status.statuses.length)rec.checks={ok:status.statuses.filter(c=>c.state==="success").length,total:status.statuses.length,state:status.state};
  return rec;
 }
 function ghNote(text){
@@ -4286,9 +4291,10 @@ function aiBody(kind,schema){
 }
 const AI_NO_TOOLS="Tools are off for this task: write the text only.";
 const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
-async function aiOnce(messages,opt){
+async function aiOnce(compose,opt){
  const o=opt||{};
  await aiReady;
+ const messages=compose();
  const body=aiBody(o.kind,o.schema);
  body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
  body.tool_choice="none";
@@ -4564,8 +4570,7 @@ const AI_TOOLS=[
  aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}}),
  aiTool("search_document","Find where the registers, the working notes or the question log say something, when you do not know the id. Returns up to eight snippets, each led by its id.",{query:aiStr("Words or a phrase to look for."),scope:aiStr("all, registers, notes or log.")}),
  aiTool("read_round","Read one round of the question log in full: what was asked, the options, what the author answered, and the decisions that round produced.",{round:aiStr("The round number, such as 7.")}),
- aiTool("read_notes","Read one section of the working notes by its heading, or list the headings.",{section:aiOpt("Words from a heading of the working notes, or null to list the headings.")}),
- aiTool("read_links","List the pull requests and issues linked from register entries, with their state.",{id:aiOpt("A register id, or null for every entry that carries a link.")})
+ aiTool("read_notes","Read one section of the working notes by its heading, or list the headings.",{section:aiOpt("Words from a heading of the working notes, or null to list the headings.")})
 ];
 const AI_TOOLS_READ=AI_TOOLS.filter(t=>/^(read_|list_|search_)/.test(t.function.name));
 const AI_STOP=new Set("a an the of to in on for and or is are was were be by with as at it its this that these those from we you what which how why does do did not no".split(" "));
@@ -4761,7 +4766,6 @@ async function aiExec(name,args,sources){
  if(name==="search_document")return aiSearch(args.query,args.scope,sources);
  if(name==="read_round")return aiRoundText(parseInt(args.round,10));
  if(name==="read_notes")return aiNotesText(args.section);
- if(name==="read_links")return aiLinksText(args.id);
  return "no tool called "+name+"; the tools are "+AI_TOOLS.map(t=>t.function.name).join(", ");
 }
 function aiNoteSources(name,args,sources){
@@ -5079,25 +5083,25 @@ function aiAdopt(run){
 async function aiExplain(entry,kind,roleIx,onText){
  const [label,role]=AI_ROLES[roleIx];
  const input=entry.id+"|"+label+"|"+(META.rev||0);
- return aiCached("explain",input,()=>aiOnce([
+ return aiCached("explain",input,()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nExplain what this entry means for that reader in three sentences, from the document only. No preamble."}
  ],{kind:"explain",onText}));
 }
 async function aiWhyHere(entry,kind){
- return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
+ return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nSay why this entry exists, in exactly two sentences: what it holds up, and what falls without it."}
  ],{kind:"why"}));
 }
 async function aiReviewComment(entry,kind,concern){
- return aiOnce([
+ return aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern+"\n\nDraft a review comment on this entry: three labelled paragraphs, Context, Concern, Ask. Plain sentences, no hedging, under 120 words."}
  ],{kind:"review"});
 }
 async function aiSummariseSection(id){
- return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
+ return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Summarise the "+AI_SECTION_NAMES[id]+" section ("+id+") as four or five bullets, each one line, from that section only. Return markdown bullets and nothing else."}
  ],{kind:"section"}));
@@ -5110,14 +5114,14 @@ async function aiChangedSince(){
   return k+" "+v+(e?" — "+plain(e.t):"");
  }).join("\n");
  const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
- return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
+ return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail+"\n\nTell a returning reader what changed since the revision they last read, in one paragraph of plain prose. No bullet list."}
  ],{kind:"changed"}));
 }
 const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiFaq(){
- return aiCached("faq",String(META.rev||0),()=>aiOnce([
+ return aiCached("faq",String(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Write the six questions a reader of this document will ask that the document never states outright, each with the answer the document gives. Each answer is at most 40 words and cites the entry it rests on."}
  ],{kind:"faq",schema:AI_FAQ_SCHEMA}));
@@ -5125,7 +5129,7 @@ async function aiFaq(){
 const AI_GLOSS_SCHEMA={name:"glossary",schema:{type:"object",properties:{terms:{type:"array",items:{type:"object",properties:{k:{type:"string"},v:{type:"string"}},required:["k","v"],additionalProperties:false}}},required:["terms"],additionalProperties:false}};
 async function aiGlossary(){
  const known=TERMS.map(t=>t.k).join(", ");
- return aiCached("glossary",String(META.rev||0),()=>aiOnce([
+ return aiCached("glossary",String(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Already defined: "+(known||"nothing")+"\n\nFind the terms this document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."}
  ],{kind:"glossary",schema:AI_GLOSS_SCHEMA}));
@@ -5133,21 +5137,21 @@ async function aiGlossary(){
 const AI_PATH_SCHEMA={name:"reading_path",schema:{type:"object",properties:{title:{type:"string"},items:{type:"array",items:{type:"object",properties:{id:{type:"string"},why:{type:"string"}},required:["id","why"],additionalProperties:false}}},required:["title","items"],additionalProperties:false}};
 async function aiReadAs(roleIx){
  const [label,role]=AI_ROLES[roleIx];
- return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce([
+ return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Reader: "+role+".\n\nPick the six entries of this document that reader must read, in order, with one line each on why, and title the path for them. Use ids exactly as they appear."}
  ],{kind:"readas",schema:AI_PATH_SCHEMA}));
 }
 const AI_QUIZ_SCHEMA={name:"quiz",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},options:{type:"array",items:{type:"string"}},answer:{type:"integer"},id:{type:"string"}},required:["q","options","answer","id"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiQuiz(){
- return aiCached("quiz",String(META.rev||0),()=>aiOnce([
+ return aiCached("quiz",String(META.rev||0),()=>aiOnce(()=>[
   {role:"system",content:aiSystem()},
   {role:"user",content:"Write five multiple-choice questions that check whether a reviewer understood this document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."}
  ],{kind:"quiz",schema:AI_QUIZ_SCHEMA}));
 }
 const AI_FOLLOW_SCHEMA={name:"followups",schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"],additionalProperties:false}};
 async function aiFollowups(question,answer){
- const out=await aiCached("followups",question+"|"+answer,()=>aiOnce([
+ const out=await aiCached("followups",question+"|"+answer,()=>aiOnce(()=>[
   {role:"system",content:"You propose the three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked."},
   {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
  ],{kind:"followups",schema:AI_FOLLOW_SCHEMA}));
@@ -5825,6 +5829,7 @@ function aiBoot(){
   aiWireDiffPanel();
   aiLoadChat();
   $("#ai").hidden=false;
+  $("#mbarAsk").hidden=false;
  });
 }
 function addAiTerms(list){
