@@ -801,7 +801,7 @@ func runSweep(t *testing.T, runs string) {
 	}
 }
 
-// TestSweepPrunesWithoutPs: the prune used to be reachable only by typing --ps,
+// TestSweepPrunesAgedRunAndKeepsFresh: the prune used to be reachable only by typing --ps,
 // so run dirs accumulated until someone happened to run it. --sweep reaches the
 // same prune from the SessionStart hook, on the same terminal-and-aged terms.
 func TestSweepPrunesAgedRunAndKeepsFresh(t *testing.T) {
@@ -824,7 +824,7 @@ func TestSweepPrunesAgedRunAndKeepsFresh(t *testing.T) {
 	}
 }
 
-// TestSweepThrottles: SessionStart fires far more often than a 7-day prune needs
+// TestSweepThrottlesWithinInterval: SessionStart fires far more often than a 7-day prune needs
 // to walk, and each walk competes for the same serialized execs, so a sweep
 // inside sweepIntervalS of the last one must not walk at all.
 func TestSweepThrottlesWithinInterval(t *testing.T) {
