@@ -93,7 +93,7 @@ One file switches on the two features that need a secret. The assistant answers 
 {"disabled": true}
 ```
 
-`endpoint`, `model`, and `key` travel as a set. `reasoning` (`low`, `medium`, `high`, `none`) sets one effort for every call; absent, chat runs at `high` and the one-shots at `medium`. `gpt-oss-120b` on Cerebras is the model the assistant is built around; `gemma-4-31b` is the pick only when the assistant must read an image, and its reasoning is on or off, so `check` warns on a graded value under it. `github.token` is the second half and stands alone.
+`endpoint`, `model`, and `key` travel as a set. `reasoning` (`low`, `medium`, `high`, `none`) sets one effort for every call; absent, chat, the quiz, and read-as run at `high`, the other one-shots at `medium`, and the follow-up suggestions at `low`. `gpt-oss-120b` on Cerebras is the model the assistant is built around; `gemma-4-31b` is the pick only when the assistant must read an image, and its reasoning is on or off, so `check` warns on a graded value under it. `github.token` is the second half and stands alone.
 
 No file, the kill switch, or no AI half, and the page hides every AI affordance: the Ask bar at the bottom right, the Cmd-J shortcut, the AI rows and inline answers in Cmd-K, the ✦ on every register row. No `github` half, and the link chips render plain, with no state dot, no hover card, and no progress bar. `check` validates the shape when the file is present: `endpoint` is an absolute `https://` URL, http only on localhost, because an https page cannot call an http model host; a file with neither half is an error.
 
