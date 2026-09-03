@@ -102,8 +102,6 @@ SECTION_IDS = ("overview", "ground", "architecture", "paths", "numbers", "ceilin
                "assumptions", "open", "footnotes")
 HANDLED = ("decisions", "assumptions", "open", "arch", "numbers")
 HANDLE_RANGE = (2, 5)
-HANDLE_PROMPT = ("Name this entry the way a reader would say it out loud: a noun phrase of two to five words, "
-                 "no register ids, no trailing punctuation. Reply with the phrase alone.")
 TITLE_WORDS = 12
 BANNER_WORDS = 40
 TERM_COUNT = 12
@@ -1378,6 +1376,7 @@ def label_sources(R, root):
         parser.close()
         for where, label in parser.labels:
             yield where, label, True
+    yield from component_labels(R)
 
 
 def cited_ids(R, ids: re.Pattern, prose: str) -> set:
@@ -1639,6 +1638,7 @@ def draft_handles(args, R):
             detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else err
             print(f"plainify: slop-cop failed on the handles: {detail}", file=sys.stderr)
             return 0, []
+    prompt = (REFERENCE / "handle.md").read_text().strip()
     rows, written = [], 0
     ids = id_matcher(register_ids(R))
     for reg, i, e, ident in todo:
@@ -1646,7 +1646,7 @@ def draft_handles(args, R):
             handle, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
         else:
             try:
-                handle, issues = ask_plain(args.provider, HANDLE_PROMPT, reg, e, e["t"]), []
+                handle, issues = ask_plain(args.provider, prompt, reg, e, e["t"]), []
             except (OSError, subprocess.SubprocessError) as err:
                 print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
                 return written, rows
@@ -2176,6 +2176,40 @@ def check_ai_config(rep, root):
             rep.err(f"ai.json: endpoint uses the {scheme}: scheme; the browser calls it over https")
     for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
         rep.warn(f"ai.json carries {k!r}, which the page ignores")
+
+
+def component_figures(spec):
+    kind = spec.get("kind")
+    if kind == "dd.tabs":
+        return [t.get("figure") for t in spec.get("tabs") or [] if isinstance(t, dict)]
+    if kind == "dd.before-after":
+        return [(spec.get(side) or {}).get("figure") for side in ("before", "after")
+                if isinstance(spec.get(side), dict)]
+    return []
+
+
+def component_labels(R):
+    declared = R.get("components")
+    if not isinstance(declared, dict):
+        return
+    for cid, spec in sorted(declared.items()):
+        if not isinstance(spec, dict):
+            continue
+        where = f"components.{cid}"
+        if isinstance(spec.get("title"), str) and spec["title"].strip():
+            yield f"{where}.title", spec["title"], True
+        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols"):
+            for i, item in enumerate(spec.get(field) or []):
+                if isinstance(item, dict) and isinstance(item.get("label"), str) and item["label"].strip():
+                    yield f"{where}.{field}[{i}].label", item["label"], True
+        for side in ("before", "after"):
+            pane = spec.get(side)
+            if isinstance(pane, dict) and isinstance(pane.get("label"), str) and pane["label"].strip():
+                yield f"{where}.{side}.label", pane["label"], True
+        for figure in component_figures(spec):
+            if isinstance(figure, dict) and figure.get("kind") == "mermaid" and isinstance(figure.get("source"), str):
+                for nid, label in mermaid_labels(figure["source"]):
+                    yield f"{where} figure node {nid}", label, True
 
 
 def main():

@@ -162,11 +162,11 @@ The declaration sits in `registers.json`; the deck places it with `<div data-com
     "title": "What a backlog costs per second",
     "inputs": [
       {"id": "backlog", "label": "Jobs waiting", "min": 100, "max": 100000, "step": 100, "value": 10000, "unit": "jobs"},
-      {"id": "workers", "label": "Workers", "min": 1, "max": 200, "step": 1, "value": 40, "unit": ""}
+      {"id": "workers", "label": "Workers", "min": 1, "max": 200, "step": 1, "value": 40}
     ],
     "outputs": [
       {"label": "Rows scanned per second today", "expr": "backlog * workers / 5", "unit": "rows/s", "tone": "warn"},
-      {"label": "Open connections proposed", "expr": "workers", "unit": "", "tone": "ok"}
+      {"label": "Open connections proposed", "expr": "workers", "tone": "ok"}
     ],
     "cites": ["DQ4"]
   }
