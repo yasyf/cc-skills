@@ -101,7 +101,7 @@
   ],
   "paths": [
     {
-      "id": "enq",
+      "id": "p-enq",
       "name": "Enqueue (acked)",
       "budget": 25,
       "segs": [
@@ -112,7 +112,7 @@
       "note": "The flush dominates; everything else is bookkeeping. Numbers pending spike V1."
     },
     {
-      "id": "disp",
+      "id": "p-disp",
       "name": "Dispatch to a waiting worker",
       "segs": [
         ["wake", 0.2, 1, "dispatcher pops the queue head", "c-lease"],

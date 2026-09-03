@@ -1117,7 +1117,7 @@ TERMS.forEach(t=>[t.k,...(t.aliases||[])].forEach(a=>{
 }));
 TERM_WORDS.sort((a,b)=>b.length-a.length);
 const anyCase=c=>c.toLowerCase()===c.toUpperCase()?reEsc(c):"["+c.toUpperCase()+c.toLowerCase()+"]";
-const termRe=()=>TERM_WORDS.length?new RegExp("(^|[^\\w-])("+TERM_WORDS.map(w=>anyCase(w[0])+reEsc(w.slice(1))).join("|")+")(s?)(?![\\w-])"):null;
+const termRe=()=>TERM_WORDS.length?new RegExp("(^|[^\\w./-])("+TERM_WORDS.map(w=>anyCase(w[0])+reEsc(w.slice(1))).join("|")+")(s?)(?![\\w-]|[./]\\w)"):null;
 let TERM_RE=termRe();
 const TERM_SKIP="a,code,abbr,pre,h1,h2,h3,.def,.cite,.ref,.term,.idchip,.chip,.xs-node,svg";
 const TERM_BLOCK="p,li,td,.sumline,.sp";
@@ -2966,6 +2966,25 @@ function cmptFrame(spec,kind){
  if(spec.title)box.append(el("div","ddc-head",inline(spec.title)));
  return box;
 }
+const SVG_TAGS=new Set(["svg","g","defs","title","desc","path","rect","circle","ellipse","line","polyline","polygon","text","tspan","marker","use","symbol","lineargradient","radialgradient","stop","clippath","mask","pattern"]);
+const SVG_ATTRS=new Set(["id","class","style","transform","d","x","y","dx","dy","x1","y1","x2","y2","cx","cy","r","rx","ry","width","height","viewbox","preserveaspectratio","fill","fill-opacity","fill-rule","stroke","stroke-width","stroke-linecap","stroke-linejoin","stroke-dasharray","stroke-dashoffset","stroke-opacity","opacity","font-family","font-size","font-weight","font-style","letter-spacing","text-anchor","dominant-baseline","points","offset","stop-color","stop-opacity","gradientunits","gradienttransform","spreadmethod","markerwidth","markerheight","refx","refy","orient","markerunits","patternunits","clip-path","mask","vector-effect","paint-order","xmlns","role","aria-label","aria-hidden"]);
+const SVG_CSS_BAN=/url\s*\(|expression|@import|behavior/i;
+function safeSvg(source){
+ const doc=new DOMParser().parseFromString(String(source),"image/svg+xml");
+ const root=doc.documentElement;
+ if(!root||root.localName!=="svg"||doc.querySelector("parsererror"))return null;
+ [root,...root.querySelectorAll("*")].forEach(n=>{
+  if(!SVG_TAGS.has(n.localName.toLowerCase())){n.remove();return}
+  [...n.attributes].forEach(a=>{
+   if(a.name.toLowerCase().startsWith("xml"))return;
+   const name=a.localName.toLowerCase();
+   if(name==="href")return void(/^#[\w.:-]+$/.test(a.value)||n.removeAttributeNode(a));
+   if(name==="style")return void(SVG_CSS_BAN.test(a.value)&&n.removeAttributeNode(a));
+   if(!SVG_ATTRS.has(name))n.removeAttributeNode(a);
+  });
+ });
+ return document.importNode(root,true);
+}
 function cmptFigure(fig,host,jobs){
  const f=el("figure","ddc-fig");
  if(fig.kind==="mermaid"){
@@ -2973,16 +2992,14 @@ function cmptFigure(fig,host,jobs){
   f.append(mount);
   jobs.push(mermaidJob(mount,fig.source,fig.label||plain(fig.caption||"Diagram"),null,host.closest("#hero")?heroInit:null));
  }else{
-  const box=el("div",null,fig.source);
-  scrub(box);
-  const svg=box.querySelector("svg");
+  const svg=safeSvg(fig.source);
   if(svg){
    svg.classList.add("fit");
    svg.setAttribute("role","img");
    if(fig.label)svg.setAttribute("aria-label",fig.label);
    setAspect(svg);
+   f.append(svg);
   }
-  f.append(...box.childNodes);
  }
  if(fig.caption)f.append(el("figcaption","ddc-cap",inline(fig.caption)));
  return f;
@@ -3046,7 +3063,7 @@ function cmptBeforeAfter(spec,host,jobs){
 }
 function cmptWhatIf(spec){
  const box=cmptFrame(spec,"dd.whatif");
- const vals={};
+ const vals=Object.create(null);
  const asts=spec.outputs.map(o=>whatifParse(o.expr));
  const inputs=el("div","ddc-inputs"),outs=el("div","ddc-outs");
  const cells=spec.outputs.map(o=>{
@@ -3144,20 +3161,26 @@ async function mountBespoke(host,name){
  linkNode(root);
  return root;
 }
-function mountComponent(host){
+async function mountComponent(host){
  const name=host.dataset.component;
- host.dataset.mounted="1";
+ host.dataset.cmpt="1";
  host.querySelectorAll(":scope > figure").forEach(f=>f.classList.add("ddc-fallback"));
  const spec=COMPONENTS[name];
- if(!spec)return mountBespoke(host,name);
- const jobs=[];
- const node=CMPT_KINDS[spec.kind](spec,host,jobs);
- host.prepend(node);
- linkNode(node);
- return Promise.all(jobs);
+ try{
+  if(!spec){
+   if(!await mountBespoke(host,name)){host.dataset.cmptFailed="1";return}
+  }else{
+   const jobs=[];
+   const node=CMPT_KINDS[spec.kind](spec,host,jobs);
+   host.prepend(node);
+   linkNode(node);
+   await Promise.all(jobs);
+  }
+ }catch(e){host.dataset.cmptFailed="1";return}
+ host.dataset.mounted="1";
 }
 function mountComponents(root){
- return Promise.all([...root.querySelectorAll("[data-component]:not([data-mounted])")].map(mountComponent));
+ return Promise.all([...root.querySelectorAll("[data-component]:not([data-cmpt])")].map(mountComponent));
 }
 function componentSlot(host,name){
  const div=el("div");
@@ -3199,7 +3222,7 @@ function componentMd(name,host){
   L.push(cmptFigMd(o.figure));
  });
  if(spec.kind==="dd.whatif"){
-  const vals={};
+  const vals=Object.create(null);
   spec.inputs.forEach(i=>{vals[i.id]=i.value});
   L.push("| Input | Value |\n|---|---|");
   spec.inputs.forEach(i=>L.push(`| ${plain(i.label)} | ${wiUnit(wiNum(i.value),i.unit)} |`));
@@ -3238,6 +3261,7 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
 const AI_CFG_KEY="design-doc-ai";
 const AI_ROUNDS=6;
 const AI_RPM=30;
+const AI_RATE_KEY="design-doc-ai-rate";
 const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
 const AI_SECTION_NAMES={overview:"Overview",ground:"Ground rules",architecture:"How it works",paths:"Where the time goes",numbers:"Numbers",ceilings:"Where it breaks",decisions:"Decisions",assumptions:"Assumptions",open:"Still open",footnotes:"Footnotes"};
 const AI_SUGGEST={
@@ -3257,15 +3281,23 @@ const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],
 
 let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
 let aiChat=[];
-const aiStamps=[],aiMarked=[];
+const aiMarked=[];
 
+const AI_LOOPBACK=/^(localhost|127\.0\.0\.1|\[::1\])$/;
+function aiEndpoint(raw){
+ if(!raw)return null;
+ let u;
+ try{u=new URL(raw)}catch(e){return null}
+ if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
+ return u.href.replace(/\/+$/,"");
+}
 function aiNormalise(j){
  if(!j||typeof j!=="object")return null;
  if(j.disabled===true)return {disabled:true};
  const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
- const endpoint=s("endpoint"),model=s("model"),key=s("key");
+ const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key");
  if(!endpoint||!model||!key)return null;
- return {endpoint:endpoint.replace(/\/+$/,""),model,key};
+ return {endpoint,model,key};
 }
 async function aiConfig(){
  let stored=null;
@@ -3279,21 +3311,46 @@ async function aiConfig(){
  }
  return null;
 }
-async function aiSlot(){
+function aiWait(ms,signal){
+ return new Promise((resolve,reject)=>{
+  const stop=()=>reject(new DOMException("aborted","AbortError"));
+  if(signal&&signal.aborted)return stop();
+  const onAbort=()=>{clearTimeout(timer);stop()};
+  const timer=setTimeout(()=>{if(signal)signal.removeEventListener("abort",onAbort);resolve()},Math.max(0,ms));
+  if(signal)signal.addEventListener("abort",onAbort,{once:true});
+ });
+}
+function aiRecent(){
+ const now=Date.now();
+ let saved=[];
+ try{saved=JSON.parse(localStorage.getItem(AI_RATE_KEY)||"[]")}catch(e){}
+ return (Array.isArray(saved)?saved:[]).filter(t=>typeof t==="number"&&now-t<60000).sort((a,b)=>a-b);
+}
+async function aiSlot(signal){
  for(;;){
-  const now=Date.now();
-  while(aiStamps.length&&now-aiStamps[0]>60000)aiStamps.shift();
-  if(aiStamps.length<AI_RPM){aiStamps.push(now);return}
-  await new Promise(r=>setTimeout(r,60000-(now-aiStamps[0])+50));
+  const recent=aiRecent();
+  if(recent.length<AI_RPM){
+   recent.push(Date.now());
+   try{localStorage.setItem(AI_RATE_KEY,JSON.stringify(recent.slice(-AI_RPM)))}catch(e){}
+   return;
+  }
+  await aiWait(60000-(Date.now()-recent[0])+50,signal);
  }
+}
+function aiRetryAfter(header){
+ if(!header)return null;
+ const raw=String(header).trim();
+ if(/^\d+(\.\d+)?$/.test(raw))return parseFloat(raw)*1000;
+ const at=Date.parse(raw);
+ return isNaN(at)?null:Math.max(0,at-Date.now());
 }
 async function aiPost(body,signal){
  for(let attempt=0;;attempt++){
-  await aiSlot();
+  await aiSlot(signal);
   const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
   if(r.status===429&&attempt<3){
-   const wait=parseFloat(r.headers.get("retry-after")||"")||2;
-   await new Promise(res=>setTimeout(res,Math.min(30,wait)*1000));
+   const wait=aiRetryAfter(r.headers.get("retry-after"));
+   await aiWait(wait==null?2000:wait,signal);
    continue;
   }
   if(!r.ok){
@@ -3735,7 +3792,7 @@ function aiSuggest(){
   host.append(b);
  });
 }
-function aiStop(){if(aiAbort){aiAbort.abort();aiAbort=null}aiBusy=false;$("#aiSend").textContent="Ask"}
+function aiStop(){if(aiAbort)aiAbort.abort()}
 async function aiAsk(question,opt){
  const q=String(question||"").trim();
  if(!q||aiBusy)return;
@@ -3746,15 +3803,16 @@ async function aiAsk(question,opt){
  const bubble=aiBubble("assistant","…");
  const tools=el("div","ai-used");
  aiNode(tools);
+ const ctrl=new AbortController();
  aiBusy=true;
- aiAbort=new AbortController();
+ aiAbort=ctrl;
  $("#aiSend").textContent="Stop";
  let pending=0,latest="";
  const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
  try{
   const {answer}=await aiRun(q,{
    effort:o.effort||"low",
-   signal:aiAbort.signal,
+   signal:ctrl.signal,
    onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
    onTool:(name,args)=>{
     tools.append(el("span","ai-tool",esc(name+(args&&args.id?" "+args.id:""))));
@@ -3770,7 +3828,8 @@ async function aiAsk(question,opt){
   if(pending)cancelAnimationFrame(pending);
   if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
  }finally{
-  aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask";aiScrollLog();
+  if(aiAbort===ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
+  aiScrollLog();
  }
 }
 

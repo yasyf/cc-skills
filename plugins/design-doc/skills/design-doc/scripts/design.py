@@ -39,7 +39,7 @@ into components.js with the pinned Vite and Preact pack, installed under
 ~/.cache/design-doc on first use. snapshot records a revision of the
 registers in the project's history directory. Stdlib only.
 """
-import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, urllib.request
+import argparse, copy, datetime, hashlib, importlib.util, itertools, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -127,8 +127,8 @@ ACRONYMS = ("API", "SSO", "JWT", "DPoP", "TLS", "mTLS", "HTTP", "HTTPS", "gRPC",
             "GPU", "RAM", "AWS", "GCP", "OIDC", "OAuth", "SAML", "DNS", "CDN", "VPC", "RDS", "KMS", "ELK", "SVG",
             "PDF", "HTML", "CSS", "JS", "TSX", "LLM", "AI", "FDE", "SLA", "SLO", "P95", "P99", "RLS", "NLB",
             "EBS", "SNI", "WAF", "DDoS", "GraphQL", "SDK", "WAL", "Postgres", "SQLite", "GitHub", "Kubernetes",
-            "Pulumi", "Datadog", "Cloudflare", "Envoy", "Restate", "Valkey", "WorkOS", "SandSQL", "SandDB",
-            "Iris", "Sand")
+            "Pulumi", "Datadog", "Cloudflare", "WorkOS", "SandSQL", "SandDB")
+AMBIGUOUS_PRODUCTS = ("Envoy", "Restate", "Valkey", "Iris", "Sand")
 GLOSS_MIN_ENTRIES = 2
 GLOSS_MAX = 20
 GLOSS_SKIP = {"terms", "diagram", "housekeeping", "acronyms"}
@@ -149,12 +149,29 @@ EXPR_TOKEN = re.compile(r"[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+")
 EXPR_FNS = {"min": min, "max": max}
 VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 TSX_EXPORT = re.compile(r"^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_]\w*)", re.M)
+TSX_EXPORT_LIST = re.compile(r"^export\s*\{([^}]*)\}", re.M)
+TSX_EXPORT_DEFAULT = re.compile(r"^export\s+default\b", re.M)
+TSX_EXPORT_NAME = re.compile(r"[A-Za-z_]\w*$")
 TSX_BANNED = (
     (re.compile(r"\bfetch\s*\("), "calls fetch("),
     (re.compile(r"""\bimport\s*\(\s*["'](?:[a-z]+:)?//"""), "imports from a remote origin"),
     (re.compile(r"\beval\s*\("), "calls eval("),
-    (re.compile(r"\b(?:innerHTML|dangerouslySetInnerHTML)\b"), "writes raw HTML"),
+    (re.compile(r"(?:\.innerHTML\s*=|\bdangerouslySetInnerHTML\b)"), "writes raw HTML"),
 )
+SVG_TAGS = {"svg", "g", "defs", "title", "desc", "path", "rect", "circle", "ellipse", "line", "polyline",
+            "polygon", "text", "tspan", "marker", "use", "symbol", "lineargradient", "radialgradient", "stop",
+            "clippath", "mask", "pattern"}
+SVG_ATTRS = {"id", "class", "style", "transform", "d", "x", "y", "dx", "dy", "x1", "y1", "x2", "y2", "cx", "cy",
+             "r", "rx", "ry", "width", "height", "viewbox", "preserveaspectratio", "fill", "fill-opacity",
+             "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
+             "stroke-dashoffset", "stroke-opacity", "opacity", "font-family", "font-size", "font-weight",
+             "font-style", "letter-spacing", "text-anchor", "dominant-baseline", "points", "offset",
+             "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "spreadmethod", "markerwidth",
+             "markerheight", "refx", "refy", "orient", "markerunits", "patternunits", "clip-path", "mask",
+             "vector-effect", "paint-order", "xmlns", "role", "aria-label", "aria-hidden"}
+SVG_FRAGMENT_HREF = re.compile(r"^#[\w.:-]+$")
+SVG_CSS_BAN = re.compile(r"url\s*\(|expression|@import|behavior", re.I)
+WHATIF_GRID_MAX = 20000
 SCHEMA_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool,
                 "number": (int, float), "integer": int}
 
@@ -675,9 +692,12 @@ class RenderedDom(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.rendered, self.failed, self.syntax_error, self.rendered_ids, self.muted = 0, [], False, set(), []
+        self.unmounted = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if a.get("data-component") and a.get("data-mounted") != "1":
+            self.unmounted.append(a["data-component"])
         if a.get("data-id"):
             self.rendered_ids.add(a["data-id"])
         m = NODE_DOM_ID.search(a.get("id") or "")
@@ -731,6 +751,8 @@ def render_check(args) -> int:
     cause = "its source has a syntax error" if dom.rendered or dom.syntax_error else f"no diagram rendered at all, so {builder.NETWORK_HINT}"
     for label in dom.failed:
         problems.append(f"Mermaid did not render {label!r}: {cause}")
+    for name in sorted(set(dom.unmounted)):
+        problems.append(f"the component {name!r} never mounted, so the page shows its fallback")
     if dom.syntax_error and not dom.failed:
         problems.append("a rendered diagram reports a syntax error")
     wanted = set()
@@ -1187,6 +1209,7 @@ def check(args) -> int:
     for n in sorted(fn_nums - used_fns):
         rep.warn(f"footnote {n} is never referenced")
 
+    p_ids = check_ids(rep, R.get("paths", []), "id", r"p-[a-z0-9-]+", "paths")
     for p in R.get("paths", []):
         for g in p.get("segs", []):
             if len(g) < 3 or not all(isinstance(v, (int, float)) for v in g[1:3]):
@@ -1214,7 +1237,7 @@ def check(args) -> int:
             if not (isinstance(row, list) and len(row) == len(cols)):
                 rep.err(f"numbers {nt.get('id')}: row {row!r} does not have {len(cols)} cells")
 
-    known = a_ids | d_ids | c_ids | open_ids | n_ids | {p.get("id") for p in R.get("paths", [])}
+    known = a_ids | d_ids | c_ids | open_ids | n_ids | p_ids
     check_twins(rep, R, root, d_ids, known)
 
     summary_path = root / "summary.html"
@@ -1327,10 +1350,10 @@ def mermaid_labels(source: str):
 
 
 def acronym_map(meta: dict) -> dict:
-    names = list(ACRONYMS)
-    extra = meta.get("acronyms")
-    if isinstance(extra, list):
-        names += [a.strip() for a in extra if isinstance(a, str) and a.strip()]
+    raw = meta.get("acronyms")
+    extra = [a.strip() for a in raw if isinstance(a, str) and a.strip()] if isinstance(raw, list) else []
+    named = {a.lower() for a in extra}
+    names = list(ACRONYMS) + [p for p in AMBIGUOUS_PRODUCTS if p.lower() in named] + extra
     return {a.lower(): a for a in names}
 
 
@@ -1345,7 +1368,7 @@ def check_case(rep, where, label, acronyms, sentence_case=True):
         canon = acronyms.get(word.lower())
         if canon and canon != word:
             rep.warn(f"{where}: {word!r} should read {canon!r}; acronyms and product names keep their own "
-                     "capitalisation (extend the list with meta.acronyms)")
+                     "capitalisation (name a product that is also an ordinary word in meta.acronyms to lint it)")
 
 
 def label_sources(R, root):
@@ -1919,17 +1942,6 @@ def component_schemas(rep) -> dict:
     return out
 
 
-def whatif_samples(inputs) -> list:
-    base = {i["id"]: i["value"] for i in inputs}
-    samples = [base, {i["id"]: i["min"] for i in inputs}, {i["id"]: i["max"] for i in inputs}]
-    for one in inputs:
-        for edge in ("min", "max"):
-            sample = dict(base)
-            sample[one["id"]] = one[edge]
-            samples.append(sample)
-    return samples
-
-
 def check_whatif(rep, label, spec, known):
     ids = [i["id"] for i in spec["inputs"]]
     for i in spec["inputs"]:
@@ -1939,7 +1951,8 @@ def check_whatif(rep, label, spec, known):
             rep.err(f"{label}: input {i['id']!r} has min {i['min']} at or above max {i['max']}")
         elif not i["min"] <= i["value"] <= i["max"]:
             rep.err(f"{label}: input {i['id']!r} starts at {i['value']}, outside {i['min']}–{i['max']}")
-    samples = whatif_samples(spec["inputs"])
+    grid = whatif_grid(spec["inputs"])
+    box = {i["id"]: (min(i["min"], i["value"]), max(i["max"], i["value"])) for i in spec["inputs"]}
     for out in spec["outputs"]:
         where = f"{label}: output {out['label']!r}"
         try:
@@ -1951,7 +1964,16 @@ def check_whatif(rep, label, spec, known):
         if unknown:
             rep.err(f"{where} names {', '.join(unknown)}, which is not an input of this component")
             continue
-        for sample in samples:
+        if grid is None:
+            try:
+                lo, hi = expr_interval(node, box)
+            except ExprError as e:
+                rep.err(f"{where} {e}")
+                continue
+            if not (finite(lo) and finite(hi)):
+                rep.err(f"{where} is not a number across the slider range")
+            continue
+        for sample in grid:
             try:
                 value = eval_expr(node, sample)
             except ExprError as e:
@@ -2015,11 +2037,12 @@ def check_components(rep, R, root, known, node_ids):
     if not (declared or sources or hosts or fields):
         return
 
-    exports = set(sources)
+    exports = set()
     for stem, text in sources.items():
-        exports.update(TSX_EXPORT.findall(text))
+        code = code_only(text)
+        exports |= tsx_exports(stem, code)
         for pattern, what in TSX_BANNED:
-            if pattern.search(text):
+            if pattern.search(code):
                 rep.err(f"components/{stem}.tsx {what}; an author component draws the registers it is handed and reaches nothing else")
     if sources and not (root / "components.js").exists():
         rep.strict_warn(f"components/ holds {len(sources)} .tsx component(s) but components.js is missing; run design.py build")
@@ -2041,6 +2064,7 @@ def check_components(rep, R, root, known, node_ids):
             rep.err(msg)
         if not problems:
             check_component_props(rep, label, spec, known, node_ids)
+            check_figures(rep, label, spec)
 
     referenced = set()
     for where, name in fields:
@@ -2054,6 +2078,8 @@ def check_components(rep, R, root, known, node_ids):
         elif host["id"] in exports:
             if not host["figure"]:
                 rep.err(f"summary.html hosts the author component {host['id']!r} with no <figure> fallback; print and Markdown render the fallback")
+        elif host["id"] in sources:
+            rep.err(f"summary.html hosts {host['id']!r} and components/{host['id']}.tsx exists, but that file has no default export, so the bundle registers nothing under its name")
         else:
             rep.err(f"summary.html hosts {host['id']!r}, which is neither an entry in components nor an export of components/*.tsx")
     for cid in sorted(set(declared) - referenced):
@@ -2171,9 +2197,9 @@ def check_ai_config(rep, root):
             rep.err(f"ai.json: {k!r} must be a non-empty string")
     endpoint = cfg.get("endpoint")
     if isinstance(endpoint, str) and endpoint.strip():
-        scheme = foreign_scheme(endpoint)
-        if scheme:
-            rep.err(f"ai.json: endpoint uses the {scheme}: scheme; the browser calls it over https")
+        problem = ai_endpoint_problem(endpoint.strip())
+        if problem:
+            rep.err(f"ai.json: endpoint {problem}")
     for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
         rep.warn(f"ai.json carries {k!r}, which the page ignores")
 
@@ -2210,6 +2236,203 @@ def component_labels(R):
             if isinstance(figure, dict) and figure.get("kind") == "mermaid" and isinstance(figure.get("source"), str):
                 for nid, label in mermaid_labels(figure["source"]):
                     yield f"{where} figure node {nid}", label, True
+
+
+def code_only(src: str) -> str:
+    out, i, n = list(src), 0, len(src)
+    stack = [["code", 0]]
+
+    def blank(start, end):
+        for k in range(start, min(end, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        top = stack[-1]
+        c = src[i]
+        if top[0] == "template":
+            if c == "\\":
+                blank(i, i + 2)
+                i += 2
+            elif c == "`":
+                stack.pop()
+                i += 1
+            elif src[i:i + 2] == "${":
+                stack.append(["code", 0])
+                i += 2
+            else:
+                blank(i, i + 1)
+                i += 1
+            continue
+        if src[i:i + 2] == "//":
+            end = src.find("\n", i)
+            end = n if end < 0 else end
+            blank(i, end)
+            i = end
+        elif src[i:i + 2] == "/*":
+            end = src.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            blank(i, end)
+            i = end
+        elif c in "\"'":
+            j = i + 1
+            while j < n and src[j] != c and src[j] != "\n":
+                j += 2 if src[j] == "\\" else 1
+            if j < n and src[j] == c:
+                blank(i + 1, j)
+                i = j + 1
+            else:
+                i += 1
+        elif c == "`":
+            stack.append(["template", 0])
+            i += 1
+        elif c == "{":
+            top[1] += 1
+            i += 1
+        elif c == "}":
+            if top[1] == 0 and len(stack) > 1:
+                stack.pop()
+            else:
+                top[1] -= 1
+            i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def tsx_exports(stem: str, code: str) -> set:
+    names = set(TSX_EXPORT.findall(code))
+    for group in TSX_EXPORT_LIST.findall(code):
+        for part in group.split(","):
+            m = TSX_EXPORT_NAME.search(part.strip())
+            if m:
+                names.add(m.group(0))
+    if TSX_EXPORT_DEFAULT.search(code):
+        names.add(stem)
+    return names
+
+
+def whatif_axis(inp) -> list:
+    lo, hi = float(inp["min"]), float(inp["max"])
+    step = float(inp.get("step") or 1)
+    values = [lo + k * step for k in range(int((hi - lo) / step + 1e-9) + 1)]
+    if values[-1] < hi:
+        values.append(hi)
+    if float(inp["value"]) not in values:
+        values.append(float(inp["value"]))
+    return values
+
+
+def whatif_grid(inputs):
+    axes, total = [], 1
+    for inp in inputs:
+        axis = whatif_axis(inp)
+        total *= len(axis)
+        if total > WHATIF_GRID_MAX:
+            return None
+        axes.append(axis)
+    ids = [i["id"] for i in inputs]
+    return [dict(zip(ids, point)) for point in itertools.product(*axes)]
+
+
+def expr_interval(node, box):
+    kind = node[0]
+    if kind == "num":
+        return (node[1], node[1])
+    if kind == "ref":
+        return box[node[1]]
+    if kind == "fn":
+        parts = [expr_interval(a, box) for a in node[2]]
+        fn = EXPR_FNS[node[1]]
+        return (fn(*(lo for lo, _ in parts)), fn(*(hi for _, hi in parts)))
+    a, b = expr_interval(node[1], box), expr_interval(node[2], box)
+    if kind == "+":
+        return (a[0] + b[0], a[1] + b[1])
+    if kind == "-":
+        return (a[0] - b[1], a[1] - b[0])
+    if kind == "/" and b[0] <= 0 <= b[1]:
+        raise ExprError("divides by a denominator the sliders can drive to zero")
+    corners = [x * y if kind == "*" else x / y for x in a for y in b]
+    return (min(corners), max(corners))
+
+
+class SvgScan(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.roots, self.depth, self.tags, self.attrs = [], 0, [], []
+
+    def handle_starttag(self, tag, attrs):
+        if self.depth == 0:
+            self.roots.append(tag)
+        if tag not in SVG_TAGS:
+            self.tags.append(tag)
+        for name, value in attrs:
+            if name.startswith("xml"):
+                continue
+            key = name.split(":")[-1]
+            if key == "href":
+                if not SVG_FRAGMENT_HREF.match((value or "").strip()):
+                    self.attrs.append(f"{name}={value!r}")
+            elif key == "style":
+                if SVG_CSS_BAN.search(value or ""):
+                    self.attrs.append(f"{name}={value!r}")
+            elif key not in SVG_ATTRS:
+                self.attrs.append(name)
+        if tag not in VOID_TAGS:
+            self.depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        depth = self.depth
+        self.handle_starttag(tag, attrs)
+        self.depth = depth
+
+    def handle_endtag(self, tag):
+        if self.depth:
+            self.depth -= 1
+
+
+def svg_problems(source: str) -> list:
+    scan = SvgScan()
+    scan.feed(source)
+    scan.close()
+    out = []
+    if len(scan.roots) != 1 or scan.roots[0] != "svg":
+        out.append("is not a single <svg> element; the renderer parses it as XML and drops anything else")
+    if scan.tags:
+        out.append("carries " + ", ".join(f"<{t}>" for t in sorted(set(scan.tags))) +
+                   "; the renderer keeps only drawing elements")
+    if scan.attrs:
+        out.append("carries " + ", ".join(sorted(set(scan.attrs))) +
+                   "; the renderer keeps only drawing attributes and same-document href fragments")
+    return out
+
+
+def check_figures(rep, label, spec):
+    for figure in component_figures(spec):
+        if not isinstance(figure, dict) or figure.get("kind") != "svg":
+            continue
+        if not (isinstance(figure.get("label"), str) and figure["label"].strip()):
+            rep.err(f"{label}: an svg figure needs a 'label'; it is the figure's aria-label and the only "
+                    "wording print and the Markdown export carry")
+        source = figure.get("source")
+        if isinstance(source, str):
+            for problem in svg_problems(source):
+                rep.err(f"{label}: svg figure {problem}")
+
+
+AI_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+def ai_endpoint_problem(endpoint: str):
+    parts = urllib.parse.urlsplit(endpoint)
+    if not parts.scheme or not parts.netloc:
+        return "must be an absolute URL; the page calls it with no page-relative base to resolve against"
+    if parts.scheme == "http" and (parts.hostname or "") in AI_LOOPBACK:
+        return None
+    if parts.scheme != "https":
+        return (f"uses the {parts.scheme}: scheme; a page served over https can only call an https endpoint "
+                "(http is allowed on localhost)")
+    return None
 
 
 def main():
