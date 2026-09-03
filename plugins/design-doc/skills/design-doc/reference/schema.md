@@ -182,3 +182,11 @@ The table is the review surface: id, the original's first line, the twin, and it
 ## What `design.py pdf` prints
 
 The template carries an `@media print` stylesheet: light palette; rail, veil, toggles, and search hidden; the deck flattened to headed sections in panel order, a poster on its own landscape page; every `<details>` open; every request path laid out under its name; the register filters, search, and changes-since view cleared for the print and restored after it; Mermaid rendered before print; page breaks kept out of cards and tables; the running title and revision in the footer. The rail's PDF button calls `window.print()` against it. `design.py pdf <dir>` serves the directory, opens the doc in headless Chrome over its debugging pipe, waits for the page to report every diagram and connector rendered, fails on a diagram that did not, and prints `<dir>/design-doc.pdf` through the same stylesheet, so the file matches what the button gives a reader. It needs the same network access as `render-check`.
+
+## The plain twin and handle prompts
+
+`reference/plain.md` and `reference/handle.md` are the two prompts `plainify` sends per entry on its `--provider claude` and `--provider codex` paths, one for the plain twin in `p` and one for the handle in `h`. Each is the whole prompt, read verbatim and followed by the entry's kind, title, and text, so neither carries anything but its own contract. The twin is at most 30 words in one or two sentences, the handle two to five words. The `slop-cop` provider sends the same two budgets as `--max-words 30` and `--max-words 5`, with the register ids forbidden and the glossary attached, so a draft names another entry by its title rather than its id. Editing a prompt changes what the fallback providers draft and nothing else; the graders that flag a draft are in `design.py`.
+
+## What `design.py glossary` prints
+
+`design.py glossary <dir>` reads every prose field and prints the terms the doc uses that `terms` does not define, each with the entries it appears in, as candidate `{k, v}` rows to paste and edit. It is the author-side twin of the reader's "Find undefined terms" control, and the counterpart to the dead-term warning `check` raises for a defined term no prose uses.

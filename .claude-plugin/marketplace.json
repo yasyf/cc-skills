@@ -64,7 +64,7 @@
     {
       "name": "design-doc",
       "source": "./plugins/design-doc",
-      "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck, draws its diagram with Mermaid, and twins every entry with plain English, plus a PDF printed from the same page, written as a humble proposal."
+      "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck, draws its diagram with Mermaid, cites entries by readable handles, twins every entry with plain English, hosts declared interactive components, and answers questions in the page behind a deployed key, plus a PDF printed from the same page, written as a humble proposal."
     },
     {
       "name": "open-pr",

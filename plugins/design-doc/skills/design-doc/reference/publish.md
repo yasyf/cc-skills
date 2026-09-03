@@ -16,7 +16,18 @@ cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
 ```
 
-`check --strict` fails on a missing summary, a deck over budget, or an entry without its twin, and `render-check` proves every diagram draws; a doc that fails either isn't ready to ship. The stage copies no `sysd.svg`, no PDF, and no vendored code. The diagram source is in the registers, and the PDF button prints the page on the fly through the template's print stylesheet. Mermaid, its ELK layout, `svg-pan-zoom`, and the lucide icons load from jsdelivr at the versions pinned in the template. A doc that kept a hand-drawn diagram (`diagram.kind: "svg"`) adds `sysd.svg` to the copy. `design.py pdf` writes `design-doc.pdf` through the same stylesheet for the reader who wants a file to forward; it is never staged. The folder must contain an `index.html`; the renderer fetches its JSON and the summary with relative paths, so the flat copy is the whole build.
+A doc with a `components/` directory compiles it before the copy and ships the result:
+
+```bash
+$TOOL build .
+cp components.js dist/
+```
+
+`build` runs the plugin's Vite over `components/*.tsx` and writes `components.js` beside the doc; it needs `node` on the machine that publishes, and CI runs the same step when the directory exists. A doc with no `components/` skips the step.
+
+`check --strict` fails on a missing summary, a deck over budget, an entry without its twin or its handle, a question-form title, or a component whose props fail its schema. `render-check` proves every diagram and component draws. A doc that fails either isn't ready to ship.
+
+The stage copies no `sysd.svg`, no PDF, and no vendored code. The diagram source is in the registers, and the PDF button prints the page on the fly through the template's print stylesheet. Mermaid, its ELK layout, `svg-pan-zoom`, and the lucide icons load from jsdelivr at the versions pinned in the template. A doc that kept a hand-drawn diagram (`diagram.kind: "svg"`) adds `sysd.svg` to the copy. `design.py pdf` writes `design-doc.pdf` through the same stylesheet for the reader who wants a file to forward; it is never staged. The folder must contain an `index.html`; the renderer fetches its JSON and the summary with relative paths, so the flat copy is the whole build.
 
 The snapshot stamps this publish as a revision (`meta.rev`, `history/rev-<N>.json`). On a first deploy that revision is just the baseline; from the second onward, a returning reader opens straight into the changes since their last visit — no banner to click through — with unchanged content hidden behind a "show unchanged" toggle, plus a picker for diffing against any earlier revision. The diff lists exactly which register entries were added, changed, or removed, and flags the Summary section when `summary.html` moved.
 
@@ -48,7 +59,7 @@ This returns two URLs: the live `workers.dev` URL and a **claim URL**. Hand both
 
 ## Redeploy
 
-Updates ship the same way the site first deployed. After editing the registers, from the project directory:
+Updates ship the same way the site first deployed. After editing the registers, from the project directory, with the `build` line only for a doc that has `components/` and the `ai.json` line only for a site with access control in front of it:
 
 ```bash
 $TOOL check --strict .
@@ -57,6 +68,8 @@ $TOOL snapshot . --note "<headline>" --item "<one change, for the reader>"
 cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
+$TOOL build . && cp components.js dist/
+printf '{"endpoint":"%s","model":"%s","key":"%s"}' "$AI_ENDPOINT" "$AI_MODEL" "$AI_KEY" > dist/ai.json
 npm exec --yes wrangler@latest -- deploy dist --name <slug> --compatibility-date <today>
 ```
 
@@ -67,6 +80,24 @@ When announcing an update, share the live URL with `?since=<rev>` appended: ever
 The same `--name` on an authenticated wrangler updates the same `workers.dev` URL, and a deploy replaces the asset set wholesale — a file removed from `dist/` disappears from the site too. A `--temporary` deploy is a one-off preview: each redeploy mints a new one, so the user claims it (or authenticates wrangler) when the URL needs to survive updates. A project scaffolded before 0.12 keeps its diagram in `sysd.svg`, and the current template reads it from the `diagram` register key instead. Before copying the plugin's template over the old one, move the diagram into `diagram.source` as Mermaid, with nodes named after the `arch` cards, or set `diagram.kind: "svg"` and keep the file. Its `summary.html` is a single page, not a deck, and its entries carry no twins; `check --strict` names each gap, `design.py plainify` drafts the twins, and the deck is rewritten by hand. A project from before 0.11 carries the diagram inline in `design-doc.html` between `<!--SYSD-->` markers; extract that block to `sysd.svg` first, then take the 0.12 step.
 
 Record the deploy name and live URL in NOTES.md's changelog along with what changed; that entry is what a later session redeploys from.
+
+## AI in the page
+
+The doc answers questions, summarises sections, explains an entry for a role, and moves the page on the reader's behalf, with every model call made from the browser. It switches on when the page fetches an `ai.json`: first `../ai.json`, for a collection that shares one config, then `ai.json` beside `index.html`. The file holds either a live config or the kill switch:
+
+```json
+{"endpoint": "https://api.example.com/v1", "model": "<model>", "key": "<api key>"}
+```
+
+```json
+{"disabled": true}
+```
+
+No file, or the kill switch, and the page hides every AI affordance: the Ask button, the `?` and Cmd-J shortcuts, the AI rows in Cmd-K, the Explain and Summarise controls. `check` validates the shape when the file is present.
+
+The key is readable by anyone who can load the page, so `ai.json` ships only on a site with access control in front of it (SSO, a private Pages site, an Access policy). The client's own limits are the only other guard: a cap of 30 requests a minute per browser, and a back-off that honours `retry-after` on a 429. The popover names the model and the host, so a reader knows where a question goes. The registers leave the browser on every call; NOTES.md and `qa-log.json` go only when the reader turns that on.
+
+The file is written at deploy, never committed: `.gitignore` lists `ai.json`, a CI check refuses a tracked one, and the deploy step writes it from a secret (a GitHub Actions secret into the Pages artifact, an environment variable into `dist/` before `wrangler deploy`). Rotate the key by redeploying; revoke the feature by deploying `{"disabled": true}`. For local work, set `localStorage["design-doc-ai"]` to the same JSON in the browser console; the page reads it before it fetches anything, and no file exists to leak.
 
 ## Writing the revision note
 
