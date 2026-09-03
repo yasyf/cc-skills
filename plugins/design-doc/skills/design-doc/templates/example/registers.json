@@ -10,19 +10,41 @@
       "assumption": "A1",
       "text": "Everything here sits downstream of assumption A1: at-least-once delivery is acceptable to every consumer. A1 still needs an explicit yes from the platform team. If it falls, this becomes an exactly-once design with a very different ledger."
     },
-    "diagramCaption": "The highlighted box is the durable piece: a job is safe once the log accepts it. The dispatcher and the workers are stateless and rebuilt from the log.",
     "timingsCaption": "Log scale. The budget is one enqueue round-trip under 25ms; everything else happens off the request path.",
     "footerNote": "numbers marked (E) are estimates pending the spikes",
     "canonical": "This file is the canonical structured register. Verbatim question rounds live in qa-log.json; prose that does not fit structure lives in NOTES.md; design-doc.html renders from this file."
   },
   "tldr": [
-    "One durable append-only job log per tenant, backed by [SQLite](https://sqlite.org): an enqueue acks after a group-committed WAL flush, ~2ms p50 (E).",
-    "Workers lease jobs over long-poll HTTP; a lease that expires re-queues its job, so delivery is at-least-once and producers set idempotency keys (A1).",
-    "Completed jobs archive to object storage after 24h; the log stays small, and restore is replay from the archive plus the live tail."
+    {
+      "md": "One durable append-only job log per tenant, backed by [SQLite](https://sqlite.org): an enqueue acks after a group-committed WAL flush, ~2ms p50 (E).",
+      "p": "Each tenant gets one durable job log; a job is safe about two milliseconds after it is sent."
+    },
+    {
+      "md": "Workers lease jobs over long-poll HTTP; a lease that expires re-queues its job, so delivery is at-least-once and producers set idempotency keys (A1).",
+      "p": "Workers borrow jobs on a timer; a quiet worker's job is handed out again, so a job may run twice."
+    },
+    {
+      "md": "Completed jobs archive to object storage after 24h; the log stays small, and restore is replay from the archive plus the live tail.",
+      "p": "Finished jobs move to cheap storage after a day, so the log stays small and can be rebuilt from it."
+    }
   ],
+  "diagram": {
+    "kind": "mermaid",
+    "source": "flowchart LR\n  producers[\"Producers<br/>HTTP, idempotency keys\"]\n  c-log[\"Job log<br/>SQLite, one file per tenant\"]\n  c-lease[\"Dispatcher<br/>leases and long-poll\"]\n  workers[\"Workers<br/>renew leases\"]\n  archive[(\"Object storage\")]\n  producers e-enqueue@-- enqueue --> c-log\n  c-log e-lease@-- lease --> c-lease\n  c-lease e-deliver@-- deliver --> workers\n  c-log e-archive@-. archive after 24h .-> archive",
+    "caption": "The job log is the durable piece: a job is safe once the log accepts it. The dispatcher and the workers are stateless and rebuilt from the log."
+  },
   "constraints": [
-    { "t": "A job, once acked, survives the loss of any single machine.", "a": "A2" },
-    { "t": "Consumers tolerate duplicate delivery; they do not tolerate loss.", "a": "A1", "star": true }
+    {
+      "t": "A job, once acked, survives the loss of any single machine.",
+      "p": "Once we say a job is saved, losing any one machine cannot lose it.",
+      "a": "A2"
+    },
+    {
+      "t": "Consumers tolerate duplicate delivery; they do not tolerate loss.",
+      "p": "Running a job twice is acceptable; losing one is not.",
+      "a": "A1",
+      "star": true
+    }
   ],
   "terms": [
     { "k": "job", "v": "One unit of work: an opaque payload plus a queue name and an idempotency key chosen by the producer." },
@@ -46,6 +68,7 @@
   "arch": [
     {
       "id": "c-log",
+      "node": "c-log",
       "t": "The job log",
       "dq": ["DQ1"],
       "a": ["A2"],
@@ -56,6 +79,7 @@
     },
     {
       "id": "c-lease",
+      "node": "c-lease",
       "t": "Leases and delivery",
       "dq": ["DQ2", "DQ4"],
       "a": ["A1", "A3"],
@@ -71,9 +95,9 @@
       "name": "Enqueue (acked)",
       "budget": 25,
       "segs": [
-        ["validate", 0.1, 0.3, "parse, auth, idempotency-key lookup"],
-        ["commit", 1.5, 4, "insert job + position; group-committed WAL flush"],
-        ["ack", 0.2, 0.5, "HTTP response on the same connection"]
+        ["validate", 0.1, 0.3, "parse, auth, idempotency-key lookup", "producers"],
+        ["commit", 1.5, 4, "insert job + position; group-committed WAL flush", "c-log"],
+        ["ack", 0.2, 0.5, "HTTP response on the same connection", "e-enqueue"]
       ],
       "note": "The flush dominates; everything else is bookkeeping. Numbers pending spike V1."
     },
@@ -81,9 +105,9 @@
       "id": "disp",
       "name": "Dispatch to a waiting worker",
       "segs": [
-        ["wake", 0.2, 1, "dispatcher pops the queue head"],
-        ["lease", 0.5, 2, "lease row commit; the deadline starts"],
-        ["deliver", 2, 8, "payload over the worker's open long-poll"]
+        ["wake", 0.2, 1, "dispatcher pops the queue head", "c-lease"],
+        ["lease", 0.5, 2, "lease row commit; the deadline starts", "e-lease"],
+        ["deliver", 2, 8, "payload over the worker's open long-poll", "e-deliver"]
       ],
       "note": "A worker is usually already parked on the queue, so dispatch is a push, not a poll. Numbers pending spike V1."
     }
@@ -94,14 +118,6 @@
     { "ms": 2, "label": "enqueue ack (E)", "c": "var(--accent)" },
     { "ms": 8, "label": "dispatch p95 (E)", "c": "var(--accent)" },
     { "ms": 1000, "label": "lease deadline check", "c": "var(--dead)" }
-  ],
-  "pipe": [
-    { "t": "enqueue", "s": "HTTP + idempotency key", "chip": "~1ms", "card": "c-log" },
-    { "t": "commit", "s": "job + position, one txn", "chip": "~2ms", "card": "c-log" },
-    { "t": "lease", "s": "long-poll dispatch", "chip": "~5ms", "card": "c-lease" }
-  ],
-  "pipeBg": [
-    { "t": "archive to object storage", "chip": "24h" }
   ],
   "numbers": [
     {
@@ -123,12 +139,20 @@
     ["log file size", "~10 GB per tenant (E)", "archival lag grows", "enqueue rejected past a cap until archival catches up"]
   ],
   "ceilingsNote": "Every ceiling degrades to rejection or lag; none of them corrupts the log.",
+  "themes": {
+    "durability": "Durability and storage",
+    "delivery": "Delivery and workers",
+    "limits": "Limits and scope"
+  },
   "decisions": [
     {
       "id": "DQ1",
       "t": "One SQLite file per tenant",
       "s": "resolved",
+      "key": true,
+      "theme": "durability",
       "r": "One file per tenant, one table per queue. Tenants never share a WAL, so one noisy tenant cannot slow another's flush.",
+      "p": "Each tenant's queues live in their own database file, so one busy tenant cannot slow down another.",
       "x": "Rejected one shared file (cross-tenant flush coupling) and one file per queue (thousands of open files for little isolation gain).",
       "round": 1
     },
@@ -136,7 +160,10 @@
       "id": "DQ2",
       "t": "Delivery semantics",
       "s": "resolved",
+      "key": true,
+      "theme": "delivery",
       "r": "At-least-once with producer idempotency keys, per A1. The archive keeps completed keys for 7 days so consumers can detect duplicates.",
+      "p": "A job may be delivered more than once, and senders tag each job so receivers can spot a repeat within seven days.",
       "x": "Exactly-once was rejected: it moves a dedup ledger into the hot path, and the consumers already tolerate duplicates.",
       "round": 1
     },
@@ -145,14 +172,20 @@
       "t": "Worker transport: long-poll HTTP",
       "s": "superseded",
       "by": "DQ4",
+      "key": false,
+      "theme": "delivery",
       "r": "Long-poll HTTP chosen for dispatch; every worker runtime already speaks it.",
+      "p": "Workers wait on an open web request for their next job. Replaced by Worker transport: long-poll HTTP, renewals TBD.",
       "round": 2
     },
     {
       "id": "DQ4",
       "t": "Worker transport: long-poll HTTP, renewals TBD",
       "s": "open",
+      "key": true,
+      "theme": "delivery",
       "r": "Long-poll dispatch stays. Whether lease renewals ride the same connection or a separate endpoint is still open, pending spike V3.",
+      "p": "Workers keep waiting on an open web request; whether they extend a job's timer on that same request is still undecided.",
       "round": 2
     }
   ],
@@ -173,35 +206,74 @@
       "t": "At-least-once delivery is acceptable",
       "s": "validate",
       "star": true,
+      "key": true,
+      "theme": "delivery",
       "b": "Every current consumer either dedups on an idempotency key or is naturally idempotent. Needs an explicit yes from the platform team before v1.",
+      "p": "Every receiver can cope with seeing the same job twice. The platform team still has to confirm this.",
       "n": "If this falls, the design gains an exactly-once ledger in the hot path and most of the simplicity argument goes with it."
     },
     {
       "id": "A2",
       "t": "Single-machine durability is enough",
       "s": "working",
-      "b": "A job must survive the loss of any one machine. Multi-region durability is explicitly out of scope for v1."
+      "key": true,
+      "theme": "durability",
+      "b": "A job must survive the loss of any one machine. Multi-region durability is explicitly out of scope for v1.",
+      "p": "Surviving the loss of one machine is enough; surviving the loss of a whole region is not a goal yet."
     },
     {
       "id": "A3",
       "t": "Workers are cooperative",
       "s": "working",
-      "b": "Workers renew leases honestly and crash rather than hang in ways that hold a lease forever. The lease deadline is the backstop, not the norm."
+      "key": false,
+      "theme": "delivery",
+      "b": "Workers renew leases honestly and crash rather than hang in ways that hold a lease forever. The lease deadline is the backstop, not the norm.",
+      "p": "Workers keep their timers honest and crash cleanly rather than hanging on to a job forever."
     },
     {
       "id": "A4",
       "t": "Payloads stay under 64 KB",
       "s": "working",
+      "key": true,
+      "theme": "limits",
       "b": "Larger payloads go to object storage with a pointer in the job.",
+      "p": "Jobs stay small, under 64 KB; anything bigger is stored elsewhere and the job carries a pointer to it.",
       "n": "Revised once, 2026-07-21: the original 8 KB bound fell at the first real consumer survey."
     }
   ],
   "open": [
-    { "g": "product", "id": "Q1", "t": "Confirm A1 with every consuming team, in writing." },
-    { "g": "product", "id": "Q2", "t": "Does anyone need scheduled (delayed) jobs in v1?" },
-    { "g": "spikes", "id": "V1", "t": "Measure enqueue and dispatch latency under 1k concurrent producers." },
-    { "g": "spikes", "id": "V2", "t": "Measure restore-from-archive replay rate on a 10 GB log." },
-    { "g": "spikes", "id": "V3", "t": "Lease renewals on the dispatch connection vs. a separate endpoint." }
+    {
+      "g": "product",
+      "id": "Q1",
+      "t": "Confirm A1 with every consuming team, in writing.",
+      "p": "Get every team that receives jobs to confirm, in writing, that a repeat is fine.",
+      "blocks": ["DQ2"]
+    },
+    {
+      "g": "product",
+      "id": "Q2",
+      "t": "Does anyone need scheduled (delayed) jobs in v1?",
+      "p": "Does anyone need jobs that run later rather than as soon as possible?"
+    },
+    {
+      "g": "spikes",
+      "id": "V1",
+      "t": "Measure enqueue and dispatch latency under 1k concurrent producers.",
+      "p": "Measure how fast jobs are accepted and handed out when a thousand senders are active at once."
+    },
+    {
+      "g": "spikes",
+      "id": "V2",
+      "t": "Measure restore-from-archive replay rate on a 10 GB log.",
+      "p": "Measure how quickly a ten-gigabyte log can be rebuilt from the archive."
+    },
+    {
+      "g": "spikes",
+      "id": "V3",
+      "t": "Lease renewals on the dispatch connection vs. a separate endpoint.",
+      "p": "Decide whether workers extend a job's timer on the connection they already hold or on a separate one.",
+      "blocks": ["DQ4"]
+    }
   ],
   "openGroups": {
     "product": "Platform team",

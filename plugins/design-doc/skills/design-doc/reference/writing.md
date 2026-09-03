@@ -27,7 +27,7 @@ The reasoning, its dependency, and the feedback wanted, all checkable.
 
 ## Structure rules
 
-- The doc opens on the executive summary (its own section below), then a tl;dr: a handful of bullets a reader can absorb in thirty seconds, with links for every technology named. A mission-statement paragraph makes the reader work for what the bullets hand over.
+- The doc opens on the executive summary deck (its own section below), which fills the screen until the reader scrolls past it. Then comes a tl;dr of three to five plain twins, each at most 20 words (`check` warns above that), with links for every technology named. A mission-statement paragraph makes the reader work for what the bullets hand over.
 - Definitions before use. Ground rules and a terms glossary come before the architecture; internal shorthand gets a plain-language name at first appearance ("stale-ok read" first, the internal enum name in parentheses if at all). A term the reader has to reverse-engineer is a small tax charged on every later sentence.
 - Plain section names that say what the section is: "Request paths", "What stays the same", "Where we want pushback". A clever name costs a beat of decoding on every visit to the nav.
 - Deep mechanics go in numbered footnotes (`[^n]`). The body stays readable at a walking pace; the footnotes reward the reader who wants the commit-ordering argument.
@@ -39,22 +39,53 @@ The reasoning, its dependency, and the feedback wanted, all checkable.
 
 The registers are for agents and `check`; the doc is for a colleague deciding whether to object. Register IDs are citations, never subjects: "the redo log (DQ1) absorbs the write" reads, "DQ1 puts the write in the redo log" is a ledger. The renderer leads every entry with its title and demotes the ID to a small chip, and a trailing citation like "(A2)" becomes a hoverable reference that shows the entry's title. Prose that cites in parentheses gets linked for free; prose that leads with an ID reads as bookkeeping on every surface, the PDF included. Statuses in prose use the rendered words (decided, replaced, still open; assumed, needs someone to confirm), never the JSON values. The same rule runs backwards into the interview: a question is a plain question, and the ID it settles rides in the block's `decides` field ([method.md](method.md)).
 
+## Plain twins
+
+Every rendered entry carries two wordings: the precise one in `t`, `r`, `b`, or `md`, and a plain twin in `p`. The doc shows the twin by default and the exact wording one toggle away, so the twin is what most readers read. The twin says what the decision means to someone who will not read the decision: one or two short sentences, at most 30 words, everyday words, every fact and number kept, the decision named by its title. No register IDs, no file paths, no finding numbers, no "we decided". A twin restates nothing the title already says; it answers "so what".
+
+<examples>
+<example label="precise wording">
+"Dispatch moves from a 500 ms table scan per worker to a long-poll that returns a lease (DQ4); the scan is retired once every worker is on the new client."
+</example>
+<example label="twin">
+"Workers stop polling. Each one waits on an open request and gets a job handed to it, so dispatch cost no longer grows with the fleet."
+What it means, in words a reader outside the team can check.
+</example>
+<example label="not a twin">
+"DQ4 replaces polling with long-poll leases per the round-3 decision."
+An ID, a round number, and nothing about what changes for anyone.
+</example>
+</examples>
+
+`check` lints length and the banned tokens, and under `--strict` warns when an entry's wording changed since the last snapshot but its twin did not. `design.py plainify` drafts twins for entries that lack one; a draft is a draft, and the lane reads every one against its original before the snapshot.
+
 ## The executive summary
 
-`summary.html` is the page for the reader who reads nothing else, and the one place to spend the strongest sentences: it's their first screen, and for most reviewers the only one. The diagnosis in NOTES.md settles its shape:
+`summary.html` is the page for the reader who reads nothing else, and the one place to spend the strongest sentences: it fills their first screen, and for most reviewers it is the only one. It is a deck of full-screen panels, each `<section class="xs-panel" data-kind="…">`, four by default and five at most, `thesis` first. Each panel carries one idea and one figure. The word budgets, which `check` enforces, count everything but the figures and code:
 
-- A change to a system that exists today compares what we do now against what this proposes, topic by topic, then says what stays the same.
-- A net-new design, with nothing behind it but requirements, lists each requirement and, under it, the answer and its trade-off.
+| Panel | Carries | Budget |
+|---|---|---|
+| `thesis` | a headline, one sentence on what this is and why now, and the hero figure | 40 words |
+| `compare` | for a change, before and after topic by topic; for a net-new design, each requirement and its answer | 120 words |
+| `numbers` | two to four stats, each measured or tagged estimated with the spike that will measure it | 60 words |
+| `cost` | two short columns, "What this costs" and "Where to push back" | 90 words |
+| the deck | | 350 words |
 
-Either way the order is fixed:
+The diagnosis in NOTES.md settles the `compare` panel. A change to a system that exists today puts today's behaviour and the proposal's side by side as parallel sentences ("Every worker scans the table every 500 ms" / "A worker holds a long-poll and receives a lease"). A net-new design, with nothing behind it but requirements, lists each requirement and, beside it, the answer and its trade-off.
 
-1. A lede that says in two sentences what this is and why now.
-2. Headline numbers in tiles, each measured or marked estimated with the spike that will measure it.
-3. One figure: the before/after diagram pair, or the shape of the new system.
-4. The comparison or requirement rows, one topic each, with before and after as parallel sentences ("Every worker scans the table every 500 ms" / "A worker holds a long-poll and receives a lease") and the optional why line one clause long.
-5. Two or three short headed sections that answer "Why this shape", "What we are not changing", and "Where we want pushback".
+When the design is one idea with one figure, write a single `poster` panel instead of a deck: one composed figure of at most 180 words, with prose only as box labels, sublabels, and legend cells. State the choice in NOTES.md.
 
-IDs trail as citations and never lead, and nothing appears that the registers don't back ([method.md](method.md)). The fragment kit, with an example, is in [schema.md](schema.md); `design.py summary-text <dir>` prints the fragment as text, which is what the voice gate reads.
+Four rules hold on every panel. Every sentence has a verb. No sentence starts with a register ID; IDs trail as citations, and the finding and pass vocabulary ("finding 53", "pass-5") never appears. Every number is measured or tagged estimated. Nothing appears that the registers don't back ([method.md](method.md)). The panel kinds and the kit classes in [schema.md](schema.md) are the whole vocabulary; beyond them, any HTML the panel needs, drawn for this design, never decorative. `design.py summary-text <dir>` prints the deck as Markdown with one `##` section per panel, which is what the gates read.
+
+## Figures
+
+Every panel has a figure, and every figure is drawn for this design: a diagram of these parts, a chart of these numbers, never a stock shape and never a screenshot of text. Pick the form by what the figure shows:
+
+- Mermaid (`<pre class="mermaid">`) for flows and request paths.
+- The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure.
+- Inline SVG when neither fits.
+
+Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries an `aria-label` or a `<figcaption>`; `check` warns when one has neither.
 
 ## The two passes
 
@@ -63,16 +94,22 @@ Write the content in two separate passes, in order; combining them produces pros
 1. **Structure and de-jargoning.** Everything in its right section, every term defined before use, every claim traceable to a register entry.
 2. **Tone.** Reread every sentence asking "is this explaining, or performing?" Kill superlatives, hedge-stacks, and any sentence whose subject is the work rather than the system.
 
-Run `slop-cop check <file>` after each pass and triage: fix the genuine tells, keep deliberate constructions (range dashes in "1–2ms", glossary dashes) with a clear conscience.
+Run `slop-cop check <file> --llm-effort=off` after each pass and triage: fix the genuine tells, keep deliberate constructions (range dashes in "1–2ms", glossary dashes) with a clear conscience.
 
 ## Voice
 
-The voice gate is a required pass, run for the doc's prose and for revision notes alike:
+Three gates run over the summary, in this order, and each is a required pass. The doc's other prose and the revision notes take the second and third.
+
+**Gate 1, the edit passes.** Load the `writing-docs` skill by path, `~/.claude/plugins/cache/skills/writing-docs/0.7.0/skills/writing-docs/SKILL.md`, and run its edit passes over the deck in its order: completeness, then accuracy, then structure, then clarity, then brevity. The accuracy pass checks every number and citation against the registers.
+
+**Gate 2, the voice gate**, run for the doc's prose and for revision notes alike:
 
 1. Run `wlm profile list`, always (the `wlm` CLI ships with the write-like-me plugin; profiles live in `~/.wlm/profiles/`). When it lists no profile, apply the fallback contract below.
 2. With a profile, read the style card before drafting: `wlm -p <profile> stylecard show` (`-p` is a global option and comes before the subcommand). Write against it — the doc should sound like the person proposing, not like a model.
-3. During the tone pass, export the doc's Markdown and run `wlm -p <profile> adversary critique <draft.md>` for a discriminator-panel critique against the author's real writing, then the same over `design.py summary-text <dir> > summary.md`; the summary is where most readers stop, so it gets its own critique. Fold in each flag or reject it with a reason; a critique nobody reads is a skipped gate.
+3. During the tone pass, run `design.py summary-text <dir> > summary.md` and `wlm -p <profile> adversary critique summary.md` for a discriminator-panel critique against the author's real writing; the summary is where most readers stop, so it goes first. Then export the doc's Markdown and run the same critique over it. Fold in each flag or reject it with a reason; a critique nobody reads is a skipped gate.
 4. Revision notes ride the same rail: write the drafted `--note` headline and `--item` bullets to a scratch file, critique that file, and only then stamp the snapshot.
+
+**Gate 3, slop-cop.** `slop-cop check summary.html --lang=html --llm-effort=off` over the fragment, then `slop-cop check summary.md --lang=markdown --llm-effort=off` over the `summary-text` output; the HTML pass masks tags, so the Markdown pass is the one that reads the sentences. Triage every finding in NOTES.md, fixed or rejected with a reason.
 
 When there is no profile, this fallback contract applies:
 
@@ -84,6 +121,6 @@ When there is no profile, this fallback contract applies:
 
 ## The interface is part of the voice
 
-- Theme follows the system (`prefers-color-scheme`), with both palettes tuned. A theme toggle is a control asking for attention the content should have.
-- Controls are minimal and literal: the Markdown export is a download glyph labelled "Markdown", the PDF button says "PDF" and opens the generated file. `window.print()` produces a cut-off page-print and is not a PDF.
-- The PDF is a separate linear rendering (`design.py pdf`) of the same JSON — a real document with the diagram and page-break discipline, because that's the artifact people forward.
+- Theme follows the system (`prefers-color-scheme`), with both palettes designed: dark is its own surface, not the light palette with swapped tokens. A theme toggle is a control asking for attention the content should have.
+- Controls are minimal and literal: the Markdown export is a download glyph labelled "Markdown", the "Full wording" toggle swaps twins for exact wording, and the PDF button says "PDF" and prints the page through the template's print stylesheet.
+- The PDF is the same page, printed: the deck flattened to headed sections in panel order, every entry open, the diagrams rendered, page breaks kept out of cards and tables. `design.py pdf` prints it through the same stylesheet, so the file people forward matches what the button gives them.
