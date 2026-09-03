@@ -73,7 +73,7 @@ The libraries load from jsdelivr at exact versions, pinned in one `LIBS` block a
 
 Place one with `<div data-component="ttl-exposure"></div>` inside a deck panel's `<figure>`, or name it from `arch[].component`, `numbers[].component`, or `meta.ceilingsComponent`. Every kind flattens to Markdown for the export and prints its first state, so a component adds interaction and never carries the only copy of a fact. `dd.whatif`'s `expr` is arithmetic over the input ids (`+ - * / ( ) min max`) read by a small parser, never `eval`.
 
-An illustration the kit cannot express is a Preact component under `components/`, compiled into `components.js` by `design.py build`, handed the registers as a prop, and carrying the `<figure>` that print and Markdown fall back to. `check` refuses `fetch`, a remote `import(`, `eval`, and `innerHTML` in that source.
+An illustration the kit cannot express is a Preact component under `components/`, compiled into `components.js` by `design.py build`, handed the registers as a prop, and carrying the `<figure>` that print and Markdown fall back to. That host sits beside a deck panel's `<figure>`, never inside it, since a figure holding a figure loses its label. `check` refuses `fetch`, a remote `import(`, `eval`, and `innerHTML` in that source.
 
 ### `summary.html`
 
