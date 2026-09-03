@@ -828,7 +828,8 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
 .ai-foot textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:7px 10px;font:14px/1.4 var(--sans);max-height:120px}
 .ai-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:7px 14px;font-size:13.5px}
 .ai-note{padding:0 14px 10px;font-size:11.5px;color:var(--ink2);display:flex;flex-direction:column;gap:5px}
-.ai-note-tog{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ai-diag{font-family:var(--mono);font-size:10.5px;white-space:pre-wrap;color:var(--ink2)}
+.ai-sources{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-6px 0 12px;font-size:12.5px;color:var(--ink2)}
 .ai-hl{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
 .ai-mark{background:var(--accent-soft);border-radius:3px;box-shadow:0 0 0 2px var(--accent-soft)}
 .ai-ask{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1.7;margin-left:6px}
@@ -2928,7 +2929,8 @@ function summaryMd(){
  walk(host);
  return L.join("\n").replace(/\n{3,}/g,"\n\n").trim();
 }
-function buildDocMd(){
+function buildDocMd(opt){
+ const flags=opt||{};
  const L=[];const push=s=>L.push(s);
  push(`# ${META.title||"Untitled design"} — ${META.subtitle||"Design proposal"}\n`);
  if(META.draft)push(`> **Draft** — ${META.draftNote||DRAFT_NOTE}\n`);
@@ -2945,7 +2947,7 @@ function buildDocMd(){
  push("\n## How it works\n");
  if(DIAGRAM&&DIAGRAM.kind==="mermaid"&&DIAGRAM.source)push("```mermaid\n"+DIAGRAM.source.trim()+"\n```\n"+(DIAGRAM_CAPTION?"\n_"+DIAGRAM_CAPTION+"_\n":""));
  ARCH.forEach(c=>{
-  push(`### ${c.t}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`);
+  push(`### ${c.t}${flags.handles?` (${c.id} · “${handleOf(c.id)}”)`:""}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`);
   if(c.component)push(componentMd(c.component)+"\n");
  });
  push("## Where the time goes\n");
@@ -2980,7 +2982,7 @@ function buildDocMd(){
  DQ.forEach(d=>{
   const st=(SLBL[d.s]||["","",d.s])[1]||d.s;
   push(`### ${d.t}\n`);
-  push(`_Decision ${d.id} · ${st}${d.by?" by "+mdRef(d.by):""}${d.theme?" · "+themeLabel(d.theme):""}_\n`);
+  push(`_Decision ${d.id} · ${st}${flags.handles?` · “${handleOf(d.id)}”${d.round!=null?" · round "+d.round:""}`:""}${d.by?" by "+mdRef(d.by):""}${d.theme?" · "+themeLabel(d.theme):""}_\n`);
   const landed=linksOf(d);
   if(landed.length)push(`_Landed in: ${landed.map(linkMd).join(", ")}_\n`);
   if(d.p)push(d.p+"\n");
@@ -2989,7 +2991,7 @@ function buildDocMd(){
  push("## Assumptions\n");
  ASSUM.forEach(a=>{
   push(`### ${a.t}${a.star?" ★":""}\n`);
-  push(`_Assumption ${a.id} · ${(ALBL[a.s]||["",a.s])[1]}${a.theme?" · "+themeLabel(a.theme):""}_\n`);
+  push(`_Assumption ${a.id} · ${(ALBL[a.s]||["",a.s])[1]}${flags.handles?` · “${handleOf(a.id)}”`:""}${a.theme?" · "+themeLabel(a.theme):""}_\n`);
   if(a.p)push(a.p+"\n");
   push(`${a.b}${a.n?"\n\n_"+a.n+"_":""}\n`);
  });
@@ -2998,7 +3000,7 @@ function buildDocMd(){
   push(`### ${label}\n`);
   OPEN.filter(o=>o.g===g).forEach(o=>{
    const links=linksOf(o);
-   push(`- ${o.t} _(${o.id}${TRACKED&&itemClosed(o)?", closed":""}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_${links.length?" — "+links.map(linkMd).join(", "):""}`);
+   push(`- ${o.t} _(${o.id}${flags.handles?" · “"+handleOf(o.id)+"”":""}${TRACKED&&itemClosed(o)?", closed":""}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_${links.length?" — "+links.map(linkMd).join(", "):""}${flags.twins&&o.p?"\n  _Plain: "+o.p+"_":""}`);
   });
   push("");
  });
@@ -3905,7 +3907,12 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
 });
 const AI_CFG_KEY="design-doc-ai";
 const GH_CFG_KEY="design-doc-github";
-const AI_ROUNDS=6;
+const AI_ROUNDS=10;
+const AI_RESULT_CAP=12000;
+const AI_TOOL_BUDGET=40000;
+const AI_CTX_BUDGET=100000;
+const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
+const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
 const AI_RPM=30;
 const AI_RATE_KEY="design-doc-ai-rate";
 const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
@@ -3925,7 +3932,9 @@ const AI_SUGGEST={
 const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
 const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
 
-let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let AI=null,aiCtxText=null,aiCtxStats=null,aiReady=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let aiUsage=null,aiTally=null,aiFollow=null;
+let AI_NOTES="",AI_QA=null,AI_SEARCH_DOCS=null;
 let aiChat=[];
 const aiMarked=[];
 
@@ -4080,6 +4089,7 @@ function aiRetryAfter(header){
  return isNaN(at)?null:Math.max(0,at-Date.now());
 }
 async function aiPost(body,signal){
+ let stripped=false;
  for(let attempt=0;;attempt++){
   await aiSlot(signal);
   const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
@@ -4090,15 +4100,36 @@ async function aiPost(body,signal){
   }
   if(!r.ok){
    const detail=await r.text().catch(()=>"");
+   const blamed=Object.keys(AI_VENDOR_KEYS).filter(k=>k in body&&detail.includes(k));
+   if(r.status<500&&blamed.length&&!stripped){
+    stripped=true;
+    blamed.forEach(k=>{delete body[k];AI[AI_VENDOR_KEYS[k]]=true});
+    continue;
+   }
    throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
   }
   return r;
  }
 }
-async function aiStream(body,signal,onText){
- const r=await aiPost(Object.assign({},body,{stream:true}),signal);
+const aiClean=s=>AI.noFormat?s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2060\ufeff]/g,""):s;
+function aiNoteUsage(u){
+ const pd=u.prompt_tokens_details||u.prompt_token_details||{};
+ const cd=u.completion_tokens_details||u.completion_token_details||{};
+ aiUsage={prompt:u.prompt_tokens||0,cached:pd.cached_tokens||0,completion:u.completion_tokens||0,reasoning:cd.reasoning_tokens||0};
+ aiPrompt=aiUsage.prompt;
+ const key="ai:"+SLUG+":tally";
+ const t={calls:0,prompt:0,cached:0,completion:0,reasoning:0};
+ try{Object.assign(t,JSON.parse(sessionStorage.getItem(key)||"{}"))}catch(e){}
+ t.calls++;
+ Object.keys(aiUsage).forEach(k=>{t[k]+=aiUsage[k]});
+ try{sessionStorage.setItem(key,JSON.stringify(t))}catch(e){}
+ aiTally=t;
+ aiDiagRender();
+}
+async function aiStream(body,signal,onText,onReason){
+ const r=await aiPost(Object.assign({},body,{stream:true,stream_options:{include_usage:true}}),signal);
  const reader=r.body.getReader(),dec=new TextDecoder();
- let buf="",text="";
+ let buf="",text="",reasoning="",finish=null;
  const calls=[];
  for(;;){
   const {value,done}=await reader.read();
@@ -4112,10 +4143,12 @@ async function aiStream(body,signal,onText){
    if(!data||data==="[DONE]")continue;
    let j;try{j=JSON.parse(data)}catch(e){continue}
    const choice=(j.choices||[])[0];
-   if(j.usage)aiPrompt=j.usage.prompt_tokens||aiPrompt;
+   if(j.usage)aiNoteUsage(j.usage);
    if(!choice)continue;
+   if(choice.finish_reason)finish=choice.finish_reason;
    const d=choice.delta||{};
-   if(d.content){text+=d.content;if(onText)onText(text)}
+   if(d.reasoning){reasoning+=d.reasoning;if(onReason)onReason(reasoning)}
+   if(d.content){text+=d.content;if(onText)onText(aiClean(text))}
    (d.tool_calls||[]).forEach(tc=>{
     const ix=tc.index||0;
     const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
@@ -4125,26 +4158,42 @@ async function aiStream(body,signal,onText){
    });
   }
  }
- return {text,calls:calls.filter(Boolean)};
+ return {text:aiClean(text),calls:calls.filter(Boolean),reasoning,finish};
 }
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
+function aiBody(kind,schema){
+ const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?8000:3000,temperature:schema?0:0.2};
+ if(!AI.noFormat)body.reasoning_format="parsed";
+ if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
+ return body;
+}
+const AI_NO_TOOLS="Tools are off for this task: write the text only.";
+const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
 async function aiOnce(messages,opt){
  const o=opt||{};
- const body={model:AI.model,messages,reasoning_effort:o.effort||"low"};
+ await aiReady;
+ const body=aiBody(o.kind,o.schema);
+ body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
+ body.tool_choice="none";
  if(o.onText&&!o.schema)return (await aiStream(body,o.signal,o.onText)).text;
  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
  const r=await aiPost(body,o.signal);
  const j=await r.json();
- aiPrompt=(j.usage&&j.usage.prompt_tokens)||aiPrompt;
+ if(j.usage)aiNoteUsage(j.usage);
  const content=((j.choices||[])[0]||{}).message||{};
- const text=content.content||"";
+ const text=aiClean(content.content||"");
  return o.schema?JSON.parse(text||"{}"):text;
 }
-const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+function aiCacheGet(feature,input){
+ try{const hit=localStorage.getItem(aiStoreKey(feature,input));return hit?JSON.parse(hit):null}catch(e){return null}
+}
 async function aiCached(feature,input,make){
- const key="ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
- try{const hit=localStorage.getItem(key);if(hit)return JSON.parse(hit)}catch(e){}
+ const hit=aiCacheGet(feature,input);
+ if(hit)return hit;
  const out=await make();
- try{localStorage.setItem(key,JSON.stringify(out))}catch(e){}
+ try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
  return out;
 }
 
@@ -4181,11 +4230,29 @@ function aiReverseIndex(){
 let AI_CITED=null;
 const aiCitedBy=id=>{if(!AI_CITED)AI_CITED=aiReverseIndex();return [...new Set(AI_CITED[id]||[])]};
 
+const aiLinkText=l=>typeof l==="string"?l:(l.label?l.label+" ":"")+l.url+(l.closes?" (closes)":"");
+function aiCites(e){
+ if(!ID_RE)return [];
+ const text=[e.t,e.p,e.r,e.x,e.n,e.note,e.sub].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join(" ");
+ const ids=new Set();
+ text.replace(ID_RE,(all,pre,id)=>{if(id!==e.id)ids.add(id);return all});
+ return [...ids];
+}
+function aiEntryExtra(e){
+ const L=[];
+ const cites=aiCites(e);
+ if(cites.length)L.push("Cites: "+cites.join(", "));
+ const by=aiCitedBy(e.id);
+ if(by.length)L.push("Cited by: "+by.join(", "));
+ if((e.links||[]).length)L.push("Links: "+e.links.map(aiLinkText).join("; "));
+ return L;
+}
 function aiEntryText(e,kind){
  if(!e)return "";
  const L=[];
  if(kind==="decision"){
-  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:""));
+  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:"")+(e.round!=null?" · round "+e.round:""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   L.push("What we decided: "+plain(e.r));
@@ -4196,23 +4263,27 @@ function aiEntryText(e,kind){
   if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="assumption"){
   L.push(e.id+" · assumption · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.star?" · load-bearing":""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   L.push("Basis: "+plain(e.b));
   if(e.n)L.push("How this changed: "+plain(e.n));
  }else if(kind==="open"){
   L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||"")+(TRACKED?" · "+(itemClosed(e)?"closed":"open"):""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   if((e.blocks||[]).length)L.push("Blocks: "+e.blocks.join(", "));
   if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="arch"){
   L.push(e.id+" · component");
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   (e.b||[]).forEach(p=>L.push(plain(p)));
   L.push("Rests on: "+[...(e.a||[]),...(e.dq||[])].join(", "));
  }else if(kind==="numbers"){
   L.push(e.id+" · numbers table");
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t)+(e.sub?" ("+plain(e.sub)+")":""));
   L.push("| "+(e.cols||[]).join(" | ")+" |");
   (e.rows||[]).forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
@@ -4222,7 +4293,7 @@ function aiEntryText(e,kind){
   (e.segs||[]).forEach(g=>L.push(g[0]+": p50 "+fmt(g[1])+", p95 "+fmt(g[2])+(g[3]?" — "+plain(g[3]):"")));
   if(e.note)L.push(plain(e.note));
  }
- return L.join("\n");
+ return L.concat(aiEntryExtra(e)).join("\n");
 }
 function aiSectionText(id){
  const L=[];
@@ -4308,28 +4379,54 @@ function aiIndex(){
  }
  return L.join("\n");
 }
-function aiContext(){
- if(aiCtxText)return aiCtxText;
- const L=[aiIndex()];
- const deck=summaryMd();
- if(deck)L.push("\n## The summary deck, as the reader sees it first\n"+deck);
- const comps=aiComponentsMd();
- if(comps)L.push("\n## The interactive figures on the page, flattened\n"+comps);
- L.push("\n## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n"));
- aiCtxText=L.join("\n");
- return aiCtxText;
+const aiTokens=s=>Math.round(String(s||"").length/3.6);
+const aiEntryStatus=id=>{const e=aiEntry(id);return aiStatus(e)||OGROUPS[e.g]||KIND_LABEL[aiKind(id)]||""};
+function aiSectionList(){
+ return "## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n");
 }
+async function aiPrepare(){
+ await Promise.allSettled(JOBS);
+ AI_NOTES=await loadFile("NOTES.md").catch(()=>"");
+ const qa=await QA_READY;
+ AI_QA=qa.rounds.length?qa.raw:null;
+ const parts={
+  doc:"# Document\n\n"+buildDocMd({handles:true,twins:true}),
+  handles:"## Handles\n"+Object.keys(REF).filter(id=>aiEntry(id)).map(id=>id+" — "+handleOf(id)+" — "+aiEntryStatus(id)).join("\n"),
+  notes:AI_NOTES?"## Working notes\n\n"+AI_NOTES:"",
+  log:AI_QA?"## Question log\n\n"+(await buildQaMd()):"",
+  terms:"",
+  sections:aiSectionList()
+ };
+ const gl=aiCacheGet("glossary",String(META.rev||0));
+ const defined=((gl&&gl.terms)||[]).filter(t=>t&&t.k&&t.v);
+ if(defined.length)parts.terms="## Terms the assistant defined\n"+defined.map(t=>"- "+t.k+": "+t.v).join("\n");
+ const sizes={doc:aiTokens(parts.doc),handles:aiTokens(parts.handles),notes:aiTokens(parts.notes),log:aiTokens(parts.log),terms:aiTokens(parts.terms)};
+ const dropped=[];
+ const total=()=>aiTokens(Object.values(parts).filter(Boolean).join("\n\n"));
+ if(total()>AI_CTX_BUDGET){parts.notes="";dropped.push("notes")}
+ if(total()>AI_CTX_BUDGET){parts.log="";dropped.push("log")}
+ if(total()>AI_CTX_BUDGET){parts.doc="# Document, as an index\n\n"+aiIndex();dropped.push("document")}
+ aiCtxText=Object.values(parts).filter(Boolean).join("\n\n");
+ aiCtxStats=Object.assign(sizes,{total:aiTokens(aiCtxText),dropped});
+ AI_SEARCH_DOCS=null;
+ aiDiagRender();
+}
+function aiContext(){return aiCtxText}
 function aiSystem(){
  return [
   "You are the reading companion built into this design document. You answer questions about it for someone reading it cold, and you can move the page for them.",
   "",
   "How to answer:",
-  "- Answer only from the document below and from what the tools return. When it does not cover something, say so in one sentence and stop; never fill the gap from general knowledge.",
-  "- Every answer that rests on one entry leaves the page on that entry: call scroll_to on it and then highlight on it before you write the reply. Reading an entry does not move the page, so read_entry never stands in for that pair. They are tools: call them, never describe a call or print its arguments.",
+  "- Answer only from the document below and from what the tools return. When neither covers something, say so in one sentence and stop; never fill the gap from general knowledge.",
   "- Cite an entry by putting its id alone in round brackets after the words it belongs to: \"Tokens expire within a day (DQ26).\" The page renders that id as the entry's handle, so never write the handle or the title beside it, never use square brackets, and never invent an id.",
-  "- Read before you answer when an index line is not enough: read_entry, read_section, list_entries.",
-  "- Answer in two to four full sentences, or a short list when the answer is a set. A fragment, a label, or a pasted index line is not an answer.",
+  "- Answer in two to five full sentences, or a short list when the answer is a set. A walk-through, an explanation of a mechanism, or a comparison may run longer. A fragment, a label, or a line pasted from the document is not an answer.",
+  "- Leave the page on the single entry the answer rests on: call scroll_to and highlight on that entry, both in one turn, and write the reply in the turn after their results come back. Never scroll to a second entry; when several matter, cite them and call set_reading_path with them in order instead. Reading never moves the page.",
+  "- A tool is used only through a tool call. Never write a call out as JSON, name it in the text, or describe what you would call. Calls in one turn run together, so batch them, and keep to a few turns before you answer.",
+  "- The whole document, the working notes and the question log are already below, so answer from them; read_entry, read_section, read_notes and read_links return the same text and are for when a line below is not enough. When you do not know which id holds something, call search_document.",
+  "- The one exception is why. A question about why something was decided, what was weighed, or what was turned down always calls read_round first, with the round number the decision names, and answers from what the round says the author chose and why: the options offered, the one taken, and the author's own words.",
+  "- Only the tools listed exist; never call any other.",
   "- The reader has the document in front of them, so do not restate it at length.",
+  "- The last user message opens with a bracketed line naming where the reader is on the page, what they have selected and today's date. It is context, not part of the question.",
   "",
   "The document:",
   aiContext()
@@ -4350,8 +4447,97 @@ const AI_TOOLS=[
  aiTool("list_entries","List one register compactly, id and handle per line.",{register:aiStr("decisions, assumptions, open, arch or numbers."),status:aiOpt("Status to keep, or null for all."),theme:aiOpt("Theme key or open group key to keep, or null for all.")}),
  aiTool("read_links","The record of what has shipped: the pull requests, issues and commits linked from open items and decisions, each with its GitHub state (open, draft, merged, closed). Call this for any question about what shipped, landed, merged, closed, or is still in flight; a decision's status says what was decided, not what was built.",{id:aiOpt("A register id to read the links of, or null for every entry that has links.")}),
  aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
- aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
+ aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}}),
+ aiTool("search_document","Find where the registers, the working notes or the question log say something, when you do not know the id. Returns up to eight snippets, each led by its id.",{query:aiStr("Words or a phrase to look for."),scope:aiStr("all, registers, notes or log.")}),
+ aiTool("read_round","Read one round of the question log in full: what was asked, the options, what the author answered, and the decisions that round produced.",{round:aiStr("The round number, such as 7.")}),
+ aiTool("read_notes","Read one section of the working notes by its heading, or list the headings.",{section:aiOpt("Words from a heading of the working notes, or null to list the headings.")}),
+ aiTool("read_links","List the pull requests and issues linked from register entries, with their state.",{id:aiOpt("A register id, or null for every entry that carries a link.")})
 ];
+const AI_TOOLS_READ=AI_TOOLS.filter(t=>/^(read_|list_|search_)/.test(t.function.name));
+const AI_STOP=new Set("a an the of to in on for and or is are was were be by with as at it its this that these those from we you what which how why does do did not no".split(" "));
+const aiWords=s=>plain(s).toLowerCase().split(/[^a-z0-9]+/).filter(w=>w.length>1&&!AI_STOP.has(w));
+function aiNoteBlocks(){
+ const blocks=[];
+ let cur=null;
+ AI_NOTES.split("\n").forEach(line=>{
+  const m=/^(#{1,4})\s+(.*)$/.exec(line);
+  if(m){cur={heading:m[2].trim(),level:m[1].length,lines:[]};blocks.push(cur);return}
+  if(!cur){cur={heading:"",level:0,lines:[]};blocks.push(cur)}
+  cur.lines.push(line);
+ });
+ return blocks.map(b=>({heading:b.heading,level:b.level,text:b.lines.join("\n").trim()}));
+}
+function aiSearchDocs(){
+ if(AI_SEARCH_DOCS)return AI_SEARCH_DOCS;
+ const D=[];
+ const add=(id,scope,text)=>{const t=String(text||"").trim();if(t)D.push({id,scope,text:t,low:t.toLowerCase(),words:new Set(aiWords(t))})};
+ Object.keys(REF).forEach(id=>{const e=aiEntry(id);if(e)add(id,"registers",aiEntryText(e,aiKind(id)))});
+ FOOTNOTES.forEach(f=>add("fn"+f.n,"registers","Footnote "+f.n+": "+plain(f.b)));
+ TERMS.forEach(t=>add("term "+t.k,"registers",t.k+": "+plain(t.v)));
+ aiNoteBlocks().forEach(b=>add("notes: "+(b.heading||"preamble"),"notes",(b.heading?b.heading+"\n":"")+b.text));
+ ((AI_QA&&AI_QA.rounds)||[]).forEach(r=>(r.questions||[]).forEach((q,i)=>add("round "+r.round+" question "+(i+1),"log",[q.header,q.question,(q.options||[]).map(o=>o.label+" — "+(o.description||"")).join("\n"),"Answer: "+q.answer,q.note].filter(Boolean).join("\n"))));
+ return AI_SEARCH_DOCS=D;
+}
+function aiSearch(query,scope,sources){
+ const q=String(query||"").trim();
+ if(!q)return "no query given";
+ const words=aiWords(q),phrase=q.toLowerCase();
+ const want=scope&&scope!=="all"?String(scope):null;
+ const hits=aiSearchDocs().filter(d=>!want||d.scope===want).map(d=>{
+  let score=words.filter(w=>d.words.has(w)).length/(words.length||1);
+  if(d.low.includes(phrase))score+=1;
+  return {d,score};
+ }).filter(h=>h.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
+ if(!hits.length)return "nothing in the "+(want||"document")+" matches "+q;
+ return hits.map(({d})=>{
+  if(REF[d.id])sources.add(d.id);
+  const firsts=[d.low.indexOf(phrase)].concat(words.map(w=>d.low.indexOf(w))).filter(i=>i>=0);
+  const at=firsts.length?Math.min(...firsts):0;
+  const start=Math.max(0,at-80);
+  const snip=d.text.slice(start,start+260).replace(/\s+/g," ").trim();
+  return d.id+" — "+(start?"…":"")+snip+(start+260<d.text.length?"…":"");
+ }).join("\n");
+}
+function aiRoundText(n){
+ const r=((AI_QA&&AI_QA.rounds)||[]).find(x=>Number(x.round)===n);
+ const rec=ROUNDS[n];
+ if(!r&&!rec)return "no round "+n+" in the question log";
+ const L=[];
+ if(r){
+  L.push("Round "+r.round+" — "+plain(r.topic||"")+(r.date?" ("+r.date+")":""));
+  if(r.note)L.push(plain(r.note));
+  (r.questions||[]).forEach((q,i)=>{
+   L.push("\nQuestion "+(i+1)+", "+plain(q.header||"")+": "+plain(q.question));
+   (q.options||[]).forEach(o=>L.push("- "+(o.label===q.answer?"[chosen] ":"")+o.label+(o.description?" — "+plain(o.description):"")));
+   if(!(q.options||[]).some(o=>o.label===q.answer))L.push("Answered in the author's own words: "+plain(q.answer));
+   if(q.note)L.push("Note: "+plain(q.note));
+  });
+ }
+ if(rec)L.push("\nThe record on the decision: we asked: "+plain(rec.q)+" / you said: "+plain(rec.a)+(rec.n?" / "+plain(rec.n):""));
+ const dq=DQ.filter(d=>Number(d.round)===n);
+ if(dq.length)L.push("\nDecided in this round: "+dq.map(d=>d.id+" — "+plain(d.t)).join("; "));
+ return L.join("\n");
+}
+function aiNotesText(section){
+ if(!AI_NOTES)return "this document has no working notes";
+ const blocks=aiNoteBlocks().filter(b=>b.heading);
+ const want=String(section||"").trim().toLowerCase();
+ if(!want)return blocks.map(b=>"#".repeat(b.level)+" "+b.heading).join("\n");
+ const hit=blocks.filter(b=>b.heading.toLowerCase().includes(want));
+ if(!hit.length)return "no heading in the working notes matches "+section+"; the headings are:\n"+blocks.map(b=>b.heading).join("\n");
+ return hit.map(b=>"## "+b.heading+"\n"+b.text).join("\n\n");
+}
+function aiLinksText(id){
+ const want=id?String(id):null;
+ if(want&&!REF[want])return "no entry with id "+want;
+ const rows=[];
+ [...DQ.map(d=>[d,"decision"]),...OPEN.map(o=>[o,"open"])].forEach(([e,kind])=>{
+  if(want&&e.id!==want)return;
+  (e.links||[]).forEach(l=>rows.push(e.id+" · "+KIND_LABEL[kind].toLowerCase()+(e.s?" · "+aiStatus(e):"")+" — "+aiLinkText(l)+" · unknown (no GitHub token)"));
+ });
+ if(rows.length)return rows.join("\n");
+ return want?want+" carries no link":"no entry carries a link yet";
+}
 function aiMark(id){
  const node=aiEl(id);
  if(!node)return false;
@@ -4417,7 +4603,7 @@ function aiRenderPath(title,items){
  host.hidden=false;
  return "pinned "+rows.length+" entries in the sidebar";
 }
-async function aiExec(name,args){
+async function aiExec(name,args,sources){
  if(name==="scroll_to"){
   const id=String(args.id||"");
   if(REF[id]){revealEntry(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
@@ -4469,7 +4655,24 @@ async function aiExec(name,args){
  if(name==="read_links")return aiLinksText(args.id?String(args.id):"");
  if(name==="select_text")return aiSelectText(args.text);
  if(name==="set_reading_path")return aiRenderPath(args.title,Array.isArray(args.items)?args.items:[]);
- return "no tool called "+name;
+ if(name==="search_document")return aiSearch(args.query,args.scope,sources);
+ if(name==="read_round")return aiRoundText(parseInt(args.round,10));
+ if(name==="read_notes")return aiNotesText(args.section);
+ if(name==="read_links")return aiLinksText(args.id);
+ return "no tool called "+name+"; the tools are "+AI_TOOLS.map(t=>t.function.name).join(", ");
+}
+function aiNoteSources(name,args,sources){
+ if(args.id&&REF[args.id])sources.add(String(args.id));
+ if(name==="set_reading_path")(Array.isArray(args.items)?args.items:[]).forEach(x=>{if(x&&REF[x.id])sources.add(String(x.id))});
+}
+function aiTail(o){
+ const bits=["Reader is at: §"+(AI_SECTION_NAMES[aiSec]||aiSec)];
+ const sel=String(o.about||getSelection()).trim().slice(0,200);
+ if(sel)bits.push("selection: “"+sel+"”");
+ const path=$("#aiPath");
+ if(!path.hidden)bits.push("pinned path: "+path.querySelector(".ai-path-head b").textContent);
+ bits.push("today: "+new Date().toISOString().slice(0,10));
+ return "["+bits.join("; ")+"]";
 }
 function aiLinkLine(l){
  const key=linkKey(l),rec=key?GH[key]:null;
@@ -4492,33 +4695,54 @@ function aiLinksText(id){
 }
 async function aiRun(question,opt){
  const o=opt||{};
+ await aiReady;
  const msgs=[{role:"system",content:aiSystem()}];
- aiChat.forEach(m=>msgs.push({role:m.role,content:m.content}));
- msgs.push({role:"user",content:question});
- let answer="";
+ aiChat.filter(m=>m.role==="user"||m.role==="assistant").forEach(m=>msgs.push({role:m.role,content:m.content}));
+ msgs.push({role:"user",content:aiTail(o)+"\n\n"+question});
+ const sources=new Set(),used=[];
+ let answer="",finish=null,spent=0;
  for(let round=0;round<AI_ROUNDS;round++){
   const prefix=answer?answer+"\n\n":"";
-  const res=await aiStream({model:AI.model,messages:msgs,tools:AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
+  const body=aiBody("chat");
+  body.messages=msgs;
+  if(o.tools)body.tools=o.tools;
+  if(o.effort)body.reasoning_effort=o.effort;
+  if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
+  const res=await aiStream(body,o.signal,t=>{if(o.onText)o.onText(prefix+t)},o.onReason);
+  finish=res.finish;
   if(res.text)answer=prefix+res.text;
   if(!res.calls.length)break;
-  msgs.push({role:"assistant",content:res.text||"",tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  msgs.push({role:"assistant",content:(res.reasoning?res.reasoning.slice(0,2000)+"\n\n":"")+(res.text||""),tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
   const results=await Promise.all(res.calls.map(async c=>{
+   const name=c.name.replace(/^functions\./,"");
    let args={};
    try{args=JSON.parse(c.args||"{}")}catch(e){return {c,out:"the arguments did not parse as JSON"}}
-   if(o.onTool)o.onTool(c.name,args);
-   try{return {c,out:await aiExec(c.name,args)}}
+   used.push({name,args});
+   if(o.onTool)o.onTool(name,args);
+   aiNoteSources(name,args,sources);
+   try{return {c,out:await aiExec(name,args,sources)}}
    catch(e){return {c,out:"that tool failed: "+e.message}}
   }));
-  results.forEach(r=>msgs.push({role:"tool",tool_call_id:r.c.id,content:String(r.out).slice(0,6000)}));
+  results.forEach(r=>{
+   const room=Math.min(AI_RESULT_CAP,AI_TOOL_BUDGET-spent);
+   let out=String(r.out);
+   if(room<=0)out="the tool budget for this turn is spent; answer from what you already have";
+   else if(out.length>room)out=out.slice(0,room)+"\n[truncated]";
+   spent+=out.length;
+   msgs.push({role:"tool",tool_call_id:r.c.id,content:out});
+  });
  }
- return {answer};
+ return {answer,finish,sources:[...sources],used};
 }
 
 function aiChatKey(){return "ai:"+SLUG+":chat"}
 function aiSaveChat(){try{sessionStorage.setItem(aiChatKey(),JSON.stringify(aiChat.slice(-12)))}catch(e){}}
 function aiLoadChat(){
  try{const raw=sessionStorage.getItem(aiChatKey());if(raw)aiChat=JSON.parse(raw)||[]}catch(e){aiChat=[]}
- aiChat.forEach(m=>aiBubble(m.role,m.content));
+ aiChat.forEach(m=>{aiBubble(m.role,m.content);if((m.sources||[]).length)aiSourcesRow(m.sources)});
+}
+function aiSourcesRow(ids){
+ return aiNode(el("div","ai-sources","Sources: "+ids.map(refChip).join(" ")));
 }
 function aiScrollLog(){const log=$("#aiLog");log.scrollTop=log.scrollHeight}
 function aiBubble(role,text){
@@ -4543,7 +4767,7 @@ function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.s
 function aiSuggest(){
  const host=$("#aiSug");host.innerHTML="";
  const meta=(META.ai&&META.ai.suggest)||{};
- const list=[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
+ const list=aiFollow&&aiChat.length?aiFollow:[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
  list.forEach(q=>{
   const b=el("button","ai-chip",esc(q));
   b.onclick=()=>aiAsk(q);
@@ -4568,8 +4792,9 @@ async function aiAsk(question,opt){
  let pending=0,latest="";
  const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
  try{
-  const {answer}=await aiRun(q,{
-   effort:o.effort||"low",
+  const {answer,finish,sources}=await aiRun(q,{
+   effort:o.effort,
+   about:o.about,
    signal:ctrl.signal,
    onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
    onTool:(name,args)=>{
@@ -4580,8 +4805,11 @@ async function aiAsk(question,opt){
   if(pending)cancelAnimationFrame(pending);
   latest=answer||"No answer came back.";
   paint();
-  aiChat.push({role:"user",content:q},{role:"assistant",content:answer});
+  if(finish==="length")bubble.append(el("p","ai-note-in","(cut short — ask me to continue)"));
+  if(sources.length)aiSourcesRow(sources);
+  aiChat.push({role:"user",content:q},{role:"assistant",content:answer,sources});
   aiSaveChat();
+  aiFollowups(q,answer).then(items=>{aiFollow=items;aiSuggest()},()=>{});
  }catch(e){
   if(pending)cancelAnimationFrame(pending);
   if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
@@ -4593,32 +4821,29 @@ async function aiAsk(question,opt){
 
 async function aiExplain(entry,kind,roleIx,onText){
  const [label,role]=AI_ROLES[roleIx];
- const cites=aiCitedBy(entry.id).slice(0,6).map(id=>{const e=aiEntry(id);return e?id+" "+aiHandle(e):id}).join("; ");
  const input=entry.id+"|"+label+"|"+(META.rev||0);
  return aiCached("explain",input,()=>aiOnce([
-  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Cite another entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No preamble."},
-  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nWhat else names it: "+(cites||"nothing")+"\n\nThe document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nExplain what this means for that reader in three sentences."}
- ],{effort:"low",onText}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nExplain what this entry means for that reader in three sentences, from the document only. No preamble."}
+ ],{kind:"explain",onText}));
 }
 async function aiWhyHere(entry,kind){
- const citers=aiCitedBy(entry.id);
- const detail=citers.slice(0,10).map(id=>{const e=aiEntry(id);return e?id+" — "+plain(e.t):id}).join("\n")||"nothing else in the document names it";
  return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nEverything that names it:\n"+detail}
- ],{effort:"low"}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nSay why this entry exists, in exactly two sentences: what it holds up, and what falls without it."}
+ ],{kind:"why"}));
 }
 async function aiReviewComment(entry,kind,concern){
  return aiOnce([
-  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern}
- ],{effort:"low"});
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern+"\n\nDraft a review comment on this entry: three labelled paragraphs, Context, Concern, Ask. Plain sentences, no hedging, under 120 words."}
+ ],{kind:"review"});
 }
 async function aiSummariseSection(id){
  return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. Return markdown bullets and nothing else."},
-  {role:"user",content:"Section: "+AI_SECTION_NAMES[id]+"\n\n"+aiSectionText(id)}
- ],{effort:"low"}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Summarise the "+AI_SECTION_NAMES[id]+" section ("+id+") as four or five bullets, each one line, from that section only. Return markdown bullets and nothing else."}
+ ],{kind:"section"}));
 }
 async function aiChangedSince(){
  if(!DIFF)return "";
@@ -4629,40 +4854,59 @@ async function aiChangedSince(){
  }).join("\n");
  const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
  return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
-  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No bullet list."},
-  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail}
- ],{effort:"medium"}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail+"\n\nTell a returning reader what changed since the revision they last read, in one paragraph of plain prose. No bullet list."}
+ ],{kind:"changed"}));
 }
 const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiFaq(){
  return aiCached("faq",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and cites an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:aiContext()}
- ],{effort:"low",schema:AI_FAQ_SCHEMA}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Write the six questions a reader of this document will ask that the document never states outright, each with the answer the document gives. Each answer is at most 40 words and cites the entry it rests on."}
+ ],{kind:"faq",schema:AI_FAQ_SCHEMA}));
 }
 const AI_GLOSS_SCHEMA={name:"glossary",schema:{type:"object",properties:{terms:{type:"array",items:{type:"object",properties:{k:{type:"string"},v:{type:"string"}},required:["k","v"],additionalProperties:false}}},required:["terms"],additionalProperties:false}};
 async function aiGlossary(){
  const known=TERMS.map(t=>t.k).join(", ");
  return aiCached("glossary",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You find the terms a design document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."},
-  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\n"+aiContext()}
- ],{effort:"low",schema:AI_GLOSS_SCHEMA}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\nFind the terms this document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."}
+ ],{kind:"glossary",schema:AI_GLOSS_SCHEMA}));
 }
 const AI_PATH_SCHEMA={name:"reading_path",schema:{type:"object",properties:{title:{type:"string"},items:{type:"array",items:{type:"object",properties:{id:{type:"string"},why:{type:"string"}},required:["id","why"],additionalProperties:false}}},required:["title","items"],additionalProperties:false}};
 async function aiReadAs(roleIx){
  const [label,role]=AI_ROLES[roleIx];
  return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You pick the six entries of a design document that one reader must read, in order, and give one line each on why. Use ids exactly as they appear."},
-  {role:"user",content:"Reader: "+role+" (title the path for them).\n\n"+aiContext()}
- ],{effort:"medium",schema:AI_PATH_SCHEMA}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Reader: "+role+".\n\nPick the six entries of this document that reader must read, in order, with one line each on why, and title the path for them. Use ids exactly as they appear."}
+ ],{kind:"readas",schema:AI_PATH_SCHEMA}));
 }
 const AI_QUIZ_SCHEMA={name:"quiz",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},options:{type:"array",items:{type:"string"}},answer:{type:"integer"},id:{type:"string"}},required:["q","options","answer","id"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiQuiz(){
  return aiCached("quiz",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You write five multiple-choice questions that check whether a reviewer understood a design document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."},
-  {role:"user",content:aiContext()}
- ],{effort:"medium",schema:AI_QUIZ_SCHEMA}));
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Write five multiple-choice questions that check whether a reviewer understood this document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."}
+ ],{kind:"quiz",schema:AI_QUIZ_SCHEMA}));
 }
+const AI_FOLLOW_SCHEMA={name:"followups",schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"],additionalProperties:false}};
+async function aiFollowups(question,answer){
+ const out=await aiCached("followups",question+"|"+answer,()=>aiOnce([
+  {role:"system",content:"You propose the three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked."},
+  {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
+ ],{kind:"followups",schema:AI_FOLLOW_SCHEMA}));
+ return (out.items||[]).filter(s=>typeof s==="string"&&s.trim()).slice(0,3);
+}
+function aiDiagText(){
+ const L=[];
+ if(aiCtxStats){
+  const s=aiCtxStats;
+  L.push("context "+s.total+" tokens · document "+s.doc+" · handles "+s.handles+" · notes "+s.notes+" · log "+s.log+(s.terms?" · terms "+s.terms:"")+(s.dropped.length?" · dropped: "+s.dropped.join(", "):""));
+ }
+ if(aiUsage)L.push("last call · prompt "+aiUsage.prompt+" ("+aiUsage.cached+" cached) · completion "+aiUsage.completion+" · reasoning "+aiUsage.reasoning);
+ if(aiTally)L.push("this tab · "+aiTally.calls+" calls · prompt "+aiTally.prompt+" ("+aiTally.cached+" cached) · completion "+aiTally.completion);
+ return L.join("\n");
+}
+function aiDiagRender(){$("#aiDiag").textContent=aiDiagText()}
 
 function aiBusyNode(label){
  const box=el("div","ai-msg ai-assistant");
@@ -5091,9 +5335,11 @@ function aiWirePopover(){
  };
  $("#aiClear").onclick=()=>{
   aiChat=[];
+  aiFollow=null;
   $("#aiLog").innerHTML="";
   clearAiMarks();
   aiSaveChat();
+  aiSuggest();
  };
  const box=$("#aiIn");
  box.addEventListener("input",()=>aiGrow(box));
@@ -5114,17 +5360,10 @@ function aiWirePopover(){
   b.onclick=run;
   strip.append(b);
  });
- const notes=el("label","ai-note-tog",'<input type="checkbox"> Include the working notes and question log');
- notes.querySelector("input").onchange=async e=>{
-  if(!e.target.checked){aiCtxText=null;return}
-  const extra=[];
-  for(const f of ["NOTES.md","qa-log.json"]){
-   try{extra.push("\n## "+f+"\n"+(await loadFile(f)).slice(0,20000))}catch(err){}
-  }
-  aiCtxText=aiContext()+extra.join("\n");
- };
- $("#aiNote").append(notes);
  $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
+ const diag=el("div","ai-diag");
+ diag.id="aiDiag";
+ $("#aiNote").append(diag);
 }
 function aiBoot(){
  try{const t=localStorage.getItem("design-doc-theme");if(t)HTML.dataset.theme=t}catch(e){}
@@ -5139,6 +5378,7 @@ function aiBoot(){
   HTML.dataset.ai="1";
   aiWireTools();
   aiWirePopover();
+  aiReady=aiPrepare();
   aiWireRows();
   aiWireSelection();
   aiWireDiffPanel();
@@ -5190,7 +5430,7 @@ function aiComponentsMd(){
  add(META.ceilingsComponent);
  return L.join("\n\n");
 }
-window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
+window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),ready:()=>aiReady,stats:()=>aiCtxStats,usage:()=>aiUsage,tally:()=>aiTally,diag:aiDiagText,promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
 aiBoot();
 })();
 </script>
