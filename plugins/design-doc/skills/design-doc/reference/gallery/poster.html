@@ -1,0 +1,107 @@
+<section class="xs-panel" data-kind="poster">
+  <h1>Two worlds, one platform</h1>
+  <p class="xs-sub">How Forge objects are organized, today and next</p>
+  <figure class="xs-poster" aria-label="Sand today and Iris next as two colour-coded object hierarchies; Team and its users and Postgres are shared between them; Package, Function and Branch are not built yet.">
+    <div class="xs-lane" data-tone="before">
+      <header><h2>Sand, today</h2><span class="xs-eyebrow">FDEs and customers</span></header>
+      <div class="xs-tier"><div class="xs-node" id="sand-cluster" data-icon="server"><b>Cluster</b><small>infra only, routed by team</small></div></div>
+      <div class="xs-tier"><div class="xs-node" id="sand-team" data-icon="users"><b>Team</b></div></div>
+      <div class="xs-tier"><div class="xs-node" id="sand-actor" data-icon="bot"><b>Actor</b><small>code: workflow</small></div></div>
+      <div class="xs-tier">
+        <div class="xs-node" id="sand-workflow" data-icon="workflow"><b>Workflow</b><small>code: function</small></div>
+        <div class="xs-node" id="sand-endpoint" data-icon="plug"><b>Endpoint</b></div>
+        <div class="xs-node" id="sand-app" data-icon="app-window"><b>App</b></div>
+      </div>
+      <div class="xs-tier">
+        <div class="xs-node" id="sand-invocation" data-icon="zap"><b>Invocation</b></div>
+        <div class="xs-node" id="sand-run" data-icon="circle-play"><b>Run</b></div>
+      </div>
+      <div class="xs-tier" style="margin-top:44px">
+        <div class="xs-card"><h3>Runtime</h3><p>Sand DSL → JSON definition<br>TypeScript executor</p></div>
+        <div class="xs-card"><h3>Data</h3><p>SandDB → SandSQL</p></div>
+      </div>
+    </div>
+    <div class="xs-divider"></div>
+    <div class="xs-lane" data-tone="after">
+      <header><h2>Iris, next</h2><span class="xs-eyebrow">platform team, FDE beta</span></header>
+      <div class="xs-tier"><div class="xs-node" id="iris-cluster" data-icon="server"><b>Cluster</b></div></div>
+      <div class="xs-tier"><div class="xs-node" id="iris-team" data-icon="users"><b>Team</b></div></div>
+      <div class="xs-tier">
+        <div class="xs-stack">
+          <div class="xs-node" id="iris-user" data-icon="user"><b>User</b><small>personal project by default</small></div>
+          <div class="xs-node" id="iris-session" data-icon="message-square"><b>Session</b></div>
+        </div>
+        <div class="xs-stack">
+          <div class="xs-node" id="iris-project" data-icon="folder"><b>Project</b></div>
+          <div class="xs-node" id="iris-env" data-icon="layers"><b>Env</b></div>
+        </div>
+      </div>
+      <div class="xs-tier">
+        <div class="xs-group" id="iris-package" data-caption="Package">
+          <div class="xs-node" id="iris-function" data-icon="square-function" data-dashed><b>Function</b></div>
+          <div class="xs-node" id="iris-workflow" data-icon="workflow"><b>Workflow</b><span class="xs-badge">durable</span></div>
+          <div class="xs-node" id="iris-component" data-icon="atom"><b>Component</b></div>
+          <div class="xs-node" id="iris-action" data-icon="mouse-pointer-click"><b>Action</b></div>
+        </div>
+        <div class="xs-group" id="iris-entrypoint" data-caption="Entrypoint">
+          <div class="xs-node" id="iris-app" data-icon="app-window"><b>App</b></div>
+          <div class="xs-node" id="iris-endpoint" data-icon="plug"><b>Endpoint</b></div>
+          <div class="xs-node" id="iris-schedule" data-icon="clock"><b>Schedule</b></div>
+        </div>
+        <div class="xs-group" id="iris-data" data-caption="Data">
+          <div class="xs-node" id="iris-table" data-icon="table"><b>Table</b><small>SandSQL</small></div>
+        </div>
+        <div class="xs-stack">
+          <div class="xs-node" id="iris-source" data-icon="git-fork"><b>Source</b></div>
+          <div class="xs-node" id="iris-repo" data-icon="folder-git-2"><b>Repo</b></div>
+          <div class="xs-node" id="iris-branch" data-icon="git-branch" data-dashed><b>Branch</b></div>
+        </div>
+      </div>
+      <div class="xs-tier" style="margin-top:44px">
+        <div class="xs-card"><h3>Runtime</h3><p>Sand bundle<br>Go VM, durable runs</p></div>
+        <div class="xs-card"><h3>Data</h3><p>SandSQL<br>only</p></div>
+      </div>
+    </div>
+    <ul class="xs-connect">
+      <li data-from="sand-cluster" data-to="sand-team"></li>
+      <li data-from="sand-team" data-to="sand-actor"></li>
+      <li data-from="sand-actor" data-to="sand-workflow"></li>
+      <li data-from="sand-actor" data-to="sand-endpoint"></li>
+      <li data-from="sand-actor" data-to="sand-app"></li>
+      <li data-from="sand-workflow" data-to="sand-invocation"></li>
+      <li data-from="sand-invocation" data-to="sand-run" data-route="curve" data-dashed data-arrow data-label="creates"></li>
+      <li data-from="sand-team" data-to="iris-team" data-route="h" data-tone="ink" data-label="shared:&#10;teams, users,&#10;Postgres" data-label-dy="22"></li>
+      <li data-from="iris-cluster" data-to="iris-team"></li>
+      <li data-from="iris-team" data-to="iris-user"></li>
+      <li data-from="iris-team" data-to="iris-project"></li>
+      <li data-from="iris-user" data-to="iris-session"></li>
+      <li data-from="iris-project" data-to="iris-env"></li>
+      <li data-from="iris-env" data-to="iris-package"></li>
+      <li data-from="iris-env" data-to="iris-entrypoint"></li>
+      <li data-from="iris-env" data-to="iris-data"></li>
+      <li data-from="iris-source" data-to="iris-repo"></li>
+      <li data-from="iris-repo" data-to="iris-branch"></li>
+      <li data-from="iris-branch" data-to="iris-env" data-route="gutter" data-dashed data-arrow data-label="deploys to"></li>
+    </ul>
+    <div class="xs-legend">
+      <div class="xs-cell">
+        <h3>Name it right</h3>
+        <div class="xs-map"><span>workflow</span><span>→</span><span>Actor</span><span>function</span><span>→</span><span>Workflow</span></div>
+        <p class="xs-note">New code uses the poster names.</p>
+      </div>
+      <div class="xs-cell">
+        <h3>Same in both</h3>
+        <p>Cluster, Team, User,<br>Postgres schema</p>
+      </div>
+      <div class="xs-cell">
+        <h3>Not built yet</h3>
+        <div class="xs-row-icons">
+          <div class="xs-node mini" data-dashed><b>Package</b></div>
+          <div class="xs-node mini" data-icon="square-function" data-dashed><b>Function</b></div>
+          <div class="xs-node mini" data-icon="git-branch" data-dashed><b>Branch</b></div>
+        </div>
+        <p class="xs-note">The target model.</p>
+      </div>
+    </div>
+  </figure>
+</section>

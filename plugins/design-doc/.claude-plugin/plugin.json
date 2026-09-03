@@ -1,7 +1,7 @@
 {
   "name": "design-doc",
-  "description": "Run an assumptions-first architecture design \u2014 registers with stable IDs (A#/DQ#/V#), decision-by-question rounds with a recorded escape hatch, a mid-process adversarial review, a library of quantitative components (request paths, load ceilings, number tables) whose estimates are gated on named spikes \u2014 and ship the result as an interactive HTML doc that opens on a hand-written executive summary, plus a generated PDF, written as a humble proposal that explains and asks for feedback rather than sells.",
-  "version": "0.11.0",
+  "description": "Run an assumptions-first architecture design \u2014 registers with stable IDs (A#/DQ#/V#), decision-by-question rounds with a recorded escape hatch, a mid-process adversarial review, a library of quantitative components (request paths, load ceilings, number tables) whose estimates are gated on named spikes \u2014 and ship the result as an interactive HTML doc that opens on a full-screen summary deck of 3\u20135 panels (or one poster), draws its system diagram with Mermaid, and twins every register entry with a plain-English version the reader sees first, plus a PDF printed from the same page, written as a humble proposal that explains and asks for feedback rather than sells.",
+  "version": "0.12.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"

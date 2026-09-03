@@ -14,9 +14,11 @@ One command drives the mechanical parts:
 TOOL="python3 ${CLAUDE_PLUGIN_ROOT}/skills/design-doc/scripts/design.py"
 $TOOL scaffold --title <name>   # fresh ./<slug>/ directory for this one design doc
 $TOOL scaffold --example        # ./tinyq/, a small filled-in worked example
-$TOOL check <dir>               # lint the registers, summary.html and sysd.svg; errors exit non-zero, --strict makes the publish-blocking warnings errors too
-$TOOL summary-text <dir>        # summary.html as plain text, the voice gate's input
-$TOOL pdf <dir>                 # render the registers into <dir>/design-doc.pdf
+$TOOL check <dir>               # lint the registers, the plain twins, the diagram source and the summary deck; errors exit non-zero, --strict makes the publish-blocking warnings errors too
+$TOOL summary-text <dir>        # the deck as Markdown, one ## section per panel; the gates' input
+$TOOL plainify <dir> [--only DQ3,A2] [--dry-run] # draft a plain twin for every entry that has none; review every line it writes
+$TOOL render-check <dir>        # render every Mermaid block in headless Chrome and fail on a parse error
+$TOOL pdf <dir>                 # print the doc through the template's print stylesheet into <dir>/design-doc.pdf
 $TOOL snapshot <dir> --note "…" --item "…" # stamp a revision the changes-since view diffs against; note is the reader-facing headline, each --item one change
 ```
 
@@ -29,7 +31,10 @@ Read [reference/method.md](reference/method.md) before Phase 1, [reference/writi
 - **Supersession** — a changed decision gets a new entry and the old one gets `s: "superseded"` plus a `by` pointer, which the doc renders as "Replaced by" and the successor's title. History stays legible because nothing is edited in place.
 - **Star** (`★`) — marks the load-bearing assumption, the one whose failure invalidates the document.
 - **Spike** — a named, time-boxed experiment (`V#`) that turns an estimate marked `(E)` into a measured number.
-- **Executive summary** — `summary.html`, a hand-written HTML fragment beside `registers.json`, for the reader who reads nothing else. Never parsed as data; `check` lints its shape and its citations.
+- **Executive summary** — `summary.html`, a hand-written HTML fragment beside `registers.json`, for the reader who reads nothing else: a deck of full-screen panels by default, one poster when the design is one idea and one figure. Never parsed as data; `check` lints its shape, its word budgets, and its citations.
+- **Plain twin** — the `p` field beside an entry's precise wording, one or two short sentences saying what the entry means to someone who will not read it. The doc shows twins by default and the exact wording one toggle away.
+- **Key** and **theme** — `key: true` marks the 3–8 decisions and assumptions the doc opens on as cards; `theme` files every entry under one of the design's 3–5 themes, named in Phase 0 and defined in the `themes` map.
+- **Diagram** — the system diagram's Mermaid source, in the `diagram` register key; the doc renders it, the reader pans and hovers it, and the request paths step through it. A hand-drawn `sysd.svg` stays valid as `diagram.kind: "svg"`.
 - Statuses: decisions are `resolved | superseded | open`, which the doc renders as Decided, Replaced, and Still open; assumptions are `working | validate`, rendered Assumed and Needs someone to confirm (someone outside the document has to say yes). Prose uses the rendered words, JSON the values.
 
 ## Scope
@@ -43,9 +48,9 @@ This skill stops at the design. Its outputs are a decision record and a document
 
 ## Phase 0 — Scaffold and diagnosis
 
-Run `$TOOL scaffold --title <name>`. Every design doc lives in its own fresh directory — scaffold creates `./<slug>/` (pass an explicit path as a positional argument to put it elsewhere) and refuses a non-empty target, so one design never mixes into another's files or an existing project's. Interview the user about the current system before proposing anything: what exists, what hurts, and why. Write the diagnosis into NOTES.md as root causes, not symptoms ("durability latency is S3 latency", not "writes are slow"). Put it back to the user as one `design-doc.claims` block — a claim per root cause, its evidence in `because`, and what it costs to be wrong in `ifFalse` — and fold every correction back in the user's own words. Close the diagnosis with the one classification the executive summary hangs on: a **change** to a system that exists today, or **net-new**, with nothing behind it but requirements. Designing against a wrong diagnosis wastes every later phase.
+Run `$TOOL scaffold --title <name>`. Every design doc lives in its own fresh directory — scaffold creates `./<slug>/` (pass an explicit path as a positional argument to put it elsewhere) and refuses a non-empty target, so one design never mixes into another's files or an existing project's. Interview the user about the current system before proposing anything: what exists, what hurts, and why. Write the diagnosis into NOTES.md as root causes, not symptoms ("durability latency is S3 latency", not "writes are slow"). Put it back to the user as one `design-doc.claims` block — a claim per root cause, its evidence in `because`, and what it costs to be wrong in `ifFalse` — and fold every correction back in the user's own words. Close the diagnosis with the one classification the executive summary hangs on: a **change** to a system that exists today, or **net-new**, with nothing behind it but requirements. Name the design's three to five themes in the same breath ("storage", "dispatch", "tenancy"): they become the `themes` map the decisions and assumptions file under, and a theme the diagnosis cannot name is a theme the design does not have. Designing against a wrong diagnosis wastes every later phase.
 
-**Exit criteria:** the project directory exists; the user has read the diagnosis, change or net-new included, and agrees with it.
+**Exit criteria:** the project directory exists; the user has read the diagnosis, change or net-new and the themes included, and agrees with it.
 
 ## Phase 1 — Assumptions
 
@@ -65,7 +70,9 @@ Design by question rounds, one fork at a time. Rounds run on a live `cc-present`
 
 Attack the middle draft, before polish makes flaws harder to see. Use the `codex` plugin skill when it's available; otherwise spawn a fresh-context subagent with no stake in the design and a brief to attack it as a skeptical senior engineer: correctness bugs, missing failure modes, unjustified numbers. Save the output verbatim as `<reviewer>-review-<date>.md`, index each finding in the `findings` register (data only — never rendered), and disposition every one: a new decision, an open item, or a recorded rejection with a reason. A finding that needs the user's call becomes a round like any other, whose question says what the reviewer found, in words; the finding number stays in the register. Then run the reviewer again on the updated registers: dispositions change the design, and a changed design grows new flaws. One pass is the floor, not the norm.
 
-**Exit criteria:** every finding has a disposition, and the latest pass produced nothing that changes a decision.
+The register stops moving in this phase, so this is where every rendered entry gets its plain twin. `p` sits beside the precise wording of each tl;dr line, ground rule, decision, assumption, and open item, written by the hand that wrote the entry while the reasoning is fresh. The twin says what the entry means to someone who will not read it; the contract is in [reference/writing.md](reference/writing.md). `$TOOL plainify <dir>` drafts a twin for every entry that lacks one and prints a review table. Read each draft against its original and edit it before moving on; a twin that drifts from its entry is a second claim the registers do not back.
+
+**Exit criteria:** every finding has a disposition, and the latest pass produced nothing that changes a decision; every rendered entry carries a twin you have read, and `$TOOL check` is clean.
 
 ## Phase 4 — The quantitative story
 
@@ -81,9 +88,17 @@ Two rules hold whichever components are in play. Every unmeasured number is mark
 
 ## Phase 5 — The document
 
-Read [reference/writing.md](reference/writing.md) first; the voice contract lives there. Fill `meta` in registers.json (title, date, slug, banner for the starred assumption). Write `summary.html` before anything else: the executive summary for the reader who reads nothing else, built from the diagnosis (what exists today, or what is required) and the resolved decisions (what this proposes), with its figures drawn inline as SVG. The content contract is in writing.md and the fragment kit in [reference/schema.md](reference/schema.md). Hand-draw the system diagram in `sysd.svg`; both files sit beside `registers.json` and the doc loads them at runtime, so the HTML itself is never edited. Then write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired. Run the voice gate — a required step, not an available upgrade: `wlm profile list` first, always; with a profile, read the style card before drafting, then run `wlm -p <profile> adversary critique` on the exported Markdown and on the output of `$TOOL summary-text <dir>` during the tone pass and fold in or explicitly reject every flag; without one, the fallback contract applies. The numbered checklist with exact invocations is in [reference/writing.md](reference/writing.md). Run `slop-cop check` after each pass. Then `$TOOL pdf <dir>` and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
+Read [reference/writing.md](reference/writing.md) first; the deck contract, the twin contract, and the voice contract live there, and its Figures section sends you to `reference/gallery/` before you draft. Fill `meta` in registers.json (title, date, slug, banner for the starred assumption). Write `summary.html` before anything else: a deck of full-screen panels, thesis first, built from the diagnosis (what exists today, or what is required), the resolved decisions (what this proposes), and the numbers, with one figure drawn for this design on every panel. When the design is one idea with one figure, write a single poster panel instead and say so in NOTES.md. The panel kinds, the kit, and the word budgets are in [reference/schema.md](reference/schema.md); `check` enforces the budgets. Put the system diagram's Mermaid source in the `diagram` register key, its nodes named after the `arch` cards they belong to, so the doc can pan it, highlight it, and step the request paths through it. Then set `key: true` on the 3–8 decisions and assumptions the doc should open on and file every one under a theme from Phase 0; write the tl;dr as three to five plain twins of at most 20 words each. Both files sit beside `registers.json` and the doc loads them at runtime, so the HTML itself is never edited. Then write the doc content in two passes: structure and de-jargoning first, then a separate tone pass whose test for every sentence is "does this solicit feedback, or make a claim?"; the doc exists to be corrected, not admired.
 
-**Exit criteria:** `$TOOL check` is clean; `summary.html` exists and `check` warns nothing about it; the doc renders over `python3 -m http.server 8641` and opens on the summary; the PDF is built and visually inspected. The voice gate ran: `wlm profile list` was checked, and with a profile every adversary-critique flag, over the Markdown and the summary text alike, is folded in or rejected with a reason.
+Three gates run over the summary, in this order, and each is a required step, not an available upgrade:
+
+1. Load the `writing-docs` skill by path, `~/.claude/plugins/cache/skills/writing-docs/0.7.0/skills/writing-docs/SKILL.md`, and run its edit passes over the deck: completeness, then accuracy, then structure, then clarity, then brevity.
+2. Run the voice gate: `wlm profile list` first, always; with a profile, read the style card before drafting, then run `wlm -p <profile> adversary critique` over the output of `$TOOL summary-text <dir>` and over the exported Markdown, and fold in or explicitly reject every flag; without one, the fallback contract applies.
+3. Run `slop-cop check summary.html --lang=html --llm-effort=off`, then `$TOOL summary-text <dir> > summary.md` and `slop-cop check summary.md --lang=markdown --llm-effort=off`.
+
+Triage every finding in NOTES.md: fixed, or rejected with a reason. The numbered checklist with exact invocations is in [reference/writing.md](reference/writing.md). Run `slop-cop check` over the doc's Markdown after each pass as well. Then `$TOOL render-check <dir>` for the diagrams, `$TOOL pdf <dir>`, and look at the pages with `pdftoppm`: a structural check tells you the PDF exists; only your eyes tell you it renders.
+
+**Exit criteria:** `$TOOL check --strict` is clean; the doc renders over `python3 -m http.server 8641` and opens on the deck with nothing else visible; `render-check` passes; the PDF is built and visually inspected. All three gates ran, in order, and every finding they raised is triaged in NOTES.md.
 
 ## Phase 6 — Publish and handoff
 
@@ -93,11 +108,11 @@ Stage a clean deploy folder holding only the files meant to ship:
 $TOOL snapshot . --note "<headline>" --item "<one change, for the reader>"
 mkdir -p dist
 cp design-doc.html dist/index.html
-cp registers.json qa-log.json NOTES.md summary.html sysd.svg design-doc.pdf dist/
+cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
 ```
 
-The snapshot stamps this publish as a revision; it hashes `summary.html` and `sysd.svg` with the registers, so an edit to either is a revision on its own. From the second one onward, a returning reviewer lands directly in the diff against the revision they last read, unchanged content tucked behind a toggle. The note and `--item` bullets are the first thing that reader sees: write them in plain language for someone coming back after days — what changed and what it means for them, never round numbers or register IDs (the diff panel already lists those). The contract with a worked example is in [reference/publish.md](reference/publish.md), and revision prose passes the same voice gate as the doc — `wlm profile list`, style card, adversary critique over the drafted note — before the snapshot is stamped.
+Nothing else ships. The diagram source is in the registers, the PDF button prints the page on the fly through the template's print stylesheet, and the diagram libraries load from a CDN at pinned versions. So `dist/` carries no `sysd.svg`, no PDF, and no vendored code. A doc that kept a hand-drawn diagram (`diagram.kind: "svg"`) copies `sysd.svg` too. The snapshot stamps this publish as a revision; it hashes `summary.html` with the registers, so an edit to the deck is a revision on its own. From the second one onward, a returning reviewer lands directly in the diff against the revision they last read, unchanged content tucked behind a toggle. The note and `--item` bullets are the first thing that reader sees: write them in plain language for someone coming back after days — what changed and what it means for them, never round numbers or register IDs (the diff panel already lists those). The contract with a worked example is in [reference/publish.md](reference/publish.md), and revision prose passes the same voice gate as the doc — `wlm profile list`, style card, adversary critique over the drafted note — before the snapshot is stamped.
 
 Ask the user where it goes, then follow [reference/publish.md](reference/publish.md): local serving is `python3 -m http.server 8641`; public hosting is `wrangler deploy` when authenticated, or `wrangler deploy --temporary`, which returns a claim URL that expires in 60 minutes; hand that to the user immediately. After deploying, one lightweight check (the page loads with the right title) is enough; exhaustive per-asset probing after a confirmed deploy is noise. Add a changelog entry to NOTES.md naming the deploy name and live URL — later register edits redeploy through the same name to the same URL, with the exact sequence in [reference/publish.md](reference/publish.md).
 
@@ -105,7 +120,9 @@ Ask the user where it goes, then follow [reference/publish.md](reference/publish
 
 ## Common issues
 
-- **PDF step fails with "no Chrome found"** — install Chrome/Chromium or set `CHROME=/path/to/chrome`. `$TOOL pdf` exits 2 with instructions.
+- **PDF step fails with "no Chrome found"** — install Chrome/Chromium or set `CHROME=/path/to/chrome`. `$TOOL pdf` and `$TOOL render-check` exit 2 with instructions.
+- **Diagram host says "Diagrams need a network connection"** — the doc imports Mermaid from jsdelivr at a pinned version and the import failed. The rest of the doc works; `$TOOL pdf` and `$TOOL render-check` need the same network and say so when it is missing.
 - **Doc shows a "Data not loaded" screen** — it was opened as `file://`; browsers block local-file fetch. Serve the folder over HTTP as the screen says.
 - **Doc opens on the tl;dr with no Summary section** — `summary.html` is missing beside `registers.json`, or wasn't copied into `dist/`. `$TOOL check` warns about the first.
+- **`check` warns "hand-drawn diagram"** — the project still carries a `sysd.svg` and no Mermaid source. Move the diagram into `diagram.source`, or set `diagram.kind: "svg"` to keep the file; the migration sequence is in `reference/publish.md`.
 - **wlm voice profile absent** — the fallback voice contract in `reference/writing.md` applies. A missing profile excuses the style card, not the `wlm profile list` check that discovered it.

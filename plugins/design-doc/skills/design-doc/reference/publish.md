@@ -7,15 +7,16 @@ The doc is a static folder; anything that serves files works. The default path i
 Deploy only the files meant to ship, with the doc as the index:
 
 ```bash
-$TOOL check .
+$TOOL check --strict .
+$TOOL render-check .
 $TOOL snapshot . --note "<headline>" --item "<one change, for the reader>"
 mkdir -p dist
 cp design-doc.html dist/index.html
-cp registers.json qa-log.json NOTES.md summary.html sysd.svg design-doc.pdf dist/
+cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
 ```
 
-`check` warns when `summary.html` is missing, and a doc that opens without its executive summary isn't ready to ship. Rerun `design.py pdf` first when the registers, `summary.html`, or `sysd.svg` changed since the last build, so the PDF button serves the current doc. The folder must contain an `index.html`; the renderer fetches its JSON, the summary, and the diagram with relative paths, so the flat copy is the whole build.
+`check --strict` fails on a missing summary, a deck over budget, or an entry without its twin, and `render-check` proves every diagram draws; a doc that fails either isn't ready to ship. The stage copies no `sysd.svg`, no PDF, and no vendored code. The diagram source is in the registers, and the PDF button prints the page on the fly through the template's print stylesheet. Mermaid, its ELK layout, `svg-pan-zoom`, and the lucide icons load from jsdelivr at the versions pinned in the template. A doc that kept a hand-drawn diagram (`diagram.kind: "svg"`) adds `sysd.svg` to the copy. `design.py pdf` writes `design-doc.pdf` through the same stylesheet for the reader who wants a file to forward; it is never staged. The folder must contain an `index.html`; the renderer fetches its JSON and the summary with relative paths, so the flat copy is the whole build.
 
 The snapshot stamps this publish as a revision (`meta.rev`, `history/rev-<N>.json`). On a first deploy that revision is just the baseline; from the second onward, a returning reader opens straight into the changes since their last visit — no banner to click through — with unchanged content hidden behind a "show unchanged" toggle, plus a picker for diffing against any earlier revision. The diff lists exactly which register entries were added, changed, or removed, and flags the Summary section when `summary.html` moved.
 
@@ -50,19 +51,20 @@ This returns two URLs: the live `workers.dev` URL and a **claim URL**. Hand both
 Updates ship the same way the site first deployed. After editing the registers, from the project directory:
 
 ```bash
+$TOOL check --strict .
+$TOOL render-check .
 $TOOL snapshot . --note "<headline>" --item "<one change, for the reader>"
-$TOOL pdf .                      # so the PDF button serves the current doc
 cp design-doc.html dist/index.html
-cp registers.json qa-log.json NOTES.md summary.html sysd.svg design-doc.pdf dist/
+cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
 npm exec --yes wrangler@latest -- deploy dist --name <slug> --compatibility-date <today>
 ```
 
-The snapshot is what lets a returning reviewer diff this update against the one they last read. It hashes the registers, `summary.html`, and `sysd.svg`: when none of them changed it records nothing and exits 0, so the sequence is safe for NOTES-only updates; pass `--force` to stamp a revision for those anyway (no hash sees them, but the revision note still tells readers what moved). An edit to the summary or the diagram alone is a revision of its own, named in the entry's `changed`, so a returning reader sees that section flagged. `history/` rides along on every deploy because a deploy replaces the asset set wholesale.
+The snapshot is what lets a returning reviewer diff this update against the one they last read. It hashes the registers, the diagram source with them, and `summary.html`: when none of them changed it records nothing and exits 0, so the sequence is safe for NOTES-only updates; pass `--force` to stamp a revision for those anyway (no hash sees them, but the revision note still tells readers what moved). An edit to the summary alone is a revision of its own, named in the entry's `changed`, so a returning reader sees that section flagged. `history/` rides along on every deploy because a deploy replaces the asset set wholesale.
 
 When announcing an update, share the live URL with `?since=<rev>` appended: every reader who follows it opens straight into the diff from that revision, whatever their browser remembers. The link's baseline wins for that load only — it is never stored, so the reader's own visit tracking survives; the visit still counts as one, and a later bare visit diffs from the rev they just saw. Clearing the diff, or the "show unchanged" toggle, brings back the full doc.
 
-The same `--name` on an authenticated wrangler updates the same `workers.dev` URL, and a deploy replaces the asset set wholesale — a file removed from `dist/` disappears from the site too. A `--temporary` deploy is a one-off preview: each redeploy mints a new one, so the user claims it (or authenticates wrangler) when the URL needs to survive updates. A project scaffolded before 0.11 carries its diagram inline in `design-doc.html` between `<!--SYSD-->` markers, and the current template loads it from `sysd.svg` instead. Extract that block to `sysd.svg` beside `registers.json` before copying the plugin's template over the old file, or the copy ships with no diagram.
+The same `--name` on an authenticated wrangler updates the same `workers.dev` URL, and a deploy replaces the asset set wholesale — a file removed from `dist/` disappears from the site too. A `--temporary` deploy is a one-off preview: each redeploy mints a new one, so the user claims it (or authenticates wrangler) when the URL needs to survive updates. A project scaffolded before 0.12 keeps its diagram in `sysd.svg`, and the current template reads it from the `diagram` register key instead. Before copying the plugin's template over the old one, move the diagram into `diagram.source` as Mermaid, with nodes named after the `arch` cards, or set `diagram.kind: "svg"` and keep the file. Its `summary.html` is a single page, not a deck, and its entries carry no twins; `check --strict` names each gap, `design.py plainify` drafts the twins, and the deck is rewritten by hand. A project from before 0.11 carries the diagram inline in `design-doc.html` between `<!--SYSD-->` markers; extract that block to `sysd.svg` first, then take the 0.12 step.
 
 Record the deploy name and live URL in NOTES.md's changelog along with what changed; that entry is what a later session redeploys from.
 
@@ -85,7 +87,7 @@ $TOOL snapshot . --note "Settled which repo owns the infrastructure code" \
   --item "Machine images build in two layers, a shared base plus an app layer, instead of one golden image"
 ```
 
-Revision prose is doc prose: the voice gate in [writing.md](writing.md) applies. Check `wlm profile list`; with a profile, write against the style card, put the drafted note and bullets in a scratch file, and run `wlm -p <profile> adversary critique` over it before stamping. Run `slop-cop check` on the draft either way.
+Revision prose is doc prose: the voice gate in [writing.md](writing.md) applies. Check `wlm profile list`; with a profile, write against the style card, put the drafted note and bullets in a scratch file, and run `wlm -p <profile> adversary critique` over it before stamping. Run `slop-cop check <draft> --lang=markdown --llm-effort=off` on the draft either way.
 
 ## Verify
 
