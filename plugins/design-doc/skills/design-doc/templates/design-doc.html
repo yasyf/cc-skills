@@ -29,7 +29,7 @@
   --measure:72ch; --wide:920px;
   --r-fig:14px; --r-node:6px; --r-ctl:8px;
 }
-@media (prefers-color-scheme: dark){:root:not([data-print]){
+@media (prefers-color-scheme: dark){:root:not([data-print]):not([data-theme=light]){
   --bg:#161514; --bg2:#1E1C19; --ink:#E8E4DC; --ink2:#A39E95; --line:#E8E4DC1F;
   --accent:#58BFA5; --accent-ink:#0B2A24; --accent-soft:#58BFA524;
   --ok:#6EC28A; --ok-soft:#6EC28A24; --warn:#E3AA52; --warn-soft:#E3AA5224;
@@ -511,6 +511,101 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   @page{size:A4;margin:16mm 14mm 18mm}
   @page poster{size:A4 landscape;margin:12mm}
 }
+html[data-theme=dark]:not([data-print]){
+  --bg:#161514; --bg2:#1E1C19; --ink:#E8E4DC; --ink2:#A39E95; --line:#E8E4DC1F;
+  --accent:#58BFA5; --accent-ink:#0B2A24; --accent-soft:#58BFA524;
+  --ok:#6EC28A; --ok-soft:#6EC28A24; --warn:#E3AA52; --warn-soft:#E3AA5224;
+  --dead:#8C877F; --dead-soft:#8C877F26; --crit:#E58274; --crit-soft:#E5827424;
+  --card:#1C1A17; --code-bg:#252219; --lift:inset 0 1px 0 #FFFFFF0F; --tbox:0; --tbg:transparent;
+  --before:#E27F45; --before-soft:#E27F4522;
+  --hero-bg:#0E0E0D; --hero-band:#181715; --hero-ink:#F3F0E9; --hero-ink2:#ABA69C; --hero-line:#F3F0E92B;
+}
+html:not([data-ai]) .ai-only{display:none!important}
+#ai{position:fixed;right:18px;bottom:18px;z-index:66;width:min(430px,calc(100vw - 36px));max-height:min(72vh,640px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
+#ai[data-wide]{top:0;right:0;bottom:0;width:min(520px,44vw);max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
+body.ai-wide .layout{margin-right:min(520px,44vw)}
+.ai-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.ai-head b{flex:1;font-size:14.5px}
+.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 10px;font-size:12.5px}
+.ai-head button:hover,.ai-x:hover{border-color:var(--accent);color:var(--accent)}
+.ai-tools,.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:9px 14px 0}
+.ai-sug{padding-bottom:4px}
+.ai-chip{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:999px;padding:3px 11px;font-size:12.5px;text-align:left}
+.ai-chip:hover{border-color:var(--accent);color:var(--accent)}
+.ai-log{flex:1;overflow:auto;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
+.ai-log:empty{display:none}
+.ai-msg{margin:0 0 12px;max-width:none}
+.ai-msg p{margin:6px 0;max-width:none}
+.ai-msg h3{font-size:14.5px;margin:2px 0 6px}
+.ai-msg ul{padding-left:20px;margin:6px 0}
+.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink)}
+.ai-wait{color:var(--ink2)}
+.ai-err{color:var(--crit)}
+.ai-used{display:flex;gap:5px;flex-wrap:wrap;margin:-6px 0 12px}
+.ai-tool{font-family:var(--mono);font-size:11px;color:var(--ink2);background:var(--bg2);border-radius:var(--r-node);padding:1px 6px}
+.ai-changed{margin-top:8px}
+.ai-q{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.ai-opt,.ai-btn{display:inline-block;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 10px;font-size:13px;margin:3px 5px 0 0;text-align:left}
+.ai-opt:hover,.ai-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ai-btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ai-opt.ok{border-color:var(--ok);color:var(--ok)}
+.ai-opt.bad{border-color:var(--crit);color:var(--crit)}
+.ai-qa{font-size:13.5px;color:var(--ink2);margin:6px 0 0}
+.ai-note-in{font-size:12.5px;color:var(--ink2)}
+.ai-foot{display:flex;gap:8px;align-items:flex-end;padding:10px 14px;border-top:1px solid var(--line)}
+.ai-foot textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:7px 10px;font:14px/1.4 var(--sans);max-height:120px}
+.ai-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:7px 14px;font-size:13.5px}
+.ai-note{padding:0 14px 10px;font-size:11.5px;color:var(--ink2);display:flex;flex-direction:column;gap:5px}
+.ai-note-tog{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ai-hl{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+.ai-mark{background:var(--accent-soft);border-radius:3px;box-shadow:0 0 0 2px var(--accent-soft)}
+.ai-ask{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1.7;margin-left:6px}
+.ai-ask:hover{border-color:var(--accent);color:var(--accent)}
+.ai-h2{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:1px 11px;font-size:12px;margin-left:10px;vertical-align:3px}
+.ai-h2:hover{border-color:var(--accent);color:var(--accent)}
+.ai-footrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-menu-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
+.ai-menu-head b{flex:1;font-size:14px}
+.ai-menu-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.ai-menu-label{font-size:12.5px;color:var(--ink2)}
+.ai-menu-out{margin-top:8px;font-size:13.5px;line-height:1.5;color:var(--ink)}
+.ai-menu-out p{margin:6px 0;max-width:none}
+.ai-ta{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:6px 9px;font:13.5px/1.4 var(--sans);resize:vertical}
+.ai-sel{position:fixed;z-index:67;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12.5px;box-shadow:0 6px 20px #0003}
+.ai-path{margin:0 22px 12px 0;padding:10px 10px 8px;border:1px solid var(--line);border-radius:var(--r-node);background:var(--card);font-size:12.5px}
+.ai-path-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
+.ai-path-head b{flex:1;font-size:12.5px}
+.ai-path-row{display:grid;grid-template-columns:auto 1fr;gap:2px 7px;padding:4px 0;cursor:pointer;align-items:baseline}
+.ai-path-row input{margin:0}
+.ai-path-t{font-weight:600}
+.ai-path-w{grid-column:2;color:var(--ink2);font-size:11.5px;line-height:1.35}
+.def.ai-def{border:1px dashed var(--line);border-radius:var(--r-node);padding:10px 12px}
+.ai-pill{margin-left:6px;font-size:11px;vertical-align:1px}
+#pal{position:fixed;inset:0;z-index:69;background:#0006;display:flex;align-items:flex-start;justify-content:center;padding:12vh 20px 20px}
+.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:70vh;overflow:hidden}
+.pal-in{border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);padding:14px 18px;font:16px var(--sans);outline:none}
+.pal-list{overflow:auto;padding:6px}
+.pal-row{display:flex;gap:9px;align-items:baseline;padding:7px 11px;border-radius:var(--r-node);cursor:pointer}
+.pal-row.on{background:var(--accent-soft)}
+.pal-row:hover{background:var(--bg2)}
+.pal-g{flex:0 0 14px;color:var(--ink2);font-size:12px;text-align:center}
+.pal-dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:currentColor;transform:translateY(-2px)}
+.pal-l{flex:0 1 auto;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.pal-id{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
+.pal-s{flex:1 1 auto;min-width:0;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-foot{border-top:1px solid var(--line);padding:8px 18px;font-size:12px;color:var(--ink2)}
+@media (max-width:900px){
+  #ai{left:10px;right:10px;bottom:10px;width:auto;max-height:70svh}
+  #ai[data-wide]{left:0;right:0;top:0;width:auto}
+  body.ai-wide .layout{margin-right:0}
+  .ai-path{margin-right:0}
+}
+@media print{
+  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-h2,.ai-path,.ai-footrow{display:none!important}
+  .ai-hl{outline:0}
+  body.ai-wide .layout{margin-right:0}
+}
 </style>
 </head>
 <body>
@@ -662,6 +757,26 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   </div>
 </div>
 
+<div id="ai" role="dialog" aria-label="Ask this document" hidden>
+  <div class="ai-head"><b>Ask this document</b><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClear" type="button">Clear</button><button id="aiClose" type="button" aria-label="Close">Close</button></div>
+  <div class="ai-tools" id="aiTools"></div>
+  <div class="ai-log" id="aiLog"></div>
+  <div class="ai-sug" id="aiSug"></div>
+  <form class="ai-foot" id="aiForm">
+    <label class="sr-only" for="aiIn">Ask about this document</label>
+    <textarea id="aiIn" rows="1" placeholder="Ask about this document"></textarea>
+    <button class="ai-send" id="aiSend" type="submit">Ask</button>
+  </form>
+  <div class="ai-note" id="aiNote"><span id="aiHost"></span></div>
+</div>
+<div id="pal" role="dialog" aria-label="Everything you can do here" hidden>
+  <div class="pal-box">
+    <label class="sr-only" for="palIn">Search the document, or run a command</label>
+    <input id="palIn" class="pal-in" type="text" placeholder="Search the doc &middot; &gt; for commands &middot; ? to ask" autocomplete="off" spellcheck="false">
+    <div class="pal-list" id="palList" role="listbox"></div>
+    <div class="pal-foot">&#8593;&#8595; move &middot; &#8629; open &middot; esc close</div>
+  </div>
+</div>
 <script>
 "use strict";
 (async function(){
@@ -2261,6 +2376,1099 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  await new Promise(r=>setTimeout(r,0));
  HTML.dataset.ready="1";
 });
+const AI_CFG_KEY="design-doc-ai";
+const AI_ROUNDS=6;
+const AI_RPM=30;
+const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
+const AI_SECTION_NAMES={overview:"Overview",ground:"Ground rules",architecture:"How it works",paths:"Where the time goes",numbers:"Numbers",ceilings:"Where it breaks",decisions:"Decisions",assumptions:"Assumptions",open:"Still open",footnotes:"Footnotes"};
+const AI_SUGGEST={
+ overview:["What is this proposing, in a paragraph?","What breaks today that this fixes?"],
+ ground:["Which ground rule is most likely to move?","What is fixed before the design starts?"],
+ architecture:["Walk me through one request end to end.","Which part of this is new?"],
+ paths:["Where does the time actually go?","Which step would I attack first?"],
+ numbers:["Which number is load-bearing?","What did we measure and what did we guess?"],
+ ceilings:["Which ceiling is closest?","What would I see first when it breaks?"],
+ decisions:["What was the hardest call, and what did it turn down?","Which decisions are still open?"],
+ assumptions:["Which assumption is load-bearing?","What falls if it is wrong?"],
+ open:["What is blocking a decision right now?","Which spike should run first?"],
+ footnotes:["What do the footnotes add?"]
+};
+const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",cmd:"›",ai:"✦"};
+const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
+
+let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let aiChat=[];
+const aiStamps=[],aiMarked=[];
+window.ddTerms={extra:new Map()};
+
+function aiNormalise(j){
+ if(!j||typeof j!=="object")return null;
+ if(j.disabled===true)return {disabled:true};
+ const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
+ const endpoint=s("endpoint"),model=s("model"),key=s("key");
+ if(!endpoint||!model||!key)return null;
+ return {endpoint:endpoint.replace(/\/+$/,""),model,key};
+}
+async function aiConfig(){
+ let stored=null;
+ try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)stored=aiNormalise(JSON.parse(raw))}catch(e){}
+ if(stored)return stored.disabled?null:stored;
+ for(const path of ["../ai.json","ai.json"]){
+  let j=null;
+  try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
+  const c=aiNormalise(j);
+  if(c)return c.disabled?null:c;
+ }
+ return null;
+}
+async function aiSlot(){
+ for(;;){
+  const now=Date.now();
+  while(aiStamps.length&&now-aiStamps[0]>60000)aiStamps.shift();
+  if(aiStamps.length<AI_RPM){aiStamps.push(now);return}
+  await new Promise(r=>setTimeout(r,60000-(now-aiStamps[0])+50));
+ }
+}
+async function aiPost(body,signal){
+ for(let attempt=0;;attempt++){
+  await aiSlot();
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  if(r.status===429&&attempt<3){
+   const wait=parseFloat(r.headers.get("retry-after")||"")||2;
+   await new Promise(res=>setTimeout(res,Math.min(30,wait)*1000));
+   continue;
+  }
+  if(!r.ok){
+   const detail=await r.text().catch(()=>"");
+   throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
+  }
+  return r;
+ }
+}
+async function aiStream(body,signal,onText){
+ const r=await aiPost(Object.assign({},body,{stream:true}),signal);
+ const reader=r.body.getReader(),dec=new TextDecoder();
+ let buf="",text="";
+ const calls=[];
+ for(;;){
+  const {value,done}=await reader.read();
+  if(done)break;
+  buf+=dec.decode(value,{stream:true});
+  let nl;
+  while((nl=buf.indexOf("\n"))>=0){
+   const line=buf.slice(0,nl).trim();buf=buf.slice(nl+1);
+   if(!line.startsWith("data:"))continue;
+   const data=line.slice(5).trim();
+   if(!data||data==="[DONE]")continue;
+   let j;try{j=JSON.parse(data)}catch(e){continue}
+   const choice=(j.choices||[])[0];
+   if(j.usage)aiPrompt=j.usage.prompt_tokens||aiPrompt;
+   if(!choice)continue;
+   const d=choice.delta||{};
+   if(d.content){text+=d.content;if(onText)onText(text)}
+   (d.tool_calls||[]).forEach(tc=>{
+    const ix=tc.index||0;
+    const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
+    if(tc.id)c.id=tc.id;
+    if(tc.function&&tc.function.name)c.name+=tc.function.name;
+    if(tc.function&&tc.function.arguments)c.args+=tc.function.arguments;
+   });
+  }
+ }
+ return {text,calls:calls.filter(Boolean)};
+}
+async function aiOnce(messages,opt){
+ const o=opt||{};
+ const body={model:AI.model,messages,reasoning_effort:o.effort||"low"};
+ if(o.onText&&!o.schema)return (await aiStream(body,o.signal,o.onText)).text;
+ if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
+ const r=await aiPost(body,o.signal);
+ const j=await r.json();
+ aiPrompt=(j.usage&&j.usage.prompt_tokens)||aiPrompt;
+ const content=((j.choices||[])[0]||{}).message||{};
+ const text=content.content||"";
+ return o.schema?JSON.parse(text||"{}"):text;
+}
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+async function aiCached(feature,input,make){
+ const key="ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+ try{const hit=localStorage.getItem(key);if(hit)return JSON.parse(hit)}catch(e){}
+ const out=await make();
+ try{localStorage.setItem(key,JSON.stringify(out))}catch(e){}
+ return out;
+}
+
+const aiHandle=e=>{
+ if(!e)return "";
+ if(e.h&&String(e.h).trim())return plain(e.h);
+ const t=plain(e.t||e.name||e.b||"");
+ const w=t.split(/\s+/);
+ return w.slice(0,4).join(" ")+(w.length>4?"…":"");
+};
+const aiStatus=e=>(AI_STATUS[e&&e.s]||["st-warn",e&&e.s||""])[1];
+const aiEntry=id=>DQ.find(d=>d.id===id)||ASSUM.find(a=>a.id===id)||OPEN.find(o=>o.id===id)||ARCH.find(c=>c.id===id)||NUMBERS.find(n=>n.id===id)||PATHS.find(p=>p.id===id)||null;
+const aiKind=id=>REF[id]?REF[id].kind:"";
+function aiEl(id){
+ return document.getElementById("item-"+id)||document.getElementById("open-"+id)||document.getElementById(id)||document.getElementById("spot-"+id)||null;
+}
+function aiReverseIndex(){
+ const map=Object.create(null);
+ const add=(cited,by)=>{if(cited===by)return;(map[cited]||(map[cited]=[])).push(by)};
+ const scan=(text,by)=>{
+  if(!ID_RE||!text)return;
+  String(text).replace(ID_RE,(all,pre,id)=>{add(id,by);return all});
+ };
+ DQ.forEach(d=>[d.t,d.p,d.r,d.x].forEach(s=>scan(s,d.id)));
+ ASSUM.forEach(a=>[a.t,a.p,a.b,a.n].forEach(s=>scan(s,a.id)));
+ OPEN.forEach(o=>{[o.t,o.p].forEach(s=>scan(s,o.id));(o.blocks||[]).forEach(b=>add(b,o.id))});
+ ARCH.forEach(c=>{(c.b||[]).forEach(s=>scan(s,c.id));[...(c.a||[]),...(c.dq||[])].forEach(x=>add(x,c.id))});
+ NUMBERS.forEach(n=>[n.t,n.sub,n.note].concat((n.rows||[]).map(r=>r.join(" "))).forEach(s=>scan(s,n.id)));
+ CONS.forEach((c,i)=>{scan(c.t,"ground rule "+(i+1));String(c.a||"").split(" ").filter(Boolean).forEach(a=>add(a,"ground rule "+(i+1)))});
+ CEIL.forEach(row=>scan(row.join(" "),"a ceiling in Where it breaks"));
+ TLDR.forEach((t,i)=>scan(t.md,"In brief bullet "+(i+1)));
+ return map;
+}
+let AI_CITED=null;
+const aiCitedBy=id=>{if(!AI_CITED)AI_CITED=aiReverseIndex();return [...new Set(AI_CITED[id]||[])]};
+
+function aiEntryText(e,kind){
+ if(!e)return "";
+ const L=[];
+ if(kind==="decision"){
+  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  L.push("What we decided: "+plain(e.r));
+  if(e.x)L.push("What we turned down: "+plain(e.x));
+  if(e.by)L.push("Replaced by: "+e.by);
+  const rd=ROUNDS[e.round];
+  if(rd)L.push("We asked: "+plain(rd.q)+" / You said: "+plain(rd.a)+(rd.n?" / "+plain(rd.n):""));
+ }else if(kind==="assumption"){
+  L.push(e.id+" · assumption · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.star?" · load-bearing":""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  L.push("Basis: "+plain(e.b));
+  if(e.n)L.push("How this changed: "+plain(e.n));
+ }else if(kind==="open"){
+  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||""));
+  L.push("Title: "+plain(e.t));
+  if(e.p)L.push("Plain twin: "+plain(e.p));
+  if((e.blocks||[]).length)L.push("Blocks: "+e.blocks.join(", "));
+ }else if(kind==="arch"){
+  L.push(e.id+" · component");
+  L.push("Title: "+plain(e.t));
+  (e.b||[]).forEach(p=>L.push(plain(p)));
+  L.push("Rests on: "+[...(e.a||[]),...(e.dq||[])].join(", "));
+ }else if(kind==="numbers"){
+  L.push(e.id+" · numbers table");
+  L.push("Title: "+plain(e.t)+(e.sub?" ("+plain(e.sub)+")":""));
+  L.push("| "+(e.cols||[]).join(" | ")+" |");
+  (e.rows||[]).forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
+  if(e.note)L.push(plain(e.note));
+ }else if(kind==="path"){
+  L.push(e.id+" · request path · "+plain(e.name));
+  (e.segs||[]).forEach(g=>L.push(g[0]+": p50 "+fmt(g[1])+", p95 "+fmt(g[2])+(g[3]?" — "+plain(g[3]):"")));
+  if(e.note)L.push(plain(e.note));
+ }
+ return L.join("\n");
+}
+function aiSectionText(id){
+ const L=[];
+ if(id==="overview"){
+  L.push("In brief:");
+  TLDR.forEach(t=>L.push("- "+plain(t.md)));
+  if(META.banner&&META.banner.text)L.push("Banner: "+plain(META.banner.text)+(META.banner.assumption?" ("+META.banner.assumption+")":""));
+  if(DIAGRAM_CAPTION)L.push("Diagram caption: "+plain(DIAGRAM_CAPTION));
+ }else if(id==="ground"){
+  CONS.forEach(c=>L.push("- "+plain(c.t)+(c.a?" (rests on "+c.a+")":"")));
+  TERMS.forEach(t=>L.push("- "+t.k+": "+plain(t.v)));
+ }else if(id==="architecture"){
+  ARCH.forEach(c=>L.push(aiEntryText(c,"arch")));
+  if(DIAGRAM&&DIAGRAM.source)L.push("Diagram source:\n"+DIAGRAM.source);
+ }else if(id==="paths"){
+  PATHS.forEach(p=>L.push(aiEntryText(p,"path")));
+ }else if(id==="numbers"){
+  NUMBERS.forEach(n=>L.push(aiEntryText(n,"numbers")));
+ }else if(id==="ceilings"){
+  L.push("| Resource | Ceiling | What you would see first | What stops it |");
+  CEIL.forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
+  if(CEILNOTE)L.push(plain(CEILNOTE));
+ }else if(id==="decisions"){
+  DQ.forEach(d=>L.push(aiEntryText(d,"decision")));
+ }else if(id==="assumptions"){
+  ASSUM.forEach(a=>L.push(aiEntryText(a,"assumption")));
+ }else if(id==="open"){
+  OPEN.forEach(o=>L.push(aiEntryText(o,"open")));
+ }else if(id==="footnotes"){
+  FOOTNOTES.forEach(f=>L.push(f.n+". "+plain(f.b)));
+ }
+ const out=L.join("\n\n");
+ return out.length>14000?out.slice(0,14000)+"\n[truncated: read single entries with read_entry]":out;
+}
+function aiIndex(){
+ const L=[];
+ const row=(e,kind)=>{
+  const bits=[e.id,kind];
+  const st=aiStatus(e);
+  if(st)bits.push(st);
+  if(e.theme)bits.push(themeLabel(e.theme));
+  if(e.g)bits.push(OGROUPS[e.g]||e.g);
+  if(e.key)bits.push("key");
+  if(e.star)bits.push("load-bearing");
+  return bits.join(" · ")+" — “"+aiHandle(e)+"” — "+plain(e.t||e.name||"")+(e.p?" — "+plain(e.p):"");
+ };
+ L.push("# "+(META.title||"")+" — "+(META.subtitle||"design proposal")+(META.rev?", revision "+META.rev:"")+(META.date?", "+META.date:""));
+ if(META.draft)L.push("This document is a draft in progress.");
+ L.push("\n## In brief");
+ TLDR.forEach(t=>L.push("- "+plain(t.p||t.md)));
+ if(META.banner&&META.banner.text)L.push("Warning banner: "+plain(META.banner.text));
+ L.push("\n## Ground rules");
+ CONS.forEach(c=>L.push("- "+plain(c.p||c.t)+(c.a?" ["+c.a+"]":"")));
+ if(TERMS.length){
+  L.push("\n## Terms");
+  TERMS.forEach(t=>L.push("- "+t.k+": "+plain(t.v)));
+ }
+ if(ARCH.length){
+  L.push("\n## How it works (components)");
+  ARCH.forEach(c=>L.push(c.id+" — “"+aiHandle(c)+"” — "+plain(c.t)+" — "+firstSentence(c.b&&c.b[0]||"")));
+ }
+ if(PATHS.length){
+  L.push("\n## Where the time goes");
+  PATHS.forEach(p=>L.push(p.id+" — "+plain(p.name)+" — p50 "+fmt(p.segs.reduce((s,g)=>s+g[1],0))+", p95 "+fmt(p.segs.reduce((s,g)=>s+g[2],0))));
+ }
+ if(NUMBERS.length){
+  L.push("\n## Numbers");
+  NUMBERS.forEach(n=>L.push(n.id+" — “"+aiHandle(n)+"” — "+plain(n.t)+(n.sub?" ("+plain(n.sub)+")":"")+" — "+(n.rows||[]).length+" rows"));
+ }
+ if(CEIL.length){
+  L.push("\n## Where it breaks");
+  CEIL.forEach(r=>L.push("- "+plain(r[0])+": "+plain(r[1])+" — first sign: "+plain(r[2])));
+ }
+ L.push("\n## Decisions ("+DQ.length+")");
+ DQ.forEach(d=>L.push(row(d,"decision")));
+ L.push("\n## Assumptions ("+ASSUM.length+")");
+ ASSUM.forEach(a=>L.push(row(a,"assumption")));
+ L.push("\n## Still open ("+OPEN.length+")");
+ OPEN.forEach(o=>L.push(row(o,"open")));
+ if(FOOTNOTES.length){
+  L.push("\n## Footnotes");
+  FOOTNOTES.forEach(f=>L.push(f.n+". "+plain(f.b)));
+ }
+ return L.join("\n");
+}
+function aiContext(){
+ if(aiCtxText)return aiCtxText;
+ const L=[aiIndex()];
+ const deck=summaryMd();
+ if(deck)L.push("\n## The summary deck, as the reader sees it first\n"+deck);
+ L.push("\n## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n"));
+ aiCtxText=L.join("\n");
+ return aiCtxText;
+}
+function aiSystem(){
+ return [
+  "You are the reading companion built into this design document. You answer questions about it for someone reading it cold, and you can move the page for them.",
+  "",
+  "How to answer:",
+  "- Answer only from the document below and from what the tools return. When it does not cover something, say so in one sentence and stop; never fill the gap from general knowledge.",
+  "- When one entry carries the answer, call scroll_to on it and then highlight on it before you write your reply, so the reader lands on the row it came from. They are tools: call them, never describe a call or print its arguments.",
+  "- Name an entry by its handle and then its id in round brackets, as a sentence would: \"Tokens expire within a day (24-hour tokens, DQ26).\" Plain round brackets, never square ones. The page turns the id into a live link, so a bare id with no words before it reads as noise; and never invent one.",
+  "- Read before you answer when an index line is not enough: read_entry, read_section, list_entries.",
+  "- Answer in two to four full sentences, or a short list when the answer is a set. A fragment, a label, or a pasted index line is not an answer.",
+  "- The reader has the document in front of them, so do not restate it at length.",
+  "",
+  "The document:",
+  aiContext()
+ ].join("\n");
+}
+
+const aiStr=(d)=>({type:"string",description:d});
+const aiOpt=(d)=>({type:["string","null"],description:d});
+const aiTool=(name,description,props)=>({type:"function",function:{name,description,strict:true,parameters:{type:"object",properties:props,required:Object.keys(props),additionalProperties:false}}});
+const AI_TOOLS=[
+ aiTool("scroll_to","Scroll the page to a register entry or a section so the reader sees it.",{id:aiStr("A register id such as DQ26, A3, Q2, c-auth-frontend, n-restate-traffic, or a section id such as decisions or open.")}),
+ aiTool("highlight","Outline an entry on the page. Use it right after scroll_to so the reader's eye lands on the right row.",{id:aiStr("A register id.")}),
+ aiTool("open_entry","Open an entry's card so its full body, including what was turned down, is on screen.",{id:aiStr("A register id.")}),
+ aiTool("filter","Filter one register section.",{section:aiStr("decisions, assumptions or open."),value:aiStr("For decisions: all, resolved, superseded or open. For assumptions: all, working or validate. For open: all or a group key.")}),
+ aiTool("show_diagram","Scroll to the system diagram, optionally highlighting one node.",{node:aiOpt("A diagram node id, or null for the whole diagram.")}),
+ aiTool("read_entry","Read one entry in full: exact wording, what was turned down, the round it came from.",{id:aiStr("A register id.")}),
+ aiTool("read_section","Read a whole section of the document as text.",{section:aiStr("overview, ground, architecture, paths, numbers, ceilings, decisions, assumptions, open or footnotes.")}),
+ aiTool("list_entries","List one register compactly, id and handle per line.",{register:aiStr("decisions, assumptions, open, arch or numbers."),status:aiOpt("Status to keep, or null for all."),theme:aiOpt("Theme key or open group key to keep, or null for all.")}),
+ aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
+ aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
+];
+function aiMark(id){
+ const node=aiEl(id);
+ if(!node)return false;
+ node.classList.add("ai-hl");
+ aiMarked.push(node);
+ return true;
+}
+function clearAiMarks(){
+ aiMarked.splice(0).forEach(n=>{
+  if(n.classList&&n.classList.contains("ai-hl")){n.classList.remove("ai-hl");return}
+  if(n.parentNode){const t=document.createTextNode(n.textContent);const p=n.parentNode;n.replaceWith(t);p.normalize()}
+ });
+ const svg=$("#sysdHost svg.mmd");
+ if(svg)clearHl(svg);
+}
+function setStatusFilter(section,value){
+ const v=String(value||"all");
+ if(section==="decisions")dqF=v;
+ else if(section==="assumptions")aF=v;
+ else if(section==="open")oF=v;
+ else return false;
+ resetFilterButtons();
+ renderDQ();renderA();renderO();
+ return true;
+}
+function aiSelectText(text){
+ const needle=String(text||"").trim().slice(0,240);
+ if(!needle)return "no text given";
+ const walker=document.createTreeWalker($("#main"),NodeFilter.SHOW_TEXT);
+ const low=needle.toLowerCase();
+ while(walker.nextNode()){
+  const n=walker.currentNode,i=n.nodeValue.toLowerCase().indexOf(low);
+  if(i<0)continue;
+  const range=document.createRange();
+  range.setStart(n,i);range.setEnd(n,i+needle.length);
+  const span=el("span","ai-mark");
+  try{range.surroundContents(span)}catch(e){return "that passage spans several elements, so it cannot be selected"}
+  aiMarked.push(span);
+  const sel=getSelection();sel.removeAllRanges();
+  const r2=document.createRange();r2.selectNodeContents(span);sel.addRange(r2);
+  span.scrollIntoView({block:"center"});
+  return "selected on the page: "+needle;
+ }
+ return "that text is not on the page right now";
+}
+function aiRenderPath(title,items){
+ const host=$("#aiPath");
+ const rows=items.filter(x=>x&&x.id).slice(0,10);
+ if(!rows.length)return "no entries in that path";
+ host.innerHTML="";
+ const head=el("div","ai-path-head",`<b>${esc(title||"Read this first")}</b>`);
+ const close=el("button","ai-x","Clear");
+ close.onclick=()=>{host.hidden=true};
+ head.append(close);
+ host.append(head);
+ rows.forEach((x,i)=>{
+  const e=aiEntry(x.id);
+  const row=el("label","ai-path-row",`<input type="checkbox"><span class="ai-path-t">${esc(aiHandle(e)||x.id)}</span><span class="ai-path-w">${esc(plain(x.why||""))}</span>`);
+  row.querySelector("input").onchange=()=>{openRef(x.id);aiMark(x.id)};
+  row.title=plain((e&&e.t)||x.id);
+  host.append(row);
+ });
+ host.hidden=false;
+ return "pinned "+rows.length+" entries in the sidebar";
+}
+async function aiExec(name,args){
+ if(name==="scroll_to"){
+  const id=String(args.id||"");
+  if(REF[id]){openRef(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
+  const sec=document.getElementById(id);
+  if(sec){unveil();sec.scrollIntoView({block:"start"});return "scrolled to the "+(AI_SECTION_NAMES[id]||id)+" section"}
+  return "no entry or section with id "+id;
+ }
+ if(name==="highlight")return aiMark(String(args.id||""))?"highlighted "+args.id:"nothing on the page with id "+args.id;
+ if(name==="open_entry"){
+  const id=String(args.id||"");
+  if(!REF[id])return "no entry with id "+id;
+  openRef(id);
+  setTimeout(()=>{const n=aiEl(id);if(n&&n.tagName==="DETAILS")n.open=true;aiMark(id)},60);
+  return "opened "+id;
+ }
+ if(name==="filter")return setStatusFilter(String(args.section||""),args.value)?"filtered "+args.section+" to "+args.value:"cannot filter "+args.section;
+ if(name==="show_diagram"){
+  const box=document.querySelector(".sysd");
+  if(!box||box.hidden)return "this document has no system diagram";
+  unveil();box.scrollIntoView({block:"center"});
+  const svg=$("#sysdHost svg.mmd");
+  if(args.node&&svg){clearHl(svg);return hlNode(svg,String(args.node))?"showed node "+args.node:"the diagram has no node "+args.node}
+  return "showed the system diagram";
+ }
+ if(name==="read_entry"){
+  const id=String(args.id||"");
+  const e=aiEntry(id);
+  if(!e){
+   const fn=FOOTNOTES.find(f=>"fn"+f.n===id||String(f.n)===id);
+   if(fn)return "Footnote "+fn.n+": "+plain(fn.b);
+   return "no entry with id "+id;
+  }
+  return aiEntryText(e,aiKind(id));
+ }
+ if(name==="read_section"){
+  const s=String(args.section||"");
+  return AI_SECTION_NAMES[s]?aiSectionText(s):"no section called "+s;
+ }
+ if(name==="list_entries"){
+  const reg=String(args.register||"");
+  const src={decisions:DQ,assumptions:ASSUM,open:OPEN,arch:ARCH,numbers:NUMBERS}[reg];
+  if(!src)return "no register called "+reg;
+  const st=args.status&&args.status!=="all"?String(args.status):null;
+  const th=args.theme&&args.theme!=="all"?String(args.theme):null;
+  const rows=src.filter(e=>(!st||e.s===st)&&(!th||e.theme===th||e.g===th));
+  if(!rows.length)return "nothing in "+reg+" matches";
+  return rows.map(e=>e.id+" — "+aiHandle(e)+(e.s?" ("+aiStatus(e)+")":"")).join("\n");
+ }
+ if(name==="select_text")return aiSelectText(args.text);
+ if(name==="set_reading_path")return aiRenderPath(args.title,Array.isArray(args.items)?args.items:[]);
+ return "no tool called "+name;
+}
+async function aiRun(question,opt){
+ const o=opt||{};
+ const msgs=[{role:"system",content:aiSystem()}];
+ aiChat.forEach(m=>msgs.push({role:m.role,content:m.content}));
+ msgs.push({role:"user",content:question});
+ let answer="";
+ for(let round=0;round<AI_ROUNDS;round++){
+  const prefix=answer?answer+"\n\n":"";
+  const res=await aiStream({model:AI.model,messages:msgs,tools:AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
+  if(res.text)answer=prefix+res.text;
+  if(!res.calls.length)break;
+  msgs.push({role:"assistant",content:res.text||"",tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  const results=await Promise.all(res.calls.map(async c=>{
+   let args={};
+   try{args=JSON.parse(c.args||"{}")}catch(e){return {c,out:"the arguments did not parse as JSON"}}
+   if(o.onTool)o.onTool(c.name,args);
+   try{return {c,out:await aiExec(c.name,args)}}
+   catch(e){return {c,out:"that tool failed: "+e.message}}
+  }));
+  results.forEach(r=>msgs.push({role:"tool",tool_call_id:r.c.id,content:String(r.out).slice(0,6000)}));
+ }
+ return {answer};
+}
+
+function aiChatKey(){return "ai:"+SLUG+":chat"}
+function aiSaveChat(){try{sessionStorage.setItem(aiChatKey(),JSON.stringify(aiChat.slice(-12)))}catch(e){}}
+function aiLoadChat(){
+ try{const raw=sessionStorage.getItem(aiChatKey());if(raw)aiChat=JSON.parse(raw)||[]}catch(e){aiChat=[]}
+ aiChat.forEach(m=>aiBubble(m.role,m.content));
+}
+function aiScrollLog(){const log=$("#aiLog");log.scrollTop=log.scrollHeight}
+function aiBubble(role,text){
+ const box=el("div","ai-msg ai-"+role);
+ if(role==="user")box.textContent=text;
+ else{box.innerHTML=mdToHtml(text||"…");scrub(box)}
+ $("#aiLog").append(box);
+ aiScrollLog();
+ return box;
+}
+function aiNode(node){$("#aiLog").append(node);aiScrollLog();return node}
+function aiOpen(seed){
+ const pop=$("#ai");
+ pop.hidden=false;
+ aiSuggest();
+ if(seed!=null){const box=$("#aiIn");box.value=seed;box.focus();aiGrow(box)}
+ else $("#aiIn").focus();
+ aiScrollLog();
+}
+function aiClose(){$("#ai").hidden=true}
+function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.scrollHeight)+"px"}
+function aiSuggest(){
+ const host=$("#aiSug");host.innerHTML="";
+ const meta=(META.ai&&META.ai.suggest)||{};
+ const list=[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
+ list.forEach(q=>{
+  const b=el("button","ai-chip",esc(q));
+  b.onclick=()=>aiAsk(q);
+  host.append(b);
+ });
+}
+function aiStop(){if(aiAbort){aiAbort.abort();aiAbort=null}aiBusy=false;$("#aiSend").textContent="Ask"}
+async function aiAsk(question,opt){
+ const q=String(question||"").trim();
+ if(!q||aiBusy)return;
+ clearAiMarks();
+ const o=opt||{};
+ $("#ai").hidden=false;
+ aiBubble("user",q);
+ const bubble=aiBubble("assistant","…");
+ const tools=el("div","ai-used");
+ aiNode(tools);
+ aiBusy=true;
+ aiAbort=new AbortController();
+ $("#aiSend").textContent="Stop";
+ let pending=0,latest="";
+ const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
+ try{
+  const {answer}=await aiRun(q,{
+   effort:o.effort||"low",
+   signal:aiAbort.signal,
+   onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
+   onTool:(name,args)=>{
+    tools.append(el("span","ai-tool",esc(name+(args&&args.id?" "+args.id:""))));
+    aiScrollLog();
+   }
+  });
+  if(pending)cancelAnimationFrame(pending);
+  latest=answer||"No answer came back.";
+  paint();
+  aiChat.push({role:"user",content:q},{role:"assistant",content:answer});
+  aiSaveChat();
+ }catch(e){
+  if(pending)cancelAnimationFrame(pending);
+  if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
+ }finally{
+  aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask";aiScrollLog();
+ }
+}
+
+async function aiExplain(entry,kind,roleIx,onText){
+ const [label,role]=AI_ROLES[roleIx];
+ const cites=aiCitedBy(entry.id).slice(0,6).map(id=>{const e=aiEntry(id);return e?id+" "+aiHandle(e):id}).join("; ");
+ const input=entry.id+"|"+label+"|"+(META.rev||0);
+ return aiCached("explain",input,()=>aiOnce([
+  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Name another entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). No preamble."},
+  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nWhat else names it: "+(cites||"nothing")+"\n\nThe document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nExplain what this means for that reader in three sentences."}
+ ],{effort:"low",onText}));
+}
+async function aiWhyHere(entry,kind){
+ const citers=aiCitedBy(entry.id);
+ const detail=citers.slice(0,10).map(id=>{const e=aiEntry(id);return e?id+" — "+plain(e.t):id}).join("\n")||"nothing else in the document names it";
+ return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nEverything that names it:\n"+detail}
+ ],{effort:"low"}));
+}
+async function aiReviewComment(entry,kind,concern){
+ return aiOnce([
+  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern}
+ ],{effort:"low"});
+}
+async function aiSummariseSection(id){
+ return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). Return markdown bullets and nothing else."},
+  {role:"user",content:"Section: "+AI_SECTION_NAMES[id]+"\n\n"+aiSectionText(id)}
+ ],{effort:"low"}));
+}
+async function aiChangedSince(){
+ if(!DIFF)return "";
+ const marks=Object.entries(DIFF.marks);
+ const detail=marks.slice(0,40).map(([k,v])=>{
+  const id=k.split(":")[1],e=aiEntry(id);
+  return k+" "+v+(e?" — "+plain(e.t):"");
+ }).join("\n");
+ const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
+ return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
+  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Name an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16). No bullet list."},
+  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail}
+ ],{effort:"medium"}));
+}
+const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
+async function aiFaq(){
+ return aiCached("faq",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and names an entry as its title then its id in round brackets, like: Access-token lifetime and binding (DQ16)."},
+  {role:"user",content:aiContext()}
+ ],{effort:"low",schema:AI_FAQ_SCHEMA}));
+}
+const AI_GLOSS_SCHEMA={name:"glossary",schema:{type:"object",properties:{terms:{type:"array",items:{type:"object",properties:{k:{type:"string"},v:{type:"string"}},required:["k","v"],additionalProperties:false}}},required:["terms"],additionalProperties:false}};
+async function aiGlossary(){
+ const known=TERMS.map(t=>t.k).join(", ");
+ return aiCached("glossary",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You find the terms a design document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."},
+  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\n"+aiContext()}
+ ],{effort:"low",schema:AI_GLOSS_SCHEMA}));
+}
+const AI_PATH_SCHEMA={name:"reading_path",schema:{type:"object",properties:{title:{type:"string"},items:{type:"array",items:{type:"object",properties:{id:{type:"string"},why:{type:"string"}},required:["id","why"],additionalProperties:false}}},required:["title","items"],additionalProperties:false}};
+async function aiReadAs(roleIx){
+ const [label,role]=AI_ROLES[roleIx];
+ return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You pick the six entries of a design document that one reader must read, in order, and give one line each on why. Use ids exactly as they appear."},
+  {role:"user",content:"Reader: "+role+" (title the path for them).\n\n"+aiContext()}
+ ],{effort:"medium",schema:AI_PATH_SCHEMA}));
+}
+const AI_QUIZ_SCHEMA={name:"quiz",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},options:{type:"array",items:{type:"string"}},answer:{type:"integer"},id:{type:"string"}},required:["q","options","answer","id"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
+async function aiQuiz(){
+ return aiCached("quiz",String(META.rev||0),()=>aiOnce([
+  {role:"system",content:"You write five multiple-choice questions that check whether a reviewer understood a design document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."},
+  {role:"user",content:aiContext()}
+ ],{effort:"medium",schema:AI_QUIZ_SCHEMA}));
+}
+
+function aiBusyNode(label){
+ const box=el("div","ai-msg ai-assistant");
+ box.append(el("span","ai-wait",esc(label)));
+ return aiNode(box);
+}
+function aiFail(box,e){box.innerHTML="";box.append(el("span","ai-err",esc("Sorry — "+e.message)))}
+async function aiFeature(label,run){
+ $("#ai").hidden=false;
+ const box=aiBusyNode(label+"…");
+ try{await run(box)}catch(e){aiFail(box,e)}
+ aiScrollLog();
+}
+function aiShowFaq(){
+ return aiFeature("Working out the questions people ask",async box=>{
+  const out=await aiFaq();
+  box.innerHTML="<h3>Questions people ask</h3>"+(out.items||[]).map(it=>`<p><b>${esc(it.q)}</b><br>${inline(it.a)}</p>`).join("");
+  scrub(box);
+ });
+}
+function aiShowChanged(){
+ if(!DIFF)return aiFeature("Comparing revisions",async box=>{box.textContent="Pick a revision to compare against first."});
+ return aiFeature("Reading the diff",async box=>{
+  const text=await aiChangedSince();
+  const chips=Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,12);
+  box.innerHTML=mdToHtml(text)+(chips.length?`<p class="ai-changed">Changed: ${chips.map(id=>refChip(id)).join(" ")}</p>`:"");
+  scrub(box);
+ });
+}
+function aiShowQuiz(){
+ return aiFeature("Writing five questions",async box=>{
+  const out=await aiQuiz();
+  box.innerHTML="<h3>Check my understanding</h3>";
+  (out.items||[]).forEach((q,qi)=>{
+   const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
+   (q.options||[]).forEach((opt,oi)=>{
+    const b=el("button","ai-opt",esc(opt));
+    b.onclick=()=>{
+     wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
+     b.classList.add(oi===q.answer?"ok":"bad");
+     const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
+     if(REF[q.id]){
+      const a=el("a","ref","Show me");
+      a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
+      foot.append(a);
+     }
+     wrap.append(foot);
+    };
+    wrap.append(b);
+   });
+   box.append(wrap);
+  });
+ });
+}
+function aiShowReadAs(roleIx){
+ return aiFeature("Picking what "+AI_ROLES[roleIx][0]+" should read",async box=>{
+  const out=await aiReadAs(roleIx);
+  aiRenderPath(out.title||("Read as "+AI_ROLES[roleIx][0]),out.items||[]);
+  box.innerHTML=`<h3>${esc(out.title||"Read this first")}</h3>`+(out.items||[]).map(x=>{
+   const e=aiEntry(x.id);
+   return `<p>${e?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`;
+  }).join("")+'<p class="ai-note-in">Pinned in the sidebar; tick a row to jump to it.</p>';
+  scrub(box);
+ });
+}
+function aiShowGlossary(){
+ return aiFeature("Looking for terms the document never defines",async box=>{
+  const out=await aiGlossary();
+  const terms=(out.terms||[]).filter(t=>t&&t.k&&t.v);
+  terms.forEach(t=>window.ddTerms.extra.set(t.k,{k:t.k,v:t.v,ai:true}));
+  const host=$("#defsList");
+  if(host)terms.forEach(t=>{
+   if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
+   const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
+   card.dataset.aiTerm=t.k;
+   host.append(card);
+  });
+  box.innerHTML="<h3>Terms the document never defines</h3>"+terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
+  const copy=el("button","ai-btn","Copy as JSON");
+  copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
+  box.append(copy);
+  const go=el("button","ai-btn","Show them in Terms");
+  go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
+  box.append(go);
+ });
+}
+
+function aiRowMenu(anchor,entry,kind){
+ document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+ const menu=el("div","ai-menu");
+ const head=el("div","ai-menu-head",`<b>${esc(aiHandle(entry))}</b><span class="idchip">${esc(entry.id)}</span>`);
+ menu.append(head);
+ const out=el("div","ai-menu-out");
+ const roles=el("div","ai-menu-row");
+ roles.append(el("span","ai-menu-label","Explain for"));
+ AI_ROLES.forEach(([label],ix)=>{
+  const b=el("button","ai-btn",label);
+  b.onclick=async()=>{
+   roles.querySelectorAll(".ai-btn").forEach(x=>x.classList.remove("on"));
+   b.classList.add("on");
+   out.textContent="…";
+   try{
+    const text=await aiExplain(entry,kind,ix,t=>{out.innerHTML=mdToHtml(t);scrub(out)});
+    out.innerHTML=mdToHtml(text);scrub(out);
+   }catch(e){out.textContent="Sorry — "+e.message}
+  };
+  roles.append(b);
+ });
+ menu.append(roles);
+ const acts=el("div","ai-menu-row");
+ const why=el("button","ai-btn","Why is this here");
+ why.onclick=async()=>{
+  out.textContent="…";
+  try{const text=await aiWhyHere(entry,kind);out.innerHTML=mdToHtml(text);scrub(out)}
+  catch(e){out.textContent="Sorry — "+e.message}
+ };
+ const review=el("button","ai-btn","Draft a review comment");
+ review.onclick=()=>{
+  out.innerHTML="";
+  const ta=el("textarea","ai-ta");ta.placeholder="What worries you about this?";ta.rows=2;
+  const go=el("button","ai-btn","Draft it");
+  go.onclick=async()=>{
+   const concern=ta.value.trim();
+   if(!concern)return;
+   out.textContent="…";
+   try{
+    const text=await aiReviewComment(entry,kind,concern);
+    out.innerHTML=mdToHtml(text);scrub(out);
+    const copy=el("button","ai-btn","Copy");
+    copy.onclick=()=>navigator.clipboard.writeText(text).then(()=>{copy.textContent="Copied"});
+    out.append(copy);
+   }catch(e){out.textContent="Sorry — "+e.message}
+  };
+  out.append(ta,go);ta.focus();
+ };
+ const ask=el("button","ai-btn","Ask about this");
+ ask.onclick=()=>{menu.remove();aiOpen("About "+aiHandle(entry)+" ("+entry.id+"): ")};
+ acts.append(why,review,ask);
+ menu.append(acts,out);
+ document.body.append(menu);
+ const r=anchor.getBoundingClientRect();
+ menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
+ menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+}
+function aiAskButton(row,entry,kind){
+ if(row.querySelector(":scope > .ai-ask, :scope > summary .ai-ask"))return;
+ const b=el("button","ai-ask ai-only","Ask");
+ b.type="button";
+ b.title="Explain this, or ask about it";
+ b.onclick=ev=>{ev.preventDefault();ev.stopPropagation();aiRowMenu(b,entry,kind)};
+ const host=row.querySelector(":scope > summary .lrow")||row.querySelector(":scope > summary .meta")||row.querySelector(":scope > summary")||row;
+ host.append(b);
+}
+function aiWireRows(){
+ document.addEventListener("pointerover",e=>{
+  if(!HTML.dataset.ai||!e.target.closest)return;
+  const row=e.target.closest("details.ledger[id^='item-'],details.spot,.orow,details.ledger[id^='c-']");
+  if(!row)return;
+  const id=row.id.replace(/^(item-|spot-|open-)/,"");
+  const entry=aiEntry(id);
+  if(entry)aiAskButton(row,entry,aiKind(id));
+ });
+ document.addEventListener("click",e=>{
+  const menu=document.querySelector(".ai-menu");
+  if(!menu)return;
+  const path=e.composedPath?e.composedPath():[];
+  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest(".ai-ask")))return;
+  menu.remove();
+ });
+}
+function aiWireSelection(){
+ const chip=el("button","ai-sel ai-only","Ask about this");
+ chip.hidden=true;
+ document.body.append(chip);
+ chip.onclick=()=>{
+  const text=String(getSelection()).trim().slice(0,600);
+  chip.hidden=true;
+  aiOpen("About this passage: “"+text+"”\n\n");
+ };
+ document.addEventListener("pointerup",()=>{
+  setTimeout(()=>{
+   if(!HTML.dataset.ai)return;
+   const sel=getSelection(),text=String(sel).trim();
+   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)){chip.hidden=true;return}
+   const r=sel.getRangeAt(0).getBoundingClientRect();
+   chip.style.left=Math.min(Math.max(8,r.left),innerWidth-160)+"px";
+   chip.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
+   chip.hidden=false;
+  },10);
+ });
+ document.addEventListener("pointerdown",e=>{if(!e.target.closest(".ai-sel"))chip.hidden=true});
+}
+function aiWireSections(){
+ const secs=[...document.querySelectorAll("main section")].filter(s=>!s.hidden);
+ const io=new IntersectionObserver(entries=>{
+  entries.forEach(en=>{
+   if(!en.isIntersecting)return;
+   aiSec=en.target.id;
+   if(!$("#ai").hidden)aiSuggest();
+  });
+ },{rootMargin:"-25% 0px -60% 0px"});
+ secs.forEach(s=>io.observe(s));
+ secs.forEach(s=>{
+  const h=s.querySelector("h2");
+  if(!h||!AI_SECTION_NAMES[s.id])return;
+  const b=el("button","ai-h2 ai-only","Summarise");
+  b.type="button";
+  b.onclick=async()=>{
+   b.disabled=true;b.textContent="…";
+   try{
+    const md=await aiSummariseSection(s.id);
+    const box=s.querySelector(".ai-sub")||el("div","sub ai-sub");
+    box.innerHTML=mdToHtml(md);
+    scrub(box);
+    const sub=s.querySelector("p.sub");
+    (sub&&!sub.hidden?sub:h).after(box);
+    b.textContent="Summarise";b.disabled=false;
+   }catch(e){b.textContent="Summarise";b.disabled=false;alert("Sorry — "+e.message)}
+  };
+  h.append(b);
+ });
+}
+function aiWireDiffPanel(){
+ const panel=$("#diffPanel");
+ const add=()=>{
+  if(panel.hidden||!DIFF||panel.querySelector(".ai-changed-btn"))return;
+  const b=el("button","xbtn ai-changed-btn ai-only","What changed, in prose");
+  b.onclick=aiShowChanged;
+  const head=panel.querySelector("div");
+  if(head)head.append(b);
+ };
+ new MutationObserver(add).observe(panel,{childList:true,attributes:true,attributeFilter:["hidden"]});
+ add();
+}
+function aiWireTools(){
+ const rail=document.querySelector("#rail");
+ const path=el("div","ai-path ai-only");
+ path.id="aiPath";
+ path.hidden=true;
+ rail.insertBefore(path,rail.querySelector(".spacer"));
+ const tools=document.querySelector("#rail .tools");
+ const row=el("div","toolrow ai-only");
+ const ask=el("button","toolbtn","Ask the doc");
+ ask.onclick=()=>aiOpen();
+ const pal=el("button","toolbtn","⌘K");
+ pal.title="Everything you can do here";
+ pal.onclick=()=>palOpen("");
+ row.append(ask,pal);
+ tools.append(row);
+ const termHead=document.querySelector("#ground h3");
+ if(termHead){
+  const g=el("button","ai-h2 ai-only","Find undefined terms");
+  g.onclick=aiShowGlossary;
+  termHead.append(g);
+ }
+ const foot=document.querySelector("footer");
+ if(foot){
+  const p=el("p","ai-only ai-footrow");
+  const quiz=el("button","xbtn","Check my understanding");
+  quiz.onclick=aiShowQuiz;
+  const faq=el("button","xbtn","Questions people ask");
+  faq.onclick=aiShowFaq;
+  p.append(quiz,faq);
+  foot.append(p);
+ }
+}
+
+function palItems(){
+ const items=[];
+ const push=(kind,label,sub,run)=>items.push({kind,label,sub,run});
+ Object.entries(AI_SECTION_NAMES).forEach(([id,name])=>{
+  const sec=document.getElementById(id);
+  if(sec&&!sec.hidden)push("section",name,"Go to",()=>{unveil();sec.scrollIntoView({block:"start"})});
+ });
+ if(!$("#navSummary").hidden)push("section","Summary","Go to",()=>scrollTo({top:0,behavior:"smooth"}));
+ Object.keys(REF).forEach(id=>{
+  const e=aiEntry(id);
+  if(!e)return;
+  const st=AI_STATUS[e.s]||["",""];
+  push(aiKind(id),aiHandle(e),plain(e.p||e.t||""),()=>{openRef(id);aiMark(id)});
+  Object.assign(items[items.length-1],{dot:st[0],rid:id});
+ });
+ TERMS.forEach(t=>push("term",t.k,plain(t.v),()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}}));
+ const cmd=(label,run)=>push("cmd",label,"Command",run);
+ if(DQ.length){
+  cmd("Decisions: everything",()=>setStatusFilter("decisions","all"));
+  cmd("Decisions: only Decided",()=>setStatusFilter("decisions","resolved"));
+  cmd("Decisions: only Replaced",()=>setStatusFilter("decisions","superseded"));
+  cmd("Decisions: only Still open",()=>setStatusFilter("decisions","open"));
+ }
+ if(ASSUM.length){
+  cmd("Assumptions: everything",()=>setStatusFilter("assumptions","all"));
+  cmd("Assumptions: only Assumed",()=>setStatusFilter("assumptions","working"));
+  cmd("Assumptions: Needs someone to confirm",()=>setStatusFilter("assumptions","validate"));
+ }
+ Object.entries(OGROUPS).forEach(([g,label])=>cmd("Still open: "+label,()=>{setStatusFilter("open",g);const s=document.getElementById("open");if(s){unveil();s.scrollIntoView({block:"start"})}}));
+ Object.entries(THEMES).forEach(([k,label])=>cmd("Theme: "+label,()=>{
+  setStatusFilter("decisions","all");
+  const det=[...document.querySelectorAll("#dqList details.theme")].find(d=>plain(d.querySelector(".t").textContent)===label);
+  if(det){det.open=true;unveil();det.scrollIntoView({block:"start"})}
+ }));
+ cmd("Expand all",()=>document.querySelectorAll("#dqList details,#aList details,#archCards details,#oList details").forEach(d=>{d.open=true}));
+ cmd("Collapse all",()=>document.querySelectorAll("#dqList details,#aList details,#archCards details,#oList details").forEach(d=>{d.open=false}));
+ if(!$("#wordingBtn").hidden)cmd("Full wording: toggle",()=>$("#wordingBtn").click());
+ cmd("Theme: dark",()=>aiTheme("dark"));
+ cmd("Theme: light",()=>aiTheme("light"));
+ cmd("Theme: follow the system",()=>aiTheme(""));
+ cmd("Print, or save as PDF",()=>$("#pdfBtn").click());
+ cmd("Copy the whole document as Markdown",()=>navigator.clipboard.writeText(buildDocMd()));
+ cmd("Copy this section as Markdown",()=>navigator.clipboard.writeText("## "+(AI_SECTION_NAMES[aiSec]||aiSec)+"\n\n"+aiSectionText(aiSec)));
+ cmd("Copy the selection, citations resolved",()=>{
+  const text=String(getSelection()).trim();
+  navigator.clipboard.writeText(ID_RE?text.replace(ID_RE,(all,pre,id)=>pre+mdRef(id)):text);
+ });
+ const baseSel=$("#baseSel");
+ if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
+ if(PATHS.length)cmd("Play the request",()=>{const b=document.querySelector(".tracebtn");if(b){b.scrollIntoView({block:"center"});b.click()}});
+ const ai=(label,run)=>push("ai",label,"Ask",run);
+ ai("Questions people ask",aiShowFaq);
+ ai("Check my understanding",aiShowQuiz);
+ ai("Find undefined terms",aiShowGlossary);
+ AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));
+ if(DIFF)ai("What changed, in prose",aiShowChanged);
+ ai("Summarise this section",async()=>{
+  const b=document.querySelector("#"+aiSec+" .ai-h2");
+  if(b)b.click();
+ });
+ ai("Ask anything",()=>aiOpen());
+ return items;
+}
+function palScore(item,q){
+ const hay=(item.label+" "+(item.rid||"")+" "+(item.sub||"")).toLowerCase();
+ const i=hay.indexOf(q);
+ if(i<0)return -1;
+ return (item.label.toLowerCase().startsWith(q)?0:1)+(i>item.label.length?1:0)+i/400;
+}
+let palList=[],palIx=0,palAll=null;
+function palRender(){
+ const box=$("#palList");box.innerHTML="";
+ palList.forEach((it,ix)=>{
+  const row=el("div","pal-row"+(ix===palIx?" on":""),
+   `<span class="pal-g">${esc(AI_GLYPH[it.kind]||"›")}</span>`+
+   (it.dot?`<i class="pal-dot ${esc(it.dot)}"></i>`:"")+
+   `<span class="pal-l">${esc(it.label)}</span>`+
+   (it.rid?`<span class="pal-id">${esc(it.rid)}</span>`:"")+
+   `<span class="pal-s">${esc((it.sub||"").slice(0,90))}</span>`);
+  row.onclick=()=>palRun(ix);
+  box.append(row);
+ });
+ const on=box.querySelector(".pal-row.on");
+ if(on)on.scrollIntoView({block:"nearest"});
+}
+function palSearch(raw){
+ const all=palAll||(palAll=palItems());
+ const s=String(raw||"");
+ const mode=s[0]===">"?"cmd":s[0]==="?"?"ai":"";
+ const q=(mode?s.slice(1):s).trim().toLowerCase();
+ let pool=mode==="cmd"?all.filter(i=>i.kind==="cmd"):mode==="ai"?all.filter(i=>i.kind==="ai"):all;
+ if(q){
+  pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
+ }else if(!mode){
+  pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
+ }
+ palList=pool.slice(0,40);
+ if(q&&!mode)palList.push({kind:"ai",label:"Ask the doc for “"+q+"”",sub:"No exact match — ask instead",run:()=>aiAsk(q)});
+ palIx=0;
+ palRender();
+}
+function palRun(ix){
+ const it=palList[ix];
+ if(!it)return;
+ palClose();
+ it.run();
+}
+function palOpen(seed){
+ const pal=$("#pal");
+ palAll=null;
+ pal.hidden=false;
+ const input=$("#palIn");
+ input.value=seed||"";
+ palSearch(input.value);
+ input.focus();
+ input.select();
+}
+function palClose(){$("#pal").hidden=true}
+function palWire(){
+ const input=$("#palIn");
+ input.oninput=()=>palSearch(input.value);
+ input.onkeydown=e=>{
+  if(e.key==="ArrowDown"){e.preventDefault();palIx=Math.min(palList.length-1,palIx+1);palRender()}
+  else if(e.key==="ArrowUp"){e.preventDefault();palIx=Math.max(0,palIx-1);palRender()}
+  else if(e.key==="Enter"){e.preventDefault();palRun(palIx)}
+  else if(e.key==="Escape"){e.preventDefault();palClose()}
+ };
+ $("#pal").addEventListener("pointerdown",e=>{if(e.target.id==="pal")palClose()});
+}
+function aiTheme(mode){
+ if(mode)HTML.dataset.theme=mode;else delete HTML.dataset.theme;
+ try{mode?localStorage.setItem("design-doc-theme",mode):localStorage.removeItem("design-doc-theme")}catch(e){}
+ rerenderDiagrams();
+ document.querySelectorAll(".xs-poster").forEach(drawConnectors);
+}
+function aiTyping(){return /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)||document.activeElement.isContentEditable}
+function aiWireKeys(){
+ document.addEventListener("keydown",e=>{
+  if(!HTML.dataset.ai)return;
+  const meta=e.metaKey||e.ctrlKey;
+  if(meta&&e.key.toLowerCase()==="k"){e.preventDefault();$("#pal").hidden?palOpen(""):palClose();return}
+  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();$("#ai").hidden?aiOpen():aiClose();return}
+  if(e.key==="?"&&!aiTyping()){e.preventDefault();aiOpen();return}
+  if(e.key==="Escape"){
+   if(!$("#pal").hidden){palClose();return}
+   document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+   clearAiMarks();
+   if(!$("#ai").hidden&&!aiBusy)aiClose();
+   if(aiBusy)aiStop();
+  }
+ });
+}
+function aiWirePopover(){
+ $("#aiClose").onclick=aiClose;
+ $("#aiWide").onclick=()=>{
+  const pop=$("#ai");
+  if(pop.dataset.wide)delete pop.dataset.wide;else pop.dataset.wide="1";
+  document.body.classList.toggle("ai-wide",!!pop.dataset.wide);
+ };
+ $("#aiClear").onclick=()=>{
+  aiChat=[];
+  $("#aiLog").innerHTML="";
+  clearAiMarks();
+  aiSaveChat();
+ };
+ const box=$("#aiIn");
+ box.addEventListener("input",()=>aiGrow(box));
+ box.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#aiForm").requestSubmit()}
+ });
+ $("#aiForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  if(aiBusy){aiStop();return}
+  const q=box.value.trim();
+  if(!q)return;
+  box.value="";aiGrow(box);
+  aiAsk(q);
+ });
+ const strip=$("#aiTools");
+ [["Questions people ask",aiShowFaq],["Read as a role",()=>aiShowReadAs(0)],["Check my understanding",aiShowQuiz],["Find undefined terms",aiShowGlossary]].forEach(([label,run])=>{
+  const b=el("button","ai-chip",esc(label));
+  b.onclick=run;
+  strip.append(b);
+ });
+ const notes=el("label","ai-note-tog",'<input type="checkbox"> Include the working notes and question log');
+ notes.querySelector("input").onchange=async e=>{
+  if(!e.target.checked){aiCtxText=null;return}
+  const extra=[];
+  for(const f of ["NOTES.md","qa-log.json"]){
+   try{extra.push("\n## "+f+"\n"+(await loadFile(f)).slice(0,20000))}catch(err){}
+  }
+  aiCtxText=aiContext()+extra.join("\n");
+ };
+ $("#aiNote").append(notes);
+ $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
+}
+function aiBoot(){
+ try{const t=localStorage.getItem("design-doc-theme");if(t)HTML.dataset.theme=t}catch(e){}
+ aiConfig().then(cfg=>{
+  if(!cfg)return;
+  AI=cfg;
+  HTML.dataset.ai="1";
+  aiWireTools();
+  aiWirePopover();
+  aiWireRows();
+  aiWireSelection();
+  aiWireSections();
+  aiWireDiffPanel();
+  aiWireKeys();
+  palWire();
+  aiLoadChat();
+  aiSuggest();
+ });
+}
+window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
+aiBoot();
 })();
 </script>
 </body>
