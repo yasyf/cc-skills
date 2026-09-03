@@ -56,6 +56,8 @@ ASSUMPTION_STATUSES = {"working", "validate"}
 PANEL_BUDGET = {"thesis": 40, "compare": 120, "numbers": 60, "cost": 90, "poster": 180}
 DECK_BUDGET = 350
 DECK_SIZE = (3, 5)
+HAND_FIGURE_RECTS = 8
+FIGURE_MARKS = ("rect", "path", "marker")
 TWIN_WORDS = 30
 TLDR_WORDS = 20
 KEY_RANGE = (3, 8)
@@ -296,9 +298,16 @@ class DeckParser(HTMLParser):
             self.figure["labelled"] = True
         if a.get("data-icon"):
             self.icons.append(a["data-icon"])
+        if self.figure is not None and a.get("data-component"):
+            self.figure["host"] = True
         if tag in self.MUTED or (tag == "pre" and "mermaid" in classes):
             self.muted.append(tag)
         if self.muted:
+            if self.figure is not None and self.muted[0] == "svg":
+                if tag in FIGURE_MARKS:
+                    self.figure[tag] += 1
+                if "stroke-dasharray" in a:
+                    self.figure["dashed"] += 1
             return
         if tag == "section":
             if self.panel is None and "xs-panel" in classes:
@@ -308,7 +317,8 @@ class DeckParser(HTMLParser):
             elif self.panel is not None:
                 self.sections += 1
         elif tag == "figure" and self.panel is not None:
-            self.figure = {"labelled": bool((a.get("aria-label") or "").strip())}
+            self.figure = {"labelled": bool((a.get("aria-label") or "").strip()), "host": False, "dashed": 0,
+                           **{mark: 0 for mark in FIGURE_MARKS}}
             self.panel["figures"].append(self.figure)
         elif tag == "figcaption" and self.figure is not None:
             self.figure["labelled"] = True
@@ -1000,6 +1010,9 @@ def check_summary_deck(rep, fragment: str):
         for figure in panel["figures"]:
             if not figure["labelled"]:
                 rep.strict_warn(f"{label} has a <figure> with no aria-label or figcaption")
+            if kind == "compare" and not figure["host"] and figure["rect"] >= HAND_FIGURE_RECTS:
+                rep.warn(f"{label} draws its figure by hand, {figure['rect']} rects and {figure['path']} paths; "
+                         "a columns-with-callouts figure is a dd.flow, a two-lane figure is a dd.lanes; both lay themselves out")
         for sentence in (s.strip() for s in SENTENCE_END.split(text)):
             lead = LEADING_ID.match(sentence)
             if lead:
@@ -1907,18 +1920,33 @@ def schema_errors(value, schema, where: str) -> list:
 class ComponentHosts(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.hosts, self.open = [], []
+        self.hosts, self.open, self.panel, self.topic = [], [], None, None
 
     def handle_starttag(self, tag, attrs):
-        name = dict(attrs).get("data-component")
+        a = dict(attrs)
+        classes = classes_of(attrs)
+        if tag == "section" and "xs-panel" in classes:
+            self.panel = {"kind": a.get("data-kind") or "", "topics": []}
+        if "xs-topic" in classes:
+            self.topic = {"depth": 0, "text": []}
+        elif self.topic is not None and tag not in VOID_TAGS:
+            self.topic["depth"] += 1
+        name = a.get("data-component")
         if name:
-            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False})
+            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False, "panel": self.panel})
         elif self.open and tag not in VOID_TAGS:
             self.open[-1]["depth"] += 1
         if self.open and tag == "figure":
             self.open[-1]["figure"] = True
 
     def handle_endtag(self, tag):
+        if self.topic is not None:
+            if self.topic["depth"]:
+                self.topic["depth"] -= 1
+            else:
+                if self.panel is not None:
+                    self.panel["topics"].append(topic_key("".join(self.topic["text"])))
+                self.topic = None
         if not self.open:
             return
         host = self.open[-1]
@@ -1926,6 +1954,10 @@ class ComponentHosts(HTMLParser):
             host["depth"] -= 1
         elif tag == host["tag"]:
             self.hosts.append(self.open.pop())
+
+    def handle_data(self, data):
+        if self.topic is not None:
+            self.topic["text"].append(data)
 
     def close(self):
         super().close()
@@ -1988,9 +2020,38 @@ def check_whatif(rep, label, spec, known):
             rep.err(f"{label}: cites {cited}, which no register defines")
 
 
-def check_component_props(rep, label, spec, known, node_ids):
+def topic_key(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def check_flow(rep, label, spec, topics):
+    ids = [c["id"] for c in spec["columns"]]
+    for cid in sorted({cid for cid in ids if ids.count(cid) > 1}):
+        rep.err(f"{label}: two columns share the id {cid!r}")
+    per_side = {}
+    for i, call in enumerate(spec["callouts"]):
+        if call["col"] not in ids:
+            rep.err(f"{label}.callouts[{i}]: col {call['col']!r} is not a column id ({', '.join(ids)})")
+            continue
+        side = call.get("side") or ("above" if per_side.get((call["col"], "above"), 0) < 3 else "below")
+        per_side[(call["col"], side)] = per_side.get((call["col"], side), 0) + 1
+        topic = call.get("topic")
+        if topic and topics is not None and topic_key(topic) not in topics:
+            rep.err(f"{label}.callouts[{i}]: topic {topic!r} matches no .xs-topic in the compare panel that hosts it")
+    for (col, side), n in sorted(per_side.items()):
+        if n > 4:
+            rep.warn(f"{label}: column {col!r} stacks {n} callouts {side}; more than four on a side crowds the figure")
+
+
+def check_component_props(rep, label, spec, known, node_ids, topics=None):
     kind = spec["kind"]
-    if kind == "dd.whatif":
+    if kind == "dd.flow":
+        check_flow(rep, label, spec, topics)
+    elif kind == "dd.lanes":
+        ids = [lane["id"] for lane in spec["lanes"]]
+        if ids[0] == ids[1]:
+            rep.err(f"{label}: both lanes carry the id {ids[0]!r}")
+    elif kind == "dd.whatif":
         check_whatif(rep, label, spec, known)
     elif kind == "dd.tabs":
         for i, tab in enumerate(spec["tabs"]):
@@ -2049,6 +2110,8 @@ def check_components(rep, R, root, known, node_ids):
         rep.strict_warn(f"components/ holds {len(sources)} .tsx component(s) but components.js is missing; run design.py build")
 
     schemas = component_schemas(rep)
+    compare_topics = {host["id"]: host["panel"]["topics"] for host in hosts
+                      if host["panel"] and host["panel"]["kind"] == "compare"}
     for cid, spec in sorted(declared.items()):
         label = f"components.{cid}"
         if not COMPONENT_ID.fullmatch(cid):
@@ -2064,7 +2127,7 @@ def check_components(rep, R, root, known, node_ids):
         for msg in problems:
             rep.err(msg)
         if not problems:
-            check_component_props(rep, label, spec, known, node_ids)
+            check_component_props(rep, label, spec, known, node_ids, compare_topics.get(cid))
             check_figures(rep, label, spec)
 
     referenced = set()
@@ -2225,10 +2288,17 @@ def component_labels(R):
         where = f"components.{cid}"
         if isinstance(spec.get("title"), str) and spec["title"].strip():
             yield f"{where}.title", spec["title"], True
-        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols"):
+        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols", "columns", "lanes"):
             for i, item in enumerate(spec.get(field) or []):
                 if isinstance(item, dict) and isinstance(item.get("label"), str) and item["label"].strip():
                     yield f"{where}.{field}[{i}].label", item["label"], True
+        for i, call in enumerate(spec.get("callouts") or []):
+            if isinstance(call, dict) and isinstance(call.get("title"), str) and call["title"].strip():
+                yield f"{where}.callouts[{i}].title", call["title"], True
+        for i, lane in enumerate(spec.get("lanes") or []):
+            for j, box in enumerate((lane.get("boxes") if isinstance(lane, dict) else None) or []):
+                if isinstance(box, dict) and isinstance(box.get("title"), str) and box["title"].strip():
+                    yield f"{where}.lanes[{i}].boxes[{j}].title", box["title"], True
         for side in ("before", "after"):
             pane = spec.get(side)
             if isinstance(pane, dict) and isinstance(pane.get("label"), str) and pane["label"].strip():

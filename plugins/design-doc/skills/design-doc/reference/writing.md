@@ -152,6 +152,8 @@ A figure moves when a number or a sequence earns it: a number the reader would w
 | a sequence the reader should step through on the diagram | `dd.steps` | How it works; drives the system diagram's highlight |
 | phases with gates | `dd.timeline` | the rollout card; the top of Still open |
 | options against criteria | `dd.matrix` | a decision's rejected alternatives; a compare with more than two lanes |
+| findings laid along a path: columns left to right, each with the callouts that sit on it, solid when closed and dashed when open | `dd.flow` | a compare panel's figure; a callout's `topic` names the `.xs-topic` row it explains, and hovering either highlights the other |
+| what each side holds: two framed lanes of boxes, today beside proposed | `dd.lanes` | a compare panel's figure; the boxes-in-boxes shape, stacked on a narrow screen |
 
 The declaration sits in `registers.json`; the deck places it with `<div data-component="id"></div>` inside a panel's `<figure>`, and the registers place it through `arch[].component`, `numbers[].component`, or `meta.ceilingsComponent`. A `dd.whatif` for the gallery deck's numbers panel:
 

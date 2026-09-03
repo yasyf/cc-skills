@@ -1,0 +1,25 @@
+{
+  "kind": "dd.lanes",
+  "lanes": [
+    {
+      "id": "today",
+      "label": "Today",
+      "boxes": [
+        {"title": "Jobs table", "sub": "shared, scanned by every poll"},
+        {"title": "Three workers", "sub": "each polls every 5 s"},
+        {"title": "Finished rows", "sub": "stay until someone prunes them", "status": "warn"}
+      ]
+    },
+    {
+      "id": "proposed",
+      "label": "Proposed",
+      "boxes": [
+        {"title": "Job log", "sub": "one file per tenant, acked in ~2 ms"},
+        {"title": "Dispatcher", "sub": "leases a job, pushes it"},
+        {"title": "Two workers", "sub": "parked on a long poll"},
+        {"title": "Object storage", "sub": "archive after 24 h", "status": "open"}
+      ]
+    }
+  ],
+  "bridge": "poll becomes push"
+}

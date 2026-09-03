@@ -660,6 +660,31 @@ table.ddc-mx .on{background:var(--accent-soft)}
 table.ddc-mx td[data-tone=ok]{color:var(--ok)}
 table.ddc-mx td[data-tone=warn]{color:var(--warn)}
 table.ddc-mx td[data-tone=bad]{color:var(--crit)}
+svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2);--fx-line:var(--line);--fx-box:var(--bg2)}
+.xs-panel svg.ddc-flow,.xs-panel svg.ddc-lanes{--fx-ink:var(--hero-ink);--fx-ink2:var(--hero-ink2);--fx-line:var(--hero-line)}
+.xs-panel>figure .ddc[data-kind="dd.flow"],.xs-panel>figure .ddc[data-kind="dd.lanes"]{margin:0}
+.ddc svg.fit+.fullbtn{margin-top:10px}
+#flowMeasure{position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none}
+.fx-t{font-family:var(--display);font-weight:600;font-size:13px;fill:var(--fx-ink)}
+.fx-s,.fx-n{font-family:var(--mono);font-size:9.5px;fill:var(--fx-ink2)}
+.fx-e{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.04em;fill:var(--tone)}
+.fx-col{fill:var(--fx-box);stroke:var(--fx-ink);stroke-width:1.5}
+.fx-arrow{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
+.fx-head{fill:var(--fx-ink2)}
+.fx-call rect{fill:var(--before-soft);stroke:var(--before);stroke-width:1.5;transition:stroke-width .12s}
+.fx-call[data-status=open] rect{fill:none;stroke-dasharray:5 4}
+.fx-call[data-topic]{cursor:default}
+.fx-call.on rect{stroke-width:2.5}
+.fx-conn{fill:none;stroke:var(--before);stroke-width:1;stroke-dasharray:3 3}
+.xs-row.fx-on{background:var(--before-soft)}
+.fx-lane{--tone:var(--before);--tone-soft:var(--before-soft)}
+.fx-lane[data-tone=after]{--tone:var(--after);--tone-soft:var(--after-soft)}
+.fx-frame{fill:none;stroke:var(--tone);stroke-width:1.5}
+.fx-box rect{fill:var(--tone-soft);stroke:var(--tone);stroke-width:1.2}
+.fx-box[data-status=open] rect{fill:none;stroke-dasharray:4 3}
+.fx-box[data-status=open] .fx-t{fill:var(--fx-ink2)}
+.fx-box[data-status=warn] rect{fill:var(--warn-soft);stroke:var(--warn)}
+.fx-bridge{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
 [data-component][data-mounted]>figure.ddc-fallback{display:none}
 @media (max-width:900px){
   .ddc-input{grid-template-columns:1fr auto;gap:4px 10px}
@@ -3164,7 +3189,229 @@ function cmptMatrix(spec){
  box.append(wrap);
  return box;
 }
-const CMPT_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix};
+const FX_PAD=10,FX_GAP=44,FX_COL_H=40,FX_PADX=14,FX_CALL_H=34,FX_CALL_H2=44,FX_CALL_GAP=6,FX_CONN=26,FX_LEG_H=22;
+const LN_EYE=24,LN_GAP=32,LN_FPAD=8,LN_BOX_H=30,LN_BOX_H2=40,LN_BOX_GAP=8,LN_MINW=120,LN_BRIDGE_MIN=64,LN_NARROW=640,LN_ONE_COL=4;
+const TEXT_W=new Map();
+let fxMeasure=null,fxCanvas=null,fxFonts=null,fxUid=0;
+function textWidth(text,cls){
+ const key=cls+"\0"+text;
+ if(TEXT_W.has(key))return TEXT_W.get(key);
+ if(!fxMeasure){
+  fxMeasure=document.createElementNS(SVGNS,"svg");
+  fxMeasure.id="flowMeasure";
+  fxMeasure.setAttribute("aria-hidden","true");
+  document.body.append(fxMeasure);
+ }
+ const t=document.createElementNS(SVGNS,"text");
+ t.setAttribute("class",cls);
+ t.textContent=text;
+ fxMeasure.append(t);
+ let w=t.getComputedTextLength();
+ if(!w){
+  if(!fxCanvas)fxCanvas=document.createElement("canvas").getContext("2d");
+  const cs=getComputedStyle(t);
+  fxCanvas.font=`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  w=fxCanvas.measureText(text).width;
+ }
+ t.remove();
+ TEXT_W.set(key,w);
+ return w;
+}
+function afterFonts(fn){
+ if(document.fonts.status==="loaded")return;
+ if(!fxFonts)fxFonts=document.fonts.ready.then(()=>{fxFonts=null;TEXT_W.clear()});
+ fxFonts.then(fn);
+}
+const fxNum=v=>String(Math.round(v*10)/10);
+const fxText=(cls,x,y,text,anchor)=>`<text class="${cls}" x="${fxNum(x)}" y="${fxNum(y)}"${anchor?` text-anchor="${anchor}"`:""}>${esc(text)}</text>`;
+const fxLabelled=(cls,cx,y,h,title,sub)=>sub
+ ?fxText("fx-t",cx,y+17,title,"middle")+fxText(cls,cx,y+h-12,sub,"middle")
+ :fxText("fx-t",cx,y+h/2+4.5,title,"middle");
+function fxMarker(id){
+ return `<defs><marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="fx-head" d="M0 0L10 5L0 10z"/></marker></defs>`;
+}
+function fxSvg(kind,w,h,body,label){
+ const svg=el("div",null,`<svg viewBox="0 0 ${fxNum(w)} ${fxNum(h)}" role="img">${body}</svg>`).firstElementChild;
+ svg.classList.add("fit",kind);
+ svg.setAttribute("aria-label",label);
+ setAspect(svg);
+ return svg;
+}
+function fxMount(box,draw,wire){
+ let svg=draw();
+ box.append(svg);
+ if(wire)wire();
+ const redraw=()=>{const next=draw();svg.replaceWith(next);svg=next;if(wire)wire()};
+ afterFonts(redraw);
+ return redraw;
+}
+const callH=c=>c.sub?FX_CALL_H2:FX_CALL_H;
+const callW=c=>Math.max(textWidth(c.title,"fx-t"),c.sub?textWidth(c.sub,"fx-s"):0)+2*FX_PADX;
+const stackH=list=>list.reduce((h,c,i)=>h+callH(c)+(i?FX_CALL_GAP:0),0);
+function flowLabel(spec){
+ if(spec.title)return plain(spec.title);
+ const cols=spec.columns,closed=spec.callouts.filter(c=>c.status==="closed").length;
+ return `${cols.length} columns, ${plain(cols[0].label)} to ${plain(cols[cols.length-1].label)}, with ${spec.callouts.length} callouts: ${closed} closed, ${spec.callouts.length-closed} open.`;
+}
+function flowSvg(spec){
+ const cols=spec.columns.map(c=>({...c,above:[],below:[]}));
+ const byId=Object.fromEntries(cols.map(c=>[c.id,c]));
+ spec.callouts.forEach(c=>{
+  const col=byId[c.col];
+  col[c.side||(col.above.length<3?"above":"below")].push(c);
+ });
+ let x=FX_PAD,aboveH=0,belowH=0;
+ cols.forEach(col=>{
+  col.boxW=Math.max(50,textWidth(col.label,"fx-t")+2*FX_PADX,col.sub?textWidth(col.sub,"fx-s")+2*FX_PADX:0);
+  col.w=Math.max(col.boxW,...col.above.map(callW),...col.below.map(callW))+8;
+  col.cx=x+col.w/2;
+  x+=col.w+FX_GAP;
+  aboveH=Math.max(aboveH,stackH(col.above));
+  belowH=Math.max(belowH,stackH(col.below));
+ });
+ let w=x-FX_GAP+FX_PAD;
+ const colY=FX_PAD+aboveH+(aboveH?FX_CONN:0),colMid=colY+FX_COL_H/2;
+ let h=colY+FX_COL_H+(belowH?FX_CONN+belowH:0)+FX_PAD;
+ const legend=spec.legend?[`Solid: ${plain(spec.legend.closed)}`,`Dashed: ${plain(spec.legend.open)}`]:null;
+ if(legend)w=Math.max(w,textWidth(legend[0],"fx-n")+textWidth(legend[1],"fx-n")+3*FX_PAD);
+ const marker=`fx-arr-${++fxUid}`;
+ const parts=[fxMarker(marker)];
+ const callout=(c,y)=>{
+  const cw=callW(c),ch=callH(c),col=byId[c.col];
+  return `<g class="fx-call" data-status="${c.status}"${c.topic?` data-topic="${esc(plain(c.topic).toLowerCase())}"`:""}><rect x="${fxNum(col.cx-cw/2)}" y="${fxNum(y)}" width="${fxNum(cw)}" height="${ch}" rx="6"/>${fxLabelled("fx-s",col.cx,y,ch,c.title,c.sub)}</g>`;
+ };
+ cols.forEach((col,i)=>{
+  if(spec.arrows!==false&&i<cols.length-1){
+   const next=cols[i+1];
+   parts.push(`<path class="fx-arrow" d="M${fxNum(col.cx+col.boxW/2)} ${fxNum(colMid)}L${fxNum(next.cx-next.boxW/2)} ${fxNum(colMid)}" marker-end="url(#${marker})"/>`);
+  }
+  parts.push(`<rect class="fx-col" x="${fxNum(col.cx-col.boxW/2)}" y="${colY}" width="${fxNum(col.boxW)}" height="${FX_COL_H}" rx="8"/>`,fxLabelled("fx-s",col.cx,colY,FX_COL_H,col.label,col.sub));
+  if(col.above.length){
+   parts.push(`<path class="fx-conn" d="M${fxNum(col.cx)} ${fxNum(colY-FX_CONN)}L${fxNum(col.cx)} ${colY}"/>`);
+   let y=colY-FX_CONN;
+   col.above.forEach(c=>{y-=callH(c);parts.push(callout(c,y));y-=FX_CALL_GAP});
+  }
+  if(col.below.length){
+   parts.push(`<path class="fx-conn" d="M${fxNum(col.cx)} ${colY+FX_COL_H}L${fxNum(col.cx)} ${colY+FX_COL_H+FX_CONN}"/>`);
+   let y=colY+FX_COL_H+FX_CONN;
+   col.below.forEach(c=>{parts.push(callout(c,y));y+=callH(c)+FX_CALL_GAP});
+  }
+ });
+ if(legend){
+  parts.push(fxText("fx-n",FX_PAD,h+FX_LEG_H-8,legend[0]),fxText("fx-n",w-FX_PAD,h+FX_LEG_H-8,legend[1],"end"));
+  h+=FX_LEG_H;
+ }
+ return fxSvg("ddc-flow",w,h,parts.join(""),flowLabel(spec));
+}
+function flowTopics(box,host){
+ const panel=host.closest(".xs-panel");
+ if(!panel)return;
+ const rows=[...panel.querySelectorAll(".xs-row")].map(row=>{
+  const topic=row.querySelector(".xs-topic");
+  return [row,topic?plain(topic.textContent).toLowerCase():""];
+ });
+ const rowsFor=topic=>rows.filter(([,t])=>t===topic).map(([row])=>row);
+ const callsFor=topic=>[...box.querySelectorAll(`.fx-call[data-topic="${CSS.escape(topic)}"]`)];
+ box.querySelectorAll(".fx-call[data-topic]").forEach(g=>{
+  const topic=g.dataset.topic;
+  g.addEventListener("pointerenter",()=>{callsFor(topic).forEach(c=>c.classList.add("on"));rowsFor(topic).forEach(r=>r.classList.add("fx-on"))});
+  g.addEventListener("pointerleave",()=>{callsFor(topic).forEach(c=>c.classList.remove("on"));rowsFor(topic).forEach(r=>r.classList.remove("fx-on"))});
+ });
+ rows.forEach(([row,topic])=>{
+  if(row.dataset.fxWired||!topic)return;
+  row.dataset.fxWired="1";
+  row.addEventListener("pointerenter",()=>callsFor(topic).forEach(c=>c.classList.add("on")));
+  row.addEventListener("pointerleave",()=>callsFor(topic).forEach(c=>c.classList.remove("on")));
+ });
+}
+function cmptFlow(spec,host){
+ const box=cmptFrame(spec,"dd.flow");
+ fxMount(box,()=>flowSvg(spec),()=>flowTopics(box,host));
+ const btn=el("button","fullbtn","View full size");
+ btn.hidden=true;
+ box.append(btn);
+ requestAnimationFrame(wireFullSize(box,btn,flowLabel(spec)));
+ return box;
+}
+const boxH=b=>b.sub?LN_BOX_H2:LN_BOX_H;
+function lanesLabel(spec){
+ if(spec.title)return plain(spec.title);
+ return spec.lanes.map(l=>`${plain(l.label)}: ${l.boxes.map(b=>plain(b.title)).join(", ")}.`).join(" ");
+}
+function lanesSvg(spec,stacked){
+ const lanes=spec.lanes.map((l,i)=>{
+  const cols=l.boxes.length>LN_ONE_COL?2:1;
+  const rows=[];
+  l.boxes.forEach((b,j)=>{(rows[Math.floor(j/cols)]||(rows[Math.floor(j/cols)]=[])).push(b)});
+  const rowH=rows.map(r=>Math.max(...r.map(boxH)));
+  return {
+   ...l,cols,rows,rowH,
+   tone:l.tone||(i?"after":"before"),
+   boxW:Math.max(LN_MINW,...l.boxes.map(b=>Math.max(textWidth(b.title,"fx-t"),b.sub?textWidth(b.sub,"fx-s"):0)))+2*FX_PADX,
+   stackH:rowH.reduce((s,h,j)=>s+h+(j?LN_BOX_GAP:0),0),
+  };
+ });
+ const frameH=Math.max(...lanes.map(l=>l.stackH))+2*LN_FPAD;
+ const bridge=spec.bridge?plain(spec.bridge):null;
+ const bridgeW=bridge?textWidth(bridge,"fx-n"):0;
+ lanes.forEach(l=>{l.innerW=l.cols*l.boxW+(l.cols-1)*LN_BOX_GAP});
+ const sharedW=Math.max(...lanes.map(l=>l.innerW));
+ lanes.forEach(l=>{if(stacked)l.innerW=sharedW;l.frameW=l.innerW+2*LN_FPAD});
+ const gap=stacked?(bridge?40:20):(bridge?Math.max(LN_BRIDGE_MIN,bridgeW+24):LN_GAP);
+ let w,h;
+ if(stacked){
+  lanes[0].x=lanes[1].x=FX_PAD;
+  lanes[0].y=FX_PAD+LN_EYE;
+  lanes[1].y=lanes[0].y+frameH+gap+LN_EYE;
+  w=lanes[0].frameW+2*FX_PAD;
+  if(bridge)w=Math.max(w,FX_PAD+lanes[0].frameW/2+8+bridgeW+FX_PAD);
+  h=lanes[1].y+frameH+FX_PAD;
+ }else{
+  lanes[0].x=FX_PAD;
+  lanes[1].x=FX_PAD+lanes[0].frameW+gap;
+  lanes[0].y=lanes[1].y=FX_PAD+LN_EYE;
+  w=lanes[1].x+lanes[1].frameW+FX_PAD;
+  h=FX_PAD+LN_EYE+frameH+FX_PAD;
+ }
+ const marker=`fx-arr-${++fxUid}`;
+ const parts=[fxMarker(marker)];
+ lanes.forEach(l=>{
+  parts.push(`<g class="fx-lane" data-tone="${l.tone}">`,fxText("fx-e",l.x,l.y-8,plain(l.label).toUpperCase()),`<rect class="fx-frame" x="${fxNum(l.x)}" y="${fxNum(l.y)}" width="${fxNum(l.frameW)}" height="${fxNum(frameH)}" rx="10"/>`);
+  const boxW=(l.innerW-(l.cols-1)*LN_BOX_GAP)/l.cols;
+  let y=l.y+LN_FPAD;
+  l.rows.forEach((row,r)=>{
+   row.forEach((b,c)=>{
+    const x=l.x+LN_FPAD+c*(boxW+LN_BOX_GAP);
+    parts.push(`<g class="fx-box"${b.status?` data-status="${b.status}"`:""}><rect x="${fxNum(x)}" y="${fxNum(y)}" width="${fxNum(boxW)}" height="${l.rowH[r]}" rx="6"/>${fxLabelled("fx-s",x+boxW/2,y,l.rowH[r],b.title,b.sub)}</g>`);
+   });
+   y+=l.rowH[r]+LN_BOX_GAP;
+  });
+  parts.push("</g>");
+ });
+ if(bridge){
+  if(stacked){
+   const cx=FX_PAD+lanes[0].frameW/2,y1=lanes[0].y+frameH,y2=lanes[1].y-LN_EYE;
+   parts.push(`<path class="fx-bridge" d="M${fxNum(cx)} ${fxNum(y1+4)}L${fxNum(cx)} ${fxNum(y2-4)}" marker-end="url(#${marker})"/>`,fxText("fx-n",cx+8,(y1+y2)/2+3,bridge));
+  }else{
+   const x1=lanes[0].x+lanes[0].frameW,x2=lanes[1].x,my=lanes[0].y+frameH/2;
+   parts.push(`<path class="fx-bridge" d="M${fxNum(x1+4)} ${fxNum(my)}L${fxNum(x2-4)} ${fxNum(my)}" marker-end="url(#${marker})"/>`,fxText("fx-n",(x1+x2)/2,my-7,bridge,"middle"));
+  }
+ }
+ return fxSvg("ddc-lanes",w,h,parts.join(""),lanesLabel(spec));
+}
+function cmptLanes(spec,host){
+ const box=cmptFrame(spec,"dd.lanes");
+ let stacked=host.clientWidth<LN_NARROW;
+ const redraw=fxMount(box,()=>lanesSvg(spec,stacked));
+ new ResizeObserver(()=>{
+  const next=host.clientWidth<LN_NARROW;
+  if(next===stacked)return;
+  stacked=next;
+  redraw();
+ }).observe(host);
+ return box;
+}
+const CMPT_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes};
 let bespokeP=null;
 const bespokeLib=()=>bespokeP||(bespokeP=import("./components.js").catch(()=>null));
 async function mountBespoke(host,name){
@@ -3256,6 +3503,21 @@ function componentMd(name,host){
   spec.rows.forEach((r,ri)=>L.push(`| **${plain(r.label)}** | `+(spec.cells[ri]||[]).map(c=>plain(c.text)).join(" | ")+" |"));
   L.push("");
  }
+ if(spec.kind==="dd.flow"){
+  L.push("");
+  spec.columns.forEach(col=>{
+   L.push(`- **${plain(col.label)}**${col.sub?" — "+plain(col.sub):""}`);
+   spec.callouts.filter(c=>c.col===col.id).forEach(c=>L.push(`  - ${plain(c.title)}${c.sub?" — "+plain(c.sub):""} (${c.status})`));
+  });
+  if(spec.legend)L.push(`\n_Solid: ${plain(spec.legend.closed)}; dashed: ${plain(spec.legend.open)}_`);
+  L.push("");
+ }
+ if(spec.kind==="dd.lanes")spec.lanes.forEach((l,i)=>{
+  L.push(i&&spec.bridge?`_→ ${plain(spec.bridge)}_\n`:"");
+  L.push(`_${plain(l.label)}_\n`);
+  l.boxes.forEach(b=>L.push(`- **${plain(b.title)}**${b.sub?" — "+plain(b.sub):""}${b.status&&b.status!=="closed"?` (${b.status})`:""}`));
+  L.push("");
+ });
  return L.join("\n");
 }
 function resetComponentsForPrint(){
