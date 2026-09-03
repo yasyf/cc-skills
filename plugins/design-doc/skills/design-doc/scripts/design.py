@@ -49,6 +49,7 @@ REFERENCE = SKILL / "reference"
 ICON_CACHE = Path.home() / ".cache" / "design-doc"
 ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/flat"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
+AI_CONFIG_KEYS = ("endpoint", "model", "key")
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -1264,6 +1265,7 @@ def check(args) -> int:
         rep.warn("qa-log.json not found")
 
     check_model(rep, R, root, known, node_ids)
+    check_ai_config(rep, root)
     check_libs(rep)
     check_components(rep, R, root, known, node_ids)
     return rep.finish()
@@ -2145,6 +2147,35 @@ def build(args) -> int:
     bundle = root / "components.js"
     print(f"build: {', '.join(p.name for p in sources)} → {bundle} ({bundle.stat().st_size // 1024} KB)")
     return 0
+
+
+def check_ai_config(rep, root):
+    path = root / "ai.json"
+    if not path.exists():
+        return
+    try:
+        cfg = json.loads(path.read_text())
+    except ValueError as e:
+        rep.err(f"ai.json does not parse: {e}")
+        return
+    if not isinstance(cfg, dict):
+        rep.err('ai.json must be a JSON object: {"endpoint", "model", "key"}, or {"disabled": true} to turn the assistant off')
+        return
+    if cfg.get("disabled") is True:
+        for k in sorted(set(cfg) - {"disabled"}):
+            rep.warn(f"ai.json disables the assistant, so {k!r} beside it does nothing")
+        return
+    for k in AI_CONFIG_KEYS:
+        v = cfg.get(k)
+        if not (isinstance(v, str) and v.strip()):
+            rep.err(f"ai.json: {k!r} must be a non-empty string")
+    endpoint = cfg.get("endpoint")
+    if isinstance(endpoint, str) and endpoint.strip():
+        scheme = foreign_scheme(endpoint)
+        if scheme:
+            rep.err(f"ai.json: endpoint uses the {scheme}: scheme; the browser calls it over https")
+    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
+        rep.warn(f"ai.json carries {k!r}, which the page ignores")
 
 
 def main():
