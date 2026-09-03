@@ -5,6 +5,7 @@
     "phase": "draft",
     "date": "2026-07-21",
     "slug": "tinyq",
+    "repo": "tinyq-dev/tinyq",
     "homeLink": { "href": "../", "label": "← All docs" },
     "banner": {
       "assumption": "A1",
@@ -181,7 +182,8 @@
       "r": "One file per tenant, one table per queue. Tenants never share a WAL, so one noisy tenant cannot slow another's flush.",
       "p": "Each tenant's queues live in their own database file, so one busy tenant cannot slow down another.",
       "x": "Rejected one shared file (cross-tenant flush coupling) and one file per queue (thousands of open files for little isolation gain).",
-      "round": 1
+      "round": 1,
+      "links": ["https://github.com/tinyq-dev/tinyq/pull/12"]
     },
     {
       "id": "DQ2",
@@ -296,7 +298,9 @@
       "id": "V1",
       "t": "Measure enqueue and dispatch latency under 1k concurrent producers.",
       "h": "Latency under load",
-      "p": "Measure how fast jobs are accepted and handed out when a thousand senders are active at once."
+      "p": "Measure how fast jobs are accepted and handed out when a thousand senders are active at once.",
+      "s": "closed",
+      "links": [{ "url": "https://github.com/tinyq-dev/tinyq/pull/18", "closes": true }]
     },
     {
       "g": "spikes",
@@ -311,7 +315,8 @@
       "t": "Lease renewals on the dispatch connection vs. a separate endpoint.",
       "h": "Renewal transport spike",
       "p": "Decide whether workers extend a job's timer on the connection they already hold or on a separate one.",
-      "blocks": ["DQ4"]
+      "blocks": ["DQ4"],
+      "links": [{ "url": "https://github.com/tinyq-dev/tinyq/issues/21", "closes": true }]
     }
   ],
   "openGroups": {
@@ -319,7 +324,7 @@
     "spikes": "Spikes & benchmarks"
   },
   "findings": [
-    [1, "high", "Lease expiry during archival can double-deliver without a completed-key check", "DQ2"],
+    [1, "high", "Lease expiry during archival can double-deliver without a completed-key check", "DQ2", ["https://github.com/tinyq-dev/tinyq/pull/15"]],
     [2, "medium", "Backpressure 429 needs a retry-after header or producers stampede", "DQ1"]
   ],
   "housekeeping": []

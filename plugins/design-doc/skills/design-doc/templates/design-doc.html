@@ -311,6 +311,26 @@ details.orow .obody{padding:0 2px 14px;font-size:14.5px;max-width:var(--measure)
 details.orow .ochips{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;margin:8px 0}
 .oglyph{color:var(--ink2);margin-right:7px}
 .ocount{font-size:12.5px;color:var(--ink2)}
+.lchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.lchip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lchip:hover{text-decoration:none;color:var(--accent);border-color:var(--accent)}
+.lico{width:14px;height:14px;flex:0 0 14px;color:var(--ink2)}
+.lchip:hover .lico{color:var(--accent)}
+.ldot,.odot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dead);flex:0 0 7px}
+.ldot[data-state=unknown]{display:none}
+.ldot[data-state=open],.odot[data-state=open]{background:var(--warn)}
+.ldot[data-state=draft],.odot[data-state=draft]{background:var(--ink2)}
+.ldot[data-state=merged],.ldot[data-state=closed],.odot[data-state=merged],.odot[data-state=closed]{background:var(--ok)}
+.lcloses{font-size:11px;color:var(--ink2);border-left:1px solid var(--line);padding-left:6px}
+details.orow .ometa .odot{transform:translateY(-1px)}
+details.orow.closed>summary .ot{color:var(--ink2)}
+details.orow.closed .ostat{color:var(--ok)}
+.oprog{display:inline-flex;align-items:center;gap:8px;margin-left:12px;font-size:12.5px;font-weight:400;color:var(--ink2);vertical-align:2px}
+.oprog i{display:inline-block;width:72px;height:6px;border-radius:3px;background:var(--bg2);border:1px solid var(--line);overflow:hidden}
+.oprog i b{display:block;height:100%;background:var(--ok)}
+.ghnote{font-size:13.5px;color:var(--ink2);margin:0 0 12px;max-width:var(--measure)}
+#tip.card .tgh{display:block;font-size:12.5px;color:var(--ink2);margin:-3px 0 8px}
+@media print{.oprog,.ghnote{display:none!important}.lchip{color:inherit}}
 
 .fnotes{margin:16px 0;padding:0;list-style:none;border-top:1px solid var(--line)}
 .fnotes li{display:flex;gap:16px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14.5px;max-width:80ch}
@@ -1039,6 +1059,74 @@ NUMBERS.forEach(n=>addRef(n.id,n.t,"numbers",n));
 PATHS.forEach(p=>addRef(p.id,p.name,"path",p));
 OPEN.forEach(o=>addRef(o.id,o.t,"open",o));
 FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
+const REPO=typeof META.repo==="string"?META.repo:"";
+const GH_LINK=/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues|commit)\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/;
+const GH_KIND={pull:"pr",issues:"issue",commit:"commit"};
+function linkNorm(l){
+ if(typeof l==="string")l={url:l};
+ if(!l||typeof l!=="object"||typeof l.url!=="string"||!/^https:\/\//.test(l.url.trim()))return null;
+ const url=l.url.trim(),m=GH_LINK.exec(url);
+ let gh=null;
+ if(m){
+  const kind=GH_KIND[m[3]];
+  if(kind==="commit"?/^[0-9a-f]{7,40}$/.test(m[4]):/^\d+$/.test(m[4]))gh={o:m[1],r:m[2],kind,ref:m[4],key:m[1]+"/"+m[2]+(kind==="commit"?"@"+m[4].slice(0,7):"#"+m[4])};
+ }
+ const kind=l.kind||(gh?gh.kind:"doc");
+ if(gh&&kind!==gh.kind)return null;
+ const label=typeof l.label==="string"&&l.label.trim()?l.label.trim():"";
+ return {url,kind,gh,label,closes:l.closes===true&&(kind==="pr"||kind==="issue")};
+}
+const linkKey=l=>l.gh&&l.gh.kind!=="commit"?l.gh.key:"";
+const linksOf=e=>(Array.isArray(e&&e.links)?e.links:[]).map(linkNorm).filter(Boolean);
+const LINKED=[...OPEN,...DQ].some(e=>linksOf(e).length);
+const TRACKED=LINKED||OPEN.some(o=>o.s);
+const ghRef=gh=>gh.o+"/"+gh.r+(gh.kind==="commit"?"@"+gh.ref.slice(0,7):"#"+gh.ref);
+function linkLabel(l){
+ if(l.label)return l.label;
+ if(l.gh)return REPO===l.gh.o+"/"+l.gh.r?ghRef(l.gh).slice(REPO.length):ghRef(l.gh);
+ const u=new URL(l.url);
+ return u.hostname.replace(/^www\./,"")+u.pathname.replace(/\/$/,"").slice(0,24);
+}
+const LINK_ICON={
+ pr:'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>',
+ issue:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>',
+ commit:'<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>',
+ doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'
+};
+const LINK_KIND_LABEL={pr:"Pull request",issue:"Issue",commit:"Commit",doc:"Link"};
+const LINK_KIND_SHORT={pr:"PR",issue:"issue",commit:"commit",doc:"link"};
+const GH_STATE_LABEL={open:"Open",draft:"Draft",merged:"Merged",closed:"Closed",unknown:"State unknown"};
+const LANDED={merged:1,closed:1};
+const linkIcon=kind=>`<svg class="lico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINK_ICON[kind]}</svg>`;
+const GH=Object.create(null),GH_PENDING=Object.create(null);
+let GH_TOKEN=null;
+const ghState=l=>{const k=linkKey(l);return k&&GH[k]?GH[k].state:"unknown"};
+function linkChipHtml(l){
+ const key=linkKey(l);
+ return `<a class="lchip" data-kind="${l.kind}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
+  (key?`<i class="ldot" data-state="${ghState(l)}" aria-hidden="true"></i>`:"")+linkIcon(l.kind)+
+  `<span class="lt">${esc(linkLabel(l))}</span>`+(l.closes?`<span class="lcloses">closes</span>`:"")+`</a>`;
+}
+const linkChipsHtml=links=>links.length?`<div class="lchips">${links.map(linkChipHtml).join("")}</div>`:"";
+const itemClosed=o=>o.s==="closed"||linksOf(o).some(l=>l.closes&&LANDED[ghState(l)]);
+function itemState(o){
+ if(itemClosed(o))return "closed";
+ return linksOf(o).filter(l=>l.closes).map(ghState).find(s=>s!=="unknown")||"open";
+}
+function linkMd(l){
+ const st=ghState(l);
+ const bits=[st!=="unknown"?st:"",l.closes?"closes":""].filter(Boolean);
+ return linkLabel(l)+(bits.length?" ("+bits.join(", ")+")":"");
+}
+function relTime(iso){
+ const t=Date.parse(iso||"");
+ if(!t)return "";
+ const s=Math.max(0,(Date.now()-t)/1000);
+ if(s<3600)return Math.max(1,Math.round(s/60))+" min ago";
+ if(s<86400)return Math.round(s/3600)+" h ago";
+ if(s<86400*30)return Math.round(s/86400)+" d ago";
+ return longDate(iso.slice(0,10));
+}
 const plain=s=>String(s==null?"":s).replace(/\[\^(\d+)\]/g,"").replace(/\[([^\]]+)\]\([^)]*\)/g,"$1").replace(/[`*]/g,"").replace(/\s+/g," ").trim();
 const firstSentence=s=>{const t=plain(s);const m=t.match(/^.*?[.!?](?=\s|$)/);return m?m[0]:t};
 const CITEABLE=Object.keys(REF).filter(k=>/^[A-Za-z][\w-]*$/.test(k)&&!/^fn\d+$/.test(k)).sort((a,b)=>b.length-a.length);
@@ -1178,10 +1266,20 @@ function mdToHtml(md){
 }
 
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
-const TIP_SEL="[data-tip],[data-ref],[data-term]";
+const TIP_SEL="[data-tip],[data-ref],[data-term],[data-gh]";
 let tipFor=null,tipTimer=0;
 function hideTip(){clearTimeout(tipTimer);tipFor=null;TIP.hidden=true;TIP.classList.remove("card")}
+function ghCardHtml(node){
+ const key=node.dataset.gh,kind=node.dataset.kind,rec=GH[key];
+ const label=node.querySelector(".lt").textContent;
+ const open=`<span class="topen" data-href="${esc(node.href)}" role="button" tabindex="0">Open on GitHub →</span>`;
+ if(!rec)return `<span class="tkind">${esc(LINK_KIND_LABEL[kind])} · ${esc(key)}</span><span class="ttitle">${esc(label)}</span>`+(GH_PENDING[key]?"<p>Loading…</p>":"")+open;
+ const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",rec.checks?`checks ${rec.checks.ok}/${rec.checks.total}`:""].filter(Boolean);
+ const by=[rec.author?"by "+rec.author:"",rec.updated?"updated "+relTime(rec.updated):""].filter(Boolean).join(", ");
+ return `<span class="tkind">${esc(bits.join(" · "))}</span><span class="ttitle">${esc(rec.title||label)}</span><span class="tgh">${esc(key)}${by?" · "+esc(by):""}</span>`+open;
+}
 function cardHtml(node){
+ if(node.dataset.gh)return ghCardHtml(node);
  const id=node.dataset.ref;
  if(id){
   const r=REF[id],[,sl]=statusOf(id);
@@ -1194,13 +1292,15 @@ function cardHtml(node){
  return `<span class="ttitle">${esc(t.k)}${t.ai?' <span class="pill p-acc ai-pill">AI-defined</span>':""}</span><p>${esc(plain(t.v))}</p><span class="topen" data-open="#ground" role="button" tabindex="0">Terms →</span>`;
 }
 function showTip(node){
- const card=node.dataset.ref||node.dataset.term;
+ const card=node.dataset.ref||node.dataset.term||node.dataset.gh;
  const t=node.getAttribute("data-tip");
  if(!card&&!t){hideTip();return}
  clearTimeout(tipTimer);
  tipFor=node;
  TIP.classList.toggle("card",!!card);
  if(card)TIP.innerHTML=cardHtml(node);else TIP.textContent=t;
+ const pending=node.dataset.gh&&!GH[node.dataset.gh]&&GH_PENDING[node.dataset.gh];
+ if(pending)pending.then(()=>{if(tipFor===node)showTip(node)},()=>{});
  TIP.hidden=false;
  const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
  let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
@@ -1220,6 +1320,8 @@ document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n
 document.addEventListener("focusout",e=>{if(TIP.contains(e.relatedTarget))return;hideTip()});
 TIP.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.target.click()}});
 TIP.addEventListener("click",e=>{
+ const h=e.target.closest("[data-href]");
+ if(h){hideTip();open(h.dataset.href,"_blank","noopener");return}
  const o=e.target.closest("[data-open]");
  if(!o)return;
  const v=o.dataset.open;
@@ -1597,6 +1699,8 @@ function openRefSheet(id){
  else if(r.kind==="arch")body+=`<p>${inline(e.b[0]||"")}</p>`+restsOn(e);
  else if(r.kind==="open"&&!e.p)body+=`<p>${inline(e.t)}</p>`;
  if(r.kind==="open"&&(e.blocks||[]).length)body+=`<div class="kv"><b>Holds up</b><span class="reflist">${e.blocks.map(refChip).join("")}</span></div>`;
+ const links=linksOf(e);
+ if(links.length)body+=`<div class="kv"><b>Where it landed</b>${linkChipsHtml(links)}</div>`;
  $("#sbody").innerHTML=body;
  termify($("#sbody"));
  const go=$("#sgoto");
@@ -2212,6 +2316,8 @@ const dqState={all:null};
 function dqBody(d){
  let out=(!fullWording&&d.p)?`<p class="plainp">${inline(d.p)}</p>`:"";
  out+=`<div class="kv"><b>What we decided${d.date?", "+longDate(d.date):""}</b>${inline(d.r)}</div>`;
+ const links=linksOf(d);
+ if(links.length)out+=`<div class="kv"><b>Where it landed</b>${linkChipsHtml(links)}</div>`;
  let record="";
  if(d.x)record+=`<div class="kv"><b>What we turned down</b>${inline(d.x)}</div>`;
  if(d.by)record+=`<div class="kv"><b>Replaced by</b>${refChip(d.by)}</div>`;
@@ -2306,17 +2412,41 @@ function renderA(){
 })();
 
 let oF="all";
+function oStatusHtml(o){
+ if(!TRACKED)return "";
+ return `<i class="odot" data-state="${itemState(o)}" aria-hidden="true"></i>`+(itemClosed(o)?`<span class="ostat">Closed</span>`:"");
+}
 function oRowHtml(o,glyph,unchanged){
  const head=twin(o,o.t),full=plain(o.t);
  const blocks=o.blocks||[];
- const meta=blocks.length===1?`holds up ${refChip(blocks[0])}`
-  :blocks.length?`<span class="restchip">holds up ${blocks.length}</span>`:"";
+ const meta=oStatusHtml(o)+(blocks.length===1?`holds up ${refChip(blocks[0])}`
+  :blocks.length?`<span class="restchip">holds up ${blocks.length}</span>`:"");
  const body=(plain(head)===full?"":`<p>${inline(o.t)}</p>`)+
   (blocks.length?`<div class="ochips">${blocks.map(refChip).join("")}</div>`:"")+
+  linkChipsHtml(linksOf(o))+
   `<span class="idchip">${esc(o.id)}</span> <button class="xbtn" type="button" data-copy="open-${esc(o.id)}">Copy link</button>`;
- return `<details class="orow${unchanged?" unch":""}" id="open-${esc(o.id)}">`+
+ return `<details class="orow${unchanged?" unch":""}${itemClosed(o)?" closed":""}" id="open-${esc(o.id)}">`+
   `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}</span></summary>`+
   `<div class="obody">${body}</div></details>`;
+}
+function oprogHtml(items){
+ if(!TRACKED)return "";
+ const n=items.filter(itemClosed).length,m=items.length;
+ return `<span class="oprog"><i><b style="width:${m?Math.round(100*n/m):0}%"></b></i>${n} of ${m} closed</span>`;
+}
+function ghRecount(){
+ document.querySelectorAll("#oList details.orow").forEach(row=>{
+  const o=OPEN.find(x=>"open-"+x.id===row.id);
+  if(!o)return;
+  row.classList.toggle("closed",itemClosed(o));
+  const meta=row.querySelector(".ometa");
+  meta.querySelectorAll(".odot,.ostat").forEach(n=>n.remove());
+  meta.insertAdjacentHTML("afterbegin",oStatusHtml(o));
+ });
+ document.querySelectorAll("#oList .ogroup").forEach(g=>{
+  const bar=g.querySelector(".oprog");
+  if(bar)bar.outerHTML=oprogHtml(OPEN.filter(o=>o.g===g.dataset.g&&g.querySelector("#open-"+CSS.escape(o.id))));
+ });
 }
 function renderO(){
  const host=$("#oList");host.innerHTML="";
@@ -2329,7 +2459,8 @@ function renderO(){
   shown+=items.length;
   const glyph=g==="spikes"?'<span class="oglyph" aria-hidden="true">▶</span>':"";
   const block=el("div","ogroup");
-  block.innerHTML=`<h3>${esc(label)} · ${items.length}</h3><div class="orows">`+
+  block.dataset.g=g;
+  block.innerHTML=`<h3>${esc(label)} · ${items.length}${oprogHtml(items)}</h3><div class="orows">`+
    items.map(o=>{
     const u=DIFF&&!DIFF.marks["open:"+o.id];if(u&&hiding)hid++;
     return oRowHtml(o,glyph,u);
@@ -2752,6 +2883,8 @@ function buildDocMd(){
   const st=(SLBL[d.s]||["","",d.s])[1]||d.s;
   push(`### ${d.t}\n`);
   push(`_Decision ${d.id} · ${st}${d.by?" by "+mdRef(d.by):""}${d.theme?" · "+themeLabel(d.theme):""}_\n`);
+  const landed=linksOf(d);
+  if(landed.length)push(`_Landed in: ${landed.map(linkMd).join(", ")}_\n`);
   if(d.p)push(d.p+"\n");
   push(`${d.r}${d.x?"\n\n"+d.x:""}\n`);
  });
@@ -2765,7 +2898,10 @@ function buildDocMd(){
  push("## Still open\n");
  Object.entries(OGROUPS).forEach(([g,label])=>{
   push(`### ${label}\n`);
-  OPEN.filter(o=>o.g===g).forEach(o=>push(`- ${o.t} _(${o.id}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_`));
+  OPEN.filter(o=>o.g===g).forEach(o=>{
+   const links=linksOf(o);
+   push(`- ${o.t} _(${o.id}${TRACKED&&itemClosed(o)?", closed":""}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_${links.length?" — "+links.map(linkMd).join(", "):""}`);
+  });
   push("");
  });
  push("## Footnotes\n");
@@ -3275,6 +3411,7 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  HTML.dataset.ready="1";
 });
 const AI_CFG_KEY="design-doc-ai";
+const GH_CFG_KEY="design-doc-github";
 const AI_ROUNDS=6;
 const AI_RPM=30;
 const AI_RATE_KEY="design-doc-ai-rate";
@@ -3289,7 +3426,7 @@ const AI_SUGGEST={
  ceilings:["Which ceiling is closest?","What would I see first when it breaks?"],
  decisions:["What was the hardest call, and what did it turn down?","Which decisions are still open?"],
  assumptions:["Which assumption is load-bearing?","What falls if it is wrong?"],
- open:["What is blocking a decision right now?","Which spike should run first?"],
+ open:["What is blocking a decision right now?","Which spike should run first?","What has shipped so far?"],
  footnotes:["What do the footnotes add?"]
 };
 const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
@@ -3307,25 +3444,114 @@ function aiEndpoint(raw){
  if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
  return u.href.replace(/\/+$/,"");
 }
-function aiNormalise(j){
- if(!j||typeof j!=="object")return null;
- if(j.disabled===true)return {disabled:true};
+function cfgNormalise(j){
+ if(!j||typeof j!=="object")return {ai:null,github:null};
  const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
- const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key");
- if(!endpoint||!model||!key)return null;
- return {endpoint,model,key};
-}
-async function aiConfig(){
- let stored=null;
- try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)stored=aiNormalise(JSON.parse(raw))}catch(e){}
- if(stored)return stored.disabled?null:stored;
- for(const path of ["../ai.json","ai.json"]){
-  let j=null;
-  try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
-  const c=aiNormalise(j);
-  if(c)return c.disabled?null:c;
+ let ai=null;
+ if(j.disabled===true)ai={disabled:true};
+ else{
+  const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key"),reasoning=s("reasoning");
+  if(endpoint&&model&&key)ai={endpoint,model,key,...(reasoning?{reasoning}:{})};
  }
- return null;
+ const g=j.github;
+ const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
+ return {ai,github:token?{token}:null};
+}
+let siteCfg=null;
+function siteConfig(){
+ if(!siteCfg)siteCfg=(async()=>{
+  const out={ai:null,github:null};
+  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github};
+  try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
+  try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
+  for(const path of ["../ai.json","ai.json"]){
+   if(out.ai&&out.github)break;
+   let j=null;
+   try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
+   take(cfgNormalise(j));
+  }
+  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github};
+ })();
+ return siteCfg;
+}
+const GH_API="https://api.github.com",GH_TTL=10*60*1000,GH_LANES=4,GH_401_KEY="gh:401";
+let ghPauseUntil=0;
+function ghCached(key){
+ try{
+  const c=JSON.parse(sessionStorage.getItem("gh:"+key)||"null");
+  return c&&Date.now()-c.t<GH_TTL?c.v:null;
+ }catch(e){return null}
+}
+function ghStore(key,v){try{sessionStorage.setItem("gh:"+key,JSON.stringify({t:Date.now(),v}))}catch(e){}}
+async function ghGet(path){
+ if(ghPauseUntil>Date.now())await new Promise(r=>setTimeout(r,ghPauseUntil-Date.now()));
+ const r=await fetch(GH_API+path,{headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+GH_TOKEN,"X-GitHub-Api-Version":"2022-11-28"}});
+ if(r.status===404)return null;
+ if(r.ok)return r.json();
+ const e=new Error("GitHub "+r.status);
+ e.status=r.status;
+ if((r.status===403||r.status===429)&&r.headers.get("x-ratelimit-remaining")==="0")e.reset=(+r.headers.get("x-ratelimit-reset")||Math.ceil(Date.now()/1000)+60)*1000;
+ throw e;
+}
+async function ghResolve(key,kind){
+ const m=/^([^/]+)\/([^#]+)#(\d+)$/.exec(key),base=`/repos/${m[1]}/${m[2]}`,n=m[3];
+ if(kind==="issue"){
+  const is=await ghGet(`${base}/issues/${n}`);
+  if(!is)return {state:"unknown"};
+  return {kind,state:is.state,title:is.title,author:is.user&&is.user.login,updated:is.updated_at,closedAt:is.closed_at};
+ }
+ const pr=await ghGet(`${base}/pulls/${n}`);
+ if(!pr)return {state:"unknown"};
+ const rec={kind,state:pr.merged_at?"merged":pr.draft?"draft":pr.state,title:pr.title,author:pr.user&&pr.user.login,updated:pr.updated_at,mergedAt:pr.merged_at,closedAt:pr.closed_at};
+ const [reviews,checks]=await Promise.all([ghGet(`${base}/pulls/${n}/reviews?per_page=100`),ghGet(`${base}/commits/${pr.head.sha}/check-runs?per_page=100`)]);
+ if(reviews){
+  const latest={};
+  reviews.forEach(v=>{if(v.state!=="COMMENTED"&&v.user)latest[v.user.login]=v.state});
+  const count=s=>Object.values(latest).filter(x=>x===s).length;
+  const changes=count("CHANGES_REQUESTED"),approved=count("APPROVED");
+  rec.review=changes?changes+" requested changes":approved?approved+" approved":"";
+ }
+ if(checks&&checks.check_runs)rec.checks={ok:checks.check_runs.filter(c=>/^(success|skipped|neutral)$/.test(c.conclusion||"")).length,total:checks.total_count};
+ return rec;
+}
+function ghNote(text){
+ const h=$("#open h2");
+ if(h&&!$("#open .ghnote"))h.after(el("p","ghnote",esc(text)));
+}
+function ghApply(key){
+ document.querySelectorAll(`[data-gh="${CSS.escape(key)}"] .ldot`).forEach(d=>{d.dataset.state=GH[key].state});
+ ghRecount();
+}
+async function ghBoot(token){
+ GH_TOKEN=token;
+ const kinds={};
+ document.querySelectorAll("[data-gh]").forEach(n=>{kinds[n.dataset.gh]=n.dataset.kind});
+ const todo=[];
+ Object.keys(kinds).forEach(k=>{
+  const c=ghCached(k);
+  if(c){GH[k]=c;ghApply(k)}else todo.push(k);
+ });
+ if(!todo.length||sessionStorage.getItem(GH_401_KEY))return;
+ let stopped=false;
+ const lane=async()=>{
+  while(todo.length&&!stopped){
+   const k=todo.shift();
+   try{
+    GH_PENDING[k]=ghResolve(k,kinds[k]);
+    GH[k]=await GH_PENDING[k];
+    ghStore(k,GH[k]);
+    ghApply(k);
+   }catch(e){
+    if(e.status===401){
+     stopped=true;
+     try{sessionStorage.setItem(GH_401_KEY,"1")}catch(x){}
+     ghNote("GitHub rejected this site's token, so the state of each linked change is off for this session.");
+    }else if(e.reset){ghPauseUntil=e.reset;todo.unshift(k)}
+    else{GH[k]={state:"unknown"};ghApply(k)}
+   }finally{delete GH_PENDING[k]}
+  }
+ };
+ await Promise.all(Array.from({length:GH_LANES},lane));
 }
 function aiWait(ms,signal){
  return new Promise((resolve,reject)=>{
@@ -3474,6 +3700,7 @@ function aiEntryText(e,kind){
   if(e.by)L.push("Replaced by: "+e.by);
   const rd=ROUNDS[e.round];
   if(rd)L.push("We asked: "+plain(rd.q)+" / You said: "+plain(rd.a)+(rd.n?" / "+plain(rd.n):""));
+  if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="assumption"){
   L.push(e.id+" · assumption · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.star?" · load-bearing":""));
   L.push("Title: "+plain(e.t));
@@ -3481,10 +3708,11 @@ function aiEntryText(e,kind){
   L.push("Basis: "+plain(e.b));
   if(e.n)L.push("How this changed: "+plain(e.n));
  }else if(kind==="open"){
-  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||""));
+  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||"")+(TRACKED?" · "+(itemClosed(e)?"closed":"open"):""));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   if((e.blocks||[]).length)L.push("Blocks: "+e.blocks.join(", "));
+  if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="arch"){
   L.push(e.id+" · component");
   L.push("Title: "+plain(e.t));
@@ -3627,6 +3855,7 @@ const AI_TOOLS=[
  aiTool("read_entry","Read one entry in full: exact wording, what was turned down, the round it came from.",{id:aiStr("A register id.")}),
  aiTool("read_section","Read a whole section of the document as text.",{section:aiStr("overview, ground, architecture, paths, numbers, ceilings, decisions, assumptions, open or footnotes.")}),
  aiTool("list_entries","List one register compactly, id and handle per line.",{register:aiStr("decisions, assumptions, open, arch or numbers."),status:aiOpt("Status to keep, or null for all."),theme:aiOpt("Theme key or open group key to keep, or null for all.")}),
+ aiTool("read_links","The record of what has shipped: the pull requests, issues and commits linked from open items and decisions, each with its GitHub state (open, draft, merged, closed). Call this for any question about what shipped, landed, merged, closed, or is still in flight; a decision's status says what was decided, not what was built.",{id:aiOpt("A register id to read the links of, or null for every entry that has links.")}),
  aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
  aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
 ];
@@ -3744,9 +3973,29 @@ async function aiExec(name,args){
   if(!rows.length)return "nothing in "+reg+" matches";
   return rows.map(e=>e.id+" — "+aiHandle(e)+(e.s?" ("+aiStatus(e)+")":"")).join("\n");
  }
+ if(name==="read_links")return aiLinksText(args.id?String(args.id):"");
  if(name==="select_text")return aiSelectText(args.text);
  if(name==="set_reading_path")return aiRenderPath(args.title,Array.isArray(args.items)?args.items:[]);
  return "no tool called "+name;
+}
+function aiLinkLine(l){
+ const key=linkKey(l),rec=key?GH[key]:null;
+ let s=LINK_KIND_SHORT[l.kind]+" "+(l.gh?ghRef(l.gh):linkLabel(l));
+ if(rec&&rec.title)s+=' "'+plain(rec.title)+'"';
+ if(key)s+=" "+(rec?rec.state+((rec.mergedAt||rec.closedAt)?" "+(rec.mergedAt||rec.closedAt).slice(0,10):"")+(rec.author?" by "+rec.author:""):GH_TOKEN?"(state still loading)":"(state unknown: no GitHub token)");
+ if(l.closes)s+=" · closes";
+ return s;
+}
+function aiLinksText(id){
+ const rows=id?[aiEntry(id)].filter(Boolean):[...OPEN,...DQ].filter(e=>linksOf(e).length);
+ if(id&&!rows.length)return "no entry with id "+id;
+ if(!rows.length)return "no entry links a pull request, issue or commit yet";
+ return rows.map(e=>{
+  const open=aiKind(e.id)==="open";
+  const head=e.id+" · "+(open?(e.g==="spikes"?"spike":"open item")+" · "+(itemClosed(e)?"closed":"open"):"decision · "+aiStatus(e));
+  const links=linksOf(e);
+  return links.length?links.map(l=>head+" — "+aiLinkLine(l)).join("\n"):head+" — no links";
+ }).join("\n");
 }
 async function aiRun(question,opt){
  const o=opt||{};
@@ -4241,6 +4490,7 @@ function palItems(){
  ai("Find undefined terms",aiShowGlossary);
  AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));
  if(DIFF)ai("What changed, in prose",aiShowChanged);
+ if(LINKED)ai("What's shipped?",()=>aiAsk("What has shipped so far?"));
  ai("Summarise this section",async()=>{
   const b=document.querySelector("#"+aiSec+" .ai-h2");
   if(b)b.click();
@@ -4388,9 +4638,10 @@ function aiBoot(){
  aiWireKeys();
  palWire();
  palButton();
- aiConfig().then(cfg=>{
-  if(!cfg)return;
-  AI=cfg;
+ siteConfig().then(({ai,github})=>{
+  if(github)ghBoot(github.token);
+  if(!ai)return;
+  AI=ai;
   HTML.dataset.ai="1";
   aiWireTools();
   aiWirePopover();
