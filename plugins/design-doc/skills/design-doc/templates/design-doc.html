@@ -497,7 +497,7 @@ details.more>summary::-webkit-details-marker{display:none}
 .nbd svg.mmd{margin:0 auto;max-width:none}
 .nbdcap{font-size:12.5px;color:var(--ink2);margin-top:4px}
 
-svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted],svg.mmd[data-hide-dotted] g.node[data-dotted]{display:none}
+svg.mmd[data-hide-dotted] :is(path.flowchart-link,.edgeLabel,g.node,g.cluster)[data-dotted]{display:none}
 .pzbox[data-static]{overflow:visible}
 .pzbox[data-static] svg{height:auto}
 .mbody .pzbox svg.fit{width:100%;height:100%;max-width:none}
@@ -541,7 +541,7 @@ section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line)
 @media print{
   #mbar,#secsheet,.railmore,.defsmore,.spotmore,[data-copy]{display:none!important}
   .def.hid,details.spot.hid{display:block}
-  svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted],svg.mmd[data-hide-dotted] g.node[data-dotted]{display:block}
+  svg.mmd[data-hide-dotted] :is(path.flowchart-link,.edgeLabel,g.node,g.cluster)[data-dotted]{display:block}
   #ceilings .twrap{display:block}
   .ceil-cards{display:none}
   details.orow>summary{display:block}
@@ -1370,17 +1370,17 @@ const SG_END=/^\s*end\s*$/;
 const NODE_DECL=/^\s*([\w-]+)\s*[[({]/;
 const EDGE_LINE=/^\s*([\w-]+)\s+(?:[\w-]+@)?<?(?:--|-\.|==)[^>]*?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
 function readDiagram(source){
- const decl=new Map(),owner=new Map(),head=new Map(),edges=[],stack=[];
+ const decl=new Map(),owner=new Map(),head=new Map(),within=new Map(),edges=[],stack=[];
  String(source||"").split("\n").forEach(l=>{
   const sg=SG_OPEN.exec(l);
-  if(sg){stack.push(sg[1]);head.set(sg[1],l.trim());return}
+  if(sg){within.set(sg[1],[...stack]);stack.push(sg[1]);head.set(sg[1],l.trim());return}
   if(SG_END.test(l)){stack.pop();return}
   const d=NODE_DECL.exec(l);
-  if(d){decl.set(d[1],l.trim());if(stack.length)owner.set(d[1],stack[stack.length-1]);return}
+  if(d){decl.set(d[1],l.trim());within.set(d[1],[...stack]);if(stack.length)owner.set(d[1],stack[stack.length-1]);return}
   const e=EDGE_LINE.exec(l);
   if(e)edges.push({from:e[1],to:e[2],line:l.trim()});
  });
- return {decl,owner,head,edges};
+ return {decl,owner,head,within,edges};
 }
 function subgraphMembers(source){
  const {owner}=readDiagram(source),m=new Map();
@@ -1404,7 +1404,7 @@ function neighbourhood(source,nodeId){
  touch.forEach(e=>out.push("  "+e.line));
  return out.join("\n");
 }
-function markDotted(svg){
+function markDotted(svg,source){
  let n=0;
  svg.querySelectorAll("path.flowchart-link").forEach(p=>{
   const dash=getComputedStyle(p).strokeDasharray.split(/[\s,]+/).map(parseFloat).filter(v=>v>0);
@@ -1413,18 +1413,27 @@ function markDotted(svg){
   const lbl=svg.querySelector(`.edgeLabel[data-id="${CSS.escape(p.dataset.id||"")}"]`);
   if(lbl)lbl.dataset.dotted="1";
  });
- if(n){markDottedOnly(svg);svg.dataset.hideDotted="1"}
+ if(n){markDottedOnly(svg,source);svg.dataset.hideDotted="1"}
  return n;
 }
-function markDottedOnly(svg){
- const solid=new Set();
- svg.querySelectorAll("path.flowchart-link[data-from]:not([data-dotted])").forEach(p=>{solid.add(p.dataset.from);solid.add(p.dataset.to)});
- svg.querySelectorAll("path.flowchart-link[data-from][data-dotted]").forEach(p=>{
-  [p.dataset.from,p.dataset.to].forEach(id=>{
-   if(solid.has(id))return;
-   const n=svg.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
-   if(n)n.dataset.dotted="1";
-  });
+function markDottedOnly(svg,source){
+ const {within}=readDiagram(source);
+ const kin=id=>{
+  const out=new Set([id,...(within.get(id)||[])]);
+  within.forEach((anc,x)=>{if(anc.includes(id))out.add(x)});
+  return out;
+ };
+ const solid=new Set(),detour=new Set();
+ svg.querySelectorAll("path.flowchart-link[data-from]").forEach(p=>{
+  const side=p.dataset.dotted?detour:solid;
+  kin(p.dataset.from).forEach(x=>side.add(x));
+  kin(p.dataset.to).forEach(x=>side.add(x));
+ });
+ detour.forEach(id=>{
+  if(solid.has(id))return;
+  const k=CSS.escape(id);
+  const n=svg.querySelector(`g.node[data-id="${k}"],g.cluster[data-id="${k}"]`);
+  if(n)n.dataset.dotted="1";
  });
 }
 function tagDiagram(svg,id,source){
@@ -1432,7 +1441,7 @@ function tagDiagram(svg,id,source){
  const authored=authoredEdges(source);
  svg.querySelectorAll("g.node").forEach(n=>{if(n.id.startsWith(pre))n.dataset.id=n.id.slice(pre.length).replace(/-\d+$/,"")});
  svg.querySelectorAll("g.cluster").forEach(c=>{if(c.id.startsWith(id+"-"))c.dataset.id=c.id.slice(id.length+1)});
- const ids=new Set([...svg.querySelectorAll("g.node[data-id]")].map(n=>n.dataset.id));
+ const ids=new Set([...svg.querySelectorAll("g.node[data-id],g.cluster[data-id]")].map(n=>n.dataset.id));
  const split=body=>{for(let i=1;i<body.length;i++){if(body[i]!=="_")continue;const a=body.slice(0,i),b=body.slice(i+1);if(ids.has(a)&&ids.has(b))return [a,b]}return null};
  const ends=did=>{if(authored.has(did))return authored.get(did);const m=/^L_(.+)_\d+$/.exec(did);return m&&split(m[1])};
  svg.querySelectorAll("path.flowchart-link[data-id]").forEach(e=>{
@@ -1813,7 +1822,7 @@ async function openFullDiagram(label){
  fullDiagBox.dataset.drawn="1";
  try{
   const svg=await renderMermaid(fullDiagBox,DIAGRAM_SOURCE,label,null);
-  markDotted(svg);
+  markDotted(svg,DIAGRAM_SOURCE);
   delete svg.dataset.hideDotted;
   const want=readableScale(svg);
   const pz=await panzoomLib();
@@ -1827,9 +1836,9 @@ async function openFullDiagram(label){
   inst.pan({x:16-box.x*z,y:16-box.y*z});
  }catch(e){fullDiagBox.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`;delete fullDiagBox.dataset.drawn}
 }
-function dottedControls(svg){
+function dottedControls(svg,source){
  const legend=$("#sysdLegend");
- if(!markDotted(svg)){legend.hidden=true;$("#sysdDotted").hidden=true;return}
+ if(!markDotted(svg,source)){legend.hidden=true;$("#sysdDotted").hidden=true;return}
  legend.hidden=false;
  const btn=$("#sysdDotted");
  btn.hidden=false;
@@ -1845,7 +1854,7 @@ function sysdMermaid(){
  return mermaidJob(host,OVERVIEW||DIAGRAM_SOURCE,label,async svg=>{
   const box=el("div","pzbox");
   svg.replaceWith(box);box.append(svg);
-  dottedControls(svg);
+  dottedControls(svg,OVERVIEW||DIAGRAM_SOURCE);
   const vw=vbWidth(svg),vh=vbHeight(svg),want=OVERVIEW?0:readableScale(svg);
   const PAD=16;
   const boxWidth=()=>box.clientWidth||host.clientWidth||1;
