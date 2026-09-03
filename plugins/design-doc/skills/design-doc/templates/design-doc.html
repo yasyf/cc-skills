@@ -452,7 +452,6 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   nav#rail a.on{border-bottom-color:var(--accent)}
   nav#rail .spacer{display:none}
   nav#rail .tools{flex-direction:row;align-items:center;padding:0;gap:6px}
-  nav#rail .tools input.search{width:150px}
   select.toolbtn{width:auto;max-width:150px}
   main{padding:0 18px 90px}
   h1{max-width:none}
@@ -691,50 +690,86 @@ html[data-theme=dark]:not([data-print]){
   --hero-bg:#0E0E0D; --hero-band:#181715; --hero-ink:#F3F0E9; --hero-ink2:#ABA69C; --hero-line:#F3F0E92B;
 }
 html:not([data-ai]) .ai-only{display:none!important}
-#ai{position:fixed;right:18px;bottom:18px;z-index:66;width:min(430px,calc(100vw - 36px));max-height:min(72vh,640px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
-#ai[data-wide]{top:0;right:0;bottom:0;width:min(520px,44vw);max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
+#ai{position:fixed;right:18px;bottom:18px;z-index:66;display:flex;flex-direction:column;align-items:flex-end}
+#ai[hidden]{display:none}
+.ai-bar{display:inline-flex;align-items:center;gap:8px;max-width:min(360px,calc(100vw - 36px));border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 12px 8px 14px;font-size:13.5px;box-shadow:0 10px 30px #0003;cursor:pointer}
+.ai-bar:hover{border-color:var(--accent)}
+.ai-bar b{font-weight:600}
+.ai-glyph{color:var(--accent);font-size:13px}
+#aiBarLast{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2)}
+#aiBarLast:empty{display:none}
+.ai-bar kbd{font:11.5px var(--mono);color:var(--ink2);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.ai-panel{display:flex;flex-direction:column;width:min(430px,calc(100vw - 36px));max-height:min(72svh,640px);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
+#ai[data-state=bar] .ai-panel{display:none}
+#ai:not([data-state=bar]) .ai-bar{display:none}
+#ai[data-state=wide]{top:0;right:0;bottom:0;align-items:stretch}
+#ai[data-state=wide] .ai-panel{width:min(520px,44vw);height:100%;max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
 body.ai-wide .layout{margin-right:min(520px,44vw)}
-.ai-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
-.ai-head b{flex:1;font-size:14.5px}
-.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 10px;font-size:12.5px}
+.ai-head{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 14px;border-bottom:1px solid var(--line)}
+.ai-head b{font-size:14.5px}
+.ai-ctx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--ink2)}
+.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 9px;font-size:12.5px;line-height:1.4}
 .ai-head button:hover,.ai-x:hover{border-color:var(--accent);color:var(--accent)}
-.ai-tools,.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:9px 14px 0}
-.ai-sug{padding-bottom:4px}
+.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px 4px}
 .ai-chip{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:999px;padding:3px 11px;font-size:12.5px;text-align:left}
 .ai-chip:hover{border-color:var(--accent);color:var(--accent)}
-.ai-log{flex:1;overflow:auto;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
-.ai-log:empty{display:none}
+.ai-log{flex:1;overflow:auto;overscroll-behavior:contain;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
+.ai-empty{color:var(--ink2);font-size:13.5px;margin:4px 0 8px;max-width:none}
+.ai-empty:not(:only-child){display:none}
 .ai-msg{margin:0 0 12px;max-width:none}
 .ai-msg p{margin:6px 0;max-width:none}
 .ai-msg h3{font-size:14.5px;margin:2px 0 6px}
 .ai-msg ul{padding-left:20px;margin:6px 0}
-.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink)}
+.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink);white-space:pre-wrap}
+.ai-about-in{display:block;font-size:12px;color:var(--ink2);margin-bottom:3px;white-space:normal}
 .ai-wait{color:var(--ink2)}
 .ai-err{color:var(--crit)}
-.ai-used{display:flex;gap:5px;flex-wrap:wrap;margin:-6px 0 12px}
-.ai-tool{font-family:var(--mono);font-size:11px;color:var(--ink2);background:var(--bg2);border-radius:var(--r-node);padding:1px 6px}
-.ai-changed{margin-top:8px}
+.ai-verbs{font-size:12px;color:var(--ink2);margin:2px 0 0}
+.ai-verbs button{border:0;background:none;color:var(--accent);font-size:12px;padding:0;cursor:pointer}
+.ai-src{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;font-size:12.5px;color:var(--ink2);margin:6px 0 0}
+.ai-card{border:1px solid var(--line);border-radius:var(--r-node);margin:0 0 12px;background:var(--bg2)}
+.ai-card-head{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-bottom:1px solid var(--line)}
+.ai-card-head b{flex:1;font-size:13.5px}
+.ai-card-body{padding:6px 12px 10px;font-size:14px}
+.ai-card-body p{margin:6px 0;max-width:none}
+.ai-card-body details{margin:4px 0}
+.ai-card-body summary{cursor:pointer;font-weight:600;font-size:13.5px}
 .ai-q{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.ai-q:first-child{border-top:0;padding-top:0;margin-top:0}
 .ai-opt,.ai-btn{display:inline-block;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 10px;font-size:13px;margin:3px 5px 0 0;text-align:left}
 .ai-opt:hover,.ai-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ai-btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .ai-opt.ok{border-color:var(--ok);color:var(--ok)}
 .ai-opt.bad{border-color:var(--crit);color:var(--crit)}
 .ai-qa{font-size:13.5px;color:var(--ink2);margin:6px 0 0}
-.ai-note-in{font-size:12.5px;color:var(--ink2)}
-.ai-foot{display:flex;gap:8px;align-items:flex-end;padding:10px 14px;border-top:1px solid var(--line)}
+.ai-foot{position:relative;padding:8px 14px 10px;border-top:1px solid var(--line)}
+.ai-row{display:flex;gap:8px;align-items:flex-end}
 .ai-foot textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:7px 10px;font:14px/1.4 var(--sans);max-height:120px}
 .ai-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:7px 14px;font-size:13.5px}
-.ai-note{padding:0 14px 10px;font-size:11.5px;color:var(--ink2);display:flex;flex-direction:column;gap:5px}
-.ai-note-tog{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ai-about{display:flex;gap:6px;align-items:baseline;font-size:12.5px;color:var(--ink2);margin:0 0 6px}
+.ai-about-k{white-space:nowrap}
+.ai-about-t{flex:1;min-width:0;text-align:left;border:0;background:none;color:var(--ink);font-size:12.5px;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.ai-about-t::after{content:" ▸";color:var(--ink2)}
+.ai-about.open .ai-about-t{white-space:normal}
+.ai-about.open .ai-about-t::after{content:" ▾"}
+.ai-slash{position:absolute;left:14px;right:14px;bottom:calc(100% - 1px);z-index:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);box-shadow:0 10px 30px #0003;padding:4px;max-height:220px;overflow:auto;overscroll-behavior:contain}
+.ai-slash-row{display:flex;gap:10px;align-items:baseline;padding:6px 9px;border-radius:var(--r-node);cursor:pointer;font-size:13.5px}
+.ai-slash-row.on,.ai-slash-row:hover{background:var(--accent-soft)}
+.ai-slash-k{flex:0 0 68px;font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.ai-slash-row small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.ai-settings{border-top:1px solid var(--line);font-size:11.5px;color:var(--ink2)}
+.ai-settings summary{list-style:none;cursor:pointer;padding:6px 14px}
+.ai-settings summary::-webkit-details-marker{display:none}
+.ai-diag{padding:0 14px 8px;font-family:var(--mono);font-size:11px;white-space:pre-wrap}
 .ai-hl{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
 .ai-mark{background:var(--accent-soft);border-radius:3px;box-shadow:0 0 0 2px var(--accent-soft)}
-.ai-ask{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1.7;margin-left:6px}
-.ai-ask:hover{border-color:var(--accent);color:var(--accent)}
-.ai-h2{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:1px 11px;font-size:12px;margin-left:10px;vertical-align:3px}
-.ai-h2:hover{border-color:var(--accent);color:var(--accent)}
-.ai-footrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-ask{flex:0 0 auto;align-self:center;width:22px;height:22px;padding:0;border:1px solid transparent;background:transparent;color:var(--accent);border-radius:50%;font-size:12px;line-height:20px;text-align:center;opacity:.55;cursor:pointer}
+.ai-ask:hover,.ai-ask:focus-visible,summary:hover .ai-ask,summary:focus-within .ai-ask{opacity:1;border-color:var(--accent-soft);background:var(--accent-soft)}
+.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);max-height:min(70vh,560px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-menu.ai-cmds{width:auto;min-width:250px;padding:6px}
+.ai-menu-item{display:flex;gap:12px;align-items:baseline;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:7px 10px;border-radius:var(--r-node);font-size:13.5px;cursor:pointer}
+.ai-menu-item:hover,.ai-menu-item:focus-visible{background:var(--accent-soft);outline:0}
+.ai-menu-item small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap}
 .ai-menu-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
 .ai-menu-head b{flex:1;font-size:14px}
 .ai-menu-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
@@ -753,26 +788,33 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
 .def.ai-def{border:1px dashed var(--line);border-radius:var(--r-node);padding:10px 12px}
 .ai-pill{margin-left:6px;font-size:11px;vertical-align:1px}
 #pal{position:fixed;inset:0;z-index:69;background:#0006;display:flex;align-items:flex-start;justify-content:center;padding:12vh 20px 20px}
-.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:70vh;overflow:hidden}
+.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
 .pal-in{border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);padding:14px 18px;font:16px var(--sans);outline:none}
-.pal-list{overflow:auto;padding:6px}
+.pal-list{flex:0 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px}
 .pal-row{display:flex;gap:9px;align-items:baseline;padding:7px 11px;border-radius:var(--r-node);cursor:pointer}
 .pal-row.on{background:var(--accent-soft)}
 .pal-row:hover{background:var(--bg2)}
+.pal-row.pal-div,.pal-row.pal-div:hover{cursor:default;background:none;padding:10px 11px 2px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
 .pal-g{flex:0 0 14px;color:var(--ink2);font-size:12px;text-align:center}
 .pal-dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:currentColor;transform:translateY(-2px)}
 .pal-l{flex:0 1 auto;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
 .pal-id{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
 .pal-s{flex:1 1 auto;min-width:0;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-ans{flex:0 0 auto;max-height:40vh;overflow:auto;overscroll-behavior:contain;border-top:1px solid var(--line);padding:10px 18px;font-size:14px;line-height:1.5}
+.pal-ans p{margin:6px 0;max-width:none}
+.pal-ans ul{padding-left:20px;margin:6px 0}
 .pal-foot{border-top:1px solid var(--line);padding:8px 18px;font-size:12px;color:var(--ink2)}
 @media (max-width:900px){
-  #ai{left:10px;right:10px;bottom:10px;width:auto;max-height:70svh}
-  #ai[data-wide]{left:0;right:0;top:0;width:auto}
+  #ai{left:10px;right:10px;bottom:calc(64px + env(safe-area-inset-bottom));align-items:stretch}
+  #ai[data-state=bar]{display:none}
+  .ai-panel{width:auto;max-height:70svh}
+  #ai[data-state=wide]{left:0;right:0;top:0;bottom:0}
+  #ai[data-state=wide] .ai-panel{width:auto}
   body.ai-wide .layout{margin-right:0}
   .ai-path{margin-right:0}
 }
 @media print{
-  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-h2,.ai-path,.ai-footrow{display:none!important}
+  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-path,.ai-card,.ai-about,.ai-slash,.pal-ans{display:none!important}
   .ai-hl{outline:0}
   body.ai-wide .layout{margin-right:0}
 }
@@ -803,8 +845,6 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <a href="#footnotes">Footnotes</a>
   <div class="spacer"></div>
   <div class="tools">
-    <label class="sr-only" for="docSearch">Search decisions, assumptions and open questions</label>
-    <input class="search" id="docSearch" type="search" placeholder="Search the registers" autocomplete="off">
     <select id="baseSel" class="toolbtn" hidden title="Show what changed since an earlier revision" aria-label="Show what changed since an earlier revision"></select>
     <button class="toolbtn" id="wordingBtn" type="button" aria-pressed="false" title="Show every entry in its exact register wording instead of the plain version">Full wording</button>
     <details class="railmore">
@@ -945,23 +985,30 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   </div>
 </div>
 
-<div id="ai" role="dialog" aria-label="Ask this document" hidden>
-  <div class="ai-head"><b>Ask this document</b><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClear" type="button">Clear</button><button id="aiClose" type="button" aria-label="Close">Close</button></div>
-  <div class="ai-tools" id="aiTools"></div>
-  <div class="ai-log" id="aiLog"></div>
-  <div class="ai-sug" id="aiSug"></div>
-  <form class="ai-foot" id="aiForm">
-    <label class="sr-only" for="aiIn">Ask about this document</label>
-    <textarea id="aiIn" rows="1" placeholder="Ask about this document"></textarea>
-    <button class="ai-send" id="aiSend" type="submit">Ask</button>
-  </form>
-  <div class="ai-note" id="aiNote"><span id="aiHost"></span></div>
-</div>
+<aside id="ai" role="complementary" aria-label="Ask" data-state="bar" hidden>
+  <button id="aiBar" class="ai-bar" type="button" aria-expanded="false" aria-controls="aiPanel"><span class="ai-glyph" aria-hidden="true">&#10022;</span><b>Ask</b><span id="aiBarLast"></span><kbd>&#8984;J</kbd></button>
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-head"><span class="ai-glyph" aria-hidden="true">&#10022;</span><b>Ask</b><span class="ai-ctx" id="aiCtx"></span><button id="aiMore" type="button" aria-haspopup="menu">More &#9662;</button><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClose" type="button" title="Collapse" aria-label="Collapse">&minus;</button></div>
+    <div class="ai-log" id="aiLog"><p class="ai-empty">Ask about this document. It answers from the registers and moves the page to what it cites.</p></div>
+    <div class="ai-sug" id="aiSug"></div>
+    <form class="ai-foot" id="aiForm">
+      <div class="ai-about" id="aiAbout" hidden></div>
+      <div class="ai-row">
+        <label class="sr-only" for="aiIn">Ask about this document</label>
+        <textarea id="aiIn" rows="1" placeholder="Ask, or / for commands"></textarea>
+        <button class="ai-send" id="aiSend" type="submit">Ask</button>
+      </div>
+      <div class="ai-slash" id="aiSlash" role="listbox" aria-label="Commands" hidden></div>
+    </form>
+    <details class="ai-settings"><summary id="aiHost"></summary><div class="ai-diag" id="aiDiag"></div></details>
+  </div>
+</aside>
 <div id="pal" role="dialog" aria-label="Everything you can do here" hidden>
   <div class="pal-box">
     <label class="sr-only" for="palIn">Search the document, or run a command</label>
     <input id="palIn" class="pal-in" type="text" placeholder="Search the doc &middot; &gt; for commands &middot; ? to ask" autocomplete="off" spellcheck="false">
     <div class="pal-list" id="palList" role="listbox"></div>
+    <div class="pal-ans" id="palAns" hidden></div>
     <div class="pal-foot">&#8593;&#8595; move &middot; &#8629; open &middot; esc close</div>
   </div>
 </div>
@@ -1179,8 +1226,18 @@ function mdToHtml(md){
 
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
 const TIP_SEL="[data-tip],[data-ref],[data-term]";
-let tipFor=null,tipTimer=0;
-function hideTip(){clearTimeout(tipTimer);tipFor=null;TIP.hidden=true;TIP.classList.remove("card")}
+const TIP_RING=[];
+let tipFor=null,tipTimer=0,tipArmed=null,tipClosedAt=-1e9,tipCorridor=null,tipSpeed=0,tipDir={x:0,y:0},tipPt={x:0,y:0};
+function tipSpeedNow(){
+ const last=TIP_RING[TIP_RING.length-1];
+ return last&&performance.now()-last.t<80?tipSpeed:0;
+}
+function hideTip(){
+ clearTimeout(tipTimer);
+ tipArmed=null;tipCorridor=null;
+ if(!TIP.hidden)tipClosedAt=performance.now();
+ tipFor=null;TIP.hidden=true;TIP.classList.remove("card");
+}
 function cardHtml(node){
  const id=node.dataset.ref;
  if(id){
@@ -1193,31 +1250,81 @@ function cardHtml(node){
  const t=TERM_BY[node.dataset.term];
  return `<span class="ttitle">${esc(t.k)}${t.ai?' <span class="pill p-acc ai-pill">AI-defined</span>':""}</span><p>${esc(plain(t.v))}</p><span class="topen" data-open="#ground" role="button" tabindex="0">Terms →</span>`;
 }
-function showTip(node){
+function placeTip(node,viaKeys){
+ const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
+ const below=(!viaKeys&&tipDir.y>0)||r.top-b.height-8<8;
+ let top=below?r.bottom+8:r.top-b.height-8;
+ if(below&&top+b.height>innerHeight-8)top=Math.max(8,r.top-b.height-8);
+ let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
+ const px=tipPt.x;
+ if(!viaKeys&&left<=px&&px<=left+b.width){
+  if(px+14+b.width<=innerWidth-8)left=px+14;
+  else if(px-14-b.width>=8)left=px-14-b.width;
+ }
+ TIP.style.left=left+"px";TIP.style.top=top+"px";
+}
+function showTip(node,viaKeys){
  const card=node.dataset.ref||node.dataset.term;
  const t=node.getAttribute("data-tip");
  if(!card&&!t){hideTip();return}
  clearTimeout(tipTimer);
- tipFor=node;
+ tipArmed=null;tipCorridor=null;tipFor=node;
  TIP.classList.toggle("card",!!card);
  if(card)TIP.innerHTML=cardHtml(node);else TIP.textContent=t;
  TIP.hidden=false;
- const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
- let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
- let top=r.top-b.height-8;
- if(top<8)top=r.bottom+8;
- TIP.style.left=left+"px";TIP.style.top=top+"px";
+ placeTip(node,viaKeys);
 }
+function tipOpenArmed(node){
+ if(tipArmed!==node)return;
+ if(tipSpeedNow()>0.5){tipTimer=setTimeout(()=>tipOpenArmed(node),80);return}
+ showTip(node,false);
+}
+function armTip(node){
+ if(node===tipArmed)return;
+ clearTimeout(tipTimer);
+ tipArmed=node;tipCorridor=null;
+ const delay=!TIP.hidden?40:performance.now()-tipClosedAt<1000?400:250;
+ tipTimer=setTimeout(()=>tipOpenArmed(node),delay);
+}
+const tipSign=(p,a,b)=>(p.x-b.x)*(a.y-b.y)-(a.x-b.x)*(p.y-b.y);
+function tipInCorridor(p){
+ const {a,b,c}=tipCorridor;
+ const d1=tipSign(p,a,b),d2=tipSign(p,b,c),d3=tipSign(p,c,a);
+ return !((d1<0||d2<0||d3<0)&&(d1>0||d2>0||d3>0));
+}
+function tipLeave(){
+ if(TIP.hidden)return;
+ if(!TIP.classList.contains("card")){hideTip();return}
+ if(tipCorridor)return;
+ const b=TIP.getBoundingClientRect(),p={x:tipPt.x,y:tipPt.y};
+ const y=Math.abs(p.y-b.top)<=Math.abs(p.y-b.bottom)?b.top:b.bottom;
+ tipCorridor={a:p,b:{x:b.left-8,y},c:{x:b.right+8,y}};
+ clearTimeout(tipTimer);
+ tipTimer=setTimeout(()=>{if(tipCorridor&&!TIP.matches(":hover"))hideTip()},400);
+}
+document.addEventListener("pointermove",e=>{
+ const now=performance.now();
+ TIP_RING.push({x:e.clientX,y:e.clientY,t:now});
+ if(TIP_RING.length>5)TIP_RING.shift();
+ tipPt={x:e.clientX,y:e.clientY};
+ const a=TIP_RING[0],b=TIP_RING[TIP_RING.length-1],dt=b.t-a.t;
+ if(dt>0){tipDir={x:b.x-a.x,y:b.y-a.y};tipSpeed=Math.hypot(tipDir.x,tipDir.y)/dt}
+ if(tipCorridor&&!TIP.contains(e.target)&&!tipInCorridor(tipPt))hideTip();
+},{passive:true});
 document.addEventListener("pointerover",e=>{
- if(TIP.contains(e.target)){clearTimeout(tipTimer);return}
+ if(TIP.contains(e.target)){clearTimeout(tipTimer);tipCorridor=null;return}
  const n=e.target.closest&&e.target.closest(TIP_SEL);
- if(n===tipFor){clearTimeout(tipTimer);return}
- if(n)showTip(n);
- else if(TIP.classList.contains("card")){clearTimeout(tipTimer);tipTimer=setTimeout(hideTip,200)}
- else hideTip();
+ if(n&&n===tipFor){clearTimeout(tipTimer);tipCorridor=null;return}
+ if(n){armTip(n);return}
+ if(tipArmed){tipArmed=null;clearTimeout(tipTimer)}
+ if(TIP.hidden)return;
+ if(TIP.contains(e.relatedTarget)){clearTimeout(tipTimer);tipTimer=setTimeout(hideTip,200);return}
+ tipLeave();
 });
-document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n=e.target.closest&&e.target.closest(TIP_SEL);n?showTip(n):hideTip()});
+document.addEventListener("pointerdown",e=>{if(!TIP.contains(e.target))hideTip()});
+document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n=e.target.closest&&e.target.closest(TIP_SEL);n?showTip(n,true):hideTip()});
 document.addEventListener("focusout",e=>{if(TIP.contains(e.relatedTarget))return;hideTip()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!TIP.hidden)hideTip()});
 TIP.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.target.click()}});
 TIP.addEventListener("click",e=>{
  const o=e.target.closest("[data-open]");
@@ -1989,7 +2096,7 @@ const countLabel=(n,one)=>`${n} ${one}${n===1?"":"s"}`;
 ARCH.forEach(c=>{
  const d=el("details","ledger");d.id=c.id;
  const rests=c.dq.length||c.a.length?`<span class="restchip">rests on ${countLabel(c.dq.length,"decision")}, ${countLabel(c.a.length,"assumption")}</span>`:"";
- d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>${rests}</span>`+
+ d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>${rests}${aiAskBtn(c.id)}</span>`+
   `<span class="sumline">${esc(firstSentence(c.b[0]||""))}</span></summary><div class="body">`+
   `<p>${inline(c.b[0]||"")}</p>`+
   restsOn(c)+
@@ -2131,7 +2238,6 @@ function bindSearch(input){
  input.oninput=()=>setQuery(input.value);
  input.onkeydown=e=>{if(e.key==="Escape"){e.stopPropagation();setQuery("")}};
 }
-bindSearch($("#docSearch"));
 function expandBtn(hostSel,state){
  const b=el("button","xbtn","Expand all");
  b.setAttribute("aria-pressed","false");
@@ -2174,7 +2280,7 @@ function themeChip(e){return e.theme?`<span class="theme-chip">${esc(themeLabel(
 function spotCard(e,reg,status,bodyHtml){
  const det=el("details","spot");det.id="spot-"+e.id;det.dataset.s=e.s;
  const [sc,sl]=status;
- det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}</span></summary><div class="body">${bodyHtml}</div>`;
+ det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}${aiAskBtn(e.id)}</span></summary><div class="body">${bodyHtml}</div>`;
  return det;
 }
 const SPOT_COLD=6;
@@ -2222,7 +2328,7 @@ function dqBody(d){
 function dqRow(d){
  const det=el("details","ledger");det.id="item-"+d.id;
  const [sc,sl]=SLBL[d.s]||["st-warn",d.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("decisions",d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("decisions",d.id)}${aiAskBtn(d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
  if(DIFF&&!DIFF.marks["decisions:"+d.id])det.classList.add("unch");
  if(dqState.all)det.open=true;
  return det;
@@ -2269,7 +2375,7 @@ function aBody(a){
 function aRow(a){
  const det=el("details","ledger"+(a.star?" loadbearing":""));det.id="item-"+a.id;
  const [sc,sl]=ALBL[a.s]||["st-warn",a.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("assumptions",a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("assumptions",a.id)}${aiAskBtn(a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
  if(DIFF&&!DIFF.marks["assumptions:"+a.id])det.classList.add("unch");
  if(aState.all)det.open=true;
  return det;
@@ -2315,7 +2421,7 @@ function oRowHtml(o,glyph,unchanged){
   (blocks.length?`<div class="ochips">${blocks.map(refChip).join("")}</div>`:"")+
   `<span class="idchip">${esc(o.id)}</span> <button class="xbtn" type="button" data-copy="open-${esc(o.id)}">Copy link</button>`;
  return `<details class="orow${unchanged?" unch":""}" id="open-${esc(o.id)}">`+
-  `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}</span></summary>`+
+  `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}${aiAskBtn(o.id)}</span></summary>`+
   `<div class="obody">${body}</div></details>`;
 }
 function renderO(){
@@ -2440,7 +2546,7 @@ const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){navLi
 [...document.querySelectorAll("section")].forEach(s=>io.observe(s));
 
 document.addEventListener("keydown",e=>{
- if(e.key==="/"&&!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){e.preventDefault();unveil();$("#docSearch").focus()}
+ if(e.key==="/"&&!aiTyping()&&$("#pal").hidden){e.preventDefault();palOpen("")}
 });
 
 if(typeof META.rev==="number"&&META.rev>=1){
@@ -2911,8 +3017,8 @@ $("#pdfBtn").onclick=async()=>{await prepPrint();window.print()};
   if(!sheet.hidden){closeSecs();return}
   buildSecs();sheet.hidden=false;btn.setAttribute("aria-expanded","true");
  };
- $("#mbarSearch").onclick=()=>{closeSecs();unveil();const s=$("#docSearch");s.scrollIntoView({block:"center"});s.focus()};
- $("#mbarAsk").onclick=()=>document.dispatchEvent(new CustomEvent("design-doc:ask"));
+ $("#mbarSearch").onclick=()=>{closeSecs();palOpen("")};
+ $("#mbarAsk").onclick=()=>{closeSecs();aiOpen()};
  document.addEventListener("click",e=>{if(sheet.hidden||sheet.contains(e.target)||e.target===btn)return;closeSecs()});
 })();
 termify($("#main"));
@@ -3292,10 +3398,20 @@ const AI_SUGGEST={
  open:["What is blocking a decision right now?","Which spike should run first?"],
  footnotes:["What do the footnotes add?"]
 };
+const AI_CMDS=[
+ {id:"tldr",label:"TL;DR this section",sub:()=>AI_SECTION_NAMES[aiSec]||"",when:()=>!!AI_SECTION_NAMES[aiSec],run:()=>aiShowSection(aiSec)},
+ {id:"faq",label:"Questions people ask",run:()=>aiShowFaq()},
+ {id:"quiz",label:"Check my understanding",run:()=>aiShowQuiz()},
+ {id:"terms",label:"Find undefined terms",run:()=>aiShowGlossary()},
+ {id:"read",label:"Read as a role",sub:AI_ROLES.map(r=>r[0]).join(", "),run:anchor=>aiPickRole(anchor)},
+ {id:"changed",label:"What changed, in prose",when:()=>!!DIFF,run:()=>aiShowChanged()},
+ {id:"clear",label:"Clear the conversation",run:()=>aiClear()}
+];
 const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
 const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
 
 let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let aiState="bar",aiPrevFocus=null,aiStick=true,aiSugFor=null,aiAboutCtx=null,aiSlashList=[],aiSlashIx=0;
 let aiChat=[];
 const aiMarked=[];
 
@@ -3630,6 +3746,7 @@ const AI_TOOLS=[
  aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
  aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
 ];
+const AI_TOOLS_READ=AI_TOOLS.filter(t=>/^(read_|list_|search_)/.test(t.function.name));
 function aiMark(id){
  const node=aiEl(id);
  if(!node)return false;
@@ -3751,12 +3868,12 @@ async function aiExec(name,args){
 async function aiRun(question,opt){
  const o=opt||{};
  const msgs=[{role:"system",content:aiSystem()}];
- aiChat.forEach(m=>msgs.push({role:m.role,content:m.content}));
+ aiHistory().forEach(m=>msgs.push(m));
  msgs.push({role:"user",content:question});
  let answer="";
  for(let round=0;round<AI_ROUNDS;round++){
   const prefix=answer?answer+"\n\n":"";
-  const res=await aiStream({model:AI.model,messages:msgs,tools:AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
+  const res=await aiStream({model:AI.model,messages:msgs,tools:o.tools||AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
   if(res.text)answer=prefix+res.text;
   if(!res.calls.length)break;
   msgs.push({role:"assistant",content:res.text||"",tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
@@ -3773,80 +3890,235 @@ async function aiRun(question,opt){
 }
 
 function aiChatKey(){return "ai:"+SLUG+":chat"}
+function aiStateKey(){return "ai:"+SLUG+":state"}
+function aiHistory(){return aiChat.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({role:m.role,content:m.content}))}
 function aiSaveChat(){try{sessionStorage.setItem(aiChatKey(),JSON.stringify(aiChat.slice(-12)))}catch(e){}}
 function aiLoadChat(){
  try{const raw=sessionStorage.getItem(aiChatKey());if(raw)aiChat=JSON.parse(raw)||[]}catch(e){aiChat=[]}
- aiChat.forEach(m=>aiBubble(m.role,m.content));
+ aiChat.forEach(m=>{
+  if(m.role==="card"){aiNode(aiRenderCard(m));return}
+  const box=aiBubble(m.role,m.shown||m.content,m.sources,m.about);
+  if(m.verbs&&m.verbs.length)aiSetVerbs(box,m.verbs);
+ });
+ aiBarText(aiFirstLine(aiLastAnswer()));
+ aiScrollLog(true);
 }
-function aiScrollLog(){const log=$("#aiLog");log.scrollTop=log.scrollHeight}
-function aiBubble(role,text){
+function aiLastAnswer(){
+ for(let i=aiChat.length-1;i>=0;i--)if(aiChat[i].role==="assistant")return aiChat[i].content||"";
+ return "";
+}
+function aiFirstLine(text){
+ const s=firstSentence(text||"");
+ return s.length>90?s.slice(0,90)+"…":s;
+}
+function aiBarText(text){$("#aiBarLast").textContent=text||""}
+function aiScrollLog(force){
+ const log=$("#aiLog");
+ if(force)aiStick=true;
+ if(aiStick)log.scrollTop=log.scrollHeight;
+}
+function aiAboutPrefix(about){
+ return (about.kind==="entry"?"About "+about.id+" “"+about.text+"”":"About this passage: “"+about.text+"”")+"\n\n";
+}
+function aiBubble(role,text,sources,about){
  const box=el("div","ai-msg ai-"+role);
- if(role==="user")box.textContent=text;
- else{box.innerHTML=mdToHtml(text||"…");scrub(box)}
- $("#aiLog").append(box);
- aiScrollLog();
- return box;
+ if(role==="user"){
+  if(about)box.append(el("span","ai-about-in",esc((about.kind==="entry"?"About "+about.id+": ":"About: ")+about.text)));
+  box.append(document.createTextNode(text));
+ }else{
+  const body=el("div","ai-body");
+  if(text){body.innerHTML=mdToHtml(text);scrub(body)}
+  else body.append(el("span","ai-wait","Thinking…"));
+  box.append(body);
+  if(sources&&sources.length)aiSetSources(box,sources);
+ }
+ return aiNode(box);
+}
+const AI_VERB={
+ scroll_to:a=>"scrolled to "+a.id,
+ highlight:a=>"highlighted "+a.id,
+ open_entry:a=>"opened "+a.id,
+ filter:a=>"filtered "+a.section,
+ show_diagram:a=>a.node?"showed "+a.node+" on the diagram":"showed the diagram",
+ read_entry:a=>"read "+a.id,
+ read_section:a=>"read "+(AI_SECTION_NAMES[a.section]||a.section),
+ list_entries:a=>"listed "+a.register,
+ select_text:()=>"selected a passage",
+ set_reading_path:()=>"pinned a reading path",
+ search_document:a=>"searched “"+a.query+"”",
+ read_round:a=>"read round "+a.round,
+ read_notes:()=>"read the notes",
+ read_links:a=>"read the links"+(a.id?" on "+a.id:"")
+};
+function aiVerbs(calls){return calls.map(c=>{const f=AI_VERB[c.name];return f?f(c.args||{}):c.name.replace(/_/g," ")})}
+function aiSetVerbs(box,verbs){
+ let line=box.querySelector(".ai-verbs");
+ if(!verbs.length){if(line)line.remove();return}
+ if(!line){line=el("p","ai-verbs");box.querySelector(".ai-body").after(line)}
+ const open=line.classList.contains("open");
+ line.textContent=(open?verbs:verbs.slice(0,3)).join(" · ");
+ if(verbs.length>3&&!open){
+  const more=el("button",null,esc(" · +"+(verbs.length-3)+" more"));
+  more.type="button";
+  more.onclick=()=>{line.classList.add("open");aiSetVerbs(box,verbs)};
+  line.append(more);
+ }
+}
+function aiSetSources(box,sources){
+ let row=box.querySelector(".ai-src");
+ const ids=[...new Set(sources)].filter(id=>REF[id]).slice(0,8);
+ if(!ids.length){if(row)row.remove();return}
+ if(!row){row=el("div","ai-src");box.append(row)}
+ row.innerHTML="<span>Sources:</span>"+ids.map(refChip).join("");
 }
 function aiNode(node){$("#aiLog").append(node);aiScrollLog();return node}
-function aiOpen(seed){
- const pop=$("#ai");
- pop.hidden=false;
- aiSuggest();
- if(seed!=null){const box=$("#aiIn");box.value=seed;box.focus();aiGrow(box)}
- else $("#aiIn").focus();
- aiScrollLog();
+function aiSetState(s){
+ const was=aiState;
+ aiState=s;
+ $("#ai").dataset.state=s;
+ document.body.classList.toggle("ai-wide",s==="wide");
+ $("#aiBar").setAttribute("aria-expanded",String(s!=="bar"));
+ const wide=$("#aiWide");
+ wide.innerHTML=s==="wide"?"&#8676;":"&#8677;";
+ wide.title=s==="wide"?"Back to the corner":"Dock to the side";
+ wide.setAttribute("aria-label",wide.title);
+ if(s==="bar"){
+  document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+  aiSlashHide();
+  if(was!=="bar"){
+   const back=aiPrevFocus&&aiPrevFocus.isConnected&&!$("#ai").contains(aiPrevFocus)?aiPrevFocus:$("#aiBar");
+   back.focus();
+  }
+  aiPrevFocus=null;
+  return;
+ }
+ try{localStorage.setItem(aiStateKey(),s)}catch(e){}
+ if(was==="bar"){
+  aiPrevFocus=document.activeElement;
+  aiSuggest();
+  $("#aiIn").focus();
+  aiScrollLog(true);
+ }
 }
-function aiClose(){$("#ai").hidden=true}
+function aiOpen(seed,about){
+ if(about)aiSetAbout(about);
+ if(aiState==="bar"){
+  let want="dock";
+  try{want=localStorage.getItem(aiStateKey())||"dock"}catch(e){}
+  aiSetState(want==="wide"?"wide":"dock");
+ }
+ const box=$("#aiIn");
+ if(seed!=null){box.value=seed;aiGrow(box);aiSlashRender()}
+ box.focus();
+}
+function aiCollapse(){aiSetState("bar")}
+function aiToggle(){if(aiState==="bar")aiOpen();else aiCollapse()}
 function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.scrollHeight)+"px"}
-function aiSuggest(){
+function aiRenderChips(list){
  const host=$("#aiSug");host.innerHTML="";
- const meta=(META.ai&&META.ai.suggest)||{};
- const list=[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
- list.forEach(q=>{
-  const b=el("button","ai-chip",esc(q));
-  b.onclick=()=>aiAsk(q);
+ list.forEach(([label,run])=>{
+  const b=el("button","ai-chip",esc(label));
+  b.type="button";
+  b.onclick=run;
   host.append(b);
  });
 }
+function aiSuggest(){
+ if(aiSugFor===aiSec)return;
+ aiSugFor=aiSec;
+ const meta=(META.ai&&META.ai.suggest)||{};
+ const list=[];
+ if(AI_SECTION_NAMES[aiSec])list.push(["TL;DR "+AI_SECTION_NAMES[aiSec],()=>aiShowSection(aiSec)]);
+ [...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,2).forEach(q=>list.push([q,()=>aiAsk(q)]));
+ aiRenderChips(list);
+}
+function aiSetAbout(ctx){
+ aiAboutCtx=ctx||null;
+ const host=$("#aiAbout");
+ host.innerHTML="";
+ host.classList.remove("open");
+ if(!ctx){host.hidden=true;return}
+ const t=el("button","ai-about-t",esc("“"+ctx.text+"”"));
+ t.type="button";
+ t.title="Show the whole passage";
+ t.onclick=()=>host.classList.toggle("open");
+ const x=el("button","ai-x","×");
+ x.type="button";
+ x.setAttribute("aria-label","Drop this context");
+ x.onclick=()=>{aiSetAbout(null);$("#aiIn").focus()};
+ host.append(el("span","ai-about-k",esc(ctx.kind==="entry"?"About "+ctx.id+":":"About:")),t,x);
+ host.hidden=false;
+}
 function aiStop(){if(aiAbort)aiAbort.abort()}
-async function aiAsk(question,opt){
+function aiAsk(question,opt){
  const q=String(question||"").trim();
  if(!q||aiBusy)return;
- clearAiMarks();
  const o=opt||{};
- $("#ai").hidden=false;
- aiBubble("user",q);
- const bubble=aiBubble("assistant","…");
- const tools=el("div","ai-used");
- aiNode(tools);
- const ctrl=new AbortController();
+ const about=aiAboutCtx;
+ aiSetAbout(null);
+ aiOpen();
+ aiAdopt(aiStartRun(q,{about,effort:o.effort,commit:true}));
+}
+function aiStartRun(q,o){
+ const run={q,about:o.about||null,ctrl:new AbortController(),text:"",calls:[],sources:[],done:false,error:null,commit:!!o.commit,committed:false,listeners:new Set()};
+ const emit=()=>run.listeners.forEach(fn=>fn(run));
+ clearAiMarks();
+ aiBarText("Thinking…");
+ run.promise=aiRun(run.about?aiAboutPrefix(run.about)+q:q,{
+  effort:o.effort,
+  signal:run.ctrl.signal,
+  tools:o.tools,
+  onText:t=>{run.text=t;emit()},
+  onTool:(name,args)=>{run.calls.push({name,args});emit()}
+ }).then(res=>{run.text=res.answer||"";run.sources=res.sources||[]},e=>{run.error=e}).then(()=>{
+  run.done=true;
+  if(run.commit&&!run.error)aiCommit(run);
+  aiBarText(aiFirstLine(aiLastAnswer()));
+  emit();
+ });
+ return run;
+}
+function aiCommit(run){
+ if(run.committed)return;
+ run.committed=true;
+ aiChat.push(
+  {role:"user",content:run.about?aiAboutPrefix(run.about)+run.q:run.q,shown:run.q,about:run.about},
+  {role:"assistant",content:run.text,sources:run.sources,verbs:aiVerbs(run.calls)}
+ );
+ aiSaveChat();
+}
+function aiPaintAnswer(box,run,final){
+ const body=box.querySelector(".ai-body");
+ if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}
+ else if(final)body.textContent=run.error?"Stopped.":"No answer came back.";
+ aiSetVerbs(box,aiVerbs(run.calls));
+ if(final)aiSetSources(box,run.sources);
+ aiScrollLog();
+}
+function aiAdopt(run){
+ if(aiBusy&&aiAbort!==run.ctrl)aiStop();
  aiBusy=true;
- aiAbort=ctrl;
+ aiAbort=run.ctrl;
+ run.commit=true;
  $("#aiSend").textContent="Stop";
- let pending=0,latest="";
- const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
- try{
-  const {answer}=await aiRun(q,{
-   effort:o.effort||"low",
-   signal:ctrl.signal,
-   onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
-   onTool:(name,args)=>{
-    tools.append(el("span","ai-tool",esc(name+(args&&args.id?" "+args.id:""))));
-    aiScrollLog();
-   }
-  });
+ aiBubble("user",run.q,null,run.about);
+ const box=aiBubble("assistant","");
+ aiScrollLog(true);
+ let pending=0;
+ const paint=()=>{pending=0;aiPaintAnswer(box,run,false)};
+ const finish=r=>{
   if(pending)cancelAnimationFrame(pending);
-  latest=answer||"No answer came back.";
-  paint();
-  aiChat.push({role:"user",content:q},{role:"assistant",content:answer});
-  aiSaveChat();
- }catch(e){
-  if(pending)cancelAnimationFrame(pending);
-  if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
- }finally{
-  if(aiAbort===ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
+  pending=0;
+  if(r.error&&r.error.name!=="AbortError")aiFail(box.querySelector(".ai-body"),r.error);
+  else{
+   aiPaintAnswer(box,r,true);
+   if(!r.error)aiCommit(r);
+  }
+  if(aiAbort===r.ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
   aiScrollLog();
- }
+ };
+ run.listeners.add(r=>{if(r.done)finish(r);else if(!pending)pending=requestAnimationFrame(paint)});
+ if(run.done)finish(run);
 }
 
 async function aiExplain(entry,kind,roleIx,onText){
@@ -3928,84 +4200,231 @@ function aiBusyNode(label){
  return aiNode(box);
 }
 function aiFail(box,e){box.innerHTML="";box.append(el("span","ai-err",esc("Sorry — "+e.message)))}
-async function aiFeature(label,run){
- $("#ai").hidden=false;
- const box=aiBusyNode(label+"…");
- try{await run(box)}catch(e){aiFail(box,e)}
+function aiCard(title,kind){
+ const card=el("section","ai-card");
+ card.dataset.kind=kind;
+ const head=el("div","ai-card-head",`<b>${esc(title)}</b>`);
+ const x=el("button","ai-x","×");
+ x.type="button";
+ x.setAttribute("aria-label","Remove this card");
+ x.onclick=()=>{
+  const i=aiChat.indexOf(card.aiRec);
+  if(i>=0){aiChat.splice(i,1);aiSaveChat()}
+  card.remove();
+ };
+ head.append(x);
+ card.append(head,el("div","ai-card-body"));
+ return card;
+}
+const AI_CARDS={faq:aiRenderFaq,quiz:aiRenderQuiz,terms:aiRenderGlossary,readas:aiRenderReadAs,changed:aiRenderChanged,tldr:aiRenderSection};
+function aiRenderCard(rec){
+ const card=aiCard(rec.title,rec.kind);
+ card.aiRec=rec;
+ AI_CARDS[rec.kind](card.querySelector(".ai-card-body"),rec.data);
+ return card;
+}
+async function aiFeature(label,kind,title,fetch){
+ aiOpen();
+ const busy=aiBusyNode(label+"…");
+ try{
+  const data=await fetch();
+  const rec={role:"card",kind,title,data};
+  busy.replaceWith(aiRenderCard(rec));
+  aiChat.push(rec);
+  aiSaveChat();
+ }catch(e){aiFail(busy,e)}
  aiScrollLog();
 }
-function aiShowFaq(){
- return aiFeature("Working out the questions people ask",async box=>{
-  const out=await aiFaq();
-  box.innerHTML="<h3>Questions people ask</h3>"+(out.items||[]).map(it=>`<p><b>${esc(it.q)}</b><br>${inline(it.a)}</p>`).join("");
-  scrub(box);
- });
+function aiShowFaq(){return aiFeature("Working out the questions people ask","faq","Questions people ask",aiFaq)}
+function aiRenderFaq(body,out){
+ (out.items||[]).forEach(it=>body.append(el("details",null,`<summary>${esc(it.q)}</summary><p>${inline(it.a)}</p>`)));
+ scrub(body);
 }
 function aiShowChanged(){
- if(!DIFF)return aiFeature("Comparing revisions",async box=>{box.textContent="Pick a revision to compare against first."});
- return aiFeature("Reading the diff",async box=>{
-  const text=await aiChangedSince();
-  const chips=Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,12);
-  box.innerHTML=mdToHtml(text)+(chips.length?`<p class="ai-changed">Changed: ${chips.map(id=>refChip(id)).join(" ")}</p>`:"");
-  scrub(box);
+ if(!DIFF){aiOpen();aiNode(el("div","ai-msg ai-assistant","Pick a revision to compare against first."));return}
+ const base=DIFF.base.rev;
+ return aiFeature("Reading the diff","changed","What changed since r"+base,async()=>({
+  text:await aiChangedSince(),
+  ids:Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,40)
+ }));
+}
+function aiRenderChanged(body,d){
+ body.innerHTML=mdToHtml(d.text);
+ if(d.ids.length)body.append(el("details","ai-changed",`<summary>${esc(d.ids.length+" changed entries")}</summary><p>${d.ids.map(refChip).join(" ")}</p>`));
+ scrub(body);
+}
+function aiShowQuiz(){return aiFeature("Writing five questions","quiz","Check my understanding",aiQuiz)}
+function aiRenderQuiz(body,out){
+ (out.items||[]).forEach((q,qi)=>{
+  const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
+  (q.options||[]).forEach((opt,oi)=>{
+   const b=el("button","ai-opt",esc(opt));
+   b.type="button";
+   b.onclick=()=>{
+    wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
+    b.classList.add(oi===q.answer?"ok":"bad");
+    const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
+    if(REF[q.id]){
+     const a=el("a","ref","Show me");
+     a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
+     foot.append(a);
+    }
+    wrap.append(foot);
+   };
+   wrap.append(b);
+  });
+  body.append(wrap);
  });
 }
-function aiShowQuiz(){
- return aiFeature("Writing five questions",async box=>{
-  const out=await aiQuiz();
-  box.innerHTML="<h3>Check my understanding</h3>";
-  (out.items||[]).forEach((q,qi)=>{
-   const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
-   (q.options||[]).forEach((opt,oi)=>{
-    const b=el("button","ai-opt",esc(opt));
-    b.onclick=()=>{
-     wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
-     b.classList.add(oi===q.answer?"ok":"bad");
-     const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
-     if(REF[q.id]){
-      const a=el("a","ref","Show me");
-      a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
-      foot.append(a);
-     }
-     wrap.append(foot);
-    };
-    wrap.append(b);
-   });
-   box.append(wrap);
-  });
- });
+function aiPickRole(anchor){
+ aiMenuAt(anchor,AI_ROLES.map(([label,desc],ix)=>({label:"Read as "+label,sub:desc,run:()=>aiShowReadAs(ix)})));
 }
 function aiShowReadAs(roleIx){
- return aiFeature("Picking what "+AI_ROLES[roleIx][0]+" should read",async box=>{
+ const [label]=AI_ROLES[roleIx];
+ return aiFeature("Picking what "+label+" should read","readas","Read as "+label,async()=>{
   const out=await aiReadAs(roleIx);
-  aiRenderPath(out.title||("Read as "+AI_ROLES[roleIx][0]),out.items||[]);
-  box.innerHTML=`<h3>${esc(out.title||"Read this first")}</h3>`+(out.items||[]).map(x=>{
-   const e=aiEntry(x.id);
-   return `<p>${e?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`;
-  }).join("")+'<p class="ai-note-in">Pinned in the sidebar; tick a row to jump to it.</p>';
-  scrub(box);
+  const d={title:out.title||"",items:out.items||[],role:label};
+  aiRenderPath(d.title||"Read as "+label,d.items);
+  return d;
+ });
+}
+function aiRenderReadAs(body,d){
+ body.innerHTML=(d.title?`<p><b>${esc(d.title)}</b></p>`:"")+d.items.map(x=>`<p>${REF[x.id]?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`).join("");
+ const pin=el("button","ai-btn","Pin in the sidebar");
+ pin.type="button";
+ pin.onclick=()=>{aiRenderPath(d.title||"Read as "+d.role,d.items);pin.textContent="Pinned in the sidebar"};
+ body.append(pin);
+ scrub(body);
+}
+function aiAddDefs(terms){
+ window.ddTerms.add(terms);
+ const host=$("#defsList");
+ if(!host)return;
+ terms.forEach(t=>{
+  if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
+  const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
+  card.dataset.aiTerm=t.k;
+  host.append(card);
  });
 }
 function aiShowGlossary(){
- return aiFeature("Looking for terms the document never defines",async box=>{
+ return aiFeature("Looking for terms the document never defines","terms","Terms the document never defines",async()=>{
   const out=await aiGlossary();
-  const terms=(out.terms||[]).filter(t=>t&&t.k&&t.v);
-  window.ddTerms.add(terms);
-  const host=$("#defsList");
-  if(host)terms.forEach(t=>{
-   if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
-   const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
-   card.dataset.aiTerm=t.k;
-   host.append(card);
-  });
-  box.innerHTML="<h3>Terms the document never defines</h3>"+terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
-  const copy=el("button","ai-btn","Copy as JSON");
-  copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
-  box.append(copy);
-  const go=el("button","ai-btn","Show them in Terms");
-  go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
-  box.append(go);
+  return (out.terms||[]).filter(t=>t&&t.k&&t.v);
  });
+}
+function aiRenderGlossary(body,terms){
+ aiAddDefs(terms);
+ body.innerHTML=terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
+ const copy=el("button","ai-btn","Copy as JSON");
+ copy.type="button";
+ copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
+ const go=el("button","ai-btn","Show them in Terms");
+ go.type="button";
+ go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
+ body.append(copy,go);
+}
+function aiShowSection(id){
+ const name=AI_SECTION_NAMES[id];
+ if(!name)return;
+ return aiFeature("Summarising "+name,"tldr","TL;DR: "+name,async()=>({id,md:await aiSummariseSection(id)}));
+}
+function aiRenderSection(body,d){
+ body.innerHTML=mdToHtml(d.md);
+ const sec=document.getElementById(d.id);
+ if(sec){
+  const show=el("button","ai-btn","Show under the heading");
+  show.type="button";
+  show.onclick=()=>{
+   const box=sec.querySelector(".ai-sub")||el("div","sub ai-sub");
+   box.innerHTML=mdToHtml(d.md);
+   scrub(box);
+   const sub=sec.querySelector("p.sub");
+   (sub&&!sub.hidden?sub:sec.querySelector("h2")).after(box);
+   unveil();
+   box.scrollIntoView({block:"center"});
+   show.textContent="Shown under the heading";
+  };
+  body.append(show);
+ }
+ scrub(body);
+}
+function aiClear(){
+ aiChat=[];
+ $("#aiLog").querySelectorAll(".ai-msg,.ai-card").forEach(n=>n.remove());
+ clearAiMarks();
+ aiSaveChat();
+ $("#aiPath").hidden=true;
+ aiSetAbout(null);
+ aiBarText("");
+}
+
+function aiPlaceMenu(menu,anchor){
+ document.body.append(menu);
+ const r=anchor.getBoundingClientRect();
+ menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
+ menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+ const onScroll=e=>{
+  if(menu.contains(e.target))return;
+  menu.remove();
+  removeEventListener("scroll",onScroll,true);
+ };
+ addEventListener("scroll",onScroll,true);
+ const first=menu.querySelector("button");
+ if(first)first.focus();
+}
+function aiMenuAt(anchor,items){
+ document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+ const menu=el("div","ai-menu ai-cmds");
+ menu.setAttribute("role","menu");
+ items.forEach(it=>{
+  const b=el("button","ai-menu-item",`<span>${esc(it.label)}</span>`+(it.sub?`<small>${esc(it.sub)}</small>`:""));
+  b.type="button";
+  b.setAttribute("role","menuitem");
+  b.onclick=()=>{menu.remove();it.run()};
+  menu.append(b);
+ });
+ aiPlaceMenu(menu,anchor);
+ return menu;
+}
+const aiCmds=()=>AI_CMDS.filter(c=>!c.when||c.when());
+const aiCmdSub=c=>typeof c.sub==="function"?c.sub():c.sub||"";
+function aiMoreMenu(){
+ const anchor=$("#aiMore");
+ aiMenuAt(anchor,aiCmds().map(c=>({label:c.label,sub:aiCmdSub(c),run:()=>c.run(anchor)})));
+}
+function aiSlashHide(){
+ const host=$("#aiSlash");
+ host.hidden=true;
+ host.innerHTML="";
+ aiSlashList=[];
+}
+function aiSlashRender(){
+ const m=/^\/(\w*)$/.exec($("#aiIn").value);
+ if(!m){aiSlashHide();return}
+ const q=m[1].toLowerCase();
+ aiSlashList=aiCmds().filter(c=>c.id.startsWith(q)||c.label.toLowerCase().includes(q));
+ if(!aiSlashList.length){aiSlashHide();return}
+ aiSlashIx=Math.min(aiSlashIx,aiSlashList.length-1);
+ const host=$("#aiSlash");
+ host.innerHTML="";
+ aiSlashList.forEach((c,i)=>{
+  const sub=aiCmdSub(c);
+  const row=el("div","ai-slash-row"+(i===aiSlashIx?" on":""),`<span class="ai-slash-k">/${esc(c.id)}</span><span class="ai-slash-l">${esc(c.label)}</span>`+(sub?`<small>${esc(sub)}</small>`:""));
+  row.setAttribute("role","option");
+  row.setAttribute("aria-selected",String(i===aiSlashIx));
+  row.onclick=()=>aiSlashRun(c);
+  host.append(row);
+ });
+ host.hidden=false;
+}
+function aiSlashRun(c){
+ if(!c)return;
+ const box=$("#aiIn");
+ box.value="";
+ aiGrow(box);
+ aiSlashHide();
+ c.run(box);
 }
 
 function aiRowMenu(anchor,entry,kind){
@@ -4018,6 +4437,7 @@ function aiRowMenu(anchor,entry,kind){
  roles.append(el("span","ai-menu-label","Explain for"));
  AI_ROLES.forEach(([label],ix)=>{
   const b=el("button","ai-btn",label);
+  b.type="button";
   b.onclick=async()=>{
    roles.querySelectorAll(".ai-btn").forEach(x=>x.classList.remove("on"));
    b.classList.add("on");
@@ -4032,16 +4452,19 @@ function aiRowMenu(anchor,entry,kind){
  menu.append(roles);
  const acts=el("div","ai-menu-row");
  const why=el("button","ai-btn","Why is this here");
+ why.type="button";
  why.onclick=async()=>{
   out.textContent="…";
   try{const text=await aiWhyHere(entry,kind);out.innerHTML=mdToHtml(text);scrub(out)}
   catch(e){out.textContent="Sorry — "+e.message}
  };
  const review=el("button","ai-btn","Draft a review comment");
+ review.type="button";
  review.onclick=()=>{
   out.innerHTML="";
   const ta=el("textarea","ai-ta");ta.placeholder="What worries you about this?";ta.rows=2;
   const go=el("button","ai-btn","Draft it");
+  go.type="button";
   go.onclick=async()=>{
    const concern=ta.value.trim();
    if(!concern)return;
@@ -4050,6 +4473,7 @@ function aiRowMenu(anchor,entry,kind){
     const text=await aiReviewComment(entry,kind,concern);
     out.innerHTML=mdToHtml(text);scrub(out);
     const copy=el("button","ai-btn","Copy");
+    copy.type="button";
     copy.onclick=()=>navigator.clipboard.writeText(text).then(()=>{copy.textContent="Copied"});
     out.append(copy);
    }catch(e){out.textContent="Sorry — "+e.message}
@@ -4057,55 +4481,51 @@ function aiRowMenu(anchor,entry,kind){
   out.append(ta,go);ta.focus();
  };
  const ask=el("button","ai-btn","Ask about this");
- ask.onclick=()=>{menu.remove();aiOpen("About "+aiHandle(entry)+" ("+entry.id+"): ")};
+ ask.type="button";
+ ask.onclick=()=>{menu.remove();aiOpen(null,{kind:"entry",id:entry.id,text:aiHandle(entry)})};
  acts.append(why,review,ask);
  menu.append(acts,out);
- document.body.append(menu);
- const r=anchor.getBoundingClientRect();
- menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
- menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+ aiPlaceMenu(menu,anchor);
 }
-function aiAskButton(row,entry,kind){
- if(row.querySelector(":scope > .ai-ask, :scope > summary .ai-ask"))return;
- const b=el("button","ai-ask ai-only","Ask");
- b.type="button";
- b.title="Explain this, or ask about it";
- b.onclick=ev=>{ev.preventDefault();ev.stopPropagation();aiRowMenu(b,entry,kind)};
- const host=row.querySelector(":scope > summary .lrow")||row.querySelector(":scope > summary .meta")||row.querySelector(":scope > summary")||row;
- host.append(b);
+function aiAskBtn(id){
+ return `<button class="ai-ask ai-only" type="button" data-ask="${esc(id)}" aria-label="Ask about this" title="Ask about this">✦</button>`;
 }
 function aiWireRows(){
- document.addEventListener("pointerover",e=>{
-  if(!HTML.dataset.ai||!e.target.closest)return;
-  const row=e.target.closest("details.ledger[id^='item-'],details.spot,.orow,details.ledger[id^='c-']");
-  if(!row)return;
-  const id=row.id.replace(/^(item-|spot-|open-)/,"");
-  const entry=aiEntry(id);
-  if(entry)aiAskButton(row,entry,aiKind(id));
- });
  document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("[data-ask]");
+  if(b){
+   e.preventDefault();
+   const entry=aiEntry(b.dataset.ask);
+   if(entry)aiRowMenu(b,entry,aiKind(b.dataset.ask));
+   return;
+  }
   const menu=document.querySelector(".ai-menu");
   if(!menu)return;
   const path=e.composedPath?e.composedPath():[];
-  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest(".ai-ask")))return;
+  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest("#aiMore")))return;
   menu.remove();
  });
 }
 function aiWireSelection(){
  const chip=el("button","ai-sel ai-only","Ask about this");
+ chip.type="button";
  chip.hidden=true;
  document.body.append(chip);
  chip.onclick=()=>{
   const text=String(getSelection()).trim().slice(0,600);
   chip.hidden=true;
-  aiOpen("About this passage: “"+text+"”\n\n");
+  aiOpen(null,{kind:"passage",text});
  };
  document.addEventListener("pointerup",()=>{
   setTimeout(()=>{
    if(!HTML.dataset.ai)return;
    const sel=getSelection(),text=String(sel).trim();
-   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)){chip.hidden=true;return}
+   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)||$("#ai").contains(document.activeElement)){chip.hidden=true;return}
    const r=sel.getRangeAt(0).getBoundingClientRect();
+   if(aiState!=="bar"){
+    const p=$("#aiPanel").getBoundingClientRect();
+    if(r.right>p.left&&r.left<p.right&&r.bottom>p.top&&r.top<p.bottom){chip.hidden=true;return}
+   }
    chip.style.left=Math.min(Math.max(8,r.left),innerWidth-160)+"px";
    chip.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
    chip.hidden=false;
@@ -4119,35 +4539,18 @@ function aiWireSections(){
   entries.forEach(en=>{
    if(!en.isIntersecting)return;
    aiSec=en.target.id;
-   if(!$("#ai").hidden)aiSuggest();
+   $("#aiCtx").textContent=AI_SECTION_NAMES[aiSec]?"§ "+AI_SECTION_NAMES[aiSec]:"";
+   if(aiState!=="bar")aiSuggest();
   });
  },{rootMargin:"-25% 0px -60% 0px"});
  secs.forEach(s=>io.observe(s));
- secs.forEach(s=>{
-  const h=s.querySelector("h2");
-  if(!h||!AI_SECTION_NAMES[s.id])return;
-  const b=el("button","ai-h2 ai-only","Summarise");
-  b.type="button";
-  b.onclick=async()=>{
-   b.disabled=true;b.textContent="…";
-   try{
-    const md=await aiSummariseSection(s.id);
-    const box=s.querySelector(".ai-sub")||el("div","sub ai-sub");
-    box.innerHTML=mdToHtml(md);
-    scrub(box);
-    const sub=s.querySelector("p.sub");
-    (sub&&!sub.hidden?sub:h).after(box);
-    b.textContent="Summarise";b.disabled=false;
-   }catch(e){b.textContent="Summarise";b.disabled=false;alert("Sorry — "+e.message)}
-  };
-  h.append(b);
- });
 }
 function aiWireDiffPanel(){
  const panel=$("#diffPanel");
  const add=()=>{
   if(panel.hidden||!DIFF||panel.querySelector(".ai-changed-btn"))return;
   const b=el("button","xbtn ai-changed-btn ai-only","What changed, in prose");
+  b.type="button";
   b.onclick=aiShowChanged;
   const head=panel.querySelector("div");
   if(head)head.append(b);
@@ -4162,24 +4565,9 @@ function aiWireTools(){
  path.hidden=true;
  rail.insertBefore(path,rail.querySelector(".spacer"));
  const ask=el("button","toolbtn ai-only","Ask the doc");
+ ask.type="button";
  ask.onclick=()=>aiOpen();
  $("#toolrow").prepend(ask);
- const termHead=document.querySelector("#ground h3");
- if(termHead){
-  const g=el("button","ai-h2 ai-only","Find undefined terms");
-  g.onclick=aiShowGlossary;
-  termHead.append(g);
- }
- const foot=document.querySelector("footer");
- if(foot){
-  const p=el("p","ai-only ai-footrow");
-  const quiz=el("button","xbtn","Check my understanding");
-  quiz.onclick=aiShowQuiz;
-  const faq=el("button","xbtn","Questions people ask");
-  faq.onclick=aiShowFaq;
-  p.append(quiz,faq);
-  foot.append(p);
- }
 }
 
 function palItems(){
@@ -4235,15 +4623,10 @@ function palItems(){
  if(DIAGRAM_SOURCE)cmd("Open the system diagram, full size",()=>openFullDiagram(DIAGRAM.caption?plain(DIAGRAM.caption):"The system"));
  if(PATHS.length)cmd("Play the request",()=>{const b=document.querySelector(".tracebtn");if(b){b.scrollIntoView({block:"center"});b.click()}});
  if(!HTML.dataset.ai)return items;
- const ai=(label,run)=>push("ai",label,"Ask",run);
- ai("Questions people ask",aiShowFaq);
- ai("Check my understanding",aiShowQuiz);
- ai("Find undefined terms",aiShowGlossary);
- AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));
- if(DIFF)ai("What changed, in prose",aiShowChanged);
- ai("Summarise this section",async()=>{
-  const b=document.querySelector("#"+aiSec+" .ai-h2");
-  if(b)b.click();
+ const ai=(label,run,sub)=>push("ai",label,sub||"Ask",run);
+ aiCmds().forEach(c=>{
+  if(c.id==="read"){AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));return}
+  ai(c.label,()=>c.run($("#aiMore")),aiCmdSub(c)||"Ask");
  });
  ai("Ask anything",()=>aiOpen());
  return items;
@@ -4254,10 +4637,11 @@ function palScore(item,q){
  if(i<0)return -1;
  return (item.label.toLowerCase().startsWith(q)?0:1)+(i>item.label.length?1:0)+i/400;
 }
-let palList=[],palIx=0,palAll=null;
+let palList=[],palIx=0,palAll=null,palHits=[],palTimer=0,palLive=null;
 function palRender(){
  const box=$("#palList");box.innerHTML="";
  palList.forEach((it,ix)=>{
+  if(it.kind==="divider"){box.append(el("div","pal-row pal-div",esc(it.label)));return}
   const row=el("div","pal-row"+(ix===palIx?" on":""),
    `<span class="pal-g">${esc(AI_GLYPH[it.kind]||"›")}</span>`+
    (it.dot?`<i class="pal-dot ${esc(it.dot)}"></i>`:"")+
@@ -4270,26 +4654,103 @@ function palRender(){
  const on=box.querySelector(".pal-row.on");
  if(on)on.scrollIntoView({block:"nearest"});
 }
+function palStep(dir){
+ const n=palList.length;
+ if(!n)return;
+ let ix=palIx;
+ do{ix=Math.min(n-1,Math.max(0,ix+dir))}while(palList[ix].kind==="divider"&&ix>0&&ix<n-1);
+ if(palList[ix].kind!=="divider")palIx=ix;
+ palRender();
+}
 function palSearch(raw){
  const all=palAll||(palAll=palItems());
  const s=String(raw||"");
  const mode=s[0]===">"?"cmd":s[0]==="?"&&HTML.dataset.ai?"ai":"";
- const q=(mode?s.slice(1):s).trim().toLowerCase();
+ const ask=(mode?s.slice(1):s).trim();
+ const q=ask.toLowerCase();
  let pool=mode==="cmd"?all.filter(i=>i.kind==="cmd"):mode==="ai"?all.filter(i=>i.kind==="ai"):all;
- if(q){
-  pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
- }else if(!mode){
-  pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
- }
+ if(q)pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
+ else if(!mode)pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
+ palAbortRun();
  palList=pool.slice(0,40);
- if(q&&!mode&&HTML.dataset.ai)palList.push({kind:"ai",label:"Ask the doc for “"+q+"”",sub:"No exact match — ask instead",run:()=>aiAsk(q)});
+ palHits=palList.slice(0,6);
+ if(q&&mode!=="cmd"&&HTML.dataset.ai){
+  palList.push({kind:"ai",label:"Ask the doc for “"+ask+"”",sub:pool.length?"Ask instead":"No exact match — ask instead",stay:true,ask:true,run:()=>palAsk(ask)});
+  if(ask.length>=4&&(mode==="ai"||!pool.length))palSchedule(ask);
+ }
  palIx=0;
  palRender();
 }
+function palSchedule(q){
+ clearTimeout(palTimer);
+ palTimer=setTimeout(()=>palAsk(q),600);
+}
+function palAbortRun(){
+ clearTimeout(palTimer);
+ palTimer=0;
+ if(palLive){palLive.ctrl.abort();palLive=null}
+ const host=$("#palAns");
+ host.hidden=true;
+ host.innerHTML="";
+}
+const palHandoffRow=()=>({kind:"ai",label:"Open in Ask ↵",sub:"Continue this in the panel",stay:true,run:palHandoff});
+function palAsk(q){
+ palAbortRun();
+ const host=$("#palAns");
+ host.hidden=false;
+ const body=el("div","pal-ans-body");
+ body.append(el("span","ai-wait","Thinking…"));
+ host.append(body);
+ const run=aiStartRun(q,{tools:AI_TOOLS_READ});
+ palLive=run;
+ const i=palList.findIndex(it=>it.ask);
+ if(i>=0){palList[i]=palHandoffRow();palRender()}
+ let pending=0;
+ const paint=()=>{pending=0;if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}};
+ run.listeners.add(r=>{
+  if(palLive!==r)return;
+  if(!r.done){if(!pending)pending=requestAnimationFrame(paint);return}
+  if(pending)cancelAnimationFrame(pending);
+  pending=0;
+  if(r.error){if(r.error.name!=="AbortError")aiFail(body,r.error);return}
+  paint();
+  if(!r.text)body.textContent="No answer came back.";
+  palFinish(r);
+ });
+}
+function palCited(run){
+ const ids=[];
+ if(ID_RE)String(run.text).replace(ID_RE,(all,pre,id)=>{ids.push(id);return all});
+ return [...new Set([...run.sources,...ids])].filter(id=>REF[id]).slice(0,8);
+}
+function palFinish(run){
+ const list=palHits.slice();
+ const cited=palCited(run);
+ if(cited.length){
+  list.push({kind:"divider",label:"Cited"});
+  cited.forEach(id=>{
+   const e=aiEntry(id);
+   if(!e)return;
+   list.push({kind:aiKind(id),label:aiHandle(e),sub:plain(e.p||e.t||""),dot:(AI_STATUS[e.s]||["",""])[0],rid:id,run:()=>{openRef(id);aiMark(id)}});
+  });
+ }
+ list.push(palHandoffRow());
+ palList=list;
+ palIx=list.length-1;
+ palRender();
+}
+function palHandoff(){
+ const run=palLive;
+ if(!run)return;
+ palLive=null;
+ palClose();
+ aiOpen();
+ aiAdopt(run);
+}
 function palRun(ix){
  const it=palList[ix];
- if(!it)return;
- palClose();
+ if(!it||it.kind==="divider")return;
+ if(!it.stay)palClose();
  it.run();
 }
 function palOpen(seed){
@@ -4303,13 +4764,16 @@ function palOpen(seed){
  input.focus();
  input.select();
 }
-function palClose(){$("#pal").hidden=true}
+function palClose(){
+ $("#pal").hidden=true;
+ palAbortRun();
+}
 function palWire(){
  const input=$("#palIn");
  input.oninput=()=>palSearch(input.value);
  input.onkeydown=e=>{
-  if(e.key==="ArrowDown"){e.preventDefault();palIx=Math.min(palList.length-1,palIx+1);palRender()}
-  else if(e.key==="ArrowUp"){e.preventDefault();palIx=Math.max(0,palIx-1);palRender()}
+  if(e.key==="ArrowDown"){e.preventDefault();palStep(1)}
+  else if(e.key==="ArrowUp"){e.preventDefault();palStep(-1)}
   else if(e.key==="Enter"){e.preventDefault();palRun(palIx)}
   else if(e.key==="Escape"){e.preventDefault();palClose()}
  };
@@ -4328,32 +4792,34 @@ function aiWireKeys(){
   if(meta&&e.key.toLowerCase()==="k"){e.preventDefault();$("#pal").hidden?palOpen(""):palClose();return}
   if(e.key==="Escape"&&!$("#pal").hidden){palClose();return}
   if(!HTML.dataset.ai)return;
-  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();$("#ai").hidden?aiOpen():aiClose();return}
+  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();aiToggle();return}
   if(e.key==="?"&&!aiTyping()){e.preventDefault();aiOpen();return}
-  if(e.key==="Escape"){
-   document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
-   clearAiMarks();
-   if(!$("#ai").hidden&&!aiBusy)aiClose();
-   if(aiBusy)aiStop();
-  }
+  if(e.key!=="Escape"||$("#mback").classList.contains("open"))return;
+  if(!$("#aiSlash").hidden){aiSlashHide();return}
+  const menu=document.querySelector(".ai-menu");
+  if(menu){menu.remove();return}
+  clearAiMarks();
+  if(aiBusy){aiStop();return}
+  if(aiState!=="bar")aiCollapse();
  });
 }
-function aiWirePopover(){
- $("#aiClose").onclick=aiClose;
- $("#aiWide").onclick=()=>{
-  const pop=$("#ai");
-  if(pop.dataset.wide)delete pop.dataset.wide;else pop.dataset.wide="1";
-  document.body.classList.toggle("ai-wide",!!pop.dataset.wide);
+function aiWirePanel(){
+ $("#aiBar").onclick=()=>aiOpen();
+ $("#aiClose").onclick=aiCollapse;
+ $("#aiWide").onclick=()=>aiSetState(aiState==="wide"?"dock":"wide");
+ $("#aiMore").onclick=()=>{
+  const open=document.querySelector(".ai-menu.ai-cmds");
+  if(open)open.remove();else aiMoreMenu();
  };
- $("#aiClear").onclick=()=>{
-  aiChat=[];
-  $("#aiLog").innerHTML="";
-  clearAiMarks();
-  aiSaveChat();
- };
+ const log=$("#aiLog");
+ log.addEventListener("scroll",()=>{aiStick=log.scrollTop+log.clientHeight>=log.scrollHeight-24});
  const box=$("#aiIn");
- box.addEventListener("input",()=>aiGrow(box));
+ box.addEventListener("input",()=>{aiGrow(box);aiSlashIx=0;aiSlashRender()});
  box.addEventListener("keydown",e=>{
+  const open=!$("#aiSlash").hidden;
+  if(open&&e.key==="ArrowDown"){e.preventDefault();aiSlashIx=Math.min(aiSlashList.length-1,aiSlashIx+1);aiSlashRender();return}
+  if(open&&e.key==="ArrowUp"){e.preventDefault();aiSlashIx=Math.max(0,aiSlashIx-1);aiSlashRender();return}
+  if(open&&(e.key==="Enter"||e.key==="Tab")){e.preventDefault();aiSlashRun(aiSlashList[aiSlashIx]);return}
   if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#aiForm").requestSubmit()}
  });
  $("#aiForm").addEventListener("submit",e=>{
@@ -4364,22 +4830,6 @@ function aiWirePopover(){
   box.value="";aiGrow(box);
   aiAsk(q);
  });
- const strip=$("#aiTools");
- [["Questions people ask",aiShowFaq],["Read as a role",()=>aiShowReadAs(0)],["Check my understanding",aiShowQuiz],["Find undefined terms",aiShowGlossary]].forEach(([label,run])=>{
-  const b=el("button","ai-chip",esc(label));
-  b.onclick=run;
-  strip.append(b);
- });
- const notes=el("label","ai-note-tog",'<input type="checkbox"> Include the working notes and question log');
- notes.querySelector("input").onchange=async e=>{
-  if(!e.target.checked){aiCtxText=null;return}
-  const extra=[];
-  for(const f of ["NOTES.md","qa-log.json"]){
-   try{extra.push("\n## "+f+"\n"+(await loadFile(f)).slice(0,20000))}catch(err){}
-  }
-  aiCtxText=aiContext()+extra.join("\n");
- };
- $("#aiNote").append(notes);
  $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
 }
 function aiBoot(){
@@ -4393,12 +4843,12 @@ function aiBoot(){
   AI=cfg;
   HTML.dataset.ai="1";
   aiWireTools();
-  aiWirePopover();
+  aiWirePanel();
   aiWireRows();
   aiWireSelection();
   aiWireDiffPanel();
   aiLoadChat();
-  aiSuggest();
+  $("#ai").hidden=false;
  });
 }
 function addAiTerms(list){
@@ -4445,7 +4895,7 @@ function aiComponentsMd(){
  add(META.ceilingsComponent);
  return L.join("\n\n");
 }
-window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
+window.designDocAi={ask:(q,o)=>aiAsk(q,o),open:aiOpen,collapse:aiCollapse,state:()=>aiState,config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged,section:aiShowSection};
 aiBoot();
 })();
 </script>
