@@ -162,7 +162,11 @@ func acquireLaneLock(sdir string, exclusive bool) *os.File {
 // tryLaneLock: the non-blocking acquire — contention or any open failure returns
 // false. The pruner skips such a lane; --watch retries it next poll.
 func tryLaneLock(sdir string, exclusive bool) (*os.File, bool) {
-	f, err := os.OpenFile(join(sdir, "lane.lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // per-lane coordination file
+	return tryFileLock(join(sdir, "lane.lock"), exclusive)
+}
+
+func tryFileLock(path string, exclusive bool) (*os.File, bool) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the tool's own coordination file
 	if err != nil {
 		return nil, false
 	}
@@ -398,13 +402,39 @@ func psMode() {
 	entries, _ := os.ReadDir(base)
 	for _, e := range entries {
 		if e.IsDir() { // lstat-based: the pruning walk never descends a symlinked entry
-			psWalk(join(base, e.Name()), base, now, false)
+			psWalk(join(base, e.Name()), base, now, false, true)
 		}
 	}
 	os.Exit(0)
 }
 
-func psWalk(d, base string, now float64, owned bool) {
+// sweepMode: the prune on a path that actually runs. --ps only sweeps when a
+// human types it, so run dirs accumulated indefinitely; a SessionStart hook runs
+// this instead. One sweeper at a time across concurrent sessions (the base lock),
+// at most one walk per sweepIntervalS (the stamp), and no record output — the
+// walk skips classify for unaged lanes, so a steady-state sweep execs nothing.
+func sweepMode() {
+	base := runsBase()
+	lock, ok := tryFileLock(join(base, "sweep.lock"), true)
+	if !ok {
+		os.Exit(0)
+	}
+	stamp := join(base, "sweep.stamp")
+	now := nowSec()
+	if fi, err := os.Stat(stamp); err != nil || now-float64(fi.ModTime().UnixNano())/1e9 > sweepIntervalS {
+		_ = atomicWrite(stamp, "")
+		entries, _ := os.ReadDir(base)
+		for _, e := range entries {
+			if e.IsDir() {
+				psWalk(join(base, e.Name()), base, now, false, false)
+			}
+		}
+	}
+	releaseLaneLock(lock)
+	os.Exit(0)
+}
+
+func psWalk(d, base string, now float64, owned, emit bool) {
 	hasRunState := exists(join(d, "meta")) || exists(join(d, "status")) || exists(join(d, "pid"))
 	if !hasRunState {
 		// A fan-out container holds lane subdirs and no run state of its own:
@@ -421,7 +451,7 @@ func psWalk(d, base string, now float64, owned bool) {
 		if len(subdirs) > 0 {
 			minted := owned || startsWithRunPrefix(filepath.Base(d))
 			for _, c := range subdirs {
-				psWalk(c, base, now, minted)
+				psWalk(c, base, now, minted, emit)
 			}
 			if minted {
 				_ = os.Remove(d)
@@ -429,7 +459,10 @@ func psWalk(d, base string, now float64, owned bool) {
 			return
 		}
 	}
-	li := classify(d)
+	var li laneInfo
+	if emit || now-runMtime(d) > pruneAgeS {
+		li = classify(d)
+	}
 	// Prune only under a non-blocking lane lock; reverify state, age, and
 	// canonical containment right before rmtree (classify->delete TOCTOU). An
 	// owned lane (inside a minted container) needs no meta: a roster lane that
@@ -451,6 +484,9 @@ func psWalk(d, base string, now float64, owned bool) {
 			}
 			releaseLaneLock(lock)
 		}
+	}
+	if !emit {
+		return
 	}
 	var logAge *float64
 	if li.log != "" && exists(li.log) {

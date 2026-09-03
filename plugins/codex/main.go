@@ -19,6 +19,10 @@ const (
 
 	pruneAgeS = 7 * 24 * 3600
 
+	// sweepIntervalS throttles --sweep: sessions start far more often than a
+	// 7-day prune needs to walk, and every walk competes for the same execs.
+	sweepIntervalS = 6 * 3600
+
 	// registerGraceS bounds the registration window: a dispatch publishes meta, then
 	// the detached worker's pid. Past it with no pid the dispatching process died
 	// before recording one, so --await gives up and classify calls the lane died.
@@ -67,6 +71,8 @@ func main() {
 		mintRunMode(args[1:])
 	case len(args) == 1 && args[0] == "--ps":
 		psMode()
+	case len(args) == 1 && args[0] == "--sweep":
+		sweepMode()
 	case len(args) >= 1 && args[0] == "--watch":
 		watchMode(args[1:])
 	case len(args) == 1 && args[0] == "--version":

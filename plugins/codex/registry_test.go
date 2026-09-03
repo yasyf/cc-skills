@@ -791,3 +791,110 @@ func TestPruneReapsMintedContainer(t *testing.T) {
 		t.Fatal("pruned a lane inside a caller-named container")
 	}
 }
+
+func runSweep(t *testing.T, runs string) {
+	t.Helper()
+	c := exec.Command(codexAskBin(t), "--sweep") //nolint:gosec // drives the built binary under test
+	c.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("--sweep: %v\n%s", err, out)
+	}
+}
+
+// TestSweepPrunesWithoutPs: the prune used to be reachable only by typing --ps,
+// so run dirs accumulated until someone happened to run it. --sweep reaches the
+// same prune from the SessionStart hook, on the same terminal-and-aged terms.
+func TestSweepPrunesAgedRunAndKeepsFresh(t *testing.T) {
+	runs := mustTempDir(t)
+	aged := prunableLane(t, runs)
+	fresh := filepath.Join(runs, "codex-ask.fresh")
+	if err := os.MkdirAll(fresh, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(fresh, "meta"), "r\nl\n")
+	writeFile(t, filepath.Join(fresh, "status"), "0\n")
+
+	runSweep(t, runs)
+
+	if _, err := os.Stat(aged); !os.IsNotExist(err) {
+		t.Fatal("--sweep left an aged terminal run behind")
+	}
+	if !isFile(filepath.Join(fresh, "meta")) {
+		t.Fatal("--sweep pruned a run inside the retention window")
+	}
+}
+
+// TestSweepThrottles: SessionStart fires far more often than a 7-day prune needs
+// to walk, and each walk competes for the same serialized execs, so a sweep
+// inside sweepIntervalS of the last one must not walk at all.
+func TestSweepThrottlesWithinInterval(t *testing.T) {
+	runs := mustTempDir(t)
+	runSweep(t, runs)
+	stamp := filepath.Join(runs, "sweep.stamp")
+	if !isFile(stamp) {
+		t.Fatal("--sweep recorded no stamp")
+	}
+
+	aged := prunableLane(t, runs)
+	runSweep(t, runs)
+	if !isFile(filepath.Join(aged, "meta")) {
+		t.Fatal("--sweep walked again inside sweepIntervalS")
+	}
+
+	old := time.Now().Add(-(sweepIntervalS + 60) * time.Second)
+	if err := os.Chtimes(stamp, old, old); err != nil {
+		t.Fatal(err)
+	}
+	runSweep(t, runs)
+	if _, err := os.Stat(aged); !os.IsNotExist(err) {
+		t.Fatal("--sweep did not walk once the interval had elapsed")
+	}
+}
+
+// TestSweepYieldsToConcurrentSweeper: many sessions start at once; a second
+// sweeper must return rather than walk the same tree beside the first.
+func TestSweepYieldsToConcurrentSweeper(t *testing.T) {
+	runs := mustTempDir(t)
+	aged := prunableLane(t, runs)
+
+	held, ok := tryFileLock(filepath.Join(runs, "sweep.lock"), true)
+	if !ok {
+		t.Fatal("could not take the sweep lock")
+	}
+	runSweep(t, runs)
+	if !isFile(filepath.Join(aged, "meta")) {
+		t.Fatal("--sweep walked while another sweeper held the lock")
+	}
+	releaseLaneLock(held)
+
+	runSweep(t, runs)
+	if _, err := os.Stat(aged); !os.IsNotExist(err) {
+		t.Fatal("--sweep did not walk once the lock was free")
+	}
+}
+
+// TestDispatchDoesNotSweep: the sweep is deliberately off the dispatch path.
+// Process spawns are serialized on the hosts this plugin runs on, so a walk
+// hung off every dispatch would cost more than the leak it collects.
+func TestDispatchDoesNotSweep(t *testing.T) {
+	home := shortHome(t)
+	runs := mustTempDir(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+	aged := prunableLane(t, runs)
+
+	c := exec.Command(codexAskBin(t), "--dispatch", "ping") //nolint:gosec // drives the built binary under test
+	c.Dir = scope
+	c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("dispatch: %v\n%s", err, out)
+	}
+
+	if isFile(filepath.Join(runs, "sweep.stamp")) {
+		t.Fatal("dispatch ran the sweep")
+	}
+	if !isFile(filepath.Join(aged, "meta")) {
+		t.Fatal("dispatch pruned an aged run")
+	}
+}
