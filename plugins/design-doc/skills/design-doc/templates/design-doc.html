@@ -282,6 +282,7 @@ details.ledger.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
 .mback.play .qa-tl,.mback.play .qa-round:not(.cur),.mback.play .qa-card:not(.cur),.mback.play .qa-round>.qa,.mback.play .qa-rdec,.mback.play .qa-keys{display:none}
 .mback.play .qa-round{border-top:0;padding-top:4px}
 body.qa-play .layout{margin-right:min(500px,40vw)}
+body.qa-play #ai:not([data-state=wide]){right:calc(36px + min(480px,calc(100vw - 36px)))}
 @media (max-width:700px){
   .qa-replay{grid-template-columns:minmax(0,1fr)}
   .qa-tl{position:static;flex-direction:row;overflow-x:auto;max-height:none;padding:6px 0}
