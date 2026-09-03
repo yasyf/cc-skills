@@ -59,7 +59,7 @@ This returns two URLs: the live `workers.dev` URL and a **claim URL**. Hand both
 
 ## Redeploy
 
-Updates ship the same way the site first deployed. After editing the registers, from the project directory, with the `build` line only for a doc that has `components/` and the `ai.json` line only for a site with access control in front of it:
+Updates ship the same way the site first deployed. After editing the registers, from the project directory, with the `build` line only for a doc that has `components/` and the `ai.json` line only for a site with access control in front of it, without its `github` half when there is no token:
 
 ```bash
 $TOOL check --strict .
@@ -69,7 +69,7 @@ cp design-doc.html dist/index.html
 cp registers.json qa-log.json NOTES.md summary.html dist/
 cp -R history dist/
 $TOOL build . && cp components.js dist/
-printf '{"endpoint":"%s","model":"%s","key":"%s"}' "$AI_ENDPOINT" "$AI_MODEL" "$AI_KEY" > dist/ai.json
+printf '{"endpoint":"%s","model":"%s","key":"%s","github":{"token":"%s"}}' "$AI_ENDPOINT" "$AI_MODEL" "$AI_KEY" "$GITHUB_TOKEN" > dist/ai.json
 npm exec --yes wrangler@latest -- deploy dist --name <slug> --compatibility-date <today>
 ```
 
@@ -81,23 +81,29 @@ The same `--name` on an authenticated wrangler updates the same `workers.dev` UR
 
 Record the deploy name and live URL in NOTES.md's changelog along with what changed; that entry is what a later session redeploys from.
 
-## AI in the page
+## Site config: the assistant and GitHub links
 
-The doc answers questions, summarises sections, explains an entry for a role, and moves the page on the reader's behalf, with every model call made from the browser. It switches on when the page fetches an `ai.json`: first `../ai.json`, for a collection that shares one config, then `ai.json` beside `index.html`. The file holds either a live config or the kill switch:
+One file switches on the two features that need a secret. The assistant answers questions from the whole document, summarises, quizzes, explains an entry for a role, and moves the page on the reader's behalf, with every model call made from the browser. The GitHub state on every link chip keeps the Still open progress bars current and gives each chip a hover card. The page fetches `../ai.json` first, for a collection that shares one config, then `ai.json` beside `index.html`, and takes each half from the first file that carries it. The file holds a live config, in whole or in either half, or the kill switch:
 
 ```json
-{"endpoint": "https://api.example.com/v1", "model": "<model>", "key": "<api key>"}
+{"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b", "key": "<api key>", "reasoning": "high", "github": {"token": "<fine-grained PAT>"}}
 ```
 
 ```json
 {"disabled": true}
 ```
 
-No file, or the kill switch, and the page hides every AI affordance: the Ask button, the `?` and Cmd-J shortcuts, the AI rows in Cmd-K, the Explain and Summarise controls. `check` validates the shape when the file is present: `endpoint` is an absolute `https://` URL, http only on localhost, because an https page cannot call an http model host.
+`endpoint`, `model`, and `key` travel as a set. `reasoning` (`low`, `medium`, `high`, `none`) sets one effort for every call; absent, chat, the quiz, and read-as run at `high`, the other one-shots at `medium`, and the follow-up suggestions at `low`. `gpt-oss-120b` on Cerebras is the model the assistant is built around; `gemma-4-31b` is the pick only when the assistant must read an image, and its reasoning is on or off, so `check` warns on a graded value under it. `github.token` is the second half and stands alone.
 
-The key is readable by anyone who can load the page, so `ai.json` ships only on a site with access control in front of it (SSO, a private Pages site, an Access policy). The client's own limits are the only other guard. The cap of 30 requests a minute lives in `localStorage`, so a reload and a second tab share one allowance rather than minting their own. A back-off honours `retry-after` on a 429, whether it arrives as seconds or as a date. The popover names the model and the host, so a reader knows where a question goes. The registers leave the browser on every call; NOTES.md and `qa-log.json` go only when the reader turns that on.
+No file, the kill switch, or no AI half, and the page hides every AI affordance: the Ask bar at the bottom right, the `?` and Cmd-J shortcuts, the AI rows and inline answers in Cmd-K, the ✦ on every register row. No `github` half, and the link chips render plain, without a state dot or a hover card; the "N of M closed" bar on each Still open group and the Closed label on a row follow `s` alone. `check` validates the shape when the file is present: `endpoint` is an absolute `https://` URL, http only on localhost, because an https page cannot call an http model host; a file with neither half is an error.
 
-The file is written at deploy, never committed: `.gitignore` lists `ai.json`, a CI check refuses a tracked one, and the deploy step writes it from a secret (a GitHub Actions secret into the Pages artifact, an environment variable into `dist/` before `wrangler deploy`). Rotate the key by redeploying; revoke the feature by deploying `{"disabled": true}`. For local work, set `localStorage["design-doc-ai"]` to the same JSON in the browser console; the page reads it before it fetches anything, and no file exists to leak.
+The token is a fine-grained personal access token, read-only, with Pull requests: Read, Issues: Read, and Commit statuses: Read (Metadata comes with them), scoped to the repositories the docs cite (`meta.repo` and every other one a link names), with a one-year expiry. A token on an organisation's repositories may need the organisation's approval before it works. The page spends three calls on each pull request (the pull request, its reviews, the combined commit status of its head, which is where Buildkite reports) and one on an issue, caches each answer for ten minutes in `sessionStorage`, and stops for the session after a 401 with one notice under the Still open heading. A rate limit pauses it until the reset, with the chips plain until then, and a 404, which is what a private repository the token cannot see returns, renders as unknown, as does a 403 on the status endpoint.
+
+Both values are readable by anyone who can load the page, so `ai.json` ships only on a site with access control in front of it (SSO, a private Pages site, an Access policy). The exposure model is the same for the key and the token, and deleting the secret is the kill switch for either. The client's own limits are the only other guard. The cap of 30 requests a minute lives in `localStorage`, so a reload and a second tab share one allowance rather than minting their own. A back-off honours `retry-after` on a 429, whether it arrives as seconds or as a date.
+
+The panel's settings disclosure names the model and the host, so a reader knows where a question goes, and shows what each call cost. The prefix line counts the document, notes, and log tokens and names any part dropped to fit the budget; the call line gives the last call's prompt, cached, completion, and reasoning tokens, and a tally for the tab. The whole document leaves the browser on every call. The registers as Markdown, NOTES.md, `qa-log.json`, and the glossary go into one system prompt built once per page load, which the model host caches between turns. There is nothing for a reader to switch on, and nothing they can see that the model cannot.
+
+The file is written at deploy, never committed: `.gitignore` lists `ai.json`, a CI check refuses a tracked one, and the deploy step writes it from secrets (GitHub Actions secrets into the Pages artifact, environment variables into `dist/` before `wrangler deploy`), each half only when its secret exists. Rotate either value by redeploying; revoke the assistant by deploying `{"disabled": true}`, and the link states by deleting the token secret. For local work, set `localStorage["design-doc-ai"]` to the AI half and `localStorage["design-doc-github"]` to `{"token": "…"}` in the browser console; the page reads both before it fetches anything, and no file exists to leak.
 
 ## Writing the revision note
 

@@ -10,6 +10,7 @@
   design.py pdf [dir]
   design.py build [dir]
   design.py snapshot [dir] [--note X] [--item …] [--force]
+  design.py links <dir> [--fetch] [--json] [--missing]
 
 scaffold creates a fresh directory for one design doc — named after the
 slug when no dir is given — holding the doc renderer, the executive-summary
@@ -37,7 +38,11 @@ prints the served doc to its design-doc.pdf through the template's print
 stylesheet. build compiles the project's author-written components/*.tsx
 into components.js with the pinned Vite and Preact pack, installed under
 ~/.cache/design-doc on first use. snapshot records a revision of the
-registers in the project's history directory. Stdlib only.
+registers in the project's history directory. links lists every open item
+and decision with the pull requests, issues and commits it links, flags the
+ones with none, resolves their GitHub state with --fetch and reports an
+open item whose closing change landed, or a closed one whose change did
+not. Stdlib only.
 """
 import argparse, copy, datetime, hashlib, importlib.util, itertools, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
 from html.parser import HTMLParser
@@ -50,12 +55,26 @@ ICON_CACHE = Path.home() / ".cache" / "design-doc"
 ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/flat"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
 AI_CONFIG_KEYS = ("endpoint", "model", "key")
+SITE_CONFIG_KEYS = ("github",)
+AI_CONFIG_OPTIONAL = ("reasoning",)
+AI_REASONING = ("low", "medium", "high", "none")
+LINK_KINDS = ("pr", "issue", "commit", "doc")
+LINK_FIELDS = {"url", "kind", "label", "closes"}
+LINKED = (("open", "id"), ("decisions", "id"))
+OPEN_STATUSES = {"open", "closed"}
+GITHUB_LINK = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(pull|issues|commit)/([A-Za-z0-9]+)/?(?:[?#].*)?$")
+GITHUB_KIND = {"pull": "pr", "issues": "issue", "commit": "commit"}
+REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+GITHUB_API = "https://api.github.com"
+GITHUB_STATE_CLOSED = {"merged", "closed"}
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
 PANEL_BUDGET = {"thesis": 40, "compare": 120, "numbers": 60, "cost": 90, "poster": 180}
 DECK_BUDGET = 350
 DECK_SIZE = (3, 5)
+HAND_FIGURE_RECTS = 8
+FIGURE_MARKS = ("rect", "path", "marker")
 TWIN_WORDS = 30
 TLDR_WORDS = 20
 KEY_RANGE = (3, 8)
@@ -141,7 +160,7 @@ GLOSS_PHRASE = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b")
 MERMAID_NODE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*\"?([^\"\]\)\}\n]*)")
 LABEL_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[_./-][A-Za-z0-9]+)*")
 IDENTIFIER_HEAD = re.compile(r"[A-Za-z0-9]+[_./-]")
-CITE_SKIP = {"id", "node", "source", "overview", "file", "kind", "slug"}
+CITE_SKIP = {"id", "node", "source", "overview", "file", "kind", "slug", "links", "url"}
 SCRIPTS = SKILL / "scripts"
 COMPONENT_SCHEMAS = REFERENCE / "components"
 COMPONENT_PACK = ICON_CACHE / "components-pack"
@@ -296,9 +315,16 @@ class DeckParser(HTMLParser):
             self.figure["labelled"] = True
         if a.get("data-icon"):
             self.icons.append(a["data-icon"])
+        if self.figure is not None and a.get("data-component"):
+            self.figure["host"] = True
         if tag in self.MUTED or (tag == "pre" and "mermaid" in classes):
             self.muted.append(tag)
         if self.muted:
+            if self.figure is not None and self.muted[0] == "svg":
+                if tag in FIGURE_MARKS:
+                    self.figure[tag] += 1
+                if "stroke-dasharray" in a:
+                    self.figure["dashed"] += 1
             return
         if tag == "section":
             if self.panel is None and "xs-panel" in classes:
@@ -308,7 +334,8 @@ class DeckParser(HTMLParser):
             elif self.panel is not None:
                 self.sections += 1
         elif tag == "figure" and self.panel is not None:
-            self.figure = {"labelled": bool((a.get("aria-label") or "").strip())}
+            self.figure = {"labelled": bool((a.get("aria-label") or "").strip()), "host": False, "dashed": 0,
+                           **{mark: 0 for mark in FIGURE_MARKS}}
             self.panel["figures"].append(self.figure)
         elif tag == "figcaption" and self.figure is not None:
             self.figure["labelled"] = True
@@ -835,6 +862,104 @@ def lint_question(rep, where, s):
         rep.warn(f"{where} names a review finding by number; say what the reviewer found in words")
 
 
+def github_ref(url: str):
+    m = GITHUB_LINK.match(url)
+    if not m:
+        return None
+    owner, repo, path, ref = m.groups()
+    kind = GITHUB_KIND[path]
+    if kind == "commit":
+        if not re.fullmatch(r"[0-9a-f]{7,40}", ref):
+            return None
+        return {"owner": owner, "repo": repo, "kind": kind, "sha": ref, "key": f"{owner}/{repo}@{ref[:7]}"}
+    if not ref.isdigit():
+        return None
+    return {"owner": owner, "repo": repo, "kind": kind, "n": int(ref), "key": f"{owner}/{repo}#{ref}"}
+
+
+def normalise_link(link):
+    if isinstance(link, str):
+        link = {"url": link}
+    if not isinstance(link, dict):
+        return None, f"{link!r} is neither a URL string nor an object with 'url'"
+    url = link.get("url")
+    if not (isinstance(url, str) and url.strip()):
+        return None, f"{link!r} has no 'url'"
+    url = url.strip()
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return None, f"{url} is not an https:// URL"
+    extra = sorted(set(link) - LINK_FIELDS)
+    if extra:
+        return None, f"{url} carries {', '.join(map(repr, extra))}; a link is {{url, kind?, label?, closes?}}"
+    gh = github_ref(url)
+    kind = link.get("kind")
+    if kind is not None and kind not in LINK_KINDS:
+        return None, f"{url}: kind {kind!r} not in {', '.join(LINK_KINDS)}"
+    if gh and kind and kind != gh["kind"]:
+        return None, f"{url}: kind {kind!r} disagrees with the URL, which is a GitHub {gh['kind']}"
+    if not gh and kind in ("pr", "issue", "commit"):
+        return None, f"{url}: kind {kind!r} needs a github.com pull, issues or commit URL"
+    kind = kind or (gh["kind"] if gh else "doc")
+    label = link.get("label")
+    if label is not None and not (isinstance(label, str) and label.strip()):
+        return None, f"{url}: label must be a non-empty string"
+    closes = link.get("closes")
+    if closes is not None and not isinstance(closes, bool):
+        return None, f"{url}: closes must be true or false"
+    if "closes" in link and kind not in ("pr", "issue"):
+        return None, f"{url}: closes belongs on a pull request or an issue, not a {kind}"
+    out = {"url": url, "kind": kind, "closes": bool(closes)}
+    if label:
+        out["label"] = label.strip()
+    if gh:
+        out["gh"] = gh
+    return out, None
+
+
+def entry_links(rep, where, entry, closes_ok: bool) -> list:
+    raw = entry.get("links") if isinstance(entry, dict) else None
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        rep.err(f"{where}: links must be a list of URLs or {{url, kind?, label?, closes?}} objects")
+        return []
+    out = []
+    for link in raw:
+        norm, problem = normalise_link(link)
+        if problem:
+            rep.err(f"{where}: link {problem}")
+            continue
+        if not closes_ok and isinstance(link, dict) and "closes" in link:
+            rep.err(f"{where}: link {norm['url']} carries closes; it belongs on the open item the change retires")
+            continue
+        out.append(norm)
+    return out
+
+
+def check_links(rep, R):
+    repo = R.get("meta", {}).get("repo")
+    if repo is not None and not (isinstance(repo, str) and REPO_SLUG.match(repo)):
+        rep.err(f"meta.repo {repo!r} is not an owner/repo slug")
+    seen = {}
+    for o in R.get("open", []):
+        where = f"open {o.get('id')}"
+        if "s" in o and o["s"] not in OPEN_STATUSES:
+            rep.err(f"{where}: status {o['s']!r} not in {sorted(OPEN_STATUSES)}")
+        for link in entry_links(rep, where, o, True):
+            seen.setdefault(link["url"], []).append(where)
+    for d in R.get("decisions", []):
+        where = f"decision {d.get('id')}"
+        for link in entry_links(rep, where, d, False):
+            seen.setdefault(link["url"], []).append(where)
+    for f in R.get("findings", []):
+        if len(f) == 5:
+            entry_links(rep, f"finding {f[0]}", {"links": f[4]}, False)
+    for url, places in seen.items():
+        if len(places) > 1:
+            rep.warn(f"link {url} appears on {', '.join(places)}; one entry usually owns a change")
+
+
 def check_diagram(rep, R, root):
     diagram = R.get("diagram")
     sysd = root / "sysd.svg"
@@ -1000,6 +1125,9 @@ def check_summary_deck(rep, fragment: str):
         for figure in panel["figures"]:
             if not figure["labelled"]:
                 rep.strict_warn(f"{label} has a <figure> with no aria-label or figcaption")
+            if kind == "compare" and not figure["host"] and figure["rect"] >= HAND_FIGURE_RECTS:
+                rep.warn(f"{label} draws its figure by hand, {figure['rect']} rects and {figure['path']} paths; "
+                         "a columns-with-callouts figure is a dd.flow, a two-lane figure is a dd.lanes; both lay themselves out")
         for sentence in (s.strip() for s in SENTENCE_END.split(text)):
             lead = LEADING_ID.match(sentence)
             if lead:
@@ -1186,8 +1314,8 @@ def check(args) -> int:
                 rep.err(f"constraint {c.get('t', '')[:40]!r}: unknown assumption {x}")
     open_ids = check_ids(rep, R.get("open", []), "id", r"[A-Za-z0-9][A-Za-z0-9-]*", "open")
     for f in R.get("findings", []):
-        if len(f) != 4:
-            rep.err(f"findings: row {f!r} is not [n, severity, title, ref]")
+        if not 4 <= len(f) <= 5:
+            rep.err(f"findings: row {f!r} is not [n, severity, title, ref, links?]")
             continue
         ref = f[3]
         if re.fullmatch(r"DQ\d+", str(ref)) and ref not in d_ids:
@@ -1198,6 +1326,7 @@ def check(args) -> int:
     for o in R.get("open", []):
         if o.get("g") not in groups:
             rep.err(f"open {o.get('id')}: group {o.get('g')!r} not in openGroups")
+    check_links(rep, R)
     banner = meta.get("banner") or {}
     if banner.get("assumption") and banner["assumption"] not in a_ids:
         rep.err(f"meta.banner.assumption {banner['assumption']!r} is not an assumption id")
@@ -1273,16 +1402,30 @@ def check(args) -> int:
         for k in rounds:
             if k not in qa_rounds:
                 rep.warn(f"registers rounds[{k}] has no matching round in qa-log.json")
+        settled = d_ids | open_ids
+        decided_per_round = {}
+        for d in R.get("decisions", []):
+            if d.get("round") is not None:
+                decided_per_round[str(d["round"])] = decided_per_round.get(str(d["round"]), 0) + 1
         for r in Q.get("rounds", []):
             lint_question(rep, f"qa round {r.get('round')} topic", r.get("topic"))
             for q in r.get("questions", []):
-                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} header", q.get("header"))
-                lint_question(rep, f"qa round {r.get('round')} {q.get('header')!r} question", q.get("question"))
+                where = f"qa round {r.get('round')} {q.get('header')!r}"
+                lint_question(rep, f"{where} header", q.get("header"))
+                lint_question(rep, f"{where} question", q.get("question"))
                 labels = [o.get("label") for o in q.get("options", [])]
                 ans = q.get("answer", "")
                 parts = [a.strip() for a in ans.split(",")] if q.get("multiSelect") else [ans]
                 if ans and not (ans in labels or all(p in labels for p in parts)):
-                    rep.warn(f"qa round {r.get('round')} {q.get('header')!r}: answer is custom text (not an offered label) — fine if intended")
+                    rep.warn(f"{where}: answer is custom text (not an offered label) — fine if intended")
+                decides = q.get("decides")
+                if decides is not None:
+                    if not isinstance(decides, list) or not decides or not all(isinstance(x, str) and x in settled for x in decides):
+                        rep.err(f"{where}: decides must be a non-empty list of decision or open-item ids, got {decides!r}")
+                elif decided_per_round.get(str(r.get("round")), 0) > 1:
+                    named = set(ID_TOKEN.findall(f"{q.get('header') or ''} {q.get('question') or ''}")) & settled
+                    if not named:
+                        rep.warn(f"{where}: names no decision or open item, and round {r.get('round')} settles {decided_per_round[str(r.get('round'))]} decisions; add a decides field so the replay can map it")
     else:
         rep.warn("qa-log.json not found")
 
@@ -1907,18 +2050,33 @@ def schema_errors(value, schema, where: str) -> list:
 class ComponentHosts(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.hosts, self.open = [], []
+        self.hosts, self.open, self.panel, self.topic = [], [], None, None
 
     def handle_starttag(self, tag, attrs):
-        name = dict(attrs).get("data-component")
+        a = dict(attrs)
+        classes = classes_of(attrs)
+        if tag == "section" and "xs-panel" in classes:
+            self.panel = {"kind": a.get("data-kind") or "", "topics": []}
+        if "xs-topic" in classes:
+            self.topic = {"depth": 0, "text": []}
+        elif self.topic is not None and tag not in VOID_TAGS:
+            self.topic["depth"] += 1
+        name = a.get("data-component")
         if name:
-            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False})
+            self.open.append({"id": name, "tag": tag, "depth": 0, "figure": False, "panel": self.panel})
         elif self.open and tag not in VOID_TAGS:
             self.open[-1]["depth"] += 1
         if self.open and tag == "figure":
             self.open[-1]["figure"] = True
 
     def handle_endtag(self, tag):
+        if self.topic is not None:
+            if self.topic["depth"]:
+                self.topic["depth"] -= 1
+            else:
+                if self.panel is not None:
+                    self.panel["topics"].append(topic_key("".join(self.topic["text"])))
+                self.topic = None
         if not self.open:
             return
         host = self.open[-1]
@@ -1926,6 +2084,10 @@ class ComponentHosts(HTMLParser):
             host["depth"] -= 1
         elif tag == host["tag"]:
             self.hosts.append(self.open.pop())
+
+    def handle_data(self, data):
+        if self.topic is not None:
+            self.topic["text"].append(data)
 
     def close(self):
         super().close()
@@ -1988,9 +2150,38 @@ def check_whatif(rep, label, spec, known):
             rep.err(f"{label}: cites {cited}, which no register defines")
 
 
-def check_component_props(rep, label, spec, known, node_ids):
+def topic_key(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def check_flow(rep, label, spec, topics):
+    ids = [c["id"] for c in spec["columns"]]
+    for cid in sorted({cid for cid in ids if ids.count(cid) > 1}):
+        rep.err(f"{label}: two columns share the id {cid!r}")
+    per_side = {}
+    for i, call in enumerate(spec["callouts"]):
+        if call["col"] not in ids:
+            rep.err(f"{label}.callouts[{i}]: col {call['col']!r} is not a column id ({', '.join(ids)})")
+            continue
+        side = call.get("side") or ("above" if per_side.get((call["col"], "above"), 0) < 3 else "below")
+        per_side[(call["col"], side)] = per_side.get((call["col"], side), 0) + 1
+        topic = call.get("topic")
+        if topic and topics is not None and topic_key(topic) not in topics:
+            rep.err(f"{label}.callouts[{i}]: topic {topic!r} matches no .xs-topic in the compare panel that hosts it")
+    for (col, side), n in sorted(per_side.items()):
+        if n > 4:
+            rep.warn(f"{label}: column {col!r} stacks {n} callouts {side}; more than four on a side crowds the figure")
+
+
+def check_component_props(rep, label, spec, known, node_ids, topics=None):
     kind = spec["kind"]
-    if kind == "dd.whatif":
+    if kind == "dd.flow":
+        check_flow(rep, label, spec, topics)
+    elif kind == "dd.lanes":
+        ids = [lane["id"] for lane in spec["lanes"]]
+        if ids[0] == ids[1]:
+            rep.err(f"{label}: both lanes carry the id {ids[0]!r}")
+    elif kind == "dd.whatif":
         check_whatif(rep, label, spec, known)
     elif kind == "dd.tabs":
         for i, tab in enumerate(spec["tabs"]):
@@ -2049,6 +2240,8 @@ def check_components(rep, R, root, known, node_ids):
         rep.strict_warn(f"components/ holds {len(sources)} .tsx component(s) but components.js is missing; run design.py build")
 
     schemas = component_schemas(rep)
+    compare_topics = {host["id"]: host["panel"]["topics"] for host in hosts
+                      if host["panel"] and host["panel"]["kind"] == "compare"}
     for cid, spec in sorted(declared.items()):
         label = f"components.{cid}"
         if not COMPONENT_ID.fullmatch(cid):
@@ -2064,7 +2257,7 @@ def check_components(rep, R, root, known, node_ids):
         for msg in problems:
             rep.err(msg)
         if not problems:
-            check_component_props(rep, label, spec, known, node_ids)
+            check_component_props(rep, label, spec, known, node_ids, compare_topics.get(cid))
             check_figures(rep, label, spec)
 
     referenced = set()
@@ -2186,23 +2379,182 @@ def check_ai_config(rep, root):
         rep.err(f"ai.json does not parse: {e}")
         return
     if not isinstance(cfg, dict):
-        rep.err('ai.json must be a JSON object: {"endpoint", "model", "key"}, or {"disabled": true} to turn the assistant off')
+        rep.err('ai.json must be a JSON object: {"endpoint", "model", "key"} for the assistant, {"github": {"token"}} for '
+                'link states, or {"disabled": true} to turn the assistant off')
         return
+    if "github" in cfg:
+        github = cfg["github"]
+        if not (isinstance(github, dict) and isinstance(github.get("token"), str) and github["token"].strip()):
+            rep.err('ai.json: "github" must be {"token": "<read-only fine-grained PAT>"}')
+        else:
+            for k in sorted(set(github) - {"token"}):
+                rep.warn(f"ai.json carries github.{k}, which the page ignores")
     if cfg.get("disabled") is True:
-        for k in sorted(set(cfg) - {"disabled"}):
+        for k in sorted(set(cfg) - {"disabled"} - set(SITE_CONFIG_KEYS)):
             rep.warn(f"ai.json disables the assistant, so {k!r} beside it does nothing")
         return
-    for k in AI_CONFIG_KEYS:
-        v = cfg.get(k)
-        if not (isinstance(v, str) and v.strip()):
-            rep.err(f"ai.json: {k!r} must be a non-empty string")
-    endpoint = cfg.get("endpoint")
-    if isinstance(endpoint, str) and endpoint.strip():
-        problem = ai_endpoint_problem(endpoint.strip())
-        if problem:
-            rep.err(f"ai.json: endpoint {problem}")
-    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
+    if not (set(cfg) & set(AI_CONFIG_KEYS)) and not (set(cfg) & set(SITE_CONFIG_KEYS)):
+        rep.err("ai.json carries neither the assistant keys (endpoint, model, key) nor a github block")
+        return
+    if set(cfg) & set(AI_CONFIG_KEYS):
+        for k in AI_CONFIG_KEYS:
+            v = cfg.get(k)
+            if not (isinstance(v, str) and v.strip()):
+                rep.err(f"ai.json: {k!r} must be a non-empty string")
+        endpoint = cfg.get("endpoint")
+        if isinstance(endpoint, str) and endpoint.strip():
+            problem = ai_endpoint_problem(endpoint.strip())
+            if problem:
+                rep.err(f"ai.json: endpoint {problem}")
+        reasoning = cfg.get("reasoning")
+        if reasoning is not None and reasoning not in AI_REASONING:
+            rep.err(f"ai.json: 'reasoning' must be one of {', '.join(AI_REASONING)}")
+        elif reasoning in AI_REASONING[:3] and str(cfg.get("model", "")).startswith("gemma"):
+            rep.warn(f"ai.json: reasoning {reasoning!r} on a gemma model only switches reasoning on; low, medium and high behave the same")
+    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS) - set(AI_CONFIG_OPTIONAL) - set(SITE_CONFIG_KEYS)):
         rep.warn(f"ai.json carries {k!r}, which the page ignores")
+
+
+def link_rows(R) -> list:
+    rows = []
+    for o in R.get("open", []):
+        links = [normalise_link(l)[0] for l in (o.get("links") or [])]
+        rows.append({"id": o.get("id"), "register": "open", "kind": "spike" if o.get("g") == "spikes" else "open item",
+                     "title": o.get("t", ""), "s": o.get("s", "open"), "links": [l for l in links if l]})
+    for d in R.get("decisions", []):
+        links = [normalise_link(l)[0] for l in (d.get("links") or [])]
+        rows.append({"id": d.get("id"), "register": "decisions", "kind": "decision", "title": d.get("t", ""),
+                     "s": d.get("s", ""), "links": [l for l in links if l]})
+    return rows
+
+
+def github_get(path: str):
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        req = urllib.request.Request(GITHUB_API + path, headers={
+            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise
+    if not shutil.which("gh"):
+        raise RuntimeError("set GITHUB_TOKEN or install the gh CLI to resolve GitHub links")
+    p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if p.returncode:
+        if "404" in p.stderr or "Not Found" in p.stderr:
+            return None
+        raise RuntimeError(p.stderr.strip() or f"gh api {path} failed")
+    return json.loads(p.stdout)
+
+
+def github_state(gh: dict):
+    base = f"/repos/{gh['owner']}/{gh['repo']}"
+    if gh["kind"] == "commit":
+        c = github_get(f"{base}/commits/{gh['sha']}")
+        if not c:
+            return {"state": "unknown"}
+        return {"state": "commit", "title": c["commit"]["message"].split("\n", 1)[0],
+                "author": (c.get("author") or {}).get("login") or c["commit"]["author"]["name"],
+                "date": c["commit"]["author"]["date"][:10]}
+    if gh["kind"] == "pr":
+        pr = github_get(f"{base}/pulls/{gh['n']}")
+        if not pr:
+            return {"state": "unknown"}
+        state = "merged" if pr.get("merged_at") else "draft" if pr.get("draft") else pr["state"]
+        return {"state": state, "title": pr["title"], "author": pr["user"]["login"],
+                "date": (pr.get("merged_at") or pr.get("closed_at") or pr["updated_at"])[:10]}
+    issue = github_get(f"{base}/issues/{gh['n']}")
+    if not issue:
+        return {"state": "unknown"}
+    return {"state": issue["state"], "title": issue["title"], "author": issue["user"]["login"],
+            "date": (issue.get("closed_at") or issue["updated_at"])[:10]}
+
+
+def link_line(link: dict, repo, state) -> str:
+    gh = link.get("gh")
+    if gh:
+        prefix = "" if repo == f"{gh['owner']}/{gh['repo']}" else f"{gh['owner']}/{gh['repo']}"
+        label = link.get("label") or (prefix + ("@" + gh["sha"][:7] if gh["kind"] == "commit" else f"#{gh['n']}"))
+    else:
+        label = link.get("label") or link["url"]
+    bits = [f"{link['kind']} {label}"]
+    if state:
+        bits.append(state["state"] + (f" {state['date']}" if state.get("date") else "")
+                    + (f" by {state['author']}" if state.get("author") else ""))
+        if state.get("title"):
+            bits.append(f"\"{state['title']}\"")
+    if link["closes"]:
+        bits.append("closes")
+    return " · ".join(bits)
+
+
+def link_drift(row: dict, states: dict) -> str:
+    closers = [(l, states.get(l["url"])) for l in row["links"] if l["closes"]]
+    if not closers:
+        return ""
+    ref = lambda l: f"{l['kind']} {l['gh']['key']}"
+    landed = [(l, st) for l, st in closers if st and st["state"] in GITHUB_STATE_CLOSED]
+    if row["s"] != "closed" and landed:
+        l, st = landed[0]
+        return f"{row['id']} is still open but {ref(l)} was {st['state']} on {st['date']}; set s: \"closed\""
+    if row["s"] == "closed" and all(st and st["state"] not in GITHUB_STATE_CLOSED and st["state"] != "unknown" for _, st in closers):
+        l, st = closers[0]
+        return f"{row['id']} is marked closed but {ref(l)} is still {st['state']}"
+    return ""
+
+
+def links(args) -> int:
+    root = Path(args.dir)
+    R = load_registers(root, "links")
+    if R is None:
+        return 1
+    rep = Report()
+    check_links(rep, R)
+    for m in rep.errors:
+        print(f"ERROR: {m}", file=sys.stderr)
+    if rep.errors:
+        return 1
+    repo = R.get("meta", {}).get("repo")
+    rows = link_rows(R)
+    states = {}
+    if args.fetch:
+        for row in rows:
+            for link in row["links"]:
+                if link.get("gh") and link["url"] not in states:
+                    try:
+                        states[link["url"]] = github_state(link["gh"])
+                    except (RuntimeError, OSError, ValueError, KeyError) as e:
+                        print(f"links: cannot resolve {link['url']}: {e}", file=sys.stderr)
+                        return 1
+    if args.missing:
+        rows = [r for r in rows if not r["links"]]
+    if args.json:
+        out = []
+        for row in rows:
+            out.append({**row, "links": [{**{k: v for k, v in l.items() if k != "gh"}, **({"github": l["gh"]["key"]} if l.get("gh") else {}),
+                                          **(states.get(l["url"]) or {})} for l in row["links"]]})
+        print(json.dumps(out, indent=1))
+        return 0
+    width = max([len(str(r["id"])) for r in rows] + [2])
+    for row in rows:
+        status = f" · {row['s']}" if row["register"] == "open" else ""
+        print(f"{str(row['id']).ljust(width)}  {row['kind']}{status}  {row['title'][:60]}")
+        if not row["links"]:
+            print(f"{' ' * width}    no link")
+        for link in row["links"]:
+            print(f"{' ' * width}    {link_line(link, repo, states.get(link['url']))}")
+    if args.fetch:
+        drift = [d for d in (link_drift(r, states) for r in link_rows(R)) if d]
+        for d in drift:
+            print(f"drift: {d}")
+    unlinked = [r["id"] for r in link_rows(R) if not r["links"]]
+    if unlinked and not args.missing:
+        print(f"{len(unlinked)} entries carry no link: {', '.join(map(str, unlinked))}")
+    return 0
 
 
 def component_figures(spec):
@@ -2225,10 +2577,17 @@ def component_labels(R):
         where = f"components.{cid}"
         if isinstance(spec.get("title"), str) and spec["title"].strip():
             yield f"{where}.title", spec["title"], True
-        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols"):
+        for field in ("tabs", "steps", "phases", "inputs", "outputs", "rows", "cols", "columns", "lanes"):
             for i, item in enumerate(spec.get(field) or []):
                 if isinstance(item, dict) and isinstance(item.get("label"), str) and item["label"].strip():
                     yield f"{where}.{field}[{i}].label", item["label"], True
+        for i, call in enumerate(spec.get("callouts") or []):
+            if isinstance(call, dict) and isinstance(call.get("title"), str) and call["title"].strip():
+                yield f"{where}.callouts[{i}].title", call["title"], True
+        for i, lane in enumerate(spec.get("lanes") or []):
+            for j, box in enumerate((lane.get("boxes") if isinstance(lane, dict) else None) or []):
+                if isinstance(box, dict) and isinstance(box.get("title"), str) and box["title"].strip():
+                    yield f"{where}.lanes[{i}].boxes[{j}].title", box["title"], True
         for side in ("before", "after"):
             pane = spec.get(side)
             if isinstance(pane, dict) and isinstance(pane.get("label"), str) and pane["label"].strip():
@@ -2477,6 +2836,12 @@ def main():
     sn.add_argument("--item", action="append", help="reader-facing bullet describing this revision; repeatable")
     sn.add_argument("--force", action="store_true")
     sn.set_defaults(fn=snapshot)
+    lk = sub.add_parser("links", help="list the pull requests and issues each open item and decision links")
+    lk.add_argument("dir")
+    lk.add_argument("--fetch", action="store_true", help="resolve GitHub links through GITHUB_TOKEN or the gh CLI and report drift against s")
+    lk.add_argument("--json", action="store_true", help="print the rows as JSON")
+    lk.add_argument("--missing", action="store_true", help="print only the entries that carry no link")
+    lk.set_defaults(fn=links)
     args = ap.parse_args()
     sys.exit(args.fn(args))
 

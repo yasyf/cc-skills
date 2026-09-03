@@ -233,6 +233,62 @@ details.ledger.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
 .qa .q{color:var(--ink2)}
 .qa .rno{color:var(--ink2);font-size:12.5px;margin-left:6px}
 .qa .n{color:var(--ink2)}
+.qa-replay{display:grid;grid-template-columns:176px minmax(0,1fr);gap:0 24px;align-items:start;margin-bottom:-28px}
+.qa-tl{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding:12px 0;max-height:72vh;overflow:auto}
+.qa-tl button{display:flex;gap:8px;align-items:baseline;min-width:0;text-align:left;border:0;background:none;color:var(--ink2);font-size:13px;line-height:1.3;padding:4px 8px;border-radius:var(--r-node)}
+.qa-tl button b{font-family:var(--mono);font-weight:500;font-size:12px;min-width:18px;font-variant-numeric:tabular-nums}
+.qa-tl button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qa-tl button:hover,.qa-tl button.cur{background:var(--bg2);color:var(--ink)}
+.qa-tl button.cur b{color:var(--accent)}
+.qa-body{min-width:0}
+.qa-round{padding:14px 0 8px;border-top:1px solid var(--line)}
+.qa-round:first-child{border-top:0}
+.qa-rhead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.qa-rhead h3{margin:0}
+.qa-rmeta,.qa-no,.qa-note,.qa-rnote{color:var(--ink2);font-size:13.5px}
+.qa-rnote{margin:6px 0 0}
+.qa-round>.qa{margin-top:10px}
+.qa-rdec,.qa-became{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;margin:10px 0 0}
+.qa-rdec b,.qa-became b{color:var(--ink2);font-weight:600;font-size:13px}
+.qa-card{margin:14px 0 0;padding:12px 16px 14px;border:1px solid var(--line);border-radius:var(--r-node);background:var(--card)}
+.qa-card.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.qa-meta{display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.qa-hdr{font-weight:600;font-size:14.5px}
+.qa-ask{margin:4px 0 8px;font-size:15px}
+.qa-opts{list-style:none;padding:0;margin:0}
+.qa-opt{display:grid;grid-template-columns:18px minmax(0,1fr);column-gap:8px;padding:3px 0;font-size:14px;color:var(--ink2)}
+.qa-opt .qa-glyph{font-style:normal;line-height:1.5}
+.qa-opt .qa-desc{grid-column:2;font-size:13px}
+.qa-opt.on{color:var(--ink)}
+.qa-opt.on .qa-glyph,.qa-opt.on .qa-lbl{color:var(--accent);font-weight:600}
+.qa-opt-defer .qa-lbl{font-style:italic}
+.qa-ans,.qa-def,.qa-note{margin:8px 0 0;font-size:14px}
+.qa-def{color:var(--warn)}
+.qa-ctl{grid-column:1/-1;position:sticky;bottom:-28px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 0 14px;margin-top:14px;background:var(--card);border-top:1px solid var(--line)}
+.qa-ctl button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 12px;font-size:13px}
+.qa-ctl button:hover{border-color:var(--accent);color:var(--accent)}
+.qa-ctl button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.qa-ctl button:disabled{opacity:.45;cursor:default}
+.qa-pos{flex:1;font-family:var(--mono);font-size:12.5px;color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.qa-keys{font-size:12px;color:var(--ink2)}
+.qa-card.compact{padding:10px 14px 12px;font-size:13.5px}
+.qa-card.compact .qa-desc{display:none}
+.qa-card.compact .qa-ask{font-size:14px}
+.qa-card.compact .qa-opt{padding:1px 0;font-size:13.5px}
+.qa-rec .qa-from{display:block;margin-top:10px;font-size:13.5px;background:none;border:0;padding:0}
+.mback.play{background:transparent;pointer-events:none;align-items:flex-end;justify-content:flex-end;padding:18px}
+.mback.play .modal{pointer-events:auto;width:min(480px,calc(100vw - 36px));max-height:min(60vh,560px)}
+.mback.play .qa-replay{grid-template-columns:minmax(0,1fr)}
+.mback.play .qa-tl,.mback.play .qa-round:not(.cur),.mback.play .qa-card:not(.cur),.mback.play .qa-round>.qa,.mback.play .qa-rdec,.mback.play .qa-keys{display:none}
+.mback.play .qa-round{border-top:0;padding-top:4px}
+body.qa-play .layout{margin-right:min(500px,40vw)}
+body.qa-play #ai:not([data-state=wide]){right:calc(36px + min(480px,calc(100vw - 36px)))}
+@media (max-width:700px){
+  .qa-replay{grid-template-columns:minmax(0,1fr)}
+  .qa-tl{position:static;flex-direction:row;overflow-x:auto;max-height:none;padding:6px 0}
+  .qa-tl button span,.qa-keys{display:none}
+  body.qa-play .layout{margin-right:0}
+}
 details.theme{border-bottom:1px solid var(--line)}
 details.theme>summary{list-style:none;padding:14px 2px;cursor:pointer}
 details.theme>summary::-webkit-details-marker{display:none}
@@ -311,6 +367,26 @@ details.orow .obody{padding:0 2px 14px;font-size:14.5px;max-width:var(--measure)
 details.orow .ochips{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;margin:8px 0}
 .oglyph{color:var(--ink2);margin-right:7px}
 .ocount{font-size:12.5px;color:var(--ink2)}
+.lchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.lchip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lchip:hover{text-decoration:none;color:var(--accent);border-color:var(--accent)}
+.lico{width:14px;height:14px;flex:0 0 14px;color:var(--ink2)}
+.lchip:hover .lico{color:var(--accent)}
+.ldot,.odot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dead);flex:0 0 7px}
+.ldot[data-state=unknown]{display:none}
+.ldot[data-state=open],.odot[data-state=open]{background:var(--warn)}
+.ldot[data-state=draft],.odot[data-state=draft]{background:var(--ink2)}
+.ldot[data-state=merged],.ldot[data-state=closed],.odot[data-state=merged],.odot[data-state=closed]{background:var(--ok)}
+.lcloses{font-size:11px;color:var(--ink2);border-left:1px solid var(--line);padding-left:6px}
+details.orow .ometa .odot{transform:translateY(-1px)}
+details.orow.closed>summary .ot{color:var(--ink2)}
+details.orow.closed .ostat{color:var(--ok)}
+.oprog{display:inline-flex;align-items:center;gap:8px;margin-left:12px;font-size:12.5px;font-weight:400;color:var(--ink2);vertical-align:2px}
+.oprog i{display:inline-block;width:72px;height:6px;border-radius:3px;background:var(--bg2);border:1px solid var(--line);overflow:hidden}
+.oprog i b{display:block;height:100%;background:var(--ok)}
+.ghnote{font-size:13.5px;color:var(--ink2);margin:0 0 12px;max-width:var(--measure)}
+#tip.card .tgh{display:block;font-size:12.5px;color:var(--ink2);margin:-3px 0 8px}
+@media print{.oprog,.ghnote{display:none!important}.lchip{color:inherit}}
 
 .fnotes{margin:16px 0;padding:0;list-style:none;border-top:1px solid var(--line)}
 .fnotes li{display:flex;gap:16px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14.5px;max-width:80ch}
@@ -452,7 +528,6 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
   nav#rail a.on{border-bottom-color:var(--accent)}
   nav#rail .spacer{display:none}
   nav#rail .tools{flex-direction:row;align-items:center;padding:0;gap:6px}
-  nav#rail .tools input.search{width:150px}
   select.toolbtn{width:auto;max-width:150px}
   main{padding:0 18px 90px}
   h1{max-width:none}
@@ -583,7 +658,9 @@ section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line)
   h2,h3{break-after:avoid}
   details>summary{list-style:none}
   .ledger .sumline,details.spot .sp{display:none!important}
-  details.ledger,details.spot,.tldr,.sysd,.scale,.wf,.twrap,figure,.spot,.def,.rule,.orow{break-inside:avoid}
+  details.ledger,details.spot,.tldr,.sysd,.scale,.wf,.twrap,figure,.spot,.def,.rule,.orow,.qa-card{break-inside:avoid}
+  .qa-tl,.qa-ctl,.qa-from{display:none!important}
+  .qa-round{break-inside:auto}
   details.theme>summary{padding-top:10pt}
   .spotlight{grid-template-columns:1fr 1fr;gap:8pt}
   details.spot[open]{grid-column:auto}
@@ -660,6 +737,31 @@ table.ddc-mx .on{background:var(--accent-soft)}
 table.ddc-mx td[data-tone=ok]{color:var(--ok)}
 table.ddc-mx td[data-tone=warn]{color:var(--warn)}
 table.ddc-mx td[data-tone=bad]{color:var(--crit)}
+svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2);--fx-line:var(--line);--fx-box:var(--bg2)}
+.xs-panel svg.ddc-flow,.xs-panel svg.ddc-lanes{--fx-ink:var(--hero-ink);--fx-ink2:var(--hero-ink2);--fx-line:var(--hero-line)}
+.xs-panel>figure .ddc[data-kind="dd.flow"],.xs-panel>figure .ddc[data-kind="dd.lanes"]{margin:0}
+.ddc svg.fit+.fullbtn{margin-top:10px}
+#flowMeasure{position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none}
+.fx-t{font-family:var(--display);font-weight:600;font-size:13px;fill:var(--fx-ink)}
+.fx-s,.fx-n{font-family:var(--mono);font-size:9.5px;fill:var(--fx-ink2)}
+.fx-e{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.04em;fill:var(--tone)}
+.fx-col{fill:var(--fx-box);stroke:var(--fx-ink);stroke-width:1.5}
+.fx-arrow{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
+.fx-head{fill:var(--fx-ink2)}
+.fx-call rect{fill:var(--before-soft);stroke:var(--before);stroke-width:1.5;transition:stroke-width .12s}
+.fx-call[data-status=open] rect{fill:none;stroke-dasharray:5 4}
+.fx-call[data-topic]{cursor:default}
+.fx-call.on rect{stroke-width:2.5}
+.fx-conn{fill:none;stroke:var(--before);stroke-width:1;stroke-dasharray:3 3}
+.xs-row.fx-on{background:var(--before-soft)}
+.fx-lane{--tone:var(--before);--tone-soft:var(--before-soft)}
+.fx-lane[data-tone=after]{--tone:var(--after);--tone-soft:var(--after-soft)}
+.fx-frame{fill:none;stroke:var(--tone);stroke-width:1.5}
+.fx-box rect{fill:var(--tone-soft);stroke:var(--tone);stroke-width:1.2}
+.fx-box[data-status=open] rect{fill:none;stroke-dasharray:4 3}
+.fx-box[data-status=open] .fx-t{fill:var(--fx-ink2)}
+.fx-box[data-status=warn] rect{fill:var(--warn-soft);stroke:var(--warn)}
+.fx-bridge{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
 [data-component][data-mounted]>figure.ddc-fallback{display:none}
 @media (max-width:900px){
   .ddc-input{grid-template-columns:1fr auto;gap:4px 10px}
@@ -691,50 +793,86 @@ html[data-theme=dark]:not([data-print]){
   --hero-bg:#0E0E0D; --hero-band:#181715; --hero-ink:#F3F0E9; --hero-ink2:#ABA69C; --hero-line:#F3F0E92B;
 }
 html:not([data-ai]) .ai-only{display:none!important}
-#ai{position:fixed;right:18px;bottom:18px;z-index:66;width:min(430px,calc(100vw - 36px));max-height:min(72vh,640px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
-#ai[data-wide]{top:0;right:0;bottom:0;width:min(520px,44vw);max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
+#ai{position:fixed;right:18px;bottom:18px;z-index:66;display:flex;flex-direction:column;align-items:flex-end}
+#ai[hidden]{display:none}
+.ai-bar{display:inline-flex;align-items:center;gap:8px;max-width:min(360px,calc(100vw - 36px));border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 12px 8px 14px;font-size:13.5px;box-shadow:0 10px 30px #0003;cursor:pointer}
+.ai-bar:hover{border-color:var(--accent)}
+.ai-bar b{font-weight:600}
+.ai-glyph{color:var(--accent);font-size:13px}
+#aiBarLast{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2)}
+#aiBarLast:empty{display:none}
+.ai-bar kbd{font:11.5px var(--mono);color:var(--ink2);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.ai-panel{display:flex;flex-direction:column;width:min(430px,calc(100vw - 36px));max-height:min(72svh,640px);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 18px 60px #0004;overflow:hidden}
+#ai[data-state=bar] .ai-panel{display:none}
+#ai:not([data-state=bar]) .ai-bar{display:none}
+#ai[data-state=wide]{top:0;right:0;bottom:0;align-items:stretch}
+#ai[data-state=wide] .ai-panel{width:min(520px,44vw);height:100%;max-height:none;border-radius:0;border-top:0;border-bottom:0;border-right:0}
 body.ai-wide .layout{margin-right:min(520px,44vw)}
-.ai-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
-.ai-head b{flex:1;font-size:14.5px}
-.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 10px;font-size:12.5px}
+.ai-head{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 14px;border-bottom:1px solid var(--line)}
+.ai-head b{font-size:14.5px}
+.ai-ctx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;color:var(--ink2)}
+.ai-head button,.ai-x{border:1px solid var(--line);background:var(--bg);color:var(--ink2);border-radius:var(--r-ctl);padding:3px 9px;font-size:12.5px;line-height:1.4}
 .ai-head button:hover,.ai-x:hover{border-color:var(--accent);color:var(--accent)}
-.ai-tools,.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:9px 14px 0}
-.ai-sug{padding-bottom:4px}
+.ai-sug{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px 4px}
 .ai-chip{border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:999px;padding:3px 11px;font-size:12.5px;text-align:left}
 .ai-chip:hover{border-color:var(--accent);color:var(--accent)}
-.ai-log{flex:1;overflow:auto;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
-.ai-log:empty{display:none}
+.ai-log{flex:1;overflow:auto;overscroll-behavior:contain;padding:10px 14px 4px;font-size:14.5px;line-height:1.55;min-height:60px}
+.ai-empty{color:var(--ink2);font-size:13.5px;margin:4px 0 8px;max-width:none}
+.ai-empty:not(:only-child){display:none}
 .ai-msg{margin:0 0 12px;max-width:none}
 .ai-msg p{margin:6px 0;max-width:none}
 .ai-msg h3{font-size:14.5px;margin:2px 0 6px}
 .ai-msg ul{padding-left:20px;margin:6px 0}
-.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink)}
+.ai-user{background:var(--bg2);border-radius:var(--r-node);padding:7px 11px;color:var(--ink);white-space:pre-wrap}
+.ai-about-in{display:block;font-size:12px;color:var(--ink2);margin-bottom:3px;white-space:normal}
 .ai-wait{color:var(--ink2)}
 .ai-err{color:var(--crit)}
-.ai-used{display:flex;gap:5px;flex-wrap:wrap;margin:-6px 0 12px}
-.ai-tool{font-family:var(--mono);font-size:11px;color:var(--ink2);background:var(--bg2);border-radius:var(--r-node);padding:1px 6px}
-.ai-changed{margin-top:8px}
+.ai-verbs{font-size:12px;color:var(--ink2);margin:2px 0 0}
+.ai-verbs button{border:0;background:none;color:var(--accent);font-size:12px;padding:0;cursor:pointer}
+.ai-src{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;font-size:12.5px;color:var(--ink2);margin:6px 0 0}
+.ai-card{border:1px solid var(--line);border-radius:var(--r-node);margin:0 0 12px;background:var(--bg2)}
+.ai-card-head{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-bottom:1px solid var(--line)}
+.ai-card-head b{flex:1;font-size:13.5px}
+.ai-card-body{padding:6px 12px 10px;font-size:14px}
+.ai-card-body p{margin:6px 0;max-width:none}
+.ai-card-body details{margin:4px 0}
+.ai-card-body summary{cursor:pointer;font-weight:600;font-size:13.5px}
 .ai-q{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.ai-q:first-child{border-top:0;padding-top:0;margin-top:0}
 .ai-opt,.ai-btn{display:inline-block;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:4px 10px;font-size:13px;margin:3px 5px 0 0;text-align:left}
 .ai-opt:hover,.ai-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ai-btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .ai-opt.ok{border-color:var(--ok);color:var(--ok)}
 .ai-opt.bad{border-color:var(--crit);color:var(--crit)}
 .ai-qa{font-size:13.5px;color:var(--ink2);margin:6px 0 0}
-.ai-note-in{font-size:12.5px;color:var(--ink2)}
-.ai-foot{display:flex;gap:8px;align-items:flex-end;padding:10px 14px;border-top:1px solid var(--line)}
+.ai-foot{position:relative;padding:8px 14px 10px;border-top:1px solid var(--line)}
+.ai-row{display:flex;gap:8px;align-items:flex-end}
 .ai-foot textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:var(--r-ctl);padding:7px 10px;font:14px/1.4 var(--sans);max-height:120px}
 .ai-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:7px 14px;font-size:13.5px}
-.ai-note{padding:0 14px 10px;font-size:11.5px;color:var(--ink2);display:flex;flex-direction:column;gap:5px}
-.ai-note-tog{display:flex;gap:6px;align-items:center;cursor:pointer}
+.ai-about{display:flex;gap:6px;align-items:baseline;font-size:12.5px;color:var(--ink2);margin:0 0 6px}
+.ai-about-k{white-space:nowrap}
+.ai-about-t{flex:1;min-width:0;text-align:left;border:0;background:none;color:var(--ink);font-size:12.5px;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.ai-about-t::after{content:" ▸";color:var(--ink2)}
+.ai-about.open .ai-about-t{white-space:normal}
+.ai-about.open .ai-about-t::after{content:" ▾"}
+.ai-slash{position:absolute;left:14px;right:14px;bottom:calc(100% - 1px);z-index:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);box-shadow:0 10px 30px #0003;padding:4px;max-height:220px;overflow:auto;overscroll-behavior:contain}
+.ai-slash-row{display:flex;gap:10px;align-items:baseline;padding:6px 9px;border-radius:var(--r-node);cursor:pointer;font-size:13.5px}
+.ai-slash-row.on,.ai-slash-row:hover{background:var(--accent-soft)}
+.ai-slash-k{flex:0 0 68px;font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.ai-slash-row small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.ai-settings{border-top:1px solid var(--line);font-size:11.5px;color:var(--ink2)}
+.ai-settings summary{list-style:none;cursor:pointer;padding:6px 14px}
+.ai-settings summary::-webkit-details-marker{display:none}
+.ai-diag{padding:0 14px 8px;font-family:var(--mono);font-size:11px;white-space:pre-wrap}
 .ai-hl{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
 .ai-mark{background:var(--accent-soft);border-radius:3px;box-shadow:0 0 0 2px var(--accent-soft)}
-.ai-ask{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:0 9px;font-size:11.5px;line-height:1.7;margin-left:6px}
-.ai-ask:hover{border-color:var(--accent);color:var(--accent)}
-.ai-h2{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:1px 11px;font-size:12px;margin-left:10px;vertical-align:3px}
-.ai-h2:hover{border-color:var(--accent);color:var(--accent)}
-.ai-footrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-ask{flex:0 0 auto;align-self:center;width:22px;height:22px;padding:0;border:1px solid transparent;background:transparent;color:var(--accent);border-radius:50%;font-size:12px;line-height:20px;text-align:center;opacity:.55;cursor:pointer}
+.ai-ask:hover,.ai-ask:focus-visible,summary:hover .ai-ask,summary:focus-within .ai-ask{opacity:1;border-color:var(--accent-soft);background:var(--accent-soft)}
+.ai-menu{position:fixed;z-index:68;width:min(420px,92vw);max-height:min(70vh,560px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.ai-menu.ai-cmds{width:auto;min-width:250px;padding:6px}
+.ai-menu-item{display:flex;gap:12px;align-items:baseline;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:7px 10px;border-radius:var(--r-node);font-size:13.5px;cursor:pointer}
+.ai-menu-item:hover,.ai-menu-item:focus-visible{background:var(--accent-soft);outline:0}
+.ai-menu-item small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap}
 .ai-menu-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
 .ai-menu-head b{flex:1;font-size:14px}
 .ai-menu-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
@@ -753,26 +891,33 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
 .def.ai-def{border:1px dashed var(--line);border-radius:var(--r-node);padding:10px 12px}
 .ai-pill{margin-left:6px;font-size:11px;vertical-align:1px}
 #pal{position:fixed;inset:0;z-index:69;background:#0006;display:flex;align-items:flex-start;justify-content:center;padding:12vh 20px 20px}
-.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:70vh;overflow:hidden}
+.pal-box{width:min(680px,100%);background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 24px 70px #0006;display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
 .pal-in{border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);padding:14px 18px;font:16px var(--sans);outline:none}
-.pal-list{overflow:auto;padding:6px}
+.pal-list{flex:0 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px}
 .pal-row{display:flex;gap:9px;align-items:baseline;padding:7px 11px;border-radius:var(--r-node);cursor:pointer}
 .pal-row.on{background:var(--accent-soft)}
 .pal-row:hover{background:var(--bg2)}
+.pal-row.pal-div,.pal-row.pal-div:hover{cursor:default;background:none;padding:10px 11px 2px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
 .pal-g{flex:0 0 14px;color:var(--ink2);font-size:12px;text-align:center}
 .pal-dot{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:currentColor;transform:translateY(-2px)}
 .pal-l{flex:0 1 auto;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
 .pal-id{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
 .pal-s{flex:1 1 auto;min-width:0;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pal-ans{flex:0 0 auto;max-height:40vh;overflow:auto;overscroll-behavior:contain;border-top:1px solid var(--line);padding:10px 18px;font-size:14px;line-height:1.5}
+.pal-ans p{margin:6px 0;max-width:none}
+.pal-ans ul{padding-left:20px;margin:6px 0}
 .pal-foot{border-top:1px solid var(--line);padding:8px 18px;font-size:12px;color:var(--ink2)}
 @media (max-width:900px){
-  #ai{left:10px;right:10px;bottom:10px;width:auto;max-height:70svh}
-  #ai[data-wide]{left:0;right:0;top:0;width:auto}
+  #ai{left:10px;right:10px;bottom:calc(64px + env(safe-area-inset-bottom));align-items:stretch}
+  #ai[data-state=bar]{display:none}
+  .ai-panel{width:auto;max-height:70svh}
+  #ai[data-state=wide]{left:0;right:0;top:0;bottom:0}
+  #ai[data-state=wide] .ai-panel{width:auto}
   body.ai-wide .layout{margin-right:0}
   .ai-path{margin-right:0}
 }
 @media print{
-  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-h2,.ai-path,.ai-footrow{display:none!important}
+  #ai,#pal,.ai-menu,.ai-sel,.ai-ask,.ai-path,.ai-card,.ai-about,.ai-slash,.pal-ans{display:none!important}
   .ai-hl{outline:0}
   body.ai-wide .layout{margin-right:0}
 }
@@ -803,8 +948,6 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <a href="#footnotes">Footnotes</a>
   <div class="spacer"></div>
   <div class="tools">
-    <label class="sr-only" for="docSearch">Search decisions, assumptions and open questions</label>
-    <input class="search" id="docSearch" type="search" placeholder="Search the registers" autocomplete="off">
     <select id="baseSel" class="toolbtn" hidden title="Show what changed since an earlier revision" aria-label="Show what changed since an earlier revision"></select>
     <button class="toolbtn" id="wordingBtn" type="button" aria-pressed="false" title="Show every entry in its exact register wording instead of the plain version">Full wording</button>
     <details class="railmore">
@@ -945,23 +1088,30 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   </div>
 </div>
 
-<div id="ai" role="dialog" aria-label="Ask this document" hidden>
-  <div class="ai-head"><b>Ask this document</b><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClear" type="button">Clear</button><button id="aiClose" type="button" aria-label="Close">Close</button></div>
-  <div class="ai-tools" id="aiTools"></div>
-  <div class="ai-log" id="aiLog"></div>
-  <div class="ai-sug" id="aiSug"></div>
-  <form class="ai-foot" id="aiForm">
-    <label class="sr-only" for="aiIn">Ask about this document</label>
-    <textarea id="aiIn" rows="1" placeholder="Ask about this document"></textarea>
-    <button class="ai-send" id="aiSend" type="submit">Ask</button>
-  </form>
-  <div class="ai-note" id="aiNote"><span id="aiHost"></span></div>
-</div>
+<aside id="ai" role="complementary" aria-label="Ask" data-state="bar" hidden>
+  <button id="aiBar" class="ai-bar" type="button" aria-expanded="false" aria-controls="aiPanel"><span class="ai-glyph" aria-hidden="true">&#10022;</span><b>Ask</b><span id="aiBarLast"></span><kbd>&#8984;J</kbd></button>
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-head"><span class="ai-glyph" aria-hidden="true">&#10022;</span><b>Ask</b><span class="ai-ctx" id="aiCtx"></span><button id="aiMore" type="button" aria-haspopup="menu">More &#9662;</button><button id="aiWide" type="button" title="Dock to the side" aria-label="Dock to the side">&#8677;</button><button id="aiClose" type="button" title="Collapse" aria-label="Collapse">&minus;</button></div>
+    <div class="ai-log" id="aiLog"><p class="ai-empty">Ask about this document. It answers from the registers and moves the page to what it cites.</p></div>
+    <div class="ai-sug" id="aiSug"></div>
+    <form class="ai-foot" id="aiForm">
+      <div class="ai-about" id="aiAbout" hidden></div>
+      <div class="ai-row">
+        <label class="sr-only" for="aiIn">Ask about this document</label>
+        <textarea id="aiIn" rows="1" placeholder="Ask, or / for commands"></textarea>
+        <button class="ai-send" id="aiSend" type="submit">Ask</button>
+      </div>
+      <div class="ai-slash" id="aiSlash" role="listbox" aria-label="Commands" hidden></div>
+    </form>
+    <details class="ai-settings"><summary id="aiHost"></summary><div class="ai-diag" id="aiDiag"></div></details>
+  </div>
+</aside>
 <div id="pal" role="dialog" aria-label="Everything you can do here" hidden>
   <div class="pal-box">
     <label class="sr-only" for="palIn">Search the document, or run a command</label>
     <input id="palIn" class="pal-in" type="text" placeholder="Search the doc &middot; &gt; for commands &middot; ? to ask" autocomplete="off" spellcheck="false">
     <div class="pal-list" id="palList" role="listbox"></div>
+    <div class="pal-ans" id="palAns" hidden></div>
     <div class="pal-foot">&#8593;&#8595; move &middot; &#8629; open &middot; esc close</div>
   </div>
 </div>
@@ -983,6 +1133,7 @@ async function loadFile(name){
  return await r.text();
 }
 const summaryLoad=loadFile("summary.html").catch(()=>"");
+const qaLoad=loadFile("qa-log.json").catch(()=>"");
 let R;
 try{R=JSON.parse(await loadFile("registers.json"));}
 catch(e){
@@ -1039,6 +1190,78 @@ NUMBERS.forEach(n=>addRef(n.id,n.t,"numbers",n));
 PATHS.forEach(p=>addRef(p.id,p.name,"path",p));
 OPEN.forEach(o=>addRef(o.id,o.t,"open",o));
 FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
+const REPO=typeof META.repo==="string"?META.repo:"";
+const GH_LINK=/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues|commit)\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/;
+const GH_KIND={pull:"pr",issues:"issue",commit:"commit"};
+function linkNorm(l){
+ if(typeof l==="string")l={url:l};
+ if(!l||typeof l!=="object"||typeof l.url!=="string")return null;
+ const url=l.url.trim();
+ let u;
+ try{u=new URL(url)}catch(e){return null}
+ if(u.protocol!=="https:"||!u.hostname)return null;
+ const m=GH_LINK.exec(url);
+ let gh=null;
+ if(m){
+  const kind=GH_KIND[m[3]];
+  if(kind==="commit"?/^[0-9a-f]{7,40}$/.test(m[4]):/^\d+$/.test(m[4]))gh={o:m[1],r:m[2],kind,ref:m[4],key:m[1]+"/"+m[2]+(kind==="commit"?"@"+m[4].slice(0,7):"#"+m[4])};
+ }
+ const kind=l.kind||(gh?gh.kind:"doc");
+ if(gh&&kind!==gh.kind)return null;
+ const label=typeof l.label==="string"&&l.label.trim()?l.label.trim():"";
+ return {url,kind,gh,label,closes:l.closes===true&&(kind==="pr"||kind==="issue")};
+}
+const linkKey=l=>l.gh&&l.gh.kind!=="commit"?l.gh.key:"";
+const linksOf=e=>(Array.isArray(e&&e.links)?e.links:[]).map(linkNorm).filter(Boolean);
+const LINKED=[...OPEN,...DQ].some(e=>linksOf(e).length);
+const TRACKED=LINKED||OPEN.some(o=>o.s);
+const ghRef=gh=>gh.o+"/"+gh.r+(gh.kind==="commit"?"@"+gh.ref.slice(0,7):"#"+gh.ref);
+function linkLabel(l){
+ if(l.label)return l.label;
+ if(l.gh)return REPO===l.gh.o+"/"+l.gh.r?ghRef(l.gh).slice(REPO.length):ghRef(l.gh);
+ const u=new URL(l.url);
+ return u.hostname.replace(/^www\./,"")+u.pathname.replace(/\/$/,"").slice(0,24);
+}
+const LINK_ICON={
+ pr:'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>',
+ issue:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>',
+ commit:'<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>',
+ doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'
+};
+const LINK_KIND_LABEL={pr:"Pull request",issue:"Issue",commit:"Commit",doc:"Link"};
+const LINK_KIND_SHORT={pr:"PR",issue:"issue",commit:"commit",doc:"link"};
+const GH_STATE_LABEL={open:"Open",draft:"Draft",merged:"Merged",closed:"Closed",unknown:"State unknown"};
+const LANDED={merged:1,closed:1};
+const linkIcon=kind=>`<svg class="lico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINK_ICON[kind]}</svg>`;
+const GH=Object.create(null),GH_PENDING=Object.create(null);
+let GH_TOKEN=null;
+const ghState=l=>{const k=linkKey(l);return k&&GH[k]?GH[k].state:"unknown"};
+function linkChipHtml(l){
+ const key=linkKey(l);
+ return `<a class="lchip" data-kind="${l.kind}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
+  (key?`<i class="ldot" data-state="${ghState(l)}" aria-hidden="true"></i>`:"")+linkIcon(l.kind)+
+  `<span class="lt">${esc(linkLabel(l))}</span>`+(l.closes?`<span class="lcloses">closes</span>`:"")+`</a>`;
+}
+const linkChipsHtml=links=>links.length?`<div class="lchips">${links.map(linkChipHtml).join("")}</div>`:"";
+const itemClosed=o=>o.s==="closed"||linksOf(o).some(l=>l.closes&&LANDED[ghState(l)]);
+function itemState(o){
+ if(itemClosed(o))return "closed";
+ return linksOf(o).filter(l=>l.closes).map(ghState).find(s=>s!=="unknown")||"open";
+}
+function linkMd(l){
+ const st=ghState(l);
+ const bits=[st!=="unknown"?st:"",l.closes?"closes":""].filter(Boolean);
+ return linkLabel(l)+(bits.length?" ("+bits.join(", ")+")":"");
+}
+function relTime(iso){
+ const t=Date.parse(iso||"");
+ if(!t)return "";
+ const s=Math.max(0,(Date.now()-t)/1000);
+ if(s<3600)return Math.max(1,Math.round(s/60))+" min ago";
+ if(s<86400)return Math.round(s/3600)+" h ago";
+ if(s<86400*30)return Math.round(s/86400)+" d ago";
+ return longDate(iso.slice(0,10));
+}
 const plain=s=>String(s==null?"":s).replace(/\[\^(\d+)\]/g,"").replace(/\[([^\]]+)\]\([^)]*\)/g,"$1").replace(/[`*]/g,"").replace(/\s+/g," ").trim();
 const firstSentence=s=>{const t=plain(s);const m=t.match(/^.*?[.!?](?=\s|$)/);return m?m[0]:t};
 const CITEABLE=Object.keys(REF).filter(k=>/^[A-Za-z][\w-]*$/.test(k)&&!/^fn\d+$/.test(k)).sort((a,b)=>b.length-a.length);
@@ -1178,10 +1401,31 @@ function mdToHtml(md){
 }
 
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
-const TIP_SEL="[data-tip],[data-ref],[data-term]";
-let tipFor=null,tipTimer=0;
-function hideTip(){clearTimeout(tipTimer);tipFor=null;TIP.hidden=true;TIP.classList.remove("card")}
+const TIP_SEL="[data-tip],[data-ref],[data-term],[data-gh]";
+const TIP_RING=[];
+let tipFor=null,tipTimer=0,tipArmed=null,tipClosedAt=-1e9,tipCorridor=null,tipSpeed=0,tipDir={x:0,y:0},tipPt={x:0,y:0};
+function tipSpeedNow(){
+ const last=TIP_RING[TIP_RING.length-1];
+ return last&&performance.now()-last.t<80?tipSpeed:0;
+}
+function hideTip(){
+ clearTimeout(tipTimer);
+ tipArmed=null;tipCorridor=null;
+ if(!TIP.hidden)tipClosedAt=performance.now();
+ tipFor=null;TIP.hidden=true;TIP.classList.remove("card");
+}
+function ghCardHtml(node){
+ const key=node.dataset.gh,kind=node.dataset.kind,rec=GH[key];
+ const label=node.querySelector(".lt").textContent;
+ const open=`<span class="topen" data-href="${esc(node.href)}" role="button" tabindex="0">Open on GitHub →</span>`;
+ if(!rec)return `<span class="tkind">${esc(LINK_KIND_LABEL[kind])} · ${esc(key)}</span><span class="ttitle">${esc(label)}</span>`+(GH_PENDING[key]?"<p>Loading…</p>":"")+open;
+ const checks=rec.checks?"checks "+(rec.checks.total?rec.checks.ok+"/"+rec.checks.total+(rec.checks.state==="success"?"":" "+rec.checks.state):rec.checks.state):"";
+ const bits=[LINK_KIND_LABEL[kind],GH_STATE_LABEL[rec.state]||rec.state,rec.review||"",checks].filter(Boolean);
+ const by=[rec.author?"by "+rec.author:"",rec.updated?"updated "+relTime(rec.updated):""].filter(Boolean).join(", ");
+ return `<span class="tkind">${esc(bits.join(" · "))}</span><span class="ttitle">${esc(rec.title||label)}</span><span class="tgh">${esc(key)}${by?" · "+esc(by):""}</span>`+open;
+}
 function cardHtml(node){
+ if(node.dataset.gh)return ghCardHtml(node);
  const id=node.dataset.ref;
  if(id){
   const r=REF[id],[,sl]=statusOf(id);
@@ -1193,33 +1437,87 @@ function cardHtml(node){
  const t=TERM_BY[node.dataset.term];
  return `<span class="ttitle">${esc(t.k)}${t.ai?' <span class="pill p-acc ai-pill">AI-defined</span>':""}</span><p>${esc(plain(t.v))}</p><span class="topen" data-open="#ground" role="button" tabindex="0">Terms →</span>`;
 }
-function showTip(node){
- const card=node.dataset.ref||node.dataset.term;
+function placeTip(node,viaKeys){
+ const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
+ const below=(!viaKeys&&tipDir.y>0)||r.top-b.height-8<8;
+ let top=below?r.bottom+8:r.top-b.height-8;
+ if(below&&top+b.height>innerHeight-8)top=Math.max(8,r.top-b.height-8);
+ let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
+ const px=tipPt.x;
+ if(!viaKeys&&left<=px&&px<=left+b.width){
+  if(px+14+b.width<=innerWidth-8)left=px+14;
+  else if(px-14-b.width>=8)left=px-14-b.width;
+ }
+ TIP.style.left=left+"px";TIP.style.top=top+"px";
+}
+function showTip(node,viaKeys){
+ const card=node.dataset.ref||node.dataset.term||node.dataset.gh;
  const t=node.getAttribute("data-tip");
  if(!card&&!t){hideTip();return}
  clearTimeout(tipTimer);
- tipFor=node;
+ tipArmed=null;tipCorridor=null;tipFor=node;
  TIP.classList.toggle("card",!!card);
  if(card)TIP.innerHTML=cardHtml(node);else TIP.textContent=t;
+ const pending=node.dataset.gh&&!GH[node.dataset.gh]&&GH_PENDING[node.dataset.gh];
+ if(pending)pending.then(()=>{if(tipFor===node)showTip(node)},()=>{});
  TIP.hidden=false;
- const r=node.getBoundingClientRect(),b=TIP.getBoundingClientRect();
- let left=Math.min(Math.max(8,r.left),innerWidth-b.width-8);
- let top=r.top-b.height-8;
- if(top<8)top=r.bottom+8;
- TIP.style.left=left+"px";TIP.style.top=top+"px";
+ placeTip(node,viaKeys);
 }
+function tipOpenArmed(node){
+ if(tipArmed!==node)return;
+ if(tipSpeedNow()>0.5){tipTimer=setTimeout(()=>tipOpenArmed(node),80);return}
+ showTip(node,false);
+}
+function armTip(node){
+ if(node===tipArmed)return;
+ clearTimeout(tipTimer);
+ tipArmed=node;tipCorridor=null;
+ const delay=!TIP.hidden?40:performance.now()-tipClosedAt<1000?400:250;
+ tipTimer=setTimeout(()=>tipOpenArmed(node),delay);
+}
+const tipSign=(p,a,b)=>(p.x-b.x)*(a.y-b.y)-(a.x-b.x)*(p.y-b.y);
+function tipInCorridor(p){
+ const {a,b,c}=tipCorridor;
+ const d1=tipSign(p,a,b),d2=tipSign(p,b,c),d3=tipSign(p,c,a);
+ return !((d1<0||d2<0||d3<0)&&(d1>0||d2>0||d3>0));
+}
+function tipLeave(){
+ if(TIP.hidden)return;
+ if(!TIP.classList.contains("card")){hideTip();return}
+ if(tipCorridor)return;
+ const b=TIP.getBoundingClientRect(),p={x:tipPt.x,y:tipPt.y};
+ const y=Math.abs(p.y-b.top)<=Math.abs(p.y-b.bottom)?b.top:b.bottom;
+ tipCorridor={a:p,b:{x:b.left-8,y},c:{x:b.right+8,y}};
+ clearTimeout(tipTimer);
+ tipTimer=setTimeout(()=>{if(tipCorridor&&!TIP.matches(":hover"))hideTip()},400);
+}
+document.addEventListener("pointermove",e=>{
+ const now=performance.now();
+ TIP_RING.push({x:e.clientX,y:e.clientY,t:now});
+ if(TIP_RING.length>5)TIP_RING.shift();
+ tipPt={x:e.clientX,y:e.clientY};
+ const a=TIP_RING[0],b=TIP_RING[TIP_RING.length-1],dt=b.t-a.t;
+ if(dt>0){tipDir={x:b.x-a.x,y:b.y-a.y};tipSpeed=Math.hypot(tipDir.x,tipDir.y)/dt}
+ if(tipCorridor&&!TIP.contains(e.target)&&!tipInCorridor(tipPt))hideTip();
+},{passive:true});
 document.addEventListener("pointerover",e=>{
- if(TIP.contains(e.target)){clearTimeout(tipTimer);return}
+ if(TIP.contains(e.target)){clearTimeout(tipTimer);tipCorridor=null;return}
  const n=e.target.closest&&e.target.closest(TIP_SEL);
- if(n===tipFor){clearTimeout(tipTimer);return}
- if(n)showTip(n);
- else if(TIP.classList.contains("card")){clearTimeout(tipTimer);tipTimer=setTimeout(hideTip,200)}
- else hideTip();
+ if(n&&n===tipFor){clearTimeout(tipTimer);tipCorridor=null;return}
+ if(n){armTip(n);return}
+ if(tipArmed){tipArmed=null;clearTimeout(tipTimer)}
+ if(TIP.hidden)return;
+ if(TIP.contains(e.relatedTarget)){clearTimeout(tipTimer);tipTimer=setTimeout(hideTip,200);return}
+ tipLeave();
 });
-document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n=e.target.closest&&e.target.closest(TIP_SEL);n?showTip(n):hideTip()});
+document.addEventListener("pointerdown",e=>{if(!TIP.contains(e.target))hideTip()});
+document.addEventListener("focusin",e=>{if(TIP.contains(e.target))return;const n=e.target.closest&&e.target.closest(TIP_SEL);n?showTip(n,true):hideTip()});
 document.addEventListener("focusout",e=>{if(TIP.contains(e.relatedTarget))return;hideTip()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!TIP.hidden)hideTip()});
 TIP.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.target.click()}});
 TIP.addEventListener("click",e=>{
+ const h=e.target.closest("[data-href]");
+ if(h){hideTip();open(h.dataset.href,"_blank","noopener");return}
  const o=e.target.closest("[data-open]");
  if(!o)return;
  const v=o.dataset.open;
@@ -1592,11 +1890,17 @@ function openRefSheet(id){
  $("#stitle").textContent=plain(r.title);
  let body=`<div class="kv"><b>${esc(bits.join(" · "))}</b><span class="idchip">${esc(id)}</span></div>`;
  if(e.p)body+=`<p class="plainp">${inline(e.p)}</p>`;
- if(r.kind==="decision")body+=`<div class="kv"><b>What we decided</b>${inline(e.r)}</div>`;
+ if(r.kind==="decision"){
+  body+=`<div class="kv"><b>What we decided</b>${inline(e.r)}</div>`;
+  const record=qaRecordHtml(e);
+  if(record)body+=`<details class="more"><summary>Show the record</summary>${record}</details>`;
+ }
  else if(r.kind==="assumption")body+=`<div class="kv"><b>Evidence</b>${inline(e.b)}</div>`;
  else if(r.kind==="arch")body+=`<p>${inline(e.b[0]||"")}</p>`+restsOn(e);
  else if(r.kind==="open"&&!e.p)body+=`<p>${inline(e.t)}</p>`;
  if(r.kind==="open"&&(e.blocks||[]).length)body+=`<div class="kv"><b>Holds up</b><span class="reflist">${e.blocks.map(refChip).join("")}</span></div>`;
+ const links=linksOf(e);
+ if(links.length)body+=`<div class="kv"><b>Where it landed</b>${linkChipsHtml(links)}</div>`;
  $("#sbody").innerHTML=body;
  termify($("#sbody"));
  const go=$("#sgoto");
@@ -1989,7 +2293,7 @@ const countLabel=(n,one)=>`${n} ${one}${n===1?"":"s"}`;
 ARCH.forEach(c=>{
  const d=el("details","ledger");d.id=c.id;
  const rests=c.dq.length||c.a.length?`<span class="restchip">rests on ${countLabel(c.dq.length,"decision")}, ${countLabel(c.a.length,"assumption")}</span>`:"";
- d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>${rests}</span>`+
+ d.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(c.t)}</span>${rests}${aiAskBtn(c.id)}</span>`+
   `<span class="sumline">${esc(firstSentence(c.b[0]||""))}</span></summary><div class="body">`+
   `<p>${inline(c.b[0]||"")}</p>`+
   restsOn(c)+
@@ -2131,7 +2435,6 @@ function bindSearch(input){
  input.oninput=()=>setQuery(input.value);
  input.onkeydown=e=>{if(e.key==="Escape"){e.stopPropagation();setQuery("")}};
 }
-bindSearch($("#docSearch"));
 function expandBtn(hostSel,state){
  const b=el("button","xbtn","Expand all");
  b.setAttribute("aria-pressed","false");
@@ -2174,7 +2477,7 @@ function themeChip(e){return e.theme?`<span class="theme-chip">${esc(themeLabel(
 function spotCard(e,reg,status,bodyHtml){
  const det=el("details","spot");det.id="spot-"+e.id;det.dataset.s=e.s;
  const [sc,sl]=status;
- det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}</span></summary><div class="body">${bodyHtml}</div>`;
+ det.innerHTML=`<summary><span class="t">${esc(e.t)}</span><span class="sp">${inline(e.p||firstSentence(e.r||e.b||""))}</span><span class="meta"><span class="st ${sc}">${esc(sl)}</span>${themeChip(e)}${aiAskBtn(e.id)}</span></summary><div class="body">${bodyHtml}</div>`;
  return det;
 }
 const SPOT_COLD=6;
@@ -2212,17 +2515,27 @@ const dqState={all:null};
 function dqBody(d){
  let out=(!fullWording&&d.p)?`<p class="plainp">${inline(d.p)}</p>`:"";
  out+=`<div class="kv"><b>What we decided${d.date?", "+longDate(d.date):""}</b>${inline(d.r)}</div>`;
+ const links=linksOf(d);
+ if(links.length)out+=`<div class="kv"><b>Where it landed</b>${linkChipsHtml(links)}</div>`;
  let record="";
  if(d.x)record+=`<div class="kv"><b>What we turned down</b>${inline(d.x)}</div>`;
  if(d.by)record+=`<div class="kv"><b>Replaced by</b>${refChip(d.by)}</div>`;
- const rd=ROUNDS[d.round];
- if(rd)record+=`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`;
+ record+=qaRecordHtml(d);
  return record?out+`<details class="more"><summary>Show the record</summary>${record}</details>`:out;
+}
+const QA_DEFER=/^Add to open list/;
+let QA=null,qaAt=0,qaOpen=false,qaPlaying=false,qaPrintSection=null;
+const qaFor=id=>(QA&&QA.byId[id])||[];
+function qaRecordHtml(d){
+ const qs=qaFor(d.id);
+ if(qs.length)return `<div class="qa-rec">${qs.map(q=>qaCardNode(q,d.id).outerHTML).join("")}<button type="button" class="linkish qa-from" data-replay="${qs[0].ix}">Replay from here</button></div>`;
+ const rd=ROUNDS[d.round];
+ return rd?`<div class="qa"><p class="q">We asked: “${inline(rd.q)}”<span class="rno">round ${esc(String(d.round))}</span></p><p class="a">You said: “${inline(rd.a)}”</p>${rd.n?`<p class="n">${inline(rd.n)}</p>`:""}</div>`:"";
 }
 function dqRow(d){
  const det=el("details","ledger");det.id="item-"+d.id;
  const [sc,sl]=SLBL[d.s]||["st-warn",d.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("decisions",d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(d.t)}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("decisions",d.id)}${aiAskBtn(d.id)}</span><span class="sumline">${inline(twin(d,firstSentence(d.r)))}</span></summary><div class="body">${dqBody(d)}</div>`;
  if(DIFF&&!DIFF.marks["decisions:"+d.id])det.classList.add("unch");
  if(dqState.all)det.open=true;
  return det;
@@ -2269,7 +2582,7 @@ function aBody(a){
 function aRow(a){
  const det=el("details","ledger"+(a.star?" loadbearing":""));det.id="item-"+a.id;
  const [sc,sl]=ALBL[a.s]||["st-warn",a.s];
- det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("assumptions",a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${esc(a.t)}${a.star?STAR:""}</span><span class="st ${sc}">${esc(sl)}</span>${dmark("assumptions",a.id)}${aiAskBtn(a.id)}</span><span class="sumline">${inline(twin(a,firstSentence(a.b)))}</span></summary><div class="body">${aBody(a)}</div>`;
  if(DIFF&&!DIFF.marks["assumptions:"+a.id])det.classList.add("unch");
  if(aState.all)det.open=true;
  return det;
@@ -2306,17 +2619,41 @@ function renderA(){
 })();
 
 let oF="all";
+function oStatusHtml(o){
+ if(!TRACKED)return "";
+ return `<i class="odot" data-state="${itemState(o)}" aria-hidden="true"></i>`+(itemClosed(o)?`<span class="ostat">Closed</span>`:"");
+}
 function oRowHtml(o,glyph,unchanged){
  const head=twin(o,o.t),full=plain(o.t);
  const blocks=o.blocks||[];
- const meta=blocks.length===1?`holds up ${refChip(blocks[0])}`
-  :blocks.length?`<span class="restchip">holds up ${blocks.length}</span>`:"";
+ const meta=oStatusHtml(o)+(blocks.length===1?`holds up ${refChip(blocks[0])}`
+  :blocks.length?`<span class="restchip">holds up ${blocks.length}</span>`:"");
  const body=(plain(head)===full?"":`<p>${inline(o.t)}</p>`)+
   (blocks.length?`<div class="ochips">${blocks.map(refChip).join("")}</div>`:"")+
+  linkChipsHtml(linksOf(o))+
   `<span class="idchip">${esc(o.id)}</span> <button class="xbtn" type="button" data-copy="open-${esc(o.id)}">Copy link</button>`;
- return `<details class="orow${unchanged?" unch":""}" id="open-${esc(o.id)}">`+
-  `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}</span></summary>`+
+ return `<details class="orow${unchanged?" unch":""}${itemClosed(o)?" closed":""}" id="open-${esc(o.id)}">`+
+  `<summary><span class="ot">${glyph}${inline(head)}</span><span class="ometa">${meta}${dmark("open",o.id)}${aiAskBtn(o.id)}</span></summary>`+
   `<div class="obody">${body}</div></details>`;
+}
+function oprogHtml(items){
+ if(!TRACKED)return "";
+ const n=items.filter(itemClosed).length,m=items.length;
+ return `<span class="oprog"><i><b style="width:${m?Math.round(100*n/m):0}%"></b></i>${n} of ${m} closed</span>`;
+}
+function ghRecount(){
+ document.querySelectorAll("#oList details.orow").forEach(row=>{
+  const o=OPEN.find(x=>"open-"+x.id===row.id);
+  if(!o)return;
+  row.classList.toggle("closed",itemClosed(o));
+  const meta=row.querySelector(".ometa");
+  meta.querySelectorAll(".odot,.ostat").forEach(n=>n.remove());
+  meta.insertAdjacentHTML("afterbegin",oStatusHtml(o));
+ });
+ document.querySelectorAll("#oList .ogroup").forEach(g=>{
+  const bar=g.querySelector(".oprog");
+  if(bar)bar.outerHTML=oprogHtml(OPEN.filter(o=>o.g===g.dataset.g&&g.querySelector("#open-"+CSS.escape(o.id))));
+ });
 }
 function renderO(){
  const host=$("#oList");host.innerHTML="";
@@ -2329,7 +2666,8 @@ function renderO(){
   shown+=items.length;
   const glyph=g==="spikes"?'<span class="oglyph" aria-hidden="true">▶</span>':"";
   const block=el("div","ogroup");
-  block.innerHTML=`<h3>${esc(label)} · ${items.length}</h3><div class="orows">`+
+  block.dataset.g=g;
+  block.innerHTML=`<h3>${esc(label)} · ${items.length}${oprogHtml(items)}</h3><div class="orows">`+
    items.map(o=>{
     const u=DIFF&&!DIFF.marks["open:"+o.id];if(u&&hiding)hid++;
     return oRowHtml(o,glyph,u);
@@ -2391,6 +2729,9 @@ window.openItem=id=>{
 };
 window.openRef=id=>{
  closeModal();
+ return revealEntry(id);
+};
+function revealEntry(id){
  unveil();
  const r=REF[id];
  if(!r){location.hash="#"+id;return false}
@@ -2405,7 +2746,7 @@ window.openRef=id=>{
  }
  hideTip();
  return false;
-};
+}
 const refTarget=e=>e.target.closest&&e.target.closest("[data-ref]");
 document.addEventListener("click",e=>{
  const a=refTarget(e);
@@ -2440,7 +2781,7 @@ const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){navLi
 [...document.querySelectorAll("section")].forEach(s=>io.observe(s));
 
 document.addEventListener("keydown",e=>{
- if(e.key==="/"&&!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){e.preventDefault();unveil();$("#docSearch").focus()}
+ if(e.key==="/"&&!aiTyping()&&$("#pal").hidden){e.preventDefault();palOpen("")}
 });
 
 if(typeof META.rev==="number"&&META.rev>=1){
@@ -2699,7 +3040,8 @@ function summaryMd(){
  walk(host);
  return L.join("\n").replace(/\n{3,}/g,"\n\n").trim();
 }
-function buildDocMd(){
+function buildDocMd(opt){
+ const flags=opt||{};
  const L=[];const push=s=>L.push(s);
  push(`# ${META.title||"Untitled design"} — ${META.subtitle||"Design proposal"}\n`);
  if(META.draft)push(`> **Draft** — ${META.draftNote||DRAFT_NOTE}\n`);
@@ -2716,7 +3058,7 @@ function buildDocMd(){
  push("\n## How it works\n");
  if(DIAGRAM&&DIAGRAM.kind==="mermaid"&&DIAGRAM.source)push("```mermaid\n"+DIAGRAM.source.trim()+"\n```\n"+(DIAGRAM_CAPTION?"\n_"+DIAGRAM_CAPTION+"_\n":""));
  ARCH.forEach(c=>{
-  push(`### ${c.t}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`);
+  push(`### ${c.t}${flags.handles?` (${c.id} · “${handleOf(c.id)}”)`:""}\n\n${c.b.join("\n\n")}\n\n_Rests on ${[...c.a,...c.dq].map(mdRef).join(", ")}_\n`);
   if(c.component)push(componentMd(c.component)+"\n");
  });
  push("## Where the time goes\n");
@@ -2751,21 +3093,26 @@ function buildDocMd(){
  DQ.forEach(d=>{
   const st=(SLBL[d.s]||["","",d.s])[1]||d.s;
   push(`### ${d.t}\n`);
-  push(`_Decision ${d.id} · ${st}${d.by?" by "+mdRef(d.by):""}${d.theme?" · "+themeLabel(d.theme):""}_\n`);
+  push(`_Decision ${d.id} · ${st}${flags.handles?` · “${handleOf(d.id)}”${d.round!=null?" · round "+d.round:""}`:""}${d.by?" by "+mdRef(d.by):""}${d.theme?" · "+themeLabel(d.theme):""}_\n`);
+  const landed=linksOf(d);
+  if(landed.length)push(`_Landed in: ${landed.map(linkMd).join(", ")}_\n`);
   if(d.p)push(d.p+"\n");
   push(`${d.r}${d.x?"\n\n"+d.x:""}\n`);
  });
  push("## Assumptions\n");
  ASSUM.forEach(a=>{
   push(`### ${a.t}${a.star?" ★":""}\n`);
-  push(`_Assumption ${a.id} · ${(ALBL[a.s]||["",a.s])[1]}${a.theme?" · "+themeLabel(a.theme):""}_\n`);
+  push(`_Assumption ${a.id} · ${(ALBL[a.s]||["",a.s])[1]}${flags.handles?` · “${handleOf(a.id)}”`:""}${a.theme?" · "+themeLabel(a.theme):""}_\n`);
   if(a.p)push(a.p+"\n");
   push(`${a.b}${a.n?"\n\n_"+a.n+"_":""}\n`);
  });
  push("## Still open\n");
  Object.entries(OGROUPS).forEach(([g,label])=>{
   push(`### ${label}\n`);
-  OPEN.filter(o=>o.g===g).forEach(o=>push(`- ${o.t} _(${o.id}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_`));
+  OPEN.filter(o=>o.g===g).forEach(o=>{
+   const links=linksOf(o);
+   push(`- ${o.t} _(${o.id}${flags.handles?" · “"+handleOf(o.id)+"”":""}${TRACKED&&itemClosed(o)?", closed":""}${(o.blocks||[]).length?", blocks "+o.blocks.join(", "):""})_${links.length?" — "+links.map(linkMd).join(", "):""}${flags.twins&&o.p?"\n  _Plain: "+o.p+"_":""}`);
+  });
   push("");
  });
  push("## Footnotes\n");
@@ -2773,7 +3120,7 @@ function buildDocMd(){
  return L.join("\n");
 }
 async function buildQaMd(){
- const Q=JSON.parse(await loadFile("qa-log.json"));
+ const Q=(await QA_READY).raw;
  const L=[`# ${META.title||"Untitled design"} — Question log\n`];
  if(Q.description)L.push("_"+Q.description+"_\n");
  (Q.rounds||[]).forEach(r=>{
@@ -2790,6 +3137,160 @@ async function buildQaMd(){
  return L.join("\n");
 }
 
+function qaModel(text){
+ const raw=text?JSON.parse(text):{rounds:[]};
+ const byRound=Object.create(null);
+ DQ.forEach(d=>{if(d.round!=null)(byRound[String(d.round)]||(byRound[String(d.round)]=[])).push(d.id)});
+ const idsIn=s=>ID_RE?[...String(s).matchAll(ID_RE)].map(m=>m[2]).filter(id=>REF[id].kind==="decision"||REF[id].kind==="open"):[];
+ const questions=[];
+ const rounds=(raw.rounds||[]).map(r=>{
+  const key=String(r.round);
+  const decisions=byRound[key]||[];
+  const round={key,n:r.round,date:r.date||"",topic:r.topic||"",note:r.note||"",rec:ROUNDS[key]||null,decisions,questions:[]};
+  (r.questions||[]).forEach((q,i)=>{
+   const options=q.options||[];
+   const labels=options.map(o=>o.label);
+   const answer=String(q.answer||"");
+   const parts=q.multiSelect?answer.split(/,\s*/):[answer];
+   const named=Array.isArray(q.decides)?q.decides.filter(id=>REF[id]):[...new Set(idsIn((q.header||"")+" "+(q.question||"")))];
+   const item={ix:questions.length,n:i+1,round,header:q.header||"",question:q.question||"",options,multi:!!q.multiSelect,
+    chosen:new Set(parts.filter(p=>labels.includes(p))),
+    custom:parts.every(p=>labels.includes(p))?"":answer,
+    deferred:parts.some(p=>QA_DEFER.test(p)),
+    decides:named.length?named:(decisions.length===1?decisions:[]),
+    note:q.note||""};
+   round.questions.push(item);questions.push(item);
+  });
+  return round;
+ });
+ const byId=Object.create(null);
+ questions.forEach(q=>q.decides.forEach(id=>(byId[id]||(byId[id]=[])).push(q)));
+ QA={raw,rounds,questions,byId};
+ return QA;
+}
+const QA_READY=qaLoad.then(qaModel);
+function qaOptionHtml(o,q){
+ const on=q.chosen.has(o.label);
+ const glyph=q.multi?(on?"☑":"☐"):(on?"●":"○");
+ return `<li class="qa-opt${on?" on":""}${QA_DEFER.test(o.label)?" qa-opt-defer":""}"><i class="qa-glyph" aria-hidden="true">${glyph}</i><span class="qa-lbl">${inline(o.label)}${on?'<span class="sr-only"> — chosen</span>':""}</span>${o.description?`<span class="qa-desc">${inline(o.description)}</span>`:""}</li>`;
+}
+function qaCardNode(q,host){
+ const card=el("article","qa-card"+(host?" compact":""));
+ card.dataset.ix=q.ix;
+ const opened=q.deferred?q.decides.filter(id=>REF[id].kind==="open"):[];
+ const became=q.decides.filter(id=>id!==host&&!opened.includes(id));
+ let h=`<div class="qa-meta"><b class="qa-hdr">${inline(q.header)}</b><span class="qa-no">round ${esc(String(q.round.n))} · question ${q.n}</span></div>`;
+ h+=`<p class="qa-ask">${inline(q.question)}</p>`;
+ if(q.options.length)h+=`<ul class="qa-opts">${q.options.map(o=>qaOptionHtml(o,q)).join("")}</ul>`;
+ if(q.custom)h+=`<p class="qa-ans"><b>You answered:</b> ${inline(q.custom)}</p>`;
+ if(q.deferred)h+=`<p class="qa-def">Added to the open list${opened.length?" as "+opened.map(refChip).join(" "):""}</p>`;
+ if(q.note)h+=`<p class="qa-note">${inline(q.note)}</p>`;
+ if(became.length)h+=`<p class="qa-became"><b>Became</b><span class="reflist">${became.map(refChip).join("")}</span></p>`;
+ card.innerHTML=h;
+ return card;
+}
+function qaRoundNode(r){
+ const sec=el("section","qa-round");sec.id="qa-round-"+r.key;
+ let h=`<header class="qa-rhead"><h3>Round ${esc(String(r.n))}</h3><span class="qa-rmeta">${[r.date?longDate(r.date):"",inline(r.topic)].filter(Boolean).join(" · ")}</span></header>`;
+ if(r.note)h+=`<p class="qa-rnote">${inline(r.note)}</p>`;
+ if(r.rec)h+=`<div class="qa"><p class="q">We asked: “${inline(r.rec.q)}”</p><p class="a">You said: “${inline(r.rec.a)}”</p>${r.rec.n?`<p class="n">${inline(r.rec.n)}</p>`:""}</div>`;
+ if(r.decisions.length)h+=`<p class="qa-rdec"><b>Decided in this round</b><span class="reflist">${r.decisions.map(refChip).join("")}</span></p>`;
+ sec.innerHTML=h;
+ r.questions.forEach(q=>sec.append(qaCardNode(q,"")));
+ return sec;
+}
+function qaReplayNode(){
+ const box=el("div","qa-replay");
+ const tl=el("nav","qa-tl");tl.setAttribute("aria-label","Rounds");
+ tl.innerHTML=QA.rounds.map(r=>`<button type="button" data-round="${esc(r.key)}"><b>${esc(String(r.n))}</b><span>${esc(plain(r.topic))}</span></button>`).join("");
+ tl.onclick=e=>{const b=e.target.closest("[data-round]");if(!b)return;const r=QA.rounds.find(x=>x.key===b.dataset.round);if(r.questions.length)qaGo(r.questions[0].ix)};
+ const body=el("div","qa-body");
+ QA.rounds.forEach(r=>body.append(qaRoundNode(r)));
+ linkNode(body);
+ const ctl=el("div","qa-ctl");
+ ctl.innerHTML=`<button type="button" id="qaPrev">Previous</button><button type="button" id="qaNext">Next</button><button type="button" id="qaPlay" aria-pressed="false" title="Dock this card and walk the page to each decision">Play</button><span class="qa-pos" id="qaPos" aria-live="polite"></span><span class="qa-keys">←/k · →/j · p · Home/End</span><button type="button" id="qaPrint">Print</button>`;
+ box.append(tl,body,ctl);
+ return box;
+}
+function qaGo(ix){
+ if(!QA.questions.length)return;
+ qaAt=Math.max(0,Math.min(QA.questions.length-1,ix));
+ const q=QA.questions[qaAt],body=$("#mbody");
+ body.querySelectorAll(".cur").forEach(n=>n.classList.remove("cur"));
+ const card=body.querySelector(`.qa-card[data-ix="${qaAt}"]`);
+ card.classList.add("cur");
+ card.closest(".qa-round").classList.add("cur");
+ body.querySelectorAll(`.qa-tl [data-round="${CSS.escape(q.round.key)}"]`).forEach(b=>b.classList.add("cur"));
+ if(qaPlaying)body.scrollTop=0;
+ else card.scrollIntoView({block:"center",behavior:reduced()?"auto":"smooth"});
+ $("#qaPos").textContent=`${qaAt+1} of ${QA.questions.length}`;
+ $("#qaPrev").disabled=qaAt===0;
+ $("#qaNext").disabled=qaAt===QA.questions.length-1;
+ if(qaPlaying)qaShowOnPage(q);
+}
+function qaShowOnPage(q){
+ clearAiMarks();
+ const id=q.decides[0];
+ if(!id)return;
+ revealEntry(id);
+ aiMark(id);
+ const card=ARCH.find(c=>c.node&&(c.dq||[]).includes(id)),svg=$("#sysdHost svg.mmd");
+ if(card&&svg)hlTarget(svg,card.node);
+}
+function qaPlay(on){
+ qaPlaying=on;
+ $("#mback").classList.toggle("play",on);
+ document.body.classList.toggle("qa-play",on);
+ const b=$("#qaPlay");b.textContent=on?"Stop":"Play";b.setAttribute("aria-pressed",String(on));
+ if(on)qaGo(qaAt);else clearAiMarks();
+}
+function qaLeave(){
+ if(!qaOpen)return;
+ qaOpen=false;
+ if(qaPlaying)qaPlay(false);
+}
+async function showQaReplay(at){
+ await QA_READY;
+ if(!QA.questions.length){showModal("Every question we asked","The question log has no rounds yet.",SLUG+"-question-log.md");return}
+ closeSheet();
+ showModalNode("Every question we asked, and what you answered",qaReplayNode(),await buildQaMd(),SLUG+"-question-log.md");
+ qaOpen=true;
+ $("#qaPrev").onclick=()=>qaGo(qaAt-1);
+ $("#qaNext").onclick=()=>qaGo(qaAt+1);
+ $("#qaPlay").onclick=()=>qaPlay(!qaPlaying);
+ $("#qaPrint").onclick=()=>{closeModal();$("#pdfBtn").click()};
+ qaGo(at||0);
+ if(!at)$("#mbody").scrollTop=0;
+}
+function qaKey(e){
+ if(!qaOpen||e.metaKey||e.ctrlKey||e.altKey||typingNow())return false;
+ const k=e.key;
+ if(k==="ArrowRight"||k==="j")qaGo(qaAt+1);
+ else if(k==="ArrowLeft"||k==="k")qaGo(qaAt-1);
+ else if(k==="p")qaPlay(!qaPlaying);
+ else if(k==="Home")qaGo(0);
+ else if(k==="End")qaGo(QA.questions.length-1);
+ else return false;
+ e.preventDefault();
+ return true;
+}
+async function printQaReplay(){
+ await QA_READY;
+ if(!QA.questions.length||qaPrintSection)return;
+ const sec=el("section","qa-print");sec.id="interview";
+ sec.innerHTML=`<h2>Every question we asked</h2>${QA.raw.description?`<p class="sub">${esc(QA.raw.description)}</p>`:""}`;
+ QA.rounds.forEach(r=>sec.append(qaRoundNode(r)));
+ linkNode(sec);
+ $("#main footer").before(sec);
+ qaPrintSection=sec;
+}
+document.addEventListener("click",e=>{
+ const b=e.target.closest("[data-replay]");
+ if(!b)return;
+ showQaReplay(Number(b.dataset.replay));
+});
+QA_READY.then(()=>{if(QA.questions.length)renderDQ()});
+
 let modalMd="",modalFile="",lastFocus=null;
 function openModal(title){
  lastFocus=document.activeElement;
@@ -2804,14 +3305,15 @@ function showModal(title,md,fname){
  $("#mbody").innerHTML=mdToHtml(md);
  openModal(title);
 }
-function showModalNode(title,node){
- modalMd="";modalFile="";
- $("#mdl").hidden=true;
+function showModalNode(title,node,md="",fname=""){
+ modalMd=md;modalFile=fname;
+ $("#mdl").hidden=!md;
  const b=$("#mbody");b.innerHTML="";b.append(node);
  openModal(title);
 }
 function closeModal(){
  if(!$("#mback").classList.contains("open"))return;
+ qaLeave();
  $("#mback").classList.remove("open");
  if(lastFocus&&lastFocus.focus)lastFocus.focus();
  lastFocus=null;
@@ -2821,6 +3323,7 @@ $("#mback").onclick=e=>{if(e.target.id==="mback")closeModal()};
 document.addEventListener("keydown",e=>{
  if(!$("#mback").classList.contains("open"))return;
  if(e.key==="Escape"){closeModal();return}
+ if(qaKey(e))return;
  if(e.key!=="Tab")return;
  const f=[...$("#mback").querySelectorAll("button:not([hidden]),a[href],[tabindex]:not([tabindex='-1'])")].filter(n=>n.offsetParent!==null);
  if(!f.length)return;
@@ -2833,7 +3336,7 @@ $("#mdl").onclick=()=>{
  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=modalFile;a.click();URL.revokeObjectURL(a.href);
 };
 $("#lnkDoc").onclick=()=>showModal("The whole document, as Markdown",buildDocMd(),SLUG+"-design-doc.md");
-$("#lnkQa").onclick=async()=>showModal("Every question we asked, and what you answered",await buildQaMd(),SLUG+"-question-log.md");
+$("#lnkQa").onclick=()=>showQaReplay();
 $("#lnkNotes").onclick=async()=>{
  try{showModal("Working notes",await loadFile("NOTES.md"),"NOTES.md")}
  catch(e){showModal("Working notes","The working notes are not in this folder.","NOTES.md")}
@@ -2870,6 +3373,7 @@ async function prepPrint(){
  printing=true;
  HTML.dataset.print="1";
  showWholeRegisters();
+ await printQaReplay();
  if(PATHS.length>1)drawAllPaths();
  closedForPrint=[...document.querySelectorAll("details:not([open])")];
  closedForPrint.forEach(d=>{d.open=true});
@@ -2884,6 +3388,7 @@ function endPrint(){
  delete HTML.dataset.print;
  closedForPrint.forEach(d=>{d.open=false});
  closedForPrint=[];
+ if(qaPrintSection){qaPrintSection.remove();qaPrintSection=null}
  restoreRegisters();
  if(PATHS.length>1)drawPath();
  sysdPrintMode(false);
@@ -2911,8 +3416,8 @@ $("#pdfBtn").onclick=async()=>{await prepPrint();window.print()};
   if(!sheet.hidden){closeSecs();return}
   buildSecs();sheet.hidden=false;btn.setAttribute("aria-expanded","true");
  };
- $("#mbarSearch").onclick=()=>{closeSecs();unveil();const s=$("#docSearch");s.scrollIntoView({block:"center"});s.focus()};
- $("#mbarAsk").onclick=()=>document.dispatchEvent(new CustomEvent("design-doc:ask"));
+ $("#mbarSearch").onclick=()=>{closeSecs();palOpen("")};
+ $("#mbarAsk").onclick=()=>{closeSecs();aiOpen()};
  document.addEventListener("click",e=>{if(sheet.hidden||sheet.contains(e.target)||e.target===btn)return;closeSecs()});
 })();
 termify($("#main"));
@@ -3164,7 +3669,229 @@ function cmptMatrix(spec){
  box.append(wrap);
  return box;
 }
-const CMPT_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix};
+const FX_PAD=10,FX_GAP=44,FX_COL_H=40,FX_PADX=14,FX_CALL_H=34,FX_CALL_H2=44,FX_CALL_GAP=6,FX_CONN=26,FX_LEG_H=22;
+const LN_EYE=24,LN_GAP=32,LN_FPAD=8,LN_BOX_H=30,LN_BOX_H2=40,LN_BOX_GAP=8,LN_MINW=120,LN_BRIDGE_MIN=64,LN_NARROW=640,LN_ONE_COL=4;
+const TEXT_W=new Map();
+let fxMeasure=null,fxCanvas=null,fxFonts=null,fxUid=0;
+function textWidth(text,cls){
+ const key=cls+"\0"+text;
+ if(TEXT_W.has(key))return TEXT_W.get(key);
+ if(!fxMeasure){
+  fxMeasure=document.createElementNS(SVGNS,"svg");
+  fxMeasure.id="flowMeasure";
+  fxMeasure.setAttribute("aria-hidden","true");
+  document.body.append(fxMeasure);
+ }
+ const t=document.createElementNS(SVGNS,"text");
+ t.setAttribute("class",cls);
+ t.textContent=text;
+ fxMeasure.append(t);
+ let w=t.getComputedTextLength();
+ if(!w){
+  if(!fxCanvas)fxCanvas=document.createElement("canvas").getContext("2d");
+  const cs=getComputedStyle(t);
+  fxCanvas.font=`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  w=fxCanvas.measureText(text).width;
+ }
+ t.remove();
+ TEXT_W.set(key,w);
+ return w;
+}
+function afterFonts(fn){
+ if(document.fonts.status==="loaded")return;
+ if(!fxFonts)fxFonts=document.fonts.ready.then(()=>{fxFonts=null;TEXT_W.clear()});
+ fxFonts.then(fn);
+}
+const fxNum=v=>String(Math.round(v*10)/10);
+const fxText=(cls,x,y,text,anchor)=>`<text class="${cls}" x="${fxNum(x)}" y="${fxNum(y)}"${anchor?` text-anchor="${anchor}"`:""}>${esc(text)}</text>`;
+const fxLabelled=(cls,cx,y,h,title,sub)=>sub
+ ?fxText("fx-t",cx,y+17,title,"middle")+fxText(cls,cx,y+h-12,sub,"middle")
+ :fxText("fx-t",cx,y+h/2+4.5,title,"middle");
+function fxMarker(id){
+ return `<defs><marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="fx-head" d="M0 0L10 5L0 10z"/></marker></defs>`;
+}
+function fxSvg(kind,w,h,body,label){
+ const svg=el("div",null,`<svg viewBox="0 0 ${fxNum(w)} ${fxNum(h)}" role="img">${body}</svg>`).firstElementChild;
+ svg.classList.add("fit",kind);
+ svg.setAttribute("aria-label",label);
+ setAspect(svg);
+ return svg;
+}
+function fxMount(box,draw,wire){
+ let svg=draw();
+ box.append(svg);
+ if(wire)wire();
+ const redraw=()=>{const next=draw();svg.replaceWith(next);svg=next;if(wire)wire()};
+ afterFonts(redraw);
+ return redraw;
+}
+const callH=c=>c.sub?FX_CALL_H2:FX_CALL_H;
+const callW=c=>Math.max(textWidth(c.title,"fx-t"),c.sub?textWidth(c.sub,"fx-s"):0)+2*FX_PADX;
+const stackH=list=>list.reduce((h,c,i)=>h+callH(c)+(i?FX_CALL_GAP:0),0);
+function flowLabel(spec){
+ if(spec.title)return plain(spec.title);
+ const cols=spec.columns,closed=spec.callouts.filter(c=>c.status==="closed").length;
+ return `${cols.length} columns, ${plain(cols[0].label)} to ${plain(cols[cols.length-1].label)}, with ${spec.callouts.length} callouts: ${closed} closed, ${spec.callouts.length-closed} open.`;
+}
+function flowSvg(spec){
+ const cols=spec.columns.map(c=>({...c,above:[],below:[]}));
+ const byId=Object.fromEntries(cols.map(c=>[c.id,c]));
+ spec.callouts.forEach(c=>{
+  const col=byId[c.col];
+  col[c.side||(col.above.length<3?"above":"below")].push(c);
+ });
+ let x=FX_PAD,aboveH=0,belowH=0;
+ cols.forEach(col=>{
+  col.boxW=Math.max(50,textWidth(col.label,"fx-t")+2*FX_PADX,col.sub?textWidth(col.sub,"fx-s")+2*FX_PADX:0);
+  col.w=Math.max(col.boxW,...col.above.map(callW),...col.below.map(callW))+8;
+  col.cx=x+col.w/2;
+  x+=col.w+FX_GAP;
+  aboveH=Math.max(aboveH,stackH(col.above));
+  belowH=Math.max(belowH,stackH(col.below));
+ });
+ let w=x-FX_GAP+FX_PAD;
+ const colY=FX_PAD+aboveH+(aboveH?FX_CONN:0),colMid=colY+FX_COL_H/2;
+ let h=colY+FX_COL_H+(belowH?FX_CONN+belowH:0)+FX_PAD;
+ const legend=spec.legend?[`Solid: ${plain(spec.legend.closed)}`,`Dashed: ${plain(spec.legend.open)}`]:null;
+ if(legend)w=Math.max(w,textWidth(legend[0],"fx-n")+textWidth(legend[1],"fx-n")+3*FX_PAD);
+ const marker=`fx-arr-${++fxUid}`;
+ const parts=[fxMarker(marker)];
+ const callout=(c,y)=>{
+  const cw=callW(c),ch=callH(c),col=byId[c.col];
+  return `<g class="fx-call" data-status="${c.status}"${c.topic?` data-topic="${esc(plain(c.topic).toLowerCase())}"`:""}><rect x="${fxNum(col.cx-cw/2)}" y="${fxNum(y)}" width="${fxNum(cw)}" height="${ch}" rx="6"/>${fxLabelled("fx-s",col.cx,y,ch,c.title,c.sub)}</g>`;
+ };
+ cols.forEach((col,i)=>{
+  if(spec.arrows!==false&&i<cols.length-1){
+   const next=cols[i+1];
+   parts.push(`<path class="fx-arrow" d="M${fxNum(col.cx+col.boxW/2)} ${fxNum(colMid)}L${fxNum(next.cx-next.boxW/2)} ${fxNum(colMid)}" marker-end="url(#${marker})"/>`);
+  }
+  parts.push(`<rect class="fx-col" x="${fxNum(col.cx-col.boxW/2)}" y="${colY}" width="${fxNum(col.boxW)}" height="${FX_COL_H}" rx="8"/>`,fxLabelled("fx-s",col.cx,colY,FX_COL_H,col.label,col.sub));
+  if(col.above.length){
+   parts.push(`<path class="fx-conn" d="M${fxNum(col.cx)} ${fxNum(colY-FX_CONN)}L${fxNum(col.cx)} ${colY}"/>`);
+   let y=colY-FX_CONN;
+   col.above.forEach(c=>{y-=callH(c);parts.push(callout(c,y));y-=FX_CALL_GAP});
+  }
+  if(col.below.length){
+   parts.push(`<path class="fx-conn" d="M${fxNum(col.cx)} ${colY+FX_COL_H}L${fxNum(col.cx)} ${colY+FX_COL_H+FX_CONN}"/>`);
+   let y=colY+FX_COL_H+FX_CONN;
+   col.below.forEach(c=>{parts.push(callout(c,y));y+=callH(c)+FX_CALL_GAP});
+  }
+ });
+ if(legend){
+  parts.push(fxText("fx-n",FX_PAD,h+FX_LEG_H-8,legend[0]),fxText("fx-n",w-FX_PAD,h+FX_LEG_H-8,legend[1],"end"));
+  h+=FX_LEG_H;
+ }
+ return fxSvg("ddc-flow",w,h,parts.join(""),flowLabel(spec));
+}
+function flowTopics(box,host){
+ const panel=host.closest(".xs-panel");
+ if(!panel)return;
+ const rows=[...panel.querySelectorAll(".xs-row")].map(row=>{
+  const topic=row.querySelector(".xs-topic");
+  return [row,topic?plain(topic.textContent).toLowerCase():""];
+ });
+ const rowsFor=topic=>rows.filter(([,t])=>t===topic).map(([row])=>row);
+ const callsFor=topic=>[...box.querySelectorAll(`.fx-call[data-topic="${CSS.escape(topic)}"]`)];
+ box.querySelectorAll(".fx-call[data-topic]").forEach(g=>{
+  const topic=g.dataset.topic;
+  g.addEventListener("pointerenter",()=>{callsFor(topic).forEach(c=>c.classList.add("on"));rowsFor(topic).forEach(r=>r.classList.add("fx-on"))});
+  g.addEventListener("pointerleave",()=>{callsFor(topic).forEach(c=>c.classList.remove("on"));rowsFor(topic).forEach(r=>r.classList.remove("fx-on"))});
+ });
+ rows.forEach(([row,topic])=>{
+  if(row.dataset.fxWired||!topic)return;
+  row.dataset.fxWired="1";
+  row.addEventListener("pointerenter",()=>callsFor(topic).forEach(c=>c.classList.add("on")));
+  row.addEventListener("pointerleave",()=>callsFor(topic).forEach(c=>c.classList.remove("on")));
+ });
+}
+function cmptFlow(spec,host){
+ const box=cmptFrame(spec,"dd.flow");
+ fxMount(box,()=>flowSvg(spec),()=>flowTopics(box,host));
+ const btn=el("button","fullbtn","View full size");
+ btn.hidden=true;
+ box.append(btn);
+ requestAnimationFrame(wireFullSize(box,btn,flowLabel(spec)));
+ return box;
+}
+const boxH=b=>b.sub?LN_BOX_H2:LN_BOX_H;
+function lanesLabel(spec){
+ if(spec.title)return plain(spec.title);
+ return spec.lanes.map(l=>`${plain(l.label)}: ${l.boxes.map(b=>plain(b.title)).join(", ")}.`).join(" ");
+}
+function lanesSvg(spec,stacked){
+ const lanes=spec.lanes.map((l,i)=>{
+  const cols=l.boxes.length>LN_ONE_COL?2:1;
+  const rows=[];
+  l.boxes.forEach((b,j)=>{(rows[Math.floor(j/cols)]||(rows[Math.floor(j/cols)]=[])).push(b)});
+  const rowH=rows.map(r=>Math.max(...r.map(boxH)));
+  return {
+   ...l,cols,rows,rowH,
+   tone:l.tone||(i?"after":"before"),
+   boxW:Math.max(LN_MINW,...l.boxes.map(b=>Math.max(textWidth(b.title,"fx-t"),b.sub?textWidth(b.sub,"fx-s"):0)))+2*FX_PADX,
+   stackH:rowH.reduce((s,h,j)=>s+h+(j?LN_BOX_GAP:0),0),
+  };
+ });
+ const frameH=Math.max(...lanes.map(l=>l.stackH))+2*LN_FPAD;
+ const bridge=spec.bridge?plain(spec.bridge):null;
+ const bridgeW=bridge?textWidth(bridge,"fx-n"):0;
+ lanes.forEach(l=>{l.innerW=l.cols*l.boxW+(l.cols-1)*LN_BOX_GAP});
+ const sharedW=Math.max(...lanes.map(l=>l.innerW));
+ lanes.forEach(l=>{if(stacked)l.innerW=sharedW;l.frameW=l.innerW+2*LN_FPAD});
+ const gap=stacked?(bridge?40:20):(bridge?Math.max(LN_BRIDGE_MIN,bridgeW+24):LN_GAP);
+ let w,h;
+ if(stacked){
+  lanes[0].x=lanes[1].x=FX_PAD;
+  lanes[0].y=FX_PAD+LN_EYE;
+  lanes[1].y=lanes[0].y+frameH+gap+LN_EYE;
+  w=lanes[0].frameW+2*FX_PAD;
+  if(bridge)w=Math.max(w,FX_PAD+lanes[0].frameW/2+8+bridgeW+FX_PAD);
+  h=lanes[1].y+frameH+FX_PAD;
+ }else{
+  lanes[0].x=FX_PAD;
+  lanes[1].x=FX_PAD+lanes[0].frameW+gap;
+  lanes[0].y=lanes[1].y=FX_PAD+LN_EYE;
+  w=lanes[1].x+lanes[1].frameW+FX_PAD;
+  h=FX_PAD+LN_EYE+frameH+FX_PAD;
+ }
+ const marker=`fx-arr-${++fxUid}`;
+ const parts=[fxMarker(marker)];
+ lanes.forEach(l=>{
+  parts.push(`<g class="fx-lane" data-tone="${l.tone}">`,fxText("fx-e",l.x,l.y-8,plain(l.label).toUpperCase()),`<rect class="fx-frame" x="${fxNum(l.x)}" y="${fxNum(l.y)}" width="${fxNum(l.frameW)}" height="${fxNum(frameH)}" rx="10"/>`);
+  const boxW=(l.innerW-(l.cols-1)*LN_BOX_GAP)/l.cols;
+  let y=l.y+LN_FPAD;
+  l.rows.forEach((row,r)=>{
+   row.forEach((b,c)=>{
+    const x=l.x+LN_FPAD+c*(boxW+LN_BOX_GAP);
+    parts.push(`<g class="fx-box"${b.status?` data-status="${b.status}"`:""}><rect x="${fxNum(x)}" y="${fxNum(y)}" width="${fxNum(boxW)}" height="${l.rowH[r]}" rx="6"/>${fxLabelled("fx-s",x+boxW/2,y,l.rowH[r],b.title,b.sub)}</g>`);
+   });
+   y+=l.rowH[r]+LN_BOX_GAP;
+  });
+  parts.push("</g>");
+ });
+ if(bridge){
+  if(stacked){
+   const cx=FX_PAD+lanes[0].frameW/2,y1=lanes[0].y+frameH,y2=lanes[1].y-LN_EYE;
+   parts.push(`<path class="fx-bridge" d="M${fxNum(cx)} ${fxNum(y1+4)}L${fxNum(cx)} ${fxNum(y2-4)}" marker-end="url(#${marker})"/>`,fxText("fx-n",cx+8,(y1+y2)/2+3,bridge));
+  }else{
+   const x1=lanes[0].x+lanes[0].frameW,x2=lanes[1].x,my=lanes[0].y+frameH/2;
+   parts.push(`<path class="fx-bridge" d="M${fxNum(x1+4)} ${fxNum(my)}L${fxNum(x2-4)} ${fxNum(my)}" marker-end="url(#${marker})"/>`,fxText("fx-n",(x1+x2)/2,my-7,bridge,"middle"));
+  }
+ }
+ return fxSvg("ddc-lanes",w,h,parts.join(""),lanesLabel(spec));
+}
+function cmptLanes(spec,host){
+ const box=cmptFrame(spec,"dd.lanes");
+ let stacked=host.clientWidth<LN_NARROW;
+ const redraw=fxMount(box,()=>lanesSvg(spec,stacked));
+ new ResizeObserver(()=>{
+  const next=host.clientWidth<LN_NARROW;
+  if(next===stacked)return;
+  stacked=next;
+  redraw();
+ }).observe(host);
+ return box;
+}
+const CMPT_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes};
 let bespokeP=null;
 const bespokeLib=()=>bespokeP||(bespokeP=import("./components.js").catch(()=>null));
 async function mountBespoke(host,name){
@@ -3256,6 +3983,21 @@ function componentMd(name,host){
   spec.rows.forEach((r,ri)=>L.push(`| **${plain(r.label)}** | `+(spec.cells[ri]||[]).map(c=>plain(c.text)).join(" | ")+" |"));
   L.push("");
  }
+ if(spec.kind==="dd.flow"){
+  L.push("");
+  spec.columns.forEach(col=>{
+   L.push(`- **${plain(col.label)}**${col.sub?" — "+plain(col.sub):""}`);
+   spec.callouts.filter(c=>c.col===col.id).forEach(c=>L.push(`  - ${plain(c.title)}${c.sub?" — "+plain(c.sub):""} (${c.status})`));
+  });
+  if(spec.legend)L.push(`\n_Solid: ${plain(spec.legend.closed)}; dashed: ${plain(spec.legend.open)}_`);
+  L.push("");
+ }
+ if(spec.kind==="dd.lanes")spec.lanes.forEach((l,i)=>{
+  L.push(i&&spec.bridge?`_→ ${plain(spec.bridge)}_\n`:"");
+  L.push(`_${plain(l.label)}_\n`);
+  l.boxes.forEach(b=>L.push(`- **${plain(b.title)}**${b.sub?" — "+plain(b.sub):""}${b.status&&b.status!=="closed"?` (${b.status})`:""}`));
+  L.push("");
+ });
  return L.join("\n");
 }
 function resetComponentsForPrint(){
@@ -3271,11 +4013,16 @@ JOBS.push(mountRegisterComponents());
 window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  await document.fonts.ready;
  await new Promise(r=>setTimeout(r,0));
- if(HTML.dataset.ai)$("#mbarAsk").hidden=false;
  HTML.dataset.ready="1";
 });
 const AI_CFG_KEY="design-doc-ai";
-const AI_ROUNDS=6;
+const GH_CFG_KEY="design-doc-github";
+const AI_ROUNDS=10;
+const AI_RESULT_CAP=12000;
+const AI_TOOL_BUDGET=40000;
+const AI_CTX_BUDGET=100000;
+const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
+const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
 const AI_RPM=30;
 const AI_RATE_KEY="design-doc-ai-rate";
 const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
@@ -3289,13 +4036,25 @@ const AI_SUGGEST={
  ceilings:["Which ceiling is closest?","What would I see first when it breaks?"],
  decisions:["What was the hardest call, and what did it turn down?","Which decisions are still open?"],
  assumptions:["Which assumption is load-bearing?","What falls if it is wrong?"],
- open:["What is blocking a decision right now?","Which spike should run first?"],
+ open:["What is blocking a decision right now?","Which spike should run first?","What has shipped so far?"],
  footnotes:["What do the footnotes add?"]
 };
+const AI_CMDS=[
+ {id:"tldr",label:"TL;DR this section",sub:()=>AI_SECTION_NAMES[aiSec]||"",when:()=>!!AI_SECTION_NAMES[aiSec],run:()=>aiShowSection(aiSec)},
+ {id:"faq",label:"Questions people ask",run:()=>aiShowFaq()},
+ {id:"quiz",label:"Check my understanding",run:()=>aiShowQuiz()},
+ {id:"terms",label:"Find undefined terms",run:()=>aiShowGlossary()},
+ {id:"read",label:"Read as a role",sub:AI_ROLES.map(r=>r[0]).join(", "),run:anchor=>aiPickRole(anchor)},
+ {id:"changed",label:"What changed, in prose",when:()=>!!DIFF,run:()=>aiShowChanged()},
+ {id:"clear",label:"Clear the conversation",run:()=>aiClear()}
+];
 const AI_GLYPH={decision:"◆",assumption:"○",open:"?",arch:"▣",numbers:"#",path:"▶",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
 const AI_STATUS={resolved:["st-ok","Decided"],superseded:["st-dead","Replaced"],open:["st-warn","Still open"],working:["st-ok","Assumed"],validate:["st-warn","Needs someone to confirm"]};
 
-let AI=null,aiCtxText=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let AI=null,aiCtxText=null,aiCtxStats=null,aiReady=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let aiUsage=null,aiTally=null,aiFollow=null;
+let AI_NOTES="",AI_QA=null,AI_SEARCH_DOCS=null;
+let aiState="bar",aiPrevFocus=null,aiStick=true,aiSugFor=null,aiAboutCtx=null,aiSlashList=[],aiSlashIx=0;
 let aiChat=[];
 const aiMarked=[];
 
@@ -3307,25 +4066,115 @@ function aiEndpoint(raw){
  if(u.protocol!=="https:"&&!(u.protocol==="http:"&&AI_LOOPBACK.test(u.hostname)))return null;
  return u.href.replace(/\/+$/,"");
 }
-function aiNormalise(j){
- if(!j||typeof j!=="object")return null;
- if(j.disabled===true)return {disabled:true};
+function cfgNormalise(j){
+ if(!j||typeof j!=="object")return {ai:null,github:null};
  const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
- const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key");
- if(!endpoint||!model||!key)return null;
- return {endpoint,model,key};
-}
-async function aiConfig(){
- let stored=null;
- try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)stored=aiNormalise(JSON.parse(raw))}catch(e){}
- if(stored)return stored.disabled?null:stored;
- for(const path of ["../ai.json","ai.json"]){
-  let j=null;
-  try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
-  const c=aiNormalise(j);
-  if(c)return c.disabled?null:c;
+ let ai=null;
+ if(j.disabled===true)ai={disabled:true};
+ else{
+  const endpoint=aiEndpoint(s("endpoint")),model=s("model"),key=s("key"),reasoning=s("reasoning");
+  if(endpoint&&model&&key)ai={endpoint,model,key,...(reasoning?{reasoning}:{})};
  }
- return null;
+ const g=j.github;
+ const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
+ return {ai,github:token?{token}:null};
+}
+let siteCfg=null;
+function siteConfig(){
+ if(!siteCfg)siteCfg=(async()=>{
+  const out={ai:null,github:null};
+  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github};
+  try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
+  try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
+  for(const path of ["../ai.json","ai.json"]){
+   if(out.ai&&out.github)break;
+   let j=null;
+   try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
+   take(cfgNormalise(j));
+  }
+  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github};
+ })();
+ return siteCfg;
+}
+const GH_API="https://api.github.com",GH_TTL=10*60*1000,GH_LANES=4,GH_401_KEY="gh:401";
+let ghPauseUntil=0;
+function ghCached(key){
+ try{
+  const c=JSON.parse(sessionStorage.getItem("gh:"+key)||"null");
+  return c&&Date.now()-c.t<GH_TTL?c.v:null;
+ }catch(e){return null}
+}
+function ghStore(key,v){try{sessionStorage.setItem("gh:"+key,JSON.stringify({t:Date.now(),v}))}catch(e){}}
+async function ghGet(path){
+ if(ghPauseUntil>Date.now())await new Promise(r=>setTimeout(r,ghPauseUntil-Date.now()));
+ const r=await fetch(GH_API+path,{headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+GH_TOKEN,"X-GitHub-Api-Version":"2022-11-28"}});
+ if(r.status===404)return null;
+ if(r.ok)return r.json();
+ const e=new Error("GitHub "+r.status);
+ e.status=r.status;
+ if((r.status===403||r.status===429)&&r.headers.get("x-ratelimit-remaining")==="0")e.reset=(+r.headers.get("x-ratelimit-reset")||Math.ceil(Date.now()/1000)+60)*1000;
+ throw e;
+}
+async function ghResolve(key,kind){
+ const m=/^([^/]+)\/([^#]+)#(\d+)$/.exec(key),base=`/repos/${m[1]}/${m[2]}`,n=m[3];
+ if(kind==="issue"){
+  const is=await ghGet(`${base}/issues/${n}`);
+  if(!is)return {state:"unknown"};
+  return {kind,state:is.state,title:is.title,author:is.user&&is.user.login,updated:is.updated_at,closedAt:is.closed_at};
+ }
+ const pr=await ghGet(`${base}/pulls/${n}`);
+ if(!pr)return {state:"unknown"};
+ const rec={kind,state:pr.merged_at?"merged":pr.draft?"draft":pr.state,title:pr.title,author:pr.user&&pr.user.login,updated:pr.updated_at,mergedAt:pr.merged_at,closedAt:pr.closed_at};
+ const [reviews,status]=await Promise.all([ghGet(`${base}/pulls/${n}/reviews?per_page=100`),ghGet(`${base}/commits/${pr.head.sha}/status`).catch(e=>{if(e.status===403)return null;throw e})]);
+ if(reviews){
+  const latest={};
+  reviews.forEach(v=>{if(v.state!=="COMMENTED"&&v.user)latest[v.user.login]=v.state});
+  const count=s=>Object.values(latest).filter(x=>x===s).length;
+  const changes=count("CHANGES_REQUESTED"),approved=count("APPROVED");
+  rec.review=changes?changes+" requested changes":approved?approved+" approved":"";
+ }
+ if(!status)rec.checks={state:"unknown"};
+ else if(status.statuses.length)rec.checks={ok:status.statuses.filter(c=>c.state==="success").length,total:status.statuses.length,state:status.state};
+ return rec;
+}
+function ghNote(text){
+ const h=$("#open h2");
+ if(h&&!$("#open .ghnote"))h.after(el("p","ghnote",esc(text)));
+}
+function ghApply(key){
+ document.querySelectorAll(`[data-gh="${CSS.escape(key)}"] .ldot`).forEach(d=>{d.dataset.state=GH[key].state});
+ ghRecount();
+}
+async function ghBoot(token){
+ GH_TOKEN=token;
+ const kinds={};
+ document.querySelectorAll("[data-gh]").forEach(n=>{kinds[n.dataset.gh]=n.dataset.kind});
+ const todo=[];
+ Object.keys(kinds).forEach(k=>{
+  const c=ghCached(k);
+  if(c){GH[k]=c;ghApply(k)}else todo.push(k);
+ });
+ if(!todo.length||sessionStorage.getItem(GH_401_KEY))return;
+ let stopped=false;
+ const lane=async()=>{
+  while(todo.length&&!stopped){
+   const k=todo.shift();
+   try{
+    GH_PENDING[k]=ghResolve(k,kinds[k]);
+    GH[k]=await GH_PENDING[k];
+    ghStore(k,GH[k]);
+    ghApply(k);
+   }catch(e){
+    if(e.status===401){
+     stopped=true;
+     try{sessionStorage.setItem(GH_401_KEY,"1")}catch(x){}
+     ghNote("GitHub rejected this site's token, so the state of each linked change is off for this session.");
+    }else if(e.reset){ghPauseUntil=e.reset;todo.unshift(k)}
+    else{GH[k]={state:"unknown"};ghApply(k)}
+   }finally{delete GH_PENDING[k]}
+  }
+ };
+ await Promise.all(Array.from({length:GH_LANES},lane));
 }
 function aiWait(ms,signal){
  return new Promise((resolve,reject)=>{
@@ -3361,6 +4210,7 @@ function aiRetryAfter(header){
  return isNaN(at)?null:Math.max(0,at-Date.now());
 }
 async function aiPost(body,signal){
+ let stripped=false;
  for(let attempt=0;;attempt++){
   await aiSlot(signal);
   const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
@@ -3371,15 +4221,36 @@ async function aiPost(body,signal){
   }
   if(!r.ok){
    const detail=await r.text().catch(()=>"");
+   const blamed=Object.keys(AI_VENDOR_KEYS).filter(k=>k in body&&detail.includes(k));
+   if(r.status<500&&blamed.length&&!stripped){
+    stripped=true;
+    blamed.forEach(k=>{delete body[k];AI[AI_VENDOR_KEYS[k]]=true});
+    continue;
+   }
    throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
   }
   return r;
  }
 }
-async function aiStream(body,signal,onText){
- const r=await aiPost(Object.assign({},body,{stream:true}),signal);
+const aiClean=s=>AI.noFormat?s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2060\ufeff]/g,""):s;
+function aiNoteUsage(u){
+ const pd=u.prompt_tokens_details||u.prompt_token_details||{};
+ const cd=u.completion_tokens_details||u.completion_token_details||{};
+ aiUsage={prompt:u.prompt_tokens||0,cached:pd.cached_tokens||0,completion:u.completion_tokens||0,reasoning:cd.reasoning_tokens||0};
+ aiPrompt=aiUsage.prompt;
+ const key="ai:"+SLUG+":tally";
+ const t={calls:0,prompt:0,cached:0,completion:0,reasoning:0};
+ try{Object.assign(t,JSON.parse(sessionStorage.getItem(key)||"{}"))}catch(e){}
+ t.calls++;
+ Object.keys(aiUsage).forEach(k=>{t[k]+=aiUsage[k]});
+ try{sessionStorage.setItem(key,JSON.stringify(t))}catch(e){}
+ aiTally=t;
+ aiDiagRender();
+}
+async function aiStream(body,signal,onText,onReason){
+ const r=await aiPost(Object.assign({},body,{stream:true,stream_options:{include_usage:true}}),signal);
  const reader=r.body.getReader(),dec=new TextDecoder();
- let buf="",text="";
+ let buf="",text="",reasoning="",finish=null;
  const calls=[];
  for(;;){
   const {value,done}=await reader.read();
@@ -3393,10 +4264,12 @@ async function aiStream(body,signal,onText){
    if(!data||data==="[DONE]")continue;
    let j;try{j=JSON.parse(data)}catch(e){continue}
    const choice=(j.choices||[])[0];
-   if(j.usage)aiPrompt=j.usage.prompt_tokens||aiPrompt;
+   if(j.usage)aiNoteUsage(j.usage);
    if(!choice)continue;
+   if(choice.finish_reason)finish=choice.finish_reason;
    const d=choice.delta||{};
-   if(d.content){text+=d.content;if(onText)onText(text)}
+   if(d.reasoning){reasoning+=d.reasoning;if(onReason)onReason(reasoning)}
+   if(d.content){text+=d.content;if(onText)onText(aiClean(text))}
    (d.tool_calls||[]).forEach(tc=>{
     const ix=tc.index||0;
     const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
@@ -3406,26 +4279,43 @@ async function aiStream(body,signal,onText){
    });
   }
  }
- return {text,calls:calls.filter(Boolean)};
+ return {text:aiClean(text),calls:calls.filter(Boolean),reasoning,finish};
 }
-async function aiOnce(messages,opt){
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
+function aiBody(kind,schema){
+ const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?8000:3000,temperature:schema?0:0.2};
+ if(!AI.noFormat)body.reasoning_format="parsed";
+ if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
+ return body;
+}
+const AI_NO_TOOLS="Tools are off for this task: write the text only.";
+const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
+async function aiOnce(compose,opt){
  const o=opt||{};
- const body={model:AI.model,messages,reasoning_effort:o.effort||"low"};
+ await aiReady;
+ const messages=compose();
+ const body=aiBody(o.kind,o.schema);
+ body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
+ body.tool_choice="none";
  if(o.onText&&!o.schema)return (await aiStream(body,o.signal,o.onText)).text;
  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
  const r=await aiPost(body,o.signal);
  const j=await r.json();
- aiPrompt=(j.usage&&j.usage.prompt_tokens)||aiPrompt;
+ if(j.usage)aiNoteUsage(j.usage);
  const content=((j.choices||[])[0]||{}).message||{};
- const text=content.content||"";
+ const text=aiClean(content.content||"");
  return o.schema?JSON.parse(text||"{}"):text;
 }
-const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+function aiCacheGet(feature,input){
+ try{const hit=localStorage.getItem(aiStoreKey(feature,input));return hit?JSON.parse(hit):null}catch(e){return null}
+}
 async function aiCached(feature,input,make){
- const key="ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
- try{const hit=localStorage.getItem(key);if(hit)return JSON.parse(hit)}catch(e){}
+ const hit=aiCacheGet(feature,input);
+ if(hit)return hit;
  const out=await make();
- try{localStorage.setItem(key,JSON.stringify(out))}catch(e){}
+ try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
  return out;
 }
 
@@ -3462,11 +4352,27 @@ function aiReverseIndex(){
 let AI_CITED=null;
 const aiCitedBy=id=>{if(!AI_CITED)AI_CITED=aiReverseIndex();return [...new Set(AI_CITED[id]||[])]};
 
+function aiCites(e){
+ if(!ID_RE)return [];
+ const text=[e.t,e.p,e.r,e.x,e.n,e.note,e.sub].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join(" ");
+ const ids=new Set();
+ text.replace(ID_RE,(all,pre,id)=>{if(id!==e.id)ids.add(id);return all});
+ return [...ids];
+}
+function aiEntryExtra(e){
+ const L=[];
+ const cites=aiCites(e);
+ if(cites.length)L.push("Cites: "+cites.join(", "));
+ const by=aiCitedBy(e.id);
+ if(by.length)L.push("Cited by: "+by.join(", "));
+ return L;
+}
 function aiEntryText(e,kind){
  if(!e)return "";
  const L=[];
  if(kind==="decision"){
-  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:""));
+  L.push(e.id+" · decision · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.date?" · "+e.date:"")+(e.round!=null?" · round "+e.round:""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   L.push("What we decided: "+plain(e.r));
@@ -3474,24 +4380,30 @@ function aiEntryText(e,kind){
   if(e.by)L.push("Replaced by: "+e.by);
   const rd=ROUNDS[e.round];
   if(rd)L.push("We asked: "+plain(rd.q)+" / You said: "+plain(rd.a)+(rd.n?" / "+plain(rd.n):""));
+  if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="assumption"){
   L.push(e.id+" · assumption · "+aiStatus(e)+(e.theme?" · "+themeLabel(e.theme):"")+(e.star?" · load-bearing":""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   L.push("Basis: "+plain(e.b));
   if(e.n)L.push("How this changed: "+plain(e.n));
  }else if(kind==="open"){
-  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||""));
+  L.push(e.id+" · open question · "+(OGROUPS[e.g]||e.g||"")+(TRACKED?" · "+(itemClosed(e)?"closed":"open"):""));
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   if(e.p)L.push("Plain twin: "+plain(e.p));
   if((e.blocks||[]).length)L.push("Blocks: "+e.blocks.join(", "));
+  if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="arch"){
   L.push(e.id+" · component");
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
   (e.b||[]).forEach(p=>L.push(plain(p)));
   L.push("Rests on: "+[...(e.a||[]),...(e.dq||[])].join(", "));
  }else if(kind==="numbers"){
   L.push(e.id+" · numbers table");
+  L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t)+(e.sub?" ("+plain(e.sub)+")":""));
   L.push("| "+(e.cols||[]).join(" | ")+" |");
   (e.rows||[]).forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
@@ -3501,7 +4413,7 @@ function aiEntryText(e,kind){
   (e.segs||[]).forEach(g=>L.push(g[0]+": p50 "+fmt(g[1])+", p95 "+fmt(g[2])+(g[3]?" — "+plain(g[3]):"")));
   if(e.note)L.push(plain(e.note));
  }
- return L.join("\n");
+ return L.concat(aiEntryExtra(e)).join("\n");
 }
 function aiSectionText(id){
  const L=[];
@@ -3587,28 +4499,54 @@ function aiIndex(){
  }
  return L.join("\n");
 }
-function aiContext(){
- if(aiCtxText)return aiCtxText;
- const L=[aiIndex()];
- const deck=summaryMd();
- if(deck)L.push("\n## The summary deck, as the reader sees it first\n"+deck);
- const comps=aiComponentsMd();
- if(comps)L.push("\n## The interactive figures on the page, flattened\n"+comps);
- L.push("\n## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n"));
- aiCtxText=L.join("\n");
- return aiCtxText;
+const aiTokens=s=>Math.round(String(s||"").length/3.6);
+const aiEntryStatus=id=>{const e=aiEntry(id);return aiStatus(e)||OGROUPS[e.g]||KIND_LABEL[aiKind(id)]||""};
+function aiSectionList(){
+ return "## Sections of the page\n"+Object.entries(AI_SECTION_NAMES).filter(([id])=>{const s=document.getElementById(id);return s&&!s.hidden}).map(([id,name])=>id+" — "+name).join("\n");
 }
+async function aiPrepare(){
+ await Promise.allSettled(JOBS);
+ AI_NOTES=await loadFile("NOTES.md").catch(()=>"");
+ const qa=await QA_READY;
+ AI_QA=qa.rounds.length?qa.raw:null;
+ const parts={
+  doc:"# Document\n\n"+buildDocMd({handles:true,twins:true}),
+  handles:"## Handles\n"+Object.keys(REF).filter(id=>aiEntry(id)).map(id=>id+" — "+handleOf(id)+" — "+aiEntryStatus(id)).join("\n"),
+  notes:AI_NOTES?"## Working notes\n\n"+AI_NOTES:"",
+  log:AI_QA?"## Question log\n\n"+(await buildQaMd()):"",
+  terms:"",
+  sections:aiSectionList()
+ };
+ const gl=aiCacheGet("glossary",String(META.rev||0));
+ const defined=((gl&&gl.terms)||[]).filter(t=>t&&t.k&&t.v);
+ if(defined.length)parts.terms="## Terms the assistant defined\n"+defined.map(t=>"- "+t.k+": "+t.v).join("\n");
+ const sizes={doc:aiTokens(parts.doc),handles:aiTokens(parts.handles),notes:aiTokens(parts.notes),log:aiTokens(parts.log),terms:aiTokens(parts.terms)};
+ const dropped=[];
+ const total=()=>aiTokens(Object.values(parts).filter(Boolean).join("\n\n"));
+ if(total()>AI_CTX_BUDGET){parts.notes="";dropped.push("notes")}
+ if(total()>AI_CTX_BUDGET){parts.log="";dropped.push("log")}
+ if(total()>AI_CTX_BUDGET){parts.doc="# Document, as an index\n\n"+aiIndex();dropped.push("document")}
+ aiCtxText=Object.values(parts).filter(Boolean).join("\n\n");
+ aiCtxStats=Object.assign(sizes,{total:aiTokens(aiCtxText),dropped});
+ AI_SEARCH_DOCS=null;
+ aiDiagRender();
+}
+function aiContext(){return aiCtxText}
 function aiSystem(){
  return [
   "You are the reading companion built into this design document. You answer questions about it for someone reading it cold, and you can move the page for them.",
   "",
   "How to answer:",
-  "- Answer only from the document below and from what the tools return. When it does not cover something, say so in one sentence and stop; never fill the gap from general knowledge.",
-  "- Every answer that rests on one entry leaves the page on that entry: call scroll_to on it and then highlight on it before you write the reply. Reading an entry does not move the page, so read_entry never stands in for that pair. They are tools: call them, never describe a call or print its arguments.",
+  "- Answer only from the document below and from what the tools return. When neither covers something, say so in one sentence and stop; never fill the gap from general knowledge.",
   "- Cite an entry by putting its id alone in round brackets after the words it belongs to: \"Tokens expire within a day (DQ26).\" The page renders that id as the entry's handle, so never write the handle or the title beside it, never use square brackets, and never invent an id.",
-  "- Read before you answer when an index line is not enough: read_entry, read_section, list_entries.",
-  "- Answer in two to four full sentences, or a short list when the answer is a set. A fragment, a label, or a pasted index line is not an answer.",
+  "- Answer in two to five full sentences, or a short list when the answer is a set. A walk-through, an explanation of a mechanism, or a comparison may run longer. A fragment, a label, or a line pasted from the document is not an answer.",
+  "- Leave the page on the single entry the answer rests on: call scroll_to and highlight on that entry, both in one turn, and write the reply in the turn after their results come back. Never scroll to a second entry; when several matter, cite them and call set_reading_path with them in order instead. Reading never moves the page.",
+  "- A tool is used only through a tool call. Never write a call out as JSON, name it in the text, or describe what you would call. Calls in one turn run together, so batch them, and keep to a few turns before you answer.",
+  "- The whole document, the working notes and the question log are already below, so answer from them; read_entry, read_section, read_notes and read_links return the same text and are for when a line below is not enough. When you do not know which id holds something, call search_document.",
+  "- The one exception is why. A question about why something was decided, what was weighed, or what was turned down always calls read_round first, with the round number the decision names, and answers from what the round says the author chose and why: the options offered, the one taken, and the author's own words.",
+  "- Only the tools listed exist; never call any other.",
   "- The reader has the document in front of them, so do not restate it at length.",
+  "- The last user message opens with a bracketed line naming where the reader is on the page, what they have selected and today's date. It is context, not part of the question.",
   "",
   "The document:",
   aiContext()
@@ -3627,9 +4565,87 @@ const AI_TOOLS=[
  aiTool("read_entry","Read one entry in full: exact wording, what was turned down, the round it came from.",{id:aiStr("A register id.")}),
  aiTool("read_section","Read a whole section of the document as text.",{section:aiStr("overview, ground, architecture, paths, numbers, ceilings, decisions, assumptions, open or footnotes.")}),
  aiTool("list_entries","List one register compactly, id and handle per line.",{register:aiStr("decisions, assumptions, open, arch or numbers."),status:aiOpt("Status to keep, or null for all."),theme:aiOpt("Theme key or open group key to keep, or null for all.")}),
+ aiTool("read_links","The record of what has shipped: the pull requests, issues and commits linked from open items and decisions, each with its GitHub state (open, draft, merged, closed). Call this for any question about what shipped, landed, merged, closed, or is still in flight; a decision's status says what was decided, not what was built.",{id:aiOpt("A register id to read the links of, or null for every entry that has links.")}),
  aiTool("select_text","Select a passage of the page so the reader sees exactly where the answer comes from.",{text:aiStr("Text that appears on the page, copied exactly.")}),
- aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}})
+ aiTool("set_reading_path","Pin an ordered reading path in the sidebar.",{title:aiStr("What this path is for, a few words."),items:{type:"array",description:"The entries to read, in order.",items:{type:"object",properties:{id:aiStr("A register id."),why:aiStr("One line on why it comes here.")},required:["id","why"],additionalProperties:false}}}),
+ aiTool("search_document","Find where the registers, the working notes or the question log say something, when you do not know the id. Returns up to eight snippets, each led by its id.",{query:aiStr("Words or a phrase to look for."),scope:aiStr("all, registers, notes or log.")}),
+ aiTool("read_round","Read one round of the question log in full: what was asked, the options, what the author answered, and the decisions that round produced.",{round:aiStr("The round number, such as 7.")}),
+ aiTool("read_notes","Read one section of the working notes by its heading, or list the headings.",{section:aiOpt("Words from a heading of the working notes, or null to list the headings.")})
 ];
+const AI_TOOLS_READ=AI_TOOLS.filter(t=>/^(read_|list_|search_)/.test(t.function.name));
+const AI_STOP=new Set("a an the of to in on for and or is are was were be by with as at it its this that these those from we you what which how why does do did not no".split(" "));
+const aiWords=s=>plain(s).toLowerCase().split(/[^a-z0-9]+/).filter(w=>w.length>1&&!AI_STOP.has(w));
+function aiNoteBlocks(){
+ const blocks=[];
+ let cur=null;
+ AI_NOTES.split("\n").forEach(line=>{
+  const m=/^(#{1,4})\s+(.*)$/.exec(line);
+  if(m){cur={heading:m[2].trim(),level:m[1].length,lines:[]};blocks.push(cur);return}
+  if(!cur){cur={heading:"",level:0,lines:[]};blocks.push(cur)}
+  cur.lines.push(line);
+ });
+ return blocks.map(b=>({heading:b.heading,level:b.level,text:b.lines.join("\n").trim()}));
+}
+function aiSearchDocs(){
+ if(AI_SEARCH_DOCS)return AI_SEARCH_DOCS;
+ const D=[];
+ const add=(id,scope,text)=>{const t=String(text||"").trim();if(t)D.push({id,scope,text:t,low:t.toLowerCase(),words:new Set(aiWords(t))})};
+ Object.keys(REF).forEach(id=>{const e=aiEntry(id);if(e)add(id,"registers",aiEntryText(e,aiKind(id)))});
+ FOOTNOTES.forEach(f=>add("fn"+f.n,"registers","Footnote "+f.n+": "+plain(f.b)));
+ TERMS.forEach(t=>add("term "+t.k,"registers",t.k+": "+plain(t.v)));
+ aiNoteBlocks().forEach(b=>add("notes: "+(b.heading||"preamble"),"notes",(b.heading?b.heading+"\n":"")+b.text));
+ ((AI_QA&&AI_QA.rounds)||[]).forEach(r=>(r.questions||[]).forEach((q,i)=>add("round "+r.round+" question "+(i+1),"log",[q.header,q.question,(q.options||[]).map(o=>o.label+" — "+(o.description||"")).join("\n"),"Answer: "+q.answer,q.note].filter(Boolean).join("\n"))));
+ return AI_SEARCH_DOCS=D;
+}
+function aiSearch(query,scope,sources){
+ const q=String(query||"").trim();
+ if(!q)return "no query given";
+ const words=aiWords(q),phrase=q.toLowerCase();
+ const want=scope&&scope!=="all"?String(scope):null;
+ const hits=aiSearchDocs().filter(d=>!want||d.scope===want).map(d=>{
+  let score=words.filter(w=>d.words.has(w)).length/(words.length||1);
+  if(d.low.includes(phrase))score+=1;
+  return {d,score};
+ }).filter(h=>h.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
+ if(!hits.length)return "nothing in the "+(want||"document")+" matches "+q;
+ return hits.map(({d})=>{
+  if(REF[d.id])sources.add(d.id);
+  const firsts=[d.low.indexOf(phrase)].concat(words.map(w=>d.low.indexOf(w))).filter(i=>i>=0);
+  const at=firsts.length?Math.min(...firsts):0;
+  const start=Math.max(0,at-80);
+  const snip=d.text.slice(start,start+260).replace(/\s+/g," ").trim();
+  return d.id+" — "+(start?"…":"")+snip+(start+260<d.text.length?"…":"");
+ }).join("\n");
+}
+function aiRoundText(n){
+ const r=((AI_QA&&AI_QA.rounds)||[]).find(x=>Number(x.round)===n);
+ const rec=ROUNDS[n];
+ if(!r&&!rec)return "no round "+n+" in the question log";
+ const L=[];
+ if(r){
+  L.push("Round "+r.round+" — "+plain(r.topic||"")+(r.date?" ("+r.date+")":""));
+  if(r.note)L.push(plain(r.note));
+  (r.questions||[]).forEach((q,i)=>{
+   L.push("\nQuestion "+(i+1)+", "+plain(q.header||"")+": "+plain(q.question));
+   (q.options||[]).forEach(o=>L.push("- "+(o.label===q.answer?"[chosen] ":"")+o.label+(o.description?" — "+plain(o.description):"")));
+   if(!(q.options||[]).some(o=>o.label===q.answer))L.push("Answered in the author's own words: "+plain(q.answer));
+   if(q.note)L.push("Note: "+plain(q.note));
+  });
+ }
+ if(rec)L.push("\nThe record on the decision: we asked: "+plain(rec.q)+" / you said: "+plain(rec.a)+(rec.n?" / "+plain(rec.n):""));
+ const dq=DQ.filter(d=>Number(d.round)===n);
+ if(dq.length)L.push("\nDecided in this round: "+dq.map(d=>d.id+" — "+plain(d.t)).join("; "));
+ return L.join("\n");
+}
+function aiNotesText(section){
+ if(!AI_NOTES)return "this document has no working notes";
+ const blocks=aiNoteBlocks().filter(b=>b.heading);
+ const want=String(section||"").trim().toLowerCase();
+ if(!want)return blocks.map(b=>"#".repeat(b.level)+" "+b.heading).join("\n");
+ const hit=blocks.filter(b=>b.heading.toLowerCase().includes(want));
+ if(!hit.length)return "no heading in the working notes matches "+section+"; the headings are:\n"+blocks.map(b=>b.heading).join("\n");
+ return hit.map(b=>"## "+b.heading+"\n"+b.text).join("\n\n");
+}
 function aiMark(id){
  const node=aiEl(id);
  if(!node)return false;
@@ -3695,10 +4711,10 @@ function aiRenderPath(title,items){
  host.hidden=false;
  return "pinned "+rows.length+" entries in the sidebar";
 }
-async function aiExec(name,args){
+async function aiExec(name,args,sources){
  if(name==="scroll_to"){
   const id=String(args.id||"");
-  if(REF[id]){openRef(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
+  if(REF[id]){revealEntry(id);return "scrolled to "+id+" ("+plain(REF[id].title)+")"}
   const sec=document.getElementById(id);
   if(sec){unveil();sec.scrollIntoView({block:"start"});return "scrolled to the "+(AI_SECTION_NAMES[id]||id)+" section"}
   return "no entry or section with id "+id;
@@ -3744,139 +4760,351 @@ async function aiExec(name,args){
   if(!rows.length)return "nothing in "+reg+" matches";
   return rows.map(e=>e.id+" — "+aiHandle(e)+(e.s?" ("+aiStatus(e)+")":"")).join("\n");
  }
+ if(name==="read_links")return aiLinksText(args.id?String(args.id):"");
  if(name==="select_text")return aiSelectText(args.text);
  if(name==="set_reading_path")return aiRenderPath(args.title,Array.isArray(args.items)?args.items:[]);
- return "no tool called "+name;
+ if(name==="search_document")return aiSearch(args.query,args.scope,sources);
+ if(name==="read_round")return aiRoundText(parseInt(args.round,10));
+ if(name==="read_notes")return aiNotesText(args.section);
+ return "no tool called "+name+"; the tools are "+AI_TOOLS.map(t=>t.function.name).join(", ");
+}
+function aiNoteSources(name,args,sources){
+ if(args.id&&REF[args.id])sources.add(String(args.id));
+ if(name==="set_reading_path")(Array.isArray(args.items)?args.items:[]).forEach(x=>{if(x&&REF[x.id])sources.add(String(x.id))});
+}
+function aiTail(o){
+ const bits=["Reader is at: §"+(AI_SECTION_NAMES[aiSec]||aiSec)];
+ const sel=String(o.about||getSelection()).trim().slice(0,200);
+ if(sel)bits.push("selection: “"+sel+"”");
+ const path=$("#aiPath");
+ if(!path.hidden)bits.push("pinned path: "+path.querySelector(".ai-path-head b").textContent);
+ bits.push("today: "+new Date().toISOString().slice(0,10));
+ return "["+bits.join("; ")+"]";
+}
+function aiLinkLine(l){
+ const key=linkKey(l),rec=key?GH[key]:null;
+ let s=LINK_KIND_SHORT[l.kind]+" "+(l.gh?ghRef(l.gh):linkLabel(l));
+ if(rec&&rec.title)s+=' "'+plain(rec.title)+'"';
+ if(key)s+=" "+(rec?rec.state+((rec.mergedAt||rec.closedAt)?" "+(rec.mergedAt||rec.closedAt).slice(0,10):"")+(rec.author?" by "+rec.author:""):GH_TOKEN?"(state still loading)":"(state unknown: no GitHub token)");
+ if(l.closes)s+=" · closes";
+ return s;
+}
+function aiLinksText(id){
+ const rows=id?[aiEntry(id)].filter(Boolean):[...OPEN,...DQ].filter(e=>linksOf(e).length);
+ if(id&&!rows.length)return "no entry with id "+id;
+ if(!rows.length)return "no entry links a pull request, issue or commit yet";
+ return rows.map(e=>{
+  const open=aiKind(e.id)==="open";
+  const head=e.id+" · "+(open?(e.g==="spikes"?"spike":"open item")+" · "+(itemClosed(e)?"closed":"open"):"decision · "+aiStatus(e));
+  const links=linksOf(e);
+  return links.length?links.map(l=>head+" — "+aiLinkLine(l)).join("\n"):head+" — no links";
+ }).join("\n");
 }
 async function aiRun(question,opt){
  const o=opt||{};
+ await aiReady;
  const msgs=[{role:"system",content:aiSystem()}];
- aiChat.forEach(m=>msgs.push({role:m.role,content:m.content}));
- msgs.push({role:"user",content:question});
- let answer="";
+ aiHistory().forEach(m=>msgs.push(m));
+ msgs.push({role:"user",content:aiTail(o)+"\n\n"+question});
+ const sources=new Set(),used=[];
+ let answer="",finish=null,spent=0;
  for(let round=0;round<AI_ROUNDS;round++){
   const prefix=answer?answer+"\n\n":"";
-  const res=await aiStream({model:AI.model,messages:msgs,tools:AI_TOOLS,reasoning_effort:o.effort||"low",stream_options:{include_usage:true}},o.signal,t=>{if(o.onText)o.onText(prefix+t)});
+  const body=aiBody("chat");
+  body.messages=msgs;
+  if(o.tools)body.tools=o.tools;
+  if(o.effort)body.reasoning_effort=o.effort;
+  if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
+  const res=await aiStream(body,o.signal,t=>{if(o.onText)o.onText(prefix+t)},o.onReason);
+  finish=res.finish;
   if(res.text)answer=prefix+res.text;
   if(!res.calls.length)break;
-  msgs.push({role:"assistant",content:res.text||"",tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
+  msgs.push({role:"assistant",content:(res.reasoning?res.reasoning.slice(0,2000)+"\n\n":"")+(res.text||""),tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
   const results=await Promise.all(res.calls.map(async c=>{
+   const name=c.name.replace(/^functions\./,"");
    let args={};
    try{args=JSON.parse(c.args||"{}")}catch(e){return {c,out:"the arguments did not parse as JSON"}}
-   if(o.onTool)o.onTool(c.name,args);
-   try{return {c,out:await aiExec(c.name,args)}}
+   used.push({name,args});
+   if(o.onTool)o.onTool(name,args);
+   aiNoteSources(name,args,sources);
+   try{return {c,out:await aiExec(name,args,sources)}}
    catch(e){return {c,out:"that tool failed: "+e.message}}
   }));
-  results.forEach(r=>msgs.push({role:"tool",tool_call_id:r.c.id,content:String(r.out).slice(0,6000)}));
+  results.forEach(r=>{
+   const room=Math.min(AI_RESULT_CAP,AI_TOOL_BUDGET-spent);
+   let out=String(r.out);
+   if(room<=0)out="the tool budget for this turn is spent; answer from what you already have";
+   else if(out.length>room)out=out.slice(0,room)+"\n[truncated]";
+   spent+=out.length;
+   msgs.push({role:"tool",tool_call_id:r.c.id,content:out});
+  });
  }
- return {answer};
+ return {answer,finish,sources:[...sources],used};
 }
 
 function aiChatKey(){return "ai:"+SLUG+":chat"}
+function aiStateKey(){return "ai:"+SLUG+":state"}
+function aiHistory(){return aiChat.filter(m=>m.role==="user"||m.role==="assistant").map(m=>({role:m.role,content:m.content}))}
 function aiSaveChat(){try{sessionStorage.setItem(aiChatKey(),JSON.stringify(aiChat.slice(-12)))}catch(e){}}
 function aiLoadChat(){
  try{const raw=sessionStorage.getItem(aiChatKey());if(raw)aiChat=JSON.parse(raw)||[]}catch(e){aiChat=[]}
- aiChat.forEach(m=>aiBubble(m.role,m.content));
+ aiChat.forEach(m=>{
+  if(m.role==="card"){aiNode(aiRenderCard(m));return}
+  const box=aiBubble(m.role,m.shown||m.content,m.sources,m.about);
+  if(m.verbs&&m.verbs.length)aiSetVerbs(box,m.verbs);
+ });
+ aiBarText(aiFirstLine(aiLastAnswer()));
+ aiScrollLog(true);
 }
-function aiScrollLog(){const log=$("#aiLog");log.scrollTop=log.scrollHeight}
-function aiBubble(role,text){
+function aiLastAnswer(){
+ for(let i=aiChat.length-1;i>=0;i--)if(aiChat[i].role==="assistant")return aiChat[i].content||"";
+ return "";
+}
+function aiFirstLine(text){
+ const s=firstSentence(text||"");
+ return s.length>90?s.slice(0,90)+"…":s;
+}
+function aiBarText(text){$("#aiBarLast").textContent=text||""}
+function aiScrollLog(force){
+ const log=$("#aiLog");
+ if(force)aiStick=true;
+ if(aiStick)log.scrollTop=log.scrollHeight;
+}
+function aiAboutPrefix(about){
+ return (about.kind==="entry"?"About "+about.id+" “"+about.text+"”":"About this passage: “"+about.text+"”")+"\n\n";
+}
+function aiBubble(role,text,sources,about){
  const box=el("div","ai-msg ai-"+role);
- if(role==="user")box.textContent=text;
- else{box.innerHTML=mdToHtml(text||"…");scrub(box)}
- $("#aiLog").append(box);
- aiScrollLog();
- return box;
+ if(role==="user"){
+  if(about)box.append(el("span","ai-about-in",esc((about.kind==="entry"?"About "+about.id+": ":"About: ")+about.text)));
+  box.append(document.createTextNode(text));
+ }else{
+  const body=el("div","ai-body");
+  if(text){body.innerHTML=mdToHtml(text);scrub(body)}
+  else body.append(el("span","ai-wait","Thinking…"));
+  box.append(body);
+  if(sources&&sources.length)aiSetSources(box,sources);
+ }
+ return aiNode(box);
+}
+const AI_VERB={
+ scroll_to:a=>"scrolled to "+a.id,
+ highlight:a=>"highlighted "+a.id,
+ open_entry:a=>"opened "+a.id,
+ filter:a=>"filtered "+a.section,
+ show_diagram:a=>a.node?"showed "+a.node+" on the diagram":"showed the diagram",
+ read_entry:a=>"read "+a.id,
+ read_section:a=>"read "+(AI_SECTION_NAMES[a.section]||a.section),
+ list_entries:a=>"listed "+a.register,
+ select_text:()=>"selected a passage",
+ set_reading_path:()=>"pinned a reading path",
+ search_document:a=>"searched “"+a.query+"”",
+ read_round:a=>"read round "+a.round,
+ read_notes:()=>"read the notes",
+ read_links:a=>"read the links"+(a.id?" on "+a.id:"")
+};
+function aiVerbs(calls){return calls.map(c=>{const f=AI_VERB[c.name];return f?f(c.args||{}):c.name.replace(/_/g," ")})}
+function aiSetVerbs(box,verbs){
+ let line=box.querySelector(".ai-verbs");
+ if(!verbs.length){if(line)line.remove();return}
+ if(!line){line=el("p","ai-verbs");box.querySelector(".ai-body").after(line)}
+ const open=line.classList.contains("open");
+ line.textContent=(open?verbs:verbs.slice(0,3)).join(" · ");
+ if(verbs.length>3&&!open){
+  const more=el("button",null,esc(" · +"+(verbs.length-3)+" more"));
+  more.type="button";
+  more.onclick=()=>{line.classList.add("open");aiSetVerbs(box,verbs)};
+  line.append(more);
+ }
+}
+function aiSetSources(box,sources){
+ let row=box.querySelector(".ai-src");
+ const ids=[...new Set(sources)].filter(id=>REF[id]).slice(0,8);
+ if(!ids.length){if(row)row.remove();return}
+ if(!row){row=el("div","ai-src");box.append(row)}
+ row.innerHTML="<span>Sources:</span>"+ids.map(refChip).join("");
 }
 function aiNode(node){$("#aiLog").append(node);aiScrollLog();return node}
-function aiOpen(seed){
- const pop=$("#ai");
- pop.hidden=false;
- aiSuggest();
- if(seed!=null){const box=$("#aiIn");box.value=seed;box.focus();aiGrow(box)}
- else $("#aiIn").focus();
- aiScrollLog();
+function aiSetState(s){
+ const was=aiState;
+ aiState=s;
+ $("#ai").dataset.state=s;
+ document.body.classList.toggle("ai-wide",s==="wide");
+ $("#aiBar").setAttribute("aria-expanded",String(s!=="bar"));
+ const wide=$("#aiWide");
+ wide.innerHTML=s==="wide"?"&#8676;":"&#8677;";
+ wide.title=s==="wide"?"Back to the corner":"Dock to the side";
+ wide.setAttribute("aria-label",wide.title);
+ if(s==="bar"){
+  document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+  aiSlashHide();
+  if(was!=="bar"){
+   const back=aiPrevFocus&&aiPrevFocus.isConnected&&!$("#ai").contains(aiPrevFocus)?aiPrevFocus:$("#aiBar");
+   back.focus();
+  }
+  aiPrevFocus=null;
+  return;
+ }
+ try{localStorage.setItem(aiStateKey(),s)}catch(e){}
+ if(was==="bar"){
+  aiPrevFocus=document.activeElement;
+  aiSuggest();
+  $("#aiIn").focus();
+  aiScrollLog(true);
+ }
 }
-function aiClose(){$("#ai").hidden=true}
+function aiOpen(seed,about){
+ if(about)aiSetAbout(about);
+ if(aiState==="bar"){
+  let want="dock";
+  try{want=localStorage.getItem(aiStateKey())||"dock"}catch(e){}
+  aiSetState(want==="wide"?"wide":"dock");
+ }
+ const box=$("#aiIn");
+ if(seed!=null){box.value=seed;aiGrow(box);aiSlashRender()}
+ box.focus();
+}
+function aiCollapse(){aiSetState("bar")}
+function aiToggle(){if(aiState==="bar")aiOpen();else aiCollapse()}
 function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.scrollHeight)+"px"}
-function aiSuggest(){
+function aiRenderChips(list){
  const host=$("#aiSug");host.innerHTML="";
- const meta=(META.ai&&META.ai.suggest)||{};
- const list=[...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,3);
- list.forEach(q=>{
-  const b=el("button","ai-chip",esc(q));
-  b.onclick=()=>aiAsk(q);
+ list.forEach(([label,run])=>{
+  const b=el("button","ai-chip",esc(label));
+  b.type="button";
+  b.onclick=run;
   host.append(b);
  });
 }
+function aiSuggest(){
+ if(aiSugFor===aiSec)return;
+ aiSugFor=aiSec;
+ const meta=(META.ai&&META.ai.suggest)||{};
+ const list=[];
+ if(aiFollow&&aiChat.length)aiFollow.forEach(q=>list.push([q,()=>aiAsk(q)]));
+ else{
+  if(AI_SECTION_NAMES[aiSec])list.push(["TL;DR "+AI_SECTION_NAMES[aiSec],()=>aiShowSection(aiSec)]);
+  [...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,2).forEach(q=>list.push([q,()=>aiAsk(q)]));
+ }
+ aiRenderChips(list);
+}
+function aiSetFollow(items){aiFollow=items;aiSugFor=null;aiSuggest()}
+function aiSetAbout(ctx){
+ aiAboutCtx=ctx||null;
+ const host=$("#aiAbout");
+ host.innerHTML="";
+ host.classList.remove("open");
+ if(!ctx){host.hidden=true;return}
+ const t=el("button","ai-about-t",esc("“"+ctx.text+"”"));
+ t.type="button";
+ t.title="Show the whole passage";
+ t.onclick=()=>host.classList.toggle("open");
+ const x=el("button","ai-x","×");
+ x.type="button";
+ x.setAttribute("aria-label","Drop this context");
+ x.onclick=()=>{aiSetAbout(null);$("#aiIn").focus()};
+ host.append(el("span","ai-about-k",esc(ctx.kind==="entry"?"About "+ctx.id+":":"About:")),t,x);
+ host.hidden=false;
+}
 function aiStop(){if(aiAbort)aiAbort.abort()}
-async function aiAsk(question,opt){
+function aiAsk(question,opt){
  const q=String(question||"").trim();
  if(!q||aiBusy)return;
- clearAiMarks();
  const o=opt||{};
- $("#ai").hidden=false;
- aiBubble("user",q);
- const bubble=aiBubble("assistant","…");
- const tools=el("div","ai-used");
- aiNode(tools);
- const ctrl=new AbortController();
+ const about=aiAboutCtx;
+ aiSetAbout(null);
+ aiOpen();
+ aiAdopt(aiStartRun(q,{about,effort:o.effort,commit:true}));
+}
+function aiStartRun(q,o){
+ const run={q,about:o.about||null,ctrl:new AbortController(),text:"",calls:[],sources:[],finish:null,done:false,error:null,commit:!!o.commit,committed:false,listeners:new Set()};
+ const emit=()=>run.listeners.forEach(fn=>fn(run));
+ clearAiMarks();
+ aiBarText("Thinking…");
+ run.promise=aiRun(run.about?aiAboutPrefix(run.about)+q:q,{
+  effort:o.effort,
+  signal:run.ctrl.signal,
+  tools:o.tools,
+  onText:t=>{run.text=t;emit()},
+  onTool:(name,args)=>{run.calls.push({name,args});emit()}
+ }).then(res=>{run.text=res.answer||"";run.sources=res.sources||[];run.finish=res.finish},e=>{run.error=e}).then(()=>{
+  run.done=true;
+  if(run.commit&&!run.error)aiCommit(run);
+  aiBarText(aiFirstLine(aiLastAnswer()));
+  emit();
+ });
+ return run;
+}
+function aiCommit(run){
+ if(run.committed)return;
+ run.committed=true;
+ aiChat.push(
+  {role:"user",content:run.about?aiAboutPrefix(run.about)+run.q:run.q,shown:run.q,about:run.about},
+  {role:"assistant",content:run.text,sources:run.sources,verbs:aiVerbs(run.calls)}
+ );
+ aiSaveChat();
+ aiFollowups(run.q,run.text).then(aiSetFollow,()=>{});
+}
+function aiPaintAnswer(box,run,final){
+ const body=box.querySelector(".ai-body");
+ if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}
+ else if(final)body.textContent=run.error?"Stopped.":"No answer came back.";
+ if(final&&run.finish==="length")body.append(el("p","ai-note-in","(cut short — ask me to continue)"));
+ aiSetVerbs(box,aiVerbs(run.calls));
+ if(final)aiSetSources(box,run.sources);
+ aiScrollLog();
+}
+function aiAdopt(run){
+ if(aiBusy&&aiAbort!==run.ctrl)aiStop();
  aiBusy=true;
- aiAbort=ctrl;
+ aiAbort=run.ctrl;
+ run.commit=true;
  $("#aiSend").textContent="Stop";
- let pending=0,latest="";
- const paint=()=>{pending=0;bubble.innerHTML=mdToHtml(latest||"…");scrub(bubble);aiScrollLog()};
- try{
-  const {answer}=await aiRun(q,{
-   effort:o.effort||"low",
-   signal:ctrl.signal,
-   onText:t=>{latest=t;if(!pending)pending=requestAnimationFrame(paint)},
-   onTool:(name,args)=>{
-    tools.append(el("span","ai-tool",esc(name+(args&&args.id?" "+args.id:""))));
-    aiScrollLog();
-   }
-  });
+ aiBubble("user",run.q,null,run.about);
+ const box=aiBubble("assistant","");
+ aiScrollLog(true);
+ let pending=0;
+ const paint=()=>{pending=0;aiPaintAnswer(box,run,false)};
+ const finish=r=>{
   if(pending)cancelAnimationFrame(pending);
-  latest=answer||"No answer came back.";
-  paint();
-  aiChat.push({role:"user",content:q},{role:"assistant",content:answer});
-  aiSaveChat();
- }catch(e){
-  if(pending)cancelAnimationFrame(pending);
-  if(e.name!=="AbortError"){bubble.innerHTML="";bubble.append(el("span","ai-err",esc("Sorry — "+e.message)))}
- }finally{
-  if(aiAbort===ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
+  pending=0;
+  if(r.error&&r.error.name!=="AbortError")aiFail(box.querySelector(".ai-body"),r.error);
+  else{
+   aiPaintAnswer(box,r,true);
+   if(!r.error)aiCommit(r);
+  }
+  if(aiAbort===r.ctrl){aiBusy=false;aiAbort=null;$("#aiSend").textContent="Ask"}
   aiScrollLog();
- }
+ };
+ run.listeners.add(r=>{if(r.done)finish(r);else if(!pending)pending=requestAnimationFrame(paint)});
+ if(run.done)finish(run);
 }
 
 async function aiExplain(entry,kind,roleIx,onText){
  const [label,role]=AI_ROLES[roleIx];
- const cites=aiCitedBy(entry.id).slice(0,6).map(id=>{const e=aiEntry(id);return e?id+" "+aiHandle(e):id}).join("; ");
  const input=entry.id+"|"+label+"|"+(META.rev||0);
- return aiCached("explain",input,()=>aiOnce([
-  {role:"system",content:"You explain one entry of a design document to one reader, in three sentences, from the document only. Cite another entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No preamble."},
-  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nWhat else names it: "+(cites||"nothing")+"\n\nThe document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nExplain what this means for that reader in three sentences."}
- ],{effort:"low",onText}));
+ return aiCached("explain",input,()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Reader: "+role+".\n\nEntry:\n"+aiEntryText(entry,kind)+"\n\nExplain what this entry means for that reader in three sentences, from the document only. No preamble."}
+ ],{kind:"explain",onText}));
 }
 async function aiWhyHere(entry,kind){
- const citers=aiCitedBy(entry.id);
- const detail=citers.slice(0,10).map(id=>{const e=aiEntry(id);return e?id+" — "+plain(e.t):id}).join("\n")||"nothing else in the document names it";
- return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You say why one entry of a design document exists, in exactly two sentences: what it holds up, and what falls without it. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nEverything that names it:\n"+detail}
- ],{effort:"low"}));
+ return aiCached("why",entry.id+"|"+(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nSay why this entry exists, in exactly two sentences: what it holds up, and what falls without it."}
+ ],{kind:"why"}));
 }
 async function aiReviewComment(entry,kind,concern){
- return aiOnce([
-  {role:"system",content:"You draft a review comment on one entry of a design document. Three labelled paragraphs: Context, Concern, Ask. Plain sentences, no hedging, under 120 words. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern}
- ],{effort:"low"});
+ return aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nThe reviewer's concern, in their words: "+concern+"\n\nDraft a review comment on this entry: three labelled paragraphs, Context, Concern, Ask. Plain sentences, no hedging, under 120 words."}
+ ],{kind:"review"});
 }
 async function aiSummariseSection(id){
- return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You summarise one section of a design document as four or five bullets, each one line, from the section only. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. Return markdown bullets and nothing else."},
-  {role:"user",content:"Section: "+AI_SECTION_NAMES[id]+"\n\n"+aiSectionText(id)}
- ],{effort:"low"}));
+ return aiCached("section",id+"|"+(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Summarise the "+AI_SECTION_NAMES[id]+" section ("+id+") as four or five bullets, each one line, from that section only. Return markdown bullets and nothing else."}
+ ],{kind:"section"}));
 }
 async function aiChangedSince(){
  if(!DIFF)return "";
@@ -3886,41 +5114,60 @@ async function aiChangedSince(){
   return k+" "+v+(e?" — "+plain(e.t):"");
  }).join("\n");
  const notes=(DIFF.notes||[]).map(n=>"revision "+n.rev+": "+plain(n.note||"")+" "+(n.items||[]).map(plain).join("; ")).join("\n");
- return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce([
-  {role:"system",content:"You tell a returning reader what changed in a design document since the revision they last read, in one paragraph of plain prose. Cite an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle. No bullet list."},
-  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail}
- ],{effort:"medium"}));
+ return aiCached("changed",(META.rev||0)+"|"+DIFF.base.rev+"|"+marks.length,()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Since revision "+DIFF.base.rev+", now revision "+(META.rev||0)+".\n\nRevision notes:\n"+notes+"\n\nWhat the diff marks:\n"+detail+"\n\nTell a returning reader what changed since the revision they last read, in one paragraph of plain prose. No bullet list."}
+ ],{kind:"changed"}));
 }
 const AI_FAQ_SCHEMA={name:"faq",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},a:{type:"string"}},required:["q","a"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiFaq(){
- return aiCached("faq",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You write the six questions a reader of this design document will ask that the document never states, with the answer the document gives. Each answer is at most 40 words and cites an entry by its id alone in round brackets, like: (DQ16); the page renders that id as the entry's handle."},
-  {role:"user",content:aiContext()}
- ],{effort:"low",schema:AI_FAQ_SCHEMA}));
+ return aiCached("faq",String(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Write the six questions a reader of this document will ask that the document never states outright, each with the answer the document gives. Each answer is at most 40 words and cites the entry it rests on."}
+ ],{kind:"faq",schema:AI_FAQ_SCHEMA}));
 }
 const AI_GLOSS_SCHEMA={name:"glossary",schema:{type:"object",properties:{terms:{type:"array",items:{type:"object",properties:{k:{type:"string"},v:{type:"string"}},required:["k","v"],additionalProperties:false}}},required:["terms"],additionalProperties:false}};
 async function aiGlossary(){
  const known=TERMS.map(t=>t.k).join(", ");
- return aiCached("glossary",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You find the terms a design document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."},
-  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\n"+aiContext()}
- ],{effort:"low",schema:AI_GLOSS_SCHEMA}));
+ return aiCached("glossary",String(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Already defined: "+(known||"nothing")+"\n\nFind the terms this document uses without defining, and define each in at most 20 words from the document itself. At most eight terms, none of them already defined, none of them ordinary English."}
+ ],{kind:"glossary",schema:AI_GLOSS_SCHEMA}));
 }
 const AI_PATH_SCHEMA={name:"reading_path",schema:{type:"object",properties:{title:{type:"string"},items:{type:"array",items:{type:"object",properties:{id:{type:"string"},why:{type:"string"}},required:["id","why"],additionalProperties:false}}},required:["title","items"],additionalProperties:false}};
 async function aiReadAs(roleIx){
  const [label,role]=AI_ROLES[roleIx];
- return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You pick the six entries of a design document that one reader must read, in order, and give one line each on why. Use ids exactly as they appear."},
-  {role:"user",content:"Reader: "+role+" (title the path for them).\n\n"+aiContext()}
- ],{effort:"medium",schema:AI_PATH_SCHEMA}));
+ return aiCached("readas",label+"|"+(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Reader: "+role+".\n\nPick the six entries of this document that reader must read, in order, with one line each on why, and title the path for them. Use ids exactly as they appear."}
+ ],{kind:"readas",schema:AI_PATH_SCHEMA}));
 }
 const AI_QUIZ_SCHEMA={name:"quiz",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},options:{type:"array",items:{type:"string"}},answer:{type:"integer"},id:{type:"string"}},required:["q","options","answer","id"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiQuiz(){
- return aiCached("quiz",String(META.rev||0),()=>aiOnce([
-  {role:"system",content:"You write five multiple-choice questions that check whether a reviewer understood a design document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."},
-  {role:"user",content:aiContext()}
- ],{effort:"medium",schema:AI_QUIZ_SCHEMA}));
+ return aiCached("quiz",String(META.rev||0),()=>aiOnce(()=>[
+  {role:"system",content:aiSystem()},
+  {role:"user",content:"Write five multiple-choice questions that check whether a reviewer understood this document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."}
+ ],{kind:"quiz",schema:AI_QUIZ_SCHEMA}));
 }
+const AI_FOLLOW_SCHEMA={name:"followups",schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"],additionalProperties:false}};
+async function aiFollowups(question,answer){
+ const out=await aiCached("followups",question+"|"+answer,()=>aiOnce(()=>[
+  {role:"system",content:"You propose the three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked."},
+  {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
+ ],{kind:"followups",schema:AI_FOLLOW_SCHEMA}));
+ return (out.items||[]).filter(s=>typeof s==="string"&&s.trim()).slice(0,3);
+}
+function aiDiagText(){
+ const L=[];
+ if(aiCtxStats){
+  const s=aiCtxStats;
+  L.push("context "+s.total+" tokens · document "+s.doc+" · handles "+s.handles+" · notes "+s.notes+" · log "+s.log+(s.terms?" · terms "+s.terms:"")+(s.dropped.length?" · dropped: "+s.dropped.join(", "):""));
+ }
+ if(aiUsage)L.push("last call · prompt "+aiUsage.prompt+" ("+aiUsage.cached+" cached) · completion "+aiUsage.completion+" · reasoning "+aiUsage.reasoning);
+ if(aiTally)L.push("this tab · "+aiTally.calls+" calls · prompt "+aiTally.prompt+" ("+aiTally.cached+" cached) · completion "+aiTally.completion);
+ return L.join("\n");
+}
+function aiDiagRender(){$("#aiDiag").textContent=aiDiagText()}
 
 function aiBusyNode(label){
  const box=el("div","ai-msg ai-assistant");
@@ -3928,84 +5175,232 @@ function aiBusyNode(label){
  return aiNode(box);
 }
 function aiFail(box,e){box.innerHTML="";box.append(el("span","ai-err",esc("Sorry — "+e.message)))}
-async function aiFeature(label,run){
- $("#ai").hidden=false;
- const box=aiBusyNode(label+"…");
- try{await run(box)}catch(e){aiFail(box,e)}
+function aiCard(title,kind){
+ const card=el("section","ai-card");
+ card.dataset.kind=kind;
+ const head=el("div","ai-card-head",`<b>${esc(title)}</b>`);
+ const x=el("button","ai-x","×");
+ x.type="button";
+ x.setAttribute("aria-label","Remove this card");
+ x.onclick=()=>{
+  const i=aiChat.indexOf(card.aiRec);
+  if(i>=0){aiChat.splice(i,1);aiSaveChat()}
+  card.remove();
+ };
+ head.append(x);
+ card.append(head,el("div","ai-card-body"));
+ return card;
+}
+const AI_CARDS={faq:aiRenderFaq,quiz:aiRenderQuiz,terms:aiRenderGlossary,readas:aiRenderReadAs,changed:aiRenderChanged,tldr:aiRenderSection};
+function aiRenderCard(rec){
+ const card=aiCard(rec.title,rec.kind);
+ card.aiRec=rec;
+ AI_CARDS[rec.kind](card.querySelector(".ai-card-body"),rec.data);
+ return card;
+}
+async function aiFeature(label,kind,title,fetch){
+ aiOpen();
+ const busy=aiBusyNode(label+"…");
+ try{
+  const data=await fetch();
+  const rec={role:"card",kind,title,data};
+  busy.replaceWith(aiRenderCard(rec));
+  aiChat.push(rec);
+  aiSaveChat();
+ }catch(e){aiFail(busy,e)}
  aiScrollLog();
 }
-function aiShowFaq(){
- return aiFeature("Working out the questions people ask",async box=>{
-  const out=await aiFaq();
-  box.innerHTML="<h3>Questions people ask</h3>"+(out.items||[]).map(it=>`<p><b>${esc(it.q)}</b><br>${inline(it.a)}</p>`).join("");
-  scrub(box);
- });
+function aiShowFaq(){return aiFeature("Working out the questions people ask","faq","Questions people ask",aiFaq)}
+function aiRenderFaq(body,out){
+ (out.items||[]).forEach(it=>body.append(el("details",null,`<summary>${esc(it.q)}</summary><p>${inline(it.a)}</p>`)));
+ scrub(body);
 }
 function aiShowChanged(){
- if(!DIFF)return aiFeature("Comparing revisions",async box=>{box.textContent="Pick a revision to compare against first."});
- return aiFeature("Reading the diff",async box=>{
-  const text=await aiChangedSince();
-  const chips=Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,12);
-  box.innerHTML=mdToHtml(text)+(chips.length?`<p class="ai-changed">Changed: ${chips.map(id=>refChip(id)).join(" ")}</p>`:"");
-  scrub(box);
+ if(!DIFF){aiOpen();aiNode(el("div","ai-msg ai-assistant","Pick a revision to compare against first."));return}
+ const base=DIFF.base.rev;
+ return aiFeature("Reading the diff","changed","What changed since r"+base,async()=>({
+  text:await aiChangedSince(),
+  ids:Object.keys(DIFF.marks).map(k=>k.split(":")[1]).filter(id=>REF[id]).slice(0,40)
+ }));
+}
+function aiRenderChanged(body,d){
+ body.innerHTML=mdToHtml(d.text);
+ if(d.ids.length)body.append(el("details","ai-changed",`<summary>${esc(d.ids.length+" changed entries")}</summary><p>${d.ids.map(refChip).join(" ")}</p>`));
+ scrub(body);
+}
+function aiShowQuiz(){return aiFeature("Writing five questions","quiz","Check my understanding",aiQuiz)}
+function aiRenderQuiz(body,out){
+ (out.items||[]).forEach((q,qi)=>{
+  const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
+  (q.options||[]).forEach((opt,oi)=>{
+   const b=el("button","ai-opt",esc(opt));
+   b.type="button";
+   b.onclick=()=>{
+    wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
+    b.classList.add(oi===q.answer?"ok":"bad");
+    const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
+    if(REF[q.id]){
+     const a=el("a","ref","Show me");
+     a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
+     foot.append(a);
+    }
+    wrap.append(foot);
+   };
+   wrap.append(b);
+  });
+  body.append(wrap);
  });
 }
-function aiShowQuiz(){
- return aiFeature("Writing five questions",async box=>{
-  const out=await aiQuiz();
-  box.innerHTML="<h3>Check my understanding</h3>";
-  (out.items||[]).forEach((q,qi)=>{
-   const wrap=el("div","ai-q",`<p><b>${esc(qi+1+". ")}</b>${esc(q.q)}</p>`);
-   (q.options||[]).forEach((opt,oi)=>{
-    const b=el("button","ai-opt",esc(opt));
-    b.onclick=()=>{
-     wrap.querySelectorAll(".ai-opt").forEach(x=>{x.disabled=true});
-     b.classList.add(oi===q.answer?"ok":"bad");
-     const foot=el("p","ai-qa",oi===q.answer?"Right. ":"Not quite. ");
-     if(REF[q.id]){
-      const a=el("a","ref","Show me");
-      a.href="#";a.onclick=ev=>{ev.preventDefault();openRef(q.id);aiMark(q.id)};
-      foot.append(a);
-     }
-     wrap.append(foot);
-    };
-    wrap.append(b);
-   });
-   box.append(wrap);
-  });
- });
+function aiPickRole(anchor){
+ aiMenuAt(anchor,AI_ROLES.map(([label,desc],ix)=>({label:"Read as "+label,sub:desc,run:()=>aiShowReadAs(ix)})));
 }
 function aiShowReadAs(roleIx){
- return aiFeature("Picking what "+AI_ROLES[roleIx][0]+" should read",async box=>{
+ const [label]=AI_ROLES[roleIx];
+ return aiFeature("Picking what "+label+" should read","readas","Read as "+label,async()=>{
   const out=await aiReadAs(roleIx);
-  aiRenderPath(out.title||("Read as "+AI_ROLES[roleIx][0]),out.items||[]);
-  box.innerHTML=`<h3>${esc(out.title||"Read this first")}</h3>`+(out.items||[]).map(x=>{
-   const e=aiEntry(x.id);
-   return `<p>${e?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`;
-  }).join("")+'<p class="ai-note-in">Pinned in the sidebar; tick a row to jump to it.</p>';
-  scrub(box);
+  const d={title:out.title||"",items:out.items||[],role:label};
+  aiRenderPath(d.title||"Read as "+label,d.items);
+  return d;
+ });
+}
+function aiRenderReadAs(body,d){
+ body.innerHTML=(d.title?`<p><b>${esc(d.title)}</b></p>`:"")+d.items.map(x=>`<p>${REF[x.id]?refChip(x.id):esc(x.id)} — ${esc(plain(x.why||""))}</p>`).join("");
+ const pin=el("button","ai-btn","Pin in the sidebar");
+ pin.type="button";
+ pin.onclick=()=>{aiRenderPath(d.title||"Read as "+d.role,d.items);pin.textContent="Pinned in the sidebar"};
+ body.append(pin);
+ scrub(body);
+}
+function aiAddDefs(terms){
+ window.ddTerms.add(terms);
+ const host=$("#defsList");
+ if(!host)return;
+ terms.forEach(t=>{
+  if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
+  const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
+  card.dataset.aiTerm=t.k;
+  host.append(card);
  });
 }
 function aiShowGlossary(){
- return aiFeature("Looking for terms the document never defines",async box=>{
+ return aiFeature("Looking for terms the document never defines","terms","Terms the document never defines",async()=>{
   const out=await aiGlossary();
-  const terms=(out.terms||[]).filter(t=>t&&t.k&&t.v);
-  window.ddTerms.add(terms);
-  const host=$("#defsList");
-  if(host)terms.forEach(t=>{
-   if(host.querySelector(`[data-ai-term="${CSS.escape(t.k)}"]`))return;
-   const card=el("div","def ai-def",`<b>${esc(t.k)} <span class="pill p-acc ai-pill">AI-defined</span></b><span>${esc(t.v)}</span>`);
-   card.dataset.aiTerm=t.k;
-   host.append(card);
-  });
-  box.innerHTML="<h3>Terms the document never defines</h3>"+terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
-  const copy=el("button","ai-btn","Copy as JSON");
-  copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
-  box.append(copy);
-  const go=el("button","ai-btn","Show them in Terms");
-  go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
-  box.append(go);
+  return (out.terms||[]).filter(t=>t&&t.k&&t.v);
  });
+}
+function aiRenderGlossary(body,terms){
+ aiAddDefs(terms);
+ body.innerHTML=terms.map(t=>`<p><b>${esc(t.k)}</b> — ${esc(t.v)}</p>`).join("");
+ const copy=el("button","ai-btn","Copy as JSON");
+ copy.type="button";
+ copy.onclick=()=>navigator.clipboard.writeText(JSON.stringify(terms,null,1)).then(()=>{copy.textContent="Copied"});
+ const go=el("button","ai-btn","Show them in Terms");
+ go.type="button";
+ go.onclick=()=>{const g=document.getElementById("ground");if(g){unveil();g.scrollIntoView({block:"start"})}};
+ body.append(copy,go);
+}
+function aiShowSection(id){
+ const name=AI_SECTION_NAMES[id];
+ if(!name)return;
+ return aiFeature("Summarising "+name,"tldr","TL;DR: "+name,async()=>({id,md:await aiSummariseSection(id)}));
+}
+function aiRenderSection(body,d){
+ body.innerHTML=mdToHtml(d.md);
+ const sec=document.getElementById(d.id);
+ if(sec){
+  const show=el("button","ai-btn","Show under the heading");
+  show.type="button";
+  show.onclick=()=>{
+   const box=sec.querySelector(".ai-sub")||el("div","sub ai-sub");
+   box.innerHTML=mdToHtml(d.md);
+   scrub(box);
+   const sub=sec.querySelector("p.sub");
+   (sub&&!sub.hidden?sub:sec.querySelector("h2")).after(box);
+   unveil();
+   box.scrollIntoView({block:"center"});
+   show.textContent="Shown under the heading";
+  };
+  body.append(show);
+ }
+ scrub(body);
+}
+function aiClear(){
+ aiChat=[];
+ $("#aiLog").querySelectorAll(".ai-msg,.ai-card").forEach(n=>n.remove());
+ clearAiMarks();
+ aiSaveChat();
+ $("#aiPath").hidden=true;
+ aiSetAbout(null);
+ aiBarText("");
+ aiSetFollow(null);
+}
+
+function aiPlaceMenu(menu,anchor){
+ document.body.append(menu);
+ const r=anchor.getBoundingClientRect();
+ menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
+ menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+ const onScroll=e=>{
+  if(menu.contains(e.target))return;
+  menu.remove();
+  removeEventListener("scroll",onScroll,true);
+ };
+ addEventListener("scroll",onScroll,true);
+ const first=menu.querySelector("button");
+ if(first)first.focus();
+}
+function aiMenuAt(anchor,items){
+ document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
+ const menu=el("div","ai-menu ai-cmds");
+ menu.setAttribute("role","menu");
+ items.forEach(it=>{
+  const b=el("button","ai-menu-item",`<span>${esc(it.label)}</span>`+(it.sub?`<small>${esc(it.sub)}</small>`:""));
+  b.type="button";
+  b.setAttribute("role","menuitem");
+  b.onclick=()=>{menu.remove();it.run()};
+  menu.append(b);
+ });
+ aiPlaceMenu(menu,anchor);
+ return menu;
+}
+const aiCmds=()=>AI_CMDS.filter(c=>!c.when||c.when());
+const aiCmdSub=c=>typeof c.sub==="function"?c.sub():c.sub||"";
+function aiMoreMenu(){
+ const anchor=$("#aiMore");
+ aiMenuAt(anchor,aiCmds().map(c=>({label:c.label,sub:aiCmdSub(c),run:()=>c.run(anchor)})));
+}
+function aiSlashHide(){
+ const host=$("#aiSlash");
+ host.hidden=true;
+ host.innerHTML="";
+ aiSlashList=[];
+}
+function aiSlashRender(){
+ const m=/^\/(\w*)$/.exec($("#aiIn").value);
+ if(!m){aiSlashHide();return}
+ const q=m[1].toLowerCase();
+ aiSlashList=aiCmds().filter(c=>c.id.startsWith(q)||c.label.toLowerCase().includes(q));
+ if(!aiSlashList.length){aiSlashHide();return}
+ aiSlashIx=Math.min(aiSlashIx,aiSlashList.length-1);
+ const host=$("#aiSlash");
+ host.innerHTML="";
+ aiSlashList.forEach((c,i)=>{
+  const sub=aiCmdSub(c);
+  const row=el("div","ai-slash-row"+(i===aiSlashIx?" on":""),`<span class="ai-slash-k">/${esc(c.id)}</span><span class="ai-slash-l">${esc(c.label)}</span>`+(sub?`<small>${esc(sub)}</small>`:""));
+  row.setAttribute("role","option");
+  row.setAttribute("aria-selected",String(i===aiSlashIx));
+  row.onclick=()=>aiSlashRun(c);
+  host.append(row);
+ });
+ host.hidden=false;
+}
+function aiSlashRun(c){
+ if(!c)return;
+ const box=$("#aiIn");
+ box.value="";
+ aiGrow(box);
+ aiSlashHide();
+ c.run(box);
 }
 
 function aiRowMenu(anchor,entry,kind){
@@ -4018,6 +5413,7 @@ function aiRowMenu(anchor,entry,kind){
  roles.append(el("span","ai-menu-label","Explain for"));
  AI_ROLES.forEach(([label],ix)=>{
   const b=el("button","ai-btn",label);
+  b.type="button";
   b.onclick=async()=>{
    roles.querySelectorAll(".ai-btn").forEach(x=>x.classList.remove("on"));
    b.classList.add("on");
@@ -4032,16 +5428,19 @@ function aiRowMenu(anchor,entry,kind){
  menu.append(roles);
  const acts=el("div","ai-menu-row");
  const why=el("button","ai-btn","Why is this here");
+ why.type="button";
  why.onclick=async()=>{
   out.textContent="…";
   try{const text=await aiWhyHere(entry,kind);out.innerHTML=mdToHtml(text);scrub(out)}
   catch(e){out.textContent="Sorry — "+e.message}
  };
  const review=el("button","ai-btn","Draft a review comment");
+ review.type="button";
  review.onclick=()=>{
   out.innerHTML="";
   const ta=el("textarea","ai-ta");ta.placeholder="What worries you about this?";ta.rows=2;
   const go=el("button","ai-btn","Draft it");
+  go.type="button";
   go.onclick=async()=>{
    const concern=ta.value.trim();
    if(!concern)return;
@@ -4050,6 +5449,7 @@ function aiRowMenu(anchor,entry,kind){
     const text=await aiReviewComment(entry,kind,concern);
     out.innerHTML=mdToHtml(text);scrub(out);
     const copy=el("button","ai-btn","Copy");
+    copy.type="button";
     copy.onclick=()=>navigator.clipboard.writeText(text).then(()=>{copy.textContent="Copied"});
     out.append(copy);
    }catch(e){out.textContent="Sorry — "+e.message}
@@ -4057,55 +5457,51 @@ function aiRowMenu(anchor,entry,kind){
   out.append(ta,go);ta.focus();
  };
  const ask=el("button","ai-btn","Ask about this");
- ask.onclick=()=>{menu.remove();aiOpen("About "+aiHandle(entry)+" ("+entry.id+"): ")};
+ ask.type="button";
+ ask.onclick=()=>{menu.remove();aiOpen(null,{kind:"entry",id:entry.id,text:aiHandle(entry)})};
  acts.append(why,review,ask);
  menu.append(acts,out);
- document.body.append(menu);
- const r=anchor.getBoundingClientRect();
- menu.style.left=Math.min(Math.max(8,r.left-40),innerWidth-menu.offsetWidth-8)+"px";
- menu.style.top=(r.bottom+8+menu.offsetHeight>innerHeight?Math.max(8,r.top-menu.offsetHeight-8):r.bottom+8)+"px";
+ aiPlaceMenu(menu,anchor);
 }
-function aiAskButton(row,entry,kind){
- if(row.querySelector(":scope > .ai-ask, :scope > summary .ai-ask"))return;
- const b=el("button","ai-ask ai-only","Ask");
- b.type="button";
- b.title="Explain this, or ask about it";
- b.onclick=ev=>{ev.preventDefault();ev.stopPropagation();aiRowMenu(b,entry,kind)};
- const host=row.querySelector(":scope > summary .lrow")||row.querySelector(":scope > summary .meta")||row.querySelector(":scope > summary")||row;
- host.append(b);
+function aiAskBtn(id){
+ return `<button class="ai-ask ai-only" type="button" data-ask="${esc(id)}" aria-label="Ask about this" title="Ask about this">✦</button>`;
 }
 function aiWireRows(){
- document.addEventListener("pointerover",e=>{
-  if(!HTML.dataset.ai||!e.target.closest)return;
-  const row=e.target.closest("details.ledger[id^='item-'],details.spot,.orow,details.ledger[id^='c-']");
-  if(!row)return;
-  const id=row.id.replace(/^(item-|spot-|open-)/,"");
-  const entry=aiEntry(id);
-  if(entry)aiAskButton(row,entry,aiKind(id));
- });
  document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("[data-ask]");
+  if(b){
+   e.preventDefault();
+   const entry=aiEntry(b.dataset.ask);
+   if(entry)aiRowMenu(b,entry,aiKind(b.dataset.ask));
+   return;
+  }
   const menu=document.querySelector(".ai-menu");
   if(!menu)return;
   const path=e.composedPath?e.composedPath():[];
-  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest(".ai-ask")))return;
+  if(path.includes(menu)||menu.contains(e.target)||(e.target.closest&&e.target.closest("#aiMore")))return;
   menu.remove();
  });
 }
 function aiWireSelection(){
  const chip=el("button","ai-sel ai-only","Ask about this");
+ chip.type="button";
  chip.hidden=true;
  document.body.append(chip);
  chip.onclick=()=>{
   const text=String(getSelection()).trim().slice(0,600);
   chip.hidden=true;
-  aiOpen("About this passage: “"+text+"”\n\n");
+  aiOpen(null,{kind:"passage",text});
  };
  document.addEventListener("pointerup",()=>{
   setTimeout(()=>{
    if(!HTML.dataset.ai)return;
    const sel=getSelection(),text=String(sel).trim();
-   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)){chip.hidden=true;return}
+   if(text.length<12||!sel.rangeCount||!$("#main").contains(sel.anchorNode)||$("#ai").contains(document.activeElement)){chip.hidden=true;return}
    const r=sel.getRangeAt(0).getBoundingClientRect();
+   if(aiState!=="bar"){
+    const p=$("#aiPanel").getBoundingClientRect();
+    if(r.right>p.left&&r.left<p.right&&r.bottom>p.top&&r.top<p.bottom){chip.hidden=true;return}
+   }
    chip.style.left=Math.min(Math.max(8,r.left),innerWidth-160)+"px";
    chip.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
    chip.hidden=false;
@@ -4119,35 +5515,18 @@ function aiWireSections(){
   entries.forEach(en=>{
    if(!en.isIntersecting)return;
    aiSec=en.target.id;
-   if(!$("#ai").hidden)aiSuggest();
+   $("#aiCtx").textContent=AI_SECTION_NAMES[aiSec]?"§ "+AI_SECTION_NAMES[aiSec]:"";
+   if(aiState!=="bar")aiSuggest();
   });
  },{rootMargin:"-25% 0px -60% 0px"});
  secs.forEach(s=>io.observe(s));
- secs.forEach(s=>{
-  const h=s.querySelector("h2");
-  if(!h||!AI_SECTION_NAMES[s.id])return;
-  const b=el("button","ai-h2 ai-only","Summarise");
-  b.type="button";
-  b.onclick=async()=>{
-   b.disabled=true;b.textContent="…";
-   try{
-    const md=await aiSummariseSection(s.id);
-    const box=s.querySelector(".ai-sub")||el("div","sub ai-sub");
-    box.innerHTML=mdToHtml(md);
-    scrub(box);
-    const sub=s.querySelector("p.sub");
-    (sub&&!sub.hidden?sub:h).after(box);
-    b.textContent="Summarise";b.disabled=false;
-   }catch(e){b.textContent="Summarise";b.disabled=false;alert("Sorry — "+e.message)}
-  };
-  h.append(b);
- });
 }
 function aiWireDiffPanel(){
  const panel=$("#diffPanel");
  const add=()=>{
   if(panel.hidden||!DIFF||panel.querySelector(".ai-changed-btn"))return;
   const b=el("button","xbtn ai-changed-btn ai-only","What changed, in prose");
+  b.type="button";
   b.onclick=aiShowChanged;
   const head=panel.querySelector("div");
   if(head)head.append(b);
@@ -4162,24 +5541,9 @@ function aiWireTools(){
  path.hidden=true;
  rail.insertBefore(path,rail.querySelector(".spacer"));
  const ask=el("button","toolbtn ai-only","Ask the doc");
+ ask.type="button";
  ask.onclick=()=>aiOpen();
  $("#toolrow").prepend(ask);
- const termHead=document.querySelector("#ground h3");
- if(termHead){
-  const g=el("button","ai-h2 ai-only","Find undefined terms");
-  g.onclick=aiShowGlossary;
-  termHead.append(g);
- }
- const foot=document.querySelector("footer");
- if(foot){
-  const p=el("p","ai-only ai-footrow");
-  const quiz=el("button","xbtn","Check my understanding");
-  quiz.onclick=aiShowQuiz;
-  const faq=el("button","xbtn","Questions people ask");
-  faq.onclick=aiShowFaq;
-  p.append(quiz,faq);
-  foot.append(p);
- }
 }
 
 function palItems(){
@@ -4234,17 +5598,14 @@ function palItems(){
  if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
  if(DIAGRAM_SOURCE)cmd("Open the system diagram, full size",()=>openFullDiagram(DIAGRAM.caption?plain(DIAGRAM.caption):"The system"));
  if(PATHS.length)cmd("Play the request",()=>{const b=document.querySelector(".tracebtn");if(b){b.scrollIntoView({block:"center"});b.click()}});
+ if(QA&&QA.questions.length)cmd("Replay the interview",()=>showQaReplay());
  if(!HTML.dataset.ai)return items;
- const ai=(label,run)=>push("ai",label,"Ask",run);
- ai("Questions people ask",aiShowFaq);
- ai("Check my understanding",aiShowQuiz);
- ai("Find undefined terms",aiShowGlossary);
- AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));
- if(DIFF)ai("What changed, in prose",aiShowChanged);
- ai("Summarise this section",async()=>{
-  const b=document.querySelector("#"+aiSec+" .ai-h2");
-  if(b)b.click();
+ const ai=(label,run,sub)=>push("ai",label,sub||"Ask",run);
+ aiCmds().forEach(c=>{
+  if(c.id==="read"){AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));return}
+  ai(c.label,()=>c.run($("#aiMore")),aiCmdSub(c)||"Ask");
  });
+ if(LINKED)ai("What's shipped?",()=>aiAsk("What has shipped so far?"));
  ai("Ask anything",()=>aiOpen());
  return items;
 }
@@ -4254,10 +5615,11 @@ function palScore(item,q){
  if(i<0)return -1;
  return (item.label.toLowerCase().startsWith(q)?0:1)+(i>item.label.length?1:0)+i/400;
 }
-let palList=[],palIx=0,palAll=null;
+let palList=[],palIx=0,palAll=null,palHits=[],palTimer=0,palLive=null;
 function palRender(){
  const box=$("#palList");box.innerHTML="";
  palList.forEach((it,ix)=>{
+  if(it.kind==="divider"){box.append(el("div","pal-row pal-div",esc(it.label)));return}
   const row=el("div","pal-row"+(ix===palIx?" on":""),
    `<span class="pal-g">${esc(AI_GLYPH[it.kind]||"›")}</span>`+
    (it.dot?`<i class="pal-dot ${esc(it.dot)}"></i>`:"")+
@@ -4270,26 +5632,103 @@ function palRender(){
  const on=box.querySelector(".pal-row.on");
  if(on)on.scrollIntoView({block:"nearest"});
 }
+function palStep(dir){
+ const n=palList.length;
+ if(!n)return;
+ let ix=palIx;
+ do{ix=Math.min(n-1,Math.max(0,ix+dir))}while(palList[ix].kind==="divider"&&ix>0&&ix<n-1);
+ if(palList[ix].kind!=="divider")palIx=ix;
+ palRender();
+}
 function palSearch(raw){
  const all=palAll||(palAll=palItems());
  const s=String(raw||"");
  const mode=s[0]===">"?"cmd":s[0]==="?"&&HTML.dataset.ai?"ai":"";
- const q=(mode?s.slice(1):s).trim().toLowerCase();
+ const ask=(mode?s.slice(1):s).trim();
+ const q=ask.toLowerCase();
  let pool=mode==="cmd"?all.filter(i=>i.kind==="cmd"):mode==="ai"?all.filter(i=>i.kind==="ai"):all;
- if(q){
-  pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
- }else if(!mode){
-  pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
- }
+ if(q)pool=pool.map(i=>({i,sc:palScore(i,q)})).filter(x=>x.sc>=0).sort((a,b)=>a.sc-b.sc).map(x=>x.i);
+ else if(!mode)pool=pool.filter(i=>i.kind==="section"||i.kind==="ai").slice(0,12);
+ palAbortRun();
  palList=pool.slice(0,40);
- if(q&&!mode&&HTML.dataset.ai)palList.push({kind:"ai",label:"Ask the doc for “"+q+"”",sub:"No exact match — ask instead",run:()=>aiAsk(q)});
+ palHits=palList.slice(0,6);
+ if(q&&mode!=="cmd"&&HTML.dataset.ai){
+  palList.push({kind:"ai",label:"Ask the doc for “"+ask+"”",sub:pool.length?"Ask instead":"No exact match — ask instead",stay:true,ask:true,run:()=>palAsk(ask)});
+  if(ask.length>=4&&(mode==="ai"||!pool.length))palSchedule(ask);
+ }
  palIx=0;
  palRender();
 }
+function palSchedule(q){
+ clearTimeout(palTimer);
+ palTimer=setTimeout(()=>palAsk(q),600);
+}
+function palAbortRun(){
+ clearTimeout(palTimer);
+ palTimer=0;
+ if(palLive){palLive.ctrl.abort();palLive=null}
+ const host=$("#palAns");
+ host.hidden=true;
+ host.innerHTML="";
+}
+const palHandoffRow=()=>({kind:"ai",label:"Open in Ask ↵",sub:"Continue this in the panel",stay:true,run:palHandoff});
+function palAsk(q){
+ palAbortRun();
+ const host=$("#palAns");
+ host.hidden=false;
+ const body=el("div","pal-ans-body");
+ body.append(el("span","ai-wait","Thinking…"));
+ host.append(body);
+ const run=aiStartRun(q,{tools:AI_TOOLS_READ});
+ palLive=run;
+ const i=palList.findIndex(it=>it.ask);
+ if(i>=0){palList[i]=palHandoffRow();palRender()}
+ let pending=0;
+ const paint=()=>{pending=0;if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}};
+ run.listeners.add(r=>{
+  if(palLive!==r)return;
+  if(!r.done){if(!pending)pending=requestAnimationFrame(paint);return}
+  if(pending)cancelAnimationFrame(pending);
+  pending=0;
+  if(r.error){if(r.error.name!=="AbortError")aiFail(body,r.error);return}
+  paint();
+  if(!r.text)body.textContent="No answer came back.";
+  palFinish(r);
+ });
+}
+function palCited(run){
+ const ids=[];
+ if(ID_RE)String(run.text).replace(ID_RE,(all,pre,id)=>{ids.push(id);return all});
+ return [...new Set([...run.sources,...ids])].filter(id=>REF[id]).slice(0,8);
+}
+function palFinish(run){
+ const list=palHits.slice();
+ const cited=palCited(run);
+ if(cited.length){
+  list.push({kind:"divider",label:"Cited"});
+  cited.forEach(id=>{
+   const e=aiEntry(id);
+   if(!e)return;
+   list.push({kind:aiKind(id),label:aiHandle(e),sub:plain(e.p||e.t||""),dot:(AI_STATUS[e.s]||["",""])[0],rid:id,run:()=>{openRef(id);aiMark(id)}});
+  });
+ }
+ list.push(palHandoffRow());
+ palList=list;
+ palIx=list.length-1;
+ palRender();
+}
+function palHandoff(){
+ const run=palLive;
+ if(!run)return;
+ palLive=null;
+ palClose();
+ aiOpen();
+ aiAdopt(run);
+}
 function palRun(ix){
  const it=palList[ix];
- if(!it)return;
- palClose();
+ if(!it||it.kind==="divider")return;
+ if(!it.stay)palClose();
  it.run();
 }
 function palOpen(seed){
@@ -4303,13 +5742,16 @@ function palOpen(seed){
  input.focus();
  input.select();
 }
-function palClose(){$("#pal").hidden=true}
+function palClose(){
+ $("#pal").hidden=true;
+ palAbortRun();
+}
 function palWire(){
  const input=$("#palIn");
  input.oninput=()=>palSearch(input.value);
  input.onkeydown=e=>{
-  if(e.key==="ArrowDown"){e.preventDefault();palIx=Math.min(palList.length-1,palIx+1);palRender()}
-  else if(e.key==="ArrowUp"){e.preventDefault();palIx=Math.max(0,palIx-1);palRender()}
+  if(e.key==="ArrowDown"){e.preventDefault();palStep(1)}
+  else if(e.key==="ArrowUp"){e.preventDefault();palStep(-1)}
   else if(e.key==="Enter"){e.preventDefault();palRun(palIx)}
   else if(e.key==="Escape"){e.preventDefault();palClose()}
  };
@@ -4328,32 +5770,34 @@ function aiWireKeys(){
   if(meta&&e.key.toLowerCase()==="k"){e.preventDefault();$("#pal").hidden?palOpen(""):palClose();return}
   if(e.key==="Escape"&&!$("#pal").hidden){palClose();return}
   if(!HTML.dataset.ai)return;
-  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();$("#ai").hidden?aiOpen():aiClose();return}
+  if(meta&&e.key.toLowerCase()==="j"){e.preventDefault();aiToggle();return}
   if(e.key==="?"&&!aiTyping()){e.preventDefault();aiOpen();return}
-  if(e.key==="Escape"){
-   document.querySelectorAll(".ai-menu").forEach(m=>m.remove());
-   clearAiMarks();
-   if(!$("#ai").hidden&&!aiBusy)aiClose();
-   if(aiBusy)aiStop();
-  }
+  if(e.key!=="Escape"||$("#mback").classList.contains("open"))return;
+  if(!$("#aiSlash").hidden){aiSlashHide();return}
+  const menu=document.querySelector(".ai-menu");
+  if(menu){menu.remove();return}
+  clearAiMarks();
+  if(aiBusy){aiStop();return}
+  if(aiState!=="bar")aiCollapse();
  });
 }
-function aiWirePopover(){
- $("#aiClose").onclick=aiClose;
- $("#aiWide").onclick=()=>{
-  const pop=$("#ai");
-  if(pop.dataset.wide)delete pop.dataset.wide;else pop.dataset.wide="1";
-  document.body.classList.toggle("ai-wide",!!pop.dataset.wide);
+function aiWirePanel(){
+ $("#aiBar").onclick=()=>aiOpen();
+ $("#aiClose").onclick=aiCollapse;
+ $("#aiWide").onclick=()=>aiSetState(aiState==="wide"?"dock":"wide");
+ $("#aiMore").onclick=()=>{
+  const open=document.querySelector(".ai-menu.ai-cmds");
+  if(open)open.remove();else aiMoreMenu();
  };
- $("#aiClear").onclick=()=>{
-  aiChat=[];
-  $("#aiLog").innerHTML="";
-  clearAiMarks();
-  aiSaveChat();
- };
+ const log=$("#aiLog");
+ log.addEventListener("scroll",()=>{aiStick=log.scrollTop+log.clientHeight>=log.scrollHeight-24});
  const box=$("#aiIn");
- box.addEventListener("input",()=>aiGrow(box));
+ box.addEventListener("input",()=>{aiGrow(box);aiSlashIx=0;aiSlashRender()});
  box.addEventListener("keydown",e=>{
+  const open=!$("#aiSlash").hidden;
+  if(open&&e.key==="ArrowDown"){e.preventDefault();aiSlashIx=Math.min(aiSlashList.length-1,aiSlashIx+1);aiSlashRender();return}
+  if(open&&e.key==="ArrowUp"){e.preventDefault();aiSlashIx=Math.max(0,aiSlashIx-1);aiSlashRender();return}
+  if(open&&(e.key==="Enter"||e.key==="Tab")){e.preventDefault();aiSlashRun(aiSlashList[aiSlashIx]);return}
   if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#aiForm").requestSubmit()}
  });
  $("#aiForm").addEventListener("submit",e=>{
@@ -4364,22 +5808,6 @@ function aiWirePopover(){
   box.value="";aiGrow(box);
   aiAsk(q);
  });
- const strip=$("#aiTools");
- [["Questions people ask",aiShowFaq],["Read as a role",()=>aiShowReadAs(0)],["Check my understanding",aiShowQuiz],["Find undefined terms",aiShowGlossary]].forEach(([label,run])=>{
-  const b=el("button","ai-chip",esc(label));
-  b.onclick=run;
-  strip.append(b);
- });
- const notes=el("label","ai-note-tog",'<input type="checkbox"> Include the working notes and question log');
- notes.querySelector("input").onchange=async e=>{
-  if(!e.target.checked){aiCtxText=null;return}
-  const extra=[];
-  for(const f of ["NOTES.md","qa-log.json"]){
-   try{extra.push("\n## "+f+"\n"+(await loadFile(f)).slice(0,20000))}catch(err){}
-  }
-  aiCtxText=aiContext()+extra.join("\n");
- };
- $("#aiNote").append(notes);
  $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
 }
 function aiBoot(){
@@ -4388,17 +5816,20 @@ function aiBoot(){
  aiWireKeys();
  palWire();
  palButton();
- aiConfig().then(cfg=>{
-  if(!cfg)return;
-  AI=cfg;
+ siteConfig().then(({ai,github})=>{
+  if(github)ghBoot(github.token);
+  if(!ai)return;
+  AI=ai;
   HTML.dataset.ai="1";
   aiWireTools();
-  aiWirePopover();
+  aiWirePanel();
+  aiReady=aiPrepare();
   aiWireRows();
   aiWireSelection();
   aiWireDiffPanel();
   aiLoadChat();
-  aiSuggest();
+  $("#ai").hidden=false;
+  $("#mbarAsk").hidden=false;
  });
 }
 function addAiTerms(list){
@@ -4445,7 +5876,7 @@ function aiComponentsMd(){
  add(META.ceilingsComponent);
  return L.join("\n\n");
 }
-window.designDocAi={ask:(q,o)=>aiAsk(q,o),config:()=>AI,context:()=>aiContext(),promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged};
+window.designDocAi={ask:(q,o)=>aiAsk(q,o),open:aiOpen,collapse:aiCollapse,state:()=>aiState,config:()=>AI,context:()=>aiContext(),ready:()=>aiReady,stats:()=>aiCtxStats,usage:()=>aiUsage,tally:()=>aiTally,diag:aiDiagText,promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged,section:aiShowSection};
 aiBoot();
 })();
 </script>

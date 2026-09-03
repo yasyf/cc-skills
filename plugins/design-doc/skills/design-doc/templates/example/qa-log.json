@@ -15,7 +15,8 @@
             { "label": "One file per queue", "description": "Maximum isolation; thousands of open files to manage." },
             { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
           ],
-          "answer": "One SQLite file per tenant"
+          "answer": "One SQLite file per tenant",
+          "decides": ["DQ1"]
         },
         {
           "header": "Delivery",
@@ -25,7 +26,8 @@
             { "label": "Exactly-once", "description": "A dedup ledger in the hot path; consumers never see duplicates." },
             { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
           ],
-          "answer": "At-least-once, but keep completed keys around so consumers can dedup cheaply"
+          "answer": "At-least-once, but keep completed keys around so consumers can dedup cheaply",
+          "decides": ["DQ2"]
         }
       ]
     },
@@ -44,7 +46,8 @@
             { "label": "Plain polling", "description": "Trivial clients; latency and load scale with the poll interval." },
             { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
           ],
-          "answer": "Long-poll HTTP (Recommended)"
+          "answer": "Long-poll HTTP (Recommended)",
+          "decides": ["DQ3", "DQ4", "V3"]
         },
         {
           "header": "v1 scope",
@@ -57,6 +60,7 @@
             { "label": "Add to open list", "description": "I don't know yet — record it as an open question." }
           ],
           "answer": "Retries with backoff, Add to open list",
+          "decides": ["Q2"],
           "note": "Scheduled jobs recorded as Q2 rather than decided here."
         }
       ]
