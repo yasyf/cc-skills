@@ -74,8 +74,9 @@ MERMAID_KEYWORDS = {"flowchart", "flowchart-elk", "graph", "subgraph", "end", "d
                     "LR", "RL", "TB", "TD", "BT"}
 MERMAID_STATEMENT = re.compile(r"^\s*(?:style|classDef|linkStyle|click)\b.*$", re.M)
 MERMAID_FRONTMATTER = re.compile(r"\A\s*---.*?^---[ \t]*$", re.S | re.M)
-MERMAID_EDGE_TEXT = re.compile(r"(?:--|-\.|==)\s[^\n]*?\s(?:-->|\.->|==>|---|-\.-|===)")
-MERMAID_ARROW = re.compile(r"[<>]?[-=.]{2,}[>xo]?|[<>]?[-=.]+>")
+MERMAID_EDGE_TEXT = re.compile(r"[ox](?:--|-\.|==)\s[^\n]*?\s(?:--|\.-|==)[ox]"
+                               r"|(?:--|-\.|==)\s[^\n]*?\s(?:--[->]|-\.-|\.->?|===|==>)")
+MERMAID_ARROW = re.compile(r"o[-=.]{2,}o|x[-=.]{2,}x|[<>]?[-=.]{2,}[>xo]?|[<>]?[-=.]+>")
 MERMAID_TOKEN = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)@?")
 NODE_DOM_ID = re.compile(r"flowchart-(.+)-\d+$")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")

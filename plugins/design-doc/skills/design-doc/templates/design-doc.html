@@ -344,8 +344,8 @@ footer a{cursor:pointer}
 .xs-panel>figure{margin:0;min-width:0;--figcap:min(70vh,calc(100svh - 260px))}
 .xs-panel[data-wide]>figure{--figcap:min(40svh,calc(100svh - 520px))}
 .xs-panel>figure svg:not(.xs-connect){display:block;width:100%;height:auto;max-width:min(100%,calc(var(--figcap) * var(--ar,2.4)));max-height:var(--figcap)}
-.xs-panel>figure .mmd-host{overflow:auto;max-height:var(--figcap)}
-.xs-panel>figure .mmd-host svg.mmd{width:max(100%,var(--mmd-min,0px));max-width:none;max-height:none;margin:0 auto}
+.xs-panel>figure .mmd-host{overflow:auto;max-height:var(--figcap);max-width:100%;min-width:0}
+.xs-panel>figure .mmd-host svg.mmd{width:100%;max-width:100%;max-height:none;margin:0 auto}
 .xs-panel figcaption{font-size:14px;color:var(--hero-ink2);margin-top:12px;max-width:60ch}
 .xs-panel h1,.xs-panel h2{font-family:var(--display);font-weight:600;letter-spacing:-.005em;text-wrap:balance;margin:0 0 .35em}
 .xs-panel h1{font-size:clamp(44px,5.6vw,84px);line-height:.96}
@@ -497,7 +497,7 @@ details.more>summary::-webkit-details-marker{display:none}
 .nbd svg.mmd{margin:0 auto;max-width:none}
 .nbdcap{font-size:12.5px;color:var(--ink2);margin-top:4px}
 
-svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted]{display:none}
+svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted],svg.mmd[data-hide-dotted] g.node[data-dotted]{display:none}
 .pzbox[data-static]{overflow:visible}
 .pzbox[data-static] svg{height:auto}
 .mbody .pzbox svg.fit{width:100%;height:100%;max-width:none}
@@ -541,7 +541,7 @@ section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line)
 @media print{
   #mbar,#secsheet,.railmore,.defsmore,.spotmore,[data-copy]{display:none!important}
   .def.hid,details.spot.hid{display:block}
-  svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted]{display:block}
+  svg.mmd[data-hide-dotted] path.flowchart-link[data-dotted],svg.mmd[data-hide-dotted] .edgeLabel[data-dotted],svg.mmd[data-hide-dotted] g.node[data-dotted]{display:block}
   #ceilings .twrap{display:block}
   .ceil-cards{display:none}
   details.orow>summary{display:block}
@@ -569,7 +569,6 @@ section:not(:has(> .sub:not([hidden]))) > h2{border-bottom:1px solid var(--line)
   .xs-panel[data-wide]>figure{max-width:none}
   .xs-panel>figure svg{max-height:none;max-width:none}
   .xs-panel .mmd-host{max-height:none;overflow:visible}
-  .xs-panel .mmd-host svg.mmd{width:100%!important}
   .xs-panel[data-kind=poster]{page:poster;break-before:page;break-after:page;zoom:.5;padding:0}
   .xs-panel[data-kind=poster] h1{font-size:64px}
   .xs-panel[data-kind=poster] .xs-sub{font-size:20px;margin-bottom:20px}
@@ -1360,7 +1359,7 @@ function mermaidLib(){
 }
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error(src));document.head.append(s)})}
 function panzoomLib(){return panzoomP||(panzoomP=loadScript(LIBS.panzoom).then(()=>window.svgPanZoom))}
-const EDGE_DECL=/^\s*([\w-]+)\s+([\w-]+)@\s*[-.=]+(?:[^\n]*?[-.=]+)?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
+const EDGE_DECL=/^\s*([\w-]+)\s+([\w-]+)@\s*<?[-.=]+(?:[^\n]*?[-.=]+)?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
 function authoredEdges(source){
  const m=new Map();
  String(source||"").split("\n").forEach(l=>{const d=EDGE_DECL.exec(l);if(d)m.set(d[2],[d[1],d[3]])});
@@ -1369,7 +1368,7 @@ function authoredEdges(source){
 const SG_OPEN=/^\s*subgraph\s+([\w-]+)/;
 const SG_END=/^\s*end\s*$/;
 const NODE_DECL=/^\s*([\w-]+)\s*[[({]/;
-const EDGE_LINE=/^\s*([\w-]+)\s+(?:[\w-]+@)?(?:--|-\.|==)[^>]*?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
+const EDGE_LINE=/^\s*([\w-]+)\s+(?:[\w-]+@)?<?(?:--|-\.|==)[^>]*?>\s*(?:\|[^|]*\|\s*)?([\w-]+)/;
 function readDiagram(source){
  const decl=new Map(),owner=new Map(),head=new Map(),edges=[],stack=[];
  String(source||"").split("\n").forEach(l=>{
@@ -1414,8 +1413,19 @@ function markDotted(svg){
   const lbl=svg.querySelector(`.edgeLabel[data-id="${CSS.escape(p.dataset.id||"")}"]`);
   if(lbl)lbl.dataset.dotted="1";
  });
- if(n)svg.dataset.hideDotted="1";
+ if(n){markDottedOnly(svg);svg.dataset.hideDotted="1"}
  return n;
+}
+function markDottedOnly(svg){
+ const solid=new Set();
+ svg.querySelectorAll("path.flowchart-link[data-from]:not([data-dotted])").forEach(p=>{solid.add(p.dataset.from);solid.add(p.dataset.to)});
+ svg.querySelectorAll("path.flowchart-link[data-from][data-dotted]").forEach(p=>{
+  [p.dataset.from,p.dataset.to].forEach(id=>{
+   if(solid.has(id))return;
+   const n=svg.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
+   if(n)n.dataset.dotted="1";
+  });
+ });
 }
 function tagDiagram(svg,id,source){
  const pre=id+"-flowchart-";
@@ -1743,10 +1753,7 @@ function mermaidBlocks(root){
   const fig=pre.closest("figure"),cap=fig&&fig.querySelector("figcaption");
   const label=pre.getAttribute("aria-label")||(cap?plain(cap.textContent):"Diagram");
   pre.replaceWith(host);
-  return mermaidJob(host,host.dataset.source,label,svg=>{
-   host.style.setProperty("--mmd-min",heroWidth(svg)+"px");
-   markWide(svg);
-  },heroInit);
+  return mermaidJob(host,host.dataset.source,label,markWide,heroInit);
  }));
 }
 function settleDeepLink(){
