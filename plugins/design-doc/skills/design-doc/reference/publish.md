@@ -90,12 +90,18 @@ The doc answers questions, summarises sections, explains an entry for a role, an
 ```
 
 ```json
+{"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b", "key": "<api key>", "reasoning": "high", "github": {"token": "<read-only PAT>"}}
+```
+
+```json
 {"disabled": true}
 ```
 
+`reasoning` and `github` are optional. Without `reasoning` the page grades effort by task: `high` for chat, quizzes and reading paths, `medium` for the one-shots, `low` for follow-up suggestions; a value pins every call. `gpt-oss-120b` is the model for text; `gemma-4-31b` only adds image input and treats every graded value as reasoning on. `github` carries the read-only token behind pull-request links.
+
 No file, or the kill switch, and the page hides every AI affordance: the Ask button, the `?` and Cmd-J shortcuts, the AI rows in Cmd-K, the Explain and Summarise controls. `check` validates the shape when the file is present: `endpoint` is an absolute `https://` URL, http only on localhost, because an https page cannot call an http model host.
 
-The key is readable by anyone who can load the page, so `ai.json` ships only on a site with access control in front of it (SSO, a private Pages site, an Access policy). The client's own limits are the only other guard. The cap of 30 requests a minute lives in `localStorage`, so a reload and a second tab share one allowance rather than minting their own. A back-off honours `retry-after` on a 429, whether it arrives as seconds or as a date. The popover names the model and the host, so a reader knows where a question goes. The registers leave the browser on every call; NOTES.md and `qa-log.json` go only when the reader turns that on.
+The key is readable by anyone who can load the page, so `ai.json` ships only on a site with access control in front of it (SSO, a private Pages site, an Access policy). The client's own limits are the only other guard. The cap of 30 requests a minute lives in `localStorage`, so a reload and a second tab share one allowance rather than minting their own. A back-off honours `retry-after` on a 429, whether it arrives as seconds or as a date. The popover names the model and the host, so a reader knows where a question goes, and its diagnostics line shows what each call cost: the size of the document prefix, the prompt and cached token counts of the last call, and the tab's running total. The whole document leaves the browser on every call, NOTES.md and `qa-log.json` with it; the page drops the notes, then the log, only when the three together pass the 100k-token budget, and the diagnostics say when they did.
 
 The file is written at deploy, never committed: `.gitignore` lists `ai.json`, a CI check refuses a tracked one, and the deploy step writes it from a secret (a GitHub Actions secret into the Pages artifact, an environment variable into `dist/` before `wrangler deploy`). Rotate the key by redeploying; revoke the feature by deploying `{"disabled": true}`. For local work, set `localStorage["design-doc-ai"]` to the same JSON in the browser console; the page reads it before it fetches anything, and no file exists to leak.
 

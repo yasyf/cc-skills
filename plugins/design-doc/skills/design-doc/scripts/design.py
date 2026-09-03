@@ -50,6 +50,8 @@ ICON_CACHE = Path.home() / ".cache" / "design-doc"
 ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/flat"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
 AI_CONFIG_KEYS = ("endpoint", "model", "key")
+AI_CONFIG_OPTIONAL = ("reasoning", "github")
+AI_REASONING = ("low", "medium", "high", "none")
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -2201,7 +2203,12 @@ def check_ai_config(rep, root):
         problem = ai_endpoint_problem(endpoint.strip())
         if problem:
             rep.err(f"ai.json: endpoint {problem}")
-    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS)):
+    reasoning = cfg.get("reasoning")
+    if reasoning is not None and reasoning not in AI_REASONING:
+        rep.err(f"ai.json: 'reasoning' must be one of {', '.join(AI_REASONING)}")
+    elif reasoning in AI_REASONING[:3] and str(cfg.get("model", "")).startswith("gemma"):
+        rep.warn(f"ai.json: reasoning {reasoning!r} on a gemma model only switches reasoning on; low, medium and high behave the same")
+    for k in sorted(set(cfg) - set(AI_CONFIG_KEYS) - set(AI_CONFIG_OPTIONAL)):
         rep.warn(f"ai.json carries {k!r}, which the page ignores")
 
 
