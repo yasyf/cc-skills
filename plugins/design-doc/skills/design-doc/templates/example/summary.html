@@ -3,10 +3,10 @@
   <p class="xs-lede">A job is safe once the log acks it. A parked worker gets the next job pushed, not polled.</p>
   <figure>
     <pre class="mermaid" aria-label="Producers enqueue into a per-tenant job log; the dispatcher leases each job and pushes it to a parked worker; completed jobs archive to object storage after 24 hours.">flowchart LR
-  producers["producers"] -->|enqueue| log[("job log<br/>one file per tenant")]
-  log -->|lease| dispatcher["dispatcher"]
-  dispatcher -->|push| workers["workers<br/>parked long-poll"]
-  log -.->|after 24h| archive[("object storage")]</pre>
+  producers["Producers"] -->|enqueue| log[("Job log<br/>one file per tenant")]
+  log -->|lease| dispatcher["Dispatcher"]
+  dispatcher -->|push| workers["Workers<br/>parked long-poll"]
+  log -.->|after 24h| archive[("Object storage")]</pre>
     <figcaption>One durable thing, everything else rebuilt from it.</figcaption>
   </figure>
 </section>
