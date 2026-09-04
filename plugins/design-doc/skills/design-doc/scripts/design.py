@@ -65,6 +65,7 @@ OPEN_STATUSES = {"open", "closed"}
 GITHUB_LINK = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(pull|issues|commit)/([A-Za-z0-9]+)/?(?:[?#].*)?$")
 GITHUB_KIND = {"pull": "pr", "issues": "issue", "commit": "commit"}
 REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+GIT_REF = re.compile(r"(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9][\w./-]*(?<![./])")
 GITHUB_API = "https://api.github.com"
 GITHUB_STATE_CLOSED = {"merged", "closed"}
 RENDER_CHECK_VIEWPORT = {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False}
@@ -130,7 +131,8 @@ CITE_LEAN_WORDS = frozenset("""
 """.split())
 CITE_RESIDUE_WORDS = 3
 CITE_LEAD = re.compile(r"([A-Za-z][A-Za-z'’-]*)\s*$")
-PATH_LINE = re.compile(r"(?<![\w/])(?:[\w.@-]+/)*[\w.@-]+\.[a-z]{1,5}:\d+(?:[-,]\d+)*")
+PATH_LINE = re.compile(r"(?<![\w/.@-])(?:[\w.@-]+/)*[\w.@-]+\.[a-z]{1,5}:\d+(?:[-,]\d+)*")
+PATH_SKIP = re.compile(r"https?://\S+|`[^`]*`")
 ROUND_CITE = re.compile(r"\((?:round \d+|R\d+\s*§[^()]*)\)")
 CHECK_LEAD = "Check:"
 DIAGRAM_LABEL_WORDS = 4
@@ -347,6 +349,7 @@ class DeckParser(HTMLParser):
     MUTED = {"svg", "code"}
     BLOCKS = FragmentText.BLOCKS
     HEADLINES = {"h1", "h2"}
+    DRAWN = {"svg", "pre", "img"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -363,12 +366,12 @@ class DeckParser(HTMLParser):
         self.urls.extend((k, v) for k, v in attrs if k.lower() in URL_ATTRS and v)
         if "xs-stat" in classes:
             self.stats.append(a.get("data-measured"))
-        if self.figure is not None and tag == "svg" and (a.get("aria-label") or "").strip():
+        if self.figure is not None and tag in self.DRAWN and (a.get("aria-label") or a.get("alt") or "").strip():
             self.figure["labelled"] = True
         if a.get("data-icon"):
             self.icons.append(a["data-icon"])
         if self.figure is not None and a.get("data-component"):
-            self.figure["host"] = True
+            self.figure["host"] = self.figure["labelled"] = True
         if tag in self.MUTED or (tag == "pre" and "mermaid" in classes):
             if tag == "pre" and self.panel is not None:
                 self.mermaid = []
@@ -397,7 +400,6 @@ class DeckParser(HTMLParser):
                            "caption": None, **{mark: 0 for mark in FIGURE_MARKS}}
             self.panel["figures"].append(self.figure)
         elif tag == "figcaption" and self.figure is not None:
-            self.figure["labelled"] = True
             self._grab("caption")
         elif tag in self.HEADLINES and self.panel is not None and self.panel["headline"] is None:
             self._grab("headline")
@@ -858,7 +860,9 @@ def render_check(args) -> int:
         if state["ready"] != "1":
             problems.append(builder.ready_problem(state, args.timeout))
         scale = builder.evaluate(chrome, session, SYSD_CTM_JS)
-        if scale is not None and not (math.isfinite(float(scale)) and float(scale) > 0):
+        if (R.get("diagram") or {}).get("kind") == "mermaid" and scale is None:
+            problems.append("the system diagram's pan-zoom never initialised; the card has no viewport, so it renders blank or without controls")
+        elif scale is not None and not (math.isfinite(float(scale)) and float(scale) > 0):
             problems.append("the system diagram's pan-zoom viewport is singular (scale 0 or NaN); the card renders blank")
         html = builder.evaluate(chrome, session, builder.DOM_JS)
     except builder.ChromeError as e:
@@ -1037,8 +1041,8 @@ def check_links(rep, R):
     if repo is not None and not (isinstance(repo, str) and REPO_SLUG.match(repo)):
         rep.err(f"meta.repo {repo!r} is not an owner/repo slug")
     ref = R.get("meta", {}).get("ref")
-    if ref is not None and not (isinstance(ref, str) and re.fullmatch(r"\S+", ref)):
-        rep.err("meta.ref must be a non-empty branch name or commit sha")
+    if ref is not None and not (isinstance(ref, str) and GIT_REF.fullmatch(ref)):
+        rep.err(f"meta.ref {ref!r} is not a branch name or commit sha; letters, digits, '/', '.', '_' and '-', no '..'")
     seen = {}
     for o in R.get("open", []):
         where = f"open {o.get('id')}"
@@ -1231,13 +1235,15 @@ def check_summary_deck(rep, fragment: str, ids: re.Pattern):
         if budget and n > budget:
             rep.strict_warn(f"{label} is {n} words; the budget is {budget}")
         headline = panel["headline"]
-        if headline is not None and (headline.rstrip(".!").lower() in HEADLINE_LABELS or words(headline) < HEADLINE_WORDS):
+        if headline is None:
+            rep.strict_warn(f"{label} has no headline; a headline is the claim the panel makes")
+        elif headline.rstrip(".!").lower() in HEADLINE_LABELS or words(headline) < HEADLINE_WORDS:
             rep.strict_warn(f"{label} headline \"{headline}\" is a label; a headline is the claim the panel makes")
         if not panel["figures"]:
             rep.strict_warn(f"{label} has no <figure>; every panel carries one figure")
         for figure in panel["figures"]:
             if not figure["labelled"]:
-                rep.strict_warn(f"{label} has a <figure> with no aria-label or figcaption")
+                rep.strict_warn(f"{label} has a <figure> with no aria-label; the label says what is drawn, for the reader who cannot see it")
             if figure["caption"] is None:
                 rep.strict_warn(f"{label} has a <figure> with no <figcaption>; the caption states the claim the figure makes and cites the decision it serves")
             elif not ids.search(figure["caption"]):
@@ -1495,6 +1501,9 @@ def check(args) -> int:
                 rep.strict_warn(f"{where}: claim cites no decision or assumption; end it with the id it serves, like (DQ12)")
             for unknown in sorted(cited - a_ids - d_ids):
                 rep.err(f"{where}: claim cites {unknown}, which no register defines")
+        source = nt.get("source")
+        if source is not None and not (isinstance(source, str) and source.strip()):
+            rep.err(f"{where}: source must be a non-empty string")
         cols = nt.get("cols")
         if not (isinstance(cols, list) and cols and all(isinstance(c, str) for c in cols)):
             rep.err(f"{where}: 'cols' must be a non-empty list of strings")
@@ -1569,7 +1578,7 @@ def check(args) -> int:
     check_model(rep, R, root, known, node_ids)
     check_ai_config(rep, root)
     check_libs(rep)
-    check_components(rep, R, root, known, node_ids)
+    check_components(rep, R, root, known, node_ids, d_ids | open_ids)
     return rep.finish()
 
 
@@ -1725,7 +1734,7 @@ def check_evidence(rep, R):
         if not (isinstance(a, dict) and isinstance(a.get("b"), str)):
             continue
         where, b = f"{a.get('id')}.b", a["b"].strip()
-        path = PATH_LINE.search(b)
+        path = PATH_LINE.search(PATH_SKIP.sub(lambda m: " " * (m.end() - m.start()), b))
         if path:
             before = b[:path.start()].rstrip()
             if before and not before.endswith(";"):
@@ -2402,7 +2411,7 @@ def topic_key(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def check_flow(rep, label, spec, topics, known):
+def check_flow(rep, label, spec, topics, known, owners):
     ids = [c["id"] for c in spec["columns"]]
     for cid in sorted({cid for cid in ids if ids.count(cid) > 1}):
         rep.err(f"{label}: two columns share the id {cid!r}")
@@ -2417,20 +2426,23 @@ def check_flow(rep, label, spec, topics, known):
         if topic and topics is not None and topic_key(topic) not in topics:
             rep.err(f"{label}.callouts[{i}]: topic {topic!r} matches no .xs-topic in the compare panel that hosts it")
         by = call.get("by")
-        if by is not None and by not in known:
-            if ID_SHAPE.fullmatch(by):
-                rep.err(f"{label}.callouts[{i}]: by {by!r} names no register entry")
-            elif words(by) > FLOW_BY_WORDS:
-                rep.strict_warn(f"{label}.callouts[{i}]: by is {words(by)} words; a handle or a phrase of six or fewer")
+        if by is None or by in owners:
+            continue
+        if by in known:
+            rep.err(f"{label}.callouts[{i}]: by {by!r} is not a decision or open item; by names the entry that fixes it")
+        elif ID_SHAPE.fullmatch(by):
+            rep.err(f"{label}.callouts[{i}]: by {by!r} names no register entry")
+        elif words(by) > FLOW_BY_WORDS:
+            rep.strict_warn(f"{label}.callouts[{i}]: by is {words(by)} words; a handle or a phrase of six or fewer")
     for (col, side), n in sorted(per_side.items()):
         if n > 4:
             rep.warn(f"{label}: column {col!r} stacks {n} callouts {side}; more than four on a side crowds the figure")
 
 
-def check_component_props(rep, label, spec, known, node_ids, topics=None):
+def check_component_props(rep, label, spec, known, node_ids, owners, topics=None):
     kind = spec["kind"]
     if kind == "dd.flow":
-        check_flow(rep, label, spec, topics, known)
+        check_flow(rep, label, spec, topics, known, owners)
     elif kind == "dd.lanes":
         ids = [lane["id"] for lane in spec["lanes"]]
         if ids[0] == ids[1]:
@@ -2467,7 +2479,7 @@ def check_component_props(rep, label, spec, known, node_ids, topics=None):
             rep.err(f"{label}: pick {spec['pick']!r} is not one of {', '.join(labels)}")
 
 
-def check_components(rep, R, root, known, node_ids):
+def check_components(rep, R, root, known, node_ids, owners):
     declared = R.get("components")
     if declared is not None and not isinstance(declared, dict):
         rep.err("components must map a component id to its declaration")
@@ -2511,7 +2523,7 @@ def check_components(rep, R, root, known, node_ids):
         for msg in problems:
             rep.err(msg)
         if not problems:
-            check_component_props(rep, label, spec, known, node_ids, compare_topics.get(cid))
+            check_component_props(rep, label, spec, known, node_ids, owners, compare_topics.get(cid))
             check_figures(rep, label, spec)
 
     referenced = set()

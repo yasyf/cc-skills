@@ -1313,7 +1313,9 @@ function refChip(id){
  const [sc]=statusOf(id);
  return `<a class="ref" href="#${SECOF[REF[id].kind]}" data-ref="${esc(id)}"><i class="dot ${sc}" aria-hidden="true"></i><span class="ref-t">${esc(handleOf(id))}</span></a>`;
 }
-const SRC_RE=/(^|[^\w/.-])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?(?![\w-]|[./]\w)/g;
+const SRC_RE=/(^|[^\w/.@-])((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?(?![\w-]|[./]\w)/g;
+const SRC_SKIP=/(https?:\/\/\S+|`[^`]*`)/;
+const srcTokens=(text,fn)=>text.split(SRC_SKIP).map((part,i)=>i%2?part:part.replace(SRC_RE,fn)).join("");
 function srcTag(path,a,b){
  return `<a class="src" href="${esc(srcUrl(path,a,b))}" target="_blank" rel="noopener" data-ghfile="${esc(path)}" data-line="${a}"${b?` data-to="${b}"`:""}>${esc(path)}:${a}${b?"-"+b:""}</a>`;
 }
@@ -1326,7 +1328,7 @@ function linkSrc(html){
    if(m){if(m[1])depth=Math.max(0,depth-1);else if(!/\/>\s*$/.test(part))depth++}
    out+=part;continue;
   }
-  out+=depth?part:part.replace(SRC_RE,(all,pre,path,a,b)=>pre+srcTag(path,a,b));
+  out+=depth?part:srcTokens(part,(all,pre,path,a,b)=>pre+srcTag(path,a,b));
  }
  return out;
 }
@@ -1885,7 +1887,7 @@ function mermaidJob(host,source,label,after,init){
  return runMermaidJob(job);
 }
 async function runMermaidJob(job){
- try{const s=await renderMermaid(job.host,job.source,job.label,job.init);if(job.after)job.after(s);return s}
+ try{const s=await renderMermaid(job.host,job.source,job.label,job.init);if(job.after)await job.after(s);return s}
  catch(e){job.host.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`;job.host.dataset.failed="1";return null}
 }
 async function rerenderDiagrams(){
@@ -2151,20 +2153,20 @@ JOBS.push(summaryLoad.then(async t=>{
 document.querySelector(".skip").addEventListener("click",unveil);
 $("#navSummary").onclick=e=>{e.preventDefault();scrollTo({top:0,behavior:reduced()?"instant":"smooth"})};
 
-let sysdPz=null;
+let sysdPz=null,sysdDown=()=>{};
 const DIAGRAM_SOURCE=DIAGRAM?DIAGRAM.source:"";
 const OVERVIEW=DIAGRAM&&DIAGRAM.overview;
 const clampZoom=z=>isFinite(z)&&z>0?Math.min(8,Math.max(.5,z)):1;
 function pzFail(e,box){
  console.error(e);
- sysdPz=null;
+ sysdDown();
  box.innerHTML=`<div class="netmsg">${esc(PZ_MSG)}</div>`;
  box.style.height="auto";
  $("#sysdPz").hidden=true;
  $("#sysdFull").hidden=false;
 }
 function pzSafe(fn,box){
- try{return fn()}catch(e){pzFail(e,box)}
+ try{fn();return true}catch(e){pzFail(e,box);return false}
 }
 let fullDiagBox=null;
 async function openFullDiagram(label){
@@ -2206,6 +2208,7 @@ function sysdMermaid(){
  const host=$("#sysdHost");
  const label=plain(DIAGRAM_CAPTION||"The system");
  return mermaidJob(host,OVERVIEW||DIAGRAM_SOURCE,label,async svg=>{
+  sysdDown();
   const box=el("div","pzbox");
   svg.replaceWith(box);box.append(svg);
   dottedControls(svg,OVERVIEW||DIAGRAM_SOURCE);
@@ -2274,19 +2277,29 @@ function sysdMermaid(){
   };
   const ctl=$("#sysdPz");ctl.hidden=false;
   ctl.querySelectorAll("button").forEach(b=>{b.onclick=()=>pzSafe(()=>{if(!sysdPz)return;const k=b.dataset.pz;if(k==="in")sysdPz.zoomIn();else if(k==="out")sysdPz.zoomOut();else view()},box)});
+  const onResize=()=>pzSafe(view,box);
+  let seenWidth=-1;
+  const sized=new ResizeObserver(()=>{
+   const w=box.clientWidth;
+   if(!w||w===seenWidth)return;
+   seenWidth=w;
+   pzSafe(view,box);
+  });
   const first=new IntersectionObserver(entries=>{
    if(!entries.some(e=>e.boundingClientRect.width>0&&e.boundingClientRect.height>0))return;
    first.disconnect();
-   pzSafe(view,box);
-   addEventListener("resize",()=>pzSafe(view,box));
-   let seenWidth=-1;
-   new ResizeObserver(()=>{
-    const w=box.clientWidth;
-    if(!w||w===seenWidth)return;
-    seenWidth=w;
-    pzSafe(view,box);
-   }).observe(box);
+   if(!pzSafe(view,box))return;
+   addEventListener("resize",onResize);
+   sized.observe(box);
   });
+  sysdDown=()=>{
+   first.disconnect();
+   sized.disconnect();
+   removeEventListener("resize",onResize);
+   if(sysdPz)sysdPz.destroy();
+   sysdPz=null;
+   sysdDown=()=>{};
+  };
   first.observe(box);
  });
 }
@@ -4468,7 +4481,7 @@ function aiSources(e){
  if(!REPO)return [];
  const text=[e.t,e.r,e.x,e.n,e.note,e.claim,e.source].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join("\n");
  const urls=new Set();
- text.replace(SRC_RE,(all,pre,path,a,b)=>{urls.add(srcUrl(path,a,b));return all});
+ srcTokens(text,(all,pre,path,a,b)=>{urls.add(srcUrl(path,a,b));return all});
  return [...urls];
 }
 function aiEntryExtra(e){
@@ -5335,7 +5348,12 @@ function aiRenderCard(rec){
  return card;
 }
 async function aiFeature(label,kind,title,fetch){
+ if(aiBusy)return;
  aiOpen();
+ aiBusy=true;
+ $("#aiSend").disabled=true;
+ aiSugFor=null;
+ aiSuggest();
  const busy=aiBusyNode(label+"…");
  aiBusyNow=busy;
  try{
@@ -5345,7 +5363,13 @@ async function aiFeature(label,kind,title,fetch){
   aiChat.push(rec);
   aiSaveChat();
  }catch(e){aiFail(busy,e)}
- finally{if(aiBusyNow===busy)aiBusyNow=null}
+ finally{
+  if(aiBusyNow===busy)aiBusyNow=null;
+  aiBusy=false;
+  $("#aiSend").disabled=false;
+  aiSugFor=null;
+  aiSuggest();
+ }
  aiScrollLog();
 }
 function aiShowFaq(){return aiFeature("Working out the questions people ask","faq","Questions people ask",aiFaq)}

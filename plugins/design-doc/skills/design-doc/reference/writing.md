@@ -197,7 +197,7 @@ The compare panel's figure is a kit component, declared in `components` and plac
 
 `dd.lanes` draws today beside proposed as two framed stacks of boxes; it fits a change whose story is which parts become which. Both measure their labels in the page and lay themselves out, so a column widens to its callouts and a lane to its boxes, and nothing overlaps at 390 px or 1440 px. A hand-drawn SVG is for a shape neither kind draws; `check` warns on a compare figure drawn by hand with eight or more boxes and names the kind it should be.
 
-Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries both: an `aria-label` that says what is drawn, for the reader who cannot see it, and a `<figcaption>` that states the claim the figure makes and cites the decision it serves. `check` warns on a deck figure with no caption and on a caption that cites nothing.
+Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries both: an `aria-label` that says what is drawn, for the reader who cannot see it, and a `<figcaption>` that states the claim the figure makes and cites the decision it serves. `check` warns on a deck figure with no `aria-label`, on one with no caption, and on a caption that cites nothing.
 
 ## Components
 
