@@ -107,8 +107,47 @@ NODE_DOM_ID = re.compile(r"flowchart-(.+)-\d+$")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
 ID_SHAPES = (r"DQ\d+", r"A\d+", r"Q\d+", r"V\d+", r"c-[a-z0-9-]+")
 ID_TOKEN = re.compile(r"\b(?:" + "|".join(ID_SHAPES) + r")\b")
+ID_SHAPE = re.compile("|".join(ID_SHAPES))
 LEADING_ID = re.compile(r"^\s*(" + "|".join(ID_SHAPES) + r")\b")
 ID_LIKE = re.compile(r"[A-Z0-9-]")
+CLAIM_CITE = re.compile(r"\b(?:DQ|A)\d+\b")
+DECISION_CITE = re.compile(r"\bDQ\d+\b")
+CITE_PROSE = (("tldr", "md"), ("constraints", "t"), ("decisions", "r"), ("decisions", "x"), ("decisions", "p"),
+              ("assumptions", "b"), ("assumptions", "n"), ("open", "t"), ("numbers", "note"), ("numbers", "claim"),
+              ("footnotes", "b"), ("arch", "b"))
+CITE_LEAN_WORDS = frozenset("""
+    a an the
+    about above across after against along among around as at before behind below beneath beside between beyond by
+    despite down during except for from in inside into like near of off on onto out outside over past per since than
+    through throughout to toward towards under underneath unlike until up upon via with within without
+    is are was were be been being becomes become became decides does replaces uses covers supersedes amends
+    requires retires extends inherits overrides adopts absorbs mirrors defines describes explains includes carries
+    binds cites confirms settles prefers chooses picks wants means needs removes deletes adds keeps gets takes makes
+    sees reads
+    and or nor but that which who whom whose what where when whether if because so not no also only either neither
+    both each every all any some this these those its their our his her my your another other same such then yet
+    while unless though although once whereas plus minus versus
+""".split())
+CITE_RESIDUE_WORDS = 3
+CITE_LEAD = re.compile(r"([A-Za-z][A-Za-z'’-]*)\s*$")
+PATH_LINE = re.compile(r"(?<![\w/])(?:[\w.@-]+/)*[\w.@-]+\.[a-z]{1,5}:\d+(?:[-,]\d+)*")
+ROUND_CITE = re.compile(r"\((?:round \d+|R\d+\s*§[^()]*)\)")
+CHECK_LEAD = "Check:"
+DIAGRAM_LABEL_WORDS = 4
+DIAGRAM_STATUS_WORDS = re.compile(r"\?|(?<![\w-])(?:unproven|todo|wip|tbd|tbc|today|pending|proposed|legacy|existing"
+                                  r"|current|future)(?![\w-])", re.I)
+COUNT_TOKEN = re.compile(r"(?<![\w-])\d+(?:[.,]\d+)*[A-Za-z%]{0,3}(?![\w-])")
+MERMAID_SHAPE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*"
+                           r"(?:\"[^\"\n]*\"|[^\"\]\)\}\n]*)\s*(?:\)\]|\)\)|\]\]|\}\}|\]|\)|\})")
+MERMAID_EDGE_LABEL = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:[A-Za-z0-9_-]+@)?"
+                                r"(?:<?(?:--|-\.|==)(?=\s)\s*\"?([^\"\n]*?)\"?\s*(?:--[->ox]|-\.->?|\.->|==[=>ox])"
+                                r"|<?[-=.]{2,}[>ox]?\s*\|([^|\n]*)\|)"
+                                r"(?=\s*([A-Za-z0-9_][A-Za-z0-9_-]*))")
+HEADLINE_LABELS = {"the numbers", "what changes", "overview", "architecture", "summary"}
+HEADLINE_WORDS = 3
+FLOW_BY_WORDS = 6
+NOTES_SECTIONS = (("Figure briefs", "every figure is drawn from a brief"),
+                  ("The critique", "every panel, figure, and table answers which decision it serves"))
 FINDING_BY_NUMBER = re.compile(r"finding \d+", re.I)
 PASS_TOKEN = re.compile(r"\bpass-\d+\b", re.I)
 FILE_PATH = re.compile(r"(?<![\w:])(?:~|\.{1,2})?/[\w.@-]+(?:/[\w.@-]+)+"
@@ -145,7 +184,8 @@ WORD_CAPS = (("constraints", "p", 25, "a ground rule's plain twin"),
              ("assumptions", "n", 40, "an assumption's history note"),
              ("open", "t", 40, "an open item's title"),
              ("open", "p", 20, "an open item's plain twin"),
-             ("numbers", "sub", 15, "a numbers sub-line"),
+             ("numbers", "claim", 30, "a numbers claim"),
+             ("numbers", "source", 15, "a numbers source line"),
              ("numbers", "note", 30, "a numbers note"),
              ("footnotes", "b", 60, "a footnote"))
 ACRONYMS = ("API", "SSO", "JWT", "DPoP", "TLS", "mTLS", "HTTP", "HTTPS", "gRPC", "k8s", "S3", "R2", "IAM", "SQL",
@@ -163,7 +203,8 @@ GLOSS_STOP = {"a", "an", "and", "at", "both", "but", "by", "each", "every", "for
               "to", "we", "what", "when", "where", "while", "why", "with"}
 GLOSS_ACRONYM = re.compile(r"\b(?=[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z])[A-Za-z][A-Za-z0-9]{1,15}\b")
 GLOSS_PHRASE = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b")
-MERMAID_NODE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*\"?([^\"\]\)\}\n]*)")
+MERMAID_NODE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_-]*)\s*(?:\[\(|\(\(|\[\[|\{\{|\[|\(|\{|>)\s*"
+                          r"(?:\"([^\"\n]*)\"|([^\"\]\)\}\n]*))")
 LABEL_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[_./-][A-Za-z0-9]+)*")
 IDENTIFIER_HEAD = re.compile(r"[A-Za-z0-9]+[_./-]")
 CITE_SKIP = {"id", "node", "source", "overview", "file", "kind", "slug", "links", "url"}
@@ -305,11 +346,16 @@ def fragment_text(fragment: str) -> str:
 class DeckParser(HTMLParser):
     MUTED = {"svg", "code"}
     BLOCKS = FragmentText.BLOCKS
+    HEADLINES = {"h1", "h2"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.panels, self.muted, self.panel, self.figure, self.sections = [], [], None, None, 0
         self.icons, self.urls, self.stats = [], [], []
+        self.depth, self.grab, self.stat, self.mermaid = 0, None, None, None
+
+    def _grab(self, kind: str):
+        self.grab = {"kind": kind, "depth": self.depth, "buf": []}
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -324,27 +370,41 @@ class DeckParser(HTMLParser):
         if self.figure is not None and a.get("data-component"):
             self.figure["host"] = True
         if tag in self.MUTED or (tag == "pre" and "mermaid" in classes):
+            if tag == "pre" and self.panel is not None:
+                self.mermaid = []
             self.muted.append(tag)
         if self.muted:
+            if self.mermaid is not None and tag == "br":
+                self.mermaid.append("<br/>")
             if self.figure is not None and self.muted[0] == "svg":
                 if tag in FIGURE_MARKS:
                     self.figure[tag] += 1
                 if "stroke-dasharray" in a:
                     self.figure["dashed"] += 1
             return
+        if tag not in VOID_TAGS:
+            self.depth += 1
         if tag == "section":
             if self.panel is None and "xs-panel" in classes:
-                self.panel = {"kind": a.get("data-kind") or "", "text": [], "figures": []}
+                self.panel = {"kind": a.get("data-kind") or "", "text": [], "figures": [], "headline": None,
+                              "stats": [], "mermaid": []}
                 self.panels.append(self.panel)
                 self.sections = 0
             elif self.panel is not None:
                 self.sections += 1
         elif tag == "figure" and self.panel is not None:
             self.figure = {"labelled": bool((a.get("aria-label") or "").strip()), "host": False, "dashed": 0,
-                           **{mark: 0 for mark in FIGURE_MARKS}}
+                           "caption": None, **{mark: 0 for mark in FIGURE_MARKS}}
             self.panel["figures"].append(self.figure)
         elif tag == "figcaption" and self.figure is not None:
             self.figure["labelled"] = True
+            self._grab("caption")
+        elif tag in self.HEADLINES and self.panel is not None and self.panel["headline"] is None:
+            self._grab("headline")
+        elif "xs-stat" in classes and self.panel is not None:
+            self.stat = self.depth
+        elif "xs-label" in classes and self.stat is not None:
+            self._grab("stat")
         if self.panel is not None and (tag in self.BLOCKS or tag == "br"):
             self.panel["text"].append("\n")
 
@@ -352,7 +412,24 @@ class DeckParser(HTMLParser):
         if self.muted:
             if tag == self.muted[-1]:
                 self.muted.pop()
+                if tag == "pre" and self.mermaid is not None:
+                    self.panel["mermaid"].append("".join(self.mermaid))
+                    self.mermaid = None
             return
+        if tag in VOID_TAGS:
+            return
+        if self.grab is not None and self.grab["depth"] == self.depth:
+            text = " ".join("".join(self.grab["buf"]).split())
+            if self.grab["kind"] == "caption":
+                self.figure["caption"] = text
+            elif self.grab["kind"] == "headline":
+                self.panel["headline"] = text
+            else:
+                self.panel["stats"].append(text)
+            self.grab = None
+        if self.stat == self.depth:
+            self.stat = None
+        self.depth -= 1
         if tag == "section" and self.panel is not None:
             if self.sections:
                 self.sections -= 1
@@ -364,7 +441,13 @@ class DeckParser(HTMLParser):
             self.panel["text"].append("\n")
 
     def handle_data(self, data):
-        if not self.muted and self.panel is not None:
+        if self.muted:
+            if self.mermaid is not None:
+                self.mermaid.append(data)
+            return
+        if self.grab is not None:
+            self.grab["buf"].append(data)
+        if self.panel is not None:
             self.panel["text"].append(data)
 
 
@@ -951,6 +1034,9 @@ def check_links(rep, R):
     repo = R.get("meta", {}).get("repo")
     if repo is not None and not (isinstance(repo, str) and REPO_SLUG.match(repo)):
         rep.err(f"meta.repo {repo!r} is not an owner/repo slug")
+    ref = R.get("meta", {}).get("ref")
+    if ref is not None and not (isinstance(ref, str) and re.fullmatch(r"\S+", ref)):
+        rep.err("meta.ref must be a non-empty branch name or commit sha")
     seen = {}
     for o in R.get("open", []):
         where = f"open {o.get('id')}"
@@ -985,8 +1071,12 @@ def check_diagram(rep, R, root):
         rep.err("diagram must be an object with 'kind'")
         return None
     caption = diagram.get("caption")
-    if caption is not None and not (isinstance(caption, str) and caption.strip()):
+    if caption is None:
+        rep.strict_warn("diagram has no caption; the system diagram draws the design, so its caption states the claim it makes and names the decision that shaped it, like (DQ12)")
+    elif not (isinstance(caption, str) and caption.strip()):
         rep.err("diagram.caption must be a non-empty string")
+    elif "TODO" not in caption and not DECISION_CITE.search(caption):
+        rep.err("diagram.caption cites no decision; the system diagram draws the design, so its caption names the decision that shaped it, like (DQ12)")
     kind = diagram.get("kind")
     if kind == "mermaid":
         source = diagram.get("source")
@@ -1091,7 +1181,15 @@ def check_twins(rep, R, root, d_ids, known):
             rep.err(f"{where}: the wording changed since rev {rev} but the plain twin did not; rewrite p or run design.py plainify --only {where}")
 
 
-def check_summary_deck(rep, fragment: str):
+def check_notes(rep, root):
+    notes = root / "NOTES.md"
+    text = notes.read_text() if notes.exists() else ""
+    for heading, why in NOTES_SECTIONS:
+        if not re.search(rf"^##\s+{re.escape(heading)}\s*$", text, re.M):
+            rep.strict_warn(f"NOTES.md has no \"## {heading}\" section; {why}")
+
+
+def check_summary_deck(rep, fragment: str, ids: re.Pattern):
     parser = DeckParser()
     parser.feed(fragment)
     parser.close()
@@ -1130,14 +1228,26 @@ def check_summary_deck(rep, fragment: str):
         budget = PANEL_BUDGET.get(kind)
         if budget and n > budget:
             rep.strict_warn(f"{label} is {n} words; the budget is {budget}")
+        headline = panel["headline"]
+        if headline is not None and (headline.rstrip(".!").lower() in HEADLINE_LABELS or words(headline) < HEADLINE_WORDS):
+            rep.strict_warn(f"{label} headline \"{headline}\" is a label; a headline is the claim the panel makes")
         if not panel["figures"]:
             rep.strict_warn(f"{label} has no <figure>; every panel carries one figure")
         for figure in panel["figures"]:
             if not figure["labelled"]:
                 rep.strict_warn(f"{label} has a <figure> with no aria-label or figcaption")
+            if figure["caption"] is None:
+                rep.strict_warn(f"{label} has a <figure> with no <figcaption>; the caption states the claim the figure makes and cites the decision it serves")
+            elif not ids.search(figure["caption"]):
+                rep.strict_warn(f"{label} figcaption cites no register entry; name the decision the figure serves")
             if kind == "compare" and not figure["host"] and figure["rect"] >= HAND_FIGURE_RECTS:
                 rep.warn(f"{label} draws its figure by hand, {figure['rect']} rects and {figure['path']} paths; "
                          "a columns-with-callouts figure is a dd.flow, a two-lane figure is a dd.lanes; both lay themselves out")
+        for stat in panel["stats"]:
+            if not ids.search(stat):
+                rep.strict_warn(f"{label} stat \"{stat}\" cites no entry; a number sits in the deck only where it changes a decision or sizes a risk")
+        for source in panel["mermaid"]:
+            lint_diagram_labels(rep, label, source)
         for sentence in (s.strip() for s in SENTENCE_END.split(text)):
             lead = LEADING_ID.match(sentence)
             if lead:
@@ -1367,15 +1477,29 @@ def check(args) -> int:
             rep.err(f"scaleMarks: bad ms in {m!r}")
     n_ids = check_ids(rep, R.get("numbers", []), "id", r"n-[a-z0-9-]+", "numbers")
     for nt in R.get("numbers", []):
+        where = f"numbers {nt.get('id')}"
         if not nt.get("t"):
-            rep.err(f"numbers {nt.get('id')}: missing title 't'")
+            rep.err(f"{where}: missing title 't'")
+        if "sub" in nt:
+            rep.err(f"{where}: 'sub' is now 'source'")
+        claim = nt.get("claim")
+        if claim is None:
+            rep.strict_warn(f"{where}: missing 'claim'; the sentence above the table that says what it shows and which decision it serves")
+        elif not (isinstance(claim, str) and claim.strip()):
+            rep.err(f"{where}: claim must be a non-empty string")
+        else:
+            cited = set(CLAIM_CITE.findall(claim))
+            if not cited:
+                rep.strict_warn(f"{where}: claim cites no decision or assumption; end it with the id it serves, like (DQ12)")
+            for unknown in sorted(cited - a_ids - d_ids):
+                rep.err(f"{where}: claim cites {unknown}, which no register defines")
         cols = nt.get("cols")
         if not (isinstance(cols, list) and cols and all(isinstance(c, str) for c in cols)):
-            rep.err(f"numbers {nt.get('id')}: 'cols' must be a non-empty list of strings")
+            rep.err(f"{where}: 'cols' must be a non-empty list of strings")
             continue
         for row in nt.get("rows", []):
             if not (isinstance(row, list) and len(row) == len(cols)):
-                rep.err(f"numbers {nt.get('id')}: row {row!r} does not have {len(cols)} cells")
+                rep.err(f"{where}: row {row!r} does not have {len(cols)} cells")
 
     known = a_ids | d_ids | c_ids | open_ids | n_ids | p_ids
     check_twins(rep, R, root, d_ids, known)
@@ -1395,7 +1519,8 @@ def check(args) -> int:
             rep.strict_warn("summary.html is still the scaffold skeleton (it carries a TODO); the doc opens without an executive summary")
         for cited in sorted(set(ID_TOKEN.findall(fragment_text(fragment))) - known):
             rep.warn(f"summary.html cites {cited}, which no register defines")
-        check_summary_deck(rep, fragment)
+        check_summary_deck(rep, fragment, id_matcher(known))
+    check_notes(rep, root)
 
     index_path = root / "index.html"
     if index_path.exists() and "GENERATED" not in index_path.read_text():
@@ -1493,14 +1618,122 @@ class DeckLabels(HTMLParser):
             self.buf.append(data)
 
 
-def mermaid_labels(source: str):
+def mermaid_nodes(source: str):
     text = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", source))
-    for nid, label in MERMAID_NODE.findall(text):
-        if nid in MERMAID_KEYWORDS:
-            continue
+    for nid, quoted, bare in MERMAID_NODE.findall(text):
+        label = (quoted or bare).strip()
+        if nid not in MERMAID_KEYWORDS and label:
+            yield nid, label
+
+
+def mermaid_labels(source: str):
+    for nid, label in mermaid_nodes(source):
         first = re.split(r"<br\s*/?>", label)[0].strip()
         if first:
             yield nid, first
+
+
+def mermaid_edges(source: str):
+    text = re.sub(r"%%.*", "", MERMAID_FRONTMATTER.sub("", source))
+    for line in text.splitlines():
+        for m in MERMAID_EDGE_LABEL.finditer(MERMAID_SHAPE.sub(r"\1", line)):
+            label = (m.group(2) or m.group(3) or "").strip()
+            if label:
+                yield m.group(1), m.group(4), label
+
+
+def lint_diagram_labels(rep, where, source: str):
+    for nid, label in mermaid_nodes(source):
+        first = re.split(r"<br\s*/?>", label)[0].strip()
+        if words(first) > DIAGRAM_LABEL_WORDS:
+            rep.strict_warn(f"{where} node {nid}: {first!r} is {words(first)} words on its first line; a node is a "
+                            "component named by its role, four words or fewer, with detail on a second line after <br/>")
+        if COUNT_TOKEN.search(label):
+            rep.strict_warn(f"{where} node {nid}: {label!r} carries a number; counts and versions belong in a numbers "
+                            "table, not the system diagram")
+        if DIAGRAM_STATUS_WORDS.search(label):
+            rep.strict_warn(f"{where} node {nid}: {label!r} carries a status word; the diagram draws the proposed "
+                            "system, and whether a part is proven lives in an assumption")
+    for a, b, label in mermaid_edges(source):
+        if words(label) > DIAGRAM_LABEL_WORDS:
+            rep.strict_warn(f"{where} edge {a} -> {b}: {label!r} is {words(label)} words; an edge label names what "
+                            "flows, four words or fewer")
+        if COUNT_TOKEN.search(label):
+            rep.strict_warn(f"{where} edge {a} -> {b}: {label!r} carries a number; an edge label names what flows, "
+                            "and counts and versions belong in a numbers table")
+        if DIAGRAM_STATUS_WORDS.search(label):
+            rep.strict_warn(f"{where} edge {a} -> {b}: {label!r} carries a status word; an edge label names what "
+                            "flows, and whether a part is proven lives in an assumption")
+
+
+def check_diagram_labels(rep, R):
+    diagram = R.get("diagram")
+    if not isinstance(diagram, dict):
+        return
+    for key in ("source", "overview"):
+        source = diagram.get(key)
+        if isinstance(source, str):
+            lint_diagram_labels(rep, f"diagram.{key}", source)
+
+
+def prose_words(text: str) -> int:
+    return sum(1 for w in text.split() if re.search(r"[A-Za-z0-9]", w))
+
+
+def cite_groups(ids: re.Pattern) -> re.Pattern:
+    return re.compile(r"\((?:\s*" + ids.pattern + r"\s*[,;]?)+\s*\)")
+
+
+def lint_cite_objects(rep, where, text: str, groups: re.Pattern):
+    for sentence in (s.strip() for s in SENTENCE_END.split(text)):
+        cites = list(groups.finditer(sentence))
+        if not cites:
+            continue
+        leads = (CITE_LEAD.search(sentence[:m.start()]) for m in cites)
+        lean = any(lead and lead.group(1).lower() in CITE_LEAN_WORDS for lead in leads)
+        if lean or prose_words(groups.sub(" ", sentence)) < CITE_RESIDUE_WORDS:
+            rep.strict_warn(f"{where}: {first_line(sentence)!r} leans on its citation as the object; name the thing "
+                            "and keep the id in parentheses after it")
+
+
+def check_cite_objects(rep, R, root, ids: re.Pattern):
+    groups = cite_groups(ids)
+    for reg, field in CITE_PROSE:
+        for i, e in enumerate(R.get(reg) or []):
+            if not isinstance(e, dict):
+                continue
+            where, value = f"{cap_where(reg, i, e)}.{field}", e.get(field)
+            if isinstance(value, list):
+                for j, para in enumerate(value):
+                    if isinstance(para, str):
+                        lint_cite_objects(rep, f"{where}[{j}]", para, groups)
+            elif isinstance(value, str):
+                lint_cite_objects(rep, where, value, groups)
+    fragment = root / "summary.html"
+    if fragment.exists():
+        parser = DeckParser()
+        parser.feed(fragment.read_text())
+        parser.close()
+        for i, panel in enumerate(parser.panels, 1):
+            lint_cite_objects(rep, f"summary.html panel {i} ({panel['kind'] or 'no data-kind'})", "".join(panel["text"]), groups)
+
+
+def check_evidence(rep, R):
+    for a in R.get("assumptions") or []:
+        if not (isinstance(a, dict) and isinstance(a.get("b"), str)):
+            continue
+        where, b = f"{a.get('id')}.b", a["b"].strip()
+        path = PATH_LINE.search(b)
+        if path:
+            before = b[:path.start()].rstrip()
+            if before and not before.endswith(";"):
+                rep.strict_warn(f"{where}: the path {path.group()} is not first; evidence opens on path:line")
+        rounds = list(ROUND_CITE.finditer(b))
+        if rounds and b[rounds[-1].end():].strip(" ."):
+            rep.strict_warn(f"{where}: the round {rounds[-1].group()} is not last; evidence ends on the round in parentheses")
+        if a.get("s") == "validate" and not any(s.startswith(CHECK_LEAD) for s in SENTENCE_END.split(b)):
+            rep.strict_warn(f"{where} names no check; an assumption that needs someone to confirm says what would "
+                            "confirm or refute it")
 
 
 def acronym_map(meta: dict) -> dict:
@@ -1761,10 +1994,13 @@ def check_model(rep, R, root, known, node_ids):
     prose = fragment_text(fragment.read_text()) if fragment.exists() else ""
     ids = id_matcher(known)
     check_handles(rep, R, cited_ids(R, ids, prose), ids)
+    check_cite_objects(rep, R, root, ids)
+    check_evidence(rep, R)
     check_titles(rep, R, ids)
     check_caps(rep, R, meta)
     check_terms(rep, R, prose)
     check_overview(rep, R, node_ids)
+    check_diagram_labels(rep, R)
     check_ai(rep, meta)
     acronyms = acronym_map(meta)
     for where, label, sentence_case in label_sources(R, root):
@@ -2164,7 +2400,7 @@ def topic_key(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def check_flow(rep, label, spec, topics):
+def check_flow(rep, label, spec, topics, known):
     ids = [c["id"] for c in spec["columns"]]
     for cid in sorted({cid for cid in ids if ids.count(cid) > 1}):
         rep.err(f"{label}: two columns share the id {cid!r}")
@@ -2178,6 +2414,12 @@ def check_flow(rep, label, spec, topics):
         topic = call.get("topic")
         if topic and topics is not None and topic_key(topic) not in topics:
             rep.err(f"{label}.callouts[{i}]: topic {topic!r} matches no .xs-topic in the compare panel that hosts it")
+        by = call.get("by")
+        if by is not None and by not in known:
+            if ID_SHAPE.fullmatch(by):
+                rep.err(f"{label}.callouts[{i}]: by {by!r} names no register entry")
+            elif words(by) > FLOW_BY_WORDS:
+                rep.strict_warn(f"{label}.callouts[{i}]: by is {words(by)} words; a handle or a phrase of six or fewer")
     for (col, side), n in sorted(per_side.items()):
         if n > 4:
             rep.warn(f"{label}: column {col!r} stacks {n} callouts {side}; more than four on a side crowds the figure")
@@ -2186,7 +2428,7 @@ def check_flow(rep, label, spec, topics):
 def check_component_props(rep, label, spec, known, node_ids, topics=None):
     kind = spec["kind"]
     if kind == "dd.flow":
-        check_flow(rep, label, spec, topics)
+        check_flow(rep, label, spec, topics, known)
     elif kind == "dd.lanes":
         ids = [lane["id"] for lane in spec["lanes"]]
         if ids[0] == ids[1]:

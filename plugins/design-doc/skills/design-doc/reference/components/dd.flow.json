@@ -1,7 +1,7 @@
 {
   "kind": "dd.flow",
   "title": "Flow with callouts",
-  "summary": "Columns along a path, left to right, each carrying the callouts that sit on it: what leaks or breaks there, drawn solid when this design fixes it and dashed when it is left for a later design. Each callout names the decision or open item that fixes it in `by`, shown as that entry's handle under the title, and the renderer writes the legend itself. The renderer measures every label and spaces the columns to their callouts, so nothing overlaps.",
+  "summary": "Columns along a path, left to right, each carrying the callouts that sit on it: what leaks or breaks there, in plain words, with the decision or open item that fixes it. A callout is solid when this design fixes it and dashed when it is left for a later design; the renderer writes the legend from those two statuses, shows `by` as the entry's handle, measures every label, and spaces the columns to their callouts, so nothing overlaps.",
   "belongs": "A compare panel whose figure lays findings along a request path; a callout's topic names the .xs-topic row it explains, and the two highlight each other.",
   "type": "object",
   "required": ["kind", "columns", "callouts"],
@@ -34,9 +34,9 @@
         "additionalProperties": false,
         "properties": {
           "col": {"type": "string", "minLength": 1, "description": "the id of the column this callout sits on"},
-          "title": {"type": "string", "minLength": 1, "description": "what leaks or breaks at this stage, in plain words"},
-          "status": {"enum": ["fixed", "later"], "description": "fixed when this design closes it, later when it stays for a follow-up"},
-          "by": {"type": "string", "minLength": 1, "description": "the decision or open item that fixes it, by id, shown as its handle; a short phrase when no entry fits"},
+          "title": {"type": "string", "minLength": 1, "description": "the thing that leaks or breaks at this stage, in plain words"},
+          "status": {"enum": ["fixed", "later"], "description": "fixed when this design fixes it, later when it is left for a follow-up design"},
+          "by": {"type": "string", "minLength": 1, "description": "the id of the decision or open item that fixes it, shown as that entry's handle, or a phrase of six words or fewer"},
           "side": {"enum": ["above", "below"], "description": "which side of the column; unset callouts go above, the fourth and later below"},
           "topic": {"type": "string", "minLength": 1, "description": "the .xs-topic text of the compare row this callout explains"}
         }
