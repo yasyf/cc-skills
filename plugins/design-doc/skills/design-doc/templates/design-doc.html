@@ -225,6 +225,7 @@ details.ledger .body{padding:0 2px 18px 28px;font-size:15px;max-width:var(--meas
 details.ledger .body p{margin:8px 0}
 details.ledger.loadbearing{border-left:2px solid var(--warn);padding-left:12px}
 .plainp{font-size:15.5px;margin:6px 0 12px}
+.numclaim{font-size:15.5px;margin:0 0 4px;max-width:var(--measure)}
 .kv{font-size:14.5px;margin:12px 0}
 .kv b{font-weight:600;font-size:14px;color:var(--ink2);display:block;margin-bottom:2px}
 .qa{background:var(--code-bg);border-radius:var(--r-node);padding:11px 15px;margin-top:14px;font-size:14px}
@@ -386,7 +387,7 @@ details.orow.closed .ostat{color:var(--ok)}
 .oprog i b{display:block;height:100%;background:var(--ok)}
 .ghnote{font-size:13.5px;color:var(--ink2);margin:0 0 12px;max-width:var(--measure)}
 #tip.card .tgh{display:block;font-size:12.5px;color:var(--ink2);margin:-3px 0 8px}
-@media print{.oprog,.ghnote{display:none!important}.lchip{color:inherit}}
+@media print{.oprog,.ghnote{display:none!important}.lchip,.src{color:inherit}}
 
 .fnotes{margin:16px 0;padding:0;list-style:none;border-top:1px solid var(--line)}
 .fnotes li{display:flex;gap:16px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14.5px;max-width:80ch}
@@ -553,8 +554,15 @@ svg.xs-connect text{font-family:var(--mono);font-size:12px;fill:var(--hero-ink2)
 #tip.card .ttitle{display:block;font-weight:600;font-size:14.5px;line-height:1.35;margin-bottom:5px}
 #tip.card p{margin:0 0 9px;max-width:none;color:var(--ink2);font-size:13.5px}
 #tip.card .topen{font-size:13px;color:var(--accent);cursor:pointer}
+#tip.card.file{max-width:min(92vw,720px)}
+#tip.card .tsrc{margin:0 0 9px;padding:8px 10px;background:var(--code-bg);border-radius:var(--r-node);font-family:var(--mono);font-size:11.5px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre;tab-size:2}
+#tip.card .tsrc-l{display:block;padding:0 4px;margin:0 -4px}
+#tip.card .tsrc-l.hl{background:var(--warn-soft)}
+#tip.card .tsrc-n{display:inline-block;min-width:4ch;margin-right:1.5ch;text-align:right;color:var(--ink2);user-select:none}
 .term{text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px;cursor:help}
 .term:hover,.term:focus{text-decoration-color:var(--accent)}
+.src{font-family:var(--mono);font-size:.92em;color:var(--ink);text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px}
+.src:hover,.src:focus{color:var(--accent);text-decoration-color:var(--accent)}
 
 .xs-panel[data-kind=compare]{grid-template-columns:minmax(0,1fr);scroll-snap-align:none}
 .xs-panel[data-kind=compare]>figure{width:100%}
@@ -749,7 +757,7 @@ svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2
 .fx-arrow{fill:none;stroke:var(--fx-ink2);stroke-width:1.5}
 .fx-head{fill:var(--fx-ink2)}
 .fx-call rect{fill:var(--before-soft);stroke:var(--before);stroke-width:1.5;transition:stroke-width .12s}
-.fx-call[data-status=open] rect{fill:none;stroke-dasharray:5 4}
+.fx-call[data-status=later] rect{fill:none;stroke-dasharray:5 4}
 .fx-call[data-topic]{cursor:default}
 .fx-call.on rect{stroke-width:2.5}
 .fx-conn{fill:none;stroke:var(--before);stroke-width:1;stroke-dasharray:3 3}
@@ -830,6 +838,7 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
 .ai-verbs{font-size:12px;color:var(--ink2);margin:2px 0 0}
 .ai-verbs button{border:0;background:none;color:var(--accent);font-size:12px;padding:0;cursor:pointer}
 .ai-src{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;font-size:12.5px;color:var(--ink2);margin:6px 0 0}
+.ai-src button{border:0;background:none;color:var(--accent);font-size:12px;padding:0;cursor:pointer}
 .ai-card{border:1px solid var(--line);border-radius:var(--r-node);margin:0 0 12px;background:var(--bg2)}
 .ai-card-head{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-bottom:1px solid var(--line)}
 .ai-card-head b{flex:1;font-size:13.5px}
@@ -1125,6 +1134,7 @@ const LIBS={
  icons:"https://cdn.jsdelivr.net/npm/lucide-static@1.39.0/icons/"
 };
 const NET_MSG="Diagrams need a network connection: this page draws them with Mermaid from cdn.jsdelivr.net.";
+const PZ_MSG="Pan and zoom failed on this diagram; reload the page to draw it again.";
 const HTML=document.documentElement;
 const JOBS=[];
 async function loadFile(name){
@@ -1191,6 +1201,8 @@ PATHS.forEach(p=>addRef(p.id,p.name,"path",p));
 OPEN.forEach(o=>addRef(o.id,o.t,"open",o));
 FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
 const REPO=typeof META.repo==="string"?META.repo:"";
+let GH_REF=typeof META.ref==="string"?META.ref:"HEAD";
+const srcUrl=(path,a,b)=>`https://github.com/${REPO}/blob/${GH_REF}/${path}#L${a}${b?"-L"+b:""}`;
 const GH_LINK=/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues|commit)\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/;
 const GH_KIND={pull:"pr",issues:"issue",commit:"commit"};
 function linkNorm(l){
@@ -1301,16 +1313,22 @@ function refChip(id){
  const [sc]=statusOf(id);
  return `<a class="ref" href="#${SECOF[REF[id].kind]}" data-ref="${esc(id)}"><i class="dot ${sc}" aria-hidden="true"></i><span class="ref-t">${esc(handleOf(id))}</span></a>`;
 }
-const PAREN_GROUP=/\(([^()]+)\)/g;
-const CITE_GROUP=/^[A-Za-z][\w-]*(?:\s*(?:,|;|and)\s*[A-Za-z][\w-]*)*$/;
-function stripCiteParens(s){
- if(!ID_RE)return s;
- return s.replace(PAREN_GROUP,(all,inner)=>{
-  const t=inner.trim();
-  if(!CITE_GROUP.test(t))return all;
-  const toks=t.split(/\s*(?:,|;|\band\b)\s*/).filter(Boolean);
-  return toks.every(x=>x in REF)?t:all;
- });
+const SRC_RE=/(^|[^\w/.-])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?(?![\w-]|[./]\w)/g;
+function srcTag(path,a,b){
+ return `<a class="src" href="${esc(srcUrl(path,a,b))}" target="_blank" rel="noopener" data-ghfile="${esc(path)}" data-line="${a}"${b?` data-to="${b}"`:""}>${esc(path)}:${a}${b?"-"+b:""}</a>`;
+}
+function linkSrc(html){
+ if(!REPO)return html;
+ let depth=0,out="";
+ for(const part of html.split(/(<[^>]*>)/)){
+  if(part.startsWith("<")){
+   const m=/^<(\/?)\s*(code|a|abbr|svg)\b/i.exec(part);
+   if(m){if(m[1])depth=Math.max(0,depth-1);else if(!/\/>\s*$/.test(part))depth++}
+   out+=part;continue;
+  }
+  out+=depth?part:part.replace(SRC_RE,(all,pre,path,a,b)=>pre+srcTag(path,a,b));
+ }
+ return out;
 }
 function linkNode(root){
  if(ID_TEST){
@@ -1323,7 +1341,7 @@ function linkNode(root){
    return ID_TEST.test(n.nodeValue)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;
   }});
   const hits=[];while(walker.nextNode())hits.push(walker.currentNode);
-  hits.forEach(n=>{const box=el("span",null,linkIds(stripCiteParens(esc(n.nodeValue))));n.replaceWith(...box.childNodes)});
+  hits.forEach(n=>{const box=el("span",null,linkIds(esc(n.nodeValue)));n.replaceWith(...box.childNodes)});
  }
  termify(root);
 }
@@ -1369,13 +1387,13 @@ function termify(root){
 }
 
 const EST_TIP="Estimate: derived, not measured; pending the named spike";
-const inline=s=>linkIds(stripCiteParens(esc(s))
+const inline=s=>linkSrc(linkIds(esc(s)
  .replace(/\[\^(\d+)\]/g,'<sup class="fn"><a href="#fn-$1">$1</a></sup>')
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a class="xlink" href="$2" target="_blank" rel="noopener">$1</a>')
  .replace(/`([^`]+)`/g,"<code>$1</code>")
  .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
  .replace(/\*([^*]+)\*/g,"<i>$1</i>")
- .replace(/\(E\)/g,`<abbr class="est" data-tip="${EST_TIP}">(estimated)</abbr>`));
+ .replace(/\(E\)/g,`<abbr class="est" data-tip="${EST_TIP}">(estimated)</abbr>`)));
 function mdToHtml(md){
  const out=[];let list=null,table=null,code=null;
  const closeAll=()=>{if(list){out.push("</ul>");list=null}if(table){out.push("</tbody></table></div>");table=null}};
@@ -1401,7 +1419,7 @@ function mdToHtml(md){
 }
 
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
-const TIP_SEL="[data-tip],[data-ref],[data-term],[data-gh]";
+const TIP_SEL="[data-tip],[data-ref],[data-term],[data-gh],[data-ghfile]";
 const TIP_RING=[];
 let tipFor=null,tipTimer=0,tipArmed=null,tipClosedAt=-1e9,tipCorridor=null,tipSpeed=0,tipDir={x:0,y:0},tipPt={x:0,y:0};
 function tipSpeedNow(){
@@ -1412,7 +1430,21 @@ function hideTip(){
  clearTimeout(tipTimer);
  tipArmed=null;tipCorridor=null;
  if(!TIP.hidden)tipClosedAt=performance.now();
- tipFor=null;TIP.hidden=true;TIP.classList.remove("card");
+ tipFor=null;TIP.hidden=true;TIP.classList.remove("card","file");
+}
+function ghFileCardHtml(node){
+ const path=node.dataset.ghfile,from=+node.dataset.line,to=+(node.dataset.to||node.dataset.line);
+ const open=`<span class="topen" data-href="${esc(node.href)}" role="button" tabindex="0">Open on GitHub →</span>`;
+ const head=`<span class="tkind">${esc(REPO)} · ${esc(GH_REF)}</span><span class="ttitle">${esc(path)}</span>`;
+ if(!GH_TOKEN)return head+open;
+ const rec=GH_FILE[ghFileKey(path)];
+ if(!rec)return head+"<p>Loading…</p>"+open;
+ if(rec.status)return head+`<p>${esc(rec.status===404?"GitHub has no "+path+" at "+GH_REF+".":rec.status===403||rec.status===401?"The site's token cannot read file contents; it needs Contents: Read.":"GitHub answered "+rec.status+".")}</p>`+open;
+ const lines=rec.text.split("\n");
+ const lo=Math.max(1,from-6),hi=Math.min(lines.length,to+6);
+ const rows=[];
+ for(let n=lo;n<=hi;n++)rows.push(`<span class="tsrc-l${n>=from&&n<=to?" hl":""}"><span class="tsrc-n">${n}</span>${esc(lines[n-1])}</span>`);
+ return head+`<pre class="tsrc">${rows.join("\n")}</pre>`+open;
 }
 function ghCardHtml(node){
  const key=node.dataset.gh,kind=node.dataset.kind,rec=GH[key];
@@ -1426,6 +1458,7 @@ function ghCardHtml(node){
 }
 function cardHtml(node){
  if(node.dataset.gh)return ghCardHtml(node);
+ if(node.dataset.ghfile)return ghFileCardHtml(node);
  const id=node.dataset.ref;
  if(id){
   const r=REF[id],[,sl]=statusOf(id);
@@ -1451,14 +1484,17 @@ function placeTip(node,viaKeys){
  TIP.style.left=left+"px";TIP.style.top=top+"px";
 }
 function showTip(node,viaKeys){
- const card=node.dataset.ref||node.dataset.term||node.dataset.gh;
+ const card=node.dataset.ref||node.dataset.term||node.dataset.gh||node.dataset.ghfile;
  const t=node.getAttribute("data-tip");
  if(!card&&!t){hideTip();return}
  clearTimeout(tipTimer);
  tipArmed=null;tipCorridor=null;tipFor=node;
  TIP.classList.toggle("card",!!card);
+ TIP.classList.toggle("file",!!node.dataset.ghfile);
  if(card)TIP.innerHTML=cardHtml(node);else TIP.textContent=t;
- const pending=node.dataset.gh&&!GH[node.dataset.gh]&&GH_PENDING[node.dataset.gh];
+ let pending=null;
+ if(node.dataset.gh&&!GH[node.dataset.gh])pending=GH_PENDING[node.dataset.gh];
+ if(node.dataset.ghfile&&GH_TOKEN&&!GH_FILE[ghFileKey(node.dataset.ghfile)])pending=ghFileLoad(node.dataset.ghfile);
  if(pending)pending.then(()=>{if(tipFor===node)showTip(node)},()=>{});
  TIP.hidden=false;
  placeTip(node,viaKeys);
@@ -2118,27 +2154,41 @@ $("#navSummary").onclick=e=>{e.preventDefault();scrollTo({top:0,behavior:reduced
 let sysdPz=null;
 const DIAGRAM_SOURCE=DIAGRAM?DIAGRAM.source:"";
 const OVERVIEW=DIAGRAM&&DIAGRAM.overview;
+const clampZoom=z=>isFinite(z)&&z>0?Math.min(8,Math.max(.5,z)):1;
+function pzFail(e,box){
+ console.error(e);
+ sysdPz=null;
+ box.innerHTML=`<div class="netmsg">${esc(PZ_MSG)}</div>`;
+ box.style.height="auto";
+ $("#sysdPz").hidden=true;
+ $("#sysdFull").hidden=false;
+}
+function pzSafe(fn,box){
+ try{return fn()}catch(e){pzFail(e,box)}
+}
 let fullDiagBox=null;
 async function openFullDiagram(label){
  if(!fullDiagBox){fullDiagBox=el("div","pzbox");fullDiagBox.style.height="min(72vh,620px)"}
  showModalNode(label,fullDiagBox);
  if(fullDiagBox.dataset.drawn)return;
  fullDiagBox.dataset.drawn="1";
+ let svg;
+ try{svg=await renderMermaid(fullDiagBox,DIAGRAM_SOURCE,label,null)}
+ catch(e){fullDiagBox.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`;delete fullDiagBox.dataset.drawn;return}
+ markDotted(svg,DIAGRAM_SOURCE);
+ delete svg.dataset.hideDotted;
  try{
-  const svg=await renderMermaid(fullDiagBox,DIAGRAM_SOURCE,label,null);
-  markDotted(svg,DIAGRAM_SOURCE);
-  delete svg.dataset.hideDotted;
   const want=readableScale(svg);
   const pz=await panzoomLib();
   const inst=pz(svg,{zoomEnabled:true,panEnabled:true,controlIconsEnabled:false,fit:true,center:true,minZoom:.2,maxZoom:10,zoomScaleSensitivity:.3,mouseWheelZoomEnabled:false,dblClickZoomEnabled:false});
   const cur=inst.getSizes().realZoom;
-  if(cur<want)inst.zoomBy(want/cur);
+  if(cur<want)inst.zoomBy(clampZoom(want/cur));
   const z=inst.getSizes().realZoom;
   const box=svg.querySelector(".svg-pan-zoom_viewport").getBBox();
   fullDiagBox.style.height=Math.min(innerHeight*.72,Math.round(box.height*z)+32)+"px";
   inst.resize();
   inst.pan({x:16-box.x*z,y:16-box.y*z});
- }catch(e){fullDiagBox.innerHTML=`<div class="netmsg">${esc(NET_MSG)}</div>`;delete fullDiagBox.dataset.drawn}
+ }catch(e){console.error(e);fullDiagBox.innerHTML=`<div class="netmsg">${esc(PZ_MSG)}</div>`}
 }
 function dottedControls(svg,source){
  const legend=$("#sysdLegend");
@@ -2163,7 +2213,7 @@ function sysdMermaid(){
   const PAD=16;
   const boxWidth=()=>box.clientWidth||host.clientWidth||1;
   const boxCap=()=>innerWidth<=900?420:560;
-  const zoomFor=w=>{const fit=w/vw;return fit>=want*.9?fit:want};
+  const zoomFor=w=>{const fit=w/vw;return clampZoom(fit>=want*.9?fit:want)};
   box.style.height=Math.max(220,Math.min(boxCap(),vh*zoomFor(boxWidth())))+"px";
   if(HTML.dataset.print)return;
   svg.dataset.viewbox=svg.getAttribute("viewBox");
@@ -2177,59 +2227,67 @@ function sysdMermaid(){
    full.textContent="Open diagram";
    return;
   }
-  try{
-   const pz=await panzoomLib();
-   if(sysdPz){try{sysdPz.destroy()}catch(e){}sysdPz=null}
+  let pz;
+  try{pz=await panzoomLib()}catch(e){pzFail(e,box);return}
+  const boxLive=()=>box.isConnected&&box.clientWidth>0&&box.clientHeight>0;
+  const nodeBoxes=()=>[...svg.querySelectorAll("g.node,g.cluster")].map(n=>{
+   const b=n.getBBox(),t=n.transform.baseVal.consolidate();
+   const dx=t?t.matrix.e:0,dy=t?t.matrix.f:0;
+   return {x:b.x+dx,y:b.y+dy,w:b.width,h:b.height};
+  });
+  const spread=(ns,lo,hi)=>({lo:Math.min(...ns.map(lo)),hi:Math.max(...ns.map(hi))});
+  const frame=(ns,z,w,h)=>{
+   const x=spread(ns,n=>n.x,n=>n.x+n.w);
+   let e=(w-(x.hi-x.lo)*z)/2-x.lo*z,seen=-1;
+   if((x.hi-x.lo)*z>w-2*PAD){
+    ns.forEach(a=>{
+     const ex=w/2-(a.x+a.w/2)*z,f=h/2-(a.y+a.h/2)*z;
+     const n=ns.filter(b=>b.x*z+ex>=0&&(b.x+b.w)*z+ex<=w&&b.y*z+f>=0&&(b.y+b.h)*z+f<=h).length;
+     if(n>seen){seen=n;e=ex}
+    });
+    e=Math.max(w-x.hi*z-PAD,Math.min(PAD-x.lo*z,e));
+   }
+   const seg=ns.filter(n=>(n.x+n.w)*z+e>0&&n.x*z+e<w);
+   const y=spread(seg.length?seg:ns,n=>n.y,n=>n.y+n.h);
+   return {e,y};
+  };
+  const sysdInit=()=>{
+   if(sysdPz)sysdPz.destroy();
    sysdPz=pz(svg,{zoomEnabled:true,panEnabled:true,controlIconsEnabled:false,fit:true,center:true,minZoom:.5,maxZoom:8,zoomScaleSensitivity:.3,mouseWheelZoomEnabled:false,dblClickZoomEnabled:false});
-   const nodeBoxes=()=>[...svg.querySelectorAll("g.node,g.cluster")].map(n=>{
-    const b=n.getBBox(),t=n.transform.baseVal.consolidate();
-    const dx=t?t.matrix.e:0,dy=t?t.matrix.f:0;
-    return {x:b.x+dx,y:b.y+dy,w:b.width,h:b.height};
-   });
-   const spread=(ns,lo,hi)=>({lo:Math.min(...ns.map(lo)),hi:Math.max(...ns.map(hi))});
-   const frame=(ns,z,w,h)=>{
-    const x=spread(ns,n=>n.x,n=>n.x+n.w);
-    let e=(w-(x.hi-x.lo)*z)/2-x.lo*z,seen=-1;
-    if((x.hi-x.lo)*z>w-2*PAD){
-     ns.forEach(a=>{
-      const ex=w/2-(a.x+a.w/2)*z,f=h/2-(a.y+a.h/2)*z;
-      const n=ns.filter(b=>b.x*z+ex>=0&&(b.x+b.w)*z+ex<=w&&b.y*z+f>=0&&(b.y+b.h)*z+f<=h).length;
-      if(n>seen){seen=n;e=ex}
-     });
-     e=Math.max(w-x.hi*z-PAD,Math.min(PAD-x.lo*z,e));
-    }
-    const seg=ns.filter(n=>(n.x+n.w)*z+e>0&&n.x*z+e<w);
-    const y=spread(seg.length?seg:ns,n=>n.y,n=>n.y+n.h);
-    return {e,y};
-   };
-   const view=()=>{
-    if(!sysdPz)return;
-    const ns=nodeBoxes();
-    if(!ns.length)return;
-    const w=boxWidth(),z=zoomFor(w);
-    const first=frame(ns,z,w,Math.min(boxCap(),Math.max(220,vh*z)));
-    const h=Math.max(220,Math.min(boxCap(),Math.round((first.y.hi-first.y.lo)*z)+2*PAD));
-    box.style.height=h+"px";
-    sysdPz.resize();
-    const cur=sysdPz.getSizes().realZoom;
-    if(cur<z)sysdPz.zoomBy(z/cur);
-    const win=frame(ns,z,w,h);
-    sysdPz.pan({x:win.e,y:h/2-(win.y.lo+win.y.hi)/2*z});
-    full.hidden=!OVERVIEW&&z*vw<=w+1;
-   };
-   const ctl=$("#sysdPz");ctl.hidden=false;
-   ctl.querySelectorAll("button").forEach(b=>{b.onclick=()=>{if(!sysdPz)return;const k=b.dataset.pz;if(k==="in")sysdPz.zoomIn();else if(k==="out")sysdPz.zoomOut();else view()}});
-   view();
-   addEventListener("resize",()=>view());
+  };
+  const view=()=>{
+   if(!boxLive())return;
+   const ns=nodeBoxes();
+   if(!ns.length||!ns.every(n=>n.w>0&&n.h>0))return;
+   if(!sysdPz)sysdInit();
+   const w=boxWidth(),z=zoomFor(w);
+   const first=frame(ns,z,w,Math.min(boxCap(),Math.max(220,vh*z)));
+   const h=Math.max(220,Math.min(boxCap(),Math.round((first.y.hi-first.y.lo)*z)+2*PAD));
+   box.style.height=h+"px";
+   sysdPz.resize();
+   const healthy=()=>{const cur=sysdPz.getSizes().realZoom,rel=sysdPz.getZoom();return isFinite(cur)&&cur>0&&isFinite(rel)&&rel>0};
+   if(!healthy())sysdInit();
+   sysdPz.zoom(clampZoom(z*sysdPz.getZoom()/sysdPz.getSizes().realZoom));
+   const win=frame(ns,z,w,h);
+   sysdPz.pan({x:win.e,y:h/2-(win.y.lo+win.y.hi)/2*z});
+   full.hidden=!OVERVIEW&&z*vw<=w+1;
+  };
+  const ctl=$("#sysdPz");ctl.hidden=false;
+  ctl.querySelectorAll("button").forEach(b=>{b.onclick=()=>pzSafe(()=>{if(!sysdPz)return;const k=b.dataset.pz;if(k==="in")sysdPz.zoomIn();else if(k==="out")sysdPz.zoomOut();else view()},box)});
+  const first=new IntersectionObserver(entries=>{
+   if(!entries.some(e=>e.boundingClientRect.width>0&&e.boundingClientRect.height>0))return;
+   first.disconnect();
+   pzSafe(view,box);
+   addEventListener("resize",()=>pzSafe(view,box));
    let seenWidth=-1;
    new ResizeObserver(()=>{
-    const w=boxWidth();
-    if(w===seenWidth)return;
+    const w=box.clientWidth;
+    if(!w||w===seenWidth)return;
     seenWidth=w;
-    sysdPz.resize();
-    view();
+    pzSafe(view,box);
    }).observe(box);
-  }catch(e){}
+  });
+  first.observe(box);
  });
 }
 if(DIAGRAM&&DIAGRAM.kind==="mermaid"&&DIAGRAM.source){
@@ -2397,8 +2455,8 @@ drawPath();
 
 NUMBERS.forEach(nt=>{
  const blk=el("div");blk.id=nt.id;blk.style.margin="16px 0 30px";
- let h=`<h3>${inline(nt.t)}</h3>`;
- if(nt.sub)h+=`<p class="sub" style="margin:2px 0 4px">${inline(nt.sub)}</p>`;
+ let h=`<p class="numclaim">${inline(nt.claim)}</p>`;
+ h+=`<p class="sub" style="margin:2px 0 6px">${inline(nt.t)}${nt.source?" · "+inline(nt.source):""}</p>`;
  h+='<div class="twrap"><table><thead><tr>'+nt.cols.map(c=>`<th>${inline(c)}</th>`).join("")+"</tr></thead><tbody>"+
   nt.rows.map(r=>"<tr>"+r.map((c,i)=>`<td>${i===0?"<b>"+inline(c)+"</b>":inline(c)}</td>`).join("")+"</tr>").join("")+
   "</tbody></table></div>";
@@ -3073,8 +3131,8 @@ function buildDocMd(opt){
  if(NUMBERS.length){
   push("## Numbers\n");
   NUMBERS.forEach(nt=>{
-   push(`### ${nt.t}\n`);
-   if(nt.sub)push(nt.sub+"\n");
+   push(`**${nt.claim}**\n`);
+   push(`_${nt.t}${nt.source?" — "+nt.source:""}_\n`);
    push("| "+nt.cols.join(" | ")+" |");
    push("|"+nt.cols.map(()=>"---").join("|")+"|");
    nt.rows.forEach(r=>push("| "+r.join(" | ")+" |"));
@@ -3669,7 +3727,7 @@ function cmptMatrix(spec){
  box.append(wrap);
  return box;
 }
-const FX_PAD=10,FX_GAP=44,FX_COL_H=40,FX_PADX=14,FX_CALL_H=34,FX_CALL_H2=44,FX_CALL_GAP=6,FX_CONN=26,FX_LEG_H=22;
+const FX_PAD=10,FX_GAP=44,FX_COL_H=40,FX_PADX=14,FX_CALL_H2=44,FX_CALL_GAP=6,FX_CONN=26,FX_LEG_H=22;
 const LN_EYE=24,LN_GAP=32,LN_FPAD=8,LN_BOX_H=30,LN_BOX_H2=40,LN_BOX_GAP=8,LN_MINW=120,LN_BRIDGE_MIN=64,LN_NARROW=640,LN_ONE_COL=4;
 const TEXT_W=new Map();
 let fxMeasure=null,fxCanvas=null,fxFonts=null,fxUid=0;
@@ -3725,13 +3783,16 @@ function fxMount(box,draw,wire){
  afterFonts(redraw);
  return redraw;
 }
-const callH=c=>c.sub?FX_CALL_H2:FX_CALL_H;
-const callW=c=>Math.max(textWidth(c.title,"fx-t"),c.sub?textWidth(c.sub,"fx-s"):0)+2*FX_PADX;
+const flowBy=c=>c.by?(REF[c.by]?handleOf(c.by):plain(c.by)):c.status==="fixed"?"this design":"a later design";
+const flowSub=c=>(c.status==="fixed"?"Fixed by ":"Left for ")+flowBy(c);
+const FLOW_LEGEND=["Solid: this design fixes it","Dashed: left for a later design"];
+const callH=()=>FX_CALL_H2;
+const callW=c=>Math.max(textWidth(c.title,"fx-t"),textWidth(flowSub(c),"fx-s"))+2*FX_PADX;
 const stackH=list=>list.reduce((h,c,i)=>h+callH(c)+(i?FX_CALL_GAP:0),0);
 function flowLabel(spec){
  if(spec.title)return plain(spec.title);
- const cols=spec.columns,closed=spec.callouts.filter(c=>c.status==="closed").length;
- return `${cols.length} columns, ${plain(cols[0].label)} to ${plain(cols[cols.length-1].label)}, with ${spec.callouts.length} callouts: ${closed} closed, ${spec.callouts.length-closed} open.`;
+ const cols=spec.columns,fixed=spec.callouts.filter(c=>c.status==="fixed").length;
+ return `${cols.length} columns, ${plain(cols[0].label)} to ${plain(cols[cols.length-1].label)}, with ${spec.callouts.length} callouts: ${fixed} fixed by this design, ${spec.callouts.length-fixed} left for later.`;
 }
 function flowSvg(spec){
  const cols=spec.columns.map(c=>({...c,above:[],below:[]}));
@@ -3752,13 +3813,12 @@ function flowSvg(spec){
  let w=x-FX_GAP+FX_PAD;
  const colY=FX_PAD+aboveH+(aboveH?FX_CONN:0),colMid=colY+FX_COL_H/2;
  let h=colY+FX_COL_H+(belowH?FX_CONN+belowH:0)+FX_PAD;
- const legend=spec.legend?[`Solid: ${plain(spec.legend.closed)}`,`Dashed: ${plain(spec.legend.open)}`]:null;
- if(legend)w=Math.max(w,textWidth(legend[0],"fx-n")+textWidth(legend[1],"fx-n")+3*FX_PAD);
+ w=Math.max(w,textWidth(FLOW_LEGEND[0],"fx-n")+textWidth(FLOW_LEGEND[1],"fx-n")+3*FX_PAD);
  const marker=`fx-arr-${++fxUid}`;
  const parts=[fxMarker(marker)];
  const callout=(c,y)=>{
   const cw=callW(c),ch=callH(c),col=byId[c.col];
-  return `<g class="fx-call" data-status="${c.status}"${c.topic?` data-topic="${esc(plain(c.topic).toLowerCase())}"`:""}><rect x="${fxNum(col.cx-cw/2)}" y="${fxNum(y)}" width="${fxNum(cw)}" height="${ch}" rx="6"/>${fxLabelled("fx-s",col.cx,y,ch,c.title,c.sub)}</g>`;
+  return `<g class="fx-call" data-status="${c.status}"${c.topic?` data-topic="${esc(plain(c.topic).toLowerCase())}"`:""}><rect x="${fxNum(col.cx-cw/2)}" y="${fxNum(y)}" width="${fxNum(cw)}" height="${ch}" rx="6"/>${fxLabelled("fx-s",col.cx,y,ch,c.title,flowSub(c))}</g>`;
  };
  cols.forEach((col,i)=>{
   if(spec.arrows!==false&&i<cols.length-1){
@@ -3777,10 +3837,8 @@ function flowSvg(spec){
    col.below.forEach(c=>{parts.push(callout(c,y));y+=callH(c)+FX_CALL_GAP});
   }
  });
- if(legend){
-  parts.push(fxText("fx-n",FX_PAD,h+FX_LEG_H-8,legend[0]),fxText("fx-n",w-FX_PAD,h+FX_LEG_H-8,legend[1],"end"));
-  h+=FX_LEG_H;
- }
+ parts.push(fxText("fx-n",FX_PAD,h+FX_LEG_H-8,FLOW_LEGEND[0]),fxText("fx-n",w-FX_PAD,h+FX_LEG_H-8,FLOW_LEGEND[1],"end"));
+ h+=FX_LEG_H;
  return fxSvg("ddc-flow",w,h,parts.join(""),flowLabel(spec));
 }
 function flowTopics(box,host){
@@ -3987,9 +4045,9 @@ function componentMd(name,host){
   L.push("");
   spec.columns.forEach(col=>{
    L.push(`- **${plain(col.label)}**${col.sub?" — "+plain(col.sub):""}`);
-   spec.callouts.filter(c=>c.col===col.id).forEach(c=>L.push(`  - ${plain(c.title)}${c.sub?" — "+plain(c.sub):""} (${c.status})`));
+   spec.callouts.filter(c=>c.col===col.id).forEach(c=>L.push(`  - ${plain(c.title)} — ${flowSub(c)}`));
   });
-  if(spec.legend)L.push(`\n_Solid: ${plain(spec.legend.closed)}; dashed: ${plain(spec.legend.open)}_`);
+  L.push("\n_Solid: this design fixes it; dashed: left for a later design_");
   L.push("");
  }
  if(spec.kind==="dd.lanes")spec.lanes.forEach((l,i)=>{
@@ -4022,6 +4080,9 @@ const AI_RESULT_CAP=12000;
 const AI_TOOL_BUDGET=40000;
 const AI_CTX_BUDGET=100000;
 const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
+const AI_EFFORT_LADDER=["high","medium","low"];
+const lowerEffort=e=>{const i=AI_EFFORT_LADDER.indexOf(e);return i<0?null:AI_EFFORT_LADDER[i+1]||null};
+const AI_RETRY_MSG="Thinking again, with less reasoning…";
 const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
 const AI_RPM=30;
 const AI_RATE_KEY="design-doc-ai-rate";
@@ -4105,6 +4166,35 @@ function ghCached(key){
  }catch(e){return null}
 }
 function ghStore(key,v){try{sessionStorage.setItem("gh:"+key,JSON.stringify({t:Date.now(),v}))}catch(e){}}
+const GH_FILE=Object.create(null),GH_FILE_PENDING=Object.create(null);
+const ghFileKey=path=>path+"@"+GH_REF;
+async function ghFile(path){
+ const key="file:"+ghFileKey(path);
+ const hit=ghCached(key);
+ if(hit)return hit;
+ const r=await fetch(`${GH_API}/repos/${REPO}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(GH_REF)}`,{headers:{Accept:"application/vnd.github.raw+json",Authorization:"Bearer "+GH_TOKEN,"X-GitHub-Api-Version":"2022-11-28"}});
+ const rec=r.ok?{text:await r.text()}:{status:r.status};
+ ghStore(key,rec);
+ return rec;
+}
+function ghFileLoad(path){
+ const key=ghFileKey(path);
+ if(!GH_FILE_PENDING[key])GH_FILE_PENDING[key]=ghFile(path).then(rec=>{GH_FILE[key]=rec;return rec}).finally(()=>{delete GH_FILE_PENDING[key]});
+ return GH_FILE_PENDING[key];
+}
+async function ghBranch(){
+ if(typeof META.ref==="string")return;
+ const key="ref:"+REPO;
+ let ref=ghCached(key);
+ if(!ref){
+  const repo=await ghGet(`/repos/${REPO}`);
+  if(!repo)return;
+  ref=repo.default_branch;
+  ghStore(key,ref);
+ }
+ GH_REF=ref;
+ document.querySelectorAll("a[data-ghfile]").forEach(a=>{a.href=srcUrl(a.dataset.ghfile,a.dataset.line,a.dataset.to)});
+}
 async function ghGet(path){
  if(ghPauseUntil>Date.now())await new Promise(r=>setTimeout(r,ghPauseUntil-Date.now()));
  const r=await fetch(GH_API+path,{headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+GH_TOKEN,"X-GitHub-Api-Version":"2022-11-28"}});
@@ -4147,6 +4237,7 @@ function ghApply(key){
 }
 async function ghBoot(token){
  GH_TOKEN=token;
+ if(REPO&&document.querySelector("[data-ghfile]"))ghBranch().catch(()=>{});
  const kinds={};
  document.querySelectorAll("[data-gh]").forEach(n=>{kinds[n.dataset.gh]=n.dataset.kind});
  const todo=[];
@@ -4284,28 +4375,42 @@ async function aiStream(body,signal,onText,onReason){
 const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
 const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
 function aiBody(kind,schema){
- const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?8000:3000,temperature:schema?0:0.2};
+ const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?16000:6000,temperature:schema?0:0.2};
  if(!AI.noFormat)body.reasoning_format="parsed";
  if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
  return body;
 }
 const AI_NO_TOOLS="Tools are off for this task: write the text only.";
 const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
+let aiBusyNow=null;
+function aiRetryNote(){if(aiBusyNow)aiBusyNow.querySelector(".ai-wait").textContent="Thinking again…"}
 async function aiOnce(compose,opt){
  const o=opt||{};
  await aiReady;
  const messages=compose();
- const body=aiBody(o.kind,o.schema);
- body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
- body.tool_choice="none";
- if(o.onText&&!o.schema)return (await aiStream(body,o.signal,o.onText)).text;
- if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
- const r=await aiPost(body,o.signal);
- const j=await r.json();
- if(j.usage)aiNoteUsage(j.usage);
- const content=((j.choices||[])[0]||{}).message||{};
- const text=aiClean(content.content||"");
- return o.schema?JSON.parse(text||"{}"):text;
+ let effort=null;
+ for(;;){
+  const body=aiBody(o.kind,o.schema);
+  if(effort)body.reasoning_effort=effort;
+  body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
+  body.tool_choice="none";
+  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
+  let text,finish;
+  if(o.onText&&!o.schema){
+   const res=await aiStream(body,o.signal,o.onText);
+   text=res.text;finish=res.finish;
+  }else{
+   const r=await aiPost(body,o.signal);
+   const j=await r.json();
+   if(j.usage)aiNoteUsage(j.usage);
+   const choice=(j.choices||[])[0]||{};
+   text=aiClean((choice.message||{}).content||"");
+   finish=choice.finish_reason||null;
+  }
+  const lower=lowerEffort(body.reasoning_effort);
+  if(finish==="length"&&!text&&!effort&&lower){effort=lower;aiRetryNote();continue}
+  return o.schema?JSON.parse(text||"{}"):text;
+ }
 }
 const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
 function aiCacheGet(feature,input){
@@ -4343,7 +4448,7 @@ function aiReverseIndex(){
  ASSUM.forEach(a=>[a.t,a.p,a.b,a.n].forEach(s=>scan(s,a.id)));
  OPEN.forEach(o=>{[o.t,o.p].forEach(s=>scan(s,o.id));(o.blocks||[]).forEach(b=>add(b,o.id))});
  ARCH.forEach(c=>{(c.b||[]).forEach(s=>scan(s,c.id));[...(c.a||[]),...(c.dq||[])].forEach(x=>add(x,c.id))});
- NUMBERS.forEach(n=>[n.t,n.sub,n.note].concat((n.rows||[]).map(r=>r.join(" "))).forEach(s=>scan(s,n.id)));
+ NUMBERS.forEach(n=>[n.t,n.claim,n.source,n.note].concat((n.rows||[]).map(r=>r.join(" "))).forEach(s=>scan(s,n.id)));
  CONS.forEach((c,i)=>{scan(c.t,"ground rule "+(i+1));String(c.a||"").split(" ").filter(Boolean).forEach(a=>add(a,"ground rule "+(i+1)))});
  CEIL.forEach(row=>scan(row.join(" "),"a ceiling in Where it breaks"));
  TLDR.forEach((t,i)=>scan(t.md,"In brief bullet "+(i+1)));
@@ -4354,10 +4459,17 @@ const aiCitedBy=id=>{if(!AI_CITED)AI_CITED=aiReverseIndex();return [...new Set(A
 
 function aiCites(e){
  if(!ID_RE)return [];
- const text=[e.t,e.p,e.r,e.x,e.n,e.note,e.sub].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join(" ");
+ const text=[e.t,e.p,e.r,e.x,e.n,e.note,e.claim,e.source].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join(" ");
  const ids=new Set();
  text.replace(ID_RE,(all,pre,id)=>{if(id!==e.id)ids.add(id);return all});
  return [...ids];
+}
+function aiSources(e){
+ if(!REPO)return [];
+ const text=[e.t,e.r,e.x,e.n,e.note,e.claim,e.source].concat(Array.isArray(e.b)?e.b:[e.b]).filter(s=>typeof s==="string").join("\n");
+ const urls=new Set();
+ text.replace(SRC_RE,(all,pre,path,a,b)=>{urls.add(srcUrl(path,a,b));return all});
+ return [...urls];
 }
 function aiEntryExtra(e){
  const L=[];
@@ -4365,6 +4477,7 @@ function aiEntryExtra(e){
  if(cites.length)L.push("Cites: "+cites.join(", "));
  const by=aiCitedBy(e.id);
  if(by.length)L.push("Cited by: "+by.join(", "));
+ aiSources(e).forEach(u=>L.push("Source: "+u));
  return L;
 }
 function aiEntryText(e,kind){
@@ -4404,7 +4517,8 @@ function aiEntryText(e,kind){
  }else if(kind==="numbers"){
   L.push(e.id+" · numbers table");
   L.push("Handle: "+aiHandle(e));
-  L.push("Title: "+plain(e.t)+(e.sub?" ("+plain(e.sub)+")":""));
+  L.push("Claim: "+plain(e.claim));
+  L.push("Title: "+plain(e.t)+(e.source?" ("+plain(e.source)+")":""));
   L.push("| "+(e.cols||[]).join(" | ")+" |");
   (e.rows||[]).forEach(r=>L.push("| "+r.map(plain).join(" | ")+" |"));
   if(e.note)L.push(plain(e.note));
@@ -4431,6 +4545,7 @@ function aiSectionText(id){
  }else if(id==="paths"){
   PATHS.forEach(p=>L.push(aiEntryText(p,"path")));
  }else if(id==="numbers"){
+  L.push("Each table opens on its claim:\n"+NUMBERS.map(n=>"- "+n.id+": "+plain(n.claim)).join("\n"));
   NUMBERS.forEach(n=>L.push(aiEntryText(n,"numbers")));
  }else if(id==="ceilings"){
   L.push("| Resource | Ceiling | What you would see first | What stops it |");
@@ -4481,7 +4596,7 @@ function aiIndex(){
  }
  if(NUMBERS.length){
   L.push("\n## Numbers");
-  NUMBERS.forEach(n=>L.push(n.id+" — “"+aiHandle(n)+"” — "+plain(n.t)+(n.sub?" ("+plain(n.sub)+")":"")+" — "+(n.rows||[]).length+" rows"));
+  NUMBERS.forEach(n=>L.push(n.id+" — “"+aiHandle(n)+"” — "+plain(n.claim)+" — "+plain(n.t)+(n.source?" ("+plain(n.source)+")":"")+" — "+(n.rows||[]).length+" rows"));
  }
  if(CEIL.length){
   L.push("\n## Where it breaks");
@@ -4807,16 +4922,23 @@ async function aiRun(question,opt){
  aiHistory().forEach(m=>msgs.push(m));
  msgs.push({role:"user",content:aiTail(o)+"\n\n"+question});
  const sources=new Set(),used=[];
- let answer="",finish=null,spent=0;
+ let answer="",finish=null,spent=0,effort=o.effort||null,retried=false,lastTurn=false;
  for(let round=0;round<AI_ROUNDS;round++){
   const prefix=answer?answer+"\n\n":"";
   const body=aiBody("chat");
   body.messages=msgs;
   if(o.tools)body.tools=o.tools;
-  if(o.effort)body.reasoning_effort=o.effort;
-  if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
+  if(effort)body.reasoning_effort=effort;
+  if(round===AI_ROUNDS-1&&!lastTurn){lastTurn=true;msgs.push({role:"user",content:AI_LAST_TURN})}
+  if(lastTurn)body.tool_choice="none";
   const res=await aiStream(body,o.signal,t=>{if(o.onText)o.onText(prefix+t)},o.onReason);
   finish=res.finish;
+  const lower=lowerEffort(body.reasoning_effort);
+  if(finish==="length"&&!res.text&&!res.calls.length&&!retried&&lower){
+   retried=true;effort=lower;
+   if(o.onRetry)o.onRetry(effort);
+   round--;continue;
+  }
   if(res.text)answer=prefix+res.text;
   if(!res.calls.length)break;
   msgs.push({role:"assistant",content:(res.reasoning?res.reasoning.slice(0,2000)+"\n\n":"")+(res.text||""),tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
@@ -4839,7 +4961,7 @@ async function aiRun(question,opt){
    msgs.push({role:"tool",tool_call_id:r.c.id,content:out});
   });
  }
- return {answer,finish,sources:[...sources],used};
+ return {answer,finish,sources:[...sources],used,retried};
 }
 
 function aiChatKey(){return "ai:"+SLUG+":chat"}
@@ -4919,10 +5041,17 @@ function aiSetVerbs(box,verbs){
 }
 function aiSetSources(box,sources){
  let row=box.querySelector(".ai-src");
- const ids=[...new Set(sources)].filter(id=>REF[id]).slice(0,8);
+ const ids=[...new Set(sources)].filter(id=>REF[id]);
  if(!ids.length){if(row)row.remove();return}
  if(!row){row=el("div","ai-src");box.append(row)}
- row.innerHTML="<span>Sources:</span>"+ids.map(refChip).join("");
+ const open=row.classList.contains("open");
+ row.innerHTML="<span>Sources:</span>"+(open?ids:ids.slice(0,3)).map(refChip).join("");
+ if(ids.length>3&&!open){
+  const more=el("button",null,esc("+"+(ids.length-3)));
+  more.type="button";
+  more.onclick=()=>{row.classList.add("open");aiSetSources(box,sources)};
+  row.append(more);
+ }
 }
 function aiNode(node){$("#aiLog").append(node);aiScrollLog();return node}
 function aiSetState(s){
@@ -4969,23 +5098,26 @@ function aiToggle(){if(aiState==="bar")aiOpen();else aiCollapse()}
 function aiGrow(box){box.style.height="auto";box.style.height=Math.min(120,box.scrollHeight)+"px"}
 function aiRenderChips(list){
  const host=$("#aiSug");host.innerHTML="";
- list.forEach(([label,run])=>{
+ list.forEach(([label,run,ids])=>{
   const b=el("button","ai-chip",esc(label));
   b.type="button";
   b.onclick=run;
+  if(ids){b.dataset.ids=ids.join(" ");b.title="Draws on "+ids.map(handleOf).join(", ")}
   host.append(b);
  });
 }
 function aiSuggest(){
+ if(aiChat.length||aiBusy){
+  aiSugFor=null;
+  aiRenderChips((aiFollow||[]).map(f=>[f.q,()=>aiAsk(f.q),f.ids]));
+  return;
+ }
  if(aiSugFor===aiSec)return;
  aiSugFor=aiSec;
  const meta=(META.ai&&META.ai.suggest)||{};
  const list=[];
- if(aiFollow&&aiChat.length)aiFollow.forEach(q=>list.push([q,()=>aiAsk(q)]));
- else{
-  if(AI_SECTION_NAMES[aiSec])list.push(["TL;DR "+AI_SECTION_NAMES[aiSec],()=>aiShowSection(aiSec)]);
-  [...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,2).forEach(q=>list.push([q,()=>aiAsk(q)]));
- }
+ if(AI_SECTION_NAMES[aiSec])list.push(["TL;DR "+AI_SECTION_NAMES[aiSec],()=>aiShowSection(aiSec)]);
+ [...(meta[aiSec]||[]),...(AI_SUGGEST[aiSec]||[])].slice(0,2).forEach(q=>list.push([q,()=>aiAsk(q)]));
  aiRenderChips(list);
 }
 function aiSetFollow(items){aiFollow=items;aiSugFor=null;aiSuggest()}
@@ -5017,7 +5149,7 @@ function aiAsk(question,opt){
  aiAdopt(aiStartRun(q,{about,effort:o.effort,commit:true}));
 }
 function aiStartRun(q,o){
- const run={q,about:o.about||null,ctrl:new AbortController(),text:"",calls:[],sources:[],finish:null,done:false,error:null,commit:!!o.commit,committed:false,listeners:new Set()};
+ const run={q,about:o.about||null,ctrl:new AbortController(),text:"",calls:[],sources:[],finish:null,retrying:false,retried:false,done:false,error:null,commit:!!o.commit,committed:false,listeners:new Set()};
  const emit=()=>run.listeners.forEach(fn=>fn(run));
  clearAiMarks();
  aiBarText("Thinking…");
@@ -5026,8 +5158,9 @@ function aiStartRun(q,o){
   signal:run.ctrl.signal,
   tools:o.tools,
   onText:t=>{run.text=t;emit()},
-  onTool:(name,args)=>{run.calls.push({name,args});emit()}
- }).then(res=>{run.text=res.answer||"";run.sources=res.sources||[];run.finish=res.finish},e=>{run.error=e}).then(()=>{
+  onTool:(name,args)=>{run.calls.push({name,args});emit()},
+  onRetry:()=>{run.retrying=true;aiBarText(AI_RETRY_MSG);emit()}
+ }).then(res=>{run.text=res.answer||"";run.sources=res.sources||[];run.finish=res.finish;run.retried=!!res.retried},e=>{run.error=e}).then(()=>{
   run.done=true;
   if(run.commit&&!run.error)aiCommit(run);
   aiBarText(aiFirstLine(aiLastAnswer()));
@@ -5048,8 +5181,9 @@ function aiCommit(run){
 function aiPaintAnswer(box,run,final){
  const body=box.querySelector(".ai-body");
  if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}
- else if(final)body.textContent=run.error?"Stopped.":"No answer came back.";
- if(final&&run.finish==="length")body.append(el("p","ai-note-in","(cut short — ask me to continue)"));
+ else if(final)body.textContent=run.error?"Stopped.":run.retried?"The model ran out of room twice; ask a narrower question.":"No answer came back.";
+ else if(run.retrying)body.textContent=AI_RETRY_MSG;
+ if(final&&run.finish==="length"&&run.text)body.append(el("p","ai-note-in","(cut short — ask me to continue)"));
  aiSetVerbs(box,aiVerbs(run.calls));
  if(final)aiSetSources(box,run.sources);
  aiScrollLog();
@@ -5059,6 +5193,7 @@ function aiAdopt(run){
  aiBusy=true;
  aiAbort=run.ctrl;
  run.commit=true;
+ aiSetFollow(null);
  $("#aiSend").textContent="Stop";
  aiBubble("user",run.q,null,run.about);
  const box=aiBubble("assistant","");
@@ -5149,13 +5284,14 @@ async function aiQuiz(){
   {role:"user",content:"Write five multiple-choice questions that check whether a reviewer understood this document. Four options each, answer is the index of the right one, id is the register entry the answer comes from. Questions about what was decided and what it costs, never about wording."}
  ],{kind:"quiz",schema:AI_QUIZ_SCHEMA}));
 }
-const AI_FOLLOW_SCHEMA={name:"followups",schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"],additionalProperties:false}};
+const AI_FOLLOW_SCHEMA={name:"followups",schema:{type:"object",properties:{items:{type:"array",items:{type:"object",properties:{q:{type:"string"},ids:{type:"array",items:{type:"string"}}},required:["q","ids"],additionalProperties:false}}},required:["items"],additionalProperties:false}};
 async function aiFollowups(question,answer){
- const out=await aiCached("followups",question+"|"+answer,()=>aiOnce(()=>[
-  {role:"system",content:"You propose the three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked."},
-  {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
+ const index=Object.keys(REF).map(id=>id+" — "+handleOf(id)+": "+plain(REF[id].title)).join("\n");
+ const out=await aiCached("followups2",question+"|"+answer,()=>aiOnce(()=>[
+  {role:"system",content:"You propose up to three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked. Each question must be one the listed entries can answer: put in ids the entries it draws on, by their ids exactly as listed, and leave out any question that none of them answers."},
+  {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nSections: "+Object.values(AI_SECTION_NAMES).join(", ")+"\n\nEntries, as id — handle: title\n"+index+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
  ],{kind:"followups",schema:AI_FOLLOW_SCHEMA}));
- return (out.items||[]).filter(s=>typeof s==="string"&&s.trim()).slice(0,3);
+ return (out.items||[]).filter(f=>f&&typeof f.q==="string"&&f.q.trim()&&Array.isArray(f.ids)&&f.ids.length&&f.ids.every(id=>REF[id])).slice(0,3);
 }
 function aiDiagText(){
  const L=[];
@@ -5201,6 +5337,7 @@ function aiRenderCard(rec){
 async function aiFeature(label,kind,title,fetch){
  aiOpen();
  const busy=aiBusyNode(label+"…");
+ aiBusyNow=busy;
  try{
   const data=await fetch();
   const rec={role:"card",kind,title,data};
@@ -5208,6 +5345,7 @@ async function aiFeature(label,kind,title,fetch){
   aiChat.push(rec);
   aiSaveChat();
  }catch(e){aiFail(busy,e)}
+ finally{if(aiBusyNow===busy)aiBusyNow=null}
  aiScrollLog();
 }
 function aiShowFaq(){return aiFeature("Working out the questions people ask","faq","Questions people ask",aiFaq)}
@@ -5684,7 +5822,7 @@ function palAsk(q){
  const i=palList.findIndex(it=>it.ask);
  if(i>=0){palList[i]=palHandoffRow();palRender()}
  let pending=0;
- const paint=()=>{pending=0;if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}};
+ const paint=()=>{pending=0;if(run.text){body.innerHTML=mdToHtml(run.text);scrub(body)}else if(run.retrying)body.textContent=AI_RETRY_MSG};
  run.listeners.add(r=>{
   if(palLive!==r)return;
   if(!r.done){if(!pending)pending=requestAnimationFrame(paint);return}
@@ -5692,7 +5830,7 @@ function palAsk(q){
   pending=0;
   if(r.error){if(r.error.name!=="AbortError")aiFail(body,r.error);return}
   paint();
-  if(!r.text)body.textContent="No answer came back.";
+  if(!r.text)body.textContent=r.retried?"The model ran out of room twice; ask a narrower question.":"No answer came back.";
   palFinish(r);
  });
 }
