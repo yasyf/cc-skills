@@ -44,7 +44,7 @@ ones with none, resolves their GitHub state with --fetch and reports an
 open item whose closing change landed, or a closed one whose change did
 not. Stdlib only.
 """
-import argparse, copy, datetime, hashlib, importlib.util, itertools, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
+import argparse, copy, datetime, hashlib, importlib.util, itertools, json, math, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -67,6 +67,12 @@ GITHUB_KIND = {"pull": "pr", "issues": "issue", "commit": "commit"}
 REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 GITHUB_API = "https://api.github.com"
 GITHUB_STATE_CLOSED = {"merged", "closed"}
+RENDER_CHECK_VIEWPORT = {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False}
+SYSD_CTM_JS = """new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+ const vp=document.querySelector("#sysdHost svg .svg-pan-zoom_viewport");
+ const t=vp&&vp.transform.baseVal.consolidate();
+ res(t?String(Math.min(t.matrix.a,t.matrix.d)):null);
+})))"""
 
 DECISION_STATUSES = {"resolved", "superseded", "open"}
 ASSUMPTION_STATUSES = {"working", "validate"}
@@ -762,9 +768,13 @@ def render_check(args) -> int:
     problems, html = [], ""
     try:
         session = builder.open_page(chrome, base + page)
+        chrome.call("Emulation.setDeviceMetricsOverride", RENDER_CHECK_VIEWPORT, session=session)
         state = builder.wait_ready(chrome, session, args.timeout)
         if state["ready"] != "1":
             problems.append(builder.ready_problem(state, args.timeout))
+        scale = builder.evaluate(chrome, session, SYSD_CTM_JS)
+        if scale is not None and not (math.isfinite(float(scale)) and float(scale) > 0):
+            problems.append("the system diagram's pan-zoom viewport is singular (scale 0 or NaN); the card renders blank")
         html = builder.evaluate(chrome, session, builder.DOM_JS)
     except builder.ChromeError as e:
         problems.append(str(e))
@@ -793,7 +803,7 @@ def render_check(args) -> int:
         if missing:
             problems.append("diagram ids never rendered: " + ", ".join(missing))
     for msg in chrome.console:
-        if re.search(r"parse error|syntax error|mermaid|diagram", msg, re.I):
+        if re.search(r"parse error|syntax error|mermaid|diagram|SVGMatrix|invertible", msg, re.I):
             problems.append("console: " + first_line(msg, 160))
     for p in problems:
         print(f"ERROR: {p}")
