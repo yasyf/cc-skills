@@ -447,6 +447,8 @@ class DeckParser(HTMLParser):
             return
         if self.grab is not None:
             self.grab["buf"].append(data)
+            if self.grab["kind"] == "caption":
+                return
         if self.panel is not None:
             self.panel["text"].append(data)
 
