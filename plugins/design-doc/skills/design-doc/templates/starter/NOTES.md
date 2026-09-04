@@ -50,6 +50,18 @@ symptoms. Write this, and get the user to agree with it, before designing.)
 
 (Bold lead-in paragraphs, one per argument.)
 
+## Figure briefs
+
+(Five lines per figure, before it is drawn: the point it makes, the decision
+it serves by ID, the smallest view that makes the point, what it leaves out,
+and the real labels it uses. The first two lines become its caption.)
+
+## The critique
+
+(One row per panel, figure, table and stat: the decision it serves, the
+claim it makes, the question a reader is left with, and fixed or cut. A row
+with no decision is cut.)
+
 ## Changelog
 
 - PROJECT_DATE: Registers scaffolded.
