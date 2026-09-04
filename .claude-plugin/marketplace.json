@@ -64,7 +64,7 @@
     {
       "name": "design-doc",
       "source": "./plugins/design-doc",
-      "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck, draws its diagram with Mermaid, cites entries by readable handles, twins every entry with plain English, hosts declared interactive components and self-laying-out compare figures, links every decision and open item to the pull requests that land it with live GitHub state, replays the interview, and answers questions from the whole document in a collapsed Ask bar and an inline Cmd-K palette behind a deployed key, plus a PDF printed from the same page, written as a humble proposal."
+      "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck that runs as one argument, draws its system card with Mermaid under a pan-and-zoom that survives the deck, cites entries by readable handles in parentheses, opens every numbers table on its claim, previews every cited source line from GitHub on hover, twins every entry with plain English, hosts declared interactive components and self-laying-out compare figures, links every decision and open item to the pull requests that land it with live GitHub state, replays the interview, and answers questions from the whole document with grounded follow-ups in a collapsed Ask bar and an inline Cmd-K palette behind a deployed key, plus a PDF printed from the same page, written as a humble proposal."
     },
     {
       "name": "open-pr",

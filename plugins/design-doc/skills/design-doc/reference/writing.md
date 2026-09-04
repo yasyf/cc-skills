@@ -25,6 +25,12 @@ The reasoning, its dependency, and the feedback wanted, all checkable.
 </example>
 </examples>
 
+## One argument
+
+The deck is one line of argument, and the doc is the same argument at full length. The summary reads in order: the problem, the ideas that answer it, what each idea closes, what it costs, and how it rolls out. A reader who reads the panel headlines alone should have the argument. So every panel headline is a claim with a verb in it ("Only Cloudflare decrypts a tenant request"), never a label ("The numbers", "What changes"). Every figure and every table carries a caption that states the claim it makes and names the decision it serves, as a parenthesised citation, and a figure that cannot name a decision is cut. A number sits in the deck only where it changes a decision or sizes a risk, and its label says which: "93 tables get a row policy (DQ9)" earns its place, "37 pods" does not.
+
+The test for anything on a panel is the question a colleague asks across the desk: which decision does this serve, and what does it claim? A part with no answer is research residue, and it goes to NOTES.md or nowhere. `check` warns on a headline from the label list or under three words, on a figure caption that cites nothing, and on a stat label that cites nothing; `--strict` makes each an error.
+
 ## Structure rules
 
 - The doc opens on the executive summary deck (its own section below), which fills the screen until the reader scrolls past it. Then comes a tl;dr of three to five plain twins, each at most 20 words (`check` warns above that), with links for every technology named. A mission-statement paragraph makes the reader work for what the bullets hand over.
@@ -38,6 +44,30 @@ The reasoning, its dependency, and the feedback wanted, all checkable.
 ## Write for the person, not the register
 
 The registers are for agents and `check`; the doc is for a colleague deciding whether to object. Register IDs are citations, never subjects: "the redo log (DQ1) absorbs the write" reads, "DQ1 puts the write in the redo log" is a ledger. The renderer leads every entry with its title and keeps the ID for the hover card, and a trailing citation like "(A2)" renders as the entry's handle with a dotted underline: the reader sees "one file per tenant", never "A2". Prose that cites in parentheses gets linked for free; prose that leads with an ID reads as bookkeeping on every surface, the PDF included. `check` bans an ID inside `p`, `t`, and `h` alike. Statuses in prose use the rendered words (decided, replaced, still open; assumed, needs someone to confirm), never the JSON values. The same rule runs backwards into the interview: a question is a plain question, and the ID it settles rides in the block's `decides` field ([method.md](method.md)).
+
+A citation is a parenthesis. It follows a whole sentence and never stands in for a noun the sentence needs. The renderer swaps the ID for the entry's handle and a glyph, so "The hostname decides (DQ52)." renders as "The hostname decides (◆ x-team-id removed)." The test is to delete the citation and read what is left; it has to be a complete sentence that says the same thing. When the sentence would run over the panel's budget, drop a row, never clip the sentence. `check` warns on a citation whose preceding word is an article, a preposition, or a verb that leans on it ("decides", "does", "is", "replaces"), and on a sentence left under three words once its citations are removed; `--strict` makes both errors.
+
+<examples>
+<example label="cite as object">
+"The hostname decides (DQ52)."
+Delete the citation and the hostname decides nothing the reader can name.
+</example>
+<example label="cite as parenthesis">
+"The hostname picks the cluster and the token's team claim authorizes (DQ52)."
+</example>
+<example label="cite as object">
+"Postgres does, per cluster role (DQ9)."
+</example>
+<example label="cite as parenthesis">
+"Postgres hides other teams' rows from each cluster's database role (DQ9)."
+</example>
+<example label="cite as object">
+"None (DQ7)."
+</example>
+<example label="cite as parenthesis">
+"The store and the worker go; the cache moves to memory over S3 (DQ7, DQ12)."
+</example>
+</examples>
 
 ## Plain twins
 
@@ -98,6 +128,20 @@ The reader has the decision before reading a word of the body.
 
 Assumption titles are statements already ("Every consumer tolerates a duplicate"); open-item titles name what is unknown ("Which archive window the compliance team accepts").
 
+## Evidence
+
+An assumption's `b`, a finding's evidence line in the review file, and a spike's description share one shape, in this order: the `path:line` (or the query, or the person and round) that shows it; what that line shows, in plain words; the one check that would confirm or refute it, as a sentence that starts "Check:"; and the research note or reviewer round in parentheses, last. The path comes first because the renderer turns it into a link with a preview, and a reader who follows it wants the sentence that tells them what they are looking at. The check is one action with an owner-shaped verb ("run istioctl proxy-config on a live plat pod"), never "verify". An assumption that needs someone to confirm has to name its check; one that is assumed may stop after what the line shows. `check` warns on a path that is not first, on a round that is not last, and on a `validate` assumption with no "Check:" sentence.
+
+<examples>
+<example label="evidence as a note">
+"dashboard/src/lib/relayEnvironment.ts:35 calls getApiClient() with no options (R2 §4). Confirm against plat Envoy access logs for the tenant team."
+The round sits mid-sentence, the line is never explained, and the check has no owner-shaped verb.
+</example>
+<example label="evidence in shape">
+"dashboard/src/lib/relayEnvironment.ts:35: the dashboard's main client is built with no options, so no team header is set. Check: filter plat's Envoy access logs to the tenant team's users; a hit there confirms it (R2 §4)."
+</example>
+</examples>
+
 ## Capitalisation
 
 The renderer never rewrites a label, so the data carries the case. Acronyms are upper-case everywhere outside code spans: API, TLS, JWT, RLS, NLB, EBS, CLI, SSO, IAM, RDS, CI, S3, R2, SNI, WAF, DDoS, DPoP, GraphQL, JSON, SQL, HTTP. Product names are written as their owners write them: Cloudflare, Envoy, Postgres, Restate, Valkey, WorkOS, Datadog. A literal identifier (`api-runtime`, `x-team-id`, `tnt-usw2-0ddq7rb`) stays as it is, inside backticks. Every other label is sentence case, first letter upper and the rest lower: "Tenant API", "Per-cluster public edge", "Where it breaks".
@@ -114,7 +158,9 @@ Write `k` as the prose writes it and list every other spelling in `aliases`, so 
 
 `diagram.source` is the whole system, and the Overview card no longer draws it. It draws `diagram.overview`, a second Mermaid block of at most ten nodes whose ids are a subset of the full source's, with "View full size" opening the full graph in the modal. Each arch card draws its own node and its direct edges from the full source, so the overview owes the reader the shape, not the parts.
 
-Leave out rollout and control edges (the dotted ones the full graph hides by default), per-cluster and per-region duplicates, observability, and any node an arch card explains on its own. Label first lines follow the capitalisation rules. `check` errors on an overview id the full graph lacks. `diagram.caption` becomes the SVG's `aria-label`, so write it as the sentence a reader who cannot see the figure needs.
+Leave out rollout and control edges (the dotted ones the full graph hides by default), per-cluster and per-region duplicates, observability, and any node an arch card explains on its own. Label first lines follow the capitalisation rules. `check` errors on an overview id the full graph lacks. `diagram.caption` becomes the SVG's `aria-label`, so write it as the sentence a reader who cannot see the figure needs, and end it on the decision that shaped the diagram, cited in parentheses; `check` errors on a caption that cites no decision.
+
+The system diagram draws the proposed system, by role. A node is a role in the design ("Tenant edge", "Shared Postgres"), and its label is that role and, on a second line, the one thing about it the design decides ("aud check, DPoP proof"). An edge is labelled by what flows along it ("verified token forwarded", "tenant role"). Today's state lives only in a compare figure, beside the proposal, where the contrast is the point. So a node label never carries a status word ("unproven", "observed", "pending"), a count ("37 pods", "3 replicas"), or a finding from the research; those belong to an assumption's evidence, a numbers table, or a `dd.lanes` box, where they serve a decision. The same rule holds for every Mermaid block in the deck. `check` warns on a label that breaks it: a first line over four words, a number, a status word, or a `?`, on a node or an edge, in `source`, `overview`, and the deck alike.
 
 ## The executive summary
 
@@ -145,9 +191,13 @@ Every panel has a figure, and every figure is drawn for this design: a diagram o
 - The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure on a poster.
 - Inline SVG when none fits.
 
-The compare panel's figure is a kit component, declared in `components` and placed with `<div data-component="…">` inside the panel's `<figure>`. `dd.flow` draws stages as columns with callouts hanging off them, each callout a thing that stage leaks or fixes, marked closed or open; it fits a change whose story is the path and where it breaks. `dd.lanes` draws today beside proposed as two framed stacks of boxes; it fits a change whose story is which parts become which. Both measure their labels in the page and lay themselves out, so a column widens to its callouts and a lane to its boxes, and nothing overlaps at 390 px or 1440 px. A hand-drawn SVG is for a shape neither kind draws; `check` warns on a compare figure drawn by hand with eight or more boxes and names the kind it should be.
+No figure is drawn before its brief. The brief is five lines in NOTES.md under "Figure briefs", one block per figure: the point the figure makes, in one sentence; the decision it serves, by ID; the smallest view that makes the point (a diff of the path when the surrounding shape already exists, one lane when the change is one part, the whole system only for the thesis); what it leaves out, named, so the omission is a choice; and the real labels it will use, from the registers, never placeholders. The brief's first two lines become the figure's `<figcaption>`. A figure whose brief cannot name a decision is not drawn. Keep only the parts, boundaries, and flows the point needs; a figure that shows everything the research found answers no question.
 
-Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries an `aria-label` or a `<figcaption>`; `check` warns when one has neither.
+The compare panel's figure is a kit component, declared in `components` and placed with `<div data-component="…">` inside the panel's `<figure>`. `dd.flow` draws stages as columns with callouts hanging off them; it fits a change whose story is the path and where it breaks. A callout's `title` names the thing that leaks or breaks at that stage, in plain words a reader outside the team can check ("The dashboard sends no team header", "Plat re-proxies over port 80"). Its `status` is `fixed` when this design closes it and `later` when it stays for a follow-up, and `by` is a register id, shown as its handle, or a short phrase naming what fixes it. The renderer writes the legend from the two statuses; the declaration carries none, and no callout text starts with "closes" or "stays open".
+
+`dd.lanes` draws today beside proposed as two framed stacks of boxes; it fits a change whose story is which parts become which. Both measure their labels in the page and lay themselves out, so a column widens to its callouts and a lane to its boxes, and nothing overlaps at 390 px or 1440 px. A hand-drawn SVG is for a shape neither kind draws; `check` warns on a compare figure drawn by hand with eight or more boxes and names the kind it should be.
+
+Read `reference/gallery/` before drafting: `deck.html` is a four-panel deck whose numbers panel hosts a `dd.whatif` component, and `poster.html` a complete poster, both rendered by the template with no doc-specific data. Copy structure, never content. Every figure carries both: an `aria-label` that says what is drawn, for the reader who cannot see it, and a `<figcaption>` that states the claim the figure makes and cites the decision it serves. `check` warns on a deck figure with no `aria-label`, on one with no caption, and on a caption that cites nothing.
 
 ## Components
 
@@ -194,12 +244,16 @@ When the kit cannot express the figure, write a Preact component in `components/
 
 `meta.ai.suggest` maps a section id to two prompts the assistant panel offers while that section is on screen, after its own "TL;DR" of the section. Write each as the question a cold reader asks at that point, answerable from the document, under ten words, with no IDs: `"ceilings": ["What breaks first at ten times today's load?", "Which guard is still an estimate?"]`. The built-in set already asks the open list what has shipped, so a doc with links needs no prompt for that. The doc answers from the document and says when it cannot, so a prompt that needs knowledge the document lacks produces a shrug, not an answer; cut it.
 
+The follow-ups the assistant offers under an answer obey the same rule: each names something the document contains, by the words the document uses, and is answerable from it. The renderer hands the model the section list and every handle and tells it to pick from those, and it drops a follow-up whose handles resolve to nothing. A follow-up about a thing the document never says ("the two-year rollout", when an assumption says only that the design serves 10 to 50 clusters over two years) is extrapolation, and the prompt forbids it.
+
 ## The two passes
 
 Write the content in two separate passes, in order; combining them produces prose that is half-fixed on both axes:
 
 1. **Structure and de-jargoning.** Everything in its right section, every term defined before use, every claim traceable to a register entry.
 2. **Tone.** Reread every sentence asking "is this explaining, or performing?" Kill superlatives, hedge-stacks, and any sentence whose subject is the work rather than the system.
+
+The critique pass runs between them: one NOTES.md row per panel, figure, table, and stat, naming the decision it serves, the claim it makes, the question a reader is left with, and whether it was fixed or cut. A row with no decision is cut, and the tone pass reads only what survives.
 
 Run `slop-cop check <file> --llm-effort=off` after each pass and triage: fix the genuine tells, keep deliberate constructions (range dashes in "1–2ms", glossary dashes) with a clear conscience.
 

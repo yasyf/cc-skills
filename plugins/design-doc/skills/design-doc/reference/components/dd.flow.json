@@ -1,7 +1,7 @@
 {
   "kind": "dd.flow",
   "title": "Flow with callouts",
-  "summary": "Columns along a path, left to right, each carrying the callouts that sit on it: what leaks, breaks or changes there, solid when this design closes it and dashed when it stays open. The renderer measures every label and spaces the columns to their callouts, so nothing overlaps.",
+  "summary": "Columns along a path, left to right, each carrying the callouts that sit on it: what leaks or breaks there, in plain words, with the decision or open item that fixes it. A callout is solid when this design fixes it and dashed when it is left for a later design; the renderer writes the legend from those two statuses, shows `by` as the entry's handle, measures every label, and spaces the columns to their callouts, so nothing overlaps.",
   "belongs": "A compare panel whose figure lays findings along a request path; a callout's topic names the .xs-topic row it explains, and the two highlight each other.",
   "type": "object",
   "required": ["kind", "columns", "callouts"],
@@ -34,21 +34,12 @@
         "additionalProperties": false,
         "properties": {
           "col": {"type": "string", "minLength": 1, "description": "the id of the column this callout sits on"},
-          "title": {"type": "string", "minLength": 1},
-          "sub": {"type": "string", "minLength": 1},
-          "status": {"enum": ["closed", "open"]},
+          "title": {"type": "string", "minLength": 1, "description": "the thing that leaks or breaks at this stage, in plain words"},
+          "status": {"enum": ["fixed", "later"], "description": "fixed when this design fixes it, later when it is left for a follow-up design"},
+          "by": {"type": "string", "minLength": 1, "description": "the id of the decision or open item that fixes it, shown as that entry's handle, or a phrase of six words or fewer"},
           "side": {"enum": ["above", "below"], "description": "which side of the column; unset callouts go above, the fourth and later below"},
           "topic": {"type": "string", "minLength": 1, "description": "the .xs-topic text of the compare row this callout explains"}
         }
-      }
-    },
-    "legend": {
-      "type": "object",
-      "required": ["closed", "open"],
-      "additionalProperties": false,
-      "properties": {
-        "closed": {"type": "string", "minLength": 1},
-        "open": {"type": "string", "minLength": 1}
       }
     },
     "arrows": {"type": "boolean", "description": "arrows between consecutive columns; on unless set to false"}
@@ -57,19 +48,18 @@
     "kind": "dd.flow",
     "columns": [
       {"id": "client", "label": "Client"},
-      {"id": "plat", "label": "Plat edge"},
+      {"id": "plat", "label": "Shared cluster"},
       {"id": "tenant", "label": "Tenant cluster"},
-      {"id": "db", "label": "Postgres"}
+      {"id": "db", "label": "Shared Postgres"}
     ],
     "callouts": [
-      {"col": "plat", "title": "Break-glass and SandSQL", "sub": "closes: both rules deleted", "status": "closed", "topic": "Plat detours"},
-      {"col": "plat", "title": "GraphQL lands on plat", "sub": "closes: hostname routing", "status": "closed", "topic": "Dashboard"},
-      {"col": "plat", "title": "Journals on plat's Restate", "sub": "stays open: follow-up design", "status": "open", "side": "below", "topic": "Durable execution"},
-      {"col": "tenant", "title": "Dispatch TLS commented out", "sub": "closes: tenant-host dispatch", "status": "closed", "topic": "Plat detours"},
-      {"col": "tenant", "title": "Hop on port 80, unproven", "sub": "closes: tenant NLB as origin", "status": "closed", "topic": "Who decrypts"},
-      {"col": "tenant", "title": "Cache shared by plat's teams", "sub": "closes: per-team home", "status": "closed", "side": "below", "topic": "Prompt cache"},
-      {"col": "db", "title": "One role, every row", "sub": "closes: row policies", "status": "closed", "topic": "Database rows"}
-    ],
-    "legend": {"closed": "closed by this design", "open": "stays open, a follow-up design"}
+      {"col": "plat", "title": "Tenant GraphQL is served on plat", "status": "fixed", "by": "DQ52", "topic": "Dashboard"},
+      {"col": "plat", "title": "Break-glass and SandSQL end on plat", "status": "fixed", "by": "DQ48", "topic": "Plat detours"},
+      {"col": "plat", "title": "Workflows journal on plat's Restate", "status": "later", "by": "Q12", "side": "below", "topic": "Durable execution"},
+      {"col": "tenant", "title": "Dispatch mTLS is commented out", "status": "fixed", "by": "DQ48", "topic": "Plat detours"},
+      {"col": "tenant", "title": "Plat forwards on plain port 80", "status": "fixed", "by": "DQ1", "topic": "Who decrypts"},
+      {"col": "tenant", "title": "One cache for all of plat's teams", "status": "fixed", "by": "DQ34", "side": "below", "topic": "Prompt cache"},
+      {"col": "db", "title": "One role reads every row", "status": "fixed", "by": "DQ9", "topic": "Database rows"}
+    ]
   }
 }

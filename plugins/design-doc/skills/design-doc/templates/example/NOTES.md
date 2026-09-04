@@ -59,6 +59,63 @@ stop. Collapsing all failure modes into one (lease expiry → re-queue) is what
 keeps the protocol small; the price is duplicate delivery on expiry, which A1
 says consumers absorb via idempotency keys.
 
+## Figure briefs
+
+Five lines before any figure is drawn: the point it makes, the decision it
+serves, the smallest view that makes the point, what it leaves out, and the
+real labels it uses. The first two lines become the figure's caption.
+
+**The system diagram.** Point: a job is safe once the log accepts it, and
+everything downstream is rebuilt from the log. Decision: DQ1, DQ2. View: the
+four parts on the enqueue-to-deliver path, plus the archive. Leaves out: the
+idempotency-key lookup and the lease timer wheel, which are steps inside a
+part. Labels: Producers, Job log, Dispatcher, Workers, Object storage.
+
+**Thesis, the path.** Point: one durable thing, and a worker already waiting.
+Decision: DQ1. View: the same path, one line per flow. Leaves out: the
+restore path from the archive. Labels: enqueue, lease, push, after a day.
+
+**Compare, the two lanes.** Point: the poll becomes a push and the table
+becomes a log. Decision: DQ1, DQ2. View: today's table and workers beside
+the proposed log, dispatcher, and workers, one tenant per lane. Leaves out:
+a second tenant; the isolation argument is DQ1's text. Labels: Jobs table,
+Three workers, Finished rows; Job log, Dispatcher, Two workers, Object
+storage.
+
+**Numbers, the latency scale.** Point: dispatch waits on a push, not a
+five-second timer. Decision: DQ4, measured by V1. View: two points on one
+log scale. Leaves out: enqueue latency, which the timings section carries.
+Labels: 5s today, 8ms proposed.
+
+**Cost, the fork.** Point: the design stays small only while every consumer
+absorbs a duplicate. Decision: DQ2, gated on A1. View: one fork with two
+outcomes. Leaves out: what a dedup ledger would cost; that is a different
+design. Labels: every consumer tolerates a duplicate, log plus leases, dedup
+ledger in the hot path.
+
+## The critique
+
+One row per panel, figure, table and stat: the decision it serves, the claim
+it makes, the question a reader is left with, and whether it was fixed or
+cut. A row with no decision is cut.
+
+| Part | Decision | Claim | Open question | Fixed or cut |
+|---|---|---|---|---|
+| Thesis panel | DQ1, DQ4 | One log per tenant, workers already waiting | When is a job safe? | Fixed: the lede names the ack. |
+| Thesis figure | DQ1 | One durable thing, everything else rebuilt from it | Where do old jobs go? | Fixed: the archive edge. |
+| Compare panel | DQ1, DQ2, DQ4 | The poll becomes a push, the table a log | Who wins when two workers race? | Fixed: the lease row. |
+| Compare figure | DQ1, DQ2 | Three pollers on one table, against one log and its leases | Why two workers on the right? | Fixed: the caption says parked. |
+| Numbers panel | DQ4 | Dispatch drops from seconds to milliseconds | Measured or estimated? | Fixed: every stat is tagged estimated. |
+| p95 stat | DQ4 | 8ms from enqueued to running | Against what today? | Fixed: the delta shows 5s. |
+| p50 stat | DQ1 | 2ms enqueue ack | What bounds it? | Fixed: the throughput table names the flush loop. |
+| Sustained stat | DQ1 | 3k jobs a second per tenant | Per tenant or total? | Fixed: the label says per tenant. |
+| Backlog stat | DQ1 | A backlog costs nothing extra | Why flat? | Fixed: the what-if shows the scan today. |
+| Numbers figure | DQ4, V1 | Two points on one log scale | Is 8ms measured? | Fixed: the caption names the spike. |
+| Throughput table | DQ1, V1 | One file per tenant sustains 3k jobs a second | What happens above it? | Fixed: the note points at ceilings. |
+| Cost panel | DQ2, A1 | Every producer sets a key; one file per tenant to back up | What if a consumer cannot dedup? | Fixed: the fork figure. |
+| Cost figure | DQ2, A1 | The design stays small only while duplicates are safe | What would the ledger cost? | Cut: a different design. |
+| Ops box in the thesis draft | none | The dispatcher's timer wheel | | Cut: no decision. |
+
 ## Changelog
 
 - 2026-07-21: Registers collected (A1–A4); rounds 1–2 produced DQ1–DQ4;

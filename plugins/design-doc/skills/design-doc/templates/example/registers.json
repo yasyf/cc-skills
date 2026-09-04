@@ -38,9 +38,9 @@
   ],
   "diagram": {
     "kind": "mermaid",
-    "source": "flowchart LR\n  producers[\"Producers<br/>HTTP, idempotency keys\"]\n  c-log[\"Job log<br/>SQLite, one file per tenant\"]\n  c-lease[\"Dispatcher<br/>leases and long-poll\"]\n  workers[\"Workers<br/>renew leases\"]\n  archive[(\"Object storage\")]\n  producers e-enqueue@-- enqueue --> c-log\n  c-log e-lease@-- lease --> c-lease\n  c-lease e-deliver@-- deliver --> workers\n  c-log e-archive@-. archive after 24h .-> archive",
-    "overview": "flowchart LR\n  producers[\"Producers\"] --> c-log[\"Job log\"]\n  c-log --> c-lease[\"Dispatcher\"]\n  c-lease --> workers[\"Workers\"]\n  c-log -. after 24h .-> archive[(\"Object storage\")]",
-    "caption": "The job log is the durable piece: a job is safe once the log accepts it. The dispatcher and the workers are stateless and rebuilt from the log."
+    "source": "flowchart LR\n  producers[\"Producers<br/>HTTP, idempotency keys\"]\n  c-log[\"Job log<br/>SQLite, one file per tenant\"]\n  c-lease[\"Dispatcher<br/>leases and long-poll\"]\n  workers[\"Workers<br/>renew leases\"]\n  archive[(\"Object storage\")]\n  producers e-enqueue@-- enqueue --> c-log\n  c-log e-lease@-- lease --> c-lease\n  c-lease e-deliver@-- deliver --> workers\n  c-log e-archive@-. archive after a day .-> archive",
+    "overview": "flowchart LR\n  producers[\"Producers\"] --> c-log[\"Job log\"]\n  c-log --> c-lease[\"Dispatcher\"]\n  c-lease --> workers[\"Workers\"]\n  c-log -. after a day .-> archive[(\"Object storage\")]",
+    "caption": "The job log is the durable piece, one file per tenant (DQ1): a job is safe once the log accepts it. The dispatcher and the workers hold nothing the log cannot rebuild, so an expired lease simply re-queues its job (DQ2)."
   },
   "constraints": [
     {
@@ -135,7 +135,8 @@
       "id": "n-throughput",
       "t": "Throughput budget",
       "h": "Throughput budget",
-      "sub": "Sustained rates one tenant is sized for; latency lives under Request paths.",
+      "claim": "One tenant sustains 3k jobs a second on its own file, so a noisy tenant cannot slow another's flush (DQ1); the latency spike measures the ceiling (V1).",
+      "source": "Sustained rates one tenant is sized for; latency lives under Request paths.",
       "cols": ["Flow", "Sustained (E)", "Burst (E)", "Limited by"],
       "rows": [
         ["Enqueues", "3k jobs/s", "5k jobs/s for 60s", "the WAL flush loop"],
@@ -289,7 +290,7 @@
       "star": true,
       "key": true,
       "theme": "delivery",
-      "b": "Every current consumer either dedups on an idempotency key or is naturally idempotent. Needs an explicit yes from the platform team before v1.",
+      "b": "Every current consumer either dedups on an idempotency key or is naturally idempotent. Check: an explicit yes from the platform team, in writing, before v1.",
       "p": "Every receiver can cope with seeing the same job twice. The platform team still has to confirm this.",
       "n": "If this falls, the design gains an exactly-once ledger in the hot path and most of the simplicity argument goes with it."
     },
