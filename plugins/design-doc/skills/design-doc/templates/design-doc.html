@@ -2156,7 +2156,7 @@ $("#navSummary").onclick=e=>{e.preventDefault();scrollTo({top:0,behavior:reduced
 let sysdPz=null,sysdDown=()=>{};
 const DIAGRAM_SOURCE=DIAGRAM?DIAGRAM.source:"";
 const OVERVIEW=DIAGRAM&&DIAGRAM.overview;
-const clampZoom=z=>isFinite(z)&&z>0?Math.min(8,Math.max(.5,z)):1;
+const clampZoom=z=>isFinite(z)&&z>0?Math.min(8,Math.max(.2,z)):1;
 function pzFail(e,box){
  console.error(e);
  sysdDown();
@@ -2171,7 +2171,7 @@ function pzSafe(fn,box){
 let fullDiagBox=null;
 async function openFullDiagram(label){
  if(!fullDiagBox){fullDiagBox=el("div","pzbox");fullDiagBox.style.height="min(72vh,620px)"}
- showModalNode(label,fullDiagBox);
+ showModalNode(DIAGRAM_CAPTION||"The system",fullDiagBox);
  if(fullDiagBox.dataset.drawn)return;
  fullDiagBox.dataset.drawn="1";
  let svg;
@@ -3365,7 +3365,7 @@ QA_READY.then(()=>{if(QA.questions.length)renderDQ()});
 let modalMd="",modalFile="",lastFocus=null;
 function openModal(title){
  lastFocus=document.activeElement;
- $("#mtitle").textContent=title;
+ $("#mtitle").innerHTML=inline(title);
  $("#mback").classList.add("open");
  $("#mbody").scrollTop=0;
  $("#mclose").focus();
@@ -4701,6 +4701,46 @@ const AI_TOOLS=[
  aiTool("read_notes","Read one section of the working notes by its heading, or list the headings.",{section:aiOpt("Words from a heading of the working notes, or null to list the headings.")})
 ];
 const AI_TOOLS_READ=AI_TOOLS.filter(t=>/^(read_|list_|search_)/.test(t.function.name));
+const AI_TOOL_ARGS=Object.create(null);
+AI_TOOLS.forEach(t=>{AI_TOOL_ARGS[t.function.name]=t.function.parameters.required});
+function aiJsonEnd(text,from){
+ let depth=0,str=false,slash=false;
+ for(let i=from;i<text.length;i++){
+  const ch=text[i];
+  if(str){if(slash)slash=false;else if(ch==="\\")slash=true;else if(ch==='"')str=false;continue}
+  if(ch==='"')str=true;
+  else if(ch==="{")depth++;
+  else if(ch==="}"&&!--depth)return i+1;
+ }
+ return -1;
+}
+function aiCallFromJson(o,alone){
+ if(!o||typeof o!=="object"||Array.isArray(o))return null;
+ if(typeof o.name==="string"&&AI_TOOL_ARGS[o.name])return {name:o.name,args:o.arguments&&typeof o.arguments==="object"?o.arguments:{}};
+ const keys=Object.keys(o);
+ if(keys.length===1&&AI_TOOL_ARGS[keys[0]]&&o[keys[0]]&&typeof o[keys[0]]==="object")return {name:keys[0],args:o[keys[0]]};
+ if(!alone)return null;
+ const named=Object.keys(AI_TOOL_ARGS).filter(n=>AI_TOOL_ARGS[n].length===keys.length&&AI_TOOL_ARGS[n].every(k=>keys.indexOf(k)>=0));
+ return named.length===1?{name:named[0],args:o}:null;
+}
+function aiSpokenCalls(text,partial){
+ const calls=[];
+ let rest=text||"";
+ for(;;){
+  const lead=rest.replace(/^\s+/,"");
+  if(lead[0]!=="{")break;
+  const start=rest.length-lead.length;
+  const end=aiJsonEnd(rest,start);
+  if(end<0)return {calls,text:partial?"":rest};
+  let o;
+  try{o=JSON.parse(rest.slice(start,end))}catch(e){break}
+  const call=aiCallFromJson(o,!rest.slice(end).trim());
+  if(!call)break;
+  calls.push(call);
+  rest=rest.slice(end);
+ }
+ return {calls,text:rest.replace(/^\s+/,"")};
+}
 const AI_STOP=new Set("a an the of to in on for and or is are was were be by with as at it its this that these those from we you what which how why does do did not no".split(" "));
 const aiWords=s=>plain(s).toLowerCase().split(/[^a-z0-9]+/).filter(w=>w.length>1&&!AI_STOP.has(w));
 function aiNoteBlocks(){
@@ -4944,7 +4984,7 @@ async function aiRun(question,opt){
   if(effort)body.reasoning_effort=effort;
   if(round===AI_ROUNDS-1&&!lastTurn){lastTurn=true;msgs.push({role:"user",content:AI_LAST_TURN})}
   if(lastTurn)body.tool_choice="none";
-  const res=await aiStream(body,o.signal,t=>{if(o.onText)o.onText(prefix+t)},o.onReason);
+  const res=await aiStream(body,o.signal,t=>{if(o.onText)o.onText(prefix+aiSpokenCalls(t,true).text)},o.onReason);
   finish=res.finish;
   const lower=lowerEffort(body.reasoning_effort);
   if(finish==="length"&&!res.text&&!res.calls.length&&!retried&&lower){
@@ -4952,19 +4992,22 @@ async function aiRun(question,opt){
    if(o.onRetry)o.onRetry(effort);
    round--;continue;
   }
-  if(res.text)answer=prefix+res.text;
-  if(!res.calls.length)break;
-  msgs.push({role:"assistant",content:(res.reasoning?res.reasoning.slice(0,2000)+"\n\n":"")+(res.text||""),tool_calls:res.calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args||"{}"}}))});
-  const results=await Promise.all(res.calls.map(async c=>{
-   const name=c.name.replace(/^functions\./,"");
+  const spoken=aiSpokenCalls(res.text);
+  const calls=res.calls.map(c=>({id:c.id,name:c.name.replace(/^functions\./,""),args:c.args||"{}"}))
+   .concat(spoken.calls.map((c,i)=>({id:"spoken_"+round+"_"+i,name:c.name,args:JSON.stringify(c.args)})));
+  if(spoken.text)answer=prefix+spoken.text;
+  if(!calls.length)break;
+  const results=await Promise.all(calls.map(async c=>{
    let args={};
-   try{args=JSON.parse(c.args||"{}")}catch(e){return {c,out:"the arguments did not parse as JSON"}}
-   used.push({name,args});
-   if(o.onTool)o.onTool(name,args);
-   aiNoteSources(name,args,sources);
-   try{return {c,out:await aiExec(name,args,sources)}}
+   try{args=JSON.parse(c.args)}catch(e){return {c,out:"the arguments did not parse as JSON"}}
+   used.push({name:c.name,args});
+   if(o.onTool)o.onTool(c.name,args);
+   aiNoteSources(c.name,args,sources);
+   try{return {c,out:await aiExec(c.name,args,sources)}}
    catch(e){return {c,out:"that tool failed: "+e.message}}
   }));
+  if(!res.calls.length&&spoken.text)break;
+  msgs.push({role:"assistant",content:(res.reasoning?res.reasoning.slice(0,2000)+"\n\n":"")+spoken.text,tool_calls:calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args}}))});
   results.forEach(r=>{
    const room=Math.min(AI_RESULT_CAP,AI_TOOL_BUDGET-spent);
    let out=String(r.out);
