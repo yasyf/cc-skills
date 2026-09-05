@@ -3449,10 +3449,11 @@ $("#mdl").onclick=()=>{
 };
 $("#lnkDoc").onclick=()=>showModal("The whole document, as Markdown",buildDocMd(),SLUG+"-design-doc.md");
 $("#lnkQa").onclick=()=>showQaReplay();
-$("#lnkNotes").onclick=async()=>{
+async function openNotes(){
  try{showModal("Working notes",await loadFile("NOTES.md"),"NOTES.md")}
  catch(e){showModal("Working notes","The working notes are not in this folder.","NOTES.md")}
-};
+}
+$("#lnkNotes").onclick=openNotes;
 
 $("#exportMd").onclick=()=>{
  const blob=new Blob([buildDocMd()],{type:"text/markdown"});
@@ -5460,11 +5461,11 @@ async function aiWhyHere(entry,kind){
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nSay why this entry exists, in exactly two sentences: what it holds up, and what falls without it."}
  ],{kind:"why"}));
 }
-const CMT_LANES=6,CMT_CTX=32,CMT_STUCK_MS=30*60*1000;
+const CMT_LANES=6,CMT_CTX=32,CMT_STUCK_MS=30*60*1000,CMT_REPOLL=30*1000;
 const CMT_NAME_KEY="design-doc-comment-name",CMT_ME_KEY="cmt:me",CMT_SENT_KEY="design-doc-comment-sent";
 const CMT_ENTRY_RE=/^(?:item|open|spot)-(.+)$/;
 let CMT_POSTED=[],CMT_QUEUE=[],CMT_SENT=[],CMT_MARK=Object.create(null),CMT_VIEW=[];
-let CMT_LIVE=false,CMT_LOAD_ERR="",CMT_ME="",CMT_FRAME=0,CMT_POLL=0;
+let CMT_LIVE=false,CMT_LOAD_ERR="",CMT_ME="",CMT_FRAME=0,CMT_POLL=0,CMT_POSTED_AT=0;
 let CMT_HL=null;
 try{CMT_HL=new Highlight();CSS.highlights.set("cmt",CMT_HL)}catch(e){}
 const cmtRepoLabel=()=>{const r=cmtRepo();return r?r.owner+"/"+r.repo:""};
@@ -5508,6 +5509,11 @@ async function cmtLoadPosted(){
  await Promise.all(Array.from({length:CMT_LANES},lane));
  return out;
 }
+function cmtPullPosted(){
+ CMT_POSTED_AT=Date.now();
+ return cmtLoadPosted().then(rs=>{CMT_POSTED=rs;CMT_LOAD_ERR=""}).catch(e=>{if(e.reset)ghPauseUntil=e.reset;CMT_LOAD_ERR=String(e&&e.message||e)});
+}
+const cmtTick=()=>(Date.now()-CMT_POSTED_AT<CMT_REPOLL?Promise.resolve():cmtPullPosted()).then(cmtRefresh);
 const cmtEl=n=>n&&(n.nodeType===1?n:n.parentElement);
 function cmtEntryNode(n){
  for(let e=cmtEl(n);e;e=e.parentElement){
@@ -5518,6 +5524,8 @@ function cmtEntryNode(n){
 }
 const cmtEntryOf=n=>{const h=cmtEntryNode(n);return h?h.id:""};
 const cmtNotesHost=()=>modalFile==="NOTES.md"&&$("#mback").classList.contains("open")?$("#mbody"):null;
+const cmtInNotes=a=>a.kind==="quote"&&a.scope==="notes";
+const cmtUnhosted=a=>cmtInNotes(a)&&!cmtNotesHost();
 function cmtRegionOf(n){
  const e=cmtEl(n);
  if(!e)return null;
@@ -5588,13 +5596,15 @@ function cmtFind(scope,a){
  const want=a.prefix+a.exact+a.suffix;
  const raw=ix.text.indexOf(want);
  if(raw>=0)return cmtRangeAt(ix,raw+a.prefix.length,raw+a.prefix.length+a.exact.length);
- const hay=cmtNorm(ix.text),whole=cmtNorm(want).out,exact=cmtNorm(a.exact).out;
- if(!exact)return null;
- const at=hay.out.indexOf(whole);
+ const hay=cmtNorm(ix.text),w=cmtNorm(want);
+ const at=hay.out.indexOf(w.out);
  if(at<0)return null;
- const hit=hay.out.indexOf(exact,at);
- if(hit<0||hit+exact.length>at+whole.length)return null;
- return cmtRangeAt(ix,hay.map[hit],hay.map[hit+exact.length-1]+1);
+ const from=a.prefix.length,to=from+a.exact.length;
+ let i=0,j=w.out.length-1;
+ while(i<w.out.length&&w.map[i]<from)i++;
+ while(j>=0&&w.map[j]>=to)j--;
+ if(i>j)return null;
+ return cmtRangeAt(ix,hay.map[at+i],hay.map[at+j]+1);
 }
 function cmtResolveAnchor(a,root){
  if(!a)return null;
@@ -5605,11 +5615,10 @@ function cmtResolveAnchor(a,root){
 const cmtOrder=(a,b)=>a.createdAt===b.createdAt?(a.id<b.id?-1:1):(a.createdAt<b.createdAt?-1:1);
 function cmtFold(records){
  const sorted=[...records].sort(cmtOrder);
- const by=Object.create(null),next=Object.create(null),resolved=Object.create(null),nodes=Object.create(null),roots=[];
- sorted.forEach(r=>{by[r.id]=r});
- sorted.forEach(r=>{if(r.supersedes&&by[r.supersedes])next[r.supersedes]=r.id});
+ const by=Object.create(null),idx=Object.create(null),next=Object.create(null),resolved=Object.create(null),nodes=Object.create(null),roots=[],edits=new Set();
+ sorted.forEach((r,i)=>{by[r.id]=r;idx[r.id]=i});
+ sorted.forEach((r,i)=>{if(r.supersedes&&idx[r.supersedes]<i){next[r.supersedes]=r.id;edits.add(r.id)}});
  sorted.forEach(r=>{if(r.resolves)resolved[r.resolves]=true});
- const edits=new Set(sorted.filter(r=>r.supersedes&&by[r.supersedes]).map(r=>r.id));
  const latest=id=>{let r=by[id];while(next[r.id])r=by[next[r.id]];return r};
  sorted.forEach(r=>{
   if(edits.has(r.id)||(r.resolves&&!r.body))return;
@@ -5649,12 +5658,12 @@ function cmtRender(){
   return n.mark||deep[0]||null;
  };
  CMT_VIEW=cmtFold(CMT_POSTED.concat(CMT_QUEUE,CMT_SENT.map(s=>s.rec)));
- CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body)});
+ CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body);t.lost=!t.at&&!cmtUnhosted(t.anchor)});
  layer.hidden=innerWidth<1100||!CMT_VIEW.length;
- if(!layer.hidden)CMT_VIEW.forEach(t=>{if(t.at){t.chip=cmtChip(t);layer.append(t.chip)}});
+ if(!layer.hidden)CMT_VIEW.forEach(t=>{if(t.at&&!cmtInNotes(t.anchor)){t.chip=cmtChip(t);layer.append(t.chip)}});
  const btn=$("#cmtBtn");
  if(btn){
-  const detached=CMT_VIEW.filter(t=>!t.at).length;
+  const detached=CMT_VIEW.filter(t=>t.lost).length;
   btn.textContent="Comments"+(CMT_VIEW.length?" · "+cmtTotal():"");
   btn.classList.toggle("on",CMT_VIEW.some(t=>t.mark));
   btn.title=detached?detached+" thread(s) no longer match the text they were left on":"";
@@ -5698,7 +5707,7 @@ async function cmtRefresh(){
  cmtDecorate();
  cmtRender();
  const live=CMT_QUEUE.length||CMT_SENT.length;
- if(live&&!CMT_POLL)CMT_POLL=setInterval(cmtRefresh,4000);
+ if(live&&!CMT_POLL)CMT_POLL=setInterval(cmtTick,4000);
  if(!live&&CMT_POLL){clearInterval(CMT_POLL);CMT_POLL=0}
 }
 function cmtOffHtml(){
@@ -5776,16 +5785,18 @@ function cmtClosePop(){
  const pop=$("#cmtPop");
  if(pop)pop.remove();
 }
-function cmtReveal(t){
+async function cmtReveal(t){
+ if(!t.at&&cmtUnhosted(t.anchor)){await openNotes();t.at=cmtResolveAnchor(t.anchor,document.body)}
  if(!t.at)return;
  const host=t.at.nodeType===1?t.at:cmtEl(t.at.commonAncestorContainer);
  for(let e=host;e;e=e.parentElement)if(e.tagName==="DETAILS")e.open=true;
- const r=t.at.getBoundingClientRect();
- scrollTo({top:scrollY+r.top-180,behavior:reduced()?"auto":"smooth"});
+ const r=t.at.getBoundingClientRect(),notes=cmtNotesHost();
+ if(notes&&notes.contains(host))notes.scrollTop+=r.top-notes.getBoundingClientRect().top-80;
+ else scrollTo({top:scrollY+r.top-180,behavior:reduced()?"auto":"smooth"});
 }
 const cmtHead=a=>a.kind==="entry"?handleOf(a.id)||a.id:a.entry?handleOf(a.entry)||a.entry:a.scope==="summary"?"In the summary":"In the working notes";
 function cmtOpenThread(t,rect){
- const where=t.at?"":`<p class="cmt-note">The text this was left on is no longer in the document, so it hangs here instead.</p>`;
+ const where=t.lost?`<p class="cmt-note">The text this was left on is no longer in the document, so it hangs here instead.</p>`:"";
  const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(t.anchor))}</b>`+
   `<button class="xbtn" type="button" data-close>Close</button></div>`+
   where+cmtFlushNote(t.mark)+cmtQuoteHtml(t.anchor)+cmtItemHtml(t,false)+
@@ -5821,7 +5832,7 @@ function cmtListHtml(threads,empty){
  }).join("")+`</div>`;
 }
 function cmtOpenTray(rect){
- const attached=CMT_VIEW.filter(t=>t.at),detached=CMT_VIEW.filter(t=>!t.at);
+ const attached=CMT_VIEW.filter(t=>!t.lost),detached=CMT_VIEW.filter(t=>t.lost);
  const stuck=CMT_VIEW.filter(t=>cmtStuck(t.mark));
  const pop=cmtPop(`<div class="cmt-head"><b>Comments on this document</b><button class="xbtn" type="button" data-close>Close</button></div>`+
   (CMT_LOAD_ERR?`<p class="cmt-note bad">The posted comments would not load: ${esc(CMT_LOAD_ERR)}</p>`:"")+
@@ -5831,10 +5842,10 @@ function cmtOpenTray(rect){
   (CMT_LIVE?cmtConnectHtml():""),rect);
  pop.querySelector("[data-close]").onclick=cmtClosePop;
  pop.querySelectorAll("[data-thread]").forEach(b=>{
-  b.onclick=()=>{
+  b.onclick=async()=>{
    const t=CMT_VIEW.find(x=>x.id===b.dataset.thread);
-   cmtReveal(t);
-   setTimeout(()=>cmtOpenThread(t,(t.chip||b).getBoundingClientRect()),reduced()?0:400);
+   await cmtReveal(t);
+   setTimeout(()=>cmtOpenThread(t,(t.chip||t.at||b).getBoundingClientRect()),reduced()?0:400);
   };
  });
  const save=pop.querySelector("[data-savetok]");
@@ -5846,7 +5857,7 @@ function cmtOpenTray(rect){
   try{sessionStorage.removeItem(CMT_ME_KEY)}catch(e){}
   await cmtLogin();
   cmtClosePop();
-  cmtSend();
+  cmtDispatch();
  };
  const off=pop.querySelector("[data-disconnect]");
  if(off)off.onclick=()=>{
@@ -5857,7 +5868,7 @@ function cmtOpenTray(rect){
   cmtRefresh();
  };
 }
-function cmtSend(){
+function cmtDispatch(){
  cmtFlush().then(r=>{
   if(!r||!r.prUrl)return;
   cmtSentWrite(cmtSentRead().map(s=>s.prUrl?s:{...s,prUrl:r.prUrl}));
@@ -5871,7 +5882,7 @@ async function cmtPost(anchor,body,parent,resolves){
  await cmtQueue(rec);
  cmtSentWrite(cmtSentRead().concat([{rec,at:Date.now(),prUrl:""}]));
  await cmtRefresh();
- cmtSend();
+ cmtDispatch();
 }
 function cmtDecorate(){
  if(!CMT_LIVE)return;
@@ -5943,8 +5954,9 @@ function cmtBoot(){
   addEventListener("scroll",()=>cmtPlace(),{passive:true});
   addEventListener("resize",cmtSchedule);
   new MutationObserver(cmtSchedule).observe($("#main"),{childList:true,subtree:true,attributes:true,attributeFilter:["open"]});
+  new MutationObserver(cmtSchedule).observe($("#mback"),{attributes:true,attributeFilter:["class"]});
   cmtBootOutbox().then(cmtRefresh);
-  cmtLoadPosted().then(rs=>{CMT_POSTED=rs}).catch(e=>{CMT_LOAD_ERR=String(e&&e.message||e)}).then(cmtRefresh);
+  cmtPullPosted().then(cmtRefresh);
  });
 }
 async function aiReviewComment(entry,kind,concern){

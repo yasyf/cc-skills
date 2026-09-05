@@ -1206,8 +1206,11 @@ def comment_anchor(rep, where, anchor, known):
     for extra in sorted(set(anchor) - COMMENT_ANCHOR_KEYS[kind]):
         rep.strict_warn(f"{where}.anchor carries an unknown field {extra!r}")
     if kind == "entry":
-        if anchor.get("id") not in known:
-            rep.warn(f"{where}.anchor.id is {anchor.get('id')!r}, which no register defines; the comment renders in the detached tray")
+        ident = anchor.get("id")
+        if not isinstance(ident, str):
+            rep.err(f"{where}.anchor.id must be a register id string, not {ident!r}")
+        elif ident not in known:
+            rep.warn(f"{where}.anchor.id is {ident!r}, which no register defines; the comment renders in the detached tray")
         return
     scope = anchor.get("scope")
     if scope not in COMMENT_SCOPES:
@@ -1219,7 +1222,9 @@ def comment_anchor(rep, where, anchor, known):
         rep.err(f"{where}.anchor.exact must be the quoted text the comment was left on")
     entry = anchor.get("entry")
     if scope == "entry":
-        if entry not in known:
+        if not isinstance(entry, str):
+            rep.err(f"{where}.anchor.entry must be a register id string, not {entry!r}")
+        elif entry not in known:
             rep.warn(f"{where}.anchor.entry is {entry!r}, which no register defines; the comment renders in the detached tray")
     elif entry is not None:
         rep.err(f"{where}.anchor.entry names an entry, so it is only meaningful under scope 'entry', not {scope!r}")
@@ -1263,10 +1268,30 @@ def check_comments(rep, root, known):
             target = rec.get(key)
             if target is None:
                 continue
-            if target == name:
-                rep.err(f"comments/{name}.json {key} points at itself")
-            elif not isinstance(target, str) or target not in records:
+            if not isinstance(target, str) or target not in records:
                 rep.warn(f"comments/{name}.json {key} is {target!r}, which is no comment in this folder")
+    for key in COMMENT_POINTERS:
+        for cycle in pointer_cycles(records, key):
+            if len(cycle) == 1:
+                rep.err(f"comments/{cycle[0]}.json {key} points at itself")
+            else:
+                rep.err(f"comments/{cycle[0]}.json {key} loops: {' -> '.join(cycle + cycle[:1])}")
+
+
+def pointer_cycles(records, key):
+    step = {name: rec[key] for name, rec in records.items() if isinstance(rec.get(key), str) and rec[key] in records}
+    seen = set()
+    cycles = []
+    for start in sorted(step):
+        path = []
+        node = start
+        while node in step and node not in seen:
+            seen.add(node)
+            path.append(node)
+            node = step[node]
+        if node in path:
+            cycles.append(path[path.index(node):])
+    return cycles
 
 
 def check_notes(rep, root):
