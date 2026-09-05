@@ -224,7 +224,7 @@ The doc renders each link as a chip with an icon for its kind and a dot for its 
 
 ## ai.json
 
-`ai.json` sits beside `registers.json`, or one directory up for a collection, and holds the site config: what the assistant needs to reach a model, and the token the page uses to show each link's GitHub state.
+`ai.json` sits beside `registers.json`, or one directory up for a collection, and holds the site config: what the assistant needs to reach a model, the token the page uses to show each link's GitHub state, and where a reader's comment lands.
 
 ```json
 {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b", "key": "…", "reasoning": "high", "github": {"token": "github_pat_…"}}
@@ -232,9 +232,36 @@ The doc renders each link as a chip with an icon for its kind and a dot for its 
 
 Either half stands alone, `{"disabled": true}` publishes a doc with the assistant off, and a file with neither half is an error. `endpoint`, `model`, and `key` come as a set. `reasoning` is `low`, `medium`, `high`, or `none` and sets one effort for every call; absent, chat, the quiz, and read-as run at `high`, the other one-shots at `medium`, and the follow-up suggestions at `low`. An answer that comes back empty because the model ran out of room (`finish_reason: length`) is re-run once at the next lower effort before anything is shown, and the bubble says so while it waits. `gpt-oss-120b` is the model the assistant is built around; `gemma-4-31b` is the pick only when the assistant has to read an image, and its reasoning is on or off, so `check` warns on a graded value under a `gemma` model. `github.token` is a fine-grained read-only personal access token whose scopes are in [publish.md](publish.md).
 
-The page reads `../ai.json` first, then `ai.json` beside the doc, and takes each half from the first file that carries it. With neither, the page hides every AI affordance and renders links as plain chips; `localStorage["design-doc-ai"]` and `localStorage["design-doc-github"]` override the two halves for local work. The endpoint is an absolute `https://` URL — `http://` only on localhost, since an https page cannot call an http model host — and a config that is not one leaves the assistant off.
+A third half turns on commenting:
+
+```json
+"comments": { "repo": "owner/repo", "forbiddenTerms": ["…"] }
+```
+
+`repo` is the repository comment pull requests open against. The deploy writes it from the workflow's own `github.repository`, so it always names the repo hosting the page, never `meta.repo`, which names the repository the doc's own links and evidence cite. Confusing the two opens every comment pull request against the wrong repository — the reason `comments` carries its own `repo` instead of reusing `meta.repo`. `forbiddenTerms` is optional, and the deploy deliberately never writes it: populating it ships the customer-name list to the browser, the exposure `.customer-names`, gitignored in this repo, exists to prevent. `check` accepts an `ai.json` carrying only `comments`.
+
+The page reads `../ai.json` first, then `ai.json` beside the doc, and takes each half from the first file that carries it. With none of the three, the page hides every AI affordance and renders links as plain chips. Commenting switches off independently of the other two: a build whose `ai.json` carries no `comments.repo` renders existing comments read-only and drops the compose box, which is what local dev sees, since `ai.json` is never committed. `localStorage["design-doc-ai"]` and `localStorage["design-doc-github"]` override the first two halves for local work. The endpoint is an absolute `https://` URL — `http://` only on localhost, since an https page cannot call an http model host — and a config that is not one leaves the assistant off.
 
 Both values are readable by anyone who can open the page, so the file is written at deploy time from repository secrets and never committed: `.gitignore` carries it and `ci-check.sh` fails when it is tracked. `meta.ai.suggest`, `meta.repo`, and `meta.ref` are the only parts of the assistant and the links that live in the registers.
+
+## Comments (`comments/<ulid>.json`)
+
+A reader's comment is not a register: it lives outside `registers.json`, one immutable file per comment at `<slug>/comments/<ulid>.json` in the docs repo, synced through a pull request rather than edited in place. The record:
+
+```json
+{
+  "id": "01JBQ7X4M2K8V3",
+  "rev": 4,
+  "author": { "login": "yasyf" },
+  "createdAt": "2026-09-05T18:22:07Z",
+  "anchor": { "kind": "entry", "id": "DQ4" },
+  "body": "The 50ms ceiling here assumes a warm cache.",
+  "parent": null,
+  "resolves": null
+}
+```
+
+`anchor.kind` is `entry`, naming a register id (`A#`, `DQ#`, `Q#`, `V#`, `c-*`, `n-*`, `p-*`), or `quote`, a text-quote selector that survives only until the anchored sentence is reworded. A malformed comment file is an error; a dangling `anchor`, `parent`, `resolves`, or `supersedes` id is a warning, so deleting a register entry someone commented on can never block the doc's publish. The sync mechanics, the reader's own write token, and why concurrent comments can't conflict are in [comments.md](comments.md).
 
 ## What `design.py check` enforces
 

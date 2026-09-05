@@ -55,7 +55,7 @@ ICON_CACHE = Path.home() / ".cache" / "design-doc"
 ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/flat"
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
 AI_CONFIG_KEYS = ("endpoint", "model", "key")
-SITE_CONFIG_KEYS = ("github",)
+SITE_CONFIG_KEYS = ("github", "comments")
 AI_CONFIG_OPTIONAL = ("reasoning",)
 AI_REASONING = ("low", "medium", "high", "none")
 LINK_KINDS = ("pr", "issue", "commit", "doc")
@@ -163,6 +163,14 @@ EVENT_ATTR = re.compile(r"\s(on[a-z]+)\s*=", re.I)
 URL_ATTRS = {"href", "src", "xlink:href"}
 URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
 MEASURED = {"yes", "no"}
+COMMENT_ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+COMMENT_KEYS = {"id", "rev", "author", "createdAt", "anchor", "body", "parent", "resolves", "supersedes"}
+COMMENT_ANCHOR_KEYS = {"entry": {"kind", "id"},
+                       "quote": {"kind", "scope", "entry", "prefix", "exact", "suffix"}}
+COMMENT_POINTERS = ("parent", "resolves", "supersedes")
+COMMENT_SCOPES = ("summary", "entry", "notes")
+COMMENT_CONFIG_KEYS = {"repo", "forbiddenTerms"}
+COMMENT_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
 SECTION_IDS = ("overview", "ground", "architecture", "paths", "numbers", "ceilings", "decisions",
@@ -1187,6 +1195,105 @@ def check_twins(rep, R, root, d_ids, known):
             rep.err(f"{where}: the wording changed since rev {rev} but the plain twin did not; rewrite p or run design.py plainify --only {where}")
 
 
+def comment_anchor(rep, where, anchor, known):
+    if not isinstance(anchor, dict):
+        rep.err(f"{where}.anchor must be an object")
+        return
+    kind = anchor.get("kind")
+    if kind not in COMMENT_ANCHOR_KEYS:
+        rep.err(f"{where}.anchor.kind is {kind!r}; a comment anchors to an 'entry' or to a 'quote'")
+        return
+    for extra in sorted(set(anchor) - COMMENT_ANCHOR_KEYS[kind]):
+        rep.strict_warn(f"{where}.anchor carries an unknown field {extra!r}")
+    if kind == "entry":
+        ident = anchor.get("id")
+        if not isinstance(ident, str):
+            rep.err(f"{where}.anchor.id must be a register id string, not {ident!r}")
+        elif ident not in known:
+            rep.warn(f"{where}.anchor.id is {ident!r}, which no register defines; the comment renders in the detached tray")
+        return
+    scope = anchor.get("scope")
+    if scope not in COMMENT_SCOPES:
+        rep.err(f"{where}.anchor.scope is {scope!r}; a quote is scoped to {', '.join(COMMENT_SCOPES)}")
+    for key in ("prefix", "suffix"):
+        if not isinstance(anchor.get(key), str):
+            rep.err(f"{where}.anchor.{key} must be a string")
+    if not (isinstance(anchor.get("exact"), str) and anchor["exact"].strip()):
+        rep.err(f"{where}.anchor.exact must be the quoted text the comment was left on")
+    entry = anchor.get("entry")
+    if scope == "entry":
+        if not isinstance(entry, str):
+            rep.err(f"{where}.anchor.entry must be a register id string, not {entry!r}")
+        elif entry not in known:
+            rep.warn(f"{where}.anchor.entry is {entry!r}, which no register defines; the comment renders in the detached tray")
+    elif entry is not None:
+        rep.err(f"{where}.anchor.entry names an entry, so it is only meaningful under scope 'entry', not {scope!r}")
+
+
+def check_comments(rep, root, known):
+    folder = root / "comments"
+    if not folder.is_dir():
+        return
+    records = {}
+    for path in sorted(folder.glob("*.json")):
+        where = f"comments/{path.name}"
+        try:
+            rec = json.loads(path.read_text())
+        except (OSError, ValueError) as e:
+            rep.err(f"{where} does not parse: {e}")
+            continue
+        if not isinstance(rec, dict):
+            rep.err(f"{where} must be a JSON object")
+            continue
+        records[path.stem] = rec
+        if not COMMENT_ULID.match(path.stem):
+            rep.err(f"{where} is not named for a ULID; every comment is one immutable <ulid>.json")
+        if rec.get("id") != path.stem:
+            rep.err(f"{where} carries id {rec.get('id')!r}, which is not its own file name")
+        for extra in sorted(set(rec) - COMMENT_KEYS):
+            rep.strict_warn(f"{where} carries an unknown field {extra!r}")
+        rev = rec.get("rev")
+        if not isinstance(rev, int) or isinstance(rev, bool) or rev < 1:
+            rep.err(f"{where}.rev must be the positive integer revision the comment was left on")
+        author = rec.get("author")
+        if not isinstance(author, dict) or not (isinstance(author.get("login"), str) and author["login"].strip()):
+            rep.err(f"{where}.author must be an object carrying a non-empty login")
+        if not (isinstance(rec.get("createdAt"), str) and rec["createdAt"].strip()):
+            rep.err(f"{where}.createdAt must be a non-empty timestamp")
+        if not isinstance(rec.get("body"), str):
+            rep.err(f"{where}.body must be a string; a withdrawn comment carries an empty one")
+        comment_anchor(rep, where, rec.get("anchor"), known)
+    for name, rec in sorted(records.items()):
+        for key in COMMENT_POINTERS:
+            target = rec.get(key)
+            if target is None:
+                continue
+            if not isinstance(target, str) or target not in records:
+                rep.warn(f"comments/{name}.json {key} is {target!r}, which is no comment in this folder")
+    for key in COMMENT_POINTERS:
+        for cycle in pointer_cycles(records, key):
+            if len(cycle) == 1:
+                rep.err(f"comments/{cycle[0]}.json {key} points at itself")
+            else:
+                rep.err(f"comments/{cycle[0]}.json {key} loops: {' -> '.join(cycle + cycle[:1])}")
+
+
+def pointer_cycles(records, key):
+    step = {name: rec[key] for name, rec in records.items() if isinstance(rec.get(key), str) and rec[key] in records}
+    seen = set()
+    cycles = []
+    for start in sorted(step):
+        path = []
+        node = start
+        while node in step and node not in seen:
+            seen.add(node)
+            path.append(node)
+            node = step[node]
+        if node in path:
+            cycles.append(path[path.index(node):])
+    return cycles
+
+
 def check_notes(rep, root):
     notes = root / "NOTES.md"
     text = notes.read_text() if notes.exists() else ""
@@ -1532,6 +1639,7 @@ def check(args) -> int:
             rep.warn(f"summary.html cites {cited}, which no register defines")
         check_summary_deck(rep, fragment, id_matcher(known))
     check_notes(rep, root)
+    check_comments(rep, root, known)
 
     index_path = root / "index.html"
     if index_path.exists() and "GENERATED" not in index_path.read_text():
@@ -2635,6 +2743,21 @@ def build(args) -> int:
     return 0
 
 
+def comment_config(rep, cfg):
+    comments = cfg.get("comments")
+    if not isinstance(comments, dict):
+        rep.err('ai.json: "comments" must be an object carrying "repo", and "forbiddenTerms" when it has any')
+        return
+    for k in sorted(set(comments) - COMMENT_CONFIG_KEYS):
+        rep.warn(f"ai.json carries comments.{k}, which the page ignores")
+    repo = comments.get("repo")
+    if repo is not None and not (isinstance(repo, str) and COMMENT_REPO.match(repo)):
+        rep.err(f"ai.json: comments.repo is {repo!r}; it must read owner/repo")
+    terms = comments.get("forbiddenTerms")
+    if terms is not None and not (isinstance(terms, list) and all(isinstance(t, str) and t.strip() for t in terms)):
+        rep.err("ai.json: comments.forbiddenTerms must be a list of non-empty strings")
+
+
 def check_ai_config(rep, root):
     path = root / "ai.json"
     if not path.exists():
@@ -2646,7 +2769,7 @@ def check_ai_config(rep, root):
         return
     if not isinstance(cfg, dict):
         rep.err('ai.json must be a JSON object: {"endpoint", "model", "key"} for the assistant, {"github": {"token"}} for '
-                'link states, or {"disabled": true} to turn the assistant off')
+                'link states, {"comments": {"repo"}} for reader comments, or {"disabled": true} to turn the assistant off')
         return
     if "github" in cfg:
         github = cfg["github"]
@@ -2655,12 +2778,14 @@ def check_ai_config(rep, root):
         else:
             for k in sorted(set(github) - {"token"}):
                 rep.warn(f"ai.json carries github.{k}, which the page ignores")
+    if "comments" in cfg:
+        comment_config(rep, cfg)
     if cfg.get("disabled") is True:
         for k in sorted(set(cfg) - {"disabled"} - set(SITE_CONFIG_KEYS)):
             rep.warn(f"ai.json disables the assistant, so {k!r} beside it does nothing")
         return
     if not (set(cfg) & set(AI_CONFIG_KEYS)) and not (set(cfg) & set(SITE_CONFIG_KEYS)):
-        rep.err("ai.json carries neither the assistant keys (endpoint, model, key) nor a github block")
+        rep.err("ai.json carries none of the assistant keys (endpoint, model, key), a github block, or a comments block")
         return
     if set(cfg) & set(AI_CONFIG_KEYS):
         for k in AI_CONFIG_KEYS:
