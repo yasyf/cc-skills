@@ -270,7 +270,7 @@ hook(
     ),
     block=True,
     tests={
-        Input(command="codex exec -c model=gpt-5.6-sol -c model_reasoning_effort=xhigh review"): Block(
+        Input(command="codex exec -c model=gpt-6-astra -c model_reasoning_effort=xhigh review"): Block(
             pattern="codex-ask"
         ),
         Input(command="codex -c model=y exec review"): Block(),

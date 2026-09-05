@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	modelSol  = "gpt-5.6-sol"
-	modelLuna = "gpt-5.6-luna"
-	effort    = "xhigh"
+	modelAstra = "gpt-6-astra"
+	modelSol   = "gpt-5.6-sol"
+	modelLuna  = "gpt-5.6-luna"
+	effort     = "xhigh"
 
 	pruneAgeS = 7 * 24 * 3600
 
@@ -35,7 +36,7 @@ const (
 	turnFailedMarker    = `"type":"turn.failed"`
 )
 
-const usageStr = "usage: codex-ask [-m sol|luna] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
+const usageStr = "usage: codex-ask [-m astra|sol|luna] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
 	"[--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}

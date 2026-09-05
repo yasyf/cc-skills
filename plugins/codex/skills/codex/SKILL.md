@@ -17,7 +17,7 @@ Invoke it by its plugin-root path — `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask"
 substituted to a real path in this skill's text. The plugin's `bin/` also rides
 the Bash tool's PATH, but bare `codex-ask` resolves by PATH order, where a
 brew-installed binary can shadow the plugin's symlink. The
-script owns every mechanic: it pins `-c model=gpt-5.6-sol
+script owns every mechanic: it pins `-c model=gpt-6-astra
 -c model_reasoning_effort=xhigh -c service_tier=fast`, runs
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
@@ -52,6 +52,10 @@ question returns in ~2 minutes, an open-ended design essay does not.
   vuln PoCs, malware analysis) outside the Claude session entirely, so the root
   orchestrator never carries material that could trip fable's dual-use screening
   and downgrade the session.
+- All prose and writing — docs, blog posts, PR titles and bodies, commit
+  messages, release notes, plan prose. This is the writing lane per the Models
+  table: astra writes better prose than fable, so writing is delegated here
+  rather than edited inline.
 - Bug diagnosis — the first stop; escalate to fable only when Codex's answer
   misses.
 - After 2+ failed approaches to the same problem
@@ -65,25 +69,29 @@ question returns in ~2 minutes, an open-ended design essay does not.
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
 - Repetitive bounded sweeps at scale -- N-unit test conversions, migrations, and
-  mechanical refactor passes fanned out as parallel lanes, where sol's per-task
+  mechanical refactor passes fanned out as parallel lanes, where astra's per-task
   token efficiency multiplied across the sweep still beats opus. Bounded
   terminal/shell-heavy execution fits here too. An individual bounded,
   decision-light change (a scoped edit, a signature change, a well-specified
   small feature) now defaults to Claude opus -- since Opus 5 the two are tied on
   capability with opus output cheaper -- and large amounts of net-new code stay
   on Claude (opus xhigh, fable only when the surface is very sensitive or
-  error-prone): sol is much stronger at modifying
+  error-prone): the codex lane is much stronger at modifying
   existing code than at authoring a large new subsystem from scratch, and
   ambiguous or exploratory builds and decision-dense refactors stay on opus
-  too, since sol drifts out of scope and fails to converge on open-ended work;
-  long agentic runs are fable's lane. Production sweep edits are in range at
+  too; long agentic runs are fable's lane. Scope drift was sol's failure mode
+  and is astra's step-change — 48% of sol runs exceeded their authorized target
+  on OpenAI's scope eval against astra's 0% (2026-09-03) — so the sweep lane
+  runs wider than it did, but the routing above is unchanged until measured
+  here. Production sweep edits are in range at
   xhigh; review the diff as you would any other contributor's.
 
-Model variants: pass `-m luna` for the rote/bulk and recon lanes. Routing,
+Model variants: `-m astra` (gpt-6-astra) is the default; pass `-m luna` for the
+rote/bulk and recon lanes, `-m sol` to pin the older gpt-5.6-sol. Routing,
 escalation, and when each variant applies live in the fleet Models table
 (CLAUDE.md § Plan Execution & Orchestration) — the script pins tier and effort
-regardless of variant. Escalation is cross-model for implementation: a sol
-miss retries on opus xhigh, an opus miss on sol xhigh, and fable comes only
+regardless of variant. Escalation is cross-model for implementation: an astra
+miss retries on opus xhigh, an opus miss on astra xhigh, and fable comes only
 after both.
 
 ## Browser Access

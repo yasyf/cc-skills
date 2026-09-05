@@ -53,8 +53,8 @@ func TestSessionFromMeta(t *testing.T) {
 		info string
 		want string
 	}{
-		{"present", `{"ts":1.5,"cwd":"/x","model":"gpt-5.6-sol","session":"s-test"}`, "s-test"},
-		{"absent", `{"ts":1.5,"cwd":"/x","model":"gpt-5.6-sol"}`, ""},
+		{"present", `{"ts":1.5,"cwd":"/x","model":"gpt-6-astra","session":"s-test"}`, "s-test"},
+		{"absent", `{"ts":1.5,"cwd":"/x","model":"gpt-6-astra"}`, ""},
 		{"malformed", `{not json`, ""},
 	}
 	for _, c := range cases {
@@ -116,7 +116,7 @@ func TestRegisterTranscript(t *testing.T) {
 	})
 
 	t.Run("skipped no session", func(t *testing.T) {
-		sdir := lane(t, `{"model":"gpt-5.6-sol"}`, "banner\n"+started)
+		sdir := lane(t, `{"model":"gpt-6-astra"}`, "banner\n"+started)
 		shimPath(t, "capt-hook", "exit 0\n")
 		registerTranscript(sdir)
 		if got := outcome(t, sdir); got != "skipped: no session" {

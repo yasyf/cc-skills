@@ -785,6 +785,31 @@ func TestLaneComposesWithScratchModelAndDispatch(t *testing.T) {
 	}
 }
 
+func TestDefaultModelIsAstraAndSolStaysSelectable(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"default", nil, modelAstra},
+		{"astra", []string{"-m", "astra"}, modelAstra},
+		{"sol", []string{"-m", "sol"}, modelSol},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sdir := filepath.Join(mustTempDir(t), "lane-"+tc.name)
+			args := append([]string{"-s", sdir}, tc.flags...)
+			_, stderr, code := askRun(t, mustTempDir(t), stubCodexSleep, append(args, "--dispatch", "ping")...)
+			if code != 0 {
+				t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+			}
+			t.Cleanup(func() { killLane(sdir) })
+			if argv := cmdArgv(t, sdir); !contains(argv, "model="+tc.want) {
+				t.Fatalf("argv = %v, want model=%s", argv, tc.want)
+			}
+		})
+	}
+}
+
 // TestWatchEmitsOnSettleAndExits arms --watch on a pending lane, settles it
 // mid-watch, and expects one JSONL record naming the reply plus a clean exit.
 func TestWatchEmitsOnSettleAndExits(t *testing.T) {
