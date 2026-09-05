@@ -931,6 +931,47 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
   body.ai-wide .layout{margin-right:0}
 }
 figure:has(>[data-component][data-mounted])>svg{display:none}
+#cmtLayer{position:fixed;inset:0;z-index:54;pointer-events:none}
+.cmt-chip{position:fixed;pointer-events:auto;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:2px 9px;font-size:12px;font-variant-numeric:tabular-nums;box-shadow:0 4px 14px #0000001f;white-space:nowrap}
+.cmt-chip:hover{border-color:var(--accent);color:var(--accent)}
+.cmt-chip .cdot{width:6px;height:6px;border-radius:50%;background:var(--ink2);flex:0 0 6px}
+.cmt-chip[data-state=pending] .cdot{background:var(--warn)}
+.cmt-chip[data-state=error] .cdot{background:var(--crit)}
+.cmt-chip[data-state=resolved] .cdot{background:var(--ok)}
+.cmt-ask{border:0;background:none;color:var(--ink2);font-size:13px;line-height:1;padding:0 4px;opacity:.5}
+.cmt-ask:hover{opacity:1;color:var(--accent)}
+.cmt-sel{position:fixed;z-index:67;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12.5px;box-shadow:0 6px 20px #0003}
+.cmt-pop{position:fixed;z-index:68;width:min(410px,92vw);max-height:min(72vh,600px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.cmt-pop p{max-width:none;margin:6px 0;font-size:13px;color:var(--ink2)}
+.cmt-pop h4{margin:14px 0 4px;font-size:13px;font-weight:600;color:var(--ink2)}
+.cmt-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.cmt-head b{flex:1;font-size:14px}
+.cmt-quote{border-left:2px solid var(--accent);padding-left:10px;margin:0 0 10px;color:var(--ink2);font-size:13px}
+.cmt-note{margin:0 0 10px;padding:7px 10px;border-radius:var(--r-node);font-size:12.5px;background:var(--warn-soft);color:var(--warn)}
+.cmt-note.bad{background:var(--crit-soft);color:var(--crit)}
+.cmt-note.good{background:var(--ok-soft);color:var(--ok)}
+.cmt-note a{color:inherit;text-decoration:underline}
+.cmt-item{border-top:1px solid var(--line);padding:9px 0 4px}
+.cmt-item.reply{border-top:0;border-left:1px solid var(--line);margin-left:12px;padding-left:10px}
+.cmt-by{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--ink2)}
+.cmt-by b{color:var(--ink);font-size:13px;font-weight:600}
+.cmt-body{margin:3px 0 0;font-size:13.5px;color:var(--ink);white-space:pre-wrap;max-width:none}
+.cmt-body.gone{color:var(--ink2);font-style:italic}
+.cmt-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.cmt-form{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.cmt-form textarea,.cmt-form input{width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-node);padding:7px 9px;resize:vertical}
+.cmt-form textarea:focus,.cmt-form input:focus{outline:0;border-color:var(--accent)}
+.cmt-row{display:flex;gap:8px;align-items:center}
+.cmt-row .end{margin-left:auto;font-size:12px;color:var(--ink2)}
+.cmt-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:5px 14px;font-size:13.5px}
+.cmt-send[disabled]{opacity:.45;cursor:default}
+.cmt-perm{margin:6px 0;padding-left:18px;font-size:13px;color:var(--ink2)}
+.cmt-list{display:flex;flex-direction:column;gap:2px}
+.cmt-open{display:flex;gap:9px;align-items:baseline;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:7px 9px;border-radius:var(--r-node);font-size:13.5px}
+.cmt-open:hover{background:var(--accent-soft)}
+.cmt-open small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap}
+::highlight(cmt){background:var(--accent-soft);text-decoration:underline dotted var(--accent)}
+@media print{#cmtLayer,.cmt-pop,.cmt-sel,.cmt-ask{display:none!important}}
 </style>
 </head>
 <body>
@@ -5285,6 +5326,493 @@ async function aiWhyHere(entry,kind){
   {role:"user",content:"Entry:\n"+aiEntryText(entry,kind)+"\n\nSay why this entry exists, in exactly two sentences: what it holds up, and what falls without it."}
  ],{kind:"why"}));
 }
+const CMT_LANES=6,CMT_CTX=32,CMT_STUCK_MS=30*60*1000;
+const CMT_NAME_KEY="design-doc-comment-name",CMT_ME_KEY="cmt:me",CMT_SENT_KEY="design-doc-comment-sent";
+const CMT_ENTRY_RE=/^(?:item|open|spot)-(.+)$/;
+let CMT_POSTED=[],CMT_QUEUE=[],CMT_SENT=[],CMT_MARK=Object.create(null),CMT_VIEW=[];
+let CMT_LIVE=false,CMT_LOAD_ERR="",CMT_ME="",CMT_FRAME=0,CMT_POLL=0;
+let CMT_HL=null;
+try{CMT_HL=new Highlight();CSS.highlights.set("cmt",CMT_HL)}catch(e){}
+const cmtRepoLabel=()=>{const r=cmtRepo();return r?r.owner+"/"+r.repo:""};
+const cmtName=()=>{try{return localStorage.getItem(CMT_NAME_KEY)||""}catch(e){return ""}};
+const cmtSetName=n=>{try{localStorage.setItem(CMT_NAME_KEY,n)}catch(e){}};
+const cmtSentRead=()=>{try{const v=JSON.parse(localStorage.getItem(CMT_SENT_KEY)||"[]");return Array.isArray(v)?v:[]}catch(e){return []}};
+const cmtSentWrite=list=>{try{localStorage.setItem(CMT_SENT_KEY,JSON.stringify(list))}catch(e){}};
+async function cmtLogin(){
+ const tok=cmtWriteToken();
+ if(!tok){CMT_ME="";return ""}
+ if(CMT_ME)return CMT_ME;
+ try{CMT_ME=sessionStorage.getItem(CMT_ME_KEY)||""}catch(e){}
+ if(CMT_ME)return CMT_ME;
+ const r=await fetch(GH_API+"/user",{headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+tok,"X-GitHub-Api-Version":"2022-11-28"}});
+ CMT_ME=r.ok?(await r.json()).login:"";
+ try{sessionStorage.setItem(CMT_ME_KEY,CMT_ME)}catch(e){}
+ return CMT_ME;
+}
+async function cmtBlob(f){
+ const key="cmtblob:"+f.sha;
+ let raw="";
+ try{raw=sessionStorage.getItem(key)||""}catch(e){}
+ if(!raw){
+  const r=await fetch(f.download_url);
+  if(!r.ok)throw new Error("comment "+f.name+" would not load ("+r.status+")");
+  raw=await r.text();
+  try{sessionStorage.setItem(key,raw)}catch(e){}
+ }
+ return JSON.parse(raw);
+}
+async function cmtLoadPosted(){
+ const repo=cmtRepo();
+ if(!repo)return [];
+ const dir=cmtSlug().split("/").map(encodeURIComponent).join("/")+"/comments";
+ const list=await ghGet(`/repos/${repo.owner}/${repo.repo}/contents/${dir}?ref=main`);
+ if(!Array.isArray(list))return [];
+ const files=list.filter(f=>f.type==="file"&&f.name.endsWith(".json"));
+ const out=[];
+ let next=0;
+ const lane=async()=>{while(next<files.length)out.push(await cmtBlob(files[next++]))};
+ await Promise.all(Array.from({length:CMT_LANES},lane));
+ return out;
+}
+const cmtEl=n=>n&&(n.nodeType===1?n:n.parentElement);
+function cmtEntryNode(n){
+ for(let e=cmtEl(n);e;e=e.parentElement){
+  const m=e.id&&CMT_ENTRY_RE.exec(e.id);
+  if(m&&REF[m[1]])return {id:m[1],node:e};
+ }
+ return null;
+}
+const cmtEntryOf=n=>{const h=cmtEntryNode(n);return h?h.id:""};
+const cmtNotesHost=()=>modalFile==="NOTES.md"&&$("#mback").classList.contains("open")?$("#mbody"):null;
+function cmtRegionOf(n){
+ const e=cmtEl(n);
+ if(!e)return null;
+ const entry=cmtEntryNode(e);
+ if(entry)return {scope:"entry",entry:entry.id,root:entry.node};
+ const summary=$("#summaryHost");
+ if(summary&&summary.contains(e))return {scope:"summary",root:summary};
+ const notes=cmtNotesHost();
+ if(notes&&notes.contains(e))return {scope:"notes",root:notes};
+ return null;
+}
+function cmtRegionFor(a,root){
+ const host=root||document;
+ if(a.scope==="entry")return a.entry?aiEl(a.entry):null;
+ if(a.scope==="summary")return host.querySelector("#summaryHost");
+ if(a.scope==="notes")return cmtNotesHost();
+ return null;
+}
+function cmtAnchorFromSelection(){
+ const sel=getSelection();
+ if(!sel||!sel.rangeCount)return null;
+ const r=sel.getRangeAt(0),exact=r.toString(),entry=cmtEntryOf(r.commonAncestorContainer);
+ if(!exact.trim())return entry?{kind:"entry",id:entry}:null;
+ const region=cmtRegionOf(r.commonAncestorContainer);
+ if(!region)return null;
+ const root=region.root;
+ const pre=document.createRange();
+ pre.setStart(root,0);
+ pre.setEnd(r.startContainer,r.startOffset);
+ const post=document.createRange();
+ post.setStart(r.endContainer,r.endOffset);
+ post.setEnd(root,root.childNodes.length);
+ const a={kind:"quote",scope:region.scope,prefix:pre.toString().slice(-CMT_CTX),exact,suffix:post.toString().slice(0,CMT_CTX)};
+ if(region.entry)a.entry=region.entry;
+ return a;
+}
+function cmtTextIndex(root){
+ const walk=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+ const nodes=[],starts=[];
+ let text="";
+ for(let n;(n=walk.nextNode());){nodes.push(n);starts.push(text.length);text+=n.data}
+ return {nodes,starts,text};
+}
+function cmtNorm(text){
+ let out="",last=" ";
+ const map=[];
+ for(let i=0;i<text.length;i++){
+  const c=/\s/.test(text[i])?" ":text[i];
+  if(c===" "&&last===" ")continue;
+  out+=c;map.push(i);last=c;
+ }
+ return {out,map};
+}
+function cmtRangeAt(ix,start,end){
+ const r=document.createRange();
+ const at=(off,which)=>{
+  let i=ix.starts.length-1;
+  while(i>0&&ix.starts[i]>off)i--;
+  r[which](ix.nodes[i],off-ix.starts[i]);
+ };
+ at(start,"setStart");
+ at(end,"setEnd");
+ return r;
+}
+function cmtFind(scope,a){
+ const ix=cmtTextIndex(scope);
+ if(!ix.nodes.length)return null;
+ const want=a.prefix+a.exact+a.suffix;
+ const raw=ix.text.indexOf(want);
+ if(raw>=0)return cmtRangeAt(ix,raw+a.prefix.length,raw+a.prefix.length+a.exact.length);
+ const hay=cmtNorm(ix.text),whole=cmtNorm(want).out,exact=cmtNorm(a.exact).out;
+ if(!exact)return null;
+ const at=hay.out.indexOf(whole);
+ if(at<0)return null;
+ const hit=hay.out.indexOf(exact,at);
+ if(hit<0||hit+exact.length>at+whole.length)return null;
+ return cmtRangeAt(ix,hay.map[hit],hay.map[hit+exact.length-1]+1);
+}
+function cmtResolveAnchor(a,root){
+ if(!a)return null;
+ if(a.kind==="entry")return aiEl(a.id);
+ const region=cmtRegionFor(a,root);
+ return region?cmtFind(region,a):null;
+}
+const cmtOrder=(a,b)=>a.createdAt===b.createdAt?(a.id<b.id?-1:1):(a.createdAt<b.createdAt?-1:1);
+function cmtFold(records){
+ const sorted=[...records].sort(cmtOrder);
+ const by=Object.create(null),next=Object.create(null),resolved=Object.create(null),nodes=Object.create(null),roots=[];
+ sorted.forEach(r=>{by[r.id]=r});
+ sorted.forEach(r=>{if(r.supersedes&&by[r.supersedes])next[r.supersedes]=r.id});
+ sorted.forEach(r=>{if(r.resolves)resolved[r.resolves]=true});
+ const edits=new Set(sorted.filter(r=>r.supersedes&&by[r.supersedes]).map(r=>r.id));
+ const latest=id=>{let r=by[id];while(next[r.id])r=by[next[r.id]];return r};
+ sorted.forEach(r=>{
+  if(edits.has(r.id)||(r.resolves&&!r.body))return;
+  const h=latest(r.id);
+  nodes[r.id]={id:r.id,rev:h.rev,author:h.author||{login:""},createdAt:r.createdAt,body:h.body||"",anchor:r.anchor,edited:h.id!==r.id,gone:!String(h.body||"").trim(),resolved:!!resolved[r.id],replies:[]};
+ });
+ sorted.forEach(r=>{
+  const n=nodes[r.id];
+  if(!n)return;
+  const p=r.parent&&nodes[r.parent];
+  if(p)p.replies.push(n);else roots.push(n);
+ });
+ const prune=n=>{n.replies=n.replies.filter(prune);return !n.gone||!!n.replies.length};
+ return roots.filter(prune);
+}
+const cmtSize=n=>1+n.replies.reduce((s,r)=>s+cmtSize(r),0);
+const cmtTotal=()=>CMT_VIEW.reduce((s,t)=>s+cmtSize(t),0);
+const cmtStuck=m=>!!m&&m.kind==="sent"&&Date.now()-m.at>CMT_STUCK_MS;
+function cmtState(t){
+ if(!t.mark)return t.resolved?"resolved":"";
+ return cmtFlushState().state==="error"||cmtStuck(t.mark)?"error":"pending";
+}
+function cmtChip(t){
+ const b=el("button","cmt-chip",`<i class="cdot" aria-hidden="true"></i>${cmtSize(t)}`);
+ b.type="button";
+ b.dataset.state=cmtState(t);
+ b.setAttribute("aria-label",cmtSize(t)+" comment(s) here");
+ b.onclick=e=>{e.stopPropagation();cmtOpenThread(t,b.getBoundingClientRect())};
+ return b;
+}
+function cmtRender(){
+ const layer=$("#cmtLayer");
+ layer.textContent="";
+ const mark=n=>{
+  n.mark=CMT_MARK[n.id]||null;
+  const deep=n.replies.map(mark).filter(Boolean);
+  return n.mark||deep[0]||null;
+ };
+ CMT_VIEW=cmtFold(CMT_POSTED.concat(CMT_QUEUE,CMT_SENT.map(s=>s.rec)));
+ CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body)});
+ layer.hidden=innerWidth<1100||!CMT_VIEW.length;
+ if(!layer.hidden)CMT_VIEW.forEach(t=>{if(t.at){t.chip=cmtChip(t);layer.append(t.chip)}});
+ const btn=$("#cmtBtn");
+ if(btn){
+  const detached=CMT_VIEW.filter(t=>!t.at).length;
+  btn.textContent="Comments"+(CMT_VIEW.length?" · "+cmtTotal():"");
+  btn.classList.toggle("on",CMT_VIEW.some(t=>t.mark));
+  btn.title=detached?detached+" thread(s) no longer match the text they were left on":"";
+ }
+ cmtPlace();
+ cmtPaint();
+}
+function cmtPlace(){
+ const main=$("#main"),layer=$("#cmtLayer");
+ if(!main||layer.hidden)return;
+ const box=main.getBoundingClientRect();
+ let last=-1e4;
+ CMT_VIEW.filter(t=>t.chip).map(t=>({t,r:t.at.getBoundingClientRect()}))
+  .sort((a,b)=>a.r.top-b.r.top)
+  .forEach(({t,r})=>{
+   const top=Math.max(r.top,last+26);
+   last=top;
+   const w=t.chip.offsetWidth||58;
+   t.chip.style.left=Math.min(box.right-w-4,innerWidth-w-10)+"px";
+   t.chip.style.top=top+"px";
+   t.chip.hidden=top<48||top>innerHeight-24;
+  });
+}
+function cmtPaint(){
+ if(!CMT_HL)return;
+ CMT_HL.clear();
+ CMT_VIEW.forEach(t=>{if(t.at&&t.anchor.kind==="quote")CMT_HL.add(t.at)});
+}
+function cmtSchedule(){
+ if(CMT_FRAME)return;
+ CMT_FRAME=requestAnimationFrame(()=>{CMT_FRAME=0;cmtDecorate();cmtRender()});
+}
+async function cmtRefresh(){
+ CMT_QUEUE=await cmtPending();
+ const posted=new Set(CMT_POSTED.map(r=>r.id)),queued=new Set(CMT_QUEUE.map(r=>r.id));
+ CMT_SENT=cmtSentRead().filter(s=>!posted.has(s.rec.id)&&!queued.has(s.rec.id));
+ cmtSentWrite(cmtSentRead().filter(s=>!posted.has(s.rec.id)));
+ CMT_MARK=Object.create(null);
+ CMT_QUEUE.forEach(r=>{CMT_MARK[r.id]={kind:"queued",at:Date.now(),prUrl:""}});
+ CMT_SENT.forEach(s=>{CMT_MARK[s.rec.id]={kind:"sent",at:s.at,prUrl:s.prUrl||""}});
+ cmtDecorate();
+ cmtRender();
+ const live=CMT_QUEUE.length||CMT_SENT.length;
+ if(live&&!CMT_POLL)CMT_POLL=setInterval(cmtRefresh,4000);
+ if(!live&&CMT_POLL){clearInterval(CMT_POLL);CMT_POLL=0}
+}
+function cmtOffHtml(){
+ return `<p class="cmt-note">Commenting is unavailable on this build: no comments repository is configured for it, which is what a locally served copy looks like. Nothing you write here could be sent, so the page does not offer a box to write it in.</p>`;
+}
+function cmtFlushNote(mark){
+ const st=cmtFlushState();
+ if(st.state==="error")return `<p class="cmt-note bad">Your comments have not been sent: ${esc(st.error||"the pull request failed to open")}. They are still queued in this browser; fix the token below and they go out on the next try.</p>`;
+ if(st.state==="flushing")return `<p class="cmt-note">Sending to ${esc(cmtRepoLabel())}&hellip;</p>`;
+ if(cmtStuck(mark))return `<p class="cmt-note bad">This was sent ${esc(relTime(new Date(mark.at).toISOString()))} and has still not landed on the document${mark.prUrl?`; <a href="${esc(mark.prUrl)}" target="_blank" rel="noopener">its pull request</a> has not merged`:""}. Its checks may have rejected it. It stays here until it merges.</p>`;
+ if(mark&&mark.kind==="sent")return `<p class="cmt-note good">Sent${mark.prUrl?` as <a href="${esc(mark.prUrl)}" target="_blank" rel="noopener">a pull request</a>`:""}, and it appears on the document once that merges.</p>`;
+ if(mark&&!cmtWriteToken())return `<p class="cmt-note">Queued in this browser and not sent: comments need a GitHub token. Connect one and they go out.</p>`;
+ return "";
+}
+function cmtMarkLabel(m){
+ if(!m)return "";
+ if(cmtStuck(m))return "sent, not merged";
+ return m.kind==="sent"?"sent, waiting to merge":"not sent yet";
+}
+function cmtItemHtml(n,reply){
+ const when=relTime(n.createdAt),label=cmtMarkLabel(n.mark);
+ return `<div class="cmt-item${reply?" reply":""}">`+
+  `<div class="cmt-by"><b>${esc(n.author.login||"someone")}</b>${when?`<span>${esc(when)}</span>`:""}`+
+  (n.edited?`<span>edited</span>`:"")+(label?`<span>${esc(label)}</span>`:"")+(n.resolved?`<span>resolved</span>`:"")+`</div>`+
+  `<p class="cmt-body${n.gone?" gone":""}">${n.gone?"This comment was withdrawn.":esc(n.body)}</p>`+
+  `</div>`+n.replies.map(r=>cmtItemHtml(r,true)).join("");
+}
+function cmtQuoteHtml(a){
+ if(a.kind!=="quote")return "";
+ return `<p class="cmt-quote">${esc(a.exact.trim().slice(0,240))}</p>`;
+}
+function cmtFormHtml(label){
+ return `<div class="cmt-form" data-form>`+
+  (CMT_ME?"":`<input type="text" data-who value="${esc(cmtName())}" placeholder="Your name, so people know who asked" autocomplete="name">`)+
+  `<textarea data-body rows="3" placeholder="${esc(label)}"></textarea>`+
+  `<p class="cmt-note" data-forbid hidden></p>`+
+  `<div class="cmt-row"><button class="cmt-send" type="button" data-post>Post</button>`+
+  `<span class="end">${CMT_ME?"as "+esc(CMT_ME):esc(cmtRepoLabel())}</span></div></div>`;
+}
+function cmtWireForm(pop,anchor,parent){
+ const form=pop.querySelector("[data-form]");
+ if(!form)return;
+ const box=form.querySelector("[data-body]"),who=form.querySelector("[data-who]"),send=form.querySelector("[data-post]"),warn=form.querySelector("[data-forbid]");
+ const grade=()=>{
+  const hits=box.value.trim()?cmtForbidden(box.value):[];
+  warn.hidden=!hits.length;
+  warn.textContent=hits.length?"This comment names "+hits.join(", ")+", and every comment lands in a file in this repository. Post it anyway if you meant to.":"";
+  send.textContent=hits.length?"Post anyway":"Post";
+  send.disabled=!box.value.trim()||(!!who&&!who.value.trim());
+ };
+ box.addEventListener("input",grade);
+ if(who)who.addEventListener("input",grade);
+ box.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter")send.click()});
+ send.onclick=async()=>{
+  if(who)cmtSetName(who.value.trim());
+  send.disabled=true;
+  await cmtPost(anchor,box.value.trim(),parent,"");
+  cmtClosePop();
+ };
+ grade();
+ setTimeout(()=>box.focus(),0);
+}
+function cmtPop(html,rect){
+ cmtClosePop();
+ const pop=el("div","cmt-pop",html);
+ pop.id="cmtPop";
+ pop.setAttribute("role","dialog");
+ document.body.append(pop);
+ const w=pop.offsetWidth,h=pop.offsetHeight;
+ pop.style.left=Math.min(Math.max(10,rect.left-w+rect.width),innerWidth-w-10)+"px";
+ pop.style.top=(rect.bottom+h+12>innerHeight?Math.max(10,rect.top-h-8):rect.bottom+8)+"px";
+ return pop;
+}
+function cmtClosePop(){
+ const pop=$("#cmtPop");
+ if(pop)pop.remove();
+}
+function cmtReveal(t){
+ if(!t.at)return;
+ const host=t.at.nodeType===1?t.at:cmtEl(t.at.commonAncestorContainer);
+ for(let e=host;e;e=e.parentElement)if(e.tagName==="DETAILS")e.open=true;
+ const r=t.at.getBoundingClientRect();
+ scrollTo({top:scrollY+r.top-180,behavior:reduced()?"auto":"smooth"});
+}
+const cmtHead=a=>a.kind==="entry"?handleOf(a.id)||a.id:a.entry?handleOf(a.entry)||a.entry:a.scope==="summary"?"In the summary":"In the working notes";
+function cmtOpenThread(t,rect){
+ const where=t.at?"":`<p class="cmt-note">The text this was left on is no longer in the document, so it hangs here instead.</p>`;
+ const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(t.anchor))}</b>`+
+  `<button class="xbtn" type="button" data-close>Close</button></div>`+
+  where+cmtFlushNote(t.mark)+cmtQuoteHtml(t.anchor)+cmtItemHtml(t,false)+
+  (CMT_LIVE?`<div class="cmt-acts"><button class="xbtn" type="button" data-resolve${t.resolved?" disabled":""}>${t.resolved?"Resolved":"Mark resolved"}</button></div>`+cmtFormHtml("Reply"):cmtOffHtml()),rect);
+ cmtWireForm(pop,t.anchor,t.id);
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+ const res=pop.querySelector("[data-resolve]");
+ if(res)res.onclick=async()=>{res.disabled=true;await cmtPost(t.anchor,"",t.id,t.id);cmtClosePop()};
+}
+function cmtOpenComposer(anchor,rect){
+ if(!anchor)return;
+ const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(anchor))}</b><button class="xbtn" type="button" data-close>Close</button></div>`+
+  cmtQuoteHtml(anchor)+(CMT_LIVE?cmtFlushNote(null)+cmtFormHtml("What would you like the authors to know?"):cmtOffHtml()),rect);
+ cmtWireForm(pop,anchor,"");
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+}
+function cmtConnectHtml(){
+ const tok=cmtWriteToken();
+ return `<h4>${tok?"Connected":"Connect to comment"}</h4>`+
+  `<p>Comments are written to <code>${esc(cmtRepoLabel())}</code> as a pull request that merges once its checks pass, so commenting needs a fine-grained personal access token scoped to that repository with:</p>`+
+  `<ul class="cmt-perm"><li>Contents &mdash; read and write</li><li>Pull requests &mdash; read and write</li></ul>`+
+  `<p>Create one at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. On an organisation repository an admin may have to approve the token before it starts working.</p>`+
+  (tok?`<div class="cmt-row"><button class="xbtn" type="button" data-disconnect>Disconnect</button><span class="end">${esc(CMT_ME||"signed in")}</span></div>`
+   :`<div class="cmt-form"><input type="password" data-tok placeholder="github_pat_&hellip;" autocomplete="off" spellcheck="false">`+
+    `<div class="cmt-row"><button class="cmt-send" type="button" data-savetok>Save token</button><span class="end">Kept in this browser only.</span></div></div>`);
+}
+function cmtListHtml(threads,empty){
+ if(!threads.length)return `<p>${esc(empty)}</p>`;
+ return `<div class="cmt-list">`+threads.map(t=>{
+  const label=cmtMarkLabel(t.mark);
+  return `<button class="cmt-open" type="button" data-thread="${esc(t.id)}"><span>${esc(cmtHead(t.anchor))}</span>`+
+   `<small>${cmtSize(t)}${label?" · "+esc(label):t.resolved?" · resolved":""}</small></button>`;
+ }).join("")+`</div>`;
+}
+function cmtOpenTray(rect){
+ const attached=CMT_VIEW.filter(t=>t.at),detached=CMT_VIEW.filter(t=>!t.at);
+ const stuck=CMT_VIEW.filter(t=>cmtStuck(t.mark));
+ const pop=cmtPop(`<div class="cmt-head"><b>Comments on this document</b><button class="xbtn" type="button" data-close>Close</button></div>`+
+  (CMT_LOAD_ERR?`<p class="cmt-note bad">The posted comments would not load: ${esc(CMT_LOAD_ERR)}</p>`:"")+
+  (CMT_LIVE?cmtFlushNote(stuck.length?stuck[0].mark:CMT_VIEW.map(t=>t.mark).find(Boolean)):cmtOffHtml())+
+  `<h4>On the page</h4>`+cmtListHtml(attached,CMT_LIVE?"No comments yet. Select any passage of the summary or of a register entry, or use the mark beside an entry.":"No comments on this document.")+
+  (detached.length?`<h4>Detached</h4><p>The text these were left on has changed, so they no longer sit anywhere in the document.</p>`+cmtListHtml(detached,""):"")+
+  (CMT_LIVE?cmtConnectHtml():""),rect);
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+ pop.querySelectorAll("[data-thread]").forEach(b=>{
+  b.onclick=()=>{
+   const t=CMT_VIEW.find(x=>x.id===b.dataset.thread);
+   cmtReveal(t);
+   setTimeout(()=>cmtOpenThread(t,(t.chip||b).getBoundingClientRect()),reduced()?0:400);
+  };
+ });
+ const save=pop.querySelector("[data-savetok]");
+ if(save)save.onclick=async()=>{
+  const tok=pop.querySelector("[data-tok]").value.trim();
+  if(!tok)return;
+  cmtSetWriteToken(tok);
+  CMT_ME="";
+  try{sessionStorage.removeItem(CMT_ME_KEY)}catch(e){}
+  await cmtLogin();
+  cmtClosePop();
+  cmtSend();
+ };
+ const off=pop.querySelector("[data-disconnect]");
+ if(off)off.onclick=()=>{
+  cmtClearWriteToken();
+  CMT_ME="";
+  try{sessionStorage.removeItem(CMT_ME_KEY)}catch(e){}
+  cmtClosePop();
+  cmtRefresh();
+ };
+}
+function cmtSend(){
+ cmtFlush().then(r=>{
+  if(!r||!r.prUrl)return;
+  cmtSentWrite(cmtSentRead().map(s=>s.prUrl?s:{...s,prUrl:r.prUrl}));
+ }).catch(()=>{}).then(cmtRefresh);
+}
+async function cmtPost(anchor,body,parent,resolves){
+ const login=(await cmtLogin())||cmtName();
+ const rec={id:cmtNewId(),rev:META.rev||1,author:{login},createdAt:new Date().toISOString(),anchor,body};
+ if(parent)rec.parent=parent;
+ if(resolves)rec.resolves=resolves;
+ await cmtQueue(rec);
+ cmtSentWrite(cmtSentRead().concat([{rec,at:Date.now(),prUrl:""}]));
+ await cmtRefresh();
+ cmtSend();
+}
+function cmtDecorate(){
+ if(!CMT_LIVE)return;
+ document.querySelectorAll("#main details.ledger,#main details.orow").forEach(d=>{
+  const m=CMT_ENTRY_RE.exec(d.id||"");
+  if(!m||!REF[m[1]]||d.querySelector(":scope>summary .cmt-ask"))return;
+  const host=d.querySelector(":scope>summary .lrow,:scope>summary .ometa");
+  if(!host)return;
+  const b=el("button","cmt-ask","✎");
+  b.type="button";
+  b.title="Comment on this";
+  b.setAttribute("aria-label","Comment on this");
+  b.dataset.cmt=m[1];
+  host.append(b);
+ });
+}
+function cmtUi(){
+ const layer=el("div");
+ layer.id="cmtLayer";
+ layer.hidden=true;
+ document.body.append(layer);
+ const row=el("div","toolrow");
+ const btn=el("button","toolbtn","Comments");
+ btn.id="cmtBtn";
+ btn.type="button";
+ btn.onclick=()=>cmtOpenTray(btn.getBoundingClientRect());
+ row.append(btn);
+ $("#rail .tools").append(row);
+ document.addEventListener("pointerdown",e=>{
+  if(!e.target.closest(".cmt-pop,.cmt-chip,#cmtBtn,.cmt-ask"))cmtClosePop();
+ });
+ document.addEventListener("keydown",e=>{if(e.key==="Escape")cmtClosePop()});
+ if(!CMT_LIVE)return;
+ const sel=el("button","cmt-sel","Comment");
+ sel.type="button";
+ sel.hidden=true;
+ document.body.append(sel);
+ sel.onclick=()=>{
+  const a=cmtAnchorFromSelection(),r=sel.getBoundingClientRect();
+  sel.hidden=true;
+  cmtOpenComposer(a,r);
+ };
+ document.addEventListener("pointerup",e=>{
+  if(e.target.closest(".cmt-sel,.cmt-pop"))return;
+  setTimeout(()=>{
+   const s=getSelection(),text=String(s).trim();
+   if(text.length<8||!s.rangeCount||!cmtRegionOf(s.getRangeAt(0).commonAncestorContainer)){sel.hidden=true;return}
+   const r=s.getRangeAt(0).getBoundingClientRect();
+   sel.style.left=Math.min(Math.max(8,r.left+(HTML.dataset.ai?126:0)),innerWidth-120)+"px";
+   sel.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
+   sel.hidden=false;
+  },10);
+ });
+ document.addEventListener("pointerdown",e=>{if(!e.target.closest(".cmt-sel"))sel.hidden=true});
+ document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("[data-cmt]");
+  if(!b)return;
+  e.preventDefault();
+  cmtOpenComposer({kind:"entry",id:b.dataset.cmt},b.getBoundingClientRect());
+ });
+}
+function cmtBoot(){
+ siteConfig().then(cfg=>{
+  if(cfg.github&&!GH_TOKEN)GH_TOKEN=cfg.github.token;
+  CMT_LIVE=!!cmtRepo();
+  cmtUi();
+  if(!CMT_LIVE){cmtRender();return}
+  cmtOnChange(()=>cmtRefresh());
+  addEventListener("scroll",()=>cmtPlace(),{passive:true});
+  addEventListener("resize",cmtSchedule);
+  new MutationObserver(cmtSchedule).observe($("#main"),{childList:true,subtree:true,attributes:true,attributeFilter:["open"]});
+  cmtBootOutbox().then(cmtRefresh);
+  cmtLoadPosted().then(rs=>{CMT_POSTED=rs}).catch(e=>{CMT_LOAD_ERR=String(e&&e.message||e)}).then(cmtRefresh);
+ });
+}
 async function aiReviewComment(entry,kind,concern){
  return aiOnce(()=>[
   {role:"system",content:aiSystem()},
@@ -6082,6 +6610,7 @@ function aiComponentsMd(){
  return L.join("\n\n");
 }
 window.designDocAi={ask:(q,o)=>aiAsk(q,o),open:aiOpen,collapse:aiCollapse,state:()=>aiState,config:()=>AI,context:()=>aiContext(),ready:()=>aiReady,stats:()=>aiCtxStats,usage:()=>aiUsage,tally:()=>aiTally,diag:aiDiagText,promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged,section:aiShowSection};
+cmtBoot();
 aiBoot();
 })();
 </script>
