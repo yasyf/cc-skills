@@ -5628,14 +5628,14 @@ function cmtFold(records){
 const cmtSize=n=>1+n.replies.reduce((s,r)=>s+cmtSize(r),0);
 const cmtTotal=()=>CMT_VIEW.reduce((s,t)=>s+cmtSize(t),0);
 const cmtStuck=m=>!!m&&m.kind==="sent"&&Date.now()-m.at>CMT_STUCK_MS;
-function cmtState(t){
+function cmtThreadState(t){
  if(!t.mark)return t.resolved?"resolved":"";
  return cmtFlushState().state==="error"||cmtStuck(t.mark)?"error":"pending";
 }
 function cmtChip(t){
  const b=el("button","cmt-chip",`<i class="cdot" aria-hidden="true"></i>${cmtSize(t)}`);
  b.type="button";
- b.dataset.state=cmtState(t);
+ b.dataset.state=cmtThreadState(t);
  b.setAttribute("aria-label",cmtSize(t)+" comment(s) here");
  b.onclick=e=>{e.stopPropagation();cmtOpenThread(t,b.getBoundingClientRect())};
  return b;

@@ -1207,7 +1207,7 @@ def comment_anchor(rep, where, anchor, known):
         rep.strict_warn(f"{where}.anchor carries an unknown field {extra!r}")
     if kind == "entry":
         if anchor.get("id") not in known:
-            rep.err(f"{where}.anchor.id is {anchor.get('id')!r}, which no register defines")
+            rep.warn(f"{where}.anchor.id is {anchor.get('id')!r}, which no register defines; the comment renders in the detached tray")
         return
     scope = anchor.get("scope")
     if scope not in COMMENT_SCOPES:
@@ -1220,7 +1220,7 @@ def comment_anchor(rep, where, anchor, known):
     entry = anchor.get("entry")
     if scope == "entry":
         if entry not in known:
-            rep.err(f"{where}.anchor.entry is {entry!r}, which no register defines; a quote scoped to an entry names it")
+            rep.warn(f"{where}.anchor.entry is {entry!r}, which no register defines; the comment renders in the detached tray")
     elif entry is not None:
         rep.err(f"{where}.anchor.entry names an entry, so it is only meaningful under scope 'entry', not {scope!r}")
 
@@ -1266,7 +1266,7 @@ def check_comments(rep, root, known):
             if target == name:
                 rep.err(f"comments/{name}.json {key} points at itself")
             elif not isinstance(target, str) or target not in records:
-                rep.err(f"comments/{name}.json {key} is {target!r}, which is no comment in this folder")
+                rep.warn(f"comments/{name}.json {key} is {target!r}, which is no comment in this folder")
 
 
 def check_notes(rep, root):
