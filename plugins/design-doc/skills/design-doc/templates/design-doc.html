@@ -4141,7 +4141,7 @@ function aiEndpoint(raw){
  return u.href.replace(/\/+$/,"");
 }
 function cfgNormalise(j){
- if(!j||typeof j!=="object")return {ai:null,github:null};
+ if(!j||typeof j!=="object")return {ai:null,github:null,comments:null};
  const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
  let ai=null;
  if(j.disabled===true)ai={disabled:true};
@@ -4151,22 +4151,24 @@ function cfgNormalise(j){
  }
  const g=j.github;
  const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
- return {ai,github:token?{token}:null};
+ const c=j.comments&&typeof j.comments==="object"?j.comments:null;
+ const comments=c?{repo:typeof c.repo==="string"&&/^[\w.-]+\/[\w.-]+$/.test(c.repo)?c.repo:null,forbiddenTerms:Array.isArray(c.forbiddenTerms)?c.forbiddenTerms.filter(t=>typeof t==="string"&&t):[]}:null;
+ return {ai,github:token?{token}:null,comments};
 }
 let siteCfg=null;
 function siteConfig(){
  if(!siteCfg)siteCfg=(async()=>{
-  const out={ai:null,github:null};
-  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github};
+  const out={ai:null,github:null,comments:null};
+  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github;out.comments=out.comments||c.comments};
   try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
   try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
   for(const path of ["../ai.json","ai.json"]){
-   if(out.ai&&out.github)break;
+   if(out.ai&&out.github&&out.comments)break;
    let j=null;
    try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
    take(cfgNormalise(j));
   }
-  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github};
+  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github,comments:out.comments};
  })();
  return siteCfg;
 }
@@ -4240,6 +4242,138 @@ async function ghResolve(key,kind){
  else if(status.statuses.length)rec.checks={ok:status.statuses.filter(c=>c.state==="success").length,total:status.statuses.length,state:status.state};
  return rec;
 }
+const CMT_WRITE_KEY="design-doc-github-write";
+const CMT_DB="design-doc-comments",CMT_STORE="comments-outbox",CMT_IDLE=20000,CMT_RETRY_CAP=10*60*1000,CMT_BASE="main";
+const CMT_B32="0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CMT_AUTO_MERGE="mutation($id:ID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:REBASE}){clientMutationId}}";
+const cmtSubs=[];
+let cmtSite=null,cmtDb=null,cmtTimer=0,cmtInflight=null,cmtAuthFailed=false,cmtRetries=0,cmtState={state:"idle"};
+function cmtSlug(){
+ const m=/^\/([^/]+)\//.exec(location.pathname);
+ return m?m[1]:"";
+}
+function cmtRepo(){
+ if(!cmtSite||!cmtSite.repo)return null;
+ const [owner,repo]=cmtSite.repo.split("/");
+ return {owner,repo};
+}
+function cmtWriteToken(){
+ try{return localStorage.getItem(CMT_WRITE_KEY)||""}catch(e){return ""}
+}
+function cmtSetWriteToken(tok){
+ localStorage.setItem(CMT_WRITE_KEY,tok.trim());
+ cmtAuthFailed=false;
+}
+function cmtClearWriteToken(){
+ localStorage.removeItem(CMT_WRITE_KEY);
+ cmtAuthFailed=false;
+}
+function cmtNewId(){
+ let t=Date.now(),s="";
+ for(let i=0;i<10;i++){s=CMT_B32[t%32]+s;t=Math.floor(t/32)}
+ crypto.getRandomValues(new Uint8Array(16)).forEach(b=>{s+=CMT_B32[b&31]});
+ return s;
+}
+const cmtB64=s=>btoa(Array.from(new TextEncoder().encode(s),b=>String.fromCharCode(b)).join(""));
+async function ghWrite(method,path,body){
+ const r=await fetch(GH_API+path,{method,headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+cmtWriteToken(),"X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+ if(r.ok)return r.status===204?null:r.json();
+ const e=new Error("GitHub "+r.status);
+ e.status=r.status;
+ e.rate=(r.status===403||r.status===429)&&r.headers.get("x-ratelimit-remaining")==="0";
+ throw e;
+}
+function cmtOpen(){
+ if(!cmtDb)cmtDb=new Promise((resolve,reject)=>{
+  const q=indexedDB.open(CMT_DB,1);
+  q.onupgradeneeded=()=>{q.result.createObjectStore(CMT_STORE,{keyPath:"id"})};
+  q.onsuccess=()=>resolve(q.result);
+  q.onerror=()=>reject(q.error);
+ });
+ return cmtDb;
+}
+async function cmtTx(mode,fn){
+ const db=await cmtOpen();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(CMT_STORE,mode),req=fn(tx.objectStore(CMT_STORE));
+  tx.oncomplete=()=>resolve(req&&req.result);
+  tx.onerror=()=>reject(tx.error);
+ });
+}
+const cmtRows=()=>cmtTx("readonly",st=>st.getAll());
+async function cmtPending(){
+ const slug=cmtSlug();
+ return (await cmtRows()).filter(r=>r.slug===slug).map(r=>r.record);
+}
+function cmtOnChange(fn){cmtSubs.push(fn)}
+function cmtFlushState(){return cmtState}
+function cmtNotify(){cmtSubs.forEach(fn=>fn())}
+function cmtSetState(s){cmtState=s;cmtNotify()}
+function cmtKick(){
+ clearTimeout(cmtTimer);
+ cmtTimer=0;
+ if(!cmtAuthFailed)cmtFlush();
+}
+async function cmtQueue(record){
+ await cmtTx("readwrite",st=>st.add({id:record.id,slug:cmtSlug(),record}));
+ clearTimeout(cmtTimer);
+ cmtTimer=setTimeout(cmtKick,CMT_IDLE);
+ cmtNotify();
+}
+const cmtAuthError=e=>e.status===401||(e.status===403&&!e.rate);
+const cmtErrorText=e=>cmtAuthError(e)?"GitHub rejected your token: it is invalid or lacks permission to write comments to this repository.":e.rate?"GitHub rate limit reached; your comments stay queued and go out later.":e.status?`GitHub returned ${e.status}; your comments stay queued.`:"GitHub could not be reached; your comments stay queued.";
+async function cmtSend(slug,recs){
+ const {owner,repo}=cmtRepo(),base=`/repos/${owner}/${repo}`;
+ const head=await ghWrite("GET",`${base}/git/ref/heads/${CMT_BASE}`);
+ const branch=`comments/${slug}/${cmtNewId()}`;
+ await ghWrite("POST",`${base}/git/refs`,{ref:"refs/heads/"+branch,sha:head.object.sha});
+ for(const r of recs)await ghWrite("PUT",`${base}/contents/${slug}/comments/${r.id}.json`,{message:`comments: ${slug} ${r.id}`,content:cmtB64(JSON.stringify(r,null,2)+"\n"),branch});
+ const pr=await ghWrite("POST",`${base}/pulls`,{title:`comments: ${slug} (${recs.length})`,head:branch,base:CMT_BASE,body:`${recs.length} reader comment${recs.length===1?"":"s"} on ${slug}, queued from the rendered doc.`});
+ let autoMerge="";
+ try{
+  const g=await ghWrite("POST","/graphql",{query:CMT_AUTO_MERGE,variables:{id:pr.node_id}});
+  if(g.errors)autoMerge=g.errors[0].message;
+ }catch(e){autoMerge=e.message}
+ await cmtTx("readwrite",st=>{recs.forEach(r=>st.delete(r.id))});
+ return {prUrl:pr.html_url,...(autoMerge?{error:"Auto-merge was not enabled on the pull request; the repository enables it on its own."}:{})};
+}
+async function cmtFlushNow(){
+ clearTimeout(cmtTimer);
+ cmtTimer=0;
+ const rows=await cmtRows();
+ if(!rows.length)return null;
+ if(!cmtRepo()){cmtSetState({state:"error",error:"Commenting is unavailable on this build."});return null}
+ if(!cmtWriteToken()){cmtSetState({state:"error",error:"Add a GitHub token to send your queued comments."});return null}
+ const bySlug=Object.create(null);
+ rows.forEach(r=>{(bySlug[r.slug]=bySlug[r.slug]||[]).push(r.record)});
+ cmtSetState({state:"flushing"});
+ let out=null;
+ try{
+  for(const slug of Object.keys(bySlug))out=await cmtSend(slug,bySlug[slug]);
+ }catch(e){
+  cmtAuthFailed=cmtAuthError(e);
+  if(!cmtAuthFailed)cmtTimer=setTimeout(cmtKick,Math.min(CMT_IDLE*2**cmtRetries++,CMT_RETRY_CAP));
+  cmtSetState({state:"error",error:cmtErrorText(e)});
+  return null;
+ }
+ cmtRetries=0;
+ cmtSetState({state:"sent",...out});
+ return {prUrl:out.prUrl};
+}
+function cmtFlush(){
+ if(!cmtInflight)cmtInflight=cmtFlushNow().finally(()=>{cmtInflight=null});
+ return cmtInflight;
+}
+async function cmtBootOutbox(){
+ cmtSite=(await siteConfig()).comments;
+ if(cmtWriteToken())await cmtFlush();
+ else if((await cmtRows()).length)cmtNotify();
+}
+function cmtForbidden(text){
+ const low=String(text).toLowerCase();
+ return (cmtSite?cmtSite.forbiddenTerms:[]).filter(t=>low.includes(String(t).toLowerCase()));
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&cmtTimer)cmtKick()});
 function ghNote(text){
  const h=$("#open h2");
  if(h&&!$("#open .ghnote"))h.after(el("p","ghnote",esc(text)));
