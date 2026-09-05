@@ -14,7 +14,7 @@ import (
 )
 
 func askMode(args []string) {
-	model := modelSol
+	model := modelAstra
 	scratch := ""
 	laneName := ""
 	dispatch := false
@@ -35,12 +35,14 @@ loop:
 		switch {
 		case a == "-m" || a == "--model":
 			switch nxt {
+			case "astra":
+				model = modelAstra
 			case "sol":
 				model = modelSol
 			case "luna":
 				model = modelLuna
 			default:
-				die("codex-ask: -m takes sol or luna", 2)
+				die("codex-ask: -m takes astra, sol or luna", 2)
 			}
 			i += 2
 		case a == "-s" || a == "--scratch":

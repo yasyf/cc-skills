@@ -314,18 +314,18 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "hands-on tool-driving" in claude
     assert "long-horizon agentic driving" in claude
     assert "an implementation miss crosses models first" in claude
-    assert "an opus miss retries on gpt-5.6-sol `xhigh`, a sol miss on opus `xhigh`" in claude
+    assert "an opus miss retries on gpt-6-astra `xhigh`, an astra miss on opus `xhigh`" in claude
     assert "reaches fable only after both cross-model attempts fall short" in claude
     assert "the one implementation lane fable keeps" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
     # v6 2026-07-25 Opus 5 recalibration: bounded decision-light impl returns to
-    # opus-5; sol keeps the N-unit sweep lane — regressing collapses the lanes.
+    # opus-5; the codex lane keeps the N-unit sweep — regressing collapses the lanes.
     assert "code/diff review" in claude
     assert "bug diagnosis" in claude
     assert "Also the default lane for individual bounded, decision-light implementation" in claude
     assert "the sweep lane: repetitive bounded implementation at scale" in claude
-    assert "sweeps fan out to gpt-5.6-sol" in claude
+    assert "sweeps fan out to gpt-6-astra" in claude
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
@@ -335,16 +335,16 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # of docs and user-facing text.
     assert "never down-route writing" in claude
     # 2026-07-03: security review/audit + verification of security-sensitive code
-    # route to gpt-5.6-sol; implementing that code stays fable (carve-out must survive).
+    # route to gpt-6-astra; implementing that code stays fable (carve-out must survive).
     # "count as same-tier" keeps the verification-tier rule from contradicting the
-    # gpt-5.6-sol lanes — without it agents refuse the routing (observed live).
+    # gpt-6-astra lanes — without it agents refuse the routing (observed live).
     assert "security review/audit" in claude
     assert "verification of security-sensitive code" in claude
     assert "very sensitive or error-prone implementation" in claude
     assert "count as same-tier" in claude
-    # gpt-5.6 lanes v6 (cc-notes routing-defaults experiment): sol Cost 3, large
-    # net-new stays opus; recon lane defaults to luna. Ultra is not a retry rung.
-    assert "| gpt-5.6-sol | 3 | 8 | 5 |" in claude
+    # gpt-6-astra v7 (2026-09-05): astra Cost 3 and the prose lane, large net-new
+    # stays opus; recon lane defaults to luna. Ultra is not a retry rung.
+    assert "| gpt-6-astra | 3 | 9 | 9 |" in claude
     assert "gpt-5.6-luna" in claude
     assert "recon lane" in claude
     assert "net-new code stay on opus" in claude
@@ -358,7 +358,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
     assert "security review/audit" in conventions
     assert "verification of" in conventions and "security-sensitive code" in conventions
-    assert "gpt-5.6-sol" in conventions
+    assert "gpt-6-astra" in conventions
     assert "recon lane" in conventions
     assert "gpt-5.5" not in conventions
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
@@ -396,6 +396,7 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
     text = "\n".join(p.read_text() for p in go_files)
     for needle in (
         # pinned model / effort / fast-tier / mcp-off / dev-instructions on the exec line
+        "gpt-6-astra",
         "gpt-5.6-sol",
         "gpt-5.6-luna",
         "xhigh",
@@ -535,7 +536,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert not list(cwd.iterdir())
     assert Path(reply).read_text().strip() == "pong"
     log_text = Path(log).read_text()
-    assert "model=gpt-5.6-sol" in log_text
+    assert "model=gpt-6-astra" in log_text
     assert "model_reasoning_effort=xhigh" in log_text
     assert "service_tier=fast" in log_text
     assert "STUB_KEY: UNSET" in log_text
@@ -584,6 +585,17 @@ def _codex_env(stub_bin, tmpdir, **extra):
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.update(extra)
     return env
+
+
+def _uv_only_dir(tmp_path):
+    # uv's own bin dir often holds a real codex too (both are brew installs), which
+    # defeats the PATH isolation these tests assert.
+    d = tmp_path / "uv-only"
+    d.mkdir(exist_ok=True)
+    link = d / "uv"
+    if not link.exists():
+        link.symlink_to(shutil.which("uv"))
+    return d
 
 
 def _read_lines(proc, count, deadline_s):
@@ -784,7 +796,7 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
     # no codex, but uv stays reachable so the shebang launches (else this passes
     # vacuously on `env: uv: not found`): worker records status 127, headers still
     # arrive. Assert no stray real codex.
-    uv_dir = os.path.dirname(shutil.which("uv"))
+    uv_dir = _uv_only_dir(tmp_path)
     bare_path = f"{uv_dir}:/usr/bin:/bin"
     assert shutil.which("codex", path=bare_path) is None, "test PATH must resolve no real codex"
     bare = _codex_env(stub_bin, tmpdir, PATH=bare_path)
@@ -1564,7 +1576,7 @@ def test_codex_ask_worker_spawn_failure_durable_status(templates_dir, tmp_path):
     (stub_bin / "codex").chmod(0o644)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
-    uv_dir = os.path.dirname(shutil.which("uv"))
+    uv_dir = _uv_only_dir(tmp_path)
     assert shutil.which("codex", path=f"{uv_dir}:/usr/bin:/bin") is None
     env = _codex_env(stub_bin, tmpdir, PATH=f"{stub_bin}:{uv_dir}:/usr/bin:/bin")
     lane = tmp_path / "lane"

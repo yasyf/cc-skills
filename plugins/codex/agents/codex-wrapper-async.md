@@ -1,6 +1,6 @@
 ---
 name: codex-wrapper-async
-description: Async owner lane to gpt-5.6 via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane name (or dir) as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
+description: Async owner lane to gpt-6-astra via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane name (or dir) as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
 tools: Bash, Read, Grep, Glob, mcp__plugin_codex_codex-ask-channel__await
 model: sonnet
 effort: low
