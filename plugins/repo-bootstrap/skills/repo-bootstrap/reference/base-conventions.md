@@ -131,30 +131,30 @@ shared AGENTS.md:
   large-refactor, or decision-dense implementation delegates
   here rather than editing inline on fable, and individual bounded
   decision-light changes land here too since Opus 5),
-  fable-5 for orchestration, design review,
-  hard planning, all prose/writing (never down-route writing), long-horizon
+  fable-5 for orchestration, design review, hard planning, long-horizon
   agentic driving — multi-phase autonomous runs and sustained hands-on
-  tool-driving like browser automation — sensitive or
+  tool-driving like browser automation — and sensitive or
   error-prone implementation (the one implementation lane fable keeps),
   review-findings synthesis, and as the escalation
   target for non-implementation lanes (context-window pressure is not a routing cue), the recon
   lane defaults to gpt-5.6-luna at xhigh with sonnet-5 the carve-out (Claude-only
   surfaces, >300K-token sweeps, unrecoverable-miss work; never haiku except
-  single-fact mechanical steps), gpt-5.6-sol via the
-  codex skill for code/diff review, security review/audit and verification of
+  single-fact mechanical steps), gpt-6-astra via the
+  codex skill for all prose/writing (never down-route writing), code/diff
+  review, security review/audit and verification of
   security-sensitive code (auth, input validation, crypto, secrets — implementing
   it stays fable), bug diagnosis, repetitive bounded sweeps at scale and
   terminal-heavy execution (individual bounded changes default to opus-5; large
   net-new code stays on opus — fable only when the surface is very sensitive or
   error-prone; ambiguous, large-refactor, or
   decision-dense work stays on opus too while long agentic runs are fable's
-  lane, and sol is not cheaper than opus — output
-  costs 20% more with the capability gap closed by Opus 5), second
+  lane, and astra is not cheaper than opus — its per-task edge
+  pays only across a sweep and inverts on scope drift), second
   opinions, imagegen, and rote throwaway work (gpt-5.6-luna sanctioned for the
   rote/bulk lane and carries the recon lane at xhigh; from workflow routing stages: the
   `codex:codex-wrapper` agent; `Skill(codex)` works everywhere); defaults, not limits —
   non-implementation lanes escalate to fable, while an implementation miss
-  crosses models first (opus ↔ sol at xhigh) and reaches fable only after both;
+  crosses models first (opus ↔ astra at xhigh) and reaches fable only after both;
   dual-use security payloads (exploit code, vuln PoCs, malware analysis) are
   quarantined in isolated subagents, teammates, or workflow lanes — never the
   root orchestrator's context, which fable's dual-use screening would otherwise
@@ -168,7 +168,7 @@ shared AGENTS.md:
   lane gets a `codex-ask --collect` check before any redo; effort `xhigh` by default (fable's
   sensitive-implementation carve-out and opus-5
   bounded decision-light implementation may run `high`), `max` only after xhigh falls short, verification at same-or-higher
-  tier with table-routed gpt-5.6-sol lanes counting as same-tier; every plan's
+  tier with table-routed gpt-6-astra lanes counting as same-tier; every plan's
   `## Workflow Plan` table names each phase's model, effort, and `Blocks on`
   dependency (AGENTS.md § Writing Plans).
 
