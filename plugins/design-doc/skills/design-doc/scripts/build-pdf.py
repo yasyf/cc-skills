@@ -1,4 +1,4 @@
-# built by plugins/_shared/build.py from py/build_pdf.py sha256:05638ed5aa8c — do not edit
+# built by plugins/_shared/build.py from py/build_pdf.py sha256:73c4460b6040 — do not edit
 """Print a project's doc to a PDF beside it.
 
 Usage: python3 build-pdf.py [dir] [--pdf NAME]
@@ -12,7 +12,7 @@ page loads Mermaid from jsdelivr, so the build needs network access. Needs
 Chrome or Chromium; set CHROME=/path/to/chrome if discovery misses yours,
 and CHROME_ARGS to add command-line flags to the browser it launches.
 """
-import argparse, base64, functools, json, os, select, shlex, shutil, subprocess, sys, tempfile, textwrap, threading, time
+import argparse, base64, functools, json, os, re, select, shlex, shutil, subprocess, sys, tempfile, textwrap, threading, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -21,6 +21,8 @@ CONSOLE_KEPT = 40
 STDERR_LINES = 20
 NETWORK_HINT = "the page loads its diagrams from jsdelivr, so this needs network access"
 NOT_READY = "the page never set data-ready; its diagrams or connectors did not finish rendering"
+SETTLE_S = 2.0
+IGNORED_404 = re.compile(r"Failed to load resource: .*404.*\[[^\]]*/(ai\.json|favicon\.ico)\]$")
 DOC_PAGES = ("design-doc.html", "incident-retro.html", "index.html")
 DEFAULT_PDF = "design-doc.pdf"
 DOM_JS = "document.documentElement.outerHTML"
@@ -122,7 +124,7 @@ class Chrome:
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
         os.close(chrome_in)
         os.close(chrome_out)
-        self.buf, self.seq, self.console = b"", 0, []
+        self.buf, self.seq, self.console, self.errors = b"", 0, [], []
 
     def close(self):
         try:
@@ -159,14 +161,23 @@ class Chrome:
     def note(self, msg: dict):
         method, params = msg.get("method"), msg.get("params") or {}
         if method == "Runtime.consoleAPICalled":
-            self.console.append(f"{params.get('type', 'log')}: " + " ".join(describe(a) for a in params.get("args") or []))
+            kind = params.get("type", "log")
+            text = " ".join(describe(a) for a in params.get("args") or [])
+            self.console.append(f"{kind}: {text}")
+            if kind == "error":
+                self.errors.append(f"console.error: {text}")
         elif method == "Log.entryAdded":
             entry = params.get("entry") or {}
             where = entry.get("url") or entry.get("source") or ""
-            self.console.append(f"{entry.get('level', 'info')}: {entry.get('text', '')}" + (f" [{where}]" if where else ""))
+            line = f"{entry.get('level', 'info')}: {entry.get('text', '')}" + (f" [{where}]" if where else "")
+            self.console.append(line)
+            if entry.get("level") == "error":
+                self.errors.append(line)
         elif method == "Runtime.exceptionThrown":
             detail = params.get("exceptionDetails") or {}
-            self.console.append("exception: " + ((detail.get("exception") or {}).get("description") or detail.get("text") or ""))
+            line = "exception: " + ((detail.get("exception") or {}).get("description") or detail.get("text") or "")
+            self.console.append(line)
+            self.errors.append(line)
 
     def take(self) -> dict:
         raw, _, self.buf = self.buf.partition(b"\0")
@@ -245,6 +256,17 @@ def evaluate(chrome: Chrome, session: str, expression: str, timeout: float = CHR
 
 def wait_ready(chrome: Chrome, session: str, timeout: float) -> dict:
     return evaluate(chrome, session, ready_js(timeout), timeout=timeout + 30)
+
+
+def settle(chrome: Chrome, session: str, timeout: float) -> dict:
+    state = wait_ready(chrome, session, timeout)
+    time.sleep(SETTLE_S)
+    chrome.drain(1.0)
+    return state
+
+
+def page_errors(chrome: Chrome) -> list:
+    return [e for e in chrome.errors if not IGNORED_404.search(e)]
 
 
 def ready_problem(state: dict, timeout: float) -> str:

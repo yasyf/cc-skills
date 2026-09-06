@@ -31,9 +31,10 @@ every entry that has none, through `slop-cop plainify` by default or the
 claude or codex CLI, and prints a review table carrying whatever slop-cop
 grades against. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
-rendered, and fails on a Mermaid parse error or a diagram that never
-rendered, printing Chrome's stderr and the page's console so a failure
-names its cause. pdf
+rendered, and fails on a Mermaid parse error, a diagram that never
+rendered, or an uncaught exception or console.error the page emits up to
+two seconds after it is ready, printing Chrome's stderr and the page's
+console so a failure names its cause. pdf
 prints the served doc to its design-doc.pdf through the template's print
 stylesheet. build compiles the project's author-written components/*.tsx
 into components.js with the pinned Vite and Preact pack, installed under
@@ -718,7 +719,7 @@ def render_check(args) -> int:
     try:
         session = builder.open_page(chrome, base + page)
         chrome.call("Emulation.setDeviceMetricsOverride", RENDER_CHECK_VIEWPORT, session=session)
-        state = builder.wait_ready(chrome, session, args.timeout)
+        state = builder.settle(chrome, session, args.timeout)
         if state["ready"] != "1":
             problems.append(builder.ready_problem(state, args.timeout))
         scale = builder.evaluate(chrome, session, SYSD_CTM_JS)
@@ -734,6 +735,8 @@ def render_check(args) -> int:
         server.shutdown()
         chrome.close()
 
+    for e in builder.page_errors(chrome):
+        problems.append("page: " + first_line(e, 200))
     dom = RenderedDom()
     dom.feed(html)
     dom.close()
