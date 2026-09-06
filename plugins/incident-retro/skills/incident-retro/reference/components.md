@@ -23,22 +23,21 @@ the registers and places them where a reader expects them:
 | `ir.notebook` | per `evidence.notebooks[]` entry, first one open | Evidence |
 | `ir.slack-thread` | per `evidence.slack[]` entry | Evidence |
 
-Declare a block in `components` to place one elsewhere or to change its
-options. A declared block is placed in one of three ways:
+Declare a block in `components` to place one elsewhere or with other
+options. A declared block is placed by naming its id in one of five fields:
 
-- `meta.sections.<section>.components: ["<id>", …]` appends it to the end of
-  that section. When a declared block of the same kind lands in the section
-  where the implicit one would render, the implicit one is skipped, so a
-  declared `ir.timeline` under `meta.sections.timeline` replaces the default
-  swimlane rather than adding a second.
-- `causes[].component: "<id>"` renders it inside that cause's card, under the
+- `causes[].component` renders it inside that cause's card, under the
   evidence and links.
-- `notes[].component: "<id>"` renders it under that note.
+- `notes[].component` renders it under that note.
+- `impact.component` renders it at the end of Impact.
+- `resolution.component` renders it under the resolution text.
+- `detection.component` renders it under the monitor cards.
 
-Component ids are `[a-z][a-z0-9-]*`. Every block gets a Markdown flattening
-for the export and the assistant's context: charts become per-series min,
-max and last values, transcripts become one line per message, the tracker
-becomes a table.
+`retro.py check` errors on a field that names an undeclared id and warns on
+a declared block no field places. Component ids are `[a-z][a-z0-9-]*`. Every
+block gets a Markdown flattening for the export and the assistant's context:
+charts become per-series min, max and last values, transcripts become one
+line per message, the tracker becomes a table.
 
 ## `ir.tiles`
 
@@ -84,8 +83,9 @@ a warning triangle for alerts, a circle for reports, a diamond with a question
 mark for hypotheses, a square for actions, a filled diamond for mitigations,
 a ticked circle for resolution and all clear.
 
-Hovering a mark shows the entry and, when one of its refs points at a Slack
-snapshot, the quoted message. Clicking scrolls to the row in the list. The
+A `(T7)` citation in prose renders as that entry's local time, `09:41`,
+since timeline entries carry no handle. Hovering a mark shows the entry and,
+when one of its refs points at a Slack snapshot, the quoted message. Clicking scrolls to the row in the list. The
 wheel zooms around the pointer, dragging pans, and a Reset control returns
 to the resting view, which spans the in-incident entries and the timestamps
 (entries carrying `phase: before` or `after` sit outside it). `from` and `to`

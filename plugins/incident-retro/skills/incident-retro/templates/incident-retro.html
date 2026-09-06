@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 15 partials sha256:000000000000 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:f5e9ca07932c — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -120,21 +120,7 @@ abbr.est{border-bottom:1px dotted var(--ink2);text-decoration:none;cursor:help}
 .st-crit{color:var(--crit)}
 .st-dead{color:var(--ink2)}
 .st-acc{color:var(--accent)}
-#tip{position:fixed;z-index:70;max-width:34ch;background:var(--ink);color:var(--bg);font-size:12.5px;line-height:1.45;padding:6px 10px;border-radius:var(--r-node);pointer-events:none;box-shadow:0 6px 22px #0003}
-#tip.card{max-width:44ch;pointer-events:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-fig);padding:12px 15px;font-size:14px;line-height:1.5;box-shadow:0 12px 36px #00000026}
-#tip.card .tkind{display:block;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
-#tip.card .ttitle{display:block;font-weight:600;font-size:14.5px;line-height:1.35;margin-bottom:5px}
-#tip.card p{margin:0 0 9px;max-width:none;color:var(--ink2);font-size:13.5px}
-#tip.card .topen{font-size:13px;color:var(--accent);cursor:pointer}
-#tip.card.file{max-width:min(92vw,720px)}
-#tip.card .tsrc{margin:0 0 9px;padding:8px 10px;background:var(--code-bg);border-radius:var(--r-node);font-family:var(--mono);font-size:11.5px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre;tab-size:2}
-#tip.card .tsrc-l{display:block;padding:0 4px;margin:0 -4px}
-#tip.card .tsrc-l.hl{background:var(--warn-soft)}
-#tip.card .tsrc-n{display:inline-block;min-width:4ch;margin-right:1.5ch;text-align:right;color:var(--ink2);user-select:none}
-.term{text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px;cursor:help}
-.term:hover,.term:focus{text-decoration-color:var(--accent)}
-.src{font-family:var(--mono);font-size:.92em;color:var(--ink);text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px}
-.src:hover,.src:focus{color:var(--accent);text-decoration-color:var(--accent)}
+/* @defines .lchips,.lchip,.lico,.ldot,.odot,.lcloses,.oprog,.ghnote */
 .lchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
 .lchip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:2px 10px 2px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .lchip:hover{text-decoration:none;color:var(--accent);border-color:var(--accent)}
@@ -155,6 +141,22 @@ details.orow.closed .ostat{color:var(--ok)}
 .ghnote{font-size:13.5px;color:var(--ink2);margin:0 0 12px;max-width:var(--measure)}
 #tip.card .tgh{display:block;font-size:12.5px;color:var(--ink2);margin:-3px 0 8px}
 @media print{.oprog,.ghnote{display:none!important}.lchip,.src{color:inherit}}
+/* @defines #tip */
+#tip{position:fixed;z-index:70;max-width:34ch;background:var(--ink);color:var(--bg);font-size:12.5px;line-height:1.45;padding:6px 10px;border-radius:var(--r-node);pointer-events:none;box-shadow:0 6px 22px #0003}
+#tip.card{max-width:44ch;pointer-events:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-fig);padding:12px 15px;font-size:14px;line-height:1.5;box-shadow:0 12px 36px #00000026}
+#tip.card .tkind{display:block;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
+#tip.card .ttitle{display:block;font-weight:600;font-size:14.5px;line-height:1.35;margin-bottom:5px}
+#tip.card p{margin:0 0 9px;max-width:none;color:var(--ink2);font-size:13.5px}
+#tip.card .topen{font-size:13px;color:var(--accent);cursor:pointer}
+#tip.card.file{max-width:min(92vw,720px)}
+#tip.card .tsrc{margin:0 0 9px;padding:8px 10px;background:var(--code-bg);border-radius:var(--r-node);font-family:var(--mono);font-size:11.5px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre;tab-size:2}
+#tip.card .tsrc-l{display:block;padding:0 4px;margin:0 -4px}
+#tip.card .tsrc-l.hl{background:var(--warn-soft)}
+#tip.card .tsrc-n{display:inline-block;min-width:4ch;margin-right:1.5ch;text-align:right;color:var(--ink2);user-select:none}
+.term{text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px;cursor:help}
+.term:hover,.term:focus{text-decoration-color:var(--accent)}
+.src{font-family:var(--mono);font-size:.92em;color:var(--ink);text-decoration:underline dotted var(--ink2) 1px;text-underline-offset:3px}
+.src:hover,.src:focus{color:var(--accent);text-decoration-color:var(--accent)}
 
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);padding:16px 20px 14px;margin:20px 0 6px;box-shadow:var(--lift)}
 .card .fighead{display:flex;align-items:baseline;gap:8px;margin-bottom:12px;flex-wrap:wrap}
@@ -359,7 +361,8 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 .ir-slack .shead a{margin-left:auto}
 .ir-msg{display:grid;grid-template-columns:34px minmax(0,1fr);gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14.5px}
 .ir-msg:last-child{border-bottom:0}
-.ir-msg .av{grid-row:1/span 3;width:34px;height:34px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-family:var(--display);font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center}
+.ir-msg>*:not(.av){grid-column:2}
+.ir-msg .av{grid-row:1/span 4;width:34px;height:34px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-family:var(--display);font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center}
 .ir-msg .who{display:flex;gap:8px;align-items:baseline;font-size:13px;color:var(--ink2)}
 .ir-msg .who b{color:var(--ink);font-size:14px}
 .ir-msg .who .t{font-family:var(--mono);font-size:12px;cursor:help}
@@ -523,6 +526,7 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
   @page{size:A4;margin:16mm 14mm 18mm}
 }
 
+/* @defines .ddc,.fx- */
 .ddc{margin:18px 0;font-size:15px}
 .ddc-head{font-family:var(--display);font-weight:600;font-size:20px;line-height:1.2;margin:0 0 10px}
 .ddc-tabrow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
@@ -633,35 +637,8 @@ svg.ddc-flow,svg.ddc-lanes,#flowMeasure{--fx-ink:var(--ink);--fx-ink2:var(--ink2
   [data-component][data-bespoke]>figure.ddc-fallback{display:block}
   [data-component][data-bespoke]>.ddc-bespoke{display:none}
 }
-:root{
-  --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100; --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#4a3aa7; --viz-8:#e34948;
-  --viz-axis:var(--ink2); --viz-grid:var(--line); --viz-cursor:var(--ink2); --viz-legend:var(--ink2); --viz-band:var(--crit); --viz-rule:var(--ink2);
-}
-@media (prefers-color-scheme: dark){:root:not([data-print]):not([data-theme=light]){
-  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
-}}
-html[data-theme=dark]:not([data-print]){
-  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
-}
-.viz{position:relative;margin:8px 0 0}
-.viz .u-wrap{font-family:var(--mono)}
-.viz .u-legend{font:12px/1.5 var(--mono);color:var(--viz-legend);text-align:left;padding:6px 0 0}
-.viz .u-legend .u-series{display:inline-flex;align-items:center;gap:6px;margin:0 14px 2px 0}
-.viz .u-legend .u-series>*{padding:0}
-.viz .u-legend .u-marker{width:12px;height:12px;border-radius:3px;margin:0}
-.viz .u-legend .u-label{color:var(--ink)}
-.viz .u-legend .u-value{min-width:5ch;text-align:right;font-variant-numeric:tabular-nums}
-.viz .u-legend .u-series.u-off>*{opacity:.4}
-.viz .u-cursor-x,.viz .u-cursor-y{border-color:var(--viz-cursor)}
-.viz .u-select{background:var(--accent-soft)}
-.viz-empty{padding:18px 8px;color:var(--ink2);font-size:13.5px;text-align:center;border:1px dashed var(--line);border-radius:var(--r-node)}
-.viz-sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
-.viz-legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--ink2);margin-top:8px}
-.viz-legend .lg{display:inline-flex;align-items:center;gap:6px}
-.viz-legend .lg i{width:14px;height:0;border-top:2px solid var(--ink2)}
-.viz-legend .lg i.band{width:14px;height:10px;border:0;border-radius:2px;opacity:.35}
-.viz-legend .lg i.rule{border-top-style:dashed}
-@media print{.viz .u-legend{color:#555}.viz .u-legend .u-value{display:none}}
+figure:has(>[data-component][data-mounted])>svg{display:none}
+/* @defines #ai,.ai-,#pal,.pal- */
 html:not([data-ai]) .ai-only{display:none!important}
 #ai{position:fixed;right:18px;bottom:18px;z-index:66;display:flex;flex-direction:column;align-items:flex-end}
 #ai[hidden]{display:none}
@@ -792,7 +769,77 @@ body.ai-wide .layout{margin-right:min(520px,44vw)}
   .ai-hl{outline:0}
   body.ai-wide .layout{margin-right:0}
 }
-figure:has(>[data-component][data-mounted])>svg{display:none}
+/* @defines #cmtLayer,.cmt- */
+#cmtLayer{position:fixed;inset:0;z-index:54;pointer-events:none}
+.cmt-chip{position:fixed;pointer-events:auto;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:2px 9px;font-size:12px;font-variant-numeric:tabular-nums;box-shadow:0 4px 14px #0000001f;white-space:nowrap}
+.cmt-chip:hover{border-color:var(--accent);color:var(--accent)}
+.cmt-chip .cdot{width:6px;height:6px;border-radius:50%;background:var(--ink2);flex:0 0 6px}
+.cmt-chip[data-state=pending] .cdot{background:var(--warn)}
+.cmt-chip[data-state=error] .cdot{background:var(--crit)}
+.cmt-chip[data-state=resolved] .cdot{background:var(--ok)}
+.cmt-ask{border:0;background:none;color:var(--ink2);font-size:13px;line-height:1;padding:0 4px;opacity:.5}
+.cmt-ask:hover{opacity:1;color:var(--accent)}
+.cmt-sel{position:fixed;z-index:67;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12.5px;box-shadow:0 6px 20px #0003}
+.cmt-pop{position:fixed;z-index:68;width:min(410px,92vw);max-height:min(72vh,600px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);box-shadow:0 14px 46px #0004;padding:12px 14px;font-size:14px}
+.cmt-pop p{max-width:none;margin:6px 0;font-size:13px;color:var(--ink2)}
+.cmt-pop h4{margin:14px 0 4px;font-size:13px;font-weight:600;color:var(--ink2)}
+.cmt-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.cmt-head b{flex:1;font-size:14px}
+.cmt-quote{border-left:2px solid var(--accent);padding-left:10px;margin:0 0 10px;color:var(--ink2);font-size:13px}
+.cmt-note{margin:0 0 10px;padding:7px 10px;border-radius:var(--r-node);font-size:12.5px;background:var(--warn-soft);color:var(--warn)}
+.cmt-note.bad{background:var(--crit-soft);color:var(--crit)}
+.cmt-note.good{background:var(--ok-soft);color:var(--ok)}
+.cmt-note a{color:inherit;text-decoration:underline}
+.cmt-item{border-top:1px solid var(--line);padding:9px 0 4px}
+.cmt-item.reply{border-top:0;border-left:1px solid var(--line);margin-left:12px;padding-left:10px}
+.cmt-by{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--ink2)}
+.cmt-by b{color:var(--ink);font-size:13px;font-weight:600}
+.cmt-body{margin:3px 0 0;font-size:13.5px;color:var(--ink);white-space:pre-wrap;max-width:none}
+.cmt-body.gone{color:var(--ink2);font-style:italic}
+.cmt-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.cmt-form{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.cmt-form textarea,.cmt-form input{width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-node);padding:7px 9px;resize:vertical}
+.cmt-form textarea:focus,.cmt-form input:focus{outline:0;border-color:var(--accent)}
+.cmt-row{display:flex;gap:8px;align-items:center}
+.cmt-row .end{margin-left:auto;font-size:12px;color:var(--ink2)}
+.cmt-send{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:var(--r-ctl);padding:5px 14px;font-size:13.5px}
+.cmt-send[disabled]{opacity:.45;cursor:default}
+.cmt-perm{margin:6px 0;padding-left:18px;font-size:13px;color:var(--ink2)}
+.cmt-list{display:flex;flex-direction:column;gap:2px}
+.cmt-open{display:flex;gap:9px;align-items:baseline;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:7px 9px;border-radius:var(--r-node);font-size:13.5px}
+.cmt-open:hover{background:var(--accent-soft)}
+.cmt-open small{margin-left:auto;color:var(--ink2);font-size:12px;white-space:nowrap}
+::highlight(cmt){background:var(--accent-soft);text-decoration:underline dotted var(--accent)}
+@media print{#cmtLayer,.cmt-pop,.cmt-sel,.cmt-ask{display:none!important}}
+:root{
+  --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100; --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#4a3aa7; --viz-8:#e34948;
+  --viz-axis:var(--ink2); --viz-grid:var(--line); --viz-cursor:var(--ink2); --viz-legend:var(--ink2); --viz-band:var(--crit); --viz-rule:var(--ink2);
+}
+@media (prefers-color-scheme: dark){:root:not([data-print]):not([data-theme=light]){
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+}}
+html[data-theme=dark]:not([data-print]){
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+}
+.viz{position:relative;margin:8px 0 0}
+.viz .u-wrap{font-family:var(--mono)}
+.viz .u-legend{font:12px/1.5 var(--mono);color:var(--viz-legend);text-align:left;padding:6px 0 0}
+.viz .u-legend .u-series{display:inline-flex;align-items:center;gap:6px;margin:0 14px 2px 0}
+.viz .u-legend .u-series>*{padding:0}
+.viz .u-legend .u-marker{width:12px;height:12px;border-radius:3px;margin:0}
+.viz .u-legend .u-label{color:var(--ink)}
+.viz .u-legend .u-value{min-width:5ch;text-align:right;font-variant-numeric:tabular-nums}
+.viz .u-legend .u-series.u-off>*{opacity:.4}
+.viz .u-cursor-x,.viz .u-cursor-y{border-color:var(--viz-cursor)}
+.viz .u-select{background:var(--accent-soft)}
+.viz-empty{padding:18px 8px;color:var(--ink2);font-size:13.5px;text-align:center;border:1px dashed var(--line);border-radius:var(--r-node)}
+.viz-sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+.viz-legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.viz-legend .lg{display:inline-flex;align-items:center;gap:6px}
+.viz-legend .lg i{width:14px;height:0;border-top:2px solid var(--ink2)}
+.viz-legend .lg i.band{width:14px;height:10px;border:0;border-radius:2px;opacity:.35}
+.viz-legend .lg i.rule{border-top-style:dashed}
+@media print{.viz .u-legend{color:#555}.viz .u-legend .u-value{display:none}}
 </style>
 </head>
 <body>
@@ -844,10 +891,9 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <h2>Overview</h2>
   <p class="sub" data-sub="overview"></p>
   <div id="tilesHost"></div>
-  <div class="ir-summary" id="summaryBox"></div>
+  <div class="ir-summary" id="summaryHost"></div>
   <div class="ir-incidents" id="incidentsHost" hidden></div>
   <div id="windowsHost"></div>
-  <div id="overviewExtra"></div>
 </section>
 
 <section id="timeline">
@@ -856,7 +902,6 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <div id="swimHost"></div>
   <div class="filters" id="tlFilters"></div>
   <div class="ir-days" id="tlList"></div>
-  <div id="timelineExtra"></div>
 </section>
 
 <section id="impact">
@@ -865,7 +910,7 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <div id="impactText"></div>
   <div id="impactTeams"></div>
   <div class="ir-metrics" id="impactMetrics" hidden></div>
-  <div id="impactExtra"></div>
+  <div id="impactComponent"></div>
 </section>
 
 <section id="causes">
@@ -873,39 +918,36 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <p class="sub" data-sub="causes"></p>
   <div id="causeTree"></div>
   <div class="ledgers" id="causeList"></div>
-  <div id="causesExtra"></div>
 </section>
 
 <section id="resolution">
   <h2>Resolution and detection</h2>
   <p class="sub" data-sub="resolution"></p>
   <div id="resolutionText"></div>
+  <div id="resolutionComponent"></div>
   <h3 id="detectionHead" style="margin-top:30px">Detection</h3>
   <div id="detectionText"></div>
   <div id="monitorHost"></div>
+  <div id="detectionComponent"></div>
   <p class="ir-lat" id="latencyLine" hidden></p>
-  <div id="resolutionExtra"></div>
 </section>
 
 <section id="actions">
   <h2>Action items</h2>
   <p class="sub" data-sub="actions"></p>
   <div id="actionsHost"></div>
-  <div id="actionsExtra"></div>
 </section>
 
 <section id="lessons">
   <h2>Lessons</h2>
   <p class="sub" data-sub="lessons"></p>
   <div class="ir-cols" id="lessonsHost"></div>
-  <div id="lessonsExtra"></div>
 </section>
 
 <section id="evidence" class="ir-ev">
   <h2>Evidence</h2>
   <p class="sub" data-sub="evidence"></p>
   <div id="evidenceHost"></div>
-  <div id="evidenceExtra"></div>
 </section>
 
 <section id="notes" class="ir-notes">
@@ -913,7 +955,6 @@ figure:has(>[data-component][data-mounted])>svg{display:none}
   <p class="sub" data-sub="notes"></p>
   <div id="notesHost"></div>
   <ul class="fnotes" id="fnList" hidden></ul>
-  <div id="notesExtra"></div>
 </section>
 
 <footer>
@@ -1001,6 +1042,8 @@ let DIFF=null;
 let toggleUnch=()=>{};
 const dmark=(reg,id)=>DIFF&&DIFF.marks[reg+":"+id]?` <span class="pill p-acc diffpill">${DIFF.marks[reg+":"+id]}</span>`:"";
 
+// @requires 
+// @defines $,URL_ATTR,el,esc,fmt,railLink,reduced,safeUrl,scrub
 const $=s=>document.querySelector(s);
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e};
 const fmt=ms=> ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+"s" : ms>=1?(ms%1?ms.toFixed(1):ms)+"ms" : (ms*1000)+"µs";
@@ -1017,7 +1060,6 @@ function scrub(root){
   });
  });
 }
-
 
 const WKEY="design-doc-wording";
 let fullWording=false;
@@ -1050,6 +1092,8 @@ CAUSES.forEach(c=>addRef(c.id,c.t,"cause",c));
 ACTIONS.forEach(a=>addRef(a.id,a.t,"action",a));
 FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
 
+// @requires META,longDate,$,esc
+// @defines GH,GH_KIND,GH_LINK,GH_PENDING,GH_REF,GH_STATE_LABEL,GH_TOKEN,LANDED,LINK_ICON,LINK_KIND_LABEL,LINK_KIND_SHORT,REPO,ghRef,ghState,itemClosed,itemState,linkChipHtml,linkChipsHtml,linkIcon,linkKey,linkLabel,linkMd,linkNorm,linksOf,relTime,srcUrl
 const REPO=typeof META.repo==="string"?META.repo:"";
 let GH_REF=typeof META.ref==="string"?META.ref:"HEAD";
 const srcUrl=(path,a,b)=>`https://github.com/${REPO}/blob/${GH_REF}/${path}#L${a}${b?"-L"+b:""}`;
@@ -1142,6 +1186,7 @@ const statusOf=id=>{
 const handleOf=id=>{
  const r=REF[id];
  if(r.h)return plain(r.h);
+ if(r.kind==="timeline")return fmtTime(ENTRY[id].ts)||id;
  const w=plain(r.title).split(/\s+/).filter(Boolean);
  return w.slice(0,4).join(" ")+(w.length>4?"…":"");
 };
@@ -1203,6 +1248,7 @@ function linkNode(root){
  termify(root);
 }
 const TERMS=[];
+const TLDR=SUMMARY.text?[{md:SUMMARY.text,p:SUMMARY.p||""}]:[];
 const TERM_BY=Object.create(null);
 const TERM_LOOK=Object.create(null);
 const TERM_WORDS=[];
@@ -1236,7 +1282,9 @@ function termify(root){
  });
 }
 
-const EST_TIP="Estimate: derived, not measured";
+// @requires linkIds,linkSrc,$,esc
+// @defines EST_TIP,inline,mdToHtml
+const EST_TIP="Estimate: derived, not measured; pending the named spike";
 const inline=s=>linkSrc(linkIds(esc(s)
  .replace(/\[\^(\d+)\]/g,'<sup class="fn"><a href="#fn-$1">$1</a></sup>')
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a class="xlink" href="$2" target="_blank" rel="noopener">$1</a>')
@@ -1268,6 +1316,8 @@ function mdToHtml(md){
  closeAll();return out.join("\n");
 }
 
+// @requires KIND_LABEL,REF,TERM_BY,plain,statusOf,themeLabel,unveil,$,GH,GH_FILE,GH_PENDING,GH_REF,GH_STATE_LABEL,GH_TOKEN,LINK_KIND_LABEL,REPO,el,esc,ghFileKey,ghFileLoad,relTime
+// @defines TIP,TIP_RING,TIP_SEL,armTip,cardHtml,ghCardHtml,ghFileCardHtml,hideTip,placeTip,showTip,tipArmed,tipClosedAt,tipCorridor,tipDir,tipFor,tipInCorridor,tipLeave,tipOpenArmed,tipPt,tipSign,tipSpeed,tipSpeedNow,tipTimer
 const TIP=el("div");TIP.id="tip";TIP.hidden=true;TIP.setAttribute("role","tooltip");document.body.append(TIP);
 const TIP_SEL="[data-tip],[data-ref],[data-term],[data-gh],[data-ghfile]";
 const TIP_RING=[];
@@ -1413,7 +1463,6 @@ TIP.addEventListener("click",e=>{
 });
 addEventListener("scroll",hideTip,true);
 addEventListener("resize",hideTip);
-
 
 const TZ=META.timezone||"UTC";
 const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1710,30 +1759,25 @@ document.addEventListener("click",e=>{
 });
 
 const COMPONENTS=R.components||{};
-const IMPLICIT=Object.create(null);
-const specOf=name=>COMPONENTS[name]||IMPLICIT[name]||null;
-const sectionComponents=sec=>{const o=(META.sections||{})[sec];return Array.isArray(o&&o.components)?o.components.filter(id=>COMPONENTS[id]):[]};
-const declaredKindIn=(sec,kind)=>sectionComponents(sec).some(id=>COMPONENTS[id].kind===kind);
+const mdRef=id=>REF[id]?`${handleOf(id)} (${id})`:id;
 function slotFor(name){
  const div=el("div");
  div.dataset.component=name;
  return div;
 }
-function implicitSlot(name,spec,host,sec){
- if(declaredKindIn(sec,spec.kind))return null;
+function implicitSlot(name,spec,host){
  spec.implicit=true;
- IMPLICIT[name]=spec;
+ COMPONENTS[name]=spec;
  const s=slotFor(name);
  host.append(s);
  return s;
 }
-function sectionExtras(sec){
- const host=document.getElementById(sec+"Extra");
- sectionComponents(sec).forEach(id=>host.append(slotFor(id)));
+function declaredSlot(block,host){
+ if(block&&typeof block.component==="string")host.append(slotFor(block.component));
 }
 
 function renderSummary(){
- const box=$("#summaryBox");
+ const box=$("#summaryHost");
  box.innerHTML=mdToHtml(twin(SUMMARY,SUMMARY.text||""));
  box.hidden=!(SUMMARY.text||SUMMARY.p);
  termify(box);
@@ -1745,11 +1789,10 @@ function renderIncidents(){
  host.hidden=false;
 }
 function renderOverview(){
- implicitSlot("~tiles",{kind:"ir.tiles"},$("#tilesHost"),"overview");
+ implicitSlot("~tiles",{kind:"ir.tiles"},$("#tilesHost"));
  renderSummary();
  renderIncidents();
- if(WINDOWS.length)implicitSlot("~windows",{kind:"ir.windows",lanes:INCIDENTS.length?"incident":(WINDOWS.some(w=>(w.teams||[]).length)?"team":"none"),marks:true},$("#windowsHost"),"overview");
- sectionExtras("overview");
+ if(WINDOWS.length)implicitSlot("~windows",{kind:"ir.windows",lanes:INCIDENTS.length?"incident":(WINDOWS.some(w=>(w.teams||[]).length)?"team":"none"),marks:true},$("#windowsHost"));
 }
 
 let tlKind="all",tlQuery="";
@@ -1794,7 +1837,7 @@ function filterBar(host,opts,onPick){
  });
 }
 function setupTimeline(){
- if(TIMELINE.length>=8)implicitSlot("~timeline",{kind:"ir.timeline",lanes:"kind",windows:true,zoom:true},$("#swimHost"),"timeline");
+ if(TIMELINE.length>=8)implicitSlot("~timeline",{kind:"ir.timeline",lanes:"kind",windows:true,zoom:true},$("#swimHost"));
  const f=$("#tlFilters");
  filterBar(f,[["all","Everything"],...tlKindsPresent().map(k=>[k,TL_LABEL[k]])],v=>{tlKind=v;renderTimeline()});
  const end=el("span","end");
@@ -1804,7 +1847,6 @@ function setupTimeline(){
  const cnt=el("span","count","");cnt.id="tlCount";
  end.append(s,cnt);f.append(end);
  renderTimeline();
- sectionExtras("timeline");
 }
 
 function metricTile(m){
@@ -1823,8 +1865,8 @@ function renderImpact(){
  }
  const metrics=Array.isArray(IMPACT.metrics)?IMPACT.metrics:[];
  if(metrics.length){const h=$("#impactMetrics");metrics.forEach(m=>h.append(metricTile(m)));h.hidden=false}
+ declaredSlot(IMPACT,$("#impactComponent"));
  termify($("#impact"));
- sectionExtras("impact");
 }
 
 function causeBody(c){
@@ -1852,9 +1894,8 @@ function renderCauses(){
  termify(host);
 }
 function setupCauses(){
- if(CAUSES.length)implicitSlot("~causes",{kind:"ir.causes",layout:"tree"},$("#causeTree"),"causes");
+ if(CAUSES.length)implicitSlot("~causes",{kind:"ir.causes",layout:"tree"},$("#causeTree"));
  renderCauses();
- sectionExtras("causes");
 }
 
 function renderResolution(){
@@ -1864,7 +1905,9 @@ function renderResolution(){
  d.innerHTML=mdToHtml(twin(DETECTION,DETECTION.text||""));
  const hasDet=!!(DETECTION.text||MONITORS.length);
  $("#detectionHead").hidden=!hasDet;
- MONITORS.forEach(m=>implicitSlot("~monitor-"+m.id,{kind:"ir.monitor",monitor:m.id,marks:true},$("#monitorHost"),"resolution"));
+ declaredSlot(RESOLUTION,$("#resolutionComponent"));
+ MONITORS.forEach(m=>implicitSlot("~monitor-"+m.id,{kind:"ir.monitor",monitor:m.id,marks:true},$("#monitorHost")));
+ declaredSlot(DETECTION,$("#detectionComponent"));
  const lat=[];
  if(TS.onset&&TS.detected)lat.push(`detected <b>${esc(dur(TS.onset,TS.detected))}</b> after onset`);
  if(TS.detected&&TS.engaged)lat.push(`the team engaged <b>${esc(dur(TS.detected,TS.engaged))}</b> after detection`);
@@ -1872,12 +1915,10 @@ function renderResolution(){
  if(TS.onset&&TS.resolved)lat.push(`resolved <b>${esc(dur(TS.onset,TS.resolved))}</b> after onset`);
  if(lat.length){const p=$("#latencyLine");p.innerHTML="Derived from the timestamps: "+lat.join(", ")+".";p.hidden=false}
  termify($("#resolution"));
- sectionExtras("resolution");
 }
 
 function setupActions(){
- if(ACTIONS.length)implicitSlot("~actions",{kind:"ir.actions",group:"state",showDone:true},$("#actionsHost"),"actions");
- sectionExtras("actions");
+ if(ACTIONS.length)implicitSlot("~actions",{kind:"ir.actions",group:"state",showDone:true},$("#actionsHost"));
 }
 
 function renderLessons(){
@@ -1891,7 +1932,6 @@ function renderLessons(){
   host.append(col);
  });
  termify(host);
- sectionExtras("lessons");
 }
 
 const EV_LISTS=[["sentry","Sentry issues",x=>x.label],["linear","Linear issues",x=>x.label||x.key],["builds","Builds",x=>x.label],["prs","Pull requests",x=>x.label],["runs","Runs",x=>x.label||x.id],["docs","Documents",x=>x.label]];
@@ -1900,19 +1940,19 @@ function renderEvidence(){
  const nbs=Array.isArray(EVIDENCE.notebooks)?EVIDENCE.notebooks:[];
  if(nbs.length){
   host.append(el("h3",null,"Datadog notebooks"));
-  nbs.forEach((n,i)=>implicitSlot("~notebook-"+n.id,{kind:"ir.notebook",notebook:n.id,bands:true,open:i===0},host,"evidence"));
+  nbs.forEach((n,i)=>implicitSlot("~notebook-"+n.id,{kind:"ir.notebook",notebook:n.id,bands:true,open:i===0},host));
  }
  const mons=Array.isArray(EVIDENCE.monitors)?EVIDENCE.monitors:[];
  if(mons.length){
   host.append(el("h3",null,"Monitors"));
   const list=el("div","ir-evlist",mons.map(m=>{const d=monitorOf(m.id);const url=m.url||(d&&d.url)||"";const carded=MONITORS.some(x=>String(x.id)===String(m.id));return carded?`<a class="ir-hostchip" data-host="datadog-monitor" href="#mon-${esc(String(m.id))}" data-goto="mon-${esc(String(m.id))}"><span class="hk">Monitor</span><span class="lt">${esc(m.label||(d&&d.name)||String(m.id))}</span></a>`:(url&&safeUrl(url)?hostChipHtml(url,m.label||(d&&d.name)||String(m.id)):"")}).join(""));
   host.append(list);
-  mons.filter(m=>monitorOf(m.id)&&!MONITORS.some(x=>String(x.id)===String(m.id))).forEach(m=>implicitSlot("~monitor-"+m.id,{kind:"ir.monitor",monitor:m.id,marks:true},host,"evidence"));
+  mons.filter(m=>monitorOf(m.id)&&!MONITORS.some(x=>String(x.id)===String(m.id))).forEach(m=>implicitSlot("~monitor-"+m.id,{kind:"ir.monitor",monitor:m.id,marks:true},host));
  }
  const slack=Array.isArray(EVIDENCE.slack)?EVIDENCE.slack:[];
  if(slack.length){
   host.append(el("h3",null,"Slack"));
-  slack.forEach((s,i)=>implicitSlot("~slack-"+(i+1),{kind:"ir.slack-thread",permalink:s.url,collapse:6},host,"evidence"));
+  slack.forEach((s,i)=>implicitSlot("~slack-"+(i+1),{kind:"ir.slack-thread",permalink:s.url,collapse:6},host));
  }
  EV_LISTS.forEach(([key,label,lbl])=>{
   const items=Array.isArray(EVIDENCE[key])?EVIDENCE[key]:[];
@@ -1941,7 +1981,6 @@ function renderEvidence(){
  }
  if(EVID.errors.length)host.append(el("p","netmsg",esc(`${EVID.errors.length} evidence snapshot${EVID.errors.length===1?" is":"s are"} missing: `+EVID.errors.map(x=>x.file).join(", "))));
  termify(host);
- sectionExtras("evidence");
 }
 
 function renderNotes(){
@@ -1956,7 +1995,6 @@ function renderNotes(){
   FOOTNOTES.forEach(f=>{const li=el("li");li.id="fn-"+f.n;li.innerHTML=`<span class="fno num">${f.n}</span><span>${inline(f.b)}</span>`;ul.append(li)});
  }
  termify($("#notes"));
- sectionExtras("notes");
 }
 
 renderOverview();
@@ -1971,14 +2009,14 @@ renderNotes();
 
 const hasEvidence=Object.values(EVIDENCE).some(v=>Array.isArray(v)&&v.length);
 const EMPTIES={
- timeline:!TIMELINE.length&&!sectionComponents("timeline").length,
- impact:!(IMPACT.text||(IMPACT.teams||[]).length||(IMPACT.metrics||[]).length)&&!sectionComponents("impact").length,
- causes:!CAUSES.length&&!sectionComponents("causes").length,
- resolution:!(RESOLUTION.text||DETECTION.text||MONITORS.length)&&!sectionComponents("resolution").length,
- actions:!ACTIONS.length&&!sectionComponents("actions").length,
- lessons:!$("#lessonsHost").children.length&&!sectionComponents("lessons").length,
- evidence:!hasEvidence&&!sectionComponents("evidence").length,
- notes:!NOTES.length&&!FOOTNOTES.length&&!sectionComponents("notes").length
+ timeline:!TIMELINE.length,
+ impact:!(IMPACT.text||IMPACT.component||(IMPACT.teams||[]).length||(IMPACT.metrics||[]).length),
+ causes:!CAUSES.length,
+ resolution:!(RESOLUTION.text||RESOLUTION.component||DETECTION.text||DETECTION.component||MONITORS.length),
+ actions:!ACTIONS.length,
+ lessons:!$("#lessonsHost").children.length,
+ evidence:!hasEvidence,
+ notes:!NOTES.length&&!FOOTNOTES.length
 };
 Object.entries(EMPTIES).forEach(([id,empty])=>{
  if(!empty)return;
@@ -2026,6 +2064,7 @@ function openRefSheet(id){
   body+=entryLinksHtml(e);
  }else if(r.kind==="action"){
   body+=`<p>${inline(e.t||"")}</p>`;
+  if(e.note)body+=`<p>${inline(e.note)}</p>`;
   body+=`<div class="kv"><b>Owner</b>${esc(e.owner||"unassigned")}</div>`;
   if(e.source)body+=`<div class="kv"><b>Source</b>${actionSourceLabel(e.source)}</div>`;
   if(e.due)body+=`<div class="kv"><b>Due</b>${esc(longDate(e.due))}</div>`;
@@ -2145,6 +2184,8 @@ document.addEventListener("keydown",e=>{
 })();
 termify($("#main"));
 
+// @requires COMPONENTS,REF,SVGNS,clearHl,handleOf,heroInit,hlTarget,mdRef,mermaidJob,plain,refChip,setAspect,sysdSvg,wireFullSize,$,el,esc,inline,mdToHtml
+// @defines DD_KINDS,DD_MD,FLOW_LEGEND,FX_CALL_GAP,FX_CALL_H2,FX_COL_H,FX_CONN,FX_GAP,FX_LEG_H,FX_PAD,FX_PADX,LN_BOX_GAP,LN_BOX_H,LN_BOX_H2,LN_BRIDGE_MIN,LN_EYE,LN_FPAD,LN_GAP,LN_MINW,LN_NARROW,LN_ONE_COL,SVG_ATTRS,SVG_CSS_BAN,SVG_TAGS,TEXT_W,TL_PILL,WI_FNS,WI_TOKEN,afterFonts,boxH,callH,callW,cmptBeforeAfter,cmptFigMd,cmptFigure,cmptFlow,cmptFrame,cmptLanes,cmptMatrix,cmptSteps,cmptTabs,cmptTimeline,cmptWhatIf,flowBy,flowLabel,flowSub,flowSvg,flowTopics,fxCanvas,fxFonts,fxLabelled,fxMarker,fxMeasure,fxMount,fxNum,fxSvg,fxText,fxUid,lanesLabel,lanesSvg,mountedComponents,safeSvg,stackH,textWidth,trimZeros,whatifEval,whatifParse,whatifTokens,wiNum,wiUnit
 const WI_TOKEN=/[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+/g;
 const WI_FNS={min:Math.min,max:Math.max};
 function whatifTokens(src){
@@ -2613,21 +2654,26 @@ function cmptLanes(spec,host){
  }).observe(host);
  return box;
 }
-const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes};
 const cmptFigMd=f=>f.kind==="mermaid"
  ? "```mermaid\n"+f.source.trim()+"\n```\n"+(f.caption?"\n_"+plain(f.caption)+"_\n":"")
  : (f.label?plain(f.label)+"\n":"")+(f.caption?"\n_"+plain(f.caption)+"_\n":"");
+function mountedComponents(){
+ return [...document.querySelectorAll("[data-component]")]
+  .map(h=>[h,COMPONENTS[h.dataset.component],h.dataset.component])
+  .filter(([,spec])=>spec);
+}
+const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes};
 const DD_MD={
- "dd.tabs":spec=>{const L=[];spec.tabs.forEach(t=>{
+ "dd.tabs":(spec,L)=>spec.tabs.forEach(t=>{
   L.push(`_${plain(t.label)}_\n`);
   if(t.md)L.push(t.md+"\n");
   if(t.figure)L.push(cmptFigMd(t.figure));
- });return L.join("\n")},
- "dd.before-after":spec=>{const L=[];[spec.before,spec.after].forEach(o=>{
+ }),
+ "dd.before-after":(spec,L)=>[spec.before,spec.after].forEach(o=>{
   L.push(`_${plain(o.label)}_\n`);
   L.push(cmptFigMd(o.figure));
- });return L.join("\n")},
- "dd.whatif":spec=>{const L=[];
+ }),
+ "dd.whatif":(spec,L)=>{
   const vals=Object.create(null);
   spec.inputs.forEach(i=>{vals[i.id]=i.value});
   L.push("| Input | Value |\n|---|---|");
@@ -2636,17 +2682,17 @@ const DD_MD={
   spec.outputs.forEach(o=>L.push(`| ${plain(o.label)} | ${wiUnit(wiNum(whatifEval(whatifParse(o.expr),vals),o.decimals),o.unit)} |`));
   if((spec.cites||[]).length)L.push(`\n_Rests on ${spec.cites.map(mdRef).join(", ")}_`);
   L.push("");
-  return L.join("\n")},
- "dd.steps":spec=>spec.steps.map((s,i)=>`${i+1}. **${plain(s.label)}** — ${plain(s.md)}`).join("\n"),
- "dd.timeline":spec=>spec.phases.map(ph=>
-  `- **${plain(ph.label)}** — ${ph.state}${ph.note?". "+plain(ph.note):""}${ph.gate?` _(gated on ${mdRef(ph.gate)})_`:""}`).join("\n"),
- "dd.matrix":spec=>{const L=[];
+ },
+ "dd.steps":(spec,L)=>spec.steps.forEach((s,i)=>L.push(`${i+1}. **${plain(s.label)}** — ${plain(s.md)}`)),
+ "dd.timeline":(spec,L)=>spec.phases.forEach(ph=>L.push(
+  `- **${plain(ph.label)}** — ${ph.state}${ph.note?". "+plain(ph.note):""}${ph.gate?` _(gated on ${mdRef(ph.gate)})_`:""}`)),
+ "dd.matrix":(spec,L)=>{
   L.push("| | "+spec.cols.map(c=>plain(c.label)+(c.label===spec.pick?" (chosen)":"")).join(" | ")+" |");
   L.push("|"+["---",...spec.cols.map(()=>"---")].join("|")+"|");
   spec.rows.forEach((r,ri)=>L.push(`| **${plain(r.label)}** | `+(spec.cells[ri]||[]).map(c=>plain(c.text)).join(" | ")+" |"));
   L.push("");
-  return L.join("\n")},
- "dd.flow":spec=>{const L=[];
+ },
+ "dd.flow":(spec,L)=>{
   L.push("");
   spec.columns.forEach(col=>{
    L.push(`- **${plain(col.label)}**${col.sub?" — "+plain(col.sub):""}`);
@@ -2654,13 +2700,13 @@ const DD_MD={
   });
   L.push("\n_Solid: this design fixes it; dashed: left for a later design_");
   L.push("");
-  return L.join("\n")},
- "dd.lanes":spec=>{const L=[];spec.lanes.forEach((l,i)=>{
+ },
+ "dd.lanes":(spec,L)=>spec.lanes.forEach((l,i)=>{
   L.push(i&&spec.bridge?`_→ ${plain(spec.bridge)}_\n`:"");
   L.push(`_${plain(l.label)}_\n`);
   l.boxes.forEach(b=>L.push(`- **${plain(b.title)}**${b.sub?" — "+plain(b.sub):""}${b.status&&b.status!=="closed"?` (${b.status})`:""}`));
   L.push("");
- });return L.join("\n")}
+ }),
 };
 
 const cssVar=n=>getComputedStyle(HTML).getPropertyValue(n).trim();
@@ -3027,7 +3073,7 @@ function chartOpts(cell,fold,width,height,spec,k){
   cursor:{drag:{x:true,y:false},points:{size:7},show:k===1},
   legend:{show:k===1,live:true},
   scales:{x:{time:true}},
-  axes:[axis(),Object.assign(axis(),{size:56*k,values:(u,vals)=>vals.map(fmtNum)})],
+  axes:[Object.assign(axis(),{space:72*k}),Object.assign(axis(),{size:56*k,values:(u,vals)=>vals.map(fmtNum)})],
   series,
   hooks:{draw:[u=>drawBands(u,spec)]}
  };
@@ -3069,6 +3115,8 @@ function cellNode(nb,cell,spec,jobs,prefix){
  const box=el("div","ir-cell");
  box.id=`${prefix}-c${cell.index}`;
  box.dataset.type=cell.type||"";
+ box.dataset.cell=String(cell.index);
+ box.dataset.notebook=String(nb.id);
  const qs=cellQueries(cell);
  box.innerHTML=`<div class="ch"><h4>${inline(cellTitle(cell))}</h4><span class="cix">cell ${cell.index} · ${esc(cell.type||"")}</span></div>`+(qs.length&&cell.type!=="markdown"?`<div class="q">${qs.map(q=>`<code>${esc(q)}</code>`).join("<br>")}</div>`:"");
  const d=cell.data||{};
@@ -3224,7 +3272,7 @@ function progHtml(items){
 function actionRow(a){
  const st=actionState(a);
  const links=linksOf(a);
- return `<tr id="act-${esc(a.id)}" class="${st==="done"||st==="dropped"?"done":""}"><td><span class="idchip">${esc(a.id)}</span></td><td><span class="h">${esc(handleOf(a.id))}</span><span class="sub-t">${inline(a.t||"")}${dmark("actions",a.id)}${aiAskBtn(a.id)}</span>${links.length?linkChipsHtml(links):""}</td><td>${esc(a.owner||"—")}</td><td>${a.source?actionSourceLabel(a.source):"—"}</td><td><span class="spill" data-s="${esc(st)}">${esc((ACTION_LBL[st]||["",st])[1])}</span>${a.due?`<span class="sub-t">due ${esc(longDate(a.due))}</span>`:""}</td></tr>`;
+ return `<tr id="act-${esc(a.id)}" class="${st==="done"||st==="dropped"?"done":""}"><td><span class="idchip">${esc(a.id)}</span></td><td><span class="h">${esc(handleOf(a.id))}</span><span class="sub-t">${inline(a.t||"")}${dmark("actions",a.id)}${aiAskBtn(a.id)}</span>${a.note?`<span class="sub-t">${inline(a.note)}</span>`:""}${links.length?linkChipsHtml(links):""}</td><td>${esc(a.owner||"—")}</td><td>${a.source?actionSourceLabel(a.source):"—"}</td><td><span class="spill" data-s="${esc(st)}">${esc((ACTION_LBL[st]||["",st])[1])}</span>${a.due?`<span class="sub-t">due ${esc(longDate(a.due))}</span>`:""}</td></tr>`;
 }
 function renderActionsTable(box,spec){
  const host=box.querySelector(".acttable");
@@ -3295,7 +3343,6 @@ function irCauses(spec){
 }
 
 const IR_KINDS={"ir.tiles":irTiles,"ir.windows":irWindows,"ir.timeline":irTimeline,"ir.notebook":irNotebook,"ir.monitor":irMonitor,"ir.slack-thread":irSlack,"ir.actions":irActions,"ir.causes":irCauses};
-const mdRef=id=>REF[id]?`${handleOf(id)} (${id})`:id;
 const tlRowMd=e=>`| ${fmtLocal(e.ts)} | ${TL_LABEL[e.kind]||e.kind} | ${e.actor||""} | ${plain(e.text)}${e.id?" ("+e.id+")":""}${(e.refs||[]).length?" — "+e.refs.map(r=>refNorm(r)).filter(Boolean).map(r=>r.url).join(", "):""} |`;
 function notebookMd(id,cells){
  const nb=notebookOf(id);
@@ -3344,24 +3391,34 @@ function actionsMd(){
  return L.join("\n");
 }
 const IR_MD={
- "ir.tiles":spec=>{
+ "ir.tiles":(spec,L)=>{
   const defs=(Array.isArray(spec.tiles)&&spec.tiles.length?spec.tiles:TILE_DEFS).map(t=>Object.assign({},TILE_DEFS.find(d=>d.id===t.id)||{},t)).filter(t=>tileValue(t));
-  const L=["| Measure | Value | From → to |","|---|---|---|"];
+  L.push("| Measure | Value | From → to |","|---|---|---|");
   defs.forEach(t=>L.push(`| ${plain(t.label||t.id)} | ${tileValue(t)} | ${TS_LABEL[t.from]||t.from} → ${TS_LABEL[t.to]||t.to} |`));
   (spec.extra||[]).forEach(m=>L.push(`| ${plain(m.label)} | ${m.value}${m.unit?" "+m.unit:""}${m.delta?" ("+m.delta+")":""} | ${m.measured===false?"estimated":"measured"} |`));
   L.push("");
-  return L.join("\n");
  },
- "ir.windows":spec=>{
+ "ir.windows":(spec,L)=>{
   const wins=(Array.isArray(spec.windows)&&spec.windows.length?spec.windows.map(id=>WINDOWS.find(w=>w.id===id)).filter(Boolean):WINDOWS);
-  return wins.map(w=>`- **${handleOf(w.id)}** (${w.id}) — ${w.kind||"outage"}, ${fmtLocal(w.start)} → ${fmtLocal(w.end)}, ${dur(w.start,w.end)}${(w.teams||[]).length?" — "+w.teams.join(", "):""}${w.text?" — "+plain(w.text):""}`).join("\n")+"\n";
+  wins.forEach(w=>L.push(`- **${handleOf(w.id)}** (${w.id}) — ${w.kind||"outage"}, ${fmtLocal(w.start)} → ${fmtLocal(w.end)}, ${dur(w.start,w.end)}${(w.teams||[]).length?" — "+w.teams.join(", "):""}${w.text?" — "+plain(w.text):""}`));
+  L.push("");
  },
- "ir.timeline":spec=>["| Time ("+tzName()+") | Kind | Actor | Event |","|---|---|---|---|",...TIMELINE.filter(e=>!(Array.isArray(spec.kinds)&&spec.kinds.length)||spec.kinds.includes(e.kind)).map(tlRowMd),""].join("\n"),
- "ir.notebook":spec=>notebookMd(spec.notebook,spec.cells)+"\n",
- "ir.monitor":spec=>monitorMd(spec.monitor)+"\n",
- "ir.slack-thread":spec=>slackMd(spec.permalink)+"\n",
- "ir.actions":()=>actionsMd()+"\n",
- "ir.causes":()=>[["trigger","Trigger"],["root","Root cause"],["contributing","Contributing"]].map(([k,l])=>{const items=CAUSES.filter(c=>c.kind===k);return items.length?`_${l}_\n${items.map(c=>`- **${handleOf(c.id)}** (${c.id}) — ${plain(c.p||c.t)}`).join("\n")}\n`:""}).filter(Boolean).join("\n")
+ "ir.timeline":(spec,L)=>{
+  L.push("| Time ("+tzName()+") | Kind | Actor | Event |","|---|---|---|---|");
+  TIMELINE.filter(e=>!(Array.isArray(spec.kinds)&&spec.kinds.length)||spec.kinds.includes(e.kind)).forEach(e=>L.push(tlRowMd(e)));
+  L.push("");
+ },
+ "ir.notebook":(spec,L)=>L.push(notebookMd(spec.notebook,spec.cells)+"\n"),
+ "ir.monitor":(spec,L)=>L.push(monitorMd(spec.monitor)+"\n"),
+ "ir.slack-thread":(spec,L)=>L.push(slackMd(spec.permalink)+"\n"),
+ "ir.actions":(spec,L)=>L.push(actionsMd()+"\n"),
+ "ir.causes":(spec,L)=>[["trigger","Trigger"],["root","Root cause"],["contributing","Contributing"]].forEach(([k,l])=>{
+  const items=CAUSES.filter(c=>c.kind===k);
+  if(!items.length)return;
+  L.push(`_${l}_\n`);
+  items.forEach(c=>L.push(`- **${handleOf(c.id)}** (${c.id}) — ${plain(c.p||c.t)}`));
+  L.push("");
+ })
 };
 const CMPT_KINDS={...DD_KINDS,...IR_KINDS};
 const CMPT_MD={...DD_MD,...IR_MD};
@@ -3369,7 +3426,7 @@ async function mountComponent(host){
  const name=host.dataset.component;
  host.dataset.cmpt="1";
  host.querySelectorAll(":scope > figure").forEach(f=>f.classList.add("ddc-fallback"));
- const spec=specOf(name);
+ const spec=COMPONENTS[name];
  try{
   if(!spec||!CMPT_KINDS[spec.kind])throw new Error("unknown component "+name);
   const jobs=[];
@@ -3393,12 +3450,11 @@ function fallbackMd(host){
  return [body,cap?"_"+plain(cap.textContent)+"_":""].filter(Boolean).join("\n\n");
 }
 function componentMd(name,host){
- const spec=specOf(name);
+ const spec=COMPONENTS[name];
  if(!spec)return host?fallbackMd(host):"";
  const L=[];
  if(spec.title)L.push(`**${plain(spec.title)}**\n`);
- const body=(CMPT_MD[spec.kind]||(()=>""))(spec);
- if(body)L.push(body);
+ (CMPT_MD[spec.kind]||(()=>{}))(spec,L);
  return L.join("\n");
 }
 function resetComponentsForPrint(){
@@ -3584,13 +3640,14 @@ function buildDocMd(opt){
  push(`_${[longDate(META.date),META.rev?"revision "+META.rev:null,STATUS_WORD(META.status),inc.number!=null?"incident #"+inc.number:null,inc.severity?String(inc.severity).toUpperCase():null,(META.teams||[]).length?"teams: "+META.teams.join(", "):null,(META.authors||[]).length?"written by "+META.authors.join(", "):null,META.commander?"incident commander "+META.commander:null,META.footerNote].filter(Boolean).join(" · ")}_\n`);
  push("How to read this: the tiles at the top are derived from the timestamps and are the only source for how long anything took. Bracketed ids like C1, AI2, W1 or T4 are citations into the causes, action items, windows and timeline entries below.\n");
  push("## Overview\n");
- const tiles=IR_MD["ir.tiles"]({});
- if(tiles.trim())push(tiles);
+ const tiles=[];
+ IR_MD["ir.tiles"]({},tiles);
+ if(tiles.length>3)push(tiles.join("\n"));
  if(SUMMARY.text)push(SUMMARY.text+"\n");
  if(flags.twins&&SUMMARY.p)push("_Plain: "+SUMMARY.p+"_\n");
  if(INCIDENTS.length){push("### Incidents\n");INCIDENTS.forEach(i=>push(`- **${i.id}** ${i.t||""}${flags.handles&&i.h?` (“${i.h}”)`:""}`));push("")}
- if(WINDOWS.length){push("### Outage windows\n");push(IR_MD["ir.windows"]({}))}
- if(TIMELINE.length){push("## Timeline\n");push(IR_MD["ir.timeline"]({}))}
+ if(WINDOWS.length){push("### Outage windows\n");IR_MD["ir.windows"]({},L)}
+ if(TIMELINE.length){push("## Timeline\n");IR_MD["ir.timeline"]({},L)}
  if(IMPACT.text||(IMPACT.teams||[]).length||(IMPACT.metrics||[]).length){
   push("## Impact\n");
   if(IMPACT.text)push(IMPACT.text+"\n");
@@ -3598,6 +3655,7 @@ function buildDocMd(opt){
   if((IMPACT.teams||[]).length){push("| Team | What they saw |\n|---|---|");IMPACT.teams.forEach(t=>push(`| ${t.codename||""} | ${plain(t.text)} |`));push("")}
   (IMPACT.metrics||[]).forEach(m=>push(`- **${plain(m.label)}** — ${m.value}${m.unit?" "+m.unit:""}${m.delta?", "+m.delta:""}${m.measured===false?" (estimated)":""}${(m.cites||[]).length?" _(see "+m.cites.map(mdRef).join(", ")+")_":""}`));
   if((IMPACT.metrics||[]).length)push("");
+  if(IMPACT.component)push(componentMd(IMPACT.component)+"\n");
  }
  if(CAUSES.length){
   push("## Causes\n");
@@ -3618,9 +3676,11 @@ function buildDocMd(opt){
   if(RESOLUTION.text)push(RESOLUTION.text+"\n");
   if(flags.twins&&RESOLUTION.p)push("_Plain: "+RESOLUTION.p+"_\n");
   if(linksOf(RESOLUTION).length)push(`_Links: ${linksOf(RESOLUTION).map(linkMd).join(", ")}_\n`);
+  if(RESOLUTION.component)push(componentMd(RESOLUTION.component)+"\n");
   if(DETECTION.text){push("### Detection\n");push(DETECTION.text+"\n")}
   if(flags.twins&&DETECTION.p)push("_Plain: "+DETECTION.p+"_\n");
   MONITORS.forEach(m=>push(monitorMd(m.id)+"\n"));
+  if(DETECTION.component)push(componentMd(DETECTION.component)+"\n");
  }
  if(ACTIONS.length){push("## Action items\n");push(actionsMd()+"\n")}
  const lessonCols=[["well","What went well"],["wrong","What went wrong"],["lucky","Where we got lucky"]].filter(([k])=>(LESSONS[k]||[]).length);
@@ -3647,14 +3707,14 @@ function buildDocMd(opt){
   NOTES.forEach(n=>{if(n.t)push(`### ${n.t}\n`);push((n.md||"")+"\n");if(n.component)push(componentMd(n.component)+"\n")});
   FOOTNOTES.forEach(f=>push(`${f.n}. ${f.b}`));
  }
- sectionComponents("overview").concat(...["timeline","impact","causes","resolution","actions","lessons","evidence","notes"].map(sectionComponents)).forEach(id=>{const md=componentMd(id);if(md)push(md+"\n")});
  return L.join("\n");
 }
 $("#lnkDoc").onclick=()=>showModal("The whole retro, as Markdown",buildDocMd(),SLUG+"-incident-retro.md");
-$("#lnkNotes").onclick=async()=>{
+async function openNotes(){
  try{showModal("Working notes",await loadFile("NOTES.md"),"NOTES.md")}
  catch(e){showModal("Working notes","The working notes are not in this folder.","NOTES.md")}
-};
+}
+$("#lnkNotes").onclick=openNotes;
 $("#exportMd").onclick=()=>{
  const blob=new Blob([buildDocMd()],{type:"text/markdown"});
  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=SLUG+"-incident-retro.md";a.click();URL.revokeObjectURL(a.href);
@@ -3703,6 +3763,8 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  settleDeepLink();
  HTML.dataset.ready="1";
 });
+// @requires $
+// @defines AI_CFG_KEY,AI_LOOPBACK,GH_CFG_KEY,aiEndpoint,cfgNormalise,siteCfg,siteConfig
 const AI_CFG_KEY="design-doc-ai";
 const GH_CFG_KEY="design-doc-github";
 const AI_LOOPBACK=/^(localhost|127\.0\.0\.1|\[::1\])$/;
@@ -3714,7 +3776,7 @@ function aiEndpoint(raw){
  return u.href.replace(/\/+$/,"");
 }
 function cfgNormalise(j){
- if(!j||typeof j!=="object")return {ai:null,github:null};
+ if(!j||typeof j!=="object")return {ai:null,github:null,comments:null};
  const s=k=>typeof j[k]==="string"&&j[k].trim()?j[k].trim():null;
  let ai=null;
  if(j.disabled===true)ai={disabled:true};
@@ -3724,26 +3786,30 @@ function cfgNormalise(j){
  }
  const g=j.github;
  const token=g&&typeof g==="object"&&typeof g.token==="string"&&g.token.trim()?g.token.trim():null;
- return {ai,github:token?{token}:null};
+ const c=j.comments&&typeof j.comments==="object"?j.comments:null;
+ const comments=c?{repo:typeof c.repo==="string"&&/^[\w.-]+\/[\w.-]+$/.test(c.repo)?c.repo:null,forbiddenTerms:Array.isArray(c.forbiddenTerms)?c.forbiddenTerms.filter(t=>typeof t==="string"&&t):[]}:null;
+ return {ai,github:token?{token}:null,comments};
 }
 let siteCfg=null;
 function siteConfig(){
  if(!siteCfg)siteCfg=(async()=>{
-  const out={ai:null,github:null};
-  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github};
+  const out={ai:null,github:null,comments:null};
+  const take=c=>{out.ai=out.ai||c.ai;out.github=out.github||c.github;out.comments=out.comments||c.comments};
   try{const raw=localStorage.getItem(AI_CFG_KEY);if(raw)take({ai:cfgNormalise(JSON.parse(raw)).ai})}catch(e){}
   try{const raw=localStorage.getItem(GH_CFG_KEY);if(raw)take({github:cfgNormalise({github:JSON.parse(raw)}).github})}catch(e){}
   for(const path of ["../ai.json","ai.json"]){
-   if(out.ai&&out.github)break;
+   if(out.ai&&out.github&&out.comments)break;
    let j=null;
    try{const r=await fetch(path);if(!r.ok)continue;j=await r.json()}catch(e){continue}
    take(cfgNormalise(j));
   }
-  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github};
+  return {ai:out.ai&&!out.ai.disabled?out.ai:null,github:out.github,comments:out.comments};
  })();
  return siteCfg;
 }
-const GH_NOTE_HOST="#actions h2";
+const GH_NOTE_HOST="#actions";
+// @requires GH_NOTE_HOST,META,ghRecount,$,GH,GH_PENDING,GH_REF,GH_TOKEN,REPO,el,esc,srcUrl
+// @defines GH_401_KEY,GH_API,GH_FILE,GH_FILE_PENDING,GH_LANES,GH_TTL,ghApply,ghBoot,ghBranch,ghCached,ghFile,ghFileKey,ghFileLoad,ghGet,ghNote,ghPauseUntil,ghResolve,ghStore
 const GH_API="https://api.github.com",GH_TTL=10*60*1000,GH_LANES=4,GH_401_KEY="gh:401";
 let ghPauseUntil=0;
 function ghCached(key){
@@ -3815,8 +3881,8 @@ async function ghResolve(key,kind){
  return rec;
 }
 function ghNote(text){
- const h=$(GH_NOTE_HOST);
- if(h&&!h.parentNode.querySelector(".ghnote"))h.after(el("p","ghnote",esc(text)));
+ const h=$(GH_NOTE_HOST+" h2");
+ if(h&&!$(GH_NOTE_HOST+" .ghnote"))h.after(el("p","ghnote",esc(text)));
 }
 function ghApply(key){
  document.querySelectorAll(`[data-gh="${CSS.escape(key)}"] .ldot`).forEach(d=>{d.dataset.state=GH[key].state});
@@ -3854,6 +3920,637 @@ async function ghBoot(token){
  };
  await Promise.all(Array.from({length:GH_LANES},lane));
 }
+const CMT_ENTRY_RE=/^(?:act-)?([A-Z]+\d+)$/;
+const cmtNotesHost=()=>modalFile==="NOTES.md"&&$("#mback").classList.contains("open")?$("#mbody"):null;
+function cmtDecorate(){
+ if(!CMT_LIVE)return;
+ document.querySelectorAll("#main details.ir-cause,#main .ir-row[id],#main tr[id^='act-'],#main .ir-incident[id]").forEach(d=>{
+  const m=CMT_ENTRY_RE.exec(d.id||"");
+  if(!m||!REF[m[1]]||d.querySelector(".cmt-ask"))return;
+  const host=d.querySelector(":scope>summary .lrow,:scope>.x>p,:scope>td:nth-child(2) .sub-t,:scope>b");
+  if(!host)return;
+  const b=el("button","cmt-ask","✎");
+  b.type="button";
+  b.title="Comment on this";
+  b.setAttribute("aria-label","Comment on this");
+  b.dataset.cmt=m[1];
+  host.append(b);
+ });
+}
+// @requires CMT_ENTRY_RE,HTML,META,REF,aiEl,cmtDecorate,cmtNotesHost,handleOf,openNotes,$,GH_API,GH_TOKEN,el,esc,ghGet,ghPauseUntil,reduced,relTime,siteConfig
+// @defines CMT_AUTO_MERGE,CMT_B32,CMT_BASE,CMT_CTX,CMT_DB,CMT_FRAME,CMT_HL,CMT_IDLE,CMT_LANES,CMT_LIVE,CMT_LOAD_ERR,CMT_MARK,CMT_ME,CMT_ME_KEY,CMT_NAME_KEY,CMT_POLL,CMT_POSTED,CMT_POSTED_AT,CMT_QUEUE,CMT_REPOLL,CMT_RETRY_CAP,CMT_SENT,CMT_SENT_KEY,CMT_STORE,CMT_STUCK_MS,CMT_VIEW,CMT_WRITE_KEY,b,cmtAnchorFromSelection,cmtAuthError,cmtAuthFailed,cmtB64,cmtBlob,cmtBoot,cmtBootOutbox,cmtChip,cmtClearWriteToken,cmtClosePop,cmtConnectHtml,cmtDb,cmtDispatch,cmtEl,cmtEntryNode,cmtEntryOf,cmtErrorText,cmtFind,cmtFlush,cmtFlushNote,cmtFlushNow,cmtFlushState,cmtFold,cmtForbidden,cmtFormHtml,cmtHead,cmtInNotes,cmtInflight,cmtItemHtml,cmtKick,cmtListHtml,cmtLoadPosted,cmtLogin,cmtMarkLabel,cmtName,cmtNewId,cmtNorm,cmtNotify,cmtOffHtml,cmtOnChange,cmtOpen,cmtOpenComposer,cmtOpenThread,cmtOpenTray,cmtOrder,cmtPaint,cmtPending,cmtPlace,cmtPop,cmtPost,cmtPullPosted,cmtQueue,cmtQuoteHtml,cmtRangeAt,cmtRefresh,cmtRegionFor,cmtRegionOf,cmtRender,cmtRepo,cmtRepoLabel,cmtResolveAnchor,cmtRetries,cmtReveal,cmtRows,cmtSchedule,cmtSend,cmtSentRead,cmtSentWrite,cmtSetName,cmtSetState,cmtSetWriteToken,cmtSite,cmtSize,cmtSlug,cmtState,cmtStuck,cmtSubs,cmtTextIndex,cmtThreadState,cmtTick,cmtTimer,cmtTotal,cmtTx,cmtUi,cmtUnhosted,cmtWireForm,cmtWriteToken,ghWrite,st
+const CMT_WRITE_KEY="design-doc-github-write";
+const CMT_DB="design-doc-comments",CMT_STORE="comments-outbox",CMT_IDLE=20000,CMT_RETRY_CAP=10*60*1000,CMT_BASE="main";
+const CMT_B32="0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CMT_AUTO_MERGE="mutation($id:ID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:REBASE}){clientMutationId}}";
+const cmtSubs=[];
+let cmtSite=null,cmtDb=null,cmtTimer=0,cmtInflight=null,cmtAuthFailed=false,cmtRetries=0,cmtState={state:"idle"};
+function cmtSlug(){
+ return location.pathname.replace(/^\/|\/[^/]*$/g,"");
+}
+function cmtRepo(){
+ if(!cmtSite||!cmtSite.repo)return null;
+ const [owner,repo]=cmtSite.repo.split("/");
+ return {owner,repo};
+}
+function cmtWriteToken(){
+ try{return localStorage.getItem(CMT_WRITE_KEY)||""}catch(e){return ""}
+}
+function cmtSetWriteToken(tok){
+ localStorage.setItem(CMT_WRITE_KEY,tok.trim());
+ cmtAuthFailed=false;
+}
+function cmtClearWriteToken(){
+ localStorage.removeItem(CMT_WRITE_KEY);
+ cmtAuthFailed=false;
+}
+function cmtNewId(){
+ let t=Date.now(),s="";
+ for(let i=0;i<10;i++){s=CMT_B32[t%32]+s;t=Math.floor(t/32)}
+ crypto.getRandomValues(new Uint8Array(16)).forEach(b=>{s+=CMT_B32[b&31]});
+ return s;
+}
+const cmtB64=s=>btoa(Array.from(new TextEncoder().encode(s),b=>String.fromCharCode(b)).join(""));
+async function ghWrite(method,path,body){
+ const r=await fetch(GH_API+path,{method,headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+cmtWriteToken(),"X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+ if(r.ok)return r.status===204?null:r.json();
+ const e=new Error("GitHub "+r.status);
+ e.status=r.status;
+ e.rate=(r.status===403||r.status===429)&&r.headers.get("x-ratelimit-remaining")==="0";
+ throw e;
+}
+function cmtOpen(){
+ if(!cmtDb)cmtDb=new Promise((resolve,reject)=>{
+  const q=indexedDB.open(CMT_DB,1);
+  q.onupgradeneeded=()=>{q.result.createObjectStore(CMT_STORE,{keyPath:"id"})};
+  q.onsuccess=()=>resolve(q.result);
+  q.onerror=()=>reject(q.error);
+ });
+ return cmtDb;
+}
+async function cmtTx(mode,fn){
+ const db=await cmtOpen();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(CMT_STORE,mode),req=fn(tx.objectStore(CMT_STORE));
+  tx.oncomplete=()=>resolve(req&&req.result);
+  tx.onerror=()=>reject(tx.error);
+ });
+}
+const cmtRows=()=>cmtTx("readonly",st=>st.getAll());
+async function cmtPending(){
+ const slug=cmtSlug();
+ return (await cmtRows()).filter(r=>r.slug===slug).map(r=>r.record);
+}
+function cmtOnChange(fn){cmtSubs.push(fn)}
+function cmtFlushState(){return cmtState}
+function cmtNotify(){cmtSubs.forEach(fn=>fn())}
+function cmtSetState(s){cmtState=s;cmtNotify()}
+function cmtKick(){
+ clearTimeout(cmtTimer);
+ cmtTimer=0;
+ if(!cmtAuthFailed)cmtFlush();
+}
+async function cmtQueue(record){
+ await cmtTx("readwrite",st=>st.add({id:record.id,slug:cmtSlug(),record}));
+ clearTimeout(cmtTimer);
+ cmtTimer=setTimeout(cmtKick,CMT_IDLE);
+ cmtNotify();
+}
+const cmtAuthError=e=>e.status===401||(e.status===403&&!e.rate);
+const cmtErrorText=e=>cmtAuthError(e)?"GitHub rejected your token: it is invalid or lacks permission to write comments to this repository.":e.rate?"GitHub rate limit reached; your comments stay queued and go out later.":e.status?`GitHub returned ${e.status}; your comments stay queued.`:"GitHub could not be reached; your comments stay queued.";
+async function cmtSend(slug,recs){
+ const {owner,repo}=cmtRepo(),base=`/repos/${owner}/${repo}`;
+ const head=await ghWrite("GET",`${base}/git/ref/heads/${CMT_BASE}`);
+ const branch=`comments/${slug}/${cmtNewId()}`;
+ await ghWrite("POST",`${base}/git/refs`,{ref:"refs/heads/"+branch,sha:head.object.sha});
+ for(const r of recs)await ghWrite("PUT",`${base}/contents/${slug}/comments/${r.id}.json`,{message:`comments: ${slug} ${r.id}`,content:cmtB64(JSON.stringify(r,null,2)+"\n"),branch});
+ const pr=await ghWrite("POST",`${base}/pulls`,{title:`comments: ${slug} (${recs.length})`,head:branch,base:CMT_BASE,body:`${recs.length} reader comment${recs.length===1?"":"s"} on ${slug}, queued from the rendered doc.`});
+ let autoMerge="";
+ try{
+  const g=await ghWrite("POST","/graphql",{query:CMT_AUTO_MERGE,variables:{id:pr.node_id}});
+  if(g.errors)autoMerge=g.errors[0].message;
+ }catch(e){autoMerge=e.message}
+ await cmtTx("readwrite",st=>{recs.forEach(r=>st.delete(r.id))});
+ return {prUrl:pr.html_url,...(autoMerge?{error:"Auto-merge was not enabled on the pull request; the repository enables it on its own."}:{})};
+}
+async function cmtFlushNow(){
+ clearTimeout(cmtTimer);
+ cmtTimer=0;
+ const rows=await cmtRows();
+ if(!rows.length)return null;
+ if(!cmtRepo()){cmtSetState({state:"error",error:"Commenting is unavailable on this build."});return null}
+ if(!cmtWriteToken()){cmtSetState({state:"error",error:"Add a GitHub token to send your queued comments."});return null}
+ const bySlug=Object.create(null);
+ rows.forEach(r=>{(bySlug[r.slug]=bySlug[r.slug]||[]).push(r.record)});
+ cmtSetState({state:"flushing"});
+ let out=null;
+ try{
+  for(const slug of Object.keys(bySlug))out=await cmtSend(slug,bySlug[slug]);
+ }catch(e){
+  cmtAuthFailed=cmtAuthError(e);
+  if(!cmtAuthFailed)cmtTimer=setTimeout(cmtKick,Math.min(CMT_IDLE*2**cmtRetries++,CMT_RETRY_CAP));
+  cmtSetState({state:"error",error:cmtErrorText(e)});
+  return null;
+ }
+ cmtRetries=0;
+ cmtSetState({state:"sent",...out});
+ return {prUrl:out.prUrl};
+}
+function cmtFlush(){
+ if(!cmtInflight)cmtInflight=cmtFlushNow().finally(()=>{cmtInflight=null});
+ return cmtInflight;
+}
+async function cmtBootOutbox(){
+ cmtSite=(await siteConfig()).comments;
+ if(cmtWriteToken())await cmtFlush();
+ else if((await cmtRows()).length)cmtNotify();
+}
+function cmtForbidden(text){
+ const low=String(text).toLowerCase();
+ return (cmtSite?cmtSite.forbiddenTerms:[]).filter(t=>low.includes(String(t).toLowerCase()));
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&cmtTimer)cmtKick()});
+const CMT_LANES=6,CMT_CTX=32,CMT_STUCK_MS=30*60*1000,CMT_REPOLL=30*1000;
+const CMT_NAME_KEY="design-doc-comment-name",CMT_ME_KEY="cmt:me",CMT_SENT_KEY="design-doc-comment-sent";
+let CMT_POSTED=[],CMT_QUEUE=[],CMT_SENT=[],CMT_MARK=Object.create(null),CMT_VIEW=[];
+let CMT_LIVE=false,CMT_LOAD_ERR="",CMT_ME="",CMT_FRAME=0,CMT_POLL=0,CMT_POSTED_AT=0;
+let CMT_HL=null;
+try{CMT_HL=new Highlight();CSS.highlights.set("cmt",CMT_HL)}catch(e){}
+const cmtRepoLabel=()=>{const r=cmtRepo();return r?r.owner+"/"+r.repo:""};
+const cmtName=()=>{try{return localStorage.getItem(CMT_NAME_KEY)||""}catch(e){return ""}};
+const cmtSetName=n=>{try{localStorage.setItem(CMT_NAME_KEY,n)}catch(e){}};
+const cmtSentRead=()=>{try{const v=JSON.parse(localStorage.getItem(CMT_SENT_KEY)||"[]");return Array.isArray(v)?v:[]}catch(e){return []}};
+const cmtSentWrite=list=>{try{localStorage.setItem(CMT_SENT_KEY,JSON.stringify(list))}catch(e){}};
+async function cmtLogin(){
+ const tok=cmtWriteToken();
+ if(!tok){CMT_ME="";return ""}
+ if(CMT_ME)return CMT_ME;
+ try{CMT_ME=sessionStorage.getItem(CMT_ME_KEY)||""}catch(e){}
+ if(CMT_ME)return CMT_ME;
+ const r=await fetch(GH_API+"/user",{headers:{Accept:"application/vnd.github+json",Authorization:"Bearer "+tok,"X-GitHub-Api-Version":"2022-11-28"}});
+ CMT_ME=r.ok?(await r.json()).login:"";
+ try{sessionStorage.setItem(CMT_ME_KEY,CMT_ME)}catch(e){}
+ return CMT_ME;
+}
+async function cmtBlob(f){
+ const key="cmtblob:"+f.sha;
+ let raw="";
+ try{raw=sessionStorage.getItem(key)||""}catch(e){}
+ if(!raw){
+  const r=await fetch(f.download_url);
+  if(!r.ok)throw new Error("comment "+f.name+" would not load ("+r.status+")");
+  raw=await r.text();
+  try{sessionStorage.setItem(key,raw)}catch(e){}
+ }
+ return JSON.parse(raw);
+}
+async function cmtLoadPosted(){
+ const repo=cmtRepo();
+ if(!repo)return [];
+ const dir=cmtSlug().split("/").map(encodeURIComponent).join("/")+"/comments";
+ const list=await ghGet(`/repos/${repo.owner}/${repo.repo}/contents/${dir}?ref=main`);
+ if(!Array.isArray(list))return [];
+ const files=list.filter(f=>f.type==="file"&&f.name.endsWith(".json"));
+ const out=[];
+ let next=0;
+ const lane=async()=>{while(next<files.length)out.push(await cmtBlob(files[next++]))};
+ await Promise.all(Array.from({length:CMT_LANES},lane));
+ return out;
+}
+function cmtPullPosted(){
+ CMT_POSTED_AT=Date.now();
+ return cmtLoadPosted().then(rs=>{CMT_POSTED=rs;CMT_LOAD_ERR=""}).catch(e=>{if(e.reset)ghPauseUntil=e.reset;CMT_LOAD_ERR=String(e&&e.message||e)});
+}
+const cmtTick=()=>(Date.now()-CMT_POSTED_AT<CMT_REPOLL?Promise.resolve():cmtPullPosted()).then(cmtRefresh);
+const cmtEl=n=>n&&(n.nodeType===1?n:n.parentElement);
+function cmtEntryNode(n){
+ for(let e=cmtEl(n);e;e=e.parentElement){
+  const m=e.id&&CMT_ENTRY_RE.exec(e.id);
+  if(m&&REF[m[1]])return {id:m[1],node:e};
+ }
+ return null;
+}
+const cmtEntryOf=n=>{const h=cmtEntryNode(n);return h?h.id:""};
+const cmtInNotes=a=>a.kind==="quote"&&a.scope==="notes";
+const cmtUnhosted=a=>cmtInNotes(a)&&!cmtNotesHost();
+function cmtRegionOf(n){
+ const e=cmtEl(n);
+ if(!e)return null;
+ const entry=cmtEntryNode(e);
+ if(entry)return {scope:"entry",entry:entry.id,root:entry.node};
+ const summary=$("#summaryHost");
+ if(summary&&summary.contains(e))return {scope:"summary",root:summary};
+ const notes=cmtNotesHost();
+ if(notes&&notes.contains(e))return {scope:"notes",root:notes};
+ return null;
+}
+function cmtRegionFor(a,root){
+ const host=root||document;
+ if(a.scope==="entry")return a.entry?aiEl(a.entry):null;
+ if(a.scope==="summary")return host.querySelector("#summaryHost");
+ if(a.scope==="notes")return cmtNotesHost();
+ return null;
+}
+function cmtAnchorFromSelection(){
+ const sel=getSelection();
+ if(!sel||!sel.rangeCount)return null;
+ const r=sel.getRangeAt(0),exact=r.toString(),entry=cmtEntryOf(r.commonAncestorContainer);
+ if(!exact.trim())return entry?{kind:"entry",id:entry}:null;
+ const region=cmtRegionOf(r.commonAncestorContainer);
+ if(!region)return null;
+ const root=region.root;
+ const pre=document.createRange();
+ pre.setStart(root,0);
+ pre.setEnd(r.startContainer,r.startOffset);
+ const post=document.createRange();
+ post.setStart(r.endContainer,r.endOffset);
+ post.setEnd(root,root.childNodes.length);
+ const a={kind:"quote",scope:region.scope,prefix:pre.toString().slice(-CMT_CTX),exact,suffix:post.toString().slice(0,CMT_CTX)};
+ if(region.entry)a.entry=region.entry;
+ return a;
+}
+function cmtTextIndex(root){
+ const walk=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+ const nodes=[],starts=[];
+ let text="";
+ for(let n;(n=walk.nextNode());){nodes.push(n);starts.push(text.length);text+=n.data}
+ return {nodes,starts,text};
+}
+function cmtNorm(text){
+ let out="",last=" ";
+ const map=[];
+ for(let i=0;i<text.length;i++){
+  const c=/\s/.test(text[i])?" ":text[i];
+  if(c===" "&&last===" ")continue;
+  out+=c;map.push(i);last=c;
+ }
+ return {out,map};
+}
+function cmtRangeAt(ix,start,end){
+ const r=document.createRange();
+ const at=(off,which)=>{
+  let i=ix.starts.length-1;
+  while(i>0&&ix.starts[i]>off)i--;
+  r[which](ix.nodes[i],off-ix.starts[i]);
+ };
+ at(start,"setStart");
+ at(end,"setEnd");
+ return r;
+}
+function cmtFind(scope,a){
+ const ix=cmtTextIndex(scope);
+ if(!ix.nodes.length)return null;
+ const want=a.prefix+a.exact+a.suffix;
+ const raw=ix.text.indexOf(want);
+ if(raw>=0)return cmtRangeAt(ix,raw+a.prefix.length,raw+a.prefix.length+a.exact.length);
+ const hay=cmtNorm(ix.text),w=cmtNorm(want);
+ const at=hay.out.indexOf(w.out);
+ if(at<0)return null;
+ const from=a.prefix.length,to=from+a.exact.length;
+ let i=0,j=w.out.length-1;
+ while(i<w.out.length&&w.map[i]<from)i++;
+ while(j>=0&&w.map[j]>=to)j--;
+ if(i>j)return null;
+ return cmtRangeAt(ix,hay.map[at+i],hay.map[at+j]+1);
+}
+function cmtResolveAnchor(a,root){
+ if(!a)return null;
+ if(a.kind==="entry")return aiEl(a.id);
+ const region=cmtRegionFor(a,root);
+ return region?cmtFind(region,a):null;
+}
+const cmtOrder=(a,b)=>a.createdAt===b.createdAt?(a.id<b.id?-1:1):(a.createdAt<b.createdAt?-1:1);
+function cmtFold(records){
+ const sorted=[...records].sort(cmtOrder);
+ const by=Object.create(null),idx=Object.create(null),next=Object.create(null),resolved=Object.create(null),nodes=Object.create(null),roots=[],edits=new Set();
+ sorted.forEach((r,i)=>{by[r.id]=r;idx[r.id]=i});
+ sorted.forEach((r,i)=>{if(r.supersedes&&idx[r.supersedes]<i){next[r.supersedes]=r.id;edits.add(r.id)}});
+ sorted.forEach(r=>{if(r.resolves)resolved[r.resolves]=true});
+ const latest=id=>{let r=by[id];while(next[r.id])r=by[next[r.id]];return r};
+ sorted.forEach(r=>{
+  if(edits.has(r.id)||(r.resolves&&!r.body))return;
+  const h=latest(r.id);
+  nodes[r.id]={id:r.id,rev:h.rev,author:h.author||{login:""},createdAt:r.createdAt,body:h.body||"",anchor:r.anchor,edited:h.id!==r.id,gone:!String(h.body||"").trim(),resolved:!!resolved[r.id],replies:[]};
+ });
+ sorted.forEach(r=>{
+  const n=nodes[r.id];
+  if(!n)return;
+  const p=r.parent&&nodes[r.parent];
+  if(p)p.replies.push(n);else roots.push(n);
+ });
+ const prune=n=>{n.replies=n.replies.filter(prune);return !n.gone||!!n.replies.length};
+ return roots.filter(prune);
+}
+const cmtSize=n=>1+n.replies.reduce((s,r)=>s+cmtSize(r),0);
+const cmtTotal=()=>CMT_VIEW.reduce((s,t)=>s+cmtSize(t),0);
+const cmtStuck=m=>!!m&&m.kind==="sent"&&Date.now()-m.at>CMT_STUCK_MS;
+function cmtThreadState(t){
+ if(!t.mark)return t.resolved?"resolved":"";
+ return cmtFlushState().state==="error"||cmtStuck(t.mark)?"error":"pending";
+}
+function cmtChip(t){
+ const b=el("button","cmt-chip",`<i class="cdot" aria-hidden="true"></i>${cmtSize(t)}`);
+ b.type="button";
+ b.dataset.state=cmtThreadState(t);
+ b.setAttribute("aria-label",cmtSize(t)+" comment(s) here");
+ b.onclick=e=>{e.stopPropagation();cmtOpenThread(t,b.getBoundingClientRect())};
+ return b;
+}
+function cmtRender(){
+ const layer=$("#cmtLayer");
+ layer.textContent="";
+ const mark=n=>{
+  n.mark=CMT_MARK[n.id]||null;
+  const deep=n.replies.map(mark).filter(Boolean);
+  return n.mark||deep[0]||null;
+ };
+ CMT_VIEW=cmtFold(CMT_POSTED.concat(CMT_QUEUE,CMT_SENT.map(s=>s.rec)));
+ CMT_VIEW.forEach(t=>{t.mark=mark(t);t.at=cmtResolveAnchor(t.anchor,document.body);t.lost=!t.at&&!cmtUnhosted(t.anchor)});
+ layer.hidden=innerWidth<1100||!CMT_VIEW.length;
+ if(!layer.hidden)CMT_VIEW.forEach(t=>{if(t.at&&!cmtInNotes(t.anchor)){t.chip=cmtChip(t);layer.append(t.chip)}});
+ const btn=$("#cmtBtn");
+ if(btn){
+  const detached=CMT_VIEW.filter(t=>t.lost).length;
+  btn.textContent="Comments"+(CMT_VIEW.length?" · "+cmtTotal():"");
+  btn.classList.toggle("on",CMT_VIEW.some(t=>t.mark));
+  btn.title=detached?detached+" thread(s) no longer match the text they were left on":"";
+ }
+ cmtPlace();
+ cmtPaint();
+}
+function cmtPlace(){
+ const main=$("#main"),layer=$("#cmtLayer");
+ if(!main||layer.hidden)return;
+ const box=main.getBoundingClientRect();
+ let last=-1e4;
+ CMT_VIEW.filter(t=>t.chip).map(t=>({t,r:t.at.getBoundingClientRect()}))
+  .sort((a,b)=>a.r.top-b.r.top)
+  .forEach(({t,r})=>{
+   const top=Math.max(r.top,last+26);
+   last=top;
+   const w=t.chip.offsetWidth||58;
+   t.chip.style.left=Math.min(box.right-w-4,innerWidth-w-10)+"px";
+   t.chip.style.top=top+"px";
+   t.chip.hidden=top<48||top>innerHeight-24;
+  });
+}
+function cmtPaint(){
+ if(!CMT_HL)return;
+ CMT_HL.clear();
+ CMT_VIEW.forEach(t=>{if(t.at&&t.anchor.kind==="quote")CMT_HL.add(t.at)});
+}
+function cmtSchedule(){
+ if(CMT_FRAME)return;
+ CMT_FRAME=requestAnimationFrame(()=>{CMT_FRAME=0;cmtDecorate();cmtRender()});
+}
+async function cmtRefresh(){
+ CMT_QUEUE=await cmtPending();
+ const posted=new Set(CMT_POSTED.map(r=>r.id)),queued=new Set(CMT_QUEUE.map(r=>r.id));
+ CMT_SENT=cmtSentRead().filter(s=>!posted.has(s.rec.id)&&!queued.has(s.rec.id));
+ cmtSentWrite(cmtSentRead().filter(s=>!posted.has(s.rec.id)));
+ CMT_MARK=Object.create(null);
+ CMT_QUEUE.forEach(r=>{CMT_MARK[r.id]={kind:"queued",at:Date.now(),prUrl:""}});
+ CMT_SENT.forEach(s=>{CMT_MARK[s.rec.id]={kind:"sent",at:s.at,prUrl:s.prUrl||""}});
+ cmtDecorate();
+ cmtRender();
+ const live=CMT_QUEUE.length||CMT_SENT.length;
+ if(live&&!CMT_POLL)CMT_POLL=setInterval(cmtTick,4000);
+ if(!live&&CMT_POLL){clearInterval(CMT_POLL);CMT_POLL=0}
+}
+function cmtOffHtml(){
+ return `<p class="cmt-note">Commenting is unavailable on this build: no comments repository is configured for it, which is what a locally served copy looks like. Nothing you write here could be sent, so the page does not offer a box to write it in.</p>`;
+}
+function cmtFlushNote(mark){
+ const st=cmtFlushState();
+ if(st.state==="error")return `<p class="cmt-note bad">Your comments have not been sent: ${esc(st.error||"the pull request failed to open")}. They are still queued in this browser; fix the token below and they go out on the next try.</p>`;
+ if(st.state==="flushing")return `<p class="cmt-note">Sending to ${esc(cmtRepoLabel())}&hellip;</p>`;
+ if(cmtStuck(mark))return `<p class="cmt-note bad">This was sent ${esc(relTime(new Date(mark.at).toISOString()))} and has still not landed on the document${mark.prUrl?`; <a href="${esc(mark.prUrl)}" target="_blank" rel="noopener">its pull request</a> has not merged`:""}. Its checks may have rejected it. It stays here until it merges.</p>`;
+ if(mark&&mark.kind==="sent")return `<p class="cmt-note good">Sent${mark.prUrl?` as <a href="${esc(mark.prUrl)}" target="_blank" rel="noopener">a pull request</a>`:""}, and it appears on the document once that merges.</p>`;
+ if(mark&&!cmtWriteToken())return `<p class="cmt-note">Queued in this browser and not sent: comments need a GitHub token. Connect one and they go out.</p>`;
+ return "";
+}
+function cmtMarkLabel(m){
+ if(!m)return "";
+ if(cmtStuck(m))return "sent, not merged";
+ return m.kind==="sent"?"sent, waiting to merge":"not sent yet";
+}
+function cmtItemHtml(n,reply){
+ const when=relTime(n.createdAt),label=cmtMarkLabel(n.mark);
+ return `<div class="cmt-item${reply?" reply":""}">`+
+  `<div class="cmt-by"><b>${esc(n.author.login||"someone")}</b>${when?`<span>${esc(when)}</span>`:""}`+
+  (n.edited?`<span>edited</span>`:"")+(label?`<span>${esc(label)}</span>`:"")+(n.resolved?`<span>resolved</span>`:"")+`</div>`+
+  `<p class="cmt-body${n.gone?" gone":""}">${n.gone?"This comment was withdrawn.":esc(n.body)}</p>`+
+  `</div>`+n.replies.map(r=>cmtItemHtml(r,true)).join("");
+}
+function cmtQuoteHtml(a){
+ if(a.kind!=="quote")return "";
+ return `<p class="cmt-quote">${esc(a.exact.trim().slice(0,240))}</p>`;
+}
+function cmtFormHtml(label){
+ return `<div class="cmt-form" data-form>`+
+  (CMT_ME?"":`<input type="text" data-who value="${esc(cmtName())}" placeholder="Your name, so people know who asked" autocomplete="name">`)+
+  `<textarea data-body rows="3" placeholder="${esc(label)}"></textarea>`+
+  `<p class="cmt-note" data-forbid hidden></p>`+
+  `<div class="cmt-row"><button class="cmt-send" type="button" data-post>Post</button>`+
+  `<span class="end">${CMT_ME?"as "+esc(CMT_ME):esc(cmtRepoLabel())}</span></div></div>`;
+}
+function cmtWireForm(pop,anchor,parent){
+ const form=pop.querySelector("[data-form]");
+ if(!form)return;
+ const box=form.querySelector("[data-body]"),who=form.querySelector("[data-who]"),send=form.querySelector("[data-post]"),warn=form.querySelector("[data-forbid]");
+ const grade=()=>{
+  const hits=box.value.trim()?cmtForbidden(box.value):[];
+  warn.hidden=!hits.length;
+  warn.textContent=hits.length?"This comment names "+hits.join(", ")+", and every comment lands in a file in this repository. Post it anyway if you meant to.":"";
+  send.textContent=hits.length?"Post anyway":"Post";
+  send.disabled=!box.value.trim()||(!!who&&!who.value.trim());
+ };
+ box.addEventListener("input",grade);
+ if(who)who.addEventListener("input",grade);
+ box.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter")send.click()});
+ send.onclick=async()=>{
+  if(who)cmtSetName(who.value.trim());
+  send.disabled=true;
+  await cmtPost(anchor,box.value.trim(),parent,"");
+  cmtClosePop();
+ };
+ grade();
+ setTimeout(()=>box.focus(),0);
+}
+function cmtPop(html,rect){
+ cmtClosePop();
+ const pop=el("div","cmt-pop",html);
+ pop.id="cmtPop";
+ pop.setAttribute("role","dialog");
+ document.body.append(pop);
+ const w=pop.offsetWidth,h=pop.offsetHeight;
+ pop.style.left=Math.min(Math.max(10,rect.left-w+rect.width),innerWidth-w-10)+"px";
+ pop.style.top=(rect.bottom+h+12>innerHeight?Math.max(10,rect.top-h-8):rect.bottom+8)+"px";
+ return pop;
+}
+function cmtClosePop(){
+ const pop=$("#cmtPop");
+ if(pop)pop.remove();
+}
+async function cmtReveal(t){
+ if(!t.at&&cmtUnhosted(t.anchor)){await openNotes();t.at=cmtResolveAnchor(t.anchor,document.body)}
+ if(!t.at)return;
+ const host=t.at.nodeType===1?t.at:cmtEl(t.at.commonAncestorContainer);
+ for(let e=host;e;e=e.parentElement)if(e.tagName==="DETAILS")e.open=true;
+ const r=t.at.getBoundingClientRect(),notes=cmtNotesHost();
+ if(notes&&notes.contains(host))notes.scrollTop+=r.top-notes.getBoundingClientRect().top-80;
+ else scrollTo({top:scrollY+r.top-180,behavior:reduced()?"auto":"smooth"});
+}
+const cmtHead=a=>a.kind==="entry"?handleOf(a.id)||a.id:a.entry?handleOf(a.entry)||a.entry:a.scope==="summary"?"In the summary":"In the working notes";
+function cmtOpenThread(t,rect){
+ const where=t.lost?`<p class="cmt-note">The text this was left on is no longer in the document, so it hangs here instead.</p>`:"";
+ const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(t.anchor))}</b>`+
+  `<button class="xbtn" type="button" data-close>Close</button></div>`+
+  where+cmtFlushNote(t.mark)+cmtQuoteHtml(t.anchor)+cmtItemHtml(t,false)+
+  (CMT_LIVE?`<div class="cmt-acts"><button class="xbtn" type="button" data-resolve${t.resolved?" disabled":""}>${t.resolved?"Resolved":"Mark resolved"}</button></div>`+cmtFormHtml("Reply"):cmtOffHtml()),rect);
+ cmtWireForm(pop,t.anchor,t.id);
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+ const res=pop.querySelector("[data-resolve]");
+ if(res)res.onclick=async()=>{res.disabled=true;await cmtPost(t.anchor,"",t.id,t.id);cmtClosePop()};
+}
+function cmtOpenComposer(anchor,rect){
+ if(!anchor)return;
+ const pop=cmtPop(`<div class="cmt-head"><b>${esc(cmtHead(anchor))}</b><button class="xbtn" type="button" data-close>Close</button></div>`+
+  cmtQuoteHtml(anchor)+(CMT_LIVE?cmtFlushNote(null)+cmtFormHtml("What would you like the authors to know?"):cmtOffHtml()),rect);
+ cmtWireForm(pop,anchor,"");
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+}
+function cmtConnectHtml(){
+ const tok=cmtWriteToken();
+ return `<h4>${tok?"Connected":"Connect to comment"}</h4>`+
+  `<p>Comments are written to <code>${esc(cmtRepoLabel())}</code> as a pull request that merges once its checks pass, so commenting needs a fine-grained personal access token scoped to that repository with:</p>`+
+  `<ul class="cmt-perm"><li>Contents &mdash; read and write</li><li>Pull requests &mdash; read and write</li></ul>`+
+  `<p>Create one at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. On an organisation repository an admin may have to approve the token before it starts working.</p>`+
+  (tok?`<div class="cmt-row"><button class="xbtn" type="button" data-disconnect>Disconnect</button><span class="end">${esc(CMT_ME||"signed in")}</span></div>`
+   :`<div class="cmt-form"><input type="password" data-tok placeholder="github_pat_&hellip;" autocomplete="off" spellcheck="false">`+
+    `<div class="cmt-row"><button class="cmt-send" type="button" data-savetok>Save token</button><span class="end">Kept in this browser only.</span></div></div>`);
+}
+function cmtListHtml(threads,empty){
+ if(!threads.length)return `<p>${esc(empty)}</p>`;
+ return `<div class="cmt-list">`+threads.map(t=>{
+  const label=cmtMarkLabel(t.mark);
+  return `<button class="cmt-open" type="button" data-thread="${esc(t.id)}"><span>${esc(cmtHead(t.anchor))}</span>`+
+   `<small>${cmtSize(t)}${label?" · "+esc(label):t.resolved?" · resolved":""}</small></button>`;
+ }).join("")+`</div>`;
+}
+function cmtOpenTray(rect){
+ const attached=CMT_VIEW.filter(t=>!t.lost),detached=CMT_VIEW.filter(t=>t.lost);
+ const stuck=CMT_VIEW.filter(t=>cmtStuck(t.mark));
+ const pop=cmtPop(`<div class="cmt-head"><b>Comments on this document</b><button class="xbtn" type="button" data-close>Close</button></div>`+
+  (CMT_LOAD_ERR?`<p class="cmt-note bad">The posted comments would not load: ${esc(CMT_LOAD_ERR)}</p>`:"")+
+  (CMT_LIVE?cmtFlushNote(stuck.length?stuck[0].mark:CMT_VIEW.map(t=>t.mark).find(Boolean)):cmtOffHtml())+
+  `<h4>On the page</h4>`+cmtListHtml(attached,CMT_LIVE?"No comments yet. Select any passage of the summary or of a register entry, or use the mark beside an entry.":"No comments on this document.")+
+  (detached.length?`<h4>Detached</h4><p>The text these were left on has changed, so they no longer sit anywhere in the document.</p>`+cmtListHtml(detached,""):"")+
+  (CMT_LIVE?cmtConnectHtml():""),rect);
+ pop.querySelector("[data-close]").onclick=cmtClosePop;
+ pop.querySelectorAll("[data-thread]").forEach(b=>{
+  b.onclick=async()=>{
+   const t=CMT_VIEW.find(x=>x.id===b.dataset.thread);
+   await cmtReveal(t);
+   setTimeout(()=>cmtOpenThread(t,(t.chip||t.at||b).getBoundingClientRect()),reduced()?0:400);
+  };
+ });
+ const save=pop.querySelector("[data-savetok]");
+ if(save)save.onclick=async()=>{
+  const tok=pop.querySelector("[data-tok]").value.trim();
+  if(!tok)return;
+  cmtSetWriteToken(tok);
+  CMT_ME="";
+  try{sessionStorage.removeItem(CMT_ME_KEY)}catch(e){}
+  await cmtLogin();
+  cmtClosePop();
+  cmtDispatch();
+ };
+ const off=pop.querySelector("[data-disconnect]");
+ if(off)off.onclick=()=>{
+  cmtClearWriteToken();
+  CMT_ME="";
+  try{sessionStorage.removeItem(CMT_ME_KEY)}catch(e){}
+  cmtClosePop();
+  cmtRefresh();
+ };
+}
+function cmtDispatch(){
+ cmtFlush().then(r=>{
+  if(!r||!r.prUrl)return;
+  cmtSentWrite(cmtSentRead().map(s=>s.prUrl?s:{...s,prUrl:r.prUrl}));
+ }).catch(()=>{}).then(cmtRefresh);
+}
+async function cmtPost(anchor,body,parent,resolves){
+ const login=(await cmtLogin())||cmtName();
+ const rec={id:cmtNewId(),rev:META.rev||1,author:{login},createdAt:new Date().toISOString(),anchor,body};
+ if(parent)rec.parent=parent;
+ if(resolves)rec.resolves=resolves;
+ await cmtQueue(rec);
+ cmtSentWrite(cmtSentRead().concat([{rec,at:Date.now(),prUrl:""}]));
+ await cmtRefresh();
+ cmtDispatch();
+}
+function cmtUi(){
+ const layer=el("div");
+ layer.id="cmtLayer";
+ layer.hidden=true;
+ document.body.append(layer);
+ const row=el("div","toolrow");
+ const btn=el("button","toolbtn","Comments");
+ btn.id="cmtBtn";
+ btn.type="button";
+ btn.onclick=()=>cmtOpenTray(btn.getBoundingClientRect());
+ row.append(btn);
+ $("#rail .tools").append(row);
+ document.addEventListener("pointerdown",e=>{
+  if(!e.target.closest(".cmt-pop,.cmt-chip,#cmtBtn,.cmt-ask"))cmtClosePop();
+ });
+ document.addEventListener("keydown",e=>{if(e.key==="Escape")cmtClosePop()});
+ if(!CMT_LIVE)return;
+ const sel=el("button","cmt-sel","Comment");
+ sel.type="button";
+ sel.hidden=true;
+ document.body.append(sel);
+ sel.onclick=()=>{
+  const a=cmtAnchorFromSelection(),r=sel.getBoundingClientRect();
+  sel.hidden=true;
+  cmtOpenComposer(a,r);
+ };
+ document.addEventListener("pointerup",e=>{
+  if(e.target.closest(".cmt-sel,.cmt-pop"))return;
+  setTimeout(()=>{
+   const s=getSelection(),text=String(s).trim();
+   if(text.length<8||!s.rangeCount||!cmtRegionOf(s.getRangeAt(0).commonAncestorContainer)){sel.hidden=true;return}
+   const r=s.getRangeAt(0).getBoundingClientRect();
+   sel.style.left=Math.min(Math.max(8,r.left+(HTML.dataset.ai?126:0)),innerWidth-120)+"px";
+   sel.style.top=(r.top>60?r.top-38:r.bottom+10)+"px";
+   sel.hidden=false;
+  },10);
+ });
+ document.addEventListener("pointerdown",e=>{if(!e.target.closest(".cmt-sel"))sel.hidden=true});
+ document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("[data-cmt]");
+  if(!b)return;
+  e.preventDefault();
+  cmtOpenComposer({kind:"entry",id:b.dataset.cmt},b.getBoundingClientRect());
+ });
+}
+function cmtBoot(){
+ siteConfig().then(cfg=>{
+  if(cfg.github&&!GH_TOKEN)GH_TOKEN=cfg.github.token;
+  CMT_LIVE=!!cmtRepo();
+  cmtUi();
+  if(!CMT_LIVE){cmtRender();return}
+  cmtOnChange(()=>cmtRefresh());
+  addEventListener("scroll",()=>cmtPlace(),{passive:true});
+  addEventListener("resize",cmtSchedule);
+  new MutationObserver(cmtSchedule).observe($("#main"),{childList:true,subtree:true,attributes:true,attributeFilter:["open"]});
+  new MutationObserver(cmtSchedule).observe($("#mback"),{attributes:true,attributeFilter:["class"]});
+  cmtBootOutbox().then(cmtRefresh);
+  cmtPullPosted().then(cmtRefresh);
+ });
+}
 
 const AI_SECTION_NAMES={overview:"Overview",timeline:"Timeline",impact:"Impact",causes:"Causes",resolution:"Resolution and detection",actions:"Action items",lessons:"Lessons",evidence:"Evidence",notes:"Notes"};
 const AI_SUGGEST={
@@ -3878,6 +4575,180 @@ const AI_CMDS=[
 ];
 const AI_GLYPH={window:"▭",incident:"⚑",timeline:"◷",cause:"◆",action:"☐",fn:"¹",term:"T",section:"§",component:"▤",cmd:"›",ai:"✦"};
 const AI_STATUS={root:["st-crit","Root cause"],contributing:["st-acc","Contributing"],trigger:["st-warn","Trigger"],done:["st-ok","Done"],"in-progress":["st-acc","In progress"],todo:["st-warn","To do"],dropped:["st-dead","Dropped"],outage:["st-crit","Outage"],degraded:["st-warn","Degraded"],partial:["st-acc","Partial"]};
+
+let AI=null,aiCtxText=null,aiCtxStats=null,aiReady=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+let AI_NOTES="",AI_QA=null,AI_SEARCH_DOCS=null;
+const aiMarked=[];
+// @requires AI,AI_TOOLS,META,SLUG,aiCtxText,aiPrompt,aiReady,$,aiDiagRender,aiTally,aiUsage
+// @defines AI_CTX_BUDGET,AI_EFFORT,AI_EFFORT_LADDER,AI_LAST_TURN,AI_NO_TOOLS,AI_RATE_KEY,AI_RESULT_CAP,AI_RETRY_MSG,AI_ROLES,AI_ROUNDS,AI_RPM,AI_TOOL_BUDGET,AI_VENDOR_KEYS,aiBody,aiBusyNow,aiCacheGet,aiCacheKey,aiCached,aiClean,aiHash,aiNoteUsage,aiOnce,aiPost,aiRecent,aiRetryAfter,aiRetryNote,aiSlot,aiStoreKey,aiStream,aiWait,lowerEffort
+const AI_ROUNDS=10;
+const AI_RESULT_CAP=12000;
+const AI_TOOL_BUDGET=40000;
+const AI_CTX_BUDGET=100000;
+const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
+const AI_EFFORT_LADDER=["high","medium","low"];
+const lowerEffort=e=>{const i=AI_EFFORT_LADDER.indexOf(e);return i<0?null:AI_EFFORT_LADDER[i+1]||null};
+const AI_RETRY_MSG="Thinking again, with less reasoning…";
+const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
+const AI_RPM=30;
+const AI_RATE_KEY="design-doc-ai-rate";
+const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
+function aiWait(ms,signal){
+ return new Promise((resolve,reject)=>{
+  const stop=()=>reject(new DOMException("aborted","AbortError"));
+  if(signal&&signal.aborted)return stop();
+  const onAbort=()=>{clearTimeout(timer);stop()};
+  const timer=setTimeout(()=>{if(signal)signal.removeEventListener("abort",onAbort);resolve()},Math.max(0,ms));
+  if(signal)signal.addEventListener("abort",onAbort,{once:true});
+ });
+}
+function aiRecent(){
+ const now=Date.now();
+ let saved=[];
+ try{saved=JSON.parse(localStorage.getItem(AI_RATE_KEY)||"[]")}catch(e){}
+ return (Array.isArray(saved)?saved:[]).filter(t=>typeof t==="number"&&now-t<60000).sort((a,b)=>a-b);
+}
+async function aiSlot(signal){
+ for(;;){
+  const recent=aiRecent();
+  if(recent.length<AI_RPM){
+   recent.push(Date.now());
+   try{localStorage.setItem(AI_RATE_KEY,JSON.stringify(recent.slice(-AI_RPM)))}catch(e){}
+   return;
+  }
+  await aiWait(60000-(Date.now()-recent[0])+50,signal);
+ }
+}
+function aiRetryAfter(header){
+ if(!header)return null;
+ const raw=String(header).trim();
+ if(/^\d+(\.\d+)?$/.test(raw))return parseFloat(raw)*1000;
+ const at=Date.parse(raw);
+ return isNaN(at)?null:Math.max(0,at-Date.now());
+}
+async function aiPost(body,signal){
+ let stripped=false;
+ for(let attempt=0;;attempt++){
+  await aiSlot(signal);
+  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
+  if(r.status===429&&attempt<3){
+   const wait=aiRetryAfter(r.headers.get("retry-after"));
+   await aiWait(wait==null?2000:wait,signal);
+   continue;
+  }
+  if(!r.ok){
+   const detail=await r.text().catch(()=>"");
+   const blamed=Object.keys(AI_VENDOR_KEYS).filter(k=>k in body&&detail.includes(k));
+   if(r.status<500&&blamed.length&&!stripped){
+    stripped=true;
+    blamed.forEach(k=>{delete body[k];AI[AI_VENDOR_KEYS[k]]=true});
+    continue;
+   }
+   throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
+  }
+  return r;
+ }
+}
+const aiClean=s=>AI.noFormat?s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2060\ufeff]/g,""):s;
+function aiNoteUsage(u){
+ const pd=u.prompt_tokens_details||u.prompt_token_details||{};
+ const cd=u.completion_tokens_details||u.completion_token_details||{};
+ aiUsage={prompt:u.prompt_tokens||0,cached:pd.cached_tokens||0,completion:u.completion_tokens||0,reasoning:cd.reasoning_tokens||0};
+ aiPrompt=aiUsage.prompt;
+ const key="ai:"+SLUG+":tally";
+ const t={calls:0,prompt:0,cached:0,completion:0,reasoning:0};
+ try{Object.assign(t,JSON.parse(sessionStorage.getItem(key)||"{}"))}catch(e){}
+ t.calls++;
+ Object.keys(aiUsage).forEach(k=>{t[k]+=aiUsage[k]});
+ try{sessionStorage.setItem(key,JSON.stringify(t))}catch(e){}
+ aiTally=t;
+ aiDiagRender();
+}
+async function aiStream(body,signal,onText,onReason){
+ const r=await aiPost(Object.assign({},body,{stream:true,stream_options:{include_usage:true}}),signal);
+ const reader=r.body.getReader(),dec=new TextDecoder();
+ let buf="",text="",reasoning="",finish=null;
+ const calls=[];
+ for(;;){
+  const {value,done}=await reader.read();
+  if(done)break;
+  buf+=dec.decode(value,{stream:true});
+  let nl;
+  while((nl=buf.indexOf("\n"))>=0){
+   const line=buf.slice(0,nl).trim();buf=buf.slice(nl+1);
+   if(!line.startsWith("data:"))continue;
+   const data=line.slice(5).trim();
+   if(!data||data==="[DONE]")continue;
+   let j;try{j=JSON.parse(data)}catch(e){continue}
+   const choice=(j.choices||[])[0];
+   if(j.usage)aiNoteUsage(j.usage);
+   if(!choice)continue;
+   if(choice.finish_reason)finish=choice.finish_reason;
+   const d=choice.delta||{};
+   if(d.reasoning){reasoning+=d.reasoning;if(onReason)onReason(reasoning)}
+   if(d.content){text+=d.content;if(onText)onText(aiClean(text))}
+   (d.tool_calls||[]).forEach(tc=>{
+    const ix=tc.index||0;
+    const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
+    if(tc.id)c.id=tc.id;
+    if(tc.function&&tc.function.name)c.name+=tc.function.name;
+    if(tc.function&&tc.function.arguments)c.args+=tc.function.arguments;
+   });
+  }
+ }
+ return {text:aiClean(text),calls:calls.filter(Boolean),reasoning,finish};
+}
+const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
+function aiBody(kind,schema){
+ const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?16000:6000,temperature:schema?0:0.2};
+ if(!AI.noFormat)body.reasoning_format="parsed";
+ if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
+ return body;
+}
+const AI_NO_TOOLS="Tools are off for this task: write the text only.";
+const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
+let aiBusyNow=null;
+function aiRetryNote(){if(aiBusyNow)aiBusyNow.querySelector(".ai-wait").textContent="Thinking again…"}
+async function aiOnce(compose,opt){
+ const o=opt||{};
+ await aiReady;
+ const messages=compose();
+ let effort=null;
+ for(;;){
+  const body=aiBody(o.kind,o.schema);
+  if(effort)body.reasoning_effort=effort;
+  body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
+  body.tool_choice="none";
+  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
+  let text,finish;
+  if(o.onText&&!o.schema){
+   const res=await aiStream(body,o.signal,o.onText);
+   text=res.text;finish=res.finish;
+  }else{
+   const r=await aiPost(body,o.signal);
+   const j=await r.json();
+   if(j.usage)aiNoteUsage(j.usage);
+   const choice=(j.choices||[])[0]||{};
+   text=aiClean((choice.message||{}).content||"");
+   finish=choice.finish_reason||null;
+  }
+  const lower=lowerEffort(body.reasoning_effort);
+  if(finish==="length"&&!text&&!effort&&lower){effort=lower;aiRetryNote();continue}
+  return o.schema?JSON.parse(text||"{}"):text;
+ }
+}
+const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
+function aiCacheGet(feature,input){
+ try{const hit=localStorage.getItem(aiStoreKey(feature,input));return hit?JSON.parse(hit):null}catch(e){return null}
+}
+async function aiCached(feature,input,make){
+ const hit=aiCacheGet(feature,input);
+ if(hit)return hit;
+ const out=await make();
+ try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
+ return out;
+}
 
 const aiHandle=e=>{
  if(!e)return "";
@@ -3952,6 +4823,7 @@ function aiEntryText(e,kind){
   L.push(e.id+" · action item · "+aiStatus(e)+(e.owner?" · owner "+e.owner:" · unassigned")+(e.due?" · due "+e.due:""));
   L.push("Handle: "+aiHandle(e));
   L.push("Title: "+plain(e.t));
+  if(e.note)L.push("Note: "+plain(e.note));
   if(e.source)L.push("Source: "+(REF[e.source]?e.source+" ("+handleOf(e.source)+")":e.source));
   if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
  }else if(kind==="window"){
@@ -4075,7 +4947,6 @@ async function aiPrepare(){
  aiDiagRender();
 }
 function aiContext(){return aiCtxText}
-const aiBrief=()=>"- "+plain(SUMMARY.p||SUMMARY.text)+"\n"+TILE_DEFS.filter(tileValue).map(t=>"- "+t.label+": "+tileValue(t)).join("\n");
 function aiSystem(){
  return [
   "You are the reading companion built into this incident retrospective. You answer questions about it for someone reading it cold, and you can move the page for them.",
@@ -4374,238 +5245,11 @@ function aiLinksText(id){
   return links.length?links.map(l=>head+" — "+aiLinkLine(l)).join("\n"):head+" — no links";
  }).join("\n");
 }
-function palItems(){
- const items=[];
- const push=(kind,label,sub,run)=>items.push({kind,label,sub,run});
- Object.entries(AI_SECTION_NAMES).forEach(([id,name])=>{
-  const sec=document.getElementById(id);
-  if(sec&&!sec.hidden)push("section",name,"Go to",()=>sec.scrollIntoView({block:"start"}));
- });
- Object.keys(REF).forEach(id=>{
-  const e=aiEntry(id);
-  if(!e)return;
-  const st=AI_STATUS[aiStatusKey(e)]||["",""];
-  push(aiKind(id),aiHandle(e),plain(e.p||e.t||e.text||""),()=>{openRef(id);aiMark(id)});
-  Object.assign(items[items.length-1],{dot:st[0],rid:id});
- });
- mountedComponents().forEach(([host,spec,name])=>push("component",plain(spec.title||name.replace(/^~/,"")),"Go to the figure",()=>host.scrollIntoView({block:"center"})));
- const cmd=(label,run)=>push("cmd",label,"Command",run);
- if(TIMELINE.length){
-  cmd("Timeline: everything",()=>setStatusFilter("timeline","all"));
-  tlKindsPresent().forEach(k=>cmd("Timeline: only "+TL_LABEL[k].toLowerCase(),()=>{setStatusFilter("timeline",k);$("#timeline").scrollIntoView({block:"start"})}));
- }
- if(ACTIONS.length){
-  cmd("Action items: everything",()=>setStatusFilter("actions","all"));
-  Object.keys(ACTION_LBL).forEach(s=>cmd("Action items: only "+ACTION_LBL[s][1].toLowerCase(),()=>{setStatusFilter("actions",s);$("#actions").scrollIntoView({block:"start"})}));
- }
- cmd("Expand all",()=>document.querySelectorAll("#causeList details,#evidenceHost details").forEach(d=>{d.open=true}));
- cmd("Collapse all",()=>document.querySelectorAll("#causeList details,#evidenceHost details").forEach(d=>{d.open=false}));
- if(!$("#wordingBtn").hidden)cmd("Full wording: toggle",()=>$("#wordingBtn").click());
- cmd("Theme: dark",()=>aiTheme("dark"));
- cmd("Theme: light",()=>aiTheme("light"));
- cmd("Theme: follow the system",()=>aiTheme(""));
- cmd("Print, or save as PDF",()=>$("#pdfBtn").click());
- cmd("Copy the whole retro as Markdown",()=>navigator.clipboard.writeText(buildDocMd()));
- cmd("Copy this section as Markdown",()=>navigator.clipboard.writeText("## "+(AI_SECTION_NAMES[aiSec]||aiSec)+"\n\n"+aiSectionText(aiSec)));
- cmd("Copy the selection, citations resolved",()=>{
-  const text=String(getSelection()).trim();
-  navigator.clipboard.writeText(ID_RE?text.replace(ID_RE,(all,pre,id)=>pre+mdRef(id)):text);
- });
- const baseSel=$("#baseSel");
- if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
- (EVIDENCE.notebooks||[]).forEach(n=>cmd("Open notebook: "+plain((notebookOf(n.id)||{}).name||String(n.id)),()=>{const d=document.getElementById("nb-"+n.id);if(d){d.open=true;d.scrollIntoView({block:"start"})}}));
- if(TL_VIEWS.length)cmd("Timeline: reset the zoom",()=>TL_VIEWS.forEach(v=>v.toHome()));
- if(!HTML.dataset.ai)return items;
- const ai=(label,run,sub)=>push("ai",label,sub||"Ask",run);
- aiCmds().forEach(c=>{
-  if(c.id==="read"){AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));return}
-  ai(c.label,()=>c.run($("#aiMore")),aiCmdSub(c)||"Ask");
- });
- if(LINKED)ai("What's landed?",()=>aiAsk("Which action items have landed, and which are still open?"));
- ai("Ask anything",()=>aiOpen());
- return items;
-}
-function mountedComponents(){
- return [...document.querySelectorAll("[data-component]")]
-  .map(h=>[h,specOf(h.dataset.component),h.dataset.component])
-  .filter(([,spec])=>spec);
-}
-const AI_ROUNDS=10;
-const AI_RESULT_CAP=12000;
-const AI_TOOL_BUDGET=40000;
-const AI_CTX_BUDGET=100000;
-const AI_EFFORT={chat:"high",quiz:"high",readas:"high",followups:"low"};
-const AI_EFFORT_LADDER=["high","medium","low"];
-const lowerEffort=e=>{const i=AI_EFFORT_LADDER.indexOf(e);return i<0?null:AI_EFFORT_LADDER[i+1]||null};
-const AI_RETRY_MSG="Thinking again, with less reasoning…";
-const AI_VENDOR_KEYS={reasoning_format:"noFormat",prompt_cache_key:"noCacheKey"};
-const AI_RPM=30;
-const AI_RATE_KEY="design-doc-ai-rate";
-const AI_ROLES=[["PM","a product manager who owns the roadmap, not the code"],["SRE","an SRE who will carry the pager for this"],["Security","a security reviewer looking for what an attacker gets"],["Exec","an executive who funds it and reads three sentences"]];
-let AI=null,aiCtxText=null,aiCtxStats=null,aiReady=null,aiSec="overview",aiAbort=null,aiBusy=false,aiPrompt=0;
+// @requires AI,AI_CMDS,AI_SECTION_NAMES,AI_SUGGEST,DIFF,HTML,META,REF,SLUG,TERMS,TLDR,aiAbort,aiBusy,aiCtxStats,aiEntry,aiEntryText,aiExec,aiHandle,aiKind,aiMark,aiNoteSources,aiReady,aiRenderPath,aiSec,aiSpokenCalls,aiSystem,aiTail,clearAiMarks,firstSentence,handleOf,plain,refChip,unveil,$,AI_LAST_TURN,AI_RESULT_CAP,AI_RETRY_MSG,AI_ROLES,AI_ROUNDS,AI_TOOL_BUDGET,aiBody,aiBusyNow,aiCached,aiOnce,aiStream,el,esc,inline,lowerEffort,mdToHtml,palClose,palOpen,scrub
+// @defines AI_CARDS,AI_FAQ_SCHEMA,AI_FOLLOW_SCHEMA,AI_GLOSS_SCHEMA,AI_PATH_SCHEMA,AI_QUIZ_SCHEMA,AI_VERB,aiAboutCtx,aiAboutPrefix,aiAddDefs,aiAdopt,aiAsk,aiAskBtn,aiBarText,aiBubble,aiBusyNode,aiCard,aiChangedSince,aiChat,aiChatKey,aiClear,aiCmdSub,aiCmds,aiCollapse,aiCommit,aiDiagRender,aiDiagText,aiExplain,aiFail,aiFaq,aiFeature,aiFirstLine,aiFollow,aiFollowups,aiGlossary,aiGrow,aiHistory,aiLastAnswer,aiLoadChat,aiMenuAt,aiMoreMenu,aiNode,aiOpen,aiPaintAnswer,aiPickRole,aiPlaceMenu,aiPrevFocus,aiQuiz,aiReadAs,aiRenderCard,aiRenderChanged,aiRenderChips,aiRenderFaq,aiRenderGlossary,aiRenderQuiz,aiRenderReadAs,aiRenderSection,aiReviewComment,aiRowMenu,aiRun,aiSaveChat,aiScrollLog,aiSetAbout,aiSetFollow,aiSetSources,aiSetState,aiSetVerbs,aiShowChanged,aiShowFaq,aiShowGlossary,aiShowQuiz,aiShowReadAs,aiShowSection,aiSlashHide,aiSlashIx,aiSlashList,aiSlashRender,aiSlashRun,aiStartRun,aiState,aiStateKey,aiStick,aiStop,aiSugFor,aiSuggest,aiSummariseSection,aiTally,aiToggle,aiTyping,aiUsage,aiVerbs,aiWhyHere,aiWireDiffPanel,aiWireKeys,aiWirePanel,aiWireRows,aiWireSections,aiWireSelection,aiWireTools,palButton
 let aiUsage=null,aiTally=null,aiFollow=null;
-let AI_NOTES="",AI_QA=null,AI_SEARCH_DOCS=null;
 let aiState="bar",aiPrevFocus=null,aiStick=true,aiSugFor=null,aiAboutCtx=null,aiSlashList=[],aiSlashIx=0;
 let aiChat=[];
-const aiMarked=[];
-
-function aiWait(ms,signal){
- return new Promise((resolve,reject)=>{
-  const stop=()=>reject(new DOMException("aborted","AbortError"));
-  if(signal&&signal.aborted)return stop();
-  const onAbort=()=>{clearTimeout(timer);stop()};
-  const timer=setTimeout(()=>{if(signal)signal.removeEventListener("abort",onAbort);resolve()},Math.max(0,ms));
-  if(signal)signal.addEventListener("abort",onAbort,{once:true});
- });
-}
-function aiRecent(){
- const now=Date.now();
- let saved=[];
- try{saved=JSON.parse(localStorage.getItem(AI_RATE_KEY)||"[]")}catch(e){}
- return (Array.isArray(saved)?saved:[]).filter(t=>typeof t==="number"&&now-t<60000).sort((a,b)=>a-b);
-}
-async function aiSlot(signal){
- for(;;){
-  const recent=aiRecent();
-  if(recent.length<AI_RPM){
-   recent.push(Date.now());
-   try{localStorage.setItem(AI_RATE_KEY,JSON.stringify(recent.slice(-AI_RPM)))}catch(e){}
-   return;
-  }
-  await aiWait(60000-(Date.now()-recent[0])+50,signal);
- }
-}
-function aiRetryAfter(header){
- if(!header)return null;
- const raw=String(header).trim();
- if(/^\d+(\.\d+)?$/.test(raw))return parseFloat(raw)*1000;
- const at=Date.parse(raw);
- return isNaN(at)?null:Math.max(0,at-Date.now());
-}
-async function aiPost(body,signal){
- let stripped=false;
- for(let attempt=0;;attempt++){
-  await aiSlot(signal);
-  const r=await fetch(AI.endpoint+"/chat/completions",{method:"POST",signal,headers:{"content-type":"application/json",authorization:"Bearer "+AI.key},body:JSON.stringify(body)});
-  if(r.status===429&&attempt<3){
-   const wait=aiRetryAfter(r.headers.get("retry-after"));
-   await aiWait(wait==null?2000:wait,signal);
-   continue;
-  }
-  if(!r.ok){
-   const detail=await r.text().catch(()=>"");
-   const blamed=Object.keys(AI_VENDOR_KEYS).filter(k=>k in body&&detail.includes(k));
-   if(r.status<500&&blamed.length&&!stripped){
-    stripped=true;
-    blamed.forEach(k=>{delete body[k];AI[AI_VENDOR_KEYS[k]]=true});
-    continue;
-   }
-   throw new Error("the model call came back "+r.status+(detail?": "+detail.slice(0,180):""));
-  }
-  return r;
- }
-}
-const aiClean=s=>AI.noFormat?s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2060\ufeff]/g,""):s;
-function aiNoteUsage(u){
- const pd=u.prompt_tokens_details||u.prompt_token_details||{};
- const cd=u.completion_tokens_details||u.completion_token_details||{};
- aiUsage={prompt:u.prompt_tokens||0,cached:pd.cached_tokens||0,completion:u.completion_tokens||0,reasoning:cd.reasoning_tokens||0};
- aiPrompt=aiUsage.prompt;
- const key="ai:"+SLUG+":tally";
- const t={calls:0,prompt:0,cached:0,completion:0,reasoning:0};
- try{Object.assign(t,JSON.parse(sessionStorage.getItem(key)||"{}"))}catch(e){}
- t.calls++;
- Object.keys(aiUsage).forEach(k=>{t[k]+=aiUsage[k]});
- try{sessionStorage.setItem(key,JSON.stringify(t))}catch(e){}
- aiTally=t;
- aiDiagRender();
-}
-async function aiStream(body,signal,onText,onReason){
- const r=await aiPost(Object.assign({},body,{stream:true,stream_options:{include_usage:true}}),signal);
- const reader=r.body.getReader(),dec=new TextDecoder();
- let buf="",text="",reasoning="",finish=null;
- const calls=[];
- for(;;){
-  const {value,done}=await reader.read();
-  if(done)break;
-  buf+=dec.decode(value,{stream:true});
-  let nl;
-  while((nl=buf.indexOf("\n"))>=0){
-   const line=buf.slice(0,nl).trim();buf=buf.slice(nl+1);
-   if(!line.startsWith("data:"))continue;
-   const data=line.slice(5).trim();
-   if(!data||data==="[DONE]")continue;
-   let j;try{j=JSON.parse(data)}catch(e){continue}
-   const choice=(j.choices||[])[0];
-   if(j.usage)aiNoteUsage(j.usage);
-   if(!choice)continue;
-   if(choice.finish_reason)finish=choice.finish_reason;
-   const d=choice.delta||{};
-   if(d.reasoning){reasoning+=d.reasoning;if(onReason)onReason(reasoning)}
-   if(d.content){text+=d.content;if(onText)onText(aiClean(text))}
-   (d.tool_calls||[]).forEach(tc=>{
-    const ix=tc.index||0;
-    const c=calls[ix]||(calls[ix]={id:"",name:"",args:""});
-    if(tc.id)c.id=tc.id;
-    if(tc.function&&tc.function.name)c.name+=tc.function.name;
-    if(tc.function&&tc.function.arguments)c.args+=tc.function.arguments;
-   });
-  }
- }
- return {text:aiClean(text),calls:calls.filter(Boolean),reasoning,finish};
-}
-const aiHash=s=>{let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
-const aiCacheKey=()=>SLUG+":"+(META.rev||0)+":"+aiHash(aiCtxText||"").padStart(8,"0");
-function aiBody(kind,schema){
- const body={model:AI.model,tools:AI_TOOLS,parallel_tool_calls:true,reasoning_effort:AI.reasoning||AI_EFFORT[kind]||"medium",max_completion_tokens:kind==="chat"||schema?16000:6000,temperature:schema?0:0.2};
- if(!AI.noFormat)body.reasoning_format="parsed";
- if(!AI.noCacheKey)body.prompt_cache_key=aiCacheKey();
- return body;
-}
-const AI_NO_TOOLS="Tools are off for this task: write the text only.";
-const AI_LAST_TURN="[Every tool turn is used. Write the answer now from what you have, in full sentences with citations; no more tool calls.]";
-let aiBusyNow=null;
-function aiRetryNote(){if(aiBusyNow)aiBusyNow.querySelector(".ai-wait").textContent="Thinking again…"}
-async function aiOnce(compose,opt){
- const o=opt||{};
- await aiReady;
- const messages=compose();
- let effort=null;
- for(;;){
-  const body=aiBody(o.kind,o.schema);
-  if(effort)body.reasoning_effort=effort;
-  body.messages=messages.map((m,i)=>i===messages.length-1?{role:m.role,content:m.content+"\n\n"+AI_NO_TOOLS}:m);
-  body.tool_choice="none";
-  if(o.schema)body.response_format={type:"json_schema",json_schema:{name:o.schema.name,strict:true,schema:o.schema.schema}};
-  let text,finish;
-  if(o.onText&&!o.schema){
-   const res=await aiStream(body,o.signal,o.onText);
-   text=res.text;finish=res.finish;
-  }else{
-   const r=await aiPost(body,o.signal);
-   const j=await r.json();
-   if(j.usage)aiNoteUsage(j.usage);
-   const choice=(j.choices||[])[0]||{};
-   text=aiClean((choice.message||{}).content||"");
-   finish=choice.finish_reason||null;
-  }
-  const lower=lowerEffort(body.reasoning_effort);
-  if(finish==="length"&&!text&&!effort&&lower){effort=lower;aiRetryNote();continue}
-  return o.schema?JSON.parse(text||"{}"):text;
- }
-}
-const aiStoreKey=(feature,input)=>"ai:"+SLUG+":"+(META.rev||0)+":"+feature+":"+aiHash(input);
-function aiCacheGet(feature,input){
- try{const hit=localStorage.getItem(aiStoreKey(feature,input));return hit?JSON.parse(hit):null}catch(e){return null}
-}
-async function aiCached(feature,input,make){
- const hit=aiCacheGet(feature,input);
- if(hit)return hit;
- const out=await make();
- try{localStorage.setItem(aiStoreKey(feature,input),JSON.stringify(out))}catch(e){}
- return out;
-}
-
 async function aiRun(question,opt){
  const o=opt||{};
  await aiReady;
@@ -4983,7 +5627,7 @@ async function aiFollowups(question,answer){
  const index=Object.keys(REF).map(id=>id+" — "+handleOf(id)+": "+plain(REF[id].title)).join("\n");
  const out=await aiCached("followups2",question+"|"+answer,()=>aiOnce(()=>[
   {role:"system",content:"You propose up to three questions a reader of a design document would ask next, after the answer they just read. Each is one short sentence the reader could type as it stands, about the document, never about you, and never the question just asked. Each question must be one the listed entries can answer: put in ids the entries it draws on, by their ids exactly as listed, and leave out any question that none of them answers."},
-  {role:"user",content:"The document in brief:\n"+aiBrief()+"\n\nSections: "+Object.values(AI_SECTION_NAMES).join(", ")+"\n\nEntries, as id — handle: title\n"+index+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
+  {role:"user",content:"The document in brief:\n"+TLDR.map(t=>"- "+plain(t.p||t.md)).join("\n")+"\n\nSections: "+Object.values(AI_SECTION_NAMES).join(", ")+"\n\nEntries, as id — handle: title\n"+index+"\n\nQuestion: "+question+"\n\nAnswer: "+answer}
  ],{kind:"followups",schema:AI_FOLLOW_SCHEMA}));
  return (out.items||[]).filter(f=>f&&typeof f.q==="string"&&f.q.trim()&&Array.isArray(f.ids)&&f.ids.length&&f.ids.every(id=>REF[id])).slice(0,3);
 }
@@ -5388,13 +6032,6 @@ function aiWireTools(){
  ask.onclick=()=>aiOpen();
  $("#toolrow").prepend(ask);
 }
-
-function aiTheme(mode){
- if(mode)HTML.dataset.theme=mode;else delete HTML.dataset.theme;
- try{mode?localStorage.setItem("design-doc-theme",mode):localStorage.removeItem("design-doc-theme")}catch(e){}
- rerenderDiagrams();
- document.querySelectorAll(".xs-poster").forEach(drawConnectors);
-}
 function aiTyping(){return /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)||document.activeElement.isContentEditable}
 function aiWireKeys(){
  document.addEventListener("keydown",e=>{
@@ -5442,23 +6079,6 @@ function aiWirePanel(){
  });
  $("#aiHost").textContent=AI.model+" · "+new URL(AI.endpoint).host+" · runs in your browser";
 }
-function addAiTerms(list){
- let added=false;
- (list||[]).forEach(t=>{
-  if(!t||!t.k||TERM_BY[t.k])return;
-  TERM_BY[t.k]={k:t.k,v:t.v,ai:true};
-  const w=String(t.k).trim();
-  if(w.length<5&&w!==w.toUpperCase()&&!/\s/.test(w))return;
-  TERM_WORDS.push(w);
-  TERM_LOOK[w[0].toLowerCase()+w.slice(1)]=t.k;
-  added=true;
- });
- if(!added)return;
- TERM_WORDS.sort((a,b)=>b.length-a.length);
- TERM_RE=termRe();
- termify($("#main"));
-}
-window.ddTerms={terms:TERM_BY,add:addAiTerms};
 function palButton(){
  const row=el("div","toolrow");
  row.id="toolrow";
@@ -5468,6 +6088,60 @@ function palButton(){
  row.append(pal);
  document.querySelector("#rail .tools").append(row);
 }
+function palItems(){
+ const items=[];
+ const push=(kind,label,sub,run)=>items.push({kind,label,sub,run});
+ Object.entries(AI_SECTION_NAMES).forEach(([id,name])=>{
+  const sec=document.getElementById(id);
+  if(sec&&!sec.hidden)push("section",name,"Go to",()=>sec.scrollIntoView({block:"start"}));
+ });
+ Object.keys(REF).forEach(id=>{
+  const e=aiEntry(id);
+  if(!e)return;
+  const st=AI_STATUS[aiStatusKey(e)]||["",""];
+  push(aiKind(id),aiHandle(e),plain(e.p||e.t||e.text||""),()=>{openRef(id);aiMark(id)});
+  Object.assign(items[items.length-1],{dot:st[0],rid:id});
+ });
+ mountedComponents().forEach(([host,spec,name])=>push("component",plain(spec.title||name.replace(/^~/,"")),"Go to the figure",()=>host.scrollIntoView({block:"center"})));
+ const cmd=(label,run)=>push("cmd",label,"Command",run);
+ if(ACTIONS.length)cmd("Action items: reset the filters",()=>irActionsReset());
+ if(TIMELINE.length){
+  cmd("Timeline: everything",()=>setStatusFilter("timeline","all"));
+  tlKindsPresent().forEach(k=>cmd("Timeline: only "+TL_LABEL[k].toLowerCase(),()=>{setStatusFilter("timeline",k);$("#timeline").scrollIntoView({block:"start"})}));
+ }
+ if(ACTIONS.length){
+  cmd("Action items: everything",()=>setStatusFilter("actions","all"));
+  Object.keys(ACTION_LBL).forEach(s=>cmd("Action items: only "+ACTION_LBL[s][1].toLowerCase(),()=>{setStatusFilter("actions",s);$("#actions").scrollIntoView({block:"start"})}));
+ }
+ cmd("Expand all",()=>document.querySelectorAll("#causeList details,#evidenceHost details").forEach(d=>{d.open=true}));
+ cmd("Collapse all",()=>document.querySelectorAll("#causeList details,#evidenceHost details").forEach(d=>{d.open=false}));
+ if(!$("#wordingBtn").hidden)cmd("Full wording: toggle",()=>$("#wordingBtn").click());
+ cmd("Theme: dark",()=>aiTheme("dark"));
+ cmd("Theme: light",()=>aiTheme("light"));
+ cmd("Theme: follow the system",()=>aiTheme(""));
+ cmd("Print, or save as PDF",()=>$("#pdfBtn").click());
+ cmd("Copy the whole retro as Markdown",()=>navigator.clipboard.writeText(buildDocMd()));
+ cmd("Copy this section as Markdown",()=>navigator.clipboard.writeText("## "+(AI_SECTION_NAMES[aiSec]||aiSec)+"\n\n"+aiSectionText(aiSec)));
+ cmd("Copy the selection, citations resolved",()=>{
+  const text=String(getSelection()).trim();
+  navigator.clipboard.writeText(ID_RE?text.replace(ID_RE,(all,pre,id)=>pre+mdRef(id)):text);
+ });
+ const baseSel=$("#baseSel");
+ if(baseSel&&!baseSel.hidden)[...baseSel.options].filter(o=>o.value).forEach(o=>cmd("Compare with revision "+o.value,()=>{baseSel.value=o.value;baseSel.onchange()}));
+ (EVIDENCE.notebooks||[]).forEach(n=>cmd("Open notebook: "+plain((notebookOf(n.id)||{}).name||String(n.id)),()=>{const d=document.getElementById("nb-"+n.id);if(d){d.open=true;d.scrollIntoView({block:"start"})}}));
+ if(TL_VIEWS.length)cmd("Timeline: reset the zoom",()=>TL_VIEWS.forEach(v=>v.toHome()));
+ if(!HTML.dataset.ai)return items;
+ const ai=(label,run,sub)=>push("ai",label,sub||"Ask",run);
+ aiCmds().forEach(c=>{
+  if(c.id==="read"){AI_ROLES.forEach(([label],ix)=>ai("Read as: "+label,()=>aiShowReadAs(ix)));return}
+  ai(c.label,()=>c.run($("#aiMore")),aiCmdSub(c)||"Ask");
+ });
+ if(LINKED)ai("What's landed?",()=>aiAsk("Which action items have landed, and which are still open?"));
+ ai("Ask anything",()=>aiOpen());
+ return items;
+}
+// @requires AI_GLYPH,AI_STATUS,AI_TOOLS_READ,HTML,ID_RE,REF,aiEntry,aiHandle,aiKind,aiMark,palItems,plain,$,AI_RETRY_MSG,aiAdopt,aiFail,aiOpen,aiStartRun,el,esc,mdToHtml,scrub
+// @defines palAbortRun,palAll,palAsk,palCited,palClose,palFinish,palHandoff,palHandoffRow,palHits,palIx,palList,palLive,palOpen,palRender,palRun,palSchedule,palScore,palSearch,palStep,palTimer,palWire
 function palScore(item,q){
  const hay=(item.label+" "+(item.rid||"")+" "+(item.sub||"")).toLowerCase();
  const i=hay.indexOf(q);
@@ -5616,6 +6290,28 @@ function palWire(){
  };
  $("#pal").addEventListener("pointerdown",e=>{if(e.target.id==="pal")palClose()});
 }
+function aiTheme(mode){
+ if(mode)HTML.dataset.theme=mode;else delete HTML.dataset.theme;
+ try{mode?localStorage.setItem("design-doc-theme",mode):localStorage.removeItem("design-doc-theme")}catch(e){}
+ rerenderDiagrams();
+}
+function addAiTerms(list){
+ let added=false;
+ (list||[]).forEach(t=>{
+  if(!t||!t.k||TERM_BY[t.k])return;
+  TERM_BY[t.k]={k:t.k,v:t.v,ai:true};
+  const w=String(t.k).trim();
+  if(w.length<5&&w!==w.toUpperCase()&&!/\s/.test(w))return;
+  TERM_WORDS.push(w);
+  TERM_LOOK[w[0].toLowerCase()+w.slice(1)]=t.k;
+  added=true;
+ });
+ if(!added)return;
+ TERM_WORDS.sort((a,b)=>b.length-a.length);
+ TERM_RE=termRe();
+ termify($("#main"));
+}
+window.ddTerms={terms:TERM_BY,add:addAiTerms};
 function aiBoot(){
  try{const t=localStorage.getItem("design-doc-theme");if(t)HTML.dataset.theme=t}catch(e){}
  aiWireSections();
@@ -5639,6 +6335,7 @@ function aiBoot(){
  });
 }
 window.designDocAi={ask:(q,o)=>aiAsk(q,o),open:aiOpen,collapse:aiCollapse,state:()=>aiState,config:()=>AI,context:()=>aiContext(),ready:()=>aiReady,stats:()=>aiCtxStats,usage:()=>aiUsage,tally:()=>aiTally,diag:aiDiagText,promptTokens:()=>aiPrompt,palette:palOpen,clearMarks:clearAiMarks,glossary:aiShowGlossary,faq:aiShowFaq,quiz:aiShowQuiz,readAs:aiShowReadAs,changed:aiShowChanged,section:aiShowSection};
+cmtBoot();
 aiBoot();
 })();
 </script>

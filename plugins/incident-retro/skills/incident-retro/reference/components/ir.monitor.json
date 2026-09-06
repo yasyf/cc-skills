@@ -9,7 +9,7 @@
   "properties": {
     "kind": {"const": "ir.monitor"},
     "title": {"type": "string", "minLength": 1, "description": "replaces the monitor's own name"},
-    "monitor": {"type": ["integer", "string"], "description": "the id of a detection.monitors or evidence.monitors entry"},
+    "monitor": {"type": "integer", "minimum": 1, "description": "the id of a detection.monitors or evidence.monitors entry"},
     "marks": {"type": "boolean", "description": "draw the transition strip; default true"}
   },
   "example": {
