@@ -60,8 +60,6 @@ ICON_LIST = "https://data.jsdelivr.com/v1/package/npm/lucide-static@{version}/fl
 PROJECT_FILES = ("registers.json", "qa-log.json", "NOTES.md", "summary.html")
 LINKED = (("open", "id"), ("decisions", "id"))
 OPEN_STATUSES = {"open", "closed"}
-REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-GIT_REF = re.compile(r"(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9][\w./-]*(?<![./])")
 RENDER_CHECK_VIEWPORT = {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False}
 SYSD_CTM_JS = """new Promise(res=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
  const vp=document.querySelector("#sysdHost svg .svg-pan-zoom_viewport");
@@ -158,7 +156,6 @@ COMMENT_SCOPES = ("summary", "entry", "notes")
 SECTION_IDS = ("overview", "ground", "architecture", "paths", "numbers", "ceilings", "decisions",
                "assumptions", "open", "footnotes")
 HANDLED = ("decisions", "assumptions", "open", "arch", "numbers")
-HANDLE_RANGE = (2, 5)
 TITLE_WORDS = 12
 BANNER_WORDS = 40
 TERM_COUNT = 12
@@ -1675,24 +1672,6 @@ def cited_ids(R, ids: re.Pattern, prose: str) -> set:
 
     walk(R, None)
     return found
-
-
-def handle_range_issue(handle: str):
-    n = words(handle)
-    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
-        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
-    return None
-
-
-def handle_issues(handle: str, ids: re.Pattern) -> list:
-    issues = []
-    range_issue = handle_range_issue(handle)
-    if range_issue:
-        issues.append(range_issue)
-    named = sorted(set(ids.findall(handle)))
-    if named:
-        issues.append("names register ids " + ", ".join(named))
-    return issues
 
 
 def check_handles(rep, R, cited, ids):

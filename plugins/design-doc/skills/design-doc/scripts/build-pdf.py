@@ -1,4 +1,4 @@
-# built by plugins/_shared/build.py from py/build_pdf.py sha256:73c4460b6040 — do not edit
+# built by plugins/_shared/build.py from py/build_pdf.py sha256:06e9c3773acb — do not edit
 """Print a project's doc to a PDF beside it.
 
 Usage: python3 build-pdf.py [dir] [--pdf NAME]
@@ -22,7 +22,6 @@ STDERR_LINES = 20
 NETWORK_HINT = "the page loads its diagrams from jsdelivr, so this needs network access"
 NOT_READY = "the page never set data-ready; its diagrams or connectors did not finish rendering"
 SETTLE_S = 2.0
-IGNORED_404 = re.compile(r"Failed to load resource: .*404.*\[[^\]]*/(ai\.json|favicon\.ico)\]$")
 DOC_PAGES = ("design-doc.html", "incident-retro.html", "index.html")
 DEFAULT_PDF = "design-doc.pdf"
 DOM_JS = "document.documentElement.outerHTML"
@@ -266,7 +265,7 @@ def settle(chrome: Chrome, session: str, timeout: float) -> dict:
 
 
 def page_errors(chrome: Chrome) -> list:
-    return [e for e in chrome.errors if not IGNORED_404.search(e)]
+    return [e for e in chrome.errors if e.startswith(("exception: ", "console.error: "))]
 
 
 def ready_problem(state: dict, timeout: float) -> str:

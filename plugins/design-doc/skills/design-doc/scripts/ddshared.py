@@ -1,4 +1,4 @@
-# built by plugins/_shared/build.py from py/ddshared.py sha256:cd1e5f03d969 — do not edit
+# built by plugins/_shared/build.py from py/ddshared.py sha256:bf531a739ca8 — do not edit
 """Names design.py and retro.py share: the check report, link normalisation and GitHub state,
 the ai.json validator, the component schema validator, the plain-twin and capitalisation lints,
 the summary-fragment text extractor, and the file digest. Lifted verbatim from design.py.
@@ -18,6 +18,9 @@ GITHUB_KIND = {"pull": "pr", "issues": "issue", "commit": "commit"}
 GITHUB_API = "https://api.github.com"
 GITHUB_STATE_CLOSED = {"merged", "closed"}
 TWIN_WORDS = 30
+REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+GIT_REF = re.compile(r"(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9][\w./-]*(?<![./])")
+HANDLE_RANGE = (2, 5)
 FINDING_BY_NUMBER = re.compile(r"finding \d+", re.I)
 PASS_TOKEN = re.compile(r"\bpass-\d+\b", re.I)
 FILE_PATH = re.compile(r"(?<![\w:])(?:~|\.{1,2})?/[\w.@-]+(?:/[\w.@-]+)+"
@@ -475,3 +478,21 @@ def ai_endpoint_problem(endpoint: str):
         return (f"uses the {parts.scheme}: scheme; a page served over https can only call an https endpoint "
                 "(http is allowed on localhost)")
     return None
+
+
+def handle_range_issue(handle: str):
+    n = words(handle)
+    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
+        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
+    return None
+
+
+def handle_issues(handle: str, ids: re.Pattern) -> list:
+    issues = []
+    range_issue = handle_range_issue(handle)
+    if range_issue:
+        issues.append(range_issue)
+    named = sorted(set(ids.findall(handle)))
+    if named:
+        issues.append("names register ids " + ", ".join(named))
+    return issues

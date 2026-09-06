@@ -90,7 +90,6 @@ DERIVED_TOPIC = re.compile(r"detect|mitigat|resolv|engag|onset|fired|all[- ]?cle
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 RENDER_TIMEOUT = 60
 RENDER_CHECK_VIEWPORT = {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False}
-RENDER_CONSOLE = re.compile(r"uplot|chart|component|failed", re.I)
 RENDER_STATE_JS = """({
  ready: document.documentElement.dataset.ready || "",
  failed: [...document.querySelectorAll('[data-failed="1"]')].map(h => (h.dataset.source || h.dataset.component || h.id || h.tagName).split("\\n")[0].slice(0, 60)),
@@ -435,9 +434,6 @@ def render_check(args) -> int:
     has_timeseries = any(cell.get("type") == "timeseries" for cell in notebook_cells(root, R))
     if has_timeseries and state and not state.get("uplot"):
         problems.append("a notebook carries a timeseries cell but window.uPlot never loaded; the charts are blank")
-    for msg in chrome.console:
-        if RENDER_CONSOLE.search(msg):
-            problems.append("console: " + first_line(msg, 160))
     for p in problems:
         print(f"ERROR: {p}")
     if problems:

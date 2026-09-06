@@ -1,19 +1,18 @@
-#!/usr/bin/env python3
-"""Print a design project's doc to its design-doc.pdf.
+# built by plugins/_shared/build.py from py/build_pdf.py sha256:06e9c3773acb — do not edit
+"""Print a project's doc to a PDF beside it.
 
-Usage: python3 build-pdf.py [dir]
-`dir` is the design project directory (default: the current one). The
-script serves that directory over HTTP on a free port, opens design-doc.html
-(or index.html, when that is what the directory holds) in headless Chrome
-driven over its debugging pipe, waits for the page to report every diagram
-and connector rendered, runs the template's own print preparation, and
-prints through its print stylesheet, so the PDF is the document the doc's
-PDF button prints. A diagram that failed to render fails the build. The
+Usage: python3 build-pdf.py [dir] [--pdf NAME]
+`dir` is the project directory (default: the current one). The script
+serves that directory over HTTP on a free port, opens the first of DOC_PAGES
+the directory holds in headless Chrome driven over its debugging pipe, waits
+for the page to report every diagram and connector rendered, runs the
+template's own print preparation, and prints through its print stylesheet,
+so the PDF is the document the doc's PDF button prints. A diagram that failed to render fails the build. The
 page loads Mermaid from jsdelivr, so the build needs network access. Needs
 Chrome or Chromium; set CHROME=/path/to/chrome if discovery misses yours,
 and CHROME_ARGS to add command-line flags to the browser it launches.
 """
-import argparse, base64, functools, json, os, select, shlex, shutil, subprocess, sys, tempfile, textwrap, threading, time
+import argparse, base64, functools, json, os, re, select, shlex, shutil, subprocess, sys, tempfile, textwrap, threading, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,7 +21,9 @@ CONSOLE_KEPT = 40
 STDERR_LINES = 20
 NETWORK_HINT = "the page loads its diagrams from jsdelivr, so this needs network access"
 NOT_READY = "the page never set data-ready; its diagrams or connectors did not finish rendering"
+SETTLE_S = 2.0
 DOC_PAGES = ("design-doc.html", "incident-retro.html", "index.html")
+DEFAULT_PDF = "design-doc.pdf"
 DOM_JS = "document.documentElement.outerHTML"
 FAILED_JS = """({failed:[...document.querySelectorAll('[data-failed="1"]')].map(h=>(h.dataset.source||h.id||h.className||"diagram").split("\\n")[0].slice(0,60)),
  rendered:document.querySelectorAll("svg.mmd").length})"""
@@ -122,7 +123,7 @@ class Chrome:
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
         os.close(chrome_in)
         os.close(chrome_out)
-        self.buf, self.seq, self.console = b"", 0, []
+        self.buf, self.seq, self.console, self.errors = b"", 0, [], []
 
     def close(self):
         try:
@@ -159,14 +160,23 @@ class Chrome:
     def note(self, msg: dict):
         method, params = msg.get("method"), msg.get("params") or {}
         if method == "Runtime.consoleAPICalled":
-            self.console.append(f"{params.get('type', 'log')}: " + " ".join(describe(a) for a in params.get("args") or []))
+            kind = params.get("type", "log")
+            text = " ".join(describe(a) for a in params.get("args") or [])
+            self.console.append(f"{kind}: {text}")
+            if kind == "error":
+                self.errors.append(f"console.error: {text}")
         elif method == "Log.entryAdded":
             entry = params.get("entry") or {}
             where = entry.get("url") or entry.get("source") or ""
-            self.console.append(f"{entry.get('level', 'info')}: {entry.get('text', '')}" + (f" [{where}]" if where else ""))
+            line = f"{entry.get('level', 'info')}: {entry.get('text', '')}" + (f" [{where}]" if where else "")
+            self.console.append(line)
+            if entry.get("level") == "error":
+                self.errors.append(line)
         elif method == "Runtime.exceptionThrown":
             detail = params.get("exceptionDetails") or {}
-            self.console.append("exception: " + ((detail.get("exception") or {}).get("description") or detail.get("text") or ""))
+            line = "exception: " + ((detail.get("exception") or {}).get("description") or detail.get("text") or "")
+            self.console.append(line)
+            self.errors.append(line)
 
     def take(self) -> dict:
         raw, _, self.buf = self.buf.partition(b"\0")
@@ -247,6 +257,17 @@ def wait_ready(chrome: Chrome, session: str, timeout: float) -> dict:
     return evaluate(chrome, session, ready_js(timeout), timeout=timeout + 30)
 
 
+def settle(chrome: Chrome, session: str, timeout: float) -> dict:
+    state = wait_ready(chrome, session, timeout)
+    time.sleep(SETTLE_S)
+    chrome.drain(1.0)
+    return state
+
+
+def page_errors(chrome: Chrome) -> list:
+    return [e for e in chrome.errors if e.startswith(("exception: ", "console.error: "))]
+
+
 def ready_problem(state: dict, timeout: float) -> str:
     if state.get("error"):
         return f"{NOT_READY}; the page reported {state['error']}"
@@ -284,7 +305,7 @@ def print_page(chrome: Chrome, url: str, pdf: Path, timeout: float = CHROME_TIME
     pdf.write_bytes(base64.b64decode(data))
 
 
-def build(root: Path, pdf_name: str = "design-doc.pdf") -> int:
+def build(root: Path, pdf_name: str) -> int:
     page = doc_page(root)
     if not page:
         print(f"build-pdf.py: {root} holds none of {', '.join(DOC_PAGES)}.", file=sys.stderr)
@@ -308,8 +329,10 @@ def build(root: Path, pdf_name: str = "design-doc.pdf") -> int:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("dir", nargs="?", default=".", help="design project directory")
-    sys.exit(build(Path(ap.parse_args().dir)))
+    ap.add_argument("dir", nargs="?", default=".", help="project directory")
+    ap.add_argument("--pdf", default=DEFAULT_PDF, help="name of the PDF to write beside the doc")
+    args = ap.parse_args()
+    sys.exit(build(Path(args.dir), args.pdf))
 
 
 if __name__ == "__main__":

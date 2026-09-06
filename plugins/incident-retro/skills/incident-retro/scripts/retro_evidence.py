@@ -594,6 +594,9 @@ def evidence_check(root: Path, rep, retro: dict) -> None:
     for kind in ("notebooks", "monitors"):
         for e in ev.get(kind, []):
             file = e.get("file")
+            if file is None:
+                rep.warn(f"evidence.{kind} {e.get('id')}: no snapshot yet; run evidence fetch --{kind[:-1]} {e.get('id')}")
+                continue
             if not (isinstance(file, str) and (root / file).exists()):
                 rep.err(f"evidence.{kind}: {file!r} does not exist")
                 continue
@@ -618,6 +621,9 @@ def evidence_check(root: Path, rep, retro: dict) -> None:
             rep.warn(f"detection.monitors {m.get('id')}: no snapshot file; run evidence fetch --monitor {m.get('id')}")
     for e in ev.get("slack", []):
         file = e.get("file")
+        if file is None:
+            rep.warn(f"evidence.slack {e.get('url')}: no snapshot yet; run evidence slack new and write the file it names")
+            continue
         if not (isinstance(file, str) and (root / file).exists()):
             rep.err(f"evidence.slack: {file!r} does not exist")
             continue

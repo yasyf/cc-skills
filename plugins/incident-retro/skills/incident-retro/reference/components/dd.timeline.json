@@ -1,4 +1,5 @@
 {
+  "_built": "sha256:460a74fa78dc",
   "kind": "dd.timeline",
   "title": "Timeline",
   "summary": "Phases in order, each done, next or blocked. A phase with a gate carries the register entry it waits on as a citation chip.",

@@ -1,4 +1,5 @@
 {
+  "_built": "sha256:656b9528ef71",
   "kind": "dd.whatif",
   "title": "What if",
   "summary": "Named inputs on sliders, outputs derived from them by an arithmetic expression. The expression grammar is + - * / ( ) min max over numbers and input ids; there is no eval, so an expression that does not parse fails check.",

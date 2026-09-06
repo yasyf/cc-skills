@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
-"""Helpers the design-doc and incident-retro drivers share: the check report, link normalisation and
-GitHub state, the plain-twin and handle rules, label capitalisation, component schema validation, the
-ai.json contract, and the fragment-to-text parser. Lifted verbatim from design.py; stdlib only.
+# built by plugins/_shared/build.py from py/ddshared.py sha256:bf531a739ca8 — do not edit
+"""Names design.py and retro.py share: the check report, link normalisation and GitHub state,
+the ai.json validator, the component schema validator, the plain-twin and capitalisation lints,
+the summary-fragment text extractor, and the file digest. Lifted verbatim from design.py.
 """
-import hashlib, json, os, re, shutil, subprocess, urllib.parse, urllib.request
+import hashlib, json, os, re, shutil, subprocess, urllib.error, urllib.parse, urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -15,11 +15,12 @@ LINK_KINDS = ("pr", "issue", "commit", "doc")
 LINK_FIELDS = {"url", "kind", "label", "closes"}
 GITHUB_LINK = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(pull|issues|commit)/([A-Za-z0-9]+)/?(?:[?#].*)?$")
 GITHUB_KIND = {"pull": "pr", "issues": "issue", "commit": "commit"}
-REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-GIT_REF = re.compile(r"(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9][\w./-]*(?<![./])")
 GITHUB_API = "https://api.github.com"
 GITHUB_STATE_CLOSED = {"merged", "closed"}
 TWIN_WORDS = 30
+REPO_SLUG = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+GIT_REF = re.compile(r"(?!.*\.\.)(?!.*\.lock$)[A-Za-z0-9][\w./-]*(?<![./])")
+HANDLE_RANGE = (2, 5)
 FINDING_BY_NUMBER = re.compile(r"finding \d+", re.I)
 PASS_TOKEN = re.compile(r"\bpass-\d+\b", re.I)
 FILE_PATH = re.compile(r"(?<![\w:])(?:~|\.{1,2})?/[\w.@-]+(?:/[\w.@-]+)+"
@@ -31,7 +32,6 @@ COMMENT_CONFIG_KEYS = {"repo", "forbiddenTerms"}
 COMMENT_REPO = re.compile(r"^[\w.-]+/[\w.-]+$")
 LIB_URL = re.compile(r"cdn\.jsdelivr\.net/npm/((?:@[\w.-]+/)?[\w.-]+)@(\d+\.\d+\.\d+)")
 PINNED_LIB = re.compile(r"(?<![\w/])((?:@[\w.-]+/)?[A-Za-z][\w.-]*)@(\d+\.\d+\.\d+)")
-HANDLE_RANGE = (2, 5)
 ACRONYMS = ("API", "SSO", "JWT", "DPoP", "TLS", "mTLS", "HTTP", "HTTPS", "gRPC", "k8s", "S3", "R2", "IAM", "SQL",
             "DB", "ID", "URL", "JSON", "YAML", "CLI", "UI", "UX", "CI", "CD", "PR", "RPM", "TPM", "QPS", "CPU",
             "GPU", "RAM", "AWS", "GCP", "OIDC", "OAuth", "SAML", "DNS", "CDN", "VPC", "RDS", "KMS", "ELK", "SVG",
@@ -131,19 +131,6 @@ class FragmentText(HTMLParser):
     def close(self):
         super().close()
         self._emit(self._take())
-
-
-def fragment_text(fragment: str) -> str:
-    parser = FragmentText()
-    parser.feed(fragment)
-    parser.close()
-    out = []
-    for line in parser.lines:
-        run = line[:2] in ("- ", "| ")
-        if out and not (run and out[-1][:2] == line[:2]):
-            out.append("")
-        out.append(line)
-    return "\n".join(out)
 
 
 def digest(path: Path):
@@ -292,24 +279,6 @@ def check_case(rep, where, label, acronyms, sentence_case=True):
         if canon and canon != word:
             rep.warn(f"{where}: {word!r} should read {canon!r}; acronyms and product names keep their own "
                      "capitalisation (name a product that is also an ordinary word in meta.acronyms to lint it)")
-
-
-def handle_range_issue(handle: str):
-    n = words(handle)
-    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
-        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
-    return None
-
-
-def handle_issues(handle: str, ids: re.Pattern) -> list:
-    issues = []
-    range_issue = handle_range_issue(handle)
-    if range_issue:
-        issues.append(range_issue)
-    named = sorted(set(ids.findall(handle)))
-    if named:
-        issues.append("names register ids " + ", ".join(named))
-    return issues
 
 
 def schema_errors(value, schema, where: str) -> list:
@@ -509,3 +478,21 @@ def ai_endpoint_problem(endpoint: str):
         return (f"uses the {parts.scheme}: scheme; a page served over https can only call an https endpoint "
                 "(http is allowed on localhost)")
     return None
+
+
+def handle_range_issue(handle: str):
+    n = words(handle)
+    if not HANDLE_RANGE[0] <= n <= HANDLE_RANGE[1]:
+        return f"is {n} word(s); a handle is {HANDLE_RANGE[0]}–{HANDLE_RANGE[1]} words a reader would say out loud"
+    return None
+
+
+def handle_issues(handle: str, ids: re.Pattern) -> list:
+    issues = []
+    range_issue = handle_range_issue(handle)
+    if range_issue:
+        issues.append(range_issue)
+    named = sorted(set(ids.findall(handle)))
+    if named:
+        issues.append("names register ids " + ", ".join(named))
+    return issues
