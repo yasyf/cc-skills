@@ -85,7 +85,6 @@ PROSE_SKIP = re.compile(r"https?://\S+|`[^`]*`")
 COMPONENT_ID = re.compile(r"[a-z][a-z0-9-]*")
 SEVERITY = re.compile(r"sev-\d")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-SLACK_PERMALINK = re.compile(r"^https://[\w-]+\.slack\.com/archives/([A-Z0-9]+)/p(\d{16})(?:\?thread_ts=(\d+\.\d+)[^#]*)?$")
 DERIVED_NUMBER = re.compile(r"\b\d+(?:\.\d+)?\s*(?:min(?:ute)?s?|h(?:ou)?rs?|days?)\s+(?:after|to|before|from|until)\b", re.I)
 DERIVED_TOPIC = re.compile(r"detect|mitigat|resolv|engag|onset|fired|all[- ]?clear", re.I)
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -193,6 +192,9 @@ def sibling_module(name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+SLACK_PERMALINK = sibling_module("retro_evidence").SLACK_PERMALINK
 
 
 def evidence_files(root: Path) -> list:
@@ -411,7 +413,7 @@ def render_check(args) -> int:
     try:
         session = builder.open_page(chrome, base + page)
         chrome.call("Emulation.setDeviceMetricsOverride", RENDER_CHECK_VIEWPORT, session=session)
-        ready = builder.wait_ready(chrome, session, args.timeout)
+        ready = builder.settle(chrome, session, args.timeout)
         if ready["ready"] != "1":
             problems.append(builder.ready_problem(ready, args.timeout))
         state = builder.evaluate(chrome, session, RENDER_STATE_JS) or {}
@@ -422,6 +424,8 @@ def render_check(args) -> int:
         server.shutdown()
         chrome.close()
 
+    for e in builder.page_errors(chrome):
+        problems.append("page: " + first_line(e, 200))
     for label in state.get("failed") or []:
         problems.append(f"the page marked {label!r} as failed")
     for name in sorted(set(state.get("unmounted") or [])):
