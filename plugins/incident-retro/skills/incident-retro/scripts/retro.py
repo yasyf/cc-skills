@@ -29,7 +29,7 @@ state with --fetch, and reports an action whose state disagrees with the
 change that closes it. text prints the retro as Markdown in reading order,
 the input for the prose gates. pdf prints the served page. Stdlib only.
 """
-import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, zoneinfo
+import argparse, copy, datetime, hashlib, importlib.util, json, re, shutil, subprocess, sys, zoneinfo
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1354,28 +1354,16 @@ def check_components(rep, R, root: Path, known: set, slack_snapshots: set):
         rep.warn(f"components.{cid} is declared but no register field places it; it renders nowhere")
 
 
-def forbidden_terms(override, root: Path):
-    if override:
-        return re.compile(override, re.I), "--forbidden-terms"
-    env = os.environ.get("FORBIDDEN_TERMS")
-    if env:
-        return re.compile(env, re.I), "FORBIDDEN_TERMS"
-    for folder in [root.resolve()] + list(root.resolve().parents):
-        path = folder / ".customer-names"
-        if path.is_file():
-            terms = [t.strip() for t in path.read_text().splitlines() if t.strip() and not t.startswith("#")]
-            if not terms:
-                return None, str(path)
-            return re.compile("|".join(map(re.escape, terms)), re.I), str(path)
-    return None, None
-
-
 def masked(term: str) -> str:
     return term[:1] + "…" * (len(term) > 1) + f" ({len(term)} chars)"
 
 
 def check_forbidden_terms(rep, root: Path, override):
-    pattern, source = forbidden_terms(override, root)
+    evidence = sibling_module("retro_evidence")
+    if evidence is None:
+        rep.warn("scripts/retro_evidence.py is missing, so the forbidden-terms grep it provides did not run; customer names were not checked")
+        return
+    pattern = evidence.forbidden_terms(override, root)
     if pattern is None:
         rep.warn("no forbidden-terms source (--forbidden-terms, FORBIDDEN_TERMS, or a .customer-names file up the tree); customer names were not checked")
         return
@@ -1392,7 +1380,7 @@ def check_forbidden_terms(rep, root: Path, override):
                 hits.setdefault(m.group().lower(), []).append(n)
         for term, lines in sorted(hits.items()):
             shown = ", ".join(map(str, lines[:5])) + (", …" if len(lines) > 5 else "")
-            rep.err(f"{path.relative_to(root)} names the forbidden term {masked(term)} on line(s) {shown} (source: {source})")
+            rep.err(f"{path.relative_to(root)} names the forbidden term {masked(term)} on line(s) {shown}")
 
 
 def check_libs(rep):
@@ -1909,15 +1897,13 @@ def main():
     ig.set_defaults(fn=import_gdoc)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
-        evidence.add_evidence_parsers(sub, {"load_retro": load_retro, "write_retro": write_retro, "parse_ts": parse_ts,
-                                            "forbidden_terms": forbidden_terms, "SLACK_PERMALINK": SLACK_PERMALINK,
-                                            "EVIDENCE_DIRS": EVIDENCE_DIRS, "Report": Report})
+        evidence.add_evidence_parsers(sub)
     else:
         ev = sub.add_parser("evidence", help="fetch Datadog snapshots and check or start Slack ones (scripts/retro_evidence.py)")
         ev.add_argument("rest", nargs=argparse.REMAINDER)
         ev.set_defaults(fn=evidence_missing)
     args = ap.parse_args()
-    sys.exit(args.fn(args))
+    sys.exit((getattr(args, "fn", None) or args.func)(args))
 
 
 if __name__ == "__main__":
