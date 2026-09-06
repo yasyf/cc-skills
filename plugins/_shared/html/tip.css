@@ -1,0 +1,12 @@
+/* @defines #tip */
+#tip{position:fixed;z-index:70;max-width:34ch;background:var(--ink);color:var(--bg);font-size:12.5px;line-height:1.45;padding:6px 10px;border-radius:var(--r-node);pointer-events:none;box-shadow:0 6px 22px #0003}
+#tip.card{max-width:44ch;pointer-events:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-fig);padding:12px 15px;font-size:14px;line-height:1.5;box-shadow:0 12px 36px #00000026}
+#tip.card .tkind{display:block;font-size:12.5px;color:var(--ink2);margin-bottom:5px}
+#tip.card .ttitle{display:block;font-weight:600;font-size:14.5px;line-height:1.35;margin-bottom:5px}
+#tip.card p{margin:0 0 9px;max-width:none;color:var(--ink2);font-size:13.5px}
+#tip.card .topen{font-size:13px;color:var(--accent);cursor:pointer}
+#tip.card.file{max-width:min(92vw,720px)}
+#tip.card .tsrc{margin:0 0 9px;padding:8px 10px;background:var(--code-bg);border-radius:var(--r-node);font-family:var(--mono);font-size:11.5px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre;tab-size:2}
+#tip.card .tsrc-l{display:block;padding:0 4px;margin:0 -4px}
+#tip.card .tsrc-l.hl{background:var(--warn-soft)}
+#tip.card .tsrc-n{display:inline-block;min-width:4ch;margin-right:1.5ch;text-align:right;color:var(--ink2);user-select:none}

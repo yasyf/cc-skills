@@ -53,9 +53,11 @@ A hand-drawn diagram stays valid as `{ "kind": "svg", "file": "sysd.svg", "capti
 
 The libraries load from jsdelivr at exact versions, pinned in one `LIBS` block at the top of the template's script and repeated here so `check` can compare the two: `mermaid@11.17.2`, `@mermaid-js/layout-elk@0.2.3`, `svg-pan-zoom@3.6.2`, `lucide-static@1.39.0`. Nothing is vendored. A reader with no network sees "Diagrams need a network connection" in the diagram host and a doc that otherwise works.
 
+`templates/design-doc.html` is generated: its source is `templates/src/design-doc.html`, whose `@include` markers pull the partials in `plugins/_shared/html/` (the tooltip, link chips, Markdown, components kit, site config, GitHub state, reader comments, assistant, and palette), and `python3 plugins/_shared/build.py build` writes it with a stamp on line 2 naming the source digest. `scripts/ddshared.py`, `scripts/build-pdf.py`, and `reference/components/dd.*.json` are built the same way from `plugins/_shared/py/` and `plugins/_shared/components/`. Edit the source and rerun the build; `check` errors on a stale stamp when the shared tree is present, and `build.py check` is the CI gate.
+
 ### `components` — the declared interactive blocks
 
-`components` maps an id to one block the renderer draws with no build step, from props `check` validates against `reference/components/<kind>.json`:
+`components` maps an id to one block the renderer draws with no build step, from props `check` validates against `reference/components/<kind>.json`, a built copy of the shared schema under `plugins/_shared/components/`:
 
 ```json
 "components": {

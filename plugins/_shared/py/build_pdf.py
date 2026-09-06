@@ -1,4 +1,3 @@
-# built by plugins/_shared/build.py from py/build_pdf.py sha256:05638ed5aa8c — do not edit
 """Print a project's doc to a PDF beside it.
 
 Usage: python3 build-pdf.py [dir] [--pdf NAME]

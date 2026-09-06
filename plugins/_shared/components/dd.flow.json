@@ -1,5 +1,4 @@
 {
-  "_built": "sha256:9433a83fab4f",
   "kind": "dd.flow",
   "title": "Flow with callouts",
   "summary": "Columns along a path, left to right, each carrying the callouts that sit on it: what leaks or breaks there, in plain words, with the decision or open item that fixes it. A callout is solid when this design fixes it and dashed when it is left for a later design; the renderer writes the legend from those two statuses, shows `by` as the entry's handle, measures every label, and spaces the columns to their callouts, so nothing overlaps.",
