@@ -1,0 +1,57 @@
+{
+  "title": "[2026-03-14] Checkout API returned 502s and the order queue backed up (#7)",
+  "documentId": "acme-checkout-502s-doc",
+  "revisionId": "acme-rev-1",
+  "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS",
+  "tabs": [
+    {
+      "tabProperties": {"tabId": "t.0", "title": "Tab 1", "index": 0},
+      "documentTab": {
+        "body": {
+          "content": [
+            {"endIndex": 1, "sectionBreak": {"sectionStyle": {"columnSeparatorStyle": "NONE", "contentDirection": "LEFT_TO_RIGHT"}}},
+            {
+              "startIndex": 1,
+              "endIndex": 74,
+              "paragraph": {
+                "elements": [
+                  {"startIndex": 1, "endIndex": 74, "textRun": {"content": "[2026-03-14] Checkout API returned 502s and the order queue backed up (#7)\n", "textStyle": {}}}
+                ],
+                "paragraphStyle": {"headingId": "h.acme1", "namedStyleType": "HEADING_1", "direction": "LEFT_TO_RIGHT"}
+              }
+            },
+            {
+              "startIndex": 74,
+              "endIndex": 130,
+              "paragraph": {
+                "elements": [
+                  {"startIndex": 74, "endIndex": 90, "textRun": {"content": "Date: Date Authors: ", "textStyle": {}}},
+                  {"startIndex": 90, "endIndex": 91, "person": {"personId": "kix.person1", "personProperties": {"name": "Jordan Rivera", "email": "jordan@acme.example"}}},
+                  {"startIndex": 91, "endIndex": 130, "textRun": {"content": " Status: In Progress\n", "textStyle": {}}}
+                ],
+                "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "direction": "LEFT_TO_RIGHT"}
+              }
+            },
+            {
+              "startIndex": 130,
+              "endIndex": 160,
+              "paragraph": {
+                "elements": [
+                  {"startIndex": 130, "endIndex": 142, "textRun": {"content": "Attendees: ", "textStyle": {}}},
+                  {"startIndex": 142, "endIndex": 143, "person": {"personId": "kix.person1", "personProperties": {"name": "Jordan Rivera", "email": "jordan@acme.example"}}},
+                  {"startIndex": 143, "endIndex": 144, "person": {"personId": "kix.person2", "personProperties": {"name": "Sam Okafor", "email": "sam@acme.example"}}},
+                  {"startIndex": 144, "endIndex": 160, "textRun": {"content": "\n", "textStyle": {}}}
+                ],
+                "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "direction": "LEFT_TO_RIGHT"}
+              }
+            }
+          ]
+        },
+        "documentStyle": {"pageSize": {"height": {"magnitude": 792, "unit": "PT"}, "width": {"magnitude": 612, "unit": "PT"}}},
+        "inlineObjects": {},
+        "lists": {},
+        "namedStyles": {"styles": []}
+      }
+    }
+  ]
+}

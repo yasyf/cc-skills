@@ -1,0 +1,456 @@
+{
+  "meta": {
+    "title": "Checkout API returned 502s and the order queue backed up",
+    "slug": "checkout-api-returned-502s-and-the-order-queue-backed-up",
+    "date": "2026-03-14",
+    "subtitle": "Incident retrospective",
+    "status": "resolved",
+    "incident": {
+      "number": 7,
+      "severity": "sev-2",
+      "severityLink": "https://linear.app/acme/issue/ENG-1/checkout-502s-sev-2"
+    },
+    "authors": [
+      "Jordan Rivera"
+    ],
+    "attendees": [
+      "Jordan Rivera",
+      "Sam Okafor"
+    ],
+    "teams": [],
+    "repo": "acme/monorepo",
+    "timezone": "America/Los_Angeles",
+    "subIncidents": [
+      {
+        "id": "I1",
+        "t": "Checkout: The checkout API returned 502s for 41 minutes after the `api` deploy.",
+        "h": ""
+      },
+      {
+        "id": "I2",
+        "t": "Queue: The order queue backed up while the API was down and drained slowly.",
+        "h": ""
+      }
+    ],
+    "canonical": "This file is the canonical retro. Snapshots of the evidence live under evidence/; prose that does not fit structure lives in NOTES.md; incident-retro.html renders from this file."
+  },
+  "summary": {
+    "text": "1. [Checkout] The checkout API returned 502s for 41 minutes after the `api` deploy.\n2. [Queue] The order queue backed up while the API was down and drained slowly.\n\n> `upstream connect error or disconnect/reset before headers`",
+    "p": ""
+  },
+  "timestamps": {
+    "onset": "2026-03-14T10:12:00-07:00",
+    "detected": "2026-03-14T10:14:00-07:00",
+    "engaged": null,
+    "mitigated": null,
+    "resolved": "2026-03-14T10:53:00-07:00",
+    "allClear": "2026-03-14T11:30:00-07:00"
+  },
+  "windows": [
+    {
+      "id": "W1",
+      "h": "",
+      "start": "2026-03-14T10:12:00-07:00",
+      "end": "2026-03-14T10:53:00-07:00",
+      "kind": "outage",
+      "text": "Checkout was unavailable for every customer between 10:12 and 10:53.",
+      "teams": []
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2026-03-14T10:08:00-07:00",
+      "kind": "deploy",
+      "text": "build 301, target `api`, starts on `releases/2026-03-14/1` with [#12](https://github.com/acme/monorepo/pull/12)",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/12",
+          "kind": "pr"
+        }
+      ],
+      "phase": "before"
+    },
+    {
+      "ts": "2026-03-14T10:12:00-07:00",
+      "kind": "hypothesis",
+      "text": "first 502s on `/checkout`"
+    },
+    {
+      "ts": "2026-03-14T10:14:00-07:00",
+      "kind": "report",
+      "text": "Sam Okafor reports checkout failures in [#incidents](https://acme.slack.com/archives/C01ACME0001/p1773480900000000)",
+      "actor": "Sam Okafor",
+      "refs": [
+        "https://acme.slack.com/archives/C01ACME0001/p1773480900000000"
+      ]
+    },
+    {
+      "ts": "2026-03-14T10:15:00-07:00",
+      "kind": "alert",
+      "text": "**monitor 2 alerts** on 5xx rate ([https://app.datadoghq.com/monitors/2](https://app.datadoghq.com/monitors/2))",
+      "refs": [
+        "https://app.datadoghq.com/monitors/2"
+      ]
+    },
+    {
+      "ts": "2026-03-14T10:20:00-07:00",
+      "kind": "hypothesis",
+      "text": "Jordan suspects the new pool limit ([notebook](https://app.datadoghq.com/notebook/1))",
+      "actor": "Jordan",
+      "refs": [
+        "https://app.datadoghq.com/notebook/1"
+      ]
+    },
+    {
+      "ts": "2026-03-14T10:41:00-07:00",
+      "kind": "mitigation",
+      "text": "rollback to `releases/2026-03-13/4` kicked off"
+    },
+    {
+      "ts": "2026-03-14T10:53:00-07:00",
+      "kind": "resolution",
+      "text": "502s stop; checkout recovers"
+    },
+    {
+      "ts": "2026-03-14T11:30:00-07:00",
+      "kind": "allclear",
+      "text": "queue drained, all-clear called"
+    },
+    {
+      "ts": "2026-03-14T12:48:00-07:00",
+      "kind": "hypothesis",
+      "text": "Sentry issue [https://acme.sentry.io/issues/100/](https://acme.sentry.io/issues/100/) linked to the retro",
+      "refs": [
+        "https://acme.sentry.io/issues/100/"
+      ],
+      "phase": "after"
+    },
+    {
+      "ts": "2026-03-14T13:10:00-07:00",
+      "kind": "deploy",
+      "text": "deploying the pool fix [#13](https://github.com/acme/monorepo/pull/13)",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/13",
+          "kind": "pr"
+        }
+      ],
+      "phase": "after"
+    },
+    {
+      "ts": "2026-03-15T09:00:00-07:00",
+      "kind": "hypothesis",
+      "text": "Retro scheduled",
+      "phase": "after"
+    },
+    {
+      "ts": "2026-03-15T10:30:00-07:00",
+      "kind": "mitigation",
+      "text": "Queue consumer restarted and resumed draining.",
+      "phase": "after"
+    },
+    {
+      "ts": "2026-03-15T11:05:00-07:00",
+      "kind": "action",
+      "text": "Sam posts the drain graph",
+      "actor": "Sam",
+      "phase": "after"
+    }
+  ],
+  "impact": {
+    "text": "Checkout was unavailable for every customer between 10:12 and 10:53.\nThe order queue held 1 240 orders at peak; all were delivered by 11:30.\n\n- Payments retried and no charges were lost.\n- Two enterprise tenants opened support tickets.",
+    "p": "",
+    "teams": [],
+    "metrics": []
+  },
+  "causes": [
+    {
+      "id": "C1",
+      "kind": "root",
+      "t": "The new connection pool capped at 4 connections per pod, so every pod saturated within minutes of the deploy",
+      "h": "",
+      "text": "The new connection pool capped at 4 connections per pod, so every pod saturated within minutes of the deploy.",
+      "p": "",
+      "evidence": [],
+      "links": [],
+      "incident": "I1",
+      "code": {
+        "lang": "ts",
+        "source": "const pool = new Pool({ max: 4 })",
+        "caption": ""
+      }
+    },
+    {
+      "id": "C2",
+      "kind": "root",
+      "t": "The queue consumer paused on the first 502 and never resumed until it was restarted",
+      "h": "",
+      "text": "The queue consumer paused on the first 502 and never resumed until it was restarted.",
+      "p": "",
+      "evidence": [],
+      "links": [],
+      "incident": "I2"
+    },
+    {
+      "id": "C3",
+      "kind": "contributing",
+      "t": "No canary",
+      "h": "",
+      "text": "The deploy went to every pod at once.",
+      "p": "",
+      "evidence": [],
+      "links": []
+    },
+    {
+      "id": "C4",
+      "kind": "contributing",
+      "t": "Silent saturation",
+      "h": "",
+      "text": "Pool exhaustion logged at debug level only.",
+      "p": "",
+      "evidence": [],
+      "links": []
+    },
+    {
+      "id": "C5",
+      "kind": "trigger",
+      "t": "The `api` deploy of #12 at 10:08",
+      "h": "",
+      "text": "The `api` deploy of [#12](https://github.com/acme/monorepo/pull/12) at 10:08.",
+      "p": "",
+      "evidence": [],
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/12",
+          "kind": "pr"
+        }
+      ]
+    }
+  ],
+  "resolution": {
+    "text": "[Rolled the pool size back](https://app.graphite.com/github/pr/acme/monorepo/13?panel=timeline) to 32 and restarted the queue consumer. Build: [https://buildkite.com/acme/release/builds/301](https://buildkite.com/acme/release/builds/301)",
+    "p": "",
+    "links": [
+      {
+        "url": "https://github.com/acme/monorepo/pull/13",
+        "kind": "pr",
+        "label": "Rolled the pool size back"
+      },
+      {
+        "url": "https://buildkite.com/acme/release/builds/301",
+        "kind": "doc"
+      }
+    ]
+  },
+  "detection": {
+    "text": "Monitor [https://app.datadoghq.com/monitors/2](https://app.datadoghq.com/monitors/2) fired at 10:15. Sam Okafor reported the errors in [#incidents](https://acme.slack.com/archives/C01ACME0001/p1773480900000000).",
+    "p": "",
+    "monitors": [
+      {
+        "id": 2,
+        "role": "caught"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "id": "AI1",
+      "t": "Alert on pool saturation",
+      "h": "",
+      "source": "review",
+      "state": "todo",
+      "owner": "Jordan Rivera",
+      "links": []
+    },
+    {
+      "id": "AI2",
+      "t": "Canary deploys for `api`",
+      "h": "",
+      "source": "review",
+      "state": "done",
+      "links": [
+        {
+          "url": "https://linear.app/acme/issue/ENG-1/checkout-502s-sev-2",
+          "kind": "doc",
+          "label": "ENG-1"
+        }
+      ]
+    },
+    {
+      "id": "AI3",
+      "t": "Restart the queue consumer automatically after a 502 burst",
+      "h": "",
+      "source": "review",
+      "state": "done",
+      "owner": "Sam Okafor",
+      "links": []
+    },
+    {
+      "id": "AI4",
+      "t": "Raise the pool size ceiling in config",
+      "h": "",
+      "source": "review",
+      "state": "todo",
+      "owner": "Jordan",
+      "links": [
+        {
+          "url": "https://linear.app/acme/issue/ENG-2/raise-pool-ceiling",
+          "kind": "doc",
+          "label": "ENG-2"
+        }
+      ]
+    },
+    {
+      "id": "AI5",
+      "t": "Add a runbook for queue drain",
+      "h": "",
+      "source": "review",
+      "state": "todo",
+      "owner": "Sam",
+      "links": [],
+      "due": "2026-04-01"
+    },
+    {
+      "id": "AI6",
+      "t": "Review the on-call rotation",
+      "h": "",
+      "source": "review",
+      "state": "done",
+      "links": []
+    },
+    {
+      "id": "AI7",
+      "t": "Pool metrics dashboard",
+      "h": "",
+      "source": "review",
+      "state": "todo",
+      "links": [
+        {
+          "url": "https://linear.app/acme/issue/ENG-3/pool-metrics-dashboard",
+          "kind": "doc",
+          "label": "ENG-3"
+        }
+      ]
+    }
+  ],
+  "lessons": {
+    "well": [
+      {
+        "text": "Rollback was quick once the pool was suspected."
+      },
+      {
+        "text": "The queue absorbed the outage without dropping orders."
+      }
+    ],
+    "wrong": [
+      {
+        "text": "The pool limit shipped without a load test."
+      },
+      {
+        "text": "The monitor fired three minutes after customers noticed."
+      }
+    ],
+    "lucky": [
+      {
+        "text": "The deploy landed in a low-traffic hour."
+      }
+    ]
+  },
+  "evidence": {
+    "notebooks": [
+      {
+        "id": 1,
+        "url": "https://app.datadoghq.com/notebook/1"
+      }
+    ],
+    "monitors": [
+      {
+        "id": 2,
+        "url": "https://app.datadoghq.com/monitors/2"
+      }
+    ],
+    "slack": [
+      {
+        "url": "https://acme.slack.com/archives/C01ACME0001/p1773480900000000"
+      }
+    ],
+    "sentry": [
+      {
+        "url": "https://acme.sentry.io/issues/100/"
+      }
+    ],
+    "linear": [
+      {
+        "url": "https://linear.app/acme/issue/ENG-1/checkout-502s-sev-2",
+        "key": "ENG-1",
+        "label": "Linear Ticket"
+      },
+      {
+        "url": "https://linear.app/acme/issue/ENG-2/raise-pool-ceiling",
+        "key": "ENG-2",
+        "label": "ENG-2"
+      },
+      {
+        "url": "https://linear.app/acme/issue/ENG-3/pool-metrics-dashboard",
+        "key": "ENG-3"
+      }
+    ],
+    "builds": [
+      {
+        "url": "https://buildkite.com/acme/release/builds/301"
+      }
+    ],
+    "prs": [
+      {
+        "url": "https://github.com/acme/monorepo/pull/12",
+        "role": "cause"
+      },
+      {
+        "url": "https://github.com/acme/monorepo/pull/13",
+        "role": "fix",
+        "alt": "https://app.graphite.com/github/pr/acme/monorepo/13?panel=timeline"
+      }
+    ],
+    "runs": [],
+    "images": [
+      {
+        "file": "evidence/images/image-1.png",
+        "alt": "Sam posts the drain graph",
+        "caption": "",
+        "cites": []
+      },
+      {
+        "file": "evidence/images/image-2.png",
+        "alt": "Pool configuration",
+        "caption": "",
+        "cites": []
+      }
+    ],
+    "docs": [
+      {
+        "url": "https://app.datadoghq.com/dashboard/abc-123",
+        "label": "Dashboard"
+      },
+      {
+        "url": "https://status.acme.example/incidents/7",
+        "label": "Status page"
+      }
+    ]
+  },
+  "notes": [
+    {
+      "t": "Supporting information",
+      "md": "- Release builds: 301 `api`, 302 `worker`"
+    },
+    {
+      "t": "Pool configuration",
+      "md": "The pool config before the fix.\n\n```\nmax_connections: 4\n```"
+    },
+    {
+      "t": "Retro meeting notes",
+      "md": "Attendees agreed to run the canary experiment next sprint."
+    }
+  ],
+  "components": {},
+  "housekeeping": []
+}
