@@ -1,6 +1,6 @@
 # Reader comments
 
-Each comment a reader leaves on a published doc is one immutable JSON file at `<slug>/comments/<ulid>.json` in the Forge-AI/design-docs repository. Nothing is ever mutated or deleted.
+Each comment a reader leaves on a published doc is one immutable JSON file at `<dir>/comments/<ulid>.json` in the Forge-AI/design-docs repository, where `<dir>` is the doc's directory relative to the site root as the page reads it from its own URL (`single-tenancy` at the root, `design-docs/single-tenancy` once docs are grouped). Nothing is ever mutated or deleted.
 
 ## The record
 
