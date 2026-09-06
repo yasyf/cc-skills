@@ -1,0 +1,33 @@
+name: Shared templates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/_shared/**"
+      - "plugins/*/skills/*/templates/**"
+      - "plugins/*/skills/*/scripts/ddshared.py"
+      - "plugins/*/skills/*/scripts/build-pdf.py"
+      - "plugins/*/skills/*/reference/components/dd.*.json"
+      - ".github/workflows/shared-templates.yml"
+  pull_request:
+    paths:
+      - "plugins/_shared/**"
+      - "plugins/*/skills/*/templates/**"
+      - "plugins/*/skills/*/scripts/ddshared.py"
+      - "plugins/*/skills/*/scripts/build-pdf.py"
+      - "plugins/*/skills/*/reference/components/dd.*.json"
+      - ".github/workflows/shared-templates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Generated files match plugins/_shared
+        run: python3 plugins/_shared/build.py check

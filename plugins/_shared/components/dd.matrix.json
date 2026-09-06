@@ -1,5 +1,4 @@
 {
-  "_built": "sha256:25d75ef82a67",
   "kind": "dd.matrix",
   "title": "Matrix",
   "summary": "Options against criteria, one cell each, with an optional picked column. Cells carry a tone so the shape of the answer reads before the words do.",
