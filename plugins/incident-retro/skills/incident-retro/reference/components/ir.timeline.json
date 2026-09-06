@@ -1,0 +1,27 @@
+{
+  "kind": "ir.timeline",
+  "title": "Timeline swimlane",
+  "summary": "The timeline as a swimlane: time runs left to right, one lane per kind of entry (or per actor), a glyph and a time label per entry, the outage windows as bands, deploys and alerts as vertical ticks, the timestamps as dashed rules. Hover a mark for the entry and the Slack message it cites; click it to jump to the row. The wheel zooms, dragging pans, and a Reset control returns to the incident's span. The page renders one at the head of Timeline when the retro has eight or more entries; declare one to switch to actor lanes, fix the span, or restrict the kinds.",
+  "belongs": "Timeline. A declared one with a narrow span also fits a cause card that argues about a few minutes.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.timeline"},
+    "title": {"type": "string", "minLength": 1},
+    "lanes": {"enum": ["kind", "actor"], "description": "default kind"},
+    "from": {"type": "string", "format": "date-time", "description": "start of the resting view; default the first in-incident entry or onset"},
+    "to": {"type": "string", "format": "date-time", "description": "end of the resting view; default the last in-incident entry or all clear"},
+    "windows": {"type": "boolean", "description": "paint the outage windows as bands; default true"},
+    "zoom": {"type": "boolean", "description": "wheel and drag zoom; default true"},
+    "kinds": {"type": "array", "minItems": 1, "items": {"enum": ["deploy", "alert", "report", "hypothesis", "action", "mitigation", "resolution", "allclear"]}}
+  },
+  "example": {
+    "kind": "ir.timeline",
+    "title": "Who did what",
+    "lanes": "actor",
+    "from": "2026-08-14T09:30:00-07:00",
+    "to": "2026-08-14T11:00:00-07:00",
+    "kinds": ["hypothesis", "action", "mitigation"]
+  }
+}
