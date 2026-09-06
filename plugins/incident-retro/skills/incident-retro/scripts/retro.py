@@ -588,8 +588,10 @@ def check_timestamps(rep, R, draft: bool) -> dict:
         value = raw.get(key)
         if value is None:
             if key in ("onset", "resolved"):
-                rep.strict_warn(f"timestamps.{key} is null; the tiles cannot compute anything without it" if draft
-                                else f"timestamps.{key} is null; only a draft may leave it unset")
+                if draft:
+                    rep.warn(f"timestamps.{key} is null; the tiles cannot compute anything without it")
+                else:
+                    rep.err(f"timestamps.{key} is null; only a draft may leave it unset")
             continue
         try:
             parsed[key] = parse_ts(value)
