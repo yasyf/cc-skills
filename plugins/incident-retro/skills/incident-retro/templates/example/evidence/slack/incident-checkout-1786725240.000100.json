@@ -1,0 +1,65 @@
+{
+ "schema": "ir.slack/1",
+ "permalink": "https://acme.slack.com/archives/C04INC1DENT/p1786725240000100",
+ "channel_id": "C04INC1DENT",
+ "channel_name": "incident-checkout",
+ "ts": "1786725240.000100",
+ "thread_ts": "1786725240.000100",
+ "fetchedAt": "2026-08-20T18:05:00Z",
+ "messages": [
+  {
+   "ts": "1786725240.000100",
+   "user_id": "U01SUPPORT",
+   "user_name": "dana.reyes",
+   "datetime": "2026-08-14T09:34:00-07:00",
+   "text": "Two customers report checkout failing with *Something went wrong* on the pay step. Both retried and failed again. Tenants: `northwind`, `contoso-eu`.",
+   "reactions": [
+    {
+     "name": "eyes",
+     "count": 3
+    }
+   ],
+   "files": []
+  },
+  {
+   "ts": "1786725480.000200",
+   "user_id": "U02PRIYA",
+   "user_name": "priya",
+   "datetime": "2026-08-14T09:38:00-07:00",
+   "text": "Declaring an incident. I have command. <@U03TOM> can you take the edge?",
+   "reactions": [],
+   "files": []
+  },
+  {
+   "ts": "1786726920.000300",
+   "user_id": "U03TOM",
+   "user_name": "tom",
+   "datetime": "2026-08-14T10:02:00-07:00",
+   "text": "Error bodies say `429 upstream`. That is the limiter, not the provider. Notebook: <https://app.datadoghq.com/notebook/4410021|Incident 42 — checkout 429s>",
+   "reactions": [
+    {
+     "name": "+1",
+     "count": 4
+    }
+   ],
+   "files": [
+    "error-body.png"
+   ]
+  },
+  {
+   "ts": "1786729560.000400",
+   "user_id": "U02PRIYA",
+   "user_name": "priya",
+   "datetime": "2026-08-14T10:46:00-07:00",
+   "text": "Rolled back to v6. Error rate is dropping. Keep the channel open for the replay.",
+   "reactions": [
+    {
+     "name": "tada",
+     "count": 5
+    }
+   ],
+   "files": []
+  }
+ ],
+ "redactions": []
+}

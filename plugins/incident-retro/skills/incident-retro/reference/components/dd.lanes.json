@@ -1,0 +1,78 @@
+{
+  "kind": "dd.lanes",
+  "title": "Two lanes",
+  "summary": "Today beside proposed: two framed lanes, each a stack of boxes sized to their text, solid for what runs or holds, dashed for what is absent or not built, amber for what to watch. The lanes sit side by side and stack on a narrow screen.",
+  "belongs": "A compare panel whose figure shows what each side holds; the boxes-in-boxes shape most decks draw by hand.",
+  "type": "object",
+  "required": ["kind", "lanes"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.lanes"},
+    "title": {"type": "string", "minLength": 1},
+    "lanes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "boxes"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "label": {"type": "string", "minLength": 1},
+          "tone": {"enum": ["before", "after"], "description": "the lane colour; the first lane is before and the second after unless set"},
+          "boxes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "required": ["title"],
+              "additionalProperties": false,
+              "properties": {
+                "title": {"type": "string", "minLength": 1},
+                "sub": {"type": "string", "minLength": 1},
+                "status": {"enum": ["closed", "open", "warn"], "description": "solid, dashed, or amber; solid when unset"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "bridge": {"type": "string", "minLength": 1, "description": "the label on the arrow from the first lane to the second"}
+  },
+  "example": {
+    "kind": "dd.lanes",
+    "lanes": [
+      {
+        "id": "today",
+        "label": "Today",
+        "boxes": [
+          {"title": "api-runtime", "sub": "37 pods observed"},
+          {"title": "Executors, browsers", "sub": "dispatched via plat"},
+          {"title": "Restate store", "sub": "3 replicas, 512 GiB"},
+          {"title": "Restate worker", "sub": "2 to 20 pods"},
+          {"title": "Tenant GraphQL", "sub": "lands on plat", "status": "open"},
+          {"title": "Dispatch routing", "sub": "on plat", "status": "open"},
+          {"title": "Login, WorkOS", "sub": "on plat", "status": "open"},
+          {"title": "Shared Postgres", "sub": "one role, every row", "status": "warn"}
+        ]
+      },
+      {
+        "id": "proposed",
+        "label": "Proposed",
+        "boxes": [
+          {"title": "api-runtime", "sub": "serves its own GraphQL"},
+          {"title": "Executors, browsers", "sub": "dispatched from here"},
+          {"title": "Tenant GraphQL", "sub": "runs here"},
+          {"title": "Dispatch", "sub": "from the tenant hostname"},
+          {"title": "Valkey", "sub": "proof replay set"},
+          {"title": "Restate", "sub": "no store, no worker", "status": "open"},
+          {"title": "Login, WorkOS", "sub": "stay on plat", "status": "open"},
+          {"title": "Shared Postgres", "sub": "a row policy per cluster role"}
+        ]
+      }
+    ],
+    "bridge": "origin: the tenant's own NLB"
+  }
+}

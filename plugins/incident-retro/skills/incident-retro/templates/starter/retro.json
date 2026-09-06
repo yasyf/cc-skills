@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "title": "PROJECT_TITLE",
+    "subtitle": "Incident retrospective",
+    "status": "draft",
+    "date": "PROJECT_DATE",
+    "slug": "PROJECT_SLUG",
+    "incident": {"number": "PROJECT_INCIDENT"},
+    "authors": [],
+    "teams": [],
+    "timezone": "America/Los_Angeles",
+    "canonical": "This file is the canonical retro. Snapshots of the evidence live under evidence/; prose that does not fit structure lives in NOTES.md; incident-retro.html renders from this file."
+  },
+  "summary": {"text": "TODO", "p": "TODO"},
+  "timestamps": {"onset": null, "detected": null, "engaged": null, "mitigated": null, "resolved": null, "allClear": null},
+  "windows": [],
+  "timeline": [],
+  "impact": {"text": "", "p": "", "teams": [], "metrics": []},
+  "causes": [],
+  "resolution": {"text": "", "p": "", "links": []},
+  "detection": {"text": "", "p": "", "monitors": []},
+  "actions": [],
+  "lessons": {"well": [], "wrong": [], "lucky": []},
+  "evidence": {"notebooks": [], "monitors": [], "slack": [], "sentry": [], "linear": [], "builds": [], "prs": [], "runs": [], "images": [], "docs": []},
+  "notes": [],
+  "components": {},
+  "housekeeping": []
+}
