@@ -1,0 +1,22 @@
+{
+  "kind": "ir.windows",
+  "title": "Outage windows",
+  "summary": "A hand-drawn gantt of the outage, degraded and partial windows, one bar per window on its lane, with dashed rules at the timestamps and each bar's duration on it. Hover a bar for its card, click it for the full entry. The page renders one under the summary whenever the retro has a window; declare one to pick the lanes or a subset of windows.",
+  "belongs": "Overview. A declared subset also fits a sub-incident's cause card.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.windows"},
+    "title": {"type": "string", "minLength": 1},
+    "windows": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^W\\d+$"}, "description": "window ids to draw; default every window"},
+    "lanes": {"enum": ["team", "incident", "none"], "description": "one lane per team, per sub-incident, or per window; default incident when the retro has sub-incidents, else team when any window names one, else none"},
+    "marks": {"type": "boolean", "description": "draw the timestamp rules; default true"}
+  },
+  "example": {
+    "kind": "ir.windows",
+    "title": "When customers were affected",
+    "lanes": "team",
+    "marks": true
+  }
+}
