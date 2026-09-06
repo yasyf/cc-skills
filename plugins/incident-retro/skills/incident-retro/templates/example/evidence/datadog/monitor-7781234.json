@@ -1,0 +1,47 @@
+{
+ "schema": "ir.monitor/1",
+ "id": 7781234,
+ "url": "https://app.datadoghq.com/monitors/7781234",
+ "site": "datadoghq.com",
+ "fetchedAt": "2026-08-20T18:00:00Z",
+ "name": "Checkout 5xx rate",
+ "type": "metric alert",
+ "query": "avg(last_15m):sum:checkout.api.errors{status:5xx} by {region}.as_rate() / sum:checkout.api.requests{*} by {region}.as_rate() * 100 > 5",
+ "message": "Checkout is returning 5xx above 5% in {{region.name}}. Runbook: https://docs.acme.example/runbooks/checkout-5xx @slack-incident-checkout",
+ "tags": [
+  "service:checkout",
+  "team:checkout"
+ ],
+ "created": "2025-11-03T17:22:00Z",
+ "modified": "2026-08-15T00:41:00Z",
+ "overallState": "OK",
+ "thresholds": {
+  "critical": 5,
+  "warning": 2,
+  "criticalRecovery": null,
+  "warningRecovery": null
+ },
+ "options": {
+  "evaluationDelay": 60,
+  "notifyNoData": false,
+  "noDataTimeframe": null,
+  "renotifyInterval": null,
+  "requireFullWindow": true
+ },
+ "events": [
+  {
+   "ts": "2026-08-14T16:31:00Z",
+   "transition": "alert",
+   "group": "region:us-west",
+   "title": "[Triggered on {region:us-west}] Checkout 5xx rate",
+   "url": "https://app.datadoghq.com/event/event?id=7700000000000000001"
+  },
+  {
+   "ts": "2026-08-14T17:52:00Z",
+   "transition": "recovery",
+   "group": "region:us-west",
+   "title": "[Recovered on {region:us-west}] Checkout 5xx rate",
+   "url": "https://app.datadoghq.com/event/event?id=7700000000000000002"
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+  "kind": "ir.notebook",
+  "title": "Notebook",
+  "summary": "A Datadog notebook drawn from its snapshot file: markdown cells as prose, timeseries cells as uPlot charts with the incident windows banded over them, toplists as bar lists, log streams as tables, and every other cell as a definition card that opens in Datadog.",
+  "belongs": "The Evidence section renders every registered notebook; declare one to place a subset of its cells beside the cause it proves.",
+  "type": "object",
+  "required": ["kind", "notebook"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.notebook"},
+    "title": {"type": "string", "minLength": 1},
+    "notebook": {"type": "integer", "minimum": 1, "description": "an evidence.notebooks[] id"},
+    "cells": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}, "description": "cell indexes to show; default every cell"},
+    "height": {"type": "integer", "minimum": 180, "maximum": 480, "description": "chart height in pixels"},
+    "bands": {"type": "boolean", "description": "paint the windows and the timestamp rules over each chart; default true"}
+  },
+  "example": {
+    "kind": "ir.notebook",
+    "notebook": 4410021,
+    "cells": [1, 2],
+    "height": 240,
+    "bands": true
+  }
+}

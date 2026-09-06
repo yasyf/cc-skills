@@ -1,0 +1,49 @@
+{
+  "kind": "dd.tabs",
+  "title": "Tabs",
+  "summary": "Two to five panes of prose or figures behind one row of tabs. In print and in Markdown every pane is stacked under its label.",
+  "belongs": "An arch card body that has a request path, a rollout and a failure mode to show in the same space.",
+  "type": "object",
+  "required": ["kind", "tabs"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.tabs"},
+    "title": {"type": "string", "minLength": 1},
+    "default": {"type": "integer", "minimum": 0, "description": "index of the pane open on load"},
+    "tabs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "md": {"type": "string", "minLength": 1},
+          "figure": {
+            "type": "object",
+            "required": ["kind", "source"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {"enum": ["mermaid", "svg"]},
+              "source": {"type": "string", "minLength": 1},
+              "caption": {"type": "string", "minLength": 1},
+              "label": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  },
+  "example": {
+    "kind": "dd.tabs",
+    "title": "One job, three views",
+    "default": 0,
+    "tabs": [
+      {"label": "Request path", "md": "The producer commits the job, the dispatcher wakes a parked long-poll, the worker takes a lease."},
+      {"label": "Rollout", "md": "Shadow reads first, then one tenant, then the fleet."},
+      {"label": "Failure modes", "md": "A lease expires and the job returns to the head of its queue."}
+    ]
+  }
+}

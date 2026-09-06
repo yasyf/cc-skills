@@ -1,0 +1,10 @@
+{
+  "name": "incident-retro",
+  "description": "Write a blameless incident retrospective as one canonical retro.json beside the evidence it rests on — the onset, detection, engagement, mitigation and resolution timestamps that the page turns into time-to-detect, time-to-mitigate and time-to-resolve tiles so no prose ever states a duration by hand, outage windows drawn as a gantt, a timeline whose every entry carries the Slack thread, pull request, monitor or notebook it came from, causes typed as trigger, root or contributing and cited by a human-readable handle, action items tracked to their pull requests with live GitHub state, lessons in three columns, and Datadog notebooks, monitors and Slack threads snapshotted into evidence files the page renders itself with uPlot charts and transcripts — shipped as an interactive HTML doc with a plain-wording toggle, a revision diff, a Markdown export, an Ask bar behind a deployed key, and a PDF printed from the same page, with a driver that scaffolds, lints eighteen ways, fetches evidence, imports a Google Docs post-mortem, and snapshots revisions.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}
