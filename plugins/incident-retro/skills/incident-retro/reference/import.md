@@ -67,7 +67,7 @@ The header is everything between the H1 and the first other heading.
 | Field | Rule |
 |---|---|
 | `meta.title` | The H1, else the Docs API title. A leading `[YYYY-MM-DD]`, a trailing `(#N)`, `#N`, `(incident N)`, `(#)` or `RCA` is stripped. |
-| `meta.date` | The first date in the `Date:` field; else the title's bracket date; else `--date`; else the first timeline entry's date. `Date: Date` is the template placeholder and counts as no date. |
+| `meta.date` | The first date in the `Date:` field; else the title's bracket date; else `--date`; else the date of the earliest timeline entry or window. `Date: Date` is the template placeholder and counts as no date. |
 | `meta.status` | The last of the `Date: … Status:` header line and any bold `**Status:**` line wins. `resolved` or `closed` gives `resolved`; `reviewed` gives `reviewed`; `in review` gives `in-review`; `in progress`, `investigating`, `triage`, `monitoring`, `open` and `draft` give `draft`; no field gives `draft`. |
 | `meta.incident.number` | `(#N)`, `#N` or `(incident N)` in the title; else `#N`, `(incident N)` or `INC-N` in the header. |
 | `meta.incident.severity` | `sev-?N` anywhere in the header, including inside a link such as a Linear issue URL; that link becomes `severityLink`. |

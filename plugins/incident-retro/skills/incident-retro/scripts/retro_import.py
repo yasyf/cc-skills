@@ -1400,10 +1400,10 @@ class Importer:
         date = self.header_date
         why = self.date_why
         if not date:
-            first = next((e for e in self.retro["timeline"]), None)
-            if first:
-                date = datetime.date.fromisoformat(first["ts"][:10])
-                why = "the first timeline entry" + (f"; {why}" if why else "")
+            stamps = [e["ts"] for e in self.retro["timeline"]] + [w["start"] for w in self.retro["windows"]]
+            if stamps:
+                date = datetime.date.fromisoformat(min(stamps)[:10])
+                why = "the earliest timeline entry or window" + (f"; {why}" if why else "")
         self.report.header.insert(1, f"Date: {date.isoformat() if date else '(none)'}" + (f" (from {why})" if date else " (no `Date:` field, title bracket, `--date` or dated timeline row)"))
         owners = {GITHUB_PR.match(p["url"]) and f"{GITHUB_PR.match(p['url'])[1]}/{GITHUB_PR.match(p['url'])[2]}" for p in self.retro["evidence"]["prs"]}
         ordered = {"title": meta["title"], "slug": slugify(meta["title"]), "date": date.isoformat() if date else "", "subtitle": SUBTITLE,
@@ -1439,7 +1439,7 @@ def write_notes(path: Path, report: str):
     path.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
 
 
-def import_gdoc(md_path: Path, docs_json_path: Path | None, out_dir: Path, tz: str, date: str | None) -> dict:
+def convert(md_path: Path, docs_json_path: Path | None, out_dir: Path, tz: str, date: str | None) -> dict:
     doc_json = json.loads(docs_json_path.read_text(encoding="utf-8")) if docs_json_path else None
     importer = Importer(md_path.read_text(encoding="utf-8"), doc_json, md_path.name, tz, date)
     retro = importer.run()
@@ -1455,29 +1455,29 @@ def import_gdoc(md_path: Path, docs_json_path: Path | None, out_dir: Path, tz: s
     return {"retro": retro, "report": report}
 
 
-def run_import(args) -> int:
-    md_path = Path(args.exported_md)
+def import_gdoc(md_path: Path, docs_json_path: Path | None, out_dir: Path, tz: str, date: str | None) -> int:
     if not md_path.is_file():
         print(f"import-gdoc: {md_path} is not a file", file=sys.stderr)
         return 2
-    docs_json = Path(args.docs_json) if args.docs_json else None
-    if docs_json and not docs_json.is_file():
-        print(f"import-gdoc: {docs_json} is not a file", file=sys.stderr)
+    if docs_json_path and not docs_json_path.is_file():
+        print(f"import-gdoc: {docs_json_path} is not a file", file=sys.stderr)
         return 2
     try:
-        zoneinfo.ZoneInfo(args.tz)
+        zoneinfo.ZoneInfo(tz)
     except zoneinfo.ZoneInfoNotFoundError:
-        print(f"import-gdoc: unknown timezone {args.tz}", file=sys.stderr)
+        print(f"import-gdoc: unknown timezone {tz}", file=sys.stderr)
         return 2
-    out = Path(args.out)
-    result = import_gdoc(md_path, docs_json, out, args.tz, args.date)
-    retro = result["retro"]
-    print(f"wrote {out / 'retro.json'}: {len(retro['timeline'])} timeline entries, {len(retro['windows'])} windows, "
+    retro = convert(md_path, docs_json_path, out_dir, tz, date)["retro"]
+    print(f"wrote {out_dir / 'retro.json'}: {len(retro['timeline'])} timeline entries, {len(retro['windows'])} windows, "
           f"{len(retro['causes'])} causes, {len(retro['actions'])} actions, "
           f"{sum(len(v) for v in retro['lessons'].values())} lessons, {len(retro['evidence']['images'])} images, "
           f"{len(retro['notes'])} notes")
-    print(f"read the import report in {out / 'NOTES.md'}")
+    print(f"read the import report in {out_dir / 'NOTES.md'}")
     return 0
+
+
+def run_import(args) -> int:
+    return import_gdoc(Path(args.exported_md), Path(args.docs_json) if args.docs_json else None, Path(args.out), args.tz, args.date)
 
 
 def add_import_parser(sub):
@@ -1495,7 +1495,7 @@ def selftest() -> int:
     expected = FIXTURES / "expected"
     tmp = Path(tempfile.mkdtemp(prefix="retro-import-"))
     try:
-        result = import_gdoc(FIXTURES / "gdoc-export.md", FIXTURES / "gdoc-export.docs.json", tmp, DEFAULT_TZ, None)
+        result = convert(FIXTURES / "gdoc-export.md", FIXTURES / "gdoc-export.docs.json", tmp, DEFAULT_TZ, None)
         failures = 0
         for name in ("retro.json", "NOTES.md"):
             got, want = (tmp / name).read_text(encoding="utf-8"), (expected / name).read_text(encoding="utf-8")
