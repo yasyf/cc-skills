@@ -600,6 +600,7 @@ function cmtUi(){
 function cmtBoot(){
  siteConfig().then(cfg=>{
   if(cfg.github&&!GH_TOKEN)GH_TOKEN=cfg.github.token;
+  cmtSite=cfg.comments;
   CMT_LIVE=!!cmtRepo();
   cmtUi();
   if(!CMT_LIVE){cmtRender();return}

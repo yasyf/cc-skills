@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:f5e9ca07932c — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:f13bfeff5d8c — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -4539,6 +4539,7 @@ function cmtUi(){
 function cmtBoot(){
  siteConfig().then(cfg=>{
   if(cfg.github&&!GH_TOKEN)GH_TOKEN=cfg.github.token;
+  cmtSite=cfg.comments;
   CMT_LIVE=!!cmtRepo();
   cmtUi();
   if(!CMT_LIVE){cmtRender();return}
