@@ -3049,6 +3049,7 @@ window.designDocReady=Promise.allSettled(JOBS).then(async()=>{
  await new Promise(r=>setTimeout(r,0));
  HTML.dataset.ready="1";
 });
+<!-- @include html/ai-core.js -->
 const AI_SECTION_NAMES={overview:"Overview",ground:"Ground rules",architecture:"How it works",paths:"Where the time goes",numbers:"Numbers",ceilings:"Where it breaks",decisions:"Decisions",assumptions:"Assumptions",open:"Still open",footnotes:"Footnotes"};
 const AI_SUGGEST={
  overview:["What is this proposing, in a paragraph?","What breaks today that this fixes?"],
@@ -3099,7 +3100,6 @@ function cmtDecorate(){
  });
 }
 <!-- @include html/comments.js -->
-<!-- @include html/ai-core.js -->
 
 const aiHandle=e=>{
  if(!e)return "";
