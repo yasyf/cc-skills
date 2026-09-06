@@ -1960,8 +1960,8 @@ function makeChart(rec){
  wrap.style.transformOrigin="0 0";
  host.style.height=k===1?"":height+"px";
  host.style.overflow=k===1?"":"hidden";
- let legend=host.querySelector(".viz-series");
- if(!legend){legend=el("div","viz-legend viz-series");host.after(legend)}
+ let legend=host.nextElementSibling;
+ if(!(legend&&legend.classList.contains("viz-series"))){legend=el("div","viz-legend viz-series");host.after(legend)}
  legend.innerHTML=fold.map((s,i)=>`<span class="lg"><i class="viz-sw" style="background:${esc(cssVar("--viz-"+(i+1)))}"></i>${esc(s.label)}</span>`).join("");
  legend.hidden=k===1;
 }
