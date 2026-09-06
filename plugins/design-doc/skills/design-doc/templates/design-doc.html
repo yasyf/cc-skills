@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/design-doc.html + 16 partials sha256:e974b882cef2 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/design-doc.html + 16 partials sha256:f612bd8027af — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -4536,7 +4536,7 @@ const CMT_AUTO_MERGE="mutation($id:ID!){enablePullRequestAutoMerge(input:{pullRe
 const cmtSubs=[];
 let cmtSite=null,cmtDb=null,cmtTimer=0,cmtInflight=null,cmtAuthFailed=false,cmtRetries=0,cmtState={state:"idle"};
 function cmtSlug(){
- return location.pathname.replace(/^\/|\/[^/]*$/g,"");
+ return location.pathname.replace(/[^/]*$/,"").replace(/^\/|\/$/g,"");
 }
 function cmtRepo(){
  if(!cmtSite||!cmtSite.repo)return null;

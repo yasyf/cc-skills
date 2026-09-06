@@ -7,7 +7,7 @@ const CMT_AUTO_MERGE="mutation($id:ID!){enablePullRequestAutoMerge(input:{pullRe
 const cmtSubs=[];
 let cmtSite=null,cmtDb=null,cmtTimer=0,cmtInflight=null,cmtAuthFailed=false,cmtRetries=0,cmtState={state:"idle"};
 function cmtSlug(){
- return location.pathname.replace(/^\/|\/[^/]*$/g,"");
+ return location.pathname.replace(/[^/]*$/,"").replace(/^\/|\/$/g,"");
 }
 function cmtRepo(){
  if(!cmtSite||!cmtSite.repo)return null;
