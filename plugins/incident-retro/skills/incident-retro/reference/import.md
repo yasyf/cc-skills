@@ -1,11 +1,11 @@
 # Import a Google Docs postmortem
 
 `retro.py import-gdoc` turns the Markdown export of a Google Docs postmortem
-into a draft `retro.json`, the document's images under `evidence/images/`,
-and an "Import report" section in `NOTES.md`. The draft is where the Draft
-pass in `SKILL.md` starts, not a finished retro. Handles and plain twins are
-empty. The report lists every time
-conversion and kind guess for review, and quotes every block the converter
+into a draft `retro.json`. It copies the document's images under
+`evidence/images/` and writes an "Import report" section in `NOTES.md`.
+Continue from the draft phase in `SKILL.md`; the import is not a finished
+retro. Handles and plain twins are empty. The report lists every time
+conversion and kind guess for review, then quotes every block the converter
 could not place.
 
 ```
@@ -23,7 +23,7 @@ retro.py import-gdoc <exported.md> [<docs.json>] --out <dir> [--tz America/Los_A
 - `--tz` is the zone for every time that carries no `Z`, `UTC`, `PT`, `PDT`,
   `PST`, `ET`, `EDT` or `EST` suffix. Every timestamp is written in this
   zone, including those with an explicit suffix.
-- `--date` is used when the document states no date anywhere.
+- `--date` supplies the date when the document states none.
 
 The same conversion runs standalone as `python3 retro_import.py import-gdoc …`,
 and `python3 retro_import.py --selftest` converts the fixture in
@@ -56,8 +56,8 @@ level.
 | supporting information, supporting info, references, links, appendix, evidence, resources, artifacts | `evidence.*` by host; text without links to `notes[]` |
 | anything else | `notes[]` entry titled by the heading |
 
-An empty heading (`### ` with no text) is skipped and its content is
-reported. A document with no H1 keeps its opening paragraphs as the summary
+The converter skips a heading with no text, such as `### `, and reports its
+content. A document with no H1 keeps its opening paragraphs as the summary
 when no summary heading exists.
 
 ## Header fields
@@ -83,9 +83,9 @@ unplaced. The converter replaces every `mailto:` link with its text.
 
 The converter reads every table and list under a timeline heading row by row.
 
-- A table's time column is the one headed `time`, `when`, `timestamp` or
-  `ts`, else the first; the event column is headed `event`, `what`,
-  `description`, `note` or `details`, else the second. A table headed
+- A table's time column is the one headed `time` or `when`. It can also use
+  `timestamp` or `ts`. If none match, the first column wins. The event column
+  is headed `event`, `what`, `description`, `note` or `details`, else the second. A table headed
   `start` and `end` yields windows instead of entries.
 - A bullet or paragraph line starts with the time: `10:29 text`,
   `- **04:52Z** — text`, `~3:20 text`, `8:10–8:13 AM — text`. A range
@@ -101,10 +101,10 @@ The converter reads every table and list under a timeline heading row by row.
 - A line reading `from 9:26am to 10:23am`, `between 10:12 and 10:53`,
   `[1] ~July 6 1:20pm to 6:30pm` or `24th, from 8:58am to 9:05am` becomes a
   `windows[]` entry of kind `outage`; the same pattern is also read under
-  summary and impact headings when the line carries an outage word. A
-  window that repeats an earlier one's span is skipped.
-- `kind` comes from the first rule below that matches the event text, else
-  `hypothesis`.
+  summary and impact headings when the line carries an outage word. The
+  converter skips a window that repeats an earlier span.
+- The first matching rule below determines `kind`. If none matches, the
+  converter uses `hypothesis`.
 
 | Kind | Keywords |
 |---|---|
@@ -120,11 +120,11 @@ The converter reads every table and list under a timeline heading row by row.
 - `actor` is the leading name when a reporting verb follows it, as in `Alex
   reported`, `amb confirms` or `acknowledged by jrpoirier`. Common sentence
   openers such as `Investigation`, `Rollback` or `Monitor` are never actors.
-- `refs` holds every link in the row; a pull request is typed
+- `refs` holds every link in the row. The converter types a pull request as
   `{"url", "kind": "pr"}`.
-- The converter sorts entries by instant. An entry before
-  `timestamps.onset` gets `phase: before`; one after `allClear`, or
-  `resolved` when there is no all-clear, gets `phase: after`.
+- The converter sorts entries by instant, assigning `phase: before` to an
+  entry before `timestamps.onset` and `phase: after` to one after `allClear`.
+  When there is no all-clear, `resolved` supplies the latter boundary.
 - The converter infers `timestamps` and reports each source. `onset` comes
   from the earliest window, else from the first `deploy` entry when it
   precedes the first alert or report; `detected` from the first `alert` or
@@ -132,8 +132,8 @@ The converter reads every table and list under a timeline heading row by row.
   first `allclear`. It drops a value that runs backwards and leaves
   `engaged` and `mitigated` as `null`.
 
-Lines with no leading time are reported verbatim; a pasted Slack transcript
-under the timeline heading lands there whole.
+The report quotes lines with no leading time verbatim. A pasted Slack
+transcript under the timeline heading lands there whole.
 
 ## Action items
 
@@ -145,7 +145,7 @@ Tables and lists under an action heading both become `actions[]`, each with
   state column; `owner`, `who`, `assignee` or `dri` names the owner column.
   A `source` column is who raised the item and is not the owner.
 - `state` is `done` for `[x]`, `~~struck~~`, `✅`, `:white_check_mark:` or a
-  state cell reading done, completed, merged, created, shipped, resolved or
+  state cell reading done, completed, merged, created, shipped, resolved, or
   fixed. It is `in-progress` for in progress, work in progress, ongoing, in
   review, raised or started, `dropped` for dropped or canceled, and `todo`
   otherwise.
@@ -198,13 +198,13 @@ A link's label is its link text when that text is not the URL itself, else
 the list item's text around it, as in `Investigation notebook: <url>`. The
 report lists links that are not `https://` and the converter skips them.
 
-Images arrive as `![alt][imageN]` references with `[imageN]: <data:…>`
-definitions at the end of the export. Each referenced image is decoded to
-`evidence/images/image-N.<ext>` and registered in `evidence.images[]` with
-`alt` from its own alt text, else the text around it, else the section
-heading; `caption` and `cites` are empty. An image whose alt is an emoji
-name such as `:white_check_mark:` is a pasted Slack reaction: it stays as
-text and is not extracted.
+Images arrive as `![alt][imageN]` references. Their definitions at the end of
+the export contain data URLs. The converter decodes each referenced image to
+`evidence/images/image-N.<ext>` and registers it in `evidence.images[]`. The
+image's own alt text supplies `alt`; without it, the converter uses nearby text
+and then the section heading. `caption` and `cites` are empty. An image whose
+alt is an emoji name such as `:white_check_mark:` is a pasted Slack reaction.
+It stays as text and is not extracted.
 
 ## The import report
 
@@ -221,7 +221,8 @@ section carries these parts.
   chose it, and the actor.
 - Windows and Timestamps. Each inferred value and its source.
 - Actions. Each action with the reason for its state and owner.
-- Links. Every occurrence with its class, section, and label or role.
+- Links. Every occurrence with its class. Include the section and its label or
+  role.
 - Images. Each file and where its alt came from; skipped emoji.
 - Notes. Each `notes[]` entry and why it exists.
 - Unplaced. Every block the converter could not place, quoted verbatim
