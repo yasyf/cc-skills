@@ -81,6 +81,7 @@ ID_SHAPES = (r"W\d+", r"T\d+", r"C\d+", r"AI\d+", r"I\d+")
 ID_TOKEN = re.compile(r"(?<![\w-])(?:" + "|".join(ID_SHAPES) + r")(?![\w-])")
 CITE_GROUP = re.compile(r"\(((?:\s*(?:" + "|".join(ID_SHAPES) + r")\s*[,;]?)+)\s*\)")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
+PROSE_SKIP = re.compile(r"https?://\S+|`[^`]*`")
 COMPONENT_ID = re.compile(r"[a-z][a-z0-9-]*")
 SEVERITY = re.compile(r"sev-\d")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -254,6 +255,10 @@ def retro_ids(R: dict) -> set:
 def id_matcher(known) -> re.Pattern:
     named = sorted({str(k) for k in known if k}, key=len, reverse=True)
     return re.compile(r"(?<![\w-])(?:" + "|".join(ID_SHAPES + tuple(map(re.escape, named))) + r")(?![\w-])")
+
+
+def prose_only(text: str) -> str:
+    return PROSE_SKIP.sub(" ", text)
 
 
 def prose_fields(R: dict):
@@ -1064,7 +1069,7 @@ def check_citations(rep, R, known: set):
     fn_nums = {int(n) for n in fn_ids if str(n).isdigit()}
     used_fns = set()
     for where, text in prose_fields(R):
-        for cited in sorted(set(ID_TOKEN.findall(text)) - known):
+        for cited in sorted(set(ID_TOKEN.findall(prose_only(text))) - known):
             rep.err(f"{where} cites {cited}, which no register defines")
         used_fns.update(int(n) for n in FN_TOKEN.findall(text))
     for n in sorted(used_fns - fn_nums):
@@ -1097,7 +1102,7 @@ def check_handles_and_twins(rep, R, root: Path, known: set):
     ids = id_matcher(known)
     cited = set()
     for _, text in prose_fields(R):
-        cited.update(ids.findall(text))
+        cited.update(ids.findall(prose_only(text)))
     for c in entries(R, "causes"):
         cited.update(e for e in c.get("evidence") or [] if isinstance(e, str))
     handled = [(reg, e) for reg, _ in HANDLED for e in entries(R, reg)]
@@ -1105,15 +1110,15 @@ def check_handles_and_twins(rep, R, root: Path, known: set):
     for reg, e in handled:
         ident = str(e.get("id"))
         h = e.get("h")
-        if h is None:
+        if h is None or (isinstance(h, str) and not h.strip()):
             rep.strict_warn(f"{ident} has no handle h; write the 2–5 word noun phrase a citation shows")
             continue
-        if not (isinstance(h, str) and h.strip()):
-            rep.err(f"{ident}.h must be a non-empty string")
+        if not isinstance(h, str):
+            rep.err(f"{ident}.h must be a string")
             continue
         if h.rstrip().endswith("."):
             rep.warn(f"{ident}.h ends with a period; a handle is a phrase, not a sentence")
-        for issue in handle_issues(h, ids):
+        for issue in handle_issues(prose_only(h), ids):
             rep.strict_warn(f"{ident}.h {issue}")
         if isinstance(e.get("t"), str):
             named = sorted(set(ids.findall(e["t"])))
@@ -1146,7 +1151,7 @@ def check_handles_and_twins(rep, R, root: Path, known: set):
         if not isinstance(p, str):
             rep.err(f"{where}.p must be a string")
             continue
-        for issue in twin_issues(p, text, ids):
+        for issue in twin_issues(prose_only(p), prose_only(text), ids):
             rep.strict_warn(f"{where}.p {issue}")
         before = previous.get(where)
         if before and before[0] != text and before[1] == p:
@@ -1836,16 +1841,13 @@ def text(args) -> int:
     return 0
 
 
-def import_gdoc(args) -> int:
-    module = sibling_module("retro_import")
-    if module is None:
-        print("import-gdoc: scripts/retro_import.py is missing; the Google Docs importer ships with it", file=sys.stderr)
-        return 1
-    return module.import_gdoc(Path(args.md), Path(args.docs_json) if args.docs_json else None, Path(args.out), args.tz, args.date)
-
-
 def evidence_missing(args) -> int:
     print("evidence: scripts/retro_evidence.py is missing; the evidence commands (fetch, slack check, slack new) ship with it", file=sys.stderr)
+    return 1
+
+
+def import_missing(args) -> int:
+    print("import-gdoc: scripts/retro_import.py is missing; the Google Docs importer ships with it", file=sys.stderr)
     return 1
 
 
@@ -1888,13 +1890,13 @@ def main():
     pd = sub.add_parser("pdf", help=f"print the retro to its {PDF_NAME}")
     pd.add_argument("dir", nargs="?", default=".")
     pd.set_defaults(fn=pdf)
-    ig = sub.add_parser("import-gdoc", help="turn a Google Docs post-mortem export into a draft retro")
-    ig.add_argument("md", help="the Markdown export")
-    ig.add_argument("docs_json", nargs="?", help="the Docs API JSON, for title and people")
-    ig.add_argument("--out", required=True, help="the retro directory to create")
-    ig.add_argument("--tz", default="America/Los_Angeles", help="zone for times the export leaves bare")
-    ig.add_argument("--date", help="date of the writeup when the export states none")
-    ig.set_defaults(fn=import_gdoc)
+    importer = sibling_module("retro_import")
+    if importer is not None:
+        importer.add_import_parser(sub)
+    else:
+        ig = sub.add_parser("import-gdoc", help="turn a Google Docs post-mortem export into a draft retro (scripts/retro_import.py)")
+        ig.add_argument("rest", nargs=argparse.REMAINDER)
+        ig.set_defaults(fn=import_missing)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
         evidence.add_evidence_parsers(sub)
