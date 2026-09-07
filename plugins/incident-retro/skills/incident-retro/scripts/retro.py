@@ -96,6 +96,7 @@ RENDER_STATE_JS = """({
  unmounted: [...document.querySelectorAll('[data-component]')].filter(h => h.dataset.mounted !== "1").map(h => h.dataset.component),
  cells: [...document.querySelectorAll('[data-cell]')].length,
  pending: [...document.querySelectorAll('[data-cell]')].filter(h => h.dataset.rendered !== "1" && h.dataset.unrendered !== "1").map(h => (h.dataset.notebook || "?") + "/" + h.dataset.cell),
+ snapshotless: [...document.querySelectorAll('[data-unrendered]')].filter(h => h.dataset.cell === undefined).map(h => h.dataset.notebook || h.dataset.source || h.id || h.tagName),
  uplot: typeof window.uPlot !== "undefined"
 })"""
 TEMPLATE_STAMP = re.compile(r"<!-- built by plugins/_shared/build\.py .*?sha256:([0-9a-f]+)")
@@ -446,6 +447,8 @@ def render_check(args) -> int:
         problems.append(f"the component {name!r} never mounted, so the page shows its fallback")
     for cell in state.get("pending") or []:
         problems.append(f"notebook cell {cell} neither rendered nor declared itself unrendered")
+    for notebook in state.get("snapshotless") or []:
+        problems.append(f"notebook {notebook} has no snapshot")
     has_timeseries = any(cell.get("type") == "timeseries" for cell in notebook_cells(root, R))
     if has_timeseries and state and not state.get("uplot"):
         problems.append("a notebook carries a timeseries cell but window.uPlot never loaded; the charts are blank")
