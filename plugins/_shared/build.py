@@ -11,7 +11,8 @@ templates/<name>.html, stamped on line 2. The host plugin also receives
 scripts/ddshared.py and scripts/build-pdf.py from py/, and a copy of every
 components/dd.*.json under reference/components/. Each JS partial opens with
 `// @requires a,b` and `// @defines x,y`; check verifies that every required
-name is declared by the host source or by a partial the host includes.
+name is declared by the host source or by a partial the host includes before
+it, and that no generated file outlives the source that produced it.
 """
 import hashlib, re, sys
 from pathlib import Path
@@ -22,7 +23,8 @@ HOST_GLOB = "plugins/*/skills/*/templates/src/*.html"
 INCLUDE = re.compile(r"^(?:<!-- @include (html/[\w.-]+) -->|/\* @include (html/[\w.-]+) \*/)$", re.M)
 HTML_STAMP = "<!-- built by plugins/_shared/build.py from templates/src/{name} + {n} partials sha256:{digest} — do not edit; edit the source and rerun -->"
 PY_STAMP = "# built by plugins/_shared/build.py from py/{name} sha256:{digest} — do not edit"
-STAMP_DIGEST = re.compile(r"sha256:([0-9a-f]{12})")
+GENERATED_DIRS = ("templates", "scripts", "reference/components")
+GENERATED_MARK = re.compile(r'built by plugins/_shared/build\.py|"_built":')
 REQUIRES = re.compile(r"^// @requires ?(.*)$", re.M)
 DEFINES = re.compile(r"^// @defines ?(.*)$", re.M)
 DECLARED = re.compile(r"^(?:const|let|function|async function)\s+([A-Za-z_$][\w$]*)", re.M)
@@ -30,6 +32,13 @@ DECLARED_MORE = re.compile(r"^(?:const|let)\s+([^;\n]*)", re.M)
 NAME_INIT = re.compile(r"(?:^|,)\s*([A-Za-z_$][\w$]*)\s*=")
 DESTRUCTURED = re.compile(r"^const \{(.*)\}=R;", re.M)
 DESTRUCTURED_NAME = re.compile(r":([A-Za-z_$][\w$]*)=")
+JS_TOKEN = re.compile(
+    r"//[^\n]*|/\*.*?\*/"
+    r"|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"
+    r"|/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n])+/[a-z]*"
+    r"|[{}]|[A-Za-z_$][\w$]*",
+    re.S,
+)
 PY_OUTPUTS = {"ddshared.py": "ddshared.py", "build_pdf.py": "build-pdf.py"}
 
 
@@ -75,30 +84,50 @@ def declared_names(text: str) -> set[str]:
     return names
 
 
+def top_level_names(name: str, text: str) -> set[str]:
+    names, depth = set(), 0
+    for m in JS_TOKEN.finditer(text):
+        token = m.group()
+        if token == "{":
+            depth += 1
+        elif token == "}":
+            depth -= 1
+        elif not depth and (token[0].isalpha() or token[0] in "_$"):
+            names.add(token)
+    assert not depth, f"{name} leaves the brace scan at depth {depth}; it holds a brace this tokeniser cannot see past"
+    return names
+
+
 def contract_problems(src: Path) -> list[str]:
     source = src.read_text()
     names = [n for n in partial_names(source) if n.endswith(".js")]
     bodies = {n: (SHARED / n).read_text() for n in names}
+    decls = {n: declared_names(bodies[n]) for n in names}
+    host = src.relative_to(ROOT)
     provided = declared_names(source)
-    for n in names:
-        provided |= declared_names(bodies[n])
     out = []
-    for n in names:
+    for i, n in enumerate(names):
         m = REQUIRES.search(bodies[n])
         if not m:
             out.append(f"{n} has no // @requires line")
-            continue
-        for name in filter(None, m.group(1).split(",")):
-            if name not in provided:
-                out.append(f"{n} requires {name}, which neither {src.relative_to(ROOT)} nor an included partial declares")
+        else:
+            eager = top_level_names(n, bodies[n])
+            for name in filter(None, m.group(1).split(",")):
+                if name in provided:
+                    continue
+                later = [o for o in names[i + 1:] if name in decls[o]]
+                if not later:
+                    out.append(f"{n} requires {name}, which neither {host} nor an included partial declares")
+                elif name in eager:
+                    out.append(f"{n} reads {name} where the page runs it, but {host} includes {later[0]}, which declares {name}, after {n}")
         d = DEFINES.search(bodies[n])
         if not d:
             out.append(f"{n} has no // @defines line")
-            continue
-        own = declared_names(bodies[n])
-        for name in filter(None, d.group(1).split(",")):
-            if name not in own:
-                out.append(f"{n} claims to define {name} but never declares it")
+        else:
+            for name in filter(None, d.group(1).split(",")):
+                if name not in decls[n]:
+                    out.append(f"{n} claims to define {name} but never declares it")
+        provided |= decls[n]
     return out
 
 
@@ -116,6 +145,17 @@ def outputs() -> dict[Path, str]:
     return out
 
 
+def generated_files() -> list[Path]:
+    out = []
+    for directory in GENERATED_DIRS:
+        for path in sorted(ROOT.glob(f"plugins/*/skills/*/{directory}/*")):
+            if not path.is_file():
+                continue
+            if GENERATED_MARK.search("\n".join(path.read_text(errors="replace").split("\n", 2)[:2])):
+                out.append(path)
+    return out
+
+
 def build() -> int:
     problems = [p for src in sorted(ROOT.glob(HOST_GLOB)) for p in contract_problems(src)]
     if problems:
@@ -129,16 +169,20 @@ def build() -> int:
 
 
 def check() -> int:
+    expected = outputs()
     problems = [p for src in sorted(ROOT.glob(HOST_GLOB)) for p in contract_problems(src)]
-    for path, text in outputs().items():
+    for path, text in expected.items():
         if not path.exists():
             problems.append(f"{path.relative_to(ROOT)} is missing; run build.py build")
         elif path.read_text() != text:
             problems.append(f"{path.relative_to(ROOT)} is stale; run build.py build")
+    for path in generated_files():
+        if path not in expected:
+            problems.append(f"{path.relative_to(ROOT)} carries a build stamp but nothing generates it; restore its source or delete it")
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
-    print(f"{len(outputs())} generated files are current")
+    print(f"{len(expected)} generated files are current")
     return 0
 
 
@@ -146,12 +190,12 @@ def stale_host(built: Path) -> str:
     src = built.parent / "src" / built.name
     if not src.exists():
         return f"{built} has no source at {src}"
-    lines = built.read_text().split("\n", 2)
-    m = STAMP_DIGEST.search(lines[1]) if len(lines) > 1 and "built by plugins/_shared/build.py" in lines[1] else None
-    if not m:
+    text = built.read_text()
+    lines = text.split("\n", 2)
+    if len(lines) < 2 or "built by plugins/_shared/build.py" not in lines[1]:
         return f"{built} carries no build stamp on line 2; run plugins/_shared/build.py build"
-    if m.group(1) != STAMP_DIGEST.search(render_host(src)).group(1):
-        return f"{built} is stale against templates/src/{built.name} and the shared partials; run plugins/_shared/build.py build"
+    if text != render_host(src):
+        return f"{built} differs from templates/src/{built.name} rendered with the shared partials; run plugins/_shared/build.py build"
     return ""
 
 
