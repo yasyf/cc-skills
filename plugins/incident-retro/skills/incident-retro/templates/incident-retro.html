@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:e52882dae901 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:3c1c9f1616b6 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1112,7 +1112,7 @@ function linkNorm(l){
   const kind=GH_KIND[m[3]];
   if(kind==="commit"?/^[0-9a-f]{7,40}$/.test(m[4]):/^\d+$/.test(m[4]))gh={o:m[1],r:m[2],kind,ref:m[4],key:m[1]+"/"+m[2]+(kind==="commit"?"@"+m[4].slice(0,7):"#"+m[4])};
  }
- const kind=l.kind||(gh?gh.kind:"doc");
+ const kind=LINK_KIND_LABEL[l.kind]?l.kind:(gh?gh.kind:"doc");
  if(gh&&kind!==gh.kind)return null;
  const label=typeof l.label==="string"&&l.label.trim()?l.label.trim():"";
  return {url,kind,gh,label,closes:l.closes===true&&(kind==="pr"||kind==="issue")};
@@ -1142,7 +1142,7 @@ let GH_TOKEN=null;
 const ghState=l=>{const k=linkKey(l);return k&&GH[k]?GH[k].state:"unknown"};
 function linkChipHtml(l){
  const key=linkKey(l);
- return `<a class="lchip" data-kind="${l.kind}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
+ return `<a class="lchip" data-kind="${esc(l.kind)}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
   (key?`<i class="ldot" data-state="${ghState(l)}" aria-hidden="true"></i>`:"")+linkIcon(l.kind)+
   `<span class="lt">${esc(linkLabel(l))}</span>`+(l.closes?`<span class="lcloses">closes</span>`:"")+`</a>`;
 }
@@ -1564,7 +1564,7 @@ if(META.homeLink&&META.homeLink.href&&safeUrl(META.homeLink.href)){
 (function(){
  const inc=META.incident||{};
  const bits=[];
- bits.push(`<span>${esc(META.subtitle||"Incident retrospective")}${META.rev?", revision "+META.rev:""}${META.date?", "+esc(longDate(META.date)):""}.</span>`);
+ bits.push(`<span>${esc(META.subtitle||"Incident retrospective")}${META.rev?", revision "+esc(META.rev):""}${META.date?", "+esc(longDate(META.date)):""}.</span>`);
  const st=STATUS_LBL[META.status]||(META.status?["p-dead",META.status]:null);
  if(st)bits.push(`<span class="pill ${st[0]}">${esc(st[1])}</span>`);
  if(inc.number!=null)bits.push(`<span class="pill">Incident #${esc(String(inc.number))}</span>`);
@@ -1697,7 +1697,7 @@ function slackQuoteHtml(hit){
  return `<div class="ir-quote"><div class="who"><b>${esc(msg.user_name||"unknown")}</b><span>#${esc(snap.channel_name||snap.channel_id||"")}</span><span data-tip="${esc(msgUtc(msg))}">${esc(msgTime(msg))}</span></div><div class="msg">${mrkdwn(msg.text,users)}</div></div>`;
 }
 function slackMsgHtml(msg,users,snap){
- const react=(msg.reactions||[]).map(r=>`<span>:${esc(r.name)}: ${r.count||1}</span>`).join("");
+ const react=(msg.reactions||[]).map(r=>`<span>:${esc(r.name)}: ${esc(String(r.count||1))}</span>`).join("");
  const files=(msg.files||[]).length?`<div class="files">${msg.files.length} file${msg.files.length===1?"":"s"}: ${msg.files.map(esc).join(", ")}</div>`:"";
  return `<div class="ir-msg" data-ts="${esc(msg.ts||"")}"><div class="av" aria-hidden="true">${esc(initials(msg.user_name))}</div><div class="who"><b>${esc(msg.user_name||"unknown")}</b><span class="t" data-tip="${esc(msgUtc(msg))}">${esc(msgTime(msg))}</span></div><div class="msg">${mrkdwn(msg.text,users)}</div>${react?`<div class="react">${react}</div>`:""}${files}</div>`;
 }
@@ -1992,7 +1992,7 @@ function renderNotes(){
  });
  if(FOOTNOTES.length){
   const ul=$("#fnList");ul.hidden=false;
-  FOOTNOTES.forEach(f=>{const li=el("li");li.id="fn-"+f.n;li.innerHTML=`<span class="fno num">${f.n}</span><span>${inline(f.b)}</span>`;ul.append(li)});
+  FOOTNOTES.forEach(f=>{const li=el("li");li.id="fn-"+f.n;li.innerHTML=`<span class="fno num">${esc(String(f.n))}</span><span>${inline(f.b)}</span>`;ul.append(li)});
  }
  termify($("#notes"));
 }
@@ -3118,7 +3118,7 @@ function cellNode(nb,cell,spec,jobs,prefix){
  box.dataset.cell=String(cell.index);
  box.dataset.notebook=String(nb.id);
  const qs=cellQueries(cell);
- box.innerHTML=`<div class="ch"><h4>${inline(cellTitle(cell))}</h4><span class="cix">cell ${cell.index} · ${esc(cell.type||"")}</span></div>`+(qs.length&&cell.type!=="markdown"?`<div class="q">${qs.map(q=>`<code>${esc(q)}</code>`).join("<br>")}</div>`:"");
+ box.innerHTML=`<div class="ch"><h4>${inline(cellTitle(cell))}</h4><span class="cix">cell ${esc(String(cell.index))} · ${esc(cell.type||"")}</span></div>`+(qs.length&&cell.type!=="markdown"?`<div class="q">${qs.map(q=>`<code>${esc(q)}</code>`).join("<br>")}</div>`:"");
  const d=cell.data||{};
  if(cell.type==="markdown"){
   box.append(el("div","ddc-md",mdToHtml(cell.text||"")));
@@ -3164,7 +3164,8 @@ function irNotebook(spec,host,jobs){
  det.open=spec.open!==false;
  if(!nb){
   det.innerHTML=`<summary><b>${esc(spec.title||"Notebook "+id)}</b><span class="meta">snapshot missing</span></summary><div class="nbbody"><p class="netmsg">No snapshot at ${esc(meta.file||"evidence/datadog/notebook-"+id+".json")}. Run <code>retro.py evidence fetch --notebook ${esc(id)}</code>.</p></div>`;
-  det.dataset.unrendered="1";
+  det.dataset.failed="1";
+  det.dataset.source="notebook "+id;
   return det;
  }
  const url=nb.url||meta.url||"";
