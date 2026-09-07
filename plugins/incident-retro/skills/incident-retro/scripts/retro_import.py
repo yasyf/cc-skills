@@ -59,6 +59,7 @@ CAUSE_KIND = {"root": "root", "contributing": "contributing", "trigger": "trigge
 HEADING = re.compile(r"^(#{1,6})\s*(.*?)\s*$")
 FENCE = re.compile(r"^```\s*(\w*)\s*$")
 IMAGE_DEF = re.compile(r"^\[(image\d+)\]:\s*<?(data:[^>\s]+)>?\s*$")
+IMAGE_DEF_WRAPPED = re.compile(r"^\[(image\d+)\]:\s*<(data:[^>]*)$")
 LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
 CHECKBOX = re.compile(r"^\[([ xX])\]\s*")
 TABLE_RULE = re.compile(r"^[\s|:\-]+$")
@@ -87,13 +88,20 @@ DATE_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 DATE_MON = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?(?:\s+(\d{4}))?\b", re.I)
 DATE_US = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?(?![\d/:])")
 DAY_PREFIX = re.compile(r"^(\d{1,2})(?:st|nd|rd|th),?\s+")
-TIME = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::(\d{2}))?)?\s*(?:(a\.?m\.?|p\.?m\.?)(?![a-z]))?\s*(Z(?![a-z])|UTC\b|PDT\b|PST\b|PT\b|EDT\b|EST\b|ET\b)?", re.I)
+TIME = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::(\d{2}))?)?\s*(?:(a\.?m\.?|p\.?m\.?)(?![a-z]))?\s*"
+                  r"(Z(?![a-z])|UTC\b|GMT\b|PDT\b|PST\b|PT\b|MDT\b|MST\b|CDT\b|CST\b|EDT\b|EST\b|ET\b)?", re.I)
 TIME_LEAD = re.compile(r"^\**\s*~?\s*")
-ZONES = {"z": "UTC", "utc": "UTC", "pt": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pst": "America/Los_Angeles",
-         "et": "America/New_York", "edt": "America/New_York", "est": "America/New_York", "pacific": "America/Los_Angeles",
-         "eastern": "America/New_York"}
+ZONES = {"z": "UTC", "utc": "UTC", "gmt": "UTC", "pst": "UTC-08:00", "pdt": "UTC-07:00", "mst": "UTC-07:00",
+         "mdt": "UTC-06:00", "cst": "UTC-06:00", "cdt": "UTC-05:00", "est": "UTC-05:00", "edt": "UTC-04:00",
+         "pt": "America/Los_Angeles", "et": "America/New_York"}
+HINT_ZONES = {"utc": "UTC", "pacific": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pst": "America/Los_Angeles",
+              "eastern": "America/New_York", "edt": "America/New_York", "est": "America/New_York"}
+UTC_OFFSET = re.compile(r"^UTC([+-])(\d{2}):(\d{2})$")
 ZONE_HINT = re.compile(r"\b(all times|times are|times in)\b.*?\b(pacific|eastern|utc|pdt|pst|edt|est)\b", re.I)
-WINDOW_PAIR = re.compile(r"(?:\b(?:from|between)\s+)?(?P<a>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*(?:Z|UTC|PDT|PST|PT|EDT|EST|ET)?)\s*(?:to|and|until|till|[-–—])\s*(?P<b>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*(?:Z|UTC|PDT|PST|PT|EDT|EST|ET)?)(?![\d:])", re.I)
+WINDOW_ZONE = r"(?:Z|UTC|GMT|PDT|PST|PT|MDT|MST|CDT|CST|EDT|EST|ET)?"
+WINDOW_PAIR = re.compile(r"(?:\b(?:from|between)\s+)?(?P<a>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*" + WINDOW_ZONE +
+                         r")\s*(?:to|and|until|till|[-–—])\s*(?P<b>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*" +
+                         WINDOW_ZONE + r")(?![\d:])", re.I)
 WINDOW_WORDS = re.compile(r"outage|window|between|\bfrom\b|\bdown\b|degrad|unavailable|impact|start|end", re.I)
 KIND_RULES = (
     ("allclear", r"all[- ]?clear"),
@@ -235,6 +243,18 @@ def parse_blocks(text: str) -> list:
             blocks.append({"kind": "fence", "lang": m[1], "source": "\n".join(body), "line": i + 1})
             i = j + 1
             continue
+        m = IMAGE_DEF_WRAPPED.match(line)
+        if m:
+            parts, j = [m[2].strip()], i + 1
+            while j < len(lines) and ">" not in lines[j] and lines[j].strip():
+                parts.append(lines[j].strip())
+                j += 1
+            if j < len(lines) and ">" in lines[j]:
+                parts.append(lines[j].partition(">")[0].strip())
+                j += 1
+            blocks.append({"kind": "imagedef", "name": m[1], "data": "".join(parts), "line": i + 1})
+            i = j
+            continue
         m = IMAGE_DEF.match(line)
         if m:
             blocks.append({"kind": "imagedef", "name": m[1], "data": m[2], "line": i + 1})
@@ -283,6 +303,7 @@ def parse_blocks(text: str) -> list:
         para, j = [], i
         while j < len(lines) and lines[j].strip() and not HEADING.match(lines[j]) and not FENCE.match(lines[j]) \
                 and not lines[j].lstrip().startswith("|") and not LIST_ITEM.match(lines[j]) and not IMAGE_DEF.match(lines[j]) \
+                and not IMAGE_DEF_WRAPPED.match(lines[j]) \
                 and not lines[j].startswith(">"):
             para.append(lines[j].rstrip())
             j += 1
@@ -415,6 +436,14 @@ def parse_date(s: str, default_year=None):
         if year and 1 <= int(m[1]) <= 12 and 1 <= int(m[2]) <= 31:
             return datetime.date(year, int(m[1]), int(m[2]))
     return None
+
+
+def zone_of(name: str) -> datetime.tzinfo:
+    m = UTC_OFFSET.match(name)
+    if not m:
+        return zoneinfo.ZoneInfo(name)
+    offset = datetime.timedelta(hours=int(m[2]), minutes=int(m[3]))
+    return datetime.timezone(-offset if m[1] == "-" else offset, name)
 
 
 def parse_time(s: str):
@@ -800,11 +829,17 @@ class Importer:
                 self.images[name] = None
                 self.report.images.append(f"`[{name}]` is not a base64 image data URI ({where})")
                 continue
+            try:
+                payload = base64.b64decode(m[2], validate=True)
+            except ValueError as e:
+                self.images[name] = None
+                self.report.images.append(f"`[{name}]` does not decode as base64 ({where}): {e}")
+                continue
             ext = {"jpeg": "jpg", "svg+xml": "svg"}.get(m[1], m[1])
             file = f"{IMAGE_DIR.as_posix()}/image-{name.removeprefix('image')}.{ext}"
             alt_text = plain(alt) if alt else without_links(IMAGE_REF.sub("", context)) or self.current_heading
             alt_why = "its own alt" if alt else ("the surrounding text" if without_links(IMAGE_REF.sub("", context)) else "the section heading")
-            self.images[name] = {"file": file, "bytes": base64.b64decode(m[2])}
+            self.images[name] = {"file": file, "bytes": payload}
             self.retro["evidence"]["images"].append({"file": file, "alt": alt_text, "caption": "", "cites": []})
             self.report.images.append(f"`{file}` from `[{name}]`, alt from {alt_why}: {alt_text} ({where})")
         return IMAGE_REF.sub(lambda m: m[1] if EMOJI_ALT.match(m[1] or "") else "", text)
@@ -1210,7 +1245,7 @@ class Importer:
         return True
 
     def stamp(self, date, t: dict) -> datetime.datetime:
-        zone = zoneinfo.ZoneInfo(t["zone"]) if t["zone"] else self.zone
+        zone = zone_of(t["zone"]) if t["zone"] else self.zone
         return datetime.datetime.combine(date, t["time"], tzinfo=zone).astimezone(self.zone)
 
     def finish_timeline(self):
@@ -1273,7 +1308,7 @@ class Importer:
         whole = f"{plain_time} {plain_event}".strip()
         hint = ZONE_HINT.search(whole)
         if hint:
-            zone = ZONES[hint[2].lower()]
+            zone = HINT_ZONES[hint[2].lower()]
             if zone != self.tz:
                 self.report.header.append(f"Zone hint `{whole}` names `{zone}`, which differs from `--tz {self.tz}`; times without a suffix stay in `{self.tz}`")
             else:

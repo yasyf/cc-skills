@@ -96,6 +96,7 @@ RENDER_STATE_JS = """({
  unmounted: [...document.querySelectorAll('[data-component]')].filter(h => h.dataset.mounted !== "1").map(h => h.dataset.component),
  cells: [...document.querySelectorAll('[data-cell]')].length,
  pending: [...document.querySelectorAll('[data-cell]')].filter(h => h.dataset.rendered !== "1" && h.dataset.unrendered !== "1").map(h => (h.dataset.notebook || "?") + "/" + h.dataset.cell),
+ snapshotless: [...document.querySelectorAll('[data-unrendered]')].filter(h => h.dataset.cell === undefined).map(h => h.dataset.notebook || h.dataset.source || h.id || h.tagName),
  uplot: typeof window.uPlot !== "undefined"
 })"""
 TEMPLATE_STAMP = re.compile(r"<!-- built by plugins/_shared/build\.py .*?sha256:([0-9a-f]+)")
@@ -123,6 +124,16 @@ def try_ts(value):
         return parse_ts(value)
     except ValueError:
         return None
+
+
+def is_date(value) -> bool:
+    if not (isinstance(value, str) and DATE.fullmatch(value)):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def fmt_duration(seconds: float) -> str:
@@ -226,6 +237,11 @@ def entries(R, reg):
     return [e for e in (R.get(reg) or []) if isinstance(e, dict)]
 
 
+def monitors_of(R: dict) -> list:
+    detection = R.get("detection")
+    return entries(detection, "monitors") if isinstance(detection, dict) else []
+
+
 def handles_of(R: dict) -> dict:
     tz = zone(R.get("meta") or {})
     out = {}
@@ -302,8 +318,8 @@ def scaffold(args) -> int:
     if not args.example and not args.title:
         print("scaffold: pass --title, or --example for the Acme worked example.", file=sys.stderr)
         return 1
-    if args.date and not DATE.fullmatch(args.date):
-        print(f"scaffold: --date {args.date!r} is not YYYY-MM-DD.", file=sys.stderr)
+    if args.date and not is_date(args.date):
+        print(f"scaffold: --date {args.date!r} is not a calendar date in YYYY-MM-DD.", file=sys.stderr)
         return 1
     if dest.exists() and any(dest.iterdir()):
         print(f"scaffold: {dest} exists and is not empty; refusing to overwrite.", file=sys.stderr)
@@ -431,6 +447,8 @@ def render_check(args) -> int:
         problems.append(f"the component {name!r} never mounted, so the page shows its fallback")
     for cell in state.get("pending") or []:
         problems.append(f"notebook cell {cell} neither rendered nor declared itself unrendered")
+    for notebook in state.get("snapshotless") or []:
+        problems.append(f"notebook {notebook} has no snapshot")
     has_timeseries = any(cell.get("type") == "timeseries" for cell in notebook_cells(root, R))
     if has_timeseries and state and not state.get("uplot"):
         problems.append("a notebook carries a timeseries cell but window.uPlot never loaded; the charts are blank")
@@ -460,8 +478,8 @@ def check_meta(rep, meta):
     for k in ("title", "slug", "date"):
         if not (isinstance(meta.get(k), str) and meta[k].strip()):
             rep.err(f"meta.{k} is missing or empty")
-    if isinstance(meta.get("date"), str) and not DATE.fullmatch(meta["date"]):
-        rep.err(f"meta.date {meta['date']!r} is not YYYY-MM-DD")
+    if isinstance(meta.get("date"), str) and not is_date(meta["date"]):
+        rep.err(f"meta.date {meta['date']!r} is not a calendar date in YYYY-MM-DD")
     if meta.get("status") not in STATUSES:
         rep.err(f"meta.status {meta.get('status')!r} not in {', '.join(STATUSES)}")
     if "draft" in meta and not isinstance(meta["draft"], bool):
@@ -848,8 +866,8 @@ def check_actions(rep, R, cause_ids: set, status: str) -> set:
         elif source not in ACTION_SOURCES and source not in cause_ids:
             rep.err(f"{aid}: source {source!r} is neither a cause id nor one of {', '.join(ACTION_SOURCES)}")
         due = a.get("due")
-        if due is not None and not (isinstance(due, str) and DATE.fullmatch(due)):
-            rep.err(f"{aid}.due {due!r} is not YYYY-MM-DD")
+        if due is not None and not is_date(due):
+            rep.err(f"{aid}.due {due!r} is not a calendar date in YYYY-MM-DD")
         note = a.get("note")
         if note is not None and not (isinstance(note, str) and note.strip()):
             rep.err(f"{aid}.note must be a non-empty string")
@@ -871,18 +889,8 @@ def check_resolution(rep, R):
             continue
         if key == "resolution":
             check_link_list(rep, "resolution", block, False)
-    detection = R.get("detection") or {}
-    monitors = detection.get("monitors") if isinstance(detection, dict) else None
-    if monitors is None:
-        return
-    if not isinstance(monitors, list):
-        rep.err("detection.monitors must be a list")
-        return
-    for i, m in enumerate(monitors):
+    for i, m in enumerate(monitors_of(R)):
         where = f"detection.monitors[{i}]"
-        if not isinstance(m, dict):
-            rep.err(f"{where} is not an object")
-            continue
         if not isinstance(m.get("id"), int) or isinstance(m.get("id"), bool):
             rep.err(f"{where}.id must be the integer monitor id")
         if m.get("role") not in MONITOR_ROLES:
@@ -942,29 +950,38 @@ def snapshot_json(rep, root: Path, where: str, rel: str):
     return data
 
 
-def check_evidence_register(rep, R, root: Path, ts: dict, known: set) -> set:
+def objects_only(rep, holder: dict, key: str, where: str) -> list:
+    values = holder.get(key)
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        rep.err(f"{where} must be a list")
+        holder[key] = []
+        return []
+    for i, v in enumerate(values):
+        if not isinstance(v, dict):
+            rep.err(f"{where}[{i}] is not an object")
+    holder[key] = [v for v in values if isinstance(v, dict)]
+    return holder[key]
+
+
+def check_shapes(rep, R) -> dict:
     evidence = R.get("evidence")
     if evidence is None:
-        return set()
-    if not isinstance(evidence, dict):
+        evidence = {}
+    elif not isinstance(evidence, dict):
         rep.err("evidence must be an object keyed by kind")
-        return set()
+        evidence = R["evidence"] = {}
     for extra in sorted(set(evidence) - set(EVIDENCE_KINDS)):
         rep.err(f"evidence.{extra} is not one of {', '.join(EVIDENCE_KINDS)}")
-    lists = {}
-    for kind in EVIDENCE_KINDS:
-        values = evidence.get(kind)
-        if values is None:
-            lists[kind] = []
-            continue
-        if not isinstance(values, list):
-            rep.err(f"evidence.{kind} must be a list")
-            lists[kind] = []
-            continue
-        lists[kind] = [v for v in values if isinstance(v, dict)]
-        for v in values:
-            if not isinstance(v, dict):
-                rep.err(f"evidence.{kind} entry {v!r} is not an object")
+    lists = {kind: objects_only(rep, evidence, kind, f"evidence.{kind}") for kind in EVIDENCE_KINDS}
+    detection = R.get("detection")
+    if isinstance(detection, dict):
+        objects_only(rep, detection, "monitors", "detection.monitors")
+    return lists
+
+
+def check_evidence_register(rep, R, root: Path, ts: dict, known: set, lists: dict) -> set:
     onset, resolved = ts.get("onset"), ts.get("resolved")
     for kind in ("notebooks", "monitors"):
         for i, e in enumerate(lists[kind]):
@@ -1039,20 +1056,19 @@ def check_evidence_register(rep, R, root: Path, ts: dict, known: set) -> set:
                 rep.err(f"{where}.key must read like ENG-123")
             if kind == "runs" and not (isinstance(e.get("id"), str) and e["id"].strip()):
                 rep.err(f"{where}.id must be the run id string")
-    detection = R.get("detection") or {}
     monitor_files = {m.get("id"): m.get("file") for m in lists["monitors"]}
-    for i, m in enumerate((detection.get("monitors") if isinstance(detection, dict) else None) or []):
-        if isinstance(m, dict) and m.get("file") is None and monitor_files.get(m.get("id")) is None:
+    for i, m in enumerate(monitors_of(R)):
+        if m.get("file") is None and monitor_files.get(m.get("id")) is None:
             rep.warn(f"detection.monitors[{i}] ({m.get('id')}) has no snapshot file; run retro.py evidence fetch --monitor {m.get('id')}")
-        elif isinstance(m, dict) and isinstance(m.get("file"), str):
+        elif isinstance(m.get("file"), str):
             snapshot_json(rep, root, f"detection.monitors[{i}]", m["file"])
     return slack_urls
 
 
 def slack_permalinks_in(root: Path, R: dict) -> set:
     urls = set()
-    for e in (R.get("evidence") or {}).get("slack") or []:
-        if isinstance(e, dict) and isinstance(e.get("url"), str):
+    for e in entries(R.get("evidence") or {}, "slack"):
+        if isinstance(e.get("url"), str):
             urls.add(e["url"])
     folder = root / "evidence" / "slack"
     if folder.is_dir():
@@ -1491,6 +1507,7 @@ def check(args) -> int:
     status = meta.get("status")
     draft = status == "draft"
     sub_ids = check_meta(rep, meta)
+    evidence_lists = check_shapes(rep, R)
     ts = check_timestamps(rep, R, draft)
     slack_snapshots = slack_permalinks_in(root, R)
     check_windows(rep, R, ts, sub_ids)
@@ -1502,7 +1519,7 @@ def check(args) -> int:
     check_impact(rep, R, known)
     check_resolution(rep, R)
     check_lessons(rep, R)
-    check_evidence_register(rep, R, root, ts, known)
+    check_evidence_register(rep, R, root, ts, known, evidence_lists)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
         evidence.evidence_check(root, rep, R)
