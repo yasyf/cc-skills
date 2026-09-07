@@ -527,8 +527,26 @@ def read_json(path: Path):
         return None, f"{path}: invalid JSON ({e})"
 
 
+def slack_entries(retro: dict) -> list:
+    evidence = retro.get("evidence")
+    slack = evidence.get("slack") if isinstance(evidence, dict) else None
+    return [e for e in slack if isinstance(e, dict)] if isinstance(slack, list) else []
+
+
+def slack_shape_issues(retro: dict) -> list:
+    evidence = retro.get("evidence")
+    if evidence is not None and not isinstance(evidence, dict):
+        return ["retro.json evidence must be an object keyed by kind"]
+    slack = evidence.get("slack") if isinstance(evidence, dict) else None
+    if slack is None:
+        return []
+    if not isinstance(slack, list):
+        return ["retro.json evidence.slack must be a list"]
+    return [f"retro.json evidence.slack[{i}] is not an object" for i, e in enumerate(slack) if not isinstance(e, dict)]
+
+
 def slack_snapshots(root: Path, retro: dict):
-    paths = {root / e["file"] for e in retro.get("evidence", {}).get("slack", []) if isinstance(e.get("file"), str)}
+    paths = {root / e["file"] for e in slack_entries(retro) if isinstance(e.get("file"), str)}
     paths |= set((root / "evidence" / "slack").glob("*.json"))
     return sorted(p for p in paths if p.exists())
 
@@ -536,12 +554,12 @@ def slack_snapshots(root: Path, retro: dict):
 def slack_check(args) -> int:
     root = Path(args.dir)
     retro = load_retro(root)
-    issues, count = [], 0
+    issues, count = slack_shape_issues(retro), 0
     for path in slack_snapshots(root, retro):
         data, err = read_json(path)
         issues += [err] if err else slack_file_issues(path.relative_to(root), data)
         count += 1
-    for e in retro.get("evidence", {}).get("slack", []):
+    for e in slack_entries(retro):
         if not (root / e.get("file", "")).exists():
             issues.append(f"retro.json evidence.slack: {e.get('file')!r} does not exist")
     for m in issues:

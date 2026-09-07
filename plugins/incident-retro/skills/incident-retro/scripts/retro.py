@@ -226,6 +226,11 @@ def entries(R, reg):
     return [e for e in (R.get(reg) or []) if isinstance(e, dict)]
 
 
+def monitors_of(R: dict) -> list:
+    detection = R.get("detection")
+    return entries(detection, "monitors") if isinstance(detection, dict) else []
+
+
 def handles_of(R: dict) -> dict:
     tz = zone(R.get("meta") or {})
     out = {}
@@ -871,18 +876,8 @@ def check_resolution(rep, R):
             continue
         if key == "resolution":
             check_link_list(rep, "resolution", block, False)
-    detection = R.get("detection") or {}
-    monitors = detection.get("monitors") if isinstance(detection, dict) else None
-    if monitors is None:
-        return
-    if not isinstance(monitors, list):
-        rep.err("detection.monitors must be a list")
-        return
-    for i, m in enumerate(monitors):
+    for i, m in enumerate(monitors_of(R)):
         where = f"detection.monitors[{i}]"
-        if not isinstance(m, dict):
-            rep.err(f"{where} is not an object")
-            continue
         if not isinstance(m.get("id"), int) or isinstance(m.get("id"), bool):
             rep.err(f"{where}.id must be the integer monitor id")
         if m.get("role") not in MONITOR_ROLES:
@@ -942,29 +937,38 @@ def snapshot_json(rep, root: Path, where: str, rel: str):
     return data
 
 
-def check_evidence_register(rep, R, root: Path, ts: dict, known: set) -> set:
+def objects_only(rep, holder: dict, key: str, where: str) -> list:
+    values = holder.get(key)
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        rep.err(f"{where} must be a list")
+        holder[key] = []
+        return []
+    for i, v in enumerate(values):
+        if not isinstance(v, dict):
+            rep.err(f"{where}[{i}] is not an object")
+    holder[key] = [v for v in values if isinstance(v, dict)]
+    return holder[key]
+
+
+def check_shapes(rep, R) -> dict:
     evidence = R.get("evidence")
     if evidence is None:
-        return set()
-    if not isinstance(evidence, dict):
+        evidence = {}
+    elif not isinstance(evidence, dict):
         rep.err("evidence must be an object keyed by kind")
-        return set()
+        evidence = R["evidence"] = {}
     for extra in sorted(set(evidence) - set(EVIDENCE_KINDS)):
         rep.err(f"evidence.{extra} is not one of {', '.join(EVIDENCE_KINDS)}")
-    lists = {}
-    for kind in EVIDENCE_KINDS:
-        values = evidence.get(kind)
-        if values is None:
-            lists[kind] = []
-            continue
-        if not isinstance(values, list):
-            rep.err(f"evidence.{kind} must be a list")
-            lists[kind] = []
-            continue
-        lists[kind] = [v for v in values if isinstance(v, dict)]
-        for v in values:
-            if not isinstance(v, dict):
-                rep.err(f"evidence.{kind} entry {v!r} is not an object")
+    lists = {kind: objects_only(rep, evidence, kind, f"evidence.{kind}") for kind in EVIDENCE_KINDS}
+    detection = R.get("detection")
+    if isinstance(detection, dict):
+        objects_only(rep, detection, "monitors", "detection.monitors")
+    return lists
+
+
+def check_evidence_register(rep, R, root: Path, ts: dict, known: set, lists: dict) -> set:
     onset, resolved = ts.get("onset"), ts.get("resolved")
     for kind in ("notebooks", "monitors"):
         for i, e in enumerate(lists[kind]):
@@ -1039,20 +1043,19 @@ def check_evidence_register(rep, R, root: Path, ts: dict, known: set) -> set:
                 rep.err(f"{where}.key must read like ENG-123")
             if kind == "runs" and not (isinstance(e.get("id"), str) and e["id"].strip()):
                 rep.err(f"{where}.id must be the run id string")
-    detection = R.get("detection") or {}
     monitor_files = {m.get("id"): m.get("file") for m in lists["monitors"]}
-    for i, m in enumerate((detection.get("monitors") if isinstance(detection, dict) else None) or []):
-        if isinstance(m, dict) and m.get("file") is None and monitor_files.get(m.get("id")) is None:
+    for i, m in enumerate(monitors_of(R)):
+        if m.get("file") is None and monitor_files.get(m.get("id")) is None:
             rep.warn(f"detection.monitors[{i}] ({m.get('id')}) has no snapshot file; run retro.py evidence fetch --monitor {m.get('id')}")
-        elif isinstance(m, dict) and isinstance(m.get("file"), str):
+        elif isinstance(m.get("file"), str):
             snapshot_json(rep, root, f"detection.monitors[{i}]", m["file"])
     return slack_urls
 
 
 def slack_permalinks_in(root: Path, R: dict) -> set:
     urls = set()
-    for e in (R.get("evidence") or {}).get("slack") or []:
-        if isinstance(e, dict) and isinstance(e.get("url"), str):
+    for e in entries(R.get("evidence") or {}, "slack"):
+        if isinstance(e.get("url"), str):
             urls.add(e["url"])
     folder = root / "evidence" / "slack"
     if folder.is_dir():
@@ -1491,6 +1494,7 @@ def check(args) -> int:
     status = meta.get("status")
     draft = status == "draft"
     sub_ids = check_meta(rep, meta)
+    evidence_lists = check_shapes(rep, R)
     ts = check_timestamps(rep, R, draft)
     slack_snapshots = slack_permalinks_in(root, R)
     check_windows(rep, R, ts, sub_ids)
@@ -1502,7 +1506,7 @@ def check(args) -> int:
     check_impact(rep, R, known)
     check_resolution(rep, R)
     check_lessons(rep, R)
-    check_evidence_register(rep, R, root, ts, known)
+    check_evidence_register(rep, R, root, ts, known, evidence_lists)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
         evidence.evidence_check(root, rep, R)
