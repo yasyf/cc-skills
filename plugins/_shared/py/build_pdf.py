@@ -184,8 +184,7 @@ class Chrome:
             self.note(msg)
         return msg
 
-    def recv(self, timeout: float) -> dict:
-        deadline = time.monotonic() + timeout
+    def recv(self, deadline: float, timeout: float) -> dict:
         while b"\0" not in self.buf:
             ready, _, _ = select.select([self.reader], [], [], max(0.0, deadline - time.monotonic()))
             if not ready:
@@ -217,8 +216,9 @@ class Chrome:
 
     def call(self, method: str, params=None, session=None, timeout: float = CHROME_TIMEOUT_S) -> dict:
         ident = self.send(method, params, session)
+        deadline = time.monotonic() + timeout
         while True:
-            msg = self.recv(timeout)
+            msg = self.recv(deadline, timeout)
             if msg.get("id") != ident:
                 continue
             if "error" in msg:
