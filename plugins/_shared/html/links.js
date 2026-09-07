@@ -18,7 +18,7 @@ function linkNorm(l){
   const kind=GH_KIND[m[3]];
   if(kind==="commit"?/^[0-9a-f]{7,40}$/.test(m[4]):/^\d+$/.test(m[4]))gh={o:m[1],r:m[2],kind,ref:m[4],key:m[1]+"/"+m[2]+(kind==="commit"?"@"+m[4].slice(0,7):"#"+m[4])};
  }
- const kind=l.kind||(gh?gh.kind:"doc");
+ const kind=LINK_KIND_LABEL[l.kind]?l.kind:(gh?gh.kind:"doc");
  if(gh&&kind!==gh.kind)return null;
  const label=typeof l.label==="string"&&l.label.trim()?l.label.trim():"";
  return {url,kind,gh,label,closes:l.closes===true&&(kind==="pr"||kind==="issue")};
@@ -48,7 +48,7 @@ let GH_TOKEN=null;
 const ghState=l=>{const k=linkKey(l);return k&&GH[k]?GH[k].state:"unknown"};
 function linkChipHtml(l){
  const key=linkKey(l);
- return `<a class="lchip" data-kind="${l.kind}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
+ return `<a class="lchip" data-kind="${esc(l.kind)}"${key?` data-gh="${esc(key)}"`:""} href="${esc(l.url)}" target="_blank" rel="noopener">`+
   (key?`<i class="ldot" data-state="${ghState(l)}" aria-hidden="true"></i>`:"")+linkIcon(l.kind)+
   `<span class="lt">${esc(linkLabel(l))}</span>`+(l.closes?`<span class="lcloses">closes</span>`:"")+`</a>`;
 }
