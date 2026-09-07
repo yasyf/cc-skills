@@ -87,13 +87,20 @@ DATE_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 DATE_MON = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?(?:\s+(\d{4}))?\b", re.I)
 DATE_US = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?(?![\d/:])")
 DAY_PREFIX = re.compile(r"^(\d{1,2})(?:st|nd|rd|th),?\s+")
-TIME = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::(\d{2}))?)?\s*(?:(a\.?m\.?|p\.?m\.?)(?![a-z]))?\s*(Z(?![a-z])|UTC\b|PDT\b|PST\b|PT\b|EDT\b|EST\b|ET\b)?", re.I)
+TIME = re.compile(r"(?<![\d:])(\d{1,2})(?::(\d{2})(?::(\d{2}))?)?\s*(?:(a\.?m\.?|p\.?m\.?)(?![a-z]))?\s*"
+                  r"(Z(?![a-z])|UTC\b|GMT\b|PDT\b|PST\b|PT\b|MDT\b|MST\b|CDT\b|CST\b|EDT\b|EST\b|ET\b)?", re.I)
 TIME_LEAD = re.compile(r"^\**\s*~?\s*")
-ZONES = {"z": "UTC", "utc": "UTC", "pt": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pst": "America/Los_Angeles",
-         "et": "America/New_York", "edt": "America/New_York", "est": "America/New_York", "pacific": "America/Los_Angeles",
-         "eastern": "America/New_York"}
+ZONES = {"z": "UTC", "utc": "UTC", "gmt": "UTC", "pst": "UTC-08:00", "pdt": "UTC-07:00", "mst": "UTC-07:00",
+         "mdt": "UTC-06:00", "cst": "UTC-06:00", "cdt": "UTC-05:00", "est": "UTC-05:00", "edt": "UTC-04:00",
+         "pt": "America/Los_Angeles", "et": "America/New_York"}
+HINT_ZONES = {"utc": "UTC", "pacific": "America/Los_Angeles", "pdt": "America/Los_Angeles", "pst": "America/Los_Angeles",
+              "eastern": "America/New_York", "edt": "America/New_York", "est": "America/New_York"}
+UTC_OFFSET = re.compile(r"^UTC([+-])(\d{2}):(\d{2})$")
 ZONE_HINT = re.compile(r"\b(all times|times are|times in)\b.*?\b(pacific|eastern|utc|pdt|pst|edt|est)\b", re.I)
-WINDOW_PAIR = re.compile(r"(?:\b(?:from|between)\s+)?(?P<a>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*(?:Z|UTC|PDT|PST|PT|EDT|EST|ET)?)\s*(?:to|and|until|till|[-–—])\s*(?P<b>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*(?:Z|UTC|PDT|PST|PT|EDT|EST|ET)?)(?![\d:])", re.I)
+WINDOW_ZONE = r"(?:Z|UTC|GMT|PDT|PST|PT|MDT|MST|CDT|CST|EDT|EST|ET)?"
+WINDOW_PAIR = re.compile(r"(?:\b(?:from|between)\s+)?(?P<a>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*" + WINDOW_ZONE +
+                         r")\s*(?:to|and|until|till|[-–—])\s*(?P<b>\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\s*" +
+                         WINDOW_ZONE + r")(?![\d:])", re.I)
 WINDOW_WORDS = re.compile(r"outage|window|between|\bfrom\b|\bdown\b|degrad|unavailable|impact|start|end", re.I)
 KIND_RULES = (
     ("allclear", r"all[- ]?clear"),
@@ -415,6 +422,14 @@ def parse_date(s: str, default_year=None):
         if year and 1 <= int(m[1]) <= 12 and 1 <= int(m[2]) <= 31:
             return datetime.date(year, int(m[1]), int(m[2]))
     return None
+
+
+def zone_of(name: str) -> datetime.tzinfo:
+    m = UTC_OFFSET.match(name)
+    if not m:
+        return zoneinfo.ZoneInfo(name)
+    offset = datetime.timedelta(hours=int(m[2]), minutes=int(m[3]))
+    return datetime.timezone(-offset if m[1] == "-" else offset, name)
 
 
 def parse_time(s: str):
@@ -1210,7 +1225,7 @@ class Importer:
         return True
 
     def stamp(self, date, t: dict) -> datetime.datetime:
-        zone = zoneinfo.ZoneInfo(t["zone"]) if t["zone"] else self.zone
+        zone = zone_of(t["zone"]) if t["zone"] else self.zone
         return datetime.datetime.combine(date, t["time"], tzinfo=zone).astimezone(self.zone)
 
     def finish_timeline(self):
@@ -1273,7 +1288,7 @@ class Importer:
         whole = f"{plain_time} {plain_event}".strip()
         hint = ZONE_HINT.search(whole)
         if hint:
-            zone = ZONES[hint[2].lower()]
+            zone = HINT_ZONES[hint[2].lower()]
             if zone != self.tz:
                 self.report.header.append(f"Zone hint `{whole}` names `{zone}`, which differs from `--tz {self.tz}`; times without a suffix stay in `{self.tz}`")
             else:
