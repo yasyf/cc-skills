@@ -125,6 +125,16 @@ def try_ts(value):
         return None
 
 
+def is_date(value) -> bool:
+    if not (isinstance(value, str) and DATE.fullmatch(value)):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
 def fmt_duration(seconds: float) -> str:
     total = int(round(seconds / 60))
     if total < 1:
@@ -307,8 +317,8 @@ def scaffold(args) -> int:
     if not args.example and not args.title:
         print("scaffold: pass --title, or --example for the Acme worked example.", file=sys.stderr)
         return 1
-    if args.date and not DATE.fullmatch(args.date):
-        print(f"scaffold: --date {args.date!r} is not YYYY-MM-DD.", file=sys.stderr)
+    if args.date and not is_date(args.date):
+        print(f"scaffold: --date {args.date!r} is not a calendar date in YYYY-MM-DD.", file=sys.stderr)
         return 1
     if dest.exists() and any(dest.iterdir()):
         print(f"scaffold: {dest} exists and is not empty; refusing to overwrite.", file=sys.stderr)
@@ -465,8 +475,8 @@ def check_meta(rep, meta):
     for k in ("title", "slug", "date"):
         if not (isinstance(meta.get(k), str) and meta[k].strip()):
             rep.err(f"meta.{k} is missing or empty")
-    if isinstance(meta.get("date"), str) and not DATE.fullmatch(meta["date"]):
-        rep.err(f"meta.date {meta['date']!r} is not YYYY-MM-DD")
+    if isinstance(meta.get("date"), str) and not is_date(meta["date"]):
+        rep.err(f"meta.date {meta['date']!r} is not a calendar date in YYYY-MM-DD")
     if meta.get("status") not in STATUSES:
         rep.err(f"meta.status {meta.get('status')!r} not in {', '.join(STATUSES)}")
     if "draft" in meta and not isinstance(meta["draft"], bool):
@@ -853,8 +863,8 @@ def check_actions(rep, R, cause_ids: set, status: str) -> set:
         elif source not in ACTION_SOURCES and source not in cause_ids:
             rep.err(f"{aid}: source {source!r} is neither a cause id nor one of {', '.join(ACTION_SOURCES)}")
         due = a.get("due")
-        if due is not None and not (isinstance(due, str) and DATE.fullmatch(due)):
-            rep.err(f"{aid}.due {due!r} is not YYYY-MM-DD")
+        if due is not None and not is_date(due):
+            rep.err(f"{aid}.due {due!r} is not a calendar date in YYYY-MM-DD")
         note = a.get("note")
         if note is not None and not (isinstance(note, str) and note.strip()):
             rep.err(f"{aid}.note must be a non-empty string")
