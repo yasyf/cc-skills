@@ -67,10 +67,17 @@
       "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck that runs as one argument, draws its system card with Mermaid under a pan-and-zoom that survives the deck, cites entries by readable handles in parentheses, opens every numbers table on its claim, previews every cited source line from GitHub on hover, twins every entry with plain English, hosts declared interactive components and self-laying-out compare figures, links every decision and open item to the pull requests that land it with live GitHub state, replays the interview, and answers questions from the whole document with grounded follow-ups in a collapsed Ask bar and an inline Cmd-K palette behind a deployed key, plus a PDF printed from the same page, written as a humble proposal."
     },
     {
+      "name": "incident-retro",
+      "source": "./plugins/incident-retro",
+      "description": "Write incident retrospectives as an interactive HTML page rendered from one canonical retro.json: outage windows and time-to-detect/mitigate/resolve tiles derived from timestamps, a swimlane timeline with Slack quotes, root and contributing causes with evidence, action items with live GitHub state, committed Datadog notebook and monitor snapshots drawn in the page, reader comments, and an in-page assistant; imports Google Docs postmortems."
+    },
+    {
       "name": "open-pr",
       "source": "./plugins/open-pr",
       "description": "Open a PR in the repo's own voice — guidelines and template from ccx, house style scouted from recent human-authored merged PRs, an OSS politeness and standards pass, shipped via ccx vcs ship, and a background watcher that clears mechanical CI and bot failures."
     }
   ],
-  "allowCrossMarketplaceDependenciesOn": ["captain-hook"]
+  "allowCrossMarketplaceDependenciesOn": [
+    "captain-hook"
+  ]
 }

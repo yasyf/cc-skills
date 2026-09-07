@@ -1,0 +1,55 @@
+{
+  "kind": "ir.tiles",
+  "title": "Tiles",
+  "summary": "The derived durations as a band of large numbers: time to detect, engage, mitigate and resolve, each computed from two timestamps, plus any extra measured or estimated figures. The page renders the four standard tiles at the top of Overview without a declaration; declare one to reorder, drop or add tiles, or to place a band elsewhere.",
+  "belongs": "Overview, as the first thing a reader sees. A declared band with extra figures also fits Impact.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.tiles"},
+    "title": {"type": "string", "minLength": 1},
+    "tiles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "ttd, tte, ttm or ttr picks a built-in tile; any other id needs from, to and label"},
+          "label": {"type": "string", "minLength": 1},
+          "from": {"enum": ["onset", "detected", "engaged", "mitigated", "resolved", "allClear"]},
+          "to": {"enum": ["onset", "detected", "engaged", "mitigated", "resolved", "allClear"]},
+          "tone": {"enum": ["crit", "warn", "ok", "accent"]}
+        }
+      }
+    },
+    "extra": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["label", "value", "measured"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "value": {"type": ["string", "number"]},
+          "unit": {"type": "string"},
+          "delta": {"type": "string", "minLength": 1},
+          "measured": {"type": "boolean"},
+          "tone": {"enum": ["crit", "warn", "ok", "accent"]},
+          "cites": {"type": "array", "items": {"type": "string", "pattern": "^(W|T|C|AI|I)\\d+$"}}
+        }
+      }
+    },
+    "cites": {"type": "array", "items": {"type": "string", "pattern": "^(W|T|C|AI|I)\\d+$"}}
+  },
+  "example": {
+    "kind": "ir.tiles",
+    "title": "How long it took",
+    "tiles": [{"id": "ttd"}, {"id": "ttm"}, {"id": "ttr"}, {"id": "ttq", "label": "Time to all clear", "from": "resolved", "to": "allClear", "tone": "ok"}],
+    "extra": [{"label": "Failed checkouts", "value": "12 480", "delta": "over the outage window", "measured": true, "cites": ["W1"]}]
+  }
+}

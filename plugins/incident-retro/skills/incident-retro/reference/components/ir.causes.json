@@ -1,0 +1,19 @@
+{
+  "kind": "ir.causes",
+  "title": "Cause tree",
+  "summary": "The causes as a tree read top to bottom: the trigger, then the root cause, then the contributing causes, each node a card with the handle and the plain twin. Hover a node for its card, click it for the full entry below. A retro with sub-incidents draws one tree per incident. The page renders one at the head of Causes; declare one for the flat list layout.",
+  "belongs": "Causes.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.causes"},
+    "title": {"type": "string", "minLength": 1},
+    "layout": {"enum": ["tree", "list"], "description": "default tree"}
+  },
+  "example": {
+    "kind": "ir.causes",
+    "title": "What broke, and what let it",
+    "layout": "tree"
+  }
+}

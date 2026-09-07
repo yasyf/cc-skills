@@ -53,9 +53,11 @@ A hand-drawn diagram stays valid as `{ "kind": "svg", "file": "sysd.svg", "capti
 
 The libraries load from jsdelivr at exact versions, pinned in one `LIBS` block at the top of the template's script and repeated here so `check` can compare the two: `mermaid@11.17.2`, `@mermaid-js/layout-elk@0.2.3`, `svg-pan-zoom@3.6.2`, `lucide-static@1.39.0`. Nothing is vendored. A reader with no network sees "Diagrams need a network connection" in the diagram host and a doc that otherwise works.
 
+`templates/design-doc.html` is generated: its source is `templates/src/design-doc.html`, whose `@include` markers pull the partials in `plugins/_shared/html/` (the tooltip, link chips, Markdown, components kit, site config, GitHub state, reader comments, assistant, and palette), and `python3 plugins/_shared/build.py build` writes it with a stamp on line 2 naming the source digest. `scripts/ddshared.py`, `scripts/build-pdf.py`, and `reference/components/dd.*.json` are built the same way from `plugins/_shared/py/` and `plugins/_shared/components/`. Edit the source and rerun the build; `check` errors on a stale stamp when the shared tree is present, and `build.py check` is the CI gate.
+
 ### `components` — the declared interactive blocks
 
-`components` maps an id to one block the renderer draws with no build step, from props `check` validates against `reference/components/<kind>.json`:
+`components` maps an id to one block the renderer draws with no build step, from props `check` validates against `reference/components/<kind>.json`, a built copy of the shared schema under `plugins/_shared/components/`:
 
 ```json
 "components": {
@@ -313,7 +315,7 @@ The table is the review surface: id, the original's first line, the twin, and it
 
 ## What `design.py render-check` renders
 
-`design.py render-check <dir>` serves the project directory, opens the doc in headless Chrome over its debugging pipe (the driver `design.py pdf` uses), and waits up to `--timeout` seconds, 60 by default, for the page to report every diagram rendered. It fails on a parse error, a diagram that never drew, and a page that never got ready, printing Chrome's stderr and the page's console messages so a failure names its cause. `check` sees only structure, so this is the only command that proves a diagram draws; `publish.sh` and CI run it. It needs network access to jsdelivr and says so when the import fails. Set `CHROME=/path/to/chrome` when discovery misses the browser, and `CHROME_ARGS` to pass it extra flags.
+`design.py render-check <dir>` serves the project directory, opens the doc in headless Chrome over its debugging pipe (the driver `design.py pdf` uses), and waits up to `--timeout` seconds, 60 by default, for the page to report every diagram rendered. It fails on a parse error, a diagram that never drew, a page that never got ready, and any uncaught exception or `console.error` the page emits between navigation and two seconds after it reports ready (the 404s for `ai.json` and `favicon.ico` are ignored), printing Chrome's stderr and the page's console messages so a failure names its cause. The exception rule matters because the assistant, palette and comments boot after the page reports ready, so a broken one leaves the doc looking rendered. `check` sees only structure, so this is the only command that proves a diagram draws; `publish.sh` and CI run it. It needs network access to jsdelivr and says so when the import fails. Set `CHROME=/path/to/chrome` when discovery misses the browser, and `CHROME_ARGS` to pass it extra flags.
 
 ## What `design.py pdf` prints
 

@@ -19,7 +19,7 @@ $TOOL summary-text <dir>        # the deck as Markdown, one ## section per panel
 $TOOL plainify <dir> [--only DQ3,A2] [--dry-run] # draft a plain twin and a handle for every entry that lacks one; review every line it writes
 $TOOL glossary <dir>            # terms the prose uses and the glossary lacks, as candidate entries
 $TOOL build <dir>               # compile components/*.tsx into components.js; only for a doc with a components/ directory
-$TOOL render-check <dir>        # render every Mermaid block in headless Chrome and fail on a parse error
+$TOOL render-check <dir>        # render every Mermaid block in headless Chrome; fail on a parse error or a page exception
 $TOOL pdf <dir>                 # print the doc through the template's print stylesheet into <dir>/design-doc.pdf
 $TOOL snapshot <dir> --note "…" --item "…" # stamp a revision the changes-since view diffs against; note is the reader-facing headline, each --item one change
 $TOOL links <dir> [--fetch] [--missing] # every decision and open item with its pull-request links and status; --fetch asks GitHub whether each link merged and reports drift, --missing lists the entries still unlinked

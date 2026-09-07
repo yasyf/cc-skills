@@ -1,0 +1,29 @@
+:root{
+  --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100; --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#4a3aa7; --viz-8:#e34948;
+  --viz-axis:var(--ink2); --viz-grid:var(--line); --viz-cursor:var(--ink2); --viz-legend:var(--ink2); --viz-band:var(--crit); --viz-rule:var(--ink2);
+}
+@media (prefers-color-scheme: dark){:root:not([data-print]):not([data-theme=light]){
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+}}
+html[data-theme=dark]:not([data-print]){
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+}
+.viz{position:relative;margin:8px 0 0}
+.viz .u-wrap{font-family:var(--mono)}
+.viz .u-legend{font:12px/1.5 var(--mono);color:var(--viz-legend);text-align:left;padding:6px 0 0}
+.viz .u-legend .u-series{display:inline-flex;align-items:center;gap:6px;margin:0 14px 2px 0}
+.viz .u-legend .u-series>*{padding:0}
+.viz .u-legend .u-marker{width:12px;height:12px;border-radius:3px;margin:0}
+.viz .u-legend .u-label{color:var(--ink)}
+.viz .u-legend .u-value{min-width:5ch;text-align:right;font-variant-numeric:tabular-nums}
+.viz .u-legend .u-series.u-off>*{opacity:.4}
+.viz .u-cursor-x,.viz .u-cursor-y{border-color:var(--viz-cursor)}
+.viz .u-select{background:var(--accent-soft)}
+.viz-empty{padding:18px 8px;color:var(--ink2);font-size:13.5px;text-align:center;border:1px dashed var(--line);border-radius:var(--r-node)}
+.viz-sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+.viz-legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.viz-legend .lg{display:inline-flex;align-items:center;gap:6px}
+.viz-legend .lg i{width:14px;height:0;border-top:2px solid var(--ink2)}
+.viz-legend .lg i.band{width:14px;height:10px;border:0;border-radius:2px;opacity:.35}
+.viz-legend .lg i.rule{border-top-style:dashed}
+@media print{.viz .u-legend{color:#555}.viz .u-legend .u-value{display:none}}

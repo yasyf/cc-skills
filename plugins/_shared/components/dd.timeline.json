@@ -1,0 +1,38 @@
+{
+  "kind": "dd.timeline",
+  "title": "Timeline",
+  "summary": "Phases in order, each done, next or blocked. A phase with a gate carries the register entry it waits on as a citation chip.",
+  "belongs": "A rollout arch card, or the top of Still open where the order of the spikes is the story.",
+  "type": "object",
+  "required": ["kind", "phases"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "dd.timeline"},
+    "title": {"type": "string", "minLength": 1},
+    "phases": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["label", "state"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "state": {"enum": ["done", "next", "blocked"]},
+          "gate": {"type": "string", "minLength": 1, "description": "a register id this phase waits on"},
+          "note": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "example": {
+    "kind": "dd.timeline",
+    "title": "How this lands",
+    "phases": [
+      {"label": "Shadow reads", "state": "done", "note": "One tenant, no writes."},
+      {"label": "One tenant live", "state": "next", "gate": "V1", "note": "Behind the enqueue flag."},
+      {"label": "Fleet", "state": "blocked", "gate": "V2"}
+    ]
+  }
+}

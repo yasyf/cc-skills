@@ -1,0 +1,26 @@
+{
+  "kind": "ir.notebook",
+  "title": "Datadog notebook",
+  "summary": "A Datadog notebook drawn from its snapshot under evidence/datadog/: the header names the notebook, links to Datadog and states when the snapshot was taken and what window it covers; markdown cells render as prose, timeseries cells as uPlot charts with the outage windows and timestamps painted over them, toplists as horizontal bars, log streams as a table, and cells with no snapshot data as a card carrying the query. The page renders one collapsible block per evidence.notebooks entry in Evidence, the first open; declare one to place a subset of cells beside the cause they prove.",
+  "belongs": "Evidence by default; a declared subset belongs on the cause card it proves, or in Detection next to the monitor that missed it.",
+  "type": "object",
+  "required": ["kind", "notebook"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.notebook"},
+    "title": {"type": "string", "minLength": 1, "description": "replaces the notebook's own name in the header"},
+    "notebook": {"type": "integer", "minimum": 1, "description": "the id of an evidence.notebooks entry"},
+    "cells": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}, "description": "cell indexes to draw; default every cell"},
+    "height": {"type": "integer", "minimum": 180, "maximum": 480, "description": "chart height in CSS pixels; default 220"},
+    "bands": {"type": "boolean", "description": "paint windows and timestamps over each chart; default true"},
+    "open": {"type": "boolean", "description": "start expanded; default true"}
+  },
+  "example": {
+    "kind": "ir.notebook",
+    "title": "Connection waits during the outage",
+    "notebook": 777001,
+    "cells": [1],
+    "height": 200,
+    "bands": true
+  }
+}

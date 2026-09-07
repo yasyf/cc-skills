@@ -1,0 +1,20 @@
+{
+  "kind": "ir.monitor",
+  "title": "Monitor",
+  "summary": "A Datadog monitor card from its snapshot under evidence/datadog/: name, type, whether it caught, missed or was added after the incident, the query, the thresholds, the evaluation delay and no-data settings, then a strip of its alert, warning and recovery transitions against the timestamps, with how long after onset it fired computed from detection.monitors[].fired or its first alert. The page renders one per detection.monitors entry in Resolution and detection; declare one to place it elsewhere or to hide the strip.",
+  "belongs": "Resolution and detection. Declared, it also fits a cause card about why a symptom went unseen.",
+  "type": "object",
+  "required": ["kind", "monitor"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.monitor"},
+    "title": {"type": "string", "minLength": 1, "description": "replaces the monitor's own name"},
+    "monitor": {"type": "integer", "minimum": 1, "description": "the id of a detection.monitors or evidence.monitors entry"},
+    "marks": {"type": "boolean", "description": "draw the transition strip; default true"}
+  },
+  "example": {
+    "kind": "ir.monitor",
+    "monitor": 12345,
+    "marks": true
+  }
+}

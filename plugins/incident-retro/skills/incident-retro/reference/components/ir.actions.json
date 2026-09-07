@@ -1,0 +1,20 @@
+{
+  "kind": "ir.actions",
+  "title": "Action items",
+  "summary": "The action tracker: a progress bar reading N of M done, filters by state, a grouping toggle (by state, owner or source), and a table with the id, the handle over the full title, the owner, the source cited as a chip, the state pill with the due date, and the linked pull requests and issues with their live GitHub state when the site carries a token. An action counts as done when its state is done or a link marked closes has merged. The page renders one in Action items; declare one to start grouped by owner or to hide finished work.",
+  "belongs": "Action items.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"const": "ir.actions"},
+    "title": {"type": "string", "minLength": 1},
+    "group": {"enum": ["state", "owner", "source"], "description": "default state"},
+    "showDone": {"type": "boolean", "description": "list done and dropped items; default true"}
+  },
+  "example": {
+    "kind": "ir.actions",
+    "group": "owner",
+    "showDone": false
+  }
+}
