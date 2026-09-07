@@ -20,8 +20,10 @@ retro.py import-gdoc <exported.md> [<docs.json>] --out <dir> [--tz America/Los_A
   overwrites `retro.json`, replaces or appends the `## Import report`
   section of `NOTES.md`, and writes images to `evidence/images/`. It creates
   a missing directory with the same layout.
-- `--tz` is the zone for every time that carries no `Z`, `UTC`, `PT`, `PDT`,
-  `PST`, `ET`, `EDT` or `EST` suffix. Every timestamp is written in this
+- `--tz` is the zone for every time that carries no zone suffix. `Z`, `UTC`,
+  `GMT`, `PST`, `PDT`, `MST`, `MDT`, `CST`, `CDT`, `EST` and `EDT` read as the
+  fixed offset they name; `PT` and `ET` read as the regional zone. Every
+  timestamp is written in this
   zone, including those with an explicit suffix.
 - `--date` supplies the date when the document states none.
 
