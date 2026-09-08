@@ -6,6 +6,14 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 # incident-retro
 
+GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all prose,
+including summaries, plain twins, handles, revision notes, and publication
+text. Delegated authors use the same model and effort. In Codex, set these
+explicitly when spawning an author. From Claude, load the `codex` skill and
+use its `codex-ask -m astra` route, which pins both settings; Claude may
+collect evidence and publish the result, but must delegate the writing.
+Prose helpers try Astra first and may use Claude only when Astra fails.
+
 An incident retro is one canonical `retro.json` beside committed snapshots of the evidence behind it. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
 
 Use one driver for every mechanical step:
