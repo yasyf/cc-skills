@@ -1,0 +1,10 @@
+{
+  "name": "long-running",
+  "description": "Context discipline for multi-lane orchestration — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Yasyf Mohamedali",
+    "url": "https://github.com/yasyf"
+  },
+  "license": "MIT"
+}

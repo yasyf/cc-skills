@@ -72,6 +72,11 @@
       "description": "Write incident retrospectives as an interactive HTML page rendered from one canonical retro.json: outage windows and time-to-detect/mitigate/resolve tiles derived from timestamps, a swimlane timeline with Slack quotes, root and contributing causes with evidence, action items with live GitHub state, committed Datadog notebook and monitor snapshots drawn in the page, reader comments, and an in-page assistant; imports Google Docs postmortems."
     },
     {
+      "name": "long-running",
+      "source": "./plugins/long-running",
+      "description": "Context discipline for orchestrating multi-lane work past one context window — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, and state lives in cc-notes and the task list; ships the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan as templates."
+    },
+    {
       "name": "open-pr",
       "source": "./plugins/open-pr",
       "description": "Open a PR in the repo's own voice — guidelines and template from ccx, house style scouted from recent human-authored merged PRs, an OSS politeness and standards pass, shipped via ccx vcs ship, and a background watcher that clears mechanical CI and bot failures."
