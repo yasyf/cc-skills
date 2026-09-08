@@ -168,8 +168,10 @@ async function cmtBlob(f){
 async function cmtLoadPosted(){
  const repo=cmtRepo();
  if(!repo)return [];
- const dir=cmtSlug().split("/").map(encodeURIComponent).join("/")+"/comments";
- const list=await ghGet(`/repos/${repo.owner}/${repo.repo}/contents/${dir}?ref=main`);
+ const dir=`/repos/${repo.owner}/${repo.repo}/contents/`+cmtSlug().split("/").map(encodeURIComponent).join("/");
+ const parent=await ghGet(`${dir}?ref=main`);
+ if(!Array.isArray(parent)||!parent.some(f=>f.type==="dir"&&f.name==="comments"))return [];
+ const list=await ghGet(`${dir}/comments?ref=main`);
  if(!Array.isArray(list))return [];
  const files=list.filter(f=>f.type==="file"&&f.name.endsWith(".json"));
  const out=[];
