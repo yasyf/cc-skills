@@ -1,5 +1,9 @@
 # The writing contract
 
+All drafting and revision in this reference belongs to `gpt-6-astra` at
+`xhigh`, including delegated writing passes. Follow the prose routing in
+`../SKILL.md`.
+
 The doc is a proposal asking for feedback, not a launch page. The reader should finish it knowing what is being proposed, what it costs, what could be wrong, and where their judgment is wanted. Every sentence that exists to impress rather than explain is a sentence between the reader and that outcome.
 
 ## Stance

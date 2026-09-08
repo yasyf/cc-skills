@@ -1,5 +1,9 @@
 # The writing contract
 
+All drafting and revision in this reference belongs to `gpt-6-astra` at
+`xhigh`, including delegated writing passes. Follow the prose routing in
+`../SKILL.md`.
+
 A useful retro explains the conditions that produced an incident and the
 changes that reduce recurrence. It does not grade the people involved.
 

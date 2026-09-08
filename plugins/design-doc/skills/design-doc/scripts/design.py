@@ -27,9 +27,9 @@ summary-text prints summary.html as plain text, one "## <kind>" section per
 panel, the input for the voice gate. glossary prints the recurring terms the
 registers never define, as JSON to paste into terms[]. plainify writes a
 plain-language twin for every rendered entry that lacks one and a handle for
-every entry that has none, through `slop-cop plainify` by default or the
-claude or codex CLI, and prints a review table carrying whatever slop-cop
-grades against. render-check opens the doc in headless Chrome
+every entry that has none, through GPT-6 Astra with Claude as a fallback
+when Astra fails, and prints a review table. The slop-cop provider remains
+available for batch generation and grading. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error, a diagram that never
 rendered, or an uncaught exception or console.error the page emits up to
@@ -546,8 +546,10 @@ def with_twin(e: dict, field: str, twin: str) -> dict:
     return out
 
 
-def ask_plain(provider: str, prompt: str, reg: str, e: dict, original: str) -> str:
-    request = f"{prompt}\n\nKind: {TWIN_KIND[reg]}\n"
+def ask_plain(provider: str, prompt: str, reg: str, e: dict, original: str, titles: dict) -> str:
+    if reg == "tldr":
+        prompt = prompt.replace(f"At most {TWIN_WORDS} words", f"At most {TLDR_WORDS} words")
+    request = f"{prompt}\n\nRegister titles: {json.dumps(titles, ensure_ascii=False)}\n\nKind: {TWIN_KIND[reg]}\n"
     if isinstance(e.get("t"), str) and reg != "open":
         request += f"Title: {e['t']}\n"
     request += f"Text: {original}\n"
@@ -555,20 +557,32 @@ def ask_plain(provider: str, prompt: str, reg: str, e: dict, original: str) -> s
         out = subprocess.run(["env", "-u", "CLAUDECODE", "claude", "-p", "--model", "claude-haiku-4-5", request],
                              capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT).stdout
     else:
-        with tempfile.TemporaryDirectory() as scratch:
-            reply = Path(scratch) / "reply.md"
-            subprocess.run(["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only",
-                            "--output-last-message", str(reply), request],
-                           capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT)
-            out = reply.read_text()
-    return " ".join(out.split()).strip("\"“” ")
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                reply = Path(scratch) / "reply.md"
+                print("plainify: generating with gpt-6-astra at xhigh", file=sys.stderr)
+                subprocess.run(["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only",
+                                "--model", "gpt-6-astra", "-c", "model_reasoning_effort=xhigh",
+                                "-c", "service_tier=fast", "--output-last-message", str(reply), request],
+                               capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT)
+                out = reply.read_text()
+                if not " ".join(out.split()).strip("\"“” "):
+                    raise ValueError("Astra returned an empty reply")
+        except (OSError, ValueError, subprocess.SubprocessError) as err:
+            detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else err
+            print(f"plainify: gpt-6-astra failed: {detail}; falling back to claude-haiku-4-5", file=sys.stderr)
+            return ask_plain("claude", prompt, reg, e, original, titles)
+    plain = " ".join(out.split()).strip("\"“” ")
+    if not plain:
+        raise ValueError(f"{provider} returned an empty reply")
+    return plain
 
 
 def slop_cop_binary():
     binary = os.environ.get("SLOP_COP") or shutil.which("slop-cop")
     if binary is None:
         print(f"plainify: no slop-cop found; install it with `brew install {SLOP_COP_FORMULA}`, point SLOP_COP at "
-              "the binary, or pass --provider claude", file=sys.stderr)
+              "the binary, or pass --provider codex", file=sys.stderr)
     return binary
 
 
@@ -641,12 +655,14 @@ def plainify(args) -> int:
             twin, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
         elif args.provider != "none":
             try:
-                twin = ask_plain(args.provider, prompt, reg, e, original)
-            except (OSError, subprocess.SubprocessError) as err:
+                twin = ask_plain(args.provider, prompt, reg, e, original, register_titles(R))
+            except (OSError, ValueError, subprocess.SubprocessError) as err:
                 print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
                 return 1
         if twin:
             issues += twin_issues(twin, original, ids)
+            if reg == "tldr" and words(twin) > TLDR_WORDS:
+                issues.append(f"{words(twin)} words; keep the tl;dr under {TLDR_WORDS}")
         rows.append((ident, first_line(original), twin, issues))
         if twin and not args.dry_run:
             R[reg][i] = with_twin(e, field, twin)
@@ -656,7 +672,11 @@ def plainify(args) -> int:
         print("plainify: every rendered entry has a plain twin")
     elif args.provider == "none":
         print(f"plainify: {len(todo)} entr{'y' if len(todo) == 1 else 'ies'} need a twin")
-    handles, handle_rows = draft_handles(args, R)
+    try:
+        handles, handle_rows = draft_handles(args, R)
+    except (OSError, ValueError, subprocess.SubprocessError) as err:
+        print(f"plainify: {args.provider} failed on the handles: {err}", file=sys.stderr)
+        return 1
     if written or handles:
         (root / "registers.json").write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n")
         if written:
@@ -1907,11 +1927,7 @@ def draft_handles(args, R):
         if args.provider == "slop-cop":
             handle, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
         else:
-            try:
-                handle, issues = ask_plain(args.provider, prompt, reg, e, e["t"]), []
-            except (OSError, subprocess.SubprocessError) as err:
-                print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
-                return written, rows
+            handle, issues = ask_plain(args.provider, prompt, reg, e, e["t"], register_titles(R)), []
         handle = handle.strip().rstrip(".")
         issues += handle_issues(handle, ids)
         rows.append((ident, first_line(e["t"]), handle, issues))
@@ -2733,7 +2749,7 @@ def main():
     pl = sub.add_parser("plainify", help="write a plain-language twin for every rendered entry that lacks one")
     pl.add_argument("dir")
     pl.add_argument("--only", help="comma-separated entry ids to rewrite even when a twin exists, e.g. DQ3,A2,tldr[0]")
-    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="slop-cop", help="slop-cop runs `slop-cop plainify` over the whole batch and grades what it writes, claude runs the Claude Code CLI, codex runs codex exec, none only lists the entries that need a twin")
+    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="codex", help="codex runs GPT-6 Astra at xhigh with Claude fallback on failure (default), claude runs the Claude Code CLI, slop-cop generates and grades a batch, none only lists missing twins and handles")
     pl.add_argument("--dry-run", action="store_true", help="print the review table without writing registers.json")
     pl.set_defaults(fn=plainify)
     rc = sub.add_parser("render-check", help="render the doc in headless Chrome and fail on a Mermaid error")
