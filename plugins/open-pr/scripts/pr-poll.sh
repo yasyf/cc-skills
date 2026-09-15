@@ -9,7 +9,8 @@
 #   COMMENT <author> <id> <first-80-chars-of-body>
 #   QUEUED  <author> <id>
 #   QUEUE-DROPPED <conflicts|failed-ci|other> <first-80-chars-of-entry>
-#   DONE    all-green | merged | queue-merged | closed | checks-failed | conflicted
+#   DONE    all-green | merged | queue-merged | closed | checks-failed |
+#           conflicted | deadline-still-open
 #
 # Exits 0 after DONE. QUEUED and QUEUE-DROPPED are not terminal: the PR is
 # still open and the watch continues.
@@ -22,9 +23,10 @@
 # under whoever enqueued the PR, so a queue event is an edit of an old
 # comment and the bullets already reported are what fire each event once.
 #
-# A merge queue that squash-merges leaves the PR CLOSED with mergedAt null, so
-# the closed path resolves the real terminal state from the CLOSED_EVENT actor:
-# the queue bot closed it means queue-merged, a human means closed.
+# A merge queue that squash-merges leaves the PR CLOSED with mergedAt null, and
+# closes abandoned PRs the same way, so the closed path asks for the landing
+# itself: the squash naming the PR on the base branch, or the queue's own
+# "Merged by" line. Neither means closed.
 #
 # A fresh state file watches from now on; pre-seed .watermarks to replay a PR's
 # existing comments and reviews.
@@ -33,7 +35,9 @@ set -euo pipefail
 STATE_SCHEMA=1
 EMPTY_PASSES_BEFORE_GREEN=3
 INTERVAL_FLOOR_PER_PR=10
-QUEUE_BOT=graphite-app
+DEADLINE="${PR_POLL_DEADLINE:-14400}"
+[[ $DEADLINE =~ ^[0-9]+$ ]] || DEADLINE=14400
+STARTED=$(date +%s)
 
 # The bullets of Graphite's merge-activity log, oldest first.
 QUEUE_ENTRIES='(.body // "") | split("\n") | map(select(test("^ *[*-] +")) | gsub("^ *[*-] +"; ""))'
@@ -81,8 +85,6 @@ STATE_FILE=$3
 
 [[ $REPO =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || usage
 [[ $PR =~ ^[0-9]+$ ]] || usage
-OWNER=${REPO%%/*}
-NAME=${REPO#*/}
 
 STACK="${PR_POLL_STACK:-1}"
 [[ $STACK =~ ^[1-9][0-9]*$ ]] || STACK=1
@@ -100,7 +102,7 @@ empty_passes=0
 
 normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" '
-    { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, attempts: {},
+    { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null, attempts: {},
       applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
     | .watermarks = ({ comments: $now, reviews: $now } * (.watermarks // {}))
@@ -136,29 +138,31 @@ finish() {
 }
 
 closed_verdict() {
-  local actor
-  actor=$(gh api graphql -F owner="$OWNER" -F name="$NAME" -F pr="$PR" -f query='
-    query($owner: String!, $name: String!, $pr: Int!) {
-      repository(owner: $owner, name: $name) {
-        pullRequest(number: $pr) {
-          timelineItems(last: 5, itemTypes: [CLOSED_EVENT]) {
-            nodes { ... on ClosedEvent { actor { login } } }
-          }
-        }
-      }
-    }' --jq '[.data.repository.pullRequest.timelineItems.nodes[].actor.login] | last // empty' \
-    2>/dev/null) || return 0
+  local base=$1 sha comments rc
+  sha=$(gh api "repos/$REPO/commits?sha=$base&per_page=100" \
+    --jq ".[] | select((.commit.message | split(\"\\n\")[0]) | endswith(\"(#$PR)\")) | .sha" \
+    2>/dev/null | head -1) || sha=""
+  if [ -n "$sha" ]; then printf 'queue-merged\n'; return 0; fi
 
-  [ -n "$actor" ] || return 0
-  if [ "$actor" = "$QUEUE_BOT" ]; then printf 'queue-merged\n'; else printf 'closed\n'; fi
+  comments=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+    --jq '.[] | select((.body // "") | test("Merged by the \\[?Graphite merge queue"; "i")) | .id' \
+    2>/dev/null) && rc=0 || rc=$?
+  if [ -n "$comments" ]; then printf 'queue-merged\n'; return 0; fi
+
+  # Both lookups failing leaves no evidence either way; a verdict would be a guess.
+  [ "$rc" -eq 0 ] || return 0
+  printf 'closed\n'
 }
 
 poll() {
   local view checks head prev seen items wm_c wm_r next_c next_r pr_state merged closed_as n_checks verdict
-  local activity act_id act_author act_seen act_n merge_state
+  local base merge_state
+  local activity act_id act_author act_seen act_n
 
-  view=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,headRefOid,mergeStateStatus,statusCheckRollup \
-    --jq '{state, mergedAt, headRefOid, mergeStateStatus, n_checks: (.statusCheckRollup | length)}' 2>/dev/null || true)
+  view=$(gh pr view "$PR" --repo "$REPO" \
+    --json state,mergedAt,headRefOid,baseRefName,mergeStateStatus,statusCheckRollup \
+    --jq '{state, mergedAt, headRefOid, baseRefName, mergeStateStatus, n_checks: (.statusCheckRollup | length)}' \
+    2>/dev/null || true)
   jq -e . >/dev/null 2>&1 <<<"$view" || view='{}'
 
   checks=$(gh pr checks "$PR" --repo "$REPO" \
@@ -222,9 +226,10 @@ poll() {
 
   pr_state=$(jq -r '.state // ""' <<<"$view")
   merged=$(jq -r '.mergedAt // ""' <<<"$view")
+  base=$(jq -r '.baseRefName // ""' <<<"$view")
   if [ -n "$merged" ] || [ "$pr_state" = MERGED ]; then finish merged; fi
   if [ "$pr_state" = CLOSED ]; then
-    closed_as=$(closed_verdict)
+    closed_as=$(closed_verdict "$base")
     if [ -n "$closed_as" ]; then finish "$closed_as"; fi
     return 0
   fi
@@ -255,5 +260,8 @@ poll() {
 
 while :; do
   poll
+  if [ "$DEADLINE" -gt 0 ] && [ $(($(date +%s) - STARTED)) -ge "$DEADLINE" ]; then
+    finish deadline-still-open
+  fi
   sleep "$INTERVAL"
 done

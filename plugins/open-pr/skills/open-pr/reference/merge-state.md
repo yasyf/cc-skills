@@ -5,22 +5,20 @@ Graphite's merge queue squash-merges: the squashed commit lands on trunk and the
 ## Merged or abandoned
 
 1. `state == MERGED` — merged, done.
-2. Otherwise read the close event's actor:
-
-```bash
-gh api graphql -f query='query { repository(owner: "<owner>", name: "<name>") {
-  pullRequest(number: <n>) { state mergedAt
-    timelineItems(last: 5, itemTypes: [CLOSED_EVENT]) {
-      nodes { ... on ClosedEvent { actor { login } } } } } } }'
-```
-
-`graphite-app` closed it — merged through the queue. A human closed it — genuinely abandoned.
-
-3. Confirm by content; the queue keeps the PR number in the squash subject:
+2. Otherwise look for the landing itself; the queue keeps the PR number in the squash subject:
 
 ```bash
 git log --format='%H%x09%s' origin/<trunk> | grep -E '\(#<n>\)$'
 ```
+
+3. No squash yet: read the queue's own merge-activity comment, which says "Merged by the [Graphite merge queue]" once it has landed the PR.
+
+```bash
+gh api repos/<owner>/<name>/issues/<n>/comments --paginate \
+  --jq '.[] | select((.body // "") | test("Merged by the \\[?Graphite merge queue"; "i")) | .id'
+```
+
+Neither signal means genuinely closed. The closer actor answers nothing: `graphite-app` closes the PRs it drops and its own merge-queue draft PRs the same way it closes the ones it lands, so an actor test calls both merged. Forge-AI/monorepo #20260 is the counterexample — closed by `graphite-app` when its base branch was deleted, never landed.
 
 Anchor to `$`: PR-number mentions in commit bodies and reverts false-positive without the suffix anchor. Key any merge watch on `state != "OPEN"` and then verify content; keying on `MERGED` waits forever.
 
@@ -72,7 +70,7 @@ Observed verdict lines, each the last bullet of a drop: `couldn't merge this PR 
 
 **Landing a parent deletes its head branch, which auto-closes the child.** GitHub closes a PR whose base ref disappears, and a closed PR whose branch was force-pushed after the close cannot be reopened — the work is recoverable only by recreating the base branch at trunk and opening a fresh PR (`#19700` lost that way, `#19707` recovered). Before landing a stack's bottom, repoint every child's base at trunk.
 
-Queue-merged PRs read `CLOSED` with `mergedAt: null`, so the drop path and the success path look identical in the PR's own fields; resolve them by the close actor, as above.
+Queue-merged PRs read `CLOSED` with `mergedAt: null`, so the drop path and the success path look identical in the PR's own fields; resolve them by the squash on trunk or the "Merged by" line, as above.
 
 ## After a downstack squash-merge
 
