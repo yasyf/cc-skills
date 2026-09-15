@@ -57,6 +57,23 @@ gh api repos/<owner>/<name>/issues/<n>/comments \
   --jq '.[] | select(.body | contains("Merge activity")).body'
 ```
 
+## Queue drops
+
+The queue reports itself in one "Merge activity" comment it **edits in place**, appending a bullet per event, and DMs the author on Slack. Nothing else fires: no new comment, no check, no timeline event a watcher can key on. So poll that comment's `updated_at` and body, not the comment list — a watcher keyed on new comments sees a queue drop as silence. The comment is authored by whoever enqueued the PR, not by `graphite-app[bot]`, so an author filter on the queue bot matches nothing.
+
+```bash
+gh api "repos/<owner>/<name>/issues/<n>/comments" \
+  --jq '.[] | select(.body | test("Merge activity")) | {id, updated_at, body}'
+```
+
+Observed verdict lines, each the last bullet of a drop: `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, and `couldn't merge this PR because **it failed for an unknown reason**` — that last one names no cause and a re-enqueue is what answers it. A drop takes the merge label off with it, so the fix is: push the rebase or the fix first, then relabel. Relabelling first re-enqueues the rejected head, and relabelling without a push is a no-op — the queue drops it again for the same reason.
+
+**Removing the label does not dequeue an in-flight PR.** Once the queue has taken it, the label is a record of how it got there, not a handle on it: Graphite landed one PR 50 minutes after its label came off, on a head amended in between (`#19776`, `#19850`). To actually hold a PR, close it or red a required check.
+
+**Landing a parent deletes its head branch, which auto-closes the child.** GitHub closes a PR whose base ref disappears, and a closed PR whose branch was force-pushed after the close cannot be reopened — the work is recoverable only by recreating the base branch at trunk and opening a fresh PR (`#19700` lost that way, `#19707` recovered). Before landing a stack's bottom, repoint every child's base at trunk.
+
+Queue-merged PRs read `CLOSED` with `mergedAt: null`, so the drop path and the success path look identical in the PR's own fields; resolve them by the close actor, as above.
+
 ## After a downstack squash-merge
 
 A squash orphans the Graphite stack parent: the merged branch's content is on trunk under a new SHA, so children still point at commits gt can no longer place.

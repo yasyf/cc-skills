@@ -24,7 +24,8 @@ Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <s
 ```
 
 It emits `CHECK <name> <bucket> <link>`, `REVIEW <author> <state> <id>`,
-`COMMENT <author> <id> <first-80>`, `QUEUED <author> <id>`, and `DONE
+`COMMENT <author> <id> <first-80>`, `QUEUED <author> <id>`, `QUEUE-DROPPED
+<conflicts|failed-ci|other> <first-80>`, and `DONE
 all-green|merged|queue-merged|closed|checks-failed`. `QUEUED` is not
 terminal — the PR entered the merge queue and the watch continues.
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
@@ -47,6 +48,24 @@ Each `DONE` ends a round:
 
 `TaskStop` the monitor before finishing — a persistent monitor outlives you
 otherwise.
+
+<queue_drop>
+`QUEUE-DROPPED` means the queue ejected the PR and dropped its merge label;
+the PR is open, unlabelled, and going nowhere until someone acts. The reason
+names the act:
+
+- `conflicts` → rebase onto the trunk tip, resolve, push
+- `failed-ci` → treat the red as `checks-failed` above: triage, fix, push
+- `other` → report `blocked` with the emitted text; the queue said something
+  neither branch covers
+
+Then, and only then, relabel: `gh pr edit <pr> --add-label <queue-label>`.
+The queue reads the head it sees at label time, so relabelling before the
+push re-enqueues the same rejected commit, and relabelling a PR whose head
+never moved is a no-op the queue drops again for the same reason. Ordering
+it the other way costs a full queue cycle per attempt. The tree-safety gate
+covers the push, and the attempt is recorded like any other.
+</queue_drop>
 
 Everything durable — attempts per check, findings, applied fixes, where you
 left off — goes in `<cache>/pr/<number>.json`, because a background agent's
