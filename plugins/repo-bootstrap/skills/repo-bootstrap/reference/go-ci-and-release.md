@@ -366,8 +366,8 @@ carries the download logic itself:
   `cc-skills:binrun-shim` fragment. The `plugin` extra scaffolds
   `.claude/fragments/plugin/scripts/install-binary.sh/layout.toml` importing it with a single
   `binary` arg. `bin/<name>` is a committed symlink to it, so hooks, MCP servers, and the CLI reach
-  the wrapper with the tool's own arguments. Its whole job is to find binrun — on `PATH`, at the
-  shared `~/.daemonkit/bin/binrun`, or by a one-time sha256-verified bootstrap of the pinned runner
+  the wrapper with the tool's own arguments. Its whole job is to find binrun — on `PATH`, at
+  `~/.daemonkit/binrun/<tag>/binrun` for its pinned tag, or by a one-time sha256-verified bootstrap of the pinned runner
   release — and hand off to `binrun bin/<name>.binrun "$@"`. Every failure exits 1; **exit 2 is
   reserved for a real hook verdict**, so the wrapper never leaks it.
 - **The descriptor** `plugin/bin/<name>.binrun`, committed to the plugin. It is an executable
