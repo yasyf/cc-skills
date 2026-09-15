@@ -25,8 +25,10 @@ Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <s
 
 It emits `CHECK <name> <bucket> <link>`, `REVIEW <author> <state> <id>`,
 `COMMENT <author> <id> <first-80>`, `QUEUED <author> <id>`, `QUEUE-DROPPED
-<conflicts|failed-ci|other> <first-80>`, and `DONE
-all-green|merged|queue-merged|closed|checks-failed`. `QUEUED` is not
+<conflicts|failed-ci|other> <first-80>`, `CONFLICT <merge-state>`, and `DONE
+all-green|merged|queue-merged|closed|checks-failed|deadline-still-open`.
+`deadline-still-open` means the watch ran out of time with the PR still
+open, after `PR_POLL_DEADLINE` seconds (four hours by default). `QUEUED` is not
 terminal — the PR entered the merge queue and the watch continues.
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
 with a null `mergedAt`. The script exits after any `DONE`,
@@ -40,9 +42,11 @@ Each `DONE` ends a round:
 - a closure → resolve merged vs abandoned and report which. A merge queue
   squash-merges onto trunk and closes the PR it landed, leaving
   `state: CLOSED` with `mergedAt: null`, so the state field reads a landed
-  PR as dropped. The closer — the actor on the last `CLOSED_EVENT` in the
-  PR's `timelineItems` — is the verdict: the queue's app meaning merged, a
-  human meaning abandoned
+  PR as dropped. The queue closes the PRs it drops the same way, so the
+  closer actor proves nothing; the landing itself is the verdict — the
+  squash whose subject ends `(#<n>)` on the base branch, or the queue's own
+  "Merged by the Graphite merge queue" line in its merge-activity comment
+- the deadline → report `blocked` with the PR still open and what it waits on
 - checks failed → triage the reds against the lanes below, and after
   shipping a fix arm a fresh Monitor on the new head
 
@@ -156,8 +160,9 @@ before:
 - `blocked` — a judgment call blocks progress; findings plus 2-4 concrete
   options, per the delegation contract: return early, the caller decides
 - `unsafe` — a safety gate failed; name which, and the fix it blocked
-- `merged` — the PR landed, by button or by queue; the closer actor is the
-  proof, never the state field
+- `merged` — the PR landed, by button or by queue; the squash on the base
+  branch or the queue's "Merged by" line is the proof, never the state
+  field and never the closer actor
 - `abandoned` — a human closed the PR without landing it
 
 A single end-of-run send is the whole protocol: the harness treats a

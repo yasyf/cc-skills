@@ -19,14 +19,14 @@ Resolve the slug and PR number from the user's words or the current branch
 no loop. A closed PR is not yet a verdict: a merge queue squash-merges onto
 trunk and closes the PR it landed, so a queue-merged PR reports
 `state: CLOSED` with `mergedAt: null` and no merge commit — the state field
-alone reads a landed PR as an abandoned one. The closer actor resolves it:
-the queue's app closing means merged, a human closing means abandoned.
+alone reads a landed PR as an abandoned one. The landing resolves it: the
+squash subject on the base branch, or the queue's "Merged by" line. The
+closer actor does not — the queue closes what it drops as well.
 
 ```bash
-gh api graphql -f query='{ repository(owner:"<owner>", name:"<name>") {
-  pullRequest(number:<pr>) { state mergedAt
-    timelineItems(last:5, itemTypes:[CLOSED_EVENT]) {
-      nodes { ... on ClosedEvent { actor { login } } } } } } }'
+git log --format='%H%x09%s' origin/<base> | grep -E '\(#<pr>\)$'
+gh api repos/<owner>/<name>/issues/<pr>/comments --paginate \
+  --jq '.[] | select((.body // "") | test("Merged by the \\[?Graphite merge queue"; "i")) | .id'
 ```
 
 Confirm a queue merge in trunk history, anchored to the subject suffix —
@@ -61,13 +61,17 @@ CHECK   <name> <bucket> <link>
 REVIEW  <author> <state> <id>
 COMMENT <author> <id> <first-80-chars>
 QUEUED  <author> <id>
-DONE    all-green | merged | queue-merged | closed | checks-failed
+CONFLICT <merge-state>
+DONE    all-green | merged | queue-merged | closed | checks-failed |
+        deadline-still-open
 ```
 
 `QUEUED` is not terminal — the PR entered the merge queue and is still in
 flight, so the watch continues. `queue-merged` is a merge: the queue
 squash-merges, so the PR reads `CLOSED` with a null `mergedAt` and only the
-closing actor distinguishes it from an abandoned one.
+squash on the base branch or the queue's "Merged by" line distinguishes it
+from an abandoned one. `deadline-still-open` ends the watch on time instead
+of polling forever; `PR_POLL_DEADLINE` sets it, four hours by default.
 
 `pr-poll.sh` exits after any `DONE` line, which ends that watch —
 `persistent: true` only removes the timeout, so a monitor whose command
@@ -78,8 +82,8 @@ The states behind the tokens, by meaning: open (checks running or red),
 green (every check passed), queued for merge (a queue holds it — still in
 flight, the queue can eject it), merged, abandoned. Green and both terminal
 states end the loop: `TaskStop` the monitor and report — on a queue lane,
-merged vs abandoned comes from the closer actor (see Attach), never the
-state field. Queued keeps the watch armed. On failed checks, triage the
+merged vs abandoned comes from the landing on the base branch (see Attach),
+never the state field and never the closer actor. Queued keeps the watch armed. On failed checks, triage the
 reds; ship or rebut what triage settles, then **arm a fresh Monitor** on
 the new head and keep going. The loop ends when what remains is green,
 exhausted its two attempts, or awaiting a decision.
