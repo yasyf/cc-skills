@@ -8,10 +8,15 @@
 #   REVIEW  <author> <state> <id>
 #   COMMENT <author> <id> <first-80-chars-of-body>
 #   QUEUED  <author> <id>
+#   QUEUE-DROPPED <conflicts|failed-ci|other> <first-80-chars-of-entry>
 #   DONE    all-green | merged | queue-merged | closed | checks-failed
 #
-# Exits 0 after DONE. QUEUED — the PR entered the merge queue — is not
-# terminal: the PR is still in flight and the watch continues.
+# Exits 0 after DONE. QUEUED and QUEUE-DROPPED are not terminal: the PR is
+# still open and the watch continues.
+#
+# Both read Graphite's one "Merge activity" comment, which it edits in place
+# under whoever enqueued the PR, so a queue event is an edit of an old
+# comment and the bullets already reported are what fire each event once.
 #
 # A merge queue that squash-merges leaves the PR CLOSED with mergedAt null, so
 # the closed path resolves the real terminal state from the CLOSED_EVENT actor:
@@ -25,6 +30,23 @@ STATE_SCHEMA=1
 EMPTY_PASSES_BEFORE_GREEN=3
 INTERVAL_FLOOR_PER_PR=10
 QUEUE_BOT=graphite-app
+
+# The bullets of Graphite's merge-activity log, oldest first.
+QUEUE_ENTRIES='(.body // "") | split("\n") | map(select(test("^ *[*-] +")) | gsub("^ *[*-] +"; ""))'
+
+# Each bullet past $seen as one event line; a bullet naming no queue event emits nothing.
+QUEUE_EVENTS="$QUEUE_ENTRIES"'
+  | .[$seen:][]
+  | (gsub("\\[(?<t>[^]]*)\\]\\([^)]*\\)"; "\(.t)") | gsub("[*`]"; "") | gsub("[\r\n\t]+"; " ")) as $text
+  | if ($text | test("added this pull request to the .*merge queue"; "i"))
+      then "QUEUED \($author) \($id)"
+    elif ($text | test("merge conflict|try rebasing"; "i"))
+      then "QUEUE-DROPPED conflicts \($text[0:80])"
+    elif ($text | test("ci (failed|failure)|failing (required )?check|failed (required )?check"; "i"))
+      then "QUEUE-DROPPED failed-ci \($text[0:80])"
+    elif ($text | test("couldn.t merge this PR|can ?not be added to the|removed this pull request|removed .* from the .*queue|disabled \"merge when ready\"|downstack failure"; "i"))
+      then "QUEUE-DROPPED other \($text[0:80])"
+    else empty end'
 
 usage() {
   cat >&2 <<'EOF'
@@ -74,7 +96,7 @@ empty_passes=0
 
 normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" '
-    { head_at_last_pass: null, checks_seen: {}, attempts: {},
+    { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, attempts: {},
       applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
     | .watermarks = ({ comments: $now, reviews: $now } * (.watermarks // {}))
@@ -129,6 +151,7 @@ closed_verdict() {
 
 poll() {
   local view checks head prev seen items wm_c wm_r next_c next_r pr_state merged closed_as n_checks verdict
+  local activity act_id act_author act_seen act_n
 
   view=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,headRefOid,statusCheckRollup \
     --jq '{state, mergedAt, headRefOid, n_checks: (.statusCheckRollup | length)}' 2>/dev/null || true)
@@ -174,10 +197,18 @@ poll() {
     map(select(.at > $wm)) | sort_by(.at) | .[]
     | "COMMENT \(.author) \(.id) \((.body // "") | gsub("[\r\n]+"; " ") | .[0:80])"
   ' <<<"$items")"
-  emit "$(jq -rs --arg wm "$wm_c" --arg bot "${QUEUE_BOT}[bot]" '
-    map(select(.at > $wm and .author == $bot and ((.body // "") | contains("merge queue"))))
-    | sort_by(.at) | .[] | "QUEUED \(.author) \(.id)"
-  ' <<<"$items")"
+  activity=$(jq -cs 'map(select((.body // "") | test("Merge activity"))) | sort_by(.at) | last // empty' <<<"$items")
+  if [ -n "$activity" ]; then
+    act_id=$(jq -r '.id' <<<"$activity")
+    act_author=$(jq -r '.author' <<<"$activity")
+    act_seen=$(jq -r --arg id "$act_id" '.merge_activity[$id] // 0' <<<"$STATE")
+    act_n=$(jq -r "$QUEUE_ENTRIES | length" <<<"$activity")
+    # A shorter log than last pass is a replaced comment, not a rewind.
+    [ "$act_n" -ge "$act_seen" ] || act_seen=0
+    emit "$(jq -r --argjson seen "$act_seen" --arg author "$act_author" --arg id "$act_id" \
+      "$QUEUE_EVENTS" <<<"$activity")"
+    STATE=$(jq -c --arg id "$act_id" --argjson n "$act_n" '.merge_activity[$id] = $n' <<<"$STATE")
+  fi
   next_c=$(jq -rs --arg wm "$wm_c" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_c=$wm_c
 
   STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" \
