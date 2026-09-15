@@ -42,7 +42,7 @@ QUEUE_EVENTS="$QUEUE_ENTRIES"'
       then "QUEUED \($author) \($id)"
     elif ($text | test("merge conflict|try rebasing"; "i"))
       then "QUEUE-DROPPED conflicts \($text[0:80])"
-    elif ($text | test("ci (failed|failure)|failing (required )?check|failed (required )?check"; "i"))
+    elif ($text | test("ci (failed|failure)|failing (required )?check|failed (required )?check|failed for an unknown reason"; "i"))
       then "QUEUE-DROPPED failed-ci \($text[0:80])"
     elif ($text | test("couldn.t merge this PR|can ?not be added to the|removed this pull request|removed .* from the .*queue|disabled \"merge when ready\"|downstack failure"; "i"))
       then "QUEUE-DROPPED other \($text[0:80])"

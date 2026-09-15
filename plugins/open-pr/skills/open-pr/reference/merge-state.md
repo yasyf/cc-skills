@@ -66,7 +66,7 @@ gh api "repos/<owner>/<name>/issues/<n>/comments" \
   --jq '.[] | select(.body | test("Merge activity")) | {id, updated_at, body}'
 ```
 
-Observed verdict lines, each the last bullet of a drop: `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`. A drop takes the merge label off with it, so the fix is: push the rebase or the fix first, then relabel. Relabelling first re-enqueues the rejected head, and relabelling without a push is a no-op — the queue drops it again for the same reason.
+Observed verdict lines, each the last bullet of a drop: `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, and `couldn't merge this PR because **it failed for an unknown reason**` — that last one names no cause and a re-enqueue is what answers it. A drop takes the merge label off with it, so the fix is: push the rebase or the fix first, then relabel. Relabelling first re-enqueues the rejected head, and relabelling without a push is a no-op — the queue drops it again for the same reason.
 
 **Removing the label does not dequeue an in-flight PR.** Once the queue has taken it, the label is a record of how it got there, not a handle on it: Graphite landed one PR 50 minutes after its label came off, on a head amended in between (`#19776`, `#19850`). To actually hold a PR, close it or red a required check.
 
