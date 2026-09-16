@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import pwd
+import re
+import sqlite3
 import sys
+import time
 import types
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -29,17 +35,19 @@ def plugin(common, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     root = tmp_path / "plugin"
     (root / "bin").mkdir(parents=True)
     launcher = root / "bin" / "codex-ask"
-    launcher.write_text("#!/bin/sh\n")
+    launcher.write_text('#!/bin/bash\nRUNNER_TAG="v9.9.9"\n')
     launcher.chmod(0o755)
     descriptor = root / "bin" / "codex-ask.binrun"
     descriptor.write_text("{}\n")
+    home = tmp_path / "home"
     monkeypatch.setattr(common, "PLUGIN_ROOT", root)
     monkeypatch.setattr(common, "LAUNCHER", launcher)
     monkeypatch.setattr(common, "DESCRIPTOR", descriptor)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
-    return types.SimpleNamespace(root=root, launcher=launcher, descriptor=descriptor)
+    monkeypatch.delenv("BINRUN_BIN", raising=False)
+    return types.SimpleNamespace(root=root, launcher=launcher, descriptor=descriptor, home=home)
 
 
 def executable(path: Path) -> Path:
@@ -49,17 +57,57 @@ def executable(path: Path) -> Path:
     return path
 
 
-def test_binrun_on_path_wins(common, plugin, monkeypatch, tmp_path):
+def test_explicit_binrun_bin_wins(common, plugin, monkeypatch, tmp_path):
+    executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("PATH", str(executable(tmp_path / "onpath" / "binrun").parent))
+    monkeypatch.setenv("BINRUN_BIN", "/dev/binrun")
+    assert common.codex_ask_argv() == ["/dev/binrun", str(plugin.descriptor)]
+
+
+def test_pinned_runner_under_home_daemonkit(common, plugin, monkeypatch, tmp_path):
+    pinned = executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("PATH", str(executable(tmp_path / "onpath" / "binrun").parent))
+    assert common.codex_ask_argv() == [str(pinned), str(plugin.descriptor)]
+
+
+def test_pinned_runner_under_daemonkit_home_override(common, plugin, monkeypatch, tmp_path):
+    override = tmp_path / "dk"
+    executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    pinned = executable(override / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("DAEMONKIT_HOME", str(override))
+    assert common.codex_ask_argv() == [str(pinned), str(plugin.descriptor)]
+
+
+def test_other_tags_runner_is_never_chosen(common, plugin):
+    executable(plugin.home / ".daemonkit" / "binrun" / "v0.0.1" / "binrun")
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+
+
+def test_stale_shared_runner_is_never_chosen(common, plugin, monkeypatch, tmp_path):
+    executable(plugin.home / ".daemonkit" / "bin" / "binrun")
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+    override = tmp_path / "dk"
+    executable(override / "bin" / "binrun")
+    monkeypatch.setenv("DAEMONKIT_HOME", str(override))
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+
+
+def test_path_binrun_without_pinned_runner(common, plugin, monkeypatch, tmp_path):
     found = executable(tmp_path / "onpath" / "binrun")
     monkeypatch.setenv("PATH", str(found.parent))
     assert common.codex_ask_argv() == [str(found), str(plugin.descriptor)]
 
 
-def test_shared_daemonkit_binrun_is_used(common, plugin, monkeypatch, tmp_path):
-    home = tmp_path / "dk"
-    shared = executable(home / "bin" / "binrun")
-    monkeypatch.setenv("DAEMONKIT_HOME", str(home))
-    assert common.codex_ask_argv() == [str(shared), str(plugin.descriptor)]
+def test_runner_lookup_mirrors_the_launcher(common):
+    installer = REPO_ROOT / "plugins" / "codex" / "scripts" / "install-binary.sh"
+    assert common.LAUNCHER.resolve() == installer.resolve()
+    shim = installer.read_text()
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", common.RUNNER_TAG.search(shim)[1])
+    assert 'RUNNER_HOME="${DAEMONKIT_HOME:-$HOME/.daemonkit}"\n' in shim
+    assert 'RUNNER_DIR="$RUNNER_HOME/binrun/$RUNNER_TAG"\n' in shim
+    assert 'RUNNER_BIN="$RUNNER_DIR/binrun"\n' in shim
+    arms = [shim.index(arm) for arm in ('exec "$BINRUN_BIN"', 'exec "$RUNNER_BIN"', "command -v binrun")]
+    assert arms == sorted(arms)
 
 
 def test_falls_back_to_launcher_without_binrun(common, plugin):
@@ -137,3 +185,132 @@ def test_call_bin_exports_the_plugin_root(common, plugin, state_dir):
     assert common.call_bin(evt, "agent-inject") == "out"
     assert captured["argv"] == [str(plugin.launcher), "agent-inject"]
     assert captured["env"] == {"BINRUN_PLUGIN_ROOT": str(plugin.root)}
+
+
+PLANE_DDL = """
+CREATE TABLE subjects (id TEXT PRIMARY KEY, session_id TEXT, scope TEXT NOT NULL);
+CREATE TABLE directives (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id TEXT NOT NULL REFERENCES subjects(id),
+  agent_id TEXT NOT NULL,
+  delivered_at INTEGER
+);
+"""
+
+
+@pytest.fixture
+def plane(common, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    db = tmp_path / "cc-interact-v1" / "state.db"
+    monkeypatch.setattr(common, "state_db", lambda: db)
+    return db
+
+
+def seed_plane(db: Path, *statements: str) -> None:
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.executescript(PLANE_DDL + ";".join(statements))
+
+
+def plane_event(**raw: str | None) -> types.SimpleNamespace:
+    return types.SimpleNamespace(_raw={"session_id": "s", "cwd": "/repo", **raw})
+
+
+def assert_admits(common) -> None:
+    assert common.directive_pending(plane_event()) is True
+    assert common.subject_in_scope(plane_event()) is True
+
+
+def test_absent_store_admits_every_spawn(common, plane):
+    assert_admits(common)
+
+
+def test_store_without_tables_admits_every_spawn(common, plane):
+    plane.parent.mkdir(parents=True)
+    plane.touch()
+    assert_admits(common)
+
+
+def test_torn_store_admits_every_spawn(common, plane):
+    plane.parent.mkdir(parents=True)
+    plane.write_bytes(b"SQLite format 3\x00" + b"\xff" * 84)
+    assert_admits(common)
+
+
+def test_unreadable_store_admits_every_spawn(common, plane):
+    seed_plane(plane)
+    plane.chmod(0)
+    try:
+        assert_admits(common)
+    finally:
+        plane.chmod(0o600)
+
+
+@pytest.mark.parametrize("journal", ["DELETE", "WAL"])
+def test_locked_store_admits_without_waiting(common, plane, journal):
+    seed_plane(plane)
+    with closing(sqlite3.connect(plane, isolation_level=None)) as holder:
+        holder.execute(f"PRAGMA journal_mode={journal}")
+        holder.execute("PRAGMA locking_mode=EXCLUSIVE")
+        holder.execute("BEGIN EXCLUSIVE")
+        holder.execute("INSERT INTO subjects VALUES ('held', 's', '/elsewhere')")
+        started = time.monotonic()
+        assert_admits(common)
+        assert time.monotonic() - started < 5
+        holder.execute("ROLLBACK")
+
+
+def test_real_home_is_daemonkits(common, monkeypatch, tmp_path):
+    passwd = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
+    assert common.real_home() == passwd
+    monkeypatch.setenv("DAEMONKIT_HOME", "")
+    assert common.real_home() == passwd
+    monkeypatch.setenv("DAEMONKIT_HOME", str(tmp_path))
+    assert common.real_home() == tmp_path
+    assert common.daemon_socket() == tmp_path / ".daemonkit" / "a" / common.SERVICE_LABEL / "daemon.sock"
+    assert common.state_db() == tmp_path / common.APP_DIR / "cc-interact-v1" / "state.db"
+
+
+def test_empty_store_admits_nothing(common, plane):
+    seed_plane(plane)
+    assert common.directive_pending(plane_event()) is False
+    assert common.directive_pending(plane_event(agent_id="a1")) is False
+    assert common.subject_in_scope(plane_event()) is False
+
+
+def test_subject_in_scope_matches_scope_only(common, plane):
+    seed_plane(plane, "INSERT INTO subjects VALUES ('sub', 'other-session', '/repo')")
+    assert common.subject_in_scope(plane_event()) is True
+    assert common.subject_in_scope(plane_event(cwd="/elsewhere")) is False
+
+
+def test_pending_directive_matches_agent_and_scope(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 'other-session', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id) VALUES ('sub', 'a1')",
+    )
+    assert common.directive_pending(plane_event(agent_id="a1")) is True
+    assert common.directive_pending(plane_event(agent_id="a2")) is False
+    assert common.directive_pending(plane_event()) is False
+    assert common.directive_pending(plane_event(agent_id="a1", cwd="/elsewhere")) is False
+
+
+def test_top_level_agent_reads_the_empty_agent_id(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 's', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id) VALUES ('sub', '')",
+    )
+    assert common.directive_pending(plane_event()) is True
+    assert common.directive_pending(plane_event(agent_id=None)) is True
+    assert common.directive_pending(plane_event(agent_id="")) is True
+
+
+def test_delivered_directive_is_not_pending(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 's', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id, delivered_at) VALUES ('sub', 'a1', 1)",
+    )
+    assert common.directive_pending(plane_event(agent_id="a1")) is False
