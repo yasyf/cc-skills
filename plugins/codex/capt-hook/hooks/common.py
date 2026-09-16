@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import re
 import shutil
 import sqlite3
 from contextlib import closing
@@ -17,6 +18,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = PLUGIN_ROOT / "bin" / "codex-ask"
 DESCRIPTOR = PLUGIN_ROOT / "bin" / "codex-ask.binrun"
 SERVICE_LABEL = "com.yasyf.codex-ask"
+RUNNER_TAG = re.compile(r'^RUNNER_TAG="([^"]+)"$', re.MULTILINE)
 APP_DIR = ".cc-codex-ask"
 PENDING_DIRECTIVE = (
     "SELECT EXISTS(SELECT 1 FROM directives JOIN subjects ON subjects.id = directives.subject_id "
@@ -63,21 +65,23 @@ def subject_in_scope(evt: BaseHookEvent) -> bool:
     return plane_may_match(SUBJECT_IN_SCOPE, scope(evt))
 
 
+def runner_home() -> Path:
+    return Path(os.environ.get("DAEMONKIT_HOME") or Path.home() / ".daemonkit")
+
+
 def binrun_bin() -> str | None:
-    found = shutil.which("binrun")
-    if found:
-        return found
-    home = os.environ.get("DAEMONKIT_HOME") or Path.home() / ".daemonkit"
-    shared = Path(home) / "bin" / "binrun"
-    return str(shared) if os.access(shared, os.X_OK) else None
+    if chosen := os.environ.get("BINRUN_BIN"):
+        return chosen
+    pinned = runner_home() / "binrun" / RUNNER_TAG.search(LAUNCHER.read_text())[1] / "binrun"
+    if os.access(pinned, os.X_OK):
+        return str(pinned)
+    return shutil.which("binrun")
 
 
 def codex_ask_argv() -> list[str] | None:
-    runner = binrun_bin()
-    if runner and DESCRIPTOR.is_file():
-        return [runner, str(DESCRIPTOR)]
     if LAUNCHER.exists():
-        return [str(LAUNCHER)]
+        runner = binrun_bin()
+        return [runner, str(DESCRIPTOR)] if runner and DESCRIPTOR.is_file() else [str(LAUNCHER)]
     found = shutil.which("codex-ask")
     return [found] if found else None
 

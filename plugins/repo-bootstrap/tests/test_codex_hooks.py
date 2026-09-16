@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import pwd
+import re
 import sqlite3
 import sys
 import time
@@ -34,17 +35,19 @@ def plugin(common, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     root = tmp_path / "plugin"
     (root / "bin").mkdir(parents=True)
     launcher = root / "bin" / "codex-ask"
-    launcher.write_text("#!/bin/sh\n")
+    launcher.write_text('#!/bin/bash\nRUNNER_TAG="v9.9.9"\n')
     launcher.chmod(0o755)
     descriptor = root / "bin" / "codex-ask.binrun"
     descriptor.write_text("{}\n")
+    home = tmp_path / "home"
     monkeypatch.setattr(common, "PLUGIN_ROOT", root)
     monkeypatch.setattr(common, "LAUNCHER", launcher)
     monkeypatch.setattr(common, "DESCRIPTOR", descriptor)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
-    return types.SimpleNamespace(root=root, launcher=launcher, descriptor=descriptor)
+    monkeypatch.delenv("BINRUN_BIN", raising=False)
+    return types.SimpleNamespace(root=root, launcher=launcher, descriptor=descriptor, home=home)
 
 
 def executable(path: Path) -> Path:
@@ -54,17 +57,57 @@ def executable(path: Path) -> Path:
     return path
 
 
-def test_binrun_on_path_wins(common, plugin, monkeypatch, tmp_path):
+def test_explicit_binrun_bin_wins(common, plugin, monkeypatch, tmp_path):
+    executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("PATH", str(executable(tmp_path / "onpath" / "binrun").parent))
+    monkeypatch.setenv("BINRUN_BIN", "/dev/binrun")
+    assert common.codex_ask_argv() == ["/dev/binrun", str(plugin.descriptor)]
+
+
+def test_pinned_runner_under_home_daemonkit(common, plugin, monkeypatch, tmp_path):
+    pinned = executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("PATH", str(executable(tmp_path / "onpath" / "binrun").parent))
+    assert common.codex_ask_argv() == [str(pinned), str(plugin.descriptor)]
+
+
+def test_pinned_runner_under_daemonkit_home_override(common, plugin, monkeypatch, tmp_path):
+    override = tmp_path / "dk"
+    executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
+    pinned = executable(override / "binrun" / "v9.9.9" / "binrun")
+    monkeypatch.setenv("DAEMONKIT_HOME", str(override))
+    assert common.codex_ask_argv() == [str(pinned), str(plugin.descriptor)]
+
+
+def test_other_tags_runner_is_never_chosen(common, plugin):
+    executable(plugin.home / ".daemonkit" / "binrun" / "v0.0.1" / "binrun")
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+
+
+def test_stale_shared_runner_is_never_chosen(common, plugin, monkeypatch, tmp_path):
+    executable(plugin.home / ".daemonkit" / "bin" / "binrun")
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+    override = tmp_path / "dk"
+    executable(override / "bin" / "binrun")
+    monkeypatch.setenv("DAEMONKIT_HOME", str(override))
+    assert common.codex_ask_argv() == [str(plugin.launcher)]
+
+
+def test_path_binrun_without_pinned_runner(common, plugin, monkeypatch, tmp_path):
     found = executable(tmp_path / "onpath" / "binrun")
     monkeypatch.setenv("PATH", str(found.parent))
     assert common.codex_ask_argv() == [str(found), str(plugin.descriptor)]
 
 
-def test_shared_daemonkit_binrun_is_used(common, plugin, monkeypatch, tmp_path):
-    home = tmp_path / "dk"
-    shared = executable(home / "bin" / "binrun")
-    monkeypatch.setenv("DAEMONKIT_HOME", str(home))
-    assert common.codex_ask_argv() == [str(shared), str(plugin.descriptor)]
+def test_runner_lookup_mirrors_the_launcher(common):
+    installer = REPO_ROOT / "plugins" / "codex" / "scripts" / "install-binary.sh"
+    assert common.LAUNCHER.resolve() == installer.resolve()
+    shim = installer.read_text()
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", common.RUNNER_TAG.search(shim)[1])
+    assert 'RUNNER_HOME="${DAEMONKIT_HOME:-$HOME/.daemonkit}"\n' in shim
+    assert 'RUNNER_DIR="$RUNNER_HOME/binrun/$RUNNER_TAG"\n' in shim
+    assert 'RUNNER_BIN="$RUNNER_DIR/binrun"\n' in shim
+    arms = [shim.index(arm) for arm in ('exec "$BINRUN_BIN"', 'exec "$RUNNER_BIN"', "command -v binrun")]
+    assert arms == sorted(arms)
 
 
 def test_falls_back_to_launcher_without_binrun(common, plugin):
