@@ -76,8 +76,8 @@ Arm it on any orchestration carrying more than ten open PRs, and on any drive wh
 can go red without a lane noticing. Below that the lane that opened the PR still owns it
 and there is nothing to track.
 
-**L1. Refresh every 20 minutes and emit `ledger line` every hour.** One sequencer lane
-owns both; the orchestrator reads the hourly line and nothing else. *Prevents the
+**L1. Refresh every 20 minutes.** One sequencer lane owns the cadence, and the
+orchestrator reads the desk's hourly summary rather than the ledger itself. *Prevents the
 root-context `gh pr list` that R1 already forbids and the ledger makes unnecessary.*
 
 **L2. Route every red or conflicting row in the pass that finds it.** `refresh` then
@@ -86,36 +86,24 @@ indistinguishable from a tracked one. Both are a line in a table nobody has acte
 *Prevents the red PR that sat for hours because the pass that found it only recorded it.*
 
 **L3. A parked row carries `hold_reason` and `hold_since`.** A row parked without a
-reason is an untracked row wearing a ledger's clothes, which is why `ledger line` prints
-it as `UNREASONED` instead of counting it as held. *Prevents the hold nobody can lift
-because nobody remembers what it was waiting for.*
+reason is an untracked row wearing a ledger's clothes, and a report that counts it as held
+is reporting a decision nobody made. *Prevents the hold nobody can lift because nobody
+remembers what it was waiting for.*
 
 **L4. Grade the head you read, and record it.** `route` writes `last_graded_head`, and a
 row whose `head` no longer equals it has moved since it was last routed, so the prior
 verdict is void and the row is routed again. *Prevents a stale green and a stale red
 alike, both of which name a sha nobody graded.*
 
-**L5. Merged is a fact about the trunk, never about PR state.** A row reads `merged`
-only when its squash is on the base branch, found by `git log origin/<base> --grep
-"(#N)"` with the subject ending in `(#N)`, and it records the `landed_sha`. The queue
-leaves a landed PR reading closed with merged false, and a PR auto-closed because its
-base branch was deleted reads identically. So a row is `open`, `merged`, or
-`closed-without-squash`. That third state is the dangerous one, and it has no honest
-home in a two-state model. `refresh` fetches the base before it reads it.
-*Prevents the approved fix that sat absent from the trunk for four hours while its row
-looked settled.*
-
 `lane`, `hold_reason`, `hold_since`, and `declared_intent` are orchestrator-owned:
 `refresh` merges fields instead of replacing them, so it never overwrites them. It regrades
 the rows the ledger already holds plus any `--pr` it is handed, and never lists the
 repository's pull requests: a PR is in the ledger because one of our lanes reported it,
-and a PR no lane reported is nobody's to grade, route, or count.
-
-The cheap self-check that catches a broken pass: the red count `ledger line` reports must
-equal the number of rows `ledger show --red` lists. The shell ledger this replaces reported
-zero red PRs while twenty were red, and those two numbers disagreeing was the only visible
-symptom. A false zero is worse than a wrong count, because a wrong count invites a check
-and a zero closes the question.
+and a PR no lane reported is nobody's to grade, route, or count. A closed row stays,
+marked `state=closed`, until `desk.py landed` settles it from the squash on its base
+branch. Merged is a fact about the trunk, never about PR state: the queue leaves a landed
+PR reading closed with merged false, and a PR auto-closed because its base branch was
+deleted reads identically.
 
 ## Mechanics
 
@@ -195,8 +183,10 @@ kin are empty there. Prefer a CLI with a stored credential over an exported toke
 
 ### Ledger cadence
 
-One lane owns the whole cadence. `refresh` regrades every open PR and syncs the ledger;
-`route` comments once on each red or conflicting row and stamps `last_graded_head`.
+One lane owns the whole cadence. `refresh` regrades the rows the ledger holds and syncs
+them; `route` emits one verdict per red or conflicting row and stamps `last_graded_head`.
+Neither writes to the pull request: a lane is addressed where it listens, and a comment on
+a PR reaches whoever happens to read it.
 
 ```sh
 LEDGER=$(ccn ledger add --title "open PRs: $DRIVE")   # once, when the drive arms
@@ -204,28 +194,15 @@ LEDGER=$(ccn ledger add --title "open PRs: $DRIVE")   # once, when the drive arm
 # every 20 minutes, in this order, in one sequencer lane
 ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
-
-# hourly, and the only ledger output the orchestrator reads
-ledger.py line --repo "$REPO" --ledger "$LEDGER"
 ```
 
 `refresh --pr <n>` admits a PR a lane just reported; without `--pr` it regrades what it
-holds. `route --dry-run` prints every comment it would post and writes nothing; run it once
-before the first live pass on a repo. Route is idempotent twice over. It skips a row
-whose `last_graded_head` already equals its `head`, and it scans the PR's comments for
-the `<!-- ccn-ledger-route <head> -->` marker it emits, so a re-run after a crash posts
-nothing new. A lane asking what it owns gets `ledger.py show --red`, never the raw table.
-
-### Infra adapter for `ledger line`
-
-`line` takes one optional plug point for applied-by-latest-landing, resolved from
-`--infra-adapter PATH.py:CALLABLE` or `CCN_LEDGER_INFRA_ADAPTER`. No adapter ships;
-without one the field is absent from the line.
-
-```py
-def applied(repo: str, rows: dict[str, dict]) -> str:
-    """One short field for the hourly line, e.g. "applied 12/19"."""
-```
+holds. A refresh that cannot reach the forge exits non-zero and writes nothing, rather
+than syncing the rows it managed to grade: a partial row set reports a state nobody
+observed while the caller believes it refreshed. `route --dry-run` prints every verdict it
+would record and writes nothing. Route skips a row whose `last_graded_head` already equals
+its `head`, so a re-run after a crash re-grades nothing. A lane asking what it owns gets
+`ledger.py show --red`, never the raw table.
 
 ### Handoff plan
 

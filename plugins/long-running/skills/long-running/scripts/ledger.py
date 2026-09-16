@@ -16,29 +16,20 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
-MARKER = "ccn-ledger-route"
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
 PAGE_SIZE = 100
-HOLD_SECONDS = 3600
-LINE_WIDTH = 200
 ROUTE_STATES = ("dirty", "blocked")
-FIELD_SEP = "\x1f"
-STATE_OPEN = "open"
-STATE_MERGED = "merged"
-STATE_CLOSED = "closed-without-squash"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
@@ -121,31 +112,6 @@ class Github:
                 return
             page += 1
 
-    def post_comment(self, number: str, body: str) -> None:
-        self.shell.run(
-            ["gh", "api", f"repos/{self.repo}/issues/{number}/comments", "--method", "POST", "--input", "-"],
-            stdin=json.dumps({"body": body}),
-        )
-
-
-@dataclass
-class Trunk:
-    """The trunk's own record of what landed, which is the only source of `merged`."""
-
-    shell: Shell
-
-    def fetch(self, base: str) -> None:
-        self.shell.run(["git", "fetch", "origin", base])
-
-    def squash(self, base: str, number: str) -> tuple[str, str]:
-        out = self.shell.run(
-            ["git", "log", f"origin/{base}", "--grep", f"(#{number})", f"--format=%H{FIELD_SEP}%cI{FIELD_SEP}%s", "-20"]
-        )
-        for line in out.splitlines():
-            sha, landed_at, subject = line.split(FIELD_SEP, 2)
-            if subject.endswith(f"(#{number})"):
-                return sha, landed_at
-        return "", ""
 
 
 @dataclass
@@ -198,23 +164,7 @@ def ai_review(checks: dict) -> str:
     return AI_REVIEW_ABSENT
 
 
-def landing(trunk: Trunk, pull: dict, number: str) -> dict[str, str]:
-    """Resolve a PR's landing from the trunk, never from its forge state.
-
-    The merge queue leaves a landed PR reading closed with merged false, and a PR
-    auto-closed because its base branch was deleted reads identically — so only the
-    squash on the base branch separates the two, and a PR with no squash is its own
-    state rather than a quieter kind of merged.
-    """
-    if pull["state"] == "open":
-        return {"state": STATE_OPEN, "landed_sha": "", "landed_at": ""}
-    sha, landed_at = trunk.squash(pull["base"]["ref"], number)
-    if not sha:
-        return {"state": STATE_CLOSED, "landed_sha": "", "landed_at": ""}
-    return {"state": STATE_MERGED, "landed_sha": sha, "landed_at": landed_at}
-
-
-def grade(gh: Github, trunk: Trunk, number: str) -> dict[str, str]:
+def grade(gh: Github, number: str) -> dict[str, str]:
     """Re-read the head from the same `pulls/{n}` call the verdicts are graded against."""
     pull = gh.api(f"pulls/{number}")
     head = pull["head"]["sha"]
@@ -222,7 +172,7 @@ def grade(gh: Github, trunk: Trunk, number: str) -> dict[str, str]:
     labels = gh.api(f"issues/{number}/labels")
     checks = gh.api(f"commits/{head}/check-runs")
     return {
-        **landing(trunk, pull, number),
+        "state": pull["state"],
         "head": head,
         "base": pull["base"]["ref"],
         "branch": pull["head"]["ref"],
@@ -237,11 +187,7 @@ def grade(gh: Github, trunk: Trunk, number: str) -> dict[str, str]:
 
 
 def is_open(fields: dict[str, str]) -> bool:
-    return fields.get("state", STATE_OPEN) == STATE_OPEN
-
-
-def is_stranded(fields: dict[str, str]) -> bool:
-    return fields.get("state") == STATE_CLOSED
+    return fields.get("state", "open") == "open"
 
 
 def needs_route(fields: dict[str, str]) -> bool:
@@ -298,40 +244,6 @@ def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str
     return FAILURE_TEXT.format(head=head[:9], url=url, error=error), "fix: " + error[:120]
 
 
-def already_routed(gh: Github, number: str, marker: str) -> bool:
-    return any(marker in comment["body"] for comment in gh.paged(f"issues/{number}/comments"))
-
-
-def load_infra_adapter(spec: str | None):
-    """Resolve ``path/to/module.py:callable`` into the callable `line` asks for applied state."""
-    if not spec:
-        return None
-    path, _, name = spec.rpartition(":")
-    module_spec = importlib.util.spec_from_file_location("ccn_ledger_infra", path)
-    module = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(module)
-    return getattr(module, name)
-
-
-class FetchOnce(Trunk):
-    """A Trunk that fetches each base branch once per pass, so every squash lookup
-    reads a ref no older than this pass rather than whatever the checkout last saw."""
-
-    def __init__(self, trunk: Trunk):
-        self.shell = trunk.shell
-        self.seen: set[str] = set()
-
-    def squash(self, base: str, number: str) -> tuple[str, str]:
-        if base not in self.seen:
-            self.fetch(base)
-            self.seen.add(base)
-        return super().squash(base, number)
-
-
-def landed_since(rows: dict[str, dict[str, str]], cutoff: datetime) -> int:
-    return sum(1 for fields in rows.values() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff)
-
-
 def render_table(rows: dict[str, dict[str, str]]) -> str:
     records = []
     for key in sorted(rows, key=int, reverse=True):
@@ -345,18 +257,23 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
     return "\n".join(out)
 
 
+class ForgeUnreachable(RuntimeError):
+    """The forge did not answer, so this pass has graded nothing worth writing."""
+
+
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
-    trunk = Trunk(shell)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
         known = notes.rows()
         stamp = utc_stamp()
-        fetched = FetchOnce(trunk)
         rows = []
         for key in sorted(set(known) | set(args.pr), key=int):
-            fields = grade(gh, fetched, key)
+            try:
+                fields = grade(gh, key)
+            except subprocess.CalledProcessError as failure:
+                raise ForgeUnreachable(f"#{key}: {failure.stderr.strip() or failure}") from failure
             fields["last_refresh"] = stamp
             if key not in known:
                 fields["first_seen"] = stamp
@@ -369,6 +286,12 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
+    """Emit one verdict per red or conflicting row and record the head it graded.
+
+    The verdict is printed for the desk to carry to the owning lane by message. Nothing
+    is written to the pull request: a lane is addressed where it listens, and a comment
+    on a PR reaches whoever happens to read it.
+    """
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     routed = 0
@@ -380,42 +303,13 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
         head = fields["head"]
         if fields.get("last_graded_head") == head:
             continue
-        marker = f"<!-- {MARKER} {head} -->"
-        if already_routed(gh, key, marker):
-            continue
         text, action = route_verdict(shell, gh, fields)
-        body = f"{marker}\n{text}"
+        print(f"#{key} {head[:9]} {action}\n{text}\n")
         if args.dry_run:
-            print(f"#{key} would post:\n{body}\n")
             continue
-        gh.post_comment(key, body)
         notes.set_fields(key, {"next_action": action, "last_graded_head": head})
         routed += 1
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
-    return 0
-
-
-def cmd_line(args: argparse.Namespace, shell: Shell) -> int:
-    rows = Notes(shell, args.ledger).rows()
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=args.window_seconds)
-    hold_cutoff = now - timedelta(seconds=HOLD_SECONDS)
-    red = sum(1 for fields in rows.values() if needs_route(fields))
-    held = [
-        f"#{key} {fields.get('hold_reason') or 'UNREASONED'}"
-        for key, fields in sorted(rows.items(), key=lambda item: int(item[0]))
-        if fields.get("hold_since") and parse_iso(fields["hold_since"]) < hold_cutoff
-    ]
-    open_rows = sum(1 for fields in rows.values() if is_open(fields))
-    stranded = sum(1 for fields in rows.values() if is_stranded(fields))
-    parts = [f"merged/h {landed_since(rows, cutoff)}", f"open {open_rows}", f"red {red}"]
-    if stranded:
-        parts.append(f"closed-no-squash {stranded}")
-    adapter = load_infra_adapter(args.infra_adapter or os.environ.get("CCN_LEDGER_INFRA_ADAPTER"))
-    if adapter:
-        parts.append(adapter(repo=args.repo, rows=rows))
-    parts.append("held " + ("; ".join(held) if held else "0"))
-    print(" | ".join(parts)[:LINE_WIDTH])
     return 0
 
 
@@ -448,13 +342,6 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--dry-run", action="store_true")
     route.set_defaults(handler=cmd_route)
 
-    line = subparsers.add_parser("line", help="one-line hourly cadence summary")
-    line.add_argument("--repo", required=True)
-    line.add_argument("--ledger", required=True)
-    line.add_argument("--window-seconds", type=int, default=HOLD_SECONDS)
-    line.add_argument("--infra-adapter", metavar="PATH.py:CALLABLE")
-    line.set_defaults(handler=cmd_line)
-
     show = subparsers.add_parser("show", help="render the ledger")
     show.add_argument("--ledger", required=True)
     show.add_argument("--red", action="store_true")
@@ -466,7 +353,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.handler(args, shell or Shell())
+    try:
+        return args.handler(args, shell or Shell())
+    except ForgeUnreachable as unreachable:
+        print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

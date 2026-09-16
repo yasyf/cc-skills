@@ -8,6 +8,7 @@ exercised rather than mocked away. Every argv is recorded on ``shell.calls``.
 from __future__ import annotations
 
 import json
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -28,13 +29,12 @@ def fixture(name: str) -> str:
 
 
 class FakeShell(ledger.Shell):
-    def __init__(self, rows=None, routes=None, comments=None, pages=None, squashes=None):
+    def __init__(self, rows=None, routes=None, comments=None, pages=None):
         self.store = {"id": LEDGER, "title": "open PRs", "columns": [], "rows": deepcopy(list(rows or []))}
         self.routes = dict(routes or {})
         self.comments = {key: list(value) for key, value in (comments or {}).items()}
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
-        self.squashes = dict(squashes or {})
-        self.fetched: list[str] = []
+        self.fail_gh: str | None = None
         self.calls: list[list[str]] = []
         self.posted: list[tuple[str, str]] = []
 
@@ -46,11 +46,11 @@ class FakeShell(ledger.Shell):
             return self._bk(argv)
         if argv[0] == "ccn":
             return self._ccn(argv, stdin)
-        if argv[0] == "git":
-            return self._git(argv)
         raise AssertionError(f"unexpected command: {argv}")
 
     def _gh(self, endpoint, stdin):
+        if self.fail_gh and self.fail_gh in endpoint:
+            raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr="gh: connection refused")
         path, _, query = endpoint.partition("?")
         params = dict(pair.split("=", 1) for pair in query.split("&") if pair)
         parts = path.split("/")[3:]
@@ -74,16 +74,6 @@ class FakeShell(ledger.Shell):
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
             return fixture(self.routes.get(f"checks:{parts[1]}", "check-runs.json"))
         raise AssertionError(f"unexpected gh endpoint: {endpoint}")
-
-    def _git(self, argv):
-        if argv[1] == "fetch":
-            self.fetched.append(argv[3])
-            return ""
-        if argv[1] == "log":
-            number = argv[argv.index("--grep") + 1].strip("(#)")
-            entry = self.squashes.get(number)
-            return "" if entry is None else ledger.FIELD_SEP.join(entry) + "\n"
-        raise AssertionError(f"unexpected git call: {argv}")
 
     def _listed(self, number: str) -> dict:
         for name in self.pages.values():

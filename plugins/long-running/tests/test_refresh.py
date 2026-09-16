@@ -86,76 +86,30 @@ def test_refresh_merges_and_never_clobbers_orchestrator_fields(lock, red_routes)
     assert fields["head"] == MOVED_HEAD
 
 
-SQUASH_SHA = "9f81c0e4a2b7d6c5e4f3a2b1c0d9e8f7a6b5c4d3"
-
-
-def closed_row():
-    return {"key": "19999", "fields": {"head": "dead", "test_state": "success", "mergeable_state": "clean"}}
-
-
-def test_a_closed_pr_with_a_squash_on_the_trunk_reads_merged(lock, red_routes):
-    shell = FakeShell(
-        rows=[closed_row()],
-        routes=red_routes,
-        squashes={"19999": (SQUASH_SHA, "2026-09-16T04:10:00+00:00", "infra: retire the dead roles (#19999)")},
-    )
+def test_closed_pr_keeps_its_row_marked_closed_for_the_desk_to_settle(lock, red_routes):
+    closed = {"key": "19999", "fields": {"head": "dead", "test_state": "success", "mergeable_state": "clean"}}
+    shell = FakeShell(rows=[closed], routes=red_routes)
     refresh(shell, lock)
 
-    fields = shell.fields("19999")
-    assert fields["state"] == "merged"
-    assert fields["landed_sha"] == SQUASH_SHA
-    assert fields["landed_at"] == "2026-09-16T04:10:00+00:00"
-
-
-def test_a_closed_pr_with_no_squash_is_its_own_state_not_merged(lock, red_routes):
-    """A PR auto-closed when its base branch was deleted reads exactly like a landed
-    one on the forge. Only the trunk separates them, and calling it merged is how an
-    approved fix sits absent from dev for hours while its row looks settled."""
-    shell = FakeShell(rows=[closed_row()], routes=red_routes, squashes={})
-    refresh(shell, lock)
-
-    fields = shell.fields("19999")
-    assert fields["state"] == "closed-without-squash"
-    assert fields["landed_sha"] == ""
-
-
-def test_a_squash_naming_another_pr_does_not_count_as_this_one(lock, red_routes):
-    """`--grep` matches the body too, so the subject is the gate."""
-    shell = FakeShell(
-        rows=[closed_row()],
-        routes=red_routes,
-        squashes={"19999": (SQUASH_SHA, "2026-09-16T04:10:00+00:00", "infra: revert (#19999) and re-land it behind the gate")},
-    )
-    refresh(shell, lock)
-
-    assert shell.fields("19999")["state"] == "closed-without-squash"
-
-
-def test_the_trunk_is_fetched_once_before_it_is_read(lock, red_routes):
-    """A ref the checkout last saw minutes ago reports a landing that has not happened."""
-    shell = FakeShell(rows=[closed_row()], routes=red_routes, squashes={})
-    refresh(shell, lock)
-
-    assert shell.fetched == ["dev"]
-    fetch_at = next(i for i, argv in enumerate(shell.calls) if argv[:2] == ["git", "fetch"])
-    log_at = next(i for i, argv in enumerate(shell.calls) if argv[:2] == ["git", "log"])
-    assert fetch_at < log_at
-
-
-def test_an_open_pr_never_reads_the_trunk(lock, red_routes):
-    shell = FakeShell(routes=red_routes)
-    refresh(shell, lock, pr=["21052"])
-
-    assert shell.fields("21052")["state"] == "open"
-    assert not [argv for argv in shell.calls if argv[0] == "git"]
-
-
-def test_a_closed_row_survives_the_sync(lock, red_routes):
-    shell = FakeShell(rows=[closed_row()], routes=red_routes, squashes={})
-    refresh(shell, lock)
-
+    assert shell.fields("19999")["state"] == "closed"
     sync = next(argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "sync"])
     assert "--prune" not in sync
+
+
+def test_an_unreachable_forge_writes_nothing_and_exits_non_zero(lock, red_routes, capsys):
+    """A pass that graded half the rows must not write half a row set: a partial refresh
+    reports a state nobody observed, and the caller believes it refreshed."""
+    row = {"key": "21052", "fields": {"head": "dead", "test_state": "failure", "mergeable_state": "unknown"}}
+    shell = FakeShell(rows=[row], routes=red_routes)
+    shell.fail_gh = "pulls/21052"
+
+    code = ledger.main(
+        ["refresh", "--repo", "Forge-AI/monorepo", "--ledger", LEDGER, "--lock", str(lock)], shell=shell
+    )
+
+    assert code == 1
+    assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "sync"]]
+    assert "wrote nothing" in capsys.readouterr().err
 
 
 def test_lane_flag_stamps_only_the_row_it_names(lock, red_routes):
