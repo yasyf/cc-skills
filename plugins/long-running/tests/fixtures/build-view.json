@@ -1,0 +1,33 @@
+{
+  "number": 8794,
+  "state": "failed",
+  "web_url": "https://buildkite.com/forge/test/builds/8794",
+  "commit": "aa11bb22cc33dd44ee55ff6677889900aabbccdd",
+  "branch": "infra/accounts-register",
+  "jobs": [
+    {
+      "id": "01a0a85c-3f00-4b7e-9f11-0d2f0c6f1a01",
+      "type": "script",
+      "name": "biome",
+      "state": "passed",
+      "exit_status": 0,
+      "soft_failed": false
+    },
+    {
+      "id": "01a0a85c-6c8f-4f3f-a875-f2bc0dc46e1d",
+      "type": "script",
+      "name": "Gate sand build timing",
+      "state": "failed",
+      "exit_status": 1,
+      "soft_failed": false
+    },
+    {
+      "id": "01a0a85c-6c90-4ac0-a353-82eee4ad02db",
+      "type": "script",
+      "name": "Determinism (wasm-g1 release)",
+      "state": "broken",
+      "exit_status": null,
+      "soft_failed": false
+    }
+  ]
+}

@@ -74,7 +74,7 @@
     {
       "name": "long-running",
       "source": "./plugins/long-running",
-      "description": "Context discipline for orchestrating multi-lane work past one context window — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, and state lives in cc-notes and the task list; ships the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan as templates."
+      "description": "Context discipline for orchestrating multi-lane work past one context window — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, and state lives in cc-notes and the task list; ships the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan as templates, plus an open-PR ledger CLI that grades, routes, and holds every open PR over cc-notes."
     },
     {
       "name": "open-pr",

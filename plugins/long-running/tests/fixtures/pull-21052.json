@@ -1,0 +1,12 @@
+{
+  "number": 21052,
+  "state": "open",
+  "title": "infra: the nineteen leaf account stacks carry their settings",
+  "user": { "login": "yasyf" },
+  "head": { "sha": "aa11bb22cc33dd44ee55ff6677889900aabbccdd", "ref": "infra/accounts-register" },
+  "base": { "ref": "dev" },
+  "mergeable_state": "unknown",
+  "changed_files": 38,
+  "updated_at": "2026-09-16T05:41:00Z",
+  "merged_at": null
+}
