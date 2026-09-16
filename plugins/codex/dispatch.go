@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/yasyf/cc-interact/procs"
 )
@@ -233,7 +235,7 @@ loop:
 		extraFlags = append(extraFlags, "--output-schema", schema)
 	}
 
-	// developer_instructions carries the browser + ccx/MCP-off directives, resolved
+	// developer_instructions carries the browser + ccx directives, resolved
 	// relative to this binary's own path (not cwd).
 	dev := readAgentsMd()
 	// The lane contract lands after the baseline so the cached prefix stays stable.
@@ -355,8 +357,17 @@ type mcpServer struct {
 	Enabled bool   `json:"enabled"`
 }
 
+const mcpListTimeout = 15 * time.Second
+
 func mcpMountFlags(requested []string) []string {
-	out, err := exec.Command("codex", "mcp", "list", "--json").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), mcpListTimeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json")
+	c.WaitDelay = time.Second
+	out, err := c.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		die("codex-ask: `codex mcp list --json` timed out after "+mcpListTimeout.String(), 2)
+	}
 	if err != nil {
 		die("codex-ask: cannot list configured MCP servers: "+err.Error(), 2)
 	}

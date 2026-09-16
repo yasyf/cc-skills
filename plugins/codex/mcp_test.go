@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 var stubCodexListsMCPServers = stubCodex(`[{"name":"slack","enabled":true},`+
@@ -122,4 +123,21 @@ func TestMCPEmptyValueRefusesBeforeMinting(t *testing.T) {
 		t.Fatalf("stderr = %q, want the empty --mcp refusal", stderr)
 	}
 	mustBeEmpty(t, runs, "an empty --mcp")
+}
+
+func TestMCPListingHangRefusesBeforeMinting(t *testing.T) {
+	runs := mustTempDir(t)
+	hang := "#!/bin/sh\n[ \"$1\" = mcp ] && { sleep 60; exit 0; }\n" + stubCodexReplyBody
+	start := time.Now()
+	_, stderr, code := askRun(t, runs, hang, "ping")
+	if code != 2 {
+		t.Fatalf("hung listing exit %d, want 2\nstderr: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "timed out") {
+		t.Fatalf("stderr = %q, want the listing timeout refusal", stderr)
+	}
+	if elapsed := time.Since(start); elapsed > mcpListTimeout+10*time.Second {
+		t.Fatalf("hung listing held the caller %s, past the %s bound", elapsed, mcpListTimeout)
+	}
+	mustBeEmpty(t, runs, "a hung MCP listing")
 }
