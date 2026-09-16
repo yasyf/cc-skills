@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import sqlite3
 import sys
 import types
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -137,3 +139,91 @@ def test_call_bin_exports_the_plugin_root(common, plugin, state_dir):
     assert common.call_bin(evt, "agent-inject") == "out"
     assert captured["argv"] == [str(plugin.launcher), "agent-inject"]
     assert captured["env"] == {"BINRUN_PLUGIN_ROOT": str(plugin.root)}
+
+
+PLANE_DDL = """
+CREATE TABLE subjects (id TEXT PRIMARY KEY, session_id TEXT, scope TEXT NOT NULL);
+CREATE TABLE directives (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id TEXT NOT NULL REFERENCES subjects(id),
+  agent_id TEXT NOT NULL,
+  delivered_at INTEGER
+);
+"""
+
+
+@pytest.fixture
+def plane(common, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    db = tmp_path / "cc-interact-v1" / "state.db"
+    monkeypatch.setattr(common, "state_db", lambda: db)
+    return db
+
+
+def seed_plane(db: Path, *statements: str) -> None:
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(db)) as conn, conn:
+        conn.executescript(PLANE_DDL + ";".join(statements))
+
+
+def plane_event(**raw: str | None) -> types.SimpleNamespace:
+    return types.SimpleNamespace(_raw={"session_id": "s", "cwd": "/repo", **raw})
+
+
+def test_absent_store_admits_every_spawn(common, plane):
+    assert common.directive_pending(plane_event()) is True
+    assert common.subject_in_scope(plane_event()) is True
+
+
+def test_empty_store_admits_nothing(common, plane):
+    seed_plane(plane)
+    assert common.directive_pending(plane_event()) is False
+    assert common.directive_pending(plane_event(agent_id="a1")) is False
+    assert common.subject_in_scope(plane_event()) is False
+
+
+def test_subject_in_scope_matches_scope_only(common, plane):
+    seed_plane(plane, "INSERT INTO subjects VALUES ('sub', 'other-session', '/repo')")
+    assert common.subject_in_scope(plane_event()) is True
+    assert common.subject_in_scope(plane_event(cwd="/elsewhere")) is False
+
+
+def test_pending_directive_matches_agent_and_scope(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 'other-session', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id) VALUES ('sub', 'a1')",
+    )
+    assert common.directive_pending(plane_event(agent_id="a1")) is True
+    assert common.directive_pending(plane_event(agent_id="a2")) is False
+    assert common.directive_pending(plane_event()) is False
+    assert common.directive_pending(plane_event(agent_id="a1", cwd="/elsewhere")) is False
+
+
+def test_top_level_agent_reads_the_empty_agent_id(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 's', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id) VALUES ('sub', '')",
+    )
+    assert common.directive_pending(plane_event()) is True
+    assert common.directive_pending(plane_event(agent_id=None)) is True
+    assert common.directive_pending(plane_event(agent_id="")) is True
+
+
+def test_delivered_directive_is_not_pending(common, plane):
+    seed_plane(
+        plane,
+        "INSERT INTO subjects VALUES ('sub', 's', '/repo')",
+        "INSERT INTO directives(subject_id, agent_id, delivered_at) VALUES ('sub', 'a1', 1)",
+    )
+    assert common.directive_pending(plane_event(agent_id="a1")) is False
+
+
+def test_plane_queries_are_the_ones_the_daemon_contract_pins(common):
+    contract = (REPO_ROOT / "plugins" / "codex" / "agent_plane_test.go").read_text()
+    consumer = (REPO_ROOT / "plugins" / "codex" / "consumer.go").read_text()
+    assert f'pendingDirectiveSQL = "{common.PENDING_DIRECTIVE}"' in contract
+    assert f'subjectInScopeSQL   = "{common.SUBJECT_IN_SCOPE}"' in contract
+    assert f'appDir = "{common.APP_DIR}"' in consumer
+    relative = common.state_db().relative_to(common.passwd_home() / common.APP_DIR)
+    assert f'filepath.Join(home, appDir, "{relative.parent}", "{relative.name}")' in contract

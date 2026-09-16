@@ -20,6 +20,8 @@ def agent_start(evt: BaseHookEvent) -> None:
 
 @on(Event.PreToolUse)
 def agent_inject(evt: BaseHookEvent) -> HookResult | None:
+    if not common.directive_pending(evt):
+        return None
     out = common.call_bin(evt, "agent-inject", timeout=5)
     if not out:
         return None
@@ -40,6 +42,8 @@ def agent_inject(evt: BaseHookEvent) -> HookResult | None:
 
 @on(Event.SubagentStop, skip_planning_agents=False)
 def agent_stop(evt: BaseHookEvent) -> HookResult | None:
+    if not common.subject_in_scope(evt):
+        return None
     out = common.call_bin(evt, "agent-stop", timeout=15)
     if not out:
         return None
@@ -56,4 +60,5 @@ def agent_stop(evt: BaseHookEvent) -> HookResult | None:
 
 @on(Event.PostToolUse, only_if=[Tool("Task", "Agent")], async_=True)
 def agent_report(evt: BaseHookEvent) -> None:
-    common.call_bin(evt, "agent-report")
+    if common.subject_in_scope(evt):
+        common.call_bin(evt, "agent-report")
