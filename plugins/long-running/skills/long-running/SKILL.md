@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, and an open-PR ledger grades, routes, and holds every open PR. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -64,6 +64,40 @@ orchestrator's window. `TaskCreate`/`TaskUpdate` is the root's only state. Repor
 user on milestones or when they must act, never per event. At roughly half the window on
 a long drive, write the handoff plan and hand off instead of continuing. *Prevents the
 forced mid-drive handoff with nothing written down to hand over.*
+
+## The open-PR ledger
+
+`scripts/ledger.py` keeps one row per open PR in a cc-notes ledger, over `gh api` REST
+only. It is R5 applied to PR state and R3 applied to the watching. The ledger is where PR
+state gets written down instead of held, and refresh-then-route is one sequencer lane,
+never a root-context poll.
+
+Arm it on any orchestration carrying more than ten open PRs, and on any drive where a PR
+can go red without a lane noticing. Below that the lane that opened the PR still owns it
+and there is nothing to track.
+
+**L1. Refresh every 20 minutes and emit `ledger line` every hour.** One sequencer lane
+owns both; the orchestrator reads the hourly line and nothing else. *Prevents the
+root-context `gh pr list` that R1 already forbids and the ledger makes unnecessary.*
+
+**L2. Route every red or conflicting row in the pass that finds it.** `refresh` then
+`route`, never `refresh` now and `route` when there is time. An unrouted red row is
+indistinguishable from a tracked one. Both are a line in a table nobody has acted on.
+*Prevents the red PR that sat for hours because the pass that found it only recorded it.*
+
+**L3. A parked row carries `hold_reason` and `hold_since`.** A row parked without a
+reason is an untracked row wearing a ledger's clothes, which is why `ledger line` prints
+it as `UNREASONED` instead of counting it as held. *Prevents the hold nobody can lift
+because nobody remembers what it was waiting for.*
+
+**L4. Grade the head you read, and record it.** `route` writes `last_graded_head`, and a
+row whose `head` no longer equals it has moved since it was last routed, so the prior
+verdict is void and the row is routed again. *Prevents a stale green and a stale red
+alike, both of which name a sha nobody graded.*
+
+`lane`, `hold_reason`, `hold_since`, and `declared_intent` are orchestrator-owned:
+`refresh` merges fields instead of replacing them, so it never overwrites them. `--prune` drops rows
+whose PR closed or merged, so the ledger is the open set by construction.
 
 ## Mechanics
 
@@ -141,6 +175,39 @@ a broken build polls until the deadline. Anything needing an env token runs in t
 Bash; a Monitor shell does not inherit the environment, so `BUILDKITE_API_TOKEN` and its
 kin are empty there. Prefer a CLI with a stored credential over an exported token.
 
+### Ledger cadence
+
+One lane owns the whole cadence. `refresh` regrades every open PR and syncs the ledger;
+`route` comments once on each red or conflicting row and stamps `last_graded_head`.
+
+```sh
+LEDGER=$(ccn ledger add --title "open PRs: $DRIVE")   # once, when the drive arms
+
+# every 20 minutes, in this order, in one sequencer lane
+ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
+ledger.py route   --repo "$REPO" --ledger "$LEDGER"
+
+# hourly, and the only ledger output the orchestrator reads
+ledger.py line --repo "$REPO" --ledger "$LEDGER"
+```
+
+`route --dry-run` prints every comment it would post and writes nothing; run it once
+before the first live pass on a repo. Route is idempotent twice over. It skips a row
+whose `last_graded_head` already equals its `head`, and it scans the PR's comments for
+the `<!-- ccn-ledger-route <head> -->` marker it emits, so a re-run after a crash posts
+nothing new. A lane asking what it owns gets `ledger.py show --red`, never the raw table.
+
+### Infra adapter for `ledger line`
+
+`line` takes one optional plug point for applied-by-latest-landing, resolved from
+`--infra-adapter PATH.py:CALLABLE` or `CCN_LEDGER_INFRA_ADAPTER`. No adapter ships;
+without one the field is absent from the line.
+
+```py
+def applied(repo: str, rows: dict[str, dict]) -> str:
+    """One short field for the hourly line, e.g. "applied 12/19"."""
+```
+
 ### Handoff plan
 
 At roughly half the window, write this and stop driving.
@@ -175,6 +242,8 @@ At roughly half the window, write this and stop driving.
   wrong branch, and a build scratch file was swept into a PR as a 63 MB blob.
 - Merge loops run from a worktree another lane was editing, which raced an amend and
   dropped a fix.
+- Red PRs nobody was tracking: eight of ninety open PRs were red or conflicting, and the
+  owner found them before the desk did.
 
 ## Checklist before every tool call
 

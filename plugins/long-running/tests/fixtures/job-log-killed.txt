@@ -1,0 +1,5 @@
+_bk;t=1789531029696~~~ Running commands
+_bk;t=1789531029696[90m$[0m bash ./long-soak.sh
+_bk;t=1789531032408user command error: exit status 1
+_bk;t=1789531032391[31m🚨 Error: The command exited with status 1[0m
+_bk;t=1789531032408~~~ Running agent pre-exit hook
