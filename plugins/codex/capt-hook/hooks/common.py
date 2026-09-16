@@ -25,16 +25,16 @@ PENDING_DIRECTIVE = (
 SUBJECT_IN_SCOPE = "SELECT EXISTS(SELECT 1 FROM subjects WHERE scope = ?)"
 
 
-def passwd_home() -> Path:
-    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+def real_home() -> Path:
+    return Path(os.environ.get("DAEMONKIT_HOME") or pwd.getpwuid(os.getuid()).pw_dir)
 
 
 def daemon_socket() -> Path:
-    return passwd_home() / ".daemonkit" / "a" / SERVICE_LABEL / "daemon.sock"
+    return real_home() / ".daemonkit" / "a" / SERVICE_LABEL / "daemon.sock"
 
 
 def state_db() -> Path:
-    return passwd_home() / APP_DIR / "cc-interact-v1" / "state.db"
+    return real_home() / APP_DIR / "cc-interact-v1" / "state.db"
 
 
 def daemon_is_down() -> bool:
@@ -44,11 +44,11 @@ def daemon_is_down() -> bool:
 
 
 def plane_may_match(query: str, *params: str) -> bool:
-    db = state_db()
-    if not db.is_file():
+    try:
+        with closing(sqlite3.connect(f"{state_db().as_uri()}?mode=ro", uri=True, timeout=0)) as conn:
+            return bool(conn.execute(query, params).fetchone()[0])
+    except sqlite3.DatabaseError:
         return True
-    with closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)) as conn:
-        return bool(conn.execute(query, params).fetchone()[0])
 
 
 def scope(evt: BaseHookEvent) -> str:

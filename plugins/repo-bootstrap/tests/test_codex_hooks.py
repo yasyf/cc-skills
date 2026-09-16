@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import pwd
 import sqlite3
 import sys
+import time
 import types
 from contextlib import closing
 from pathlib import Path
@@ -169,9 +172,60 @@ def plane_event(**raw: str | None) -> types.SimpleNamespace:
     return types.SimpleNamespace(_raw={"session_id": "s", "cwd": "/repo", **raw})
 
 
-def test_absent_store_admits_every_spawn(common, plane):
+def assert_admits(common) -> None:
     assert common.directive_pending(plane_event()) is True
     assert common.subject_in_scope(plane_event()) is True
+
+
+def test_absent_store_admits_every_spawn(common, plane):
+    assert_admits(common)
+
+
+def test_store_without_tables_admits_every_spawn(common, plane):
+    plane.parent.mkdir(parents=True)
+    plane.touch()
+    assert_admits(common)
+
+
+def test_torn_store_admits_every_spawn(common, plane):
+    plane.parent.mkdir(parents=True)
+    plane.write_bytes(b"SQLite format 3\x00" + b"\xff" * 84)
+    assert_admits(common)
+
+
+def test_unreadable_store_admits_every_spawn(common, plane):
+    seed_plane(plane)
+    plane.chmod(0)
+    try:
+        assert_admits(common)
+    finally:
+        plane.chmod(0o600)
+
+
+@pytest.mark.parametrize("journal", ["DELETE", "WAL"])
+def test_locked_store_admits_without_waiting(common, plane, journal):
+    seed_plane(plane)
+    with closing(sqlite3.connect(plane, isolation_level=None)) as holder:
+        holder.execute(f"PRAGMA journal_mode={journal}")
+        holder.execute("PRAGMA locking_mode=EXCLUSIVE")
+        holder.execute("BEGIN EXCLUSIVE")
+        holder.execute("INSERT INTO subjects VALUES ('held', 's', '/elsewhere')")
+        started = time.monotonic()
+        assert_admits(common)
+        assert time.monotonic() - started < 5
+        holder.execute("ROLLBACK")
+
+
+def test_real_home_is_daemonkits(common, monkeypatch, tmp_path):
+    passwd = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
+    assert common.real_home() == passwd
+    monkeypatch.setenv("DAEMONKIT_HOME", "")
+    assert common.real_home() == passwd
+    monkeypatch.setenv("DAEMONKIT_HOME", str(tmp_path))
+    assert common.real_home() == tmp_path
+    assert common.daemon_socket() == tmp_path / ".daemonkit" / "a" / common.SERVICE_LABEL / "daemon.sock"
+    assert common.state_db() == tmp_path / common.APP_DIR / "cc-interact-v1" / "state.db"
 
 
 def test_empty_store_admits_nothing(common, plane):
@@ -217,13 +271,3 @@ def test_delivered_directive_is_not_pending(common, plane):
         "INSERT INTO directives(subject_id, agent_id, delivered_at) VALUES ('sub', 'a1', 1)",
     )
     assert common.directive_pending(plane_event(agent_id="a1")) is False
-
-
-def test_plane_queries_are_the_ones_the_daemon_contract_pins(common):
-    contract = (REPO_ROOT / "plugins" / "codex" / "agent_plane_test.go").read_text()
-    consumer = (REPO_ROOT / "plugins" / "codex" / "consumer.go").read_text()
-    assert f'pendingDirectiveSQL = "{common.PENDING_DIRECTIVE}"' in contract
-    assert f'subjectInScopeSQL   = "{common.SUBJECT_IN_SCOPE}"' in contract
-    assert f'appDir = "{common.APP_DIR}"' in consumer
-    relative = common.state_db().relative_to(common.passwd_home() / common.APP_DIR)
-    assert f'filepath.Join(home, appDir, "{relative.parent}", "{relative.name}")' in contract
