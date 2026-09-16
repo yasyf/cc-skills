@@ -69,7 +69,8 @@ def test_refresh_merges_and_never_clobbers_orchestrator_fields(lock, red_routes)
             "hold_since": "2026-09-16T01:00:00Z",
             "lane": "adopt-20947",
             "declared_intent": "settings files only, no roster change",
-            "last_graded_head": LISTED_HEAD,
+            "routed_head": LISTED_HEAD,
+            "label_head": LISTED_HEAD,
             "first_seen": "2026-09-15T22:00:00Z",
         },
     }
@@ -81,9 +82,20 @@ def test_refresh_merges_and_never_clobbers_orchestrator_fields(lock, red_routes)
     assert fields["hold_since"] == "2026-09-16T01:00:00Z"
     assert fields["lane"] == "adopt-20947"
     assert fields["declared_intent"] == "settings files only, no roster change"
-    assert fields["last_graded_head"] == LISTED_HEAD
+    assert fields["routed_head"] == LISTED_HEAD
+    assert fields["label_head"] == LISTED_HEAD
     assert fields["first_seen"] == "2026-09-15T22:00:00Z"
     assert fields["head"] == MOVED_HEAD
+
+
+def test_refresh_leaves_message_rows_alone(lock, red_routes):
+    message = {"key": "msg/000001", "fields": {"kind": "idle", "pr": "21052", "head": MOVED_HEAD, "lane": "x", "text": "done", "state": "pending"}}
+    shell = FakeShell(rows=[message], routes=red_routes)
+    refresh(shell, lock, pr=["21052"])
+
+    assert shell.fields("msg/000001")["state"] == "pending"
+    assert "last_refresh" not in shell.fields("msg/000001")
+    assert not [endpoint for endpoint in shell.endpoints() if "msg" in endpoint]
 
 
 def test_closed_pr_keeps_its_row_marked_closed_for_the_desk_to_settle(lock, red_routes):

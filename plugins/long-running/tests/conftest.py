@@ -1,9 +1,10 @@
-"""A fake :class:`ledger.Shell` routing every gh/bk/ccn call to a recorded fixture.
+"""A fake :class:`ledger.Shell` routing every gh/bk/git/ccn call to a recorded fixture.
 
 Zero network and zero ``ccn``: each ledger store is a dict the fake mutates the way
-``ccn ledger sync``, ``row set``, and ``row rm`` would, so merge, insert, and prune
-semantics are exercised rather than mocked away; ``git`` answers from the fetch, log,
-and conflict tables a test sets. Every argv is recorded on ``shell.calls``.
+``ccn ledger sync`` and ``row set`` would, so merge and insert semantics are exercised
+rather than mocked away; ``git`` answers from the fetch, log, and conflict tables a test
+sets; the repository's PR list is not served at all, so a listing call fails the test
+that makes it. Every argv is recorded on ``shell.calls``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ def fixture(name: str) -> str:
 
 
 class FakeShell(ledger.Shell):
-    def __init__(self, rows=None, routes=None, comments=None, pages=None):
+    def __init__(self, rows=None, routes=None, pages=None):
         self.stores = {LEDGER: {"id": LEDGER, "title": "open PRs", "columns": [], "rows": deepcopy(list(rows or []))}}
         self.pulls: dict[str, dict] = {}
         self.commit_dates: dict[str, str] = {}
@@ -41,11 +42,9 @@ class FakeShell(ledger.Shell):
         self.unlabelled: list[str] = []
         self.fetched = ""
         self.routes = dict(routes or {})
-        self.comments = {key: list(value) for key, value in (comments or {}).items()}
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
         self.fail_gh: str | None = None
         self.calls: list[list[str]] = []
-        self.posted: list[tuple[str, str]] = []
 
     def run(self, argv, stdin=None):
         self.calls.append(list(argv))
@@ -70,8 +69,6 @@ class FakeShell(ledger.Shell):
         path, _, query = endpoint.partition("?")
         params = dict(pair.split("=", 1) for pair in query.split("&") if pair)
         parts = path.split("/")[3:]
-        if parts == ["pulls"]:
-            return fixture(self.pages.get(int(params["page"]), "empty-list.json"))
         if parts[:1] == ["pulls"] and len(parts) == 2:
             if parts[1] in self.pulls:
                 return json.dumps(self.pulls[parts[1]])
@@ -87,14 +84,6 @@ class FakeShell(ledger.Shell):
             return fixture("labels.json")
         if parts[:1] == ["commits"] and len(parts) == 2:
             return json.dumps({"sha": parts[1], "commit": {"committer": {"date": self.commit_dates[parts[1]]}}})
-        if parts[:1] == ["issues"] and parts[2:] == ["comments"]:
-            if stdin is not None:
-                self.posted.append((parts[1], json.loads(stdin)["body"]))
-                return "{}"
-            page = int(params.get("page", 1))
-            return json.dumps(
-                [{"body": body} for body in self.comments.get(parts[1], [])] if page == 1 else []
-            )
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
             return fixture(self.routes.get(f"status:{parts[1]}", "status-success.json"))
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
@@ -131,11 +120,6 @@ class FakeShell(ledger.Shell):
                 argv[index + 1].split("=", 1) for index, value in enumerate(argv) if value == "--field"
             )
             self._upsert(self.stores[argv[4]], key, updates)
-            return ""
-        if argv[1:4] == ["ledger", "row", "rm"]:
-            store = self.stores[argv[4]]
-            key = argv[argv.index("--key") + 1]
-            store["rows"] = [row for row in store["rows"] if row["key"] != key]
             return ""
         raise AssertionError(f"unexpected ccn call: {argv}")
 

@@ -65,54 +65,20 @@ user on milestones or when they must act, never per event. At roughly half the w
 a long drive, write the handoff plan and hand off instead of continuing. *Prevents the
 forced mid-drive handoff with nothing written down to hand over.*
 
-## The open-PR ledger
-
-`scripts/ledger.py` keeps one row per open PR in a cc-notes ledger, over `gh api` REST
-only. It is R5 applied to PR state and R3 applied to the watching. The ledger is where PR
-state gets written down instead of held, and refresh-then-route is one sequencer lane,
-never a root-context poll.
-
-Arm it on any orchestration carrying more than ten open PRs, and on any drive where a PR
-can go red without a lane noticing. Below that the lane that opened the PR still owns it
-and there is nothing to track.
-
-**L1. Refresh every 20 minutes.** One sequencer lane owns the cadence, and the
-orchestrator reads the desk's hourly summary rather than the ledger itself. *Prevents the
-root-context `gh pr list` that R1 already forbids and the ledger makes unnecessary.*
-
-**L2. Route every red or conflicting row in the pass that finds it.** `refresh` then
-`route`, never `refresh` now and `route` when there is time. An unrouted red row is
-indistinguishable from a tracked one. Both are a line in a table nobody has acted on.
-*Prevents the red PR that sat for hours because the pass that found it only recorded it.*
-
-**L3. A parked row carries `hold_reason` and `hold_since`.** A row parked without a
-reason is an untracked row wearing a ledger's clothes, and a report that counts it as held
-is reporting a decision nobody made. *Prevents the hold nobody can lift because nobody
-remembers what it was waiting for.*
-
-**L4. Grade the head you read, and record it.** `route` writes `last_graded_head`, and a
-row whose `head` no longer equals it has moved since it was last routed, so the prior
-verdict is void and the row is routed again. *Prevents a stale green and a stale red
-alike, both of which name a sha nobody graded.*
-
-`lane`, `hold_reason`, `hold_since`, and `declared_intent` are orchestrator-owned:
-`refresh` merges fields instead of replacing them, so it never overwrites them. It regrades
-the rows the ledger already holds plus any `--pr` it is handed, and never lists the
-repository's pull requests: a PR is in the ledger because one of our lanes reported it,
-and a PR no lane reported is nobody's to grade, route, or count. A closed row stays,
-marked `state=closed`, until `desk.py landed` settles it from the squash on its base
-branch. Merged is a fact about the trunk, never about PR state: the queue leaves a landed
-PR reading closed with merged false, and a PR auto-closed because its base branch was
-deleted reads identically.
-
-## The landing desk
+## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
 Each report is a message in the root's window, each landing is a wait, and each label is
 a REST call the root must not make. The desk is one long-lived lane, `landing-desk`,
 that takes all of that. Lanes report to it, it grades and labels, and the root hears
-from it once an hour. `scripts/desk.py` is its tool and `reference/landing-desk-brief.md`
-is its brief, ready to paste; `reference/desk-contracts.md` holds the message shapes.
+from it once an hour.
+
+`scripts/ledger.py` is its one tool, over `gh api` REST only. Its one store is a cc-notes
+ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
+and the landing are fields on that row, and each lane message is a `msg/<seq>` row
+beside them. `reference/landing-desk-brief.md` is the desk's brief, ready to paste;
+`reference/desk-contracts.md` holds the message shapes. It is R5 applied to PR state and
+R3 applied to the watching.
 
 Spawn it first, before any lane that will open a PR, whenever three or more lanes
 will ship through one merge queue or the drive will outlive one context window. Below
@@ -123,22 +89,22 @@ that the lane that opened the PR lands it, and there is no desk.
 `RULING NEEDED` lines and the hourly summary. *Prevents the root window filling with
 forty lanes' ship reports and their duplicate idle notices.*
 
-**D2. A PR is the desk's only because a lane reported it.** `desk.py report` is the
-one path that opens a row in the open-PR ledger. The desk never lists the repository's
-pull requests, and a PR it cannot trace to a report is not tracked, not graded, not
-labelled, and not counted; there is no "unknown" list. *Prevents routing comments and
-rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty
-times in an hour.*
+**D2. A PR is the desk's only because a lane reported it.** `ledger.py report` and an
+explicit `refresh --pr` are the only paths that open a row. The desk never lists the
+repository's pull requests, and a PR it cannot trace to a report is not tracked, not
+graded, not labelled, and not counted; there is no "unknown" list. *Prevents routing
+comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did
+twenty times in an hour.*
 
-**D3. The label goes on a head once, after the desk re-reads it.** `desk.py label`
+**D3. The label goes on a head once, after the desk re-reads it.** `ledger.py label`
 re-reads the head from the forge. It refuses a closed PR, a moved head, a held PR, a
 head it labelled or pulled before, a head under a minute old, a red status, and a failed
 check run. With `--checkout` it also refuses a head that conflicts with the base. A
 refusal names the reason and ends the attempt; the desk routes or holds, it never
-retries the same head. *Prevents the re-queue loop where an ejected head is relabelled unchanged and
-ejected again until someone notices.*
+retries the same head. *Prevents the re-queue loop where an ejected head is relabelled
+unchanged and ejected again until someone notices.*
 
-**D4. Landed means the squash is on the base branch.** `desk.py landed` fetches the
+**D4. Landed means the squash is on the base branch.** `ledger.py landed` fetches the
 base branch and settles a closed row by `git log` for a subject ending `(#n)`, never by
 the PR's `merged` field, which a squash-merging queue leaves false on every PR it lands.
 A closed row with no squash becomes `closed-without-squash`, a name that cannot be read
@@ -146,16 +112,28 @@ as success, because a child auto-closed by its base's deletion looks exactly lik
 landing until the log is read. *Prevents lanes waiting hours on a PR that landed
 minutes after they started, and a lost stacked child counted as merged.*
 
-**D5. Every hold has a reason and an expiry, and every message is recorded once.**
-`desk.py hold` takes both; `desk.py enqueue` drops a second message with the same
-kind, PR, and head, so a duplicate idle notice is neither stored twice nor answered.
-*Prevents the hold nobody can lift and the reply tax on notifications carrying no news.*
+**D5. Route every red or conflicting row in the pass that finds it, once per head.**
+`refresh` then `route`, never `refresh` now and `route` when there is time. `route`
+records the head, job, and lane it sent, so the same head and job are never routed twice
+and a moved head is routed again. Nothing is written to the pull request: a lane is
+addressed where it listens, and a comment on a PR reaches whoever happens to read it.
+*Prevents the red PR that sat for hours because the pass that found it only recorded
+it, and the routing comment on someone else's PR.*
 
-The desk's records live in two cc-notes ledgers, the desk's own and the open-PR
-ledger, on `refs/cc-notes/*`. They survive compaction, a session restart, and a handoff.
-A fresh `landing-desk` lane spawned with the two ledger ids reads the inbox, the holds,
-the routes, the label history, and the landings exactly as the last one left them.
-None of that goes into session memory or the plan file.
+**D6. Every hold has a reason and an expiry, and every message is recorded once.**
+`ledger.py hold` takes both; a row parked without them is an untracked row wearing a
+ledger's clothes, and the summary does not count it as held. `enqueue` drops a second
+message with the same kind, PR, and head, so a duplicate idle notice is neither stored
+twice nor answered. *Prevents the hold nobody can lift and the reply tax on notifications
+carrying no news.*
+
+`refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
+the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
+the routing, the label history, and the landing. A refresh that cannot reach the forge
+exits non-zero and writes nothing. The records live on `refs/cc-notes/*` and survive
+compaction, a session restart, and a handoff. A fresh `landing-desk` lane spawned with the
+ledger id reads the inbox, the holds, the routes, the label history, and the landings
+exactly as the last one left them. None of that goes into session memory or the plan file.
 
 ## Mechanics
 
@@ -233,62 +211,40 @@ a broken build polls until the deadline. Anything needing an env token runs in t
 Bash; a Monitor shell does not inherit the environment, so `BUILDKITE_API_TOKEN` and its
 kin are empty there. Prefer a CLI with a stored credential over an exported token.
 
-### Ledger cadence
-
-One lane owns the whole cadence. `refresh` regrades the rows the ledger holds and syncs
-them; `route` emits one verdict per red or conflicting row and stamps `last_graded_head`.
-Neither writes to the pull request: a lane is addressed where it listens, and a comment on
-a PR reaches whoever happens to read it.
-
-```sh
-LEDGER=$(ccn ledger add --title "open PRs: $DRIVE")   # once, when the drive arms
-
-# every 20 minutes, in this order, in one sequencer lane
-ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
-ledger.py route   --repo "$REPO" --ledger "$LEDGER"
-```
-
-`refresh --pr <n>` admits a PR a lane just reported; without `--pr` it regrades what it
-holds. A refresh that cannot reach the forge exits non-zero and writes nothing, rather
-than syncing the rows it managed to grade: a partial row set reports a state nobody
-observed while the caller believes it refreshed. `route --dry-run` prints every verdict it
-would record and writes nothing. Route skips a row whose `last_graded_head` already equals
-its `head`, so a re-run after a crash re-grades nothing. A lane asking what it owns gets
-`ledger.py show --red`, never the raw table.
-
 ### Desk cadence
 
-The desk owns the whole loop below. Both ledgers are created once, when the desk is
-spawned, and their ids go into its brief; everything after that is `desk.py`.
+The desk owns the whole loop below. The ledger is created once, when the desk is
+spawned, and its id goes into the brief; everything after that is `ledger.py`.
 
 ```sh
-DESK=$(desk.py init --title "desk: $DRIVE")
-LEDGER=$(ccn ledger add "open PRs: $DRIVE" --json | jq -r .id)
+LEDGER=$(ledger.py init --title "desk: $DRIVE")
 
 # as each lane message arrives, typed in verbatim; duplicates are dropped
-desk.py report  --desk "$DESK" --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean
-desk.py ruling  --desk "$DESK" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
-desk.py enqueue --desk "$DESK" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
-desk.py inbox   --desk "$DESK" --take
+ledger.py report  --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean
+ledger.py ruling  --ledger "$LEDGER" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
+ledger.py enqueue --ledger "$LEDGER" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
+ledger.py inbox   --ledger "$LEDGER" --take
 
-# every 20 minutes, one REST batch: regrade what the ledger holds, settle what closed
+# every 20 minutes, one REST batch, in this order
 ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
-desk.py landed   --desk "$DESK" --ledger "$LEDGER" --repo "$REPO" --checkout "$CHECKOUT"
+ledger.py landed  --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
+ledger.py route   --repo "$REPO" --ledger "$LEDGER"
 
-# per clean report: every guard, then one label
-desk.py label   --desk "$DESK" --ledger "$LEDGER" --repo "$REPO" --pr 21221 --expect-head <sha> --checkout "$CHECKOUT"
-desk.py route   --desk "$DESK" --ledger "$LEDGER" --pr 21221 --job "buildkite/test: Test infra"
-desk.py hold    --desk "$DESK" --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4
+# per clean report: every guard, then one label; per blocker the forge cannot see: one route or hold
+ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr 21221 --expect-head <sha> --checkout "$CHECKOUT"
+ledger.py route --repo "$REPO" --ledger "$LEDGER" --pr 21221 --job "plan comment missing for this head"
+ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4
 
 # hourly, and the only desk output the root reads
-desk.py summary --desk "$DESK" --ledger "$LEDGER"
+ledger.py summary --ledger "$LEDGER"
 ```
 
 `label --dry-run` runs every guard and writes nothing; run it once on a repo before the
-first live label. `route` prints the message to send the lane and records it, so the
-same head and job are never routed twice. `unlabel --reason` records why a label came
-off and blocks a re-label of that head; it does not stop a queue that already took the
-PR. `show` dumps every record when the summary points at it.
+first live label. `route` without `--pr` sweeps every red or conflicting row, reads the
+first failing line from the Buildkite log, prints the message to send each lane, and
+records it; `route --dry-run` prints and records nothing. `unlabel --reason` records why a
+label came off and blocks a re-label of that head; it does not stop a queue that already
+took the PR. A lane asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Handoff plan
 
