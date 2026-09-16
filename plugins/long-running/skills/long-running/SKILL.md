@@ -95,12 +95,27 @@ row whose `head` no longer equals it has moved since it was last routed, so the 
 verdict is void and the row is routed again. *Prevents a stale green and a stale red
 alike, both of which name a sha nobody graded.*
 
+**L5. Merged is a fact about the trunk, never about PR state.** A row reads `merged`
+only when its squash is on the base branch, found by `git log origin/<base> --grep
+"(#N)"` with the subject ending in `(#N)`, and it records the `landed_sha`. The queue
+leaves a landed PR reading closed with merged false, and a PR auto-closed because its
+base branch was deleted reads identically. So a row is `open`, `merged`, or
+`closed-without-squash`. That third state is the dangerous one, and it has no honest
+home in a two-state model. `refresh` fetches the base before it reads it.
+*Prevents the approved fix that sat absent from the trunk for four hours while its row
+looked settled.*
+
 `lane`, `hold_reason`, `hold_since`, and `declared_intent` are orchestrator-owned:
 `refresh` merges fields instead of replacing them, so it never overwrites them. It regrades
 the rows the ledger already holds plus any `--pr` it is handed, and never lists the
 repository's pull requests: a PR is in the ledger because one of our lanes reported it,
-and a PR no lane reported is nobody's to grade, route, or count. A closed row stays,
-marked `state=closed`, until the desk settles it from the base branch's log.
+and a PR no lane reported is nobody's to grade, route, or count.
+
+The cheap self-check that catches a broken pass: the red count `ledger line` reports must
+equal the number of rows `ledger show --red` lists. The shell ledger this replaces reported
+zero red PRs while twenty were red, and those two numbers disagreeing was the only visible
+symptom. A false zero is worse than a wrong count, because a wrong count invites a check
+and a zero closes the question.
 
 ## Mechanics
 

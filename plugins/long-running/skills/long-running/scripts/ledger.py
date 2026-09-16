@@ -35,6 +35,10 @@ PAGE_SIZE = 100
 HOLD_SECONDS = 3600
 LINE_WIDTH = 200
 ROUTE_STATES = ("dirty", "blocked")
+FIELD_SEP = "\x1f"
+STATE_OPEN = "open"
+STATE_MERGED = "merged"
+STATE_CLOSED = "closed-without-squash"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
@@ -125,6 +129,26 @@ class Github:
 
 
 @dataclass
+class Trunk:
+    """The trunk's own record of what landed, which is the only source of `merged`."""
+
+    shell: Shell
+
+    def fetch(self, base: str) -> None:
+        self.shell.run(["git", "fetch", "origin", base])
+
+    def squash(self, base: str, number: str) -> tuple[str, str]:
+        out = self.shell.run(
+            ["git", "log", f"origin/{base}", "--grep", f"(#{number})", f"--format=%H{FIELD_SEP}%cI{FIELD_SEP}%s", "-20"]
+        )
+        for line in out.splitlines():
+            sha, landed_at, subject = line.split(FIELD_SEP, 2)
+            if subject.endswith(f"(#{number})"):
+                return sha, landed_at
+        return "", ""
+
+
+@dataclass
 class Notes:
     shell: Shell
     ledger: str
@@ -174,7 +198,23 @@ def ai_review(checks: dict) -> str:
     return AI_REVIEW_ABSENT
 
 
-def grade(gh: Github, number: str) -> dict[str, str]:
+def landing(trunk: Trunk, pull: dict, number: str) -> dict[str, str]:
+    """Resolve a PR's landing from the trunk, never from its forge state.
+
+    The merge queue leaves a landed PR reading closed with merged false, and a PR
+    auto-closed because its base branch was deleted reads identically — so only the
+    squash on the base branch separates the two, and a PR with no squash is its own
+    state rather than a quieter kind of merged.
+    """
+    if pull["state"] == "open":
+        return {"state": STATE_OPEN, "landed_sha": "", "landed_at": ""}
+    sha, landed_at = trunk.squash(pull["base"]["ref"], number)
+    if not sha:
+        return {"state": STATE_CLOSED, "landed_sha": "", "landed_at": ""}
+    return {"state": STATE_MERGED, "landed_sha": sha, "landed_at": landed_at}
+
+
+def grade(gh: Github, trunk: Trunk, number: str) -> dict[str, str]:
     """Re-read the head from the same `pulls/{n}` call the verdicts are graded against."""
     pull = gh.api(f"pulls/{number}")
     head = pull["head"]["sha"]
@@ -182,7 +222,7 @@ def grade(gh: Github, number: str) -> dict[str, str]:
     labels = gh.api(f"issues/{number}/labels")
     checks = gh.api(f"commits/{head}/check-runs")
     return {
-        "state": pull["state"],
+        **landing(trunk, pull, number),
         "head": head,
         "base": pull["base"]["ref"],
         "branch": pull["head"]["ref"],
@@ -197,7 +237,11 @@ def grade(gh: Github, number: str) -> dict[str, str]:
 
 
 def is_open(fields: dict[str, str]) -> bool:
-    return fields.get("state", "open") == "open"
+    return fields.get("state", STATE_OPEN) == STATE_OPEN
+
+
+def is_stranded(fields: dict[str, str]) -> bool:
+    return fields.get("state") == STATE_CLOSED
 
 
 def needs_route(fields: dict[str, str]) -> bool:
@@ -269,6 +313,21 @@ def load_infra_adapter(spec: str | None):
     return getattr(module, name)
 
 
+class FetchOnce(Trunk):
+    """A Trunk that fetches each base branch once per pass, so every squash lookup
+    reads a ref no older than this pass rather than whatever the checkout last saw."""
+
+    def __init__(self, trunk: Trunk):
+        self.shell = trunk.shell
+        self.seen: set[str] = set()
+
+    def squash(self, base: str, number: str) -> tuple[str, str]:
+        if base not in self.seen:
+            self.fetch(base)
+            self.seen.add(base)
+        return super().squash(base, number)
+
+
 def landed_since(rows: dict[str, dict[str, str]], cutoff: datetime) -> int:
     return sum(1 for fields in rows.values() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff)
 
@@ -289,13 +348,15 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
+    trunk = Trunk(shell)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
         known = notes.rows()
         stamp = utc_stamp()
+        fetched = FetchOnce(trunk)
         rows = []
         for key in sorted(set(known) | set(args.pr), key=int):
-            fields = grade(gh, key)
+            fields = grade(gh, fetched, key)
             fields["last_refresh"] = stamp
             if key not in known:
                 fields["first_seen"] = stamp
@@ -346,7 +407,10 @@ def cmd_line(args: argparse.Namespace, shell: Shell) -> int:
         if fields.get("hold_since") and parse_iso(fields["hold_since"]) < hold_cutoff
     ]
     open_rows = sum(1 for fields in rows.values() if is_open(fields))
+    stranded = sum(1 for fields in rows.values() if is_stranded(fields))
     parts = [f"merged/h {landed_since(rows, cutoff)}", f"open {open_rows}", f"red {red}"]
+    if stranded:
+        parts.append(f"closed-no-squash {stranded}")
     adapter = load_infra_adapter(args.infra_adapter or os.environ.get("CCN_LEDGER_INFRA_ADAPTER"))
     if adapter:
         parts.append(adapter(repo=args.repo, rows=rows))
