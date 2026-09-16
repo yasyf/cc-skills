@@ -22,9 +22,8 @@ script owns every mechanic: it pins `-c model=gpt-6-astra
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules, the § Replies reply contract, no
-ccx/MCP inside lanes — so every run arrives knowing the house reply shape),
-disables
-MCP server mounts on the exec line, unsets `OPENAI_API_KEY` so codex always
+ccx inside lanes — so every run arrives knowing the house reply shape),
+mounts no MCP server unless `--mcp` names one, unsets `OPENAI_API_KEY` so codex always
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
 billing-capped and never mounts the hosted `image_gen` tool), and keeps every
 run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
@@ -219,8 +218,9 @@ park; a plain subagent without the channel foreground-blocks as ever.
 ### Step 1: Compose the Context
 
 Codex answers only as well as the question scopes it, and it pulls its own
-context inside the repo with standard shell tools (rg, sed, git — ccx and MCP
-tooling are disabled in lanes) — so precision beats volume. Every question
+context inside the repo with standard shell tools (rg, sed, git — ccx is
+disabled in lanes; MCP mounts only with `--mcp`) — so precision beats volume.
+Every question
 carries:
 
 - A clear problem statement with the specific error or symptom
@@ -266,6 +266,28 @@ top of the § Replies shape every run already carries; it shapes prose.
 `findings`, `refutations` — or takes a JSON Schema file, and maps to codex
 `--output-schema`, which constrains the final assistant message itself: the
 reply becomes that JSON in place of prose, never a JSON block decorating it.
+
+`--mcp <names>` mounts MCP servers for this run, comma-separated, from
+`~/.codex/config.toml`; absent the flag, nothing mounts. Every other configured
+server disables for the run via `-c mcp_servers.<name>.enabled=false`, and
+`--disable apps` drops codex's app-connector tools on every run. `-c
+mcp_servers={}` cannot do this: `-c` merges tables, so an empty one subtracts
+nothing. `config.toml` stays the source of truth for each server's
+command/url/env/headers. A name missing from `codex
+mcp list --json`, or present but disabled, exits 2. `node_repl` (120s
+browser-REPL startup) never mounts implicitly. The dispatcher appends a
+`## MCP` section to `developer_instructions` naming what's mounted; codex may
+not list those tools up front, so the lane calls them by full name. Use it to
+answer an observability question in one dispatch instead of round-tripping
+every query through the caller:
+
+```bash
+"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --lane recon --mcp datadog,sentry,slack - <<'QUESTION'
+Why did checkout-service error rate spike at 14:32 UTC? Check Datadog for the
+error surge, Sentry for the matching issue, and #eng-checkout in Slack for
+context.
+QUESTION
+```
 
 ```bash
 "${CLAUDE_SKILL_DIR}/../../bin/codex-ask" - <<'QUESTION'

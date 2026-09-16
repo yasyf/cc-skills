@@ -37,7 +37,7 @@ const (
 )
 
 const usageStr = "usage: codex-ask [-m astra|sol|luna] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
-	"[--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
+	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}
 

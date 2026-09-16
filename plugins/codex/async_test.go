@@ -40,16 +40,21 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// stubCodexReply parses -o like the real codex and writes a fixed reply there.
-const stubCodexReply = "#!/bin/sh\n" +
-	"out=\"\"; prev=\"\"\n" +
+func stubCodex(listing, body string) string {
+	return "#!/bin/sh\n[ \"$1\" = mcp ] && { printf '%s' '" + listing + "'; exit 0; }\n" + body
+}
+
+const stubCodexReplyBody = "out=\"\"; prev=\"\"\n" +
 	"for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=$a; prev=$a; done\n" +
 	"cat > /dev/null\n" +
 	"[ -n \"$out\" ] && echo pong > \"$out\"\n"
 
+// stubCodexReply parses -o like the real codex and writes a fixed reply there.
+var stubCodexReply = stubCodex("[]", stubCodexReplyBody)
+
 // stubCodexSleep never completes within the test's window, proving the dispatch
 // returned rather than blocked on it.
-const stubCodexSleep = "#!/bin/sh\nsleep 30\n"
+var stubCodexSleep = stubCodex("[]", "sleep 30\n")
 
 var (
 	binOnce sync.Once
