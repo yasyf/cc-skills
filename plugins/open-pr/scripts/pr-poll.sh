@@ -9,10 +9,14 @@
 #   COMMENT <author> <id> <first-80-chars-of-body>
 #   QUEUED  <author> <id>
 #   QUEUE-DROPPED <conflicts|failed-ci|other> <first-80-chars-of-entry>
-#   DONE    all-green | merged | queue-merged | closed | checks-failed
+#   DONE    all-green | merged | queue-merged | closed | checks-failed | conflicted
 #
 # Exits 0 after DONE. QUEUED and QUEUE-DROPPED are not terminal: the PR is
 # still open and the watch continues.
+#
+# DIRTY outranks the check verdict: a conflicted head goes green and still
+# cannot merge. GitHub answers UNKNOWN while it recomputes after a push, so
+# DIRTY is never an answer that arrived early.
 #
 # Both read Graphite's one "Merge activity" comment, which it edits in place
 # under whoever enqueued the PR, so a queue event is an edit of an old
@@ -151,10 +155,10 @@ closed_verdict() {
 
 poll() {
   local view checks head prev seen items wm_c wm_r next_c next_r pr_state merged closed_as n_checks verdict
-  local activity act_id act_author act_seen act_n
+  local activity act_id act_author act_seen act_n merge_state
 
-  view=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,headRefOid,statusCheckRollup \
-    --jq '{state, mergedAt, headRefOid, n_checks: (.statusCheckRollup | length)}' 2>/dev/null || true)
+  view=$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt,headRefOid,mergeStateStatus,statusCheckRollup \
+    --jq '{state, mergedAt, headRefOid, mergeStateStatus, n_checks: (.statusCheckRollup | length)}' 2>/dev/null || true)
   jq -e . >/dev/null 2>&1 <<<"$view" || view='{}'
 
   checks=$(gh pr checks "$PR" --repo "$REPO" \
@@ -211,8 +215,9 @@ poll() {
   fi
   next_c=$(jq -rs --arg wm "$wm_c" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_c=$wm_c
 
-  STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" \
-    '.watermarks.comments = $c | .watermarks.reviews = $r' <<<"$STATE")
+  merge_state=$(jq -r '.mergeStateStatus // ""' <<<"$view")
+  STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" --arg m "$merge_state" \
+    '.watermarks.comments = $c | .watermarks.reviews = $r | .merge_state_seen = $m' <<<"$STATE")
   write_state
 
   pr_state=$(jq -r '.state // ""' <<<"$view")
@@ -223,6 +228,8 @@ poll() {
     if [ -n "$closed_as" ]; then finish "$closed_as"; fi
     return 0
   fi
+
+  [ "$merge_state" = DIRTY ] && finish conflicted
 
   n_checks=$(jq -r '.n_checks // -1' <<<"$view")
   if [ "$n_checks" = 0 ]; then
