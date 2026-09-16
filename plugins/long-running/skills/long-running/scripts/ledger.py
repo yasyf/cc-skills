@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Open-PR ledger over cc-notes — one row per open PR, REST only.
 
-    ledger.py refresh --repo owner/name --ledger ID [--lane PR=NAME]... [--lock PATH]
+    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH]
     ledger.py route   --repo owner/name --ledger ID [--dry-run]
     ledger.py line    --repo owner/name --ledger ID [--window-seconds N]
     ledger.py show    --ledger ID [--red] [--json]
 
-STDLIB ONLY. Every GitHub read is a ``gh api`` subprocess and GraphQL is never
-called; Buildkite logs come from the repo-pinned ``bk``; storage is ``ccn ledger``.
-All three go through :class:`Shell`, the one seam tests replace.
+STDLIB ONLY. Every GitHub read is a ``gh api`` subprocess against one PR the ledger
+already names; the repository's PR list is never read and GraphQL is never called.
+Buildkite logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. All three
+go through :class:`Shell`, the one seam tests replace.
 """
 
 from __future__ import annotations
@@ -132,11 +133,8 @@ class Notes:
         payload = json.loads(self.shell.run(["ccn", "ledger", "show", self.ledger, "--json"]))
         return {row["key"]: row["fields"] for row in payload["rows"]}
 
-    def sync(self, rows: list[dict], prune: bool) -> None:
-        argv = ["ccn", "ledger", "sync", self.ledger, "--file", "-"]
-        if prune:
-            argv.append("--prune")
-        self.shell.run(argv, stdin=json.dumps(rows))
+    def sync(self, rows: list[dict]) -> None:
+        self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(rows))
 
     def set_fields(self, key: str, fields: dict[str, str]) -> None:
         argv = ["ccn", "ledger", "row", "set", self.ledger, "--key", key]
@@ -184,6 +182,7 @@ def grade(gh: Github, number: str) -> dict[str, str]:
     labels = gh.api(f"issues/{number}/labels")
     checks = gh.api(f"commits/{head}/check-runs")
     return {
+        "state": pull["state"],
         "head": head,
         "base": pull["base"]["ref"],
         "branch": pull["head"]["ref"],
@@ -197,8 +196,12 @@ def grade(gh: Github, number: str) -> dict[str, str]:
     }
 
 
+def is_open(fields: dict[str, str]) -> bool:
+    return fields.get("state", "open") == "open"
+
+
 def needs_route(fields: dict[str, str]) -> bool:
-    return fields["test_state"] == "failure" or fields["mergeable_state"] in ROUTE_STATES
+    return is_open(fields) and (fields["test_state"] == "failure" or fields["mergeable_state"] in ROUTE_STATES)
 
 
 def buildkite_targets(status: dict, checks: dict) -> list[re.Match]:
@@ -266,14 +269,8 @@ def load_infra_adapter(spec: str | None):
     return getattr(module, name)
 
 
-def merged_since(gh: Github, cutoff: datetime) -> int:
-    count = 0
-    for pull in gh.paged("pulls", state="closed", sort="updated", direction="desc"):
-        if parse_iso(pull["updated_at"]) < cutoff:
-            return count
-        if pull["merged_at"] and parse_iso(pull["merged_at"]) >= cutoff:
-            count += 1
-    return count
+def landed_since(rows: dict[str, dict[str, str]], cutoff: datetime) -> int:
+    return sum(1 for fields in rows.values() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff)
 
 
 def render_table(rows: dict[str, dict[str, str]]) -> str:
@@ -297,8 +294,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
         known = notes.rows()
         stamp = utc_stamp()
         rows = []
-        for pull in gh.paged("pulls", state="open"):
-            key = str(pull["number"])
+        for key in sorted(set(known) | set(args.pr), key=int):
             fields = grade(gh, key)
             fields["last_refresh"] = stamp
             if key not in known:
@@ -306,8 +302,8 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
             if key in lanes:
                 fields["lane"] = lanes[key]
             rows.append({"key": key, "fields": fields})
-        notes.sync(rows, prune=True)
-    print(f"refreshed {len(rows)} open PRs into {args.ledger}")
+        notes.sync(rows)
+    print(f"refreshed {len(rows)} PRs into {args.ledger}")
     return 0
 
 
@@ -339,7 +335,6 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_line(args: argparse.Namespace, shell: Shell) -> int:
-    gh = Github(shell, args.repo)
     rows = Notes(shell, args.ledger).rows()
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=args.window_seconds)
@@ -350,7 +345,8 @@ def cmd_line(args: argparse.Namespace, shell: Shell) -> int:
         for key, fields in sorted(rows.items(), key=lambda item: int(item[0]))
         if fields.get("hold_since") and parse_iso(fields["hold_since"]) < hold_cutoff
     ]
-    parts = [f"merged/h {merged_since(gh, cutoff)}", f"open {len(rows)}", f"red {red}"]
+    open_rows = sum(1 for fields in rows.values() if is_open(fields))
+    parts = [f"merged/h {landed_since(rows, cutoff)}", f"open {open_rows}", f"red {red}"]
     adapter = load_infra_adapter(args.infra_adapter or os.environ.get("CCN_LEDGER_INFRA_ADAPTER"))
     if adapter:
         parts.append(adapter(repo=args.repo, rows=rows))
@@ -374,9 +370,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ledger.py", description=__doc__.splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    refresh = subparsers.add_parser("refresh", help="regrade every open PR and sync the ledger")
+    refresh = subparsers.add_parser("refresh", help="regrade every PR the ledger holds, plus any --pr, and sync it")
     refresh.add_argument("--repo", required=True)
     refresh.add_argument("--ledger", required=True)
+    refresh.add_argument("--pr", action="append", default=[], metavar="N", help="admit this PR, reported by one of our lanes")
     refresh.add_argument("--lane", action="append", default=[], metavar="PR=NAME")
     refresh.add_argument("--lock", type=Path)
     refresh.set_defaults(handler=cmd_refresh)

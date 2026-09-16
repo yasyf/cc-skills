@@ -1,0 +1,19 @@
+{
+  "number": 19999,
+  "state": "closed",
+  "title": "infra: a row the queue already landed",
+  "user": {
+    "login": "yasyf"
+  },
+  "head": {
+    "sha": "deaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+    "ref": "infra/landed"
+  },
+  "base": {
+    "ref": "dev"
+  },
+  "mergeable_state": "unknown",
+  "changed_files": 1,
+  "updated_at": "2026-09-16T05:41:00Z",
+  "merged_at": null
+}

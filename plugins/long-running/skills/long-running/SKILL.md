@@ -96,8 +96,11 @@ verdict is void and the row is routed again. *Prevents a stale green and a stale
 alike, both of which name a sha nobody graded.*
 
 `lane`, `hold_reason`, `hold_since`, and `declared_intent` are orchestrator-owned:
-`refresh` merges fields instead of replacing them, so it never overwrites them. `--prune` drops rows
-whose PR closed or merged, so the ledger is the open set by construction.
+`refresh` merges fields instead of replacing them, so it never overwrites them. It regrades
+the rows the ledger already holds plus any `--pr` it is handed, and never lists the
+repository's pull requests: a PR is in the ledger because one of our lanes reported it,
+and a PR no lane reported is nobody's to grade, route, or count. A closed row stays,
+marked `state=closed`, until the desk settles it from the base branch's log.
 
 ## Mechanics
 
@@ -191,7 +194,8 @@ ledger.py route   --repo "$REPO" --ledger "$LEDGER"
 ledger.py line --repo "$REPO" --ledger "$LEDGER"
 ```
 
-`route --dry-run` prints every comment it would post and writes nothing; run it once
+`refresh --pr <n>` admits a PR a lane just reported; without `--pr` it regrades what it
+holds. `route --dry-run` prints every comment it would post and writes nothing; run it once
 before the first live pass on a repo. Route is idempotent twice over. It skips a row
 whose `last_graded_head` already equals its `head`, and it scans the PR's comments for
 the `<!-- ccn-ledger-route <head> -->` marker it emits, so a re-run after a crash posts

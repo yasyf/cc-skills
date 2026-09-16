@@ -1,5 +1,6 @@
 {
   "number": 21052,
+  "state": "open",
   "title": "infra: the nineteen leaf account stacks carry their settings",
   "user": { "login": "yasyf" },
   "head": { "sha": "aa11bb22cc33dd44ee55ff6677889900aabbccdd", "ref": "infra/accounts-register" },

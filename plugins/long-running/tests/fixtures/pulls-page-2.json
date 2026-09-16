@@ -1,6 +1,7 @@
 [
   {
     "number": 20970,
+    "state": "open",
     "title": "infra: change 20970",
     "user": {
       "login": "anubhav94"
@@ -19,6 +20,7 @@
   },
   {
     "number": 20961,
+    "state": "open",
     "title": "infra: change 20961",
     "user": {
       "login": "yasyf"
