@@ -61,7 +61,7 @@ CHECK   <name> <bucket> <link>
 REVIEW  <author> <state> <id>
 COMMENT <author> <id> <first-80-chars>
 QUEUED  <author> <id>
-DONE    all-green | merged | queue-merged | closed | checks-failed
+DONE    all-green | merged | queue-merged | closed | checks-failed | conflicted
 ```
 
 `QUEUED` is not terminal — the PR entered the merge queue and is still in
@@ -76,8 +76,11 @@ end of the loop.
 
 The states behind the tokens, by meaning: open (checks running or red),
 green (every check passed), queued for merge (a queue holds it — still in
-flight, the queue can eject it), merged, abandoned. Green and both terminal
-states end the loop: `TaskStop` the monitor and report — on a queue lane,
+flight, the queue can eject it), merged, abandoned, conflicted (the head no
+longer merges into its base — `mergeStateStatus` reports it and no check
+does, so the checks read green on a PR that cannot merge; the resolution,
+a rebase or a hand merge, is the user's). Green, conflicted and both
+terminal states end the loop: `TaskStop` the monitor and report — on a queue lane,
 merged vs abandoned comes from the closer actor (see Attach), never the
 state field. Queued keeps the watch armed. On failed checks, triage the
 reds; ship or rebut what triage settles, then **arm a fresh Monitor** on

@@ -26,7 +26,7 @@ Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <s
 It emits `CHECK <name> <bucket> <link>`, `REVIEW <author> <state> <id>`,
 `COMMENT <author> <id> <first-80>`, `QUEUED <author> <id>`, `QUEUE-DROPPED
 <conflicts|failed-ci|other> <first-80>`, and `DONE
-all-green|merged|queue-merged|closed|checks-failed`. `QUEUED` is not
+all-green|merged|queue-merged|closed|checks-failed|conflicted`. `QUEUED` is not
 terminal — the PR entered the merge queue and the watch continues.
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
 with a null `mergedAt`. The script exits after any `DONE`,
@@ -45,6 +45,11 @@ Each `DONE` ends a round:
   human meaning abandoned
 - checks failed → triage the reds against the lanes below, and after
   shipping a fix arm a fresh Monitor on the new head
+- conflicted → the head no longer merges into its base, which every check
+  passing never clears and no later pass resolves. Report `blocked` with the
+  conflicting paths and the options, normally a rebase onto the trunk tip
+  against a hand resolution; rewriting the caller's branch is outside every
+  fix lane below
 
 `TaskStop` the monitor before finishing — a persistent monitor outlives you
 otherwise.
@@ -131,6 +136,7 @@ decision is the caller's:
 - a fix that would touch a file outside the PR's diff
 - an infra flake on a repo the caller doesn't control
 - the same check red after two attempts — a third is a guess
+- a head that conflicts with its base, whatever the checks say
 </bring_it_back>
 
 ## Triage handoffs
