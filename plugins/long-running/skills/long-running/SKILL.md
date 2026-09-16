@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, and an open-PR ledger grades, routes, and holds every open PR. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR, and a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -105,6 +105,58 @@ branch. Merged is a fact about the trunk, never about PR state: the queue leaves
 PR reading closed with merged false, and a PR auto-closed because its base branch was
 deleted reads identically.
 
+## The landing desk
+
+On a drive where many lanes open PRs, the root is the wrong place for their reports.
+Each report is a message in the root's window, each landing is a wait, and each label is
+a REST call the root must not make. The desk is one long-lived lane, `landing-desk`,
+that takes all of that. Lanes report to it, it grades and labels, and the root hears
+from it once an hour. `scripts/desk.py` is its tool and `reference/landing-desk-brief.md`
+is its brief, ready to paste; `reference/desk-contracts.md` holds the message shapes.
+
+Spawn it first, before any lane that will open a PR, whenever three or more lanes
+will ship through one merge queue or the drive will outlive one context window. Below
+that the lane that opened the PR lands it, and there is no desk.
+
+**D1. Lanes address the desk, never the root.** A lane's last action on a PR is the
+3-line report of PR, full head sha, and verdict, sent to `landing-desk`. The root receives only
+`RULING NEEDED` lines and the hourly summary. *Prevents the root window filling with
+forty lanes' ship reports and their duplicate idle notices.*
+
+**D2. A PR is the desk's only because a lane reported it.** `desk.py report` is the
+one path that opens a row in the open-PR ledger. The desk never lists the repository's
+pull requests, and a PR it cannot trace to a report is not tracked, not graded, not
+labelled, and not counted; there is no "unknown" list. *Prevents routing comments and
+rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty
+times in an hour.*
+
+**D3. The label goes on a head once, after the desk re-reads it.** `desk.py label`
+re-reads the head from the forge. It refuses a closed PR, a moved head, a held PR, a
+head it labelled or pulled before, a head under a minute old, a red status, and a failed
+check run. With `--checkout` it also refuses a head that conflicts with the base. A
+refusal names the reason and ends the attempt; the desk routes or holds, it never
+retries the same head. *Prevents the re-queue loop where an ejected head is relabelled unchanged and
+ejected again until someone notices.*
+
+**D4. Landed means the squash is on the base branch.** `desk.py landed` fetches the
+base branch and settles a closed row by `git log` for a subject ending `(#n)`, never by
+the PR's `merged` field, which a squash-merging queue leaves false on every PR it lands.
+A closed row with no squash becomes `closed-without-squash`, a name that cannot be read
+as success, because a child auto-closed by its base's deletion looks exactly like a
+landing until the log is read. *Prevents lanes waiting hours on a PR that landed
+minutes after they started, and a lost stacked child counted as merged.*
+
+**D5. Every hold has a reason and an expiry, and every message is recorded once.**
+`desk.py hold` takes both; `desk.py enqueue` drops a second message with the same
+kind, PR, and head, so a duplicate idle notice is neither stored twice nor answered.
+*Prevents the hold nobody can lift and the reply tax on notifications carrying no news.*
+
+The desk's records live in two cc-notes ledgers, the desk's own and the open-PR
+ledger, on `refs/cc-notes/*`. They survive compaction, a session restart, and a handoff.
+A fresh `landing-desk` lane spawned with the two ledger ids reads the inbox, the holds,
+the routes, the label history, and the landings exactly as the last one left them.
+None of that goes into session memory or the plan file.
+
 ## Mechanics
 
 ### Lane brief
@@ -204,6 +256,40 @@ would record and writes nothing. Route skips a row whose `last_graded_head` alre
 its `head`, so a re-run after a crash re-grades nothing. A lane asking what it owns gets
 `ledger.py show --red`, never the raw table.
 
+### Desk cadence
+
+The desk owns the whole loop below. Both ledgers are created once, when the desk is
+spawned, and their ids go into its brief; everything after that is `desk.py`.
+
+```sh
+DESK=$(desk.py init --title "desk: $DRIVE")
+LEDGER=$(ccn ledger add "open PRs: $DRIVE" --json | jq -r .id)
+
+# as each lane message arrives, typed in verbatim; duplicates are dropped
+desk.py report  --desk "$DESK" --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean
+desk.py ruling  --desk "$DESK" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
+desk.py enqueue --desk "$DESK" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
+desk.py inbox   --desk "$DESK" --take
+
+# every 20 minutes, one REST batch: regrade what the ledger holds, settle what closed
+ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
+desk.py landed   --desk "$DESK" --ledger "$LEDGER" --repo "$REPO" --checkout "$CHECKOUT"
+
+# per clean report: every guard, then one label
+desk.py label   --desk "$DESK" --ledger "$LEDGER" --repo "$REPO" --pr 21221 --expect-head <sha> --checkout "$CHECKOUT"
+desk.py route   --desk "$DESK" --ledger "$LEDGER" --pr 21221 --job "buildkite/test: Test infra"
+desk.py hold    --desk "$DESK" --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4
+
+# hourly, and the only desk output the root reads
+desk.py summary --desk "$DESK" --ledger "$LEDGER"
+```
+
+`label --dry-run` runs every guard and writes nothing; run it once on a repo before the
+first live label. `route` prints the message to send the lane and records it, so the
+same head and job are never routed twice. `unlabel --reason` records why a label came
+off and blocks a re-label of that head; it does not stop a queue that already took the
+PR. `show` dumps every record when the summary points at it.
+
 ### Handoff plan
 
 At roughly half the window, write this and stop driving.
@@ -240,6 +326,10 @@ At roughly half the window, write this and stop driving.
   dropped a fix.
 - Red PRs nobody was tracking: eight of ninety open PRs were red or conflicting, and the
   owner found them before the desk did.
+- A desk built from a repo-wide PR list: twenty routing comments landed on six other
+  engineers' PRs before anyone asked whose they were.
+- A head relabelled after every queue ejection: the same conflicting head was queued
+  and dropped twelve times while its rebase sat unstarted.
 
 ## Checklist before every tool call
 

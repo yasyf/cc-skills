@@ -1,7 +1,7 @@
 {
   "name": "long-running",
-  "description": "Context discipline for multi-lane orchestration — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list; ships an open-PR ledger CLI over cc-notes that grades, routes, and holds every open PR.",
-  "version": "0.2.0",
+  "description": "Context discipline for multi-lane orchestration \u2014 ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list; ships an open-PR ledger CLI over cc-notes that grades, routes, and holds every open PR, and a landing-desk tool that queues lane reports, guards the merge label, and summarises landings for the root.",
+  "version": "0.3.0",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
