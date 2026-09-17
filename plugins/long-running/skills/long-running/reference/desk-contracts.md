@@ -444,6 +444,38 @@ however benign the content reads. Over-triggering costs thirty seconds; the
 alternative depends on reading the content correctly first, which is the step that
 failed.
 
+Derive that key set from whatever map the engine already uses to recognise a
+document input. Do not hand-copy one. The same map that decides an op is a
+benign document rewrite then decides it needs the check, so the two cannot drift
+and a newly added document-bearing resource type gets both behaviours at once.
+Match on the key alone and not the key-plus-type pair the rewrite check uses: a
+document key on a type nobody has classified yet is more reason to look, not less.
+
+Know the boundary rather than trusting the trigger. Such a map covers policy
+documents, so an access narrowing expressed another way, a principal list in a
+plain input or a permission set, still passes silently. Keep those as a second watchlist
+beside the derived set, labelled so it can never be mistaken for coverage.
+
+## A check nobody has seen pass is indistinguishable from one that cannot
+
+Before a verification is allowed to support a verdict, feed it an input whose
+answer you already know and watch it give that answer. A check that has never
+returned the passing result may be measuring nothing, and it fails silently in the
+direction of whatever its broken form returns.
+
+One night produced three of these on three unrelated surfaces. A document
+comparison could never report equivalent, because the value under test mocks had
+the wrong shape. An `AccessDenied` read as absence, so a resource that existed was
+reported missing. And a `grep -c` with an `|| echo 0` fallback reported every
+absent symbol as present, which is the input it existed to catch. One missing
+habit behind all three.
+
+So a check that gates a verdict runs its own control first. For an equivalence
+check, compare a thing with itself and confirm it reports equal. For an existence
+check, look for something known to exist. For a count, feed it a case whose count
+you know. Say in the report that the control ran, because a reader cannot
+distinguish a check that passed from one that could not fail.
+
 ## A plan's `diffs` and `digest` each hide something, in opposite directions
 
 Two fields invite the same mistake, reading a summary as if it were the thing
