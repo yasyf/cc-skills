@@ -698,3 +698,31 @@ queueable and custody had transferred.
 Pick a control that cannot act: a refusing input (the gate exits before the write),
 or the read the gate makes rather than the gate. Before using any tool as a probe,
 ask what it does on success, not only on failure.
+
+## A label is the point of no return, not the merge
+
+The queue takes the head the instant the label appears, and pulling the label
+cancels nothing. For the following minute the PR still reads `state=open,
+merged=false` and a trunk grep finds nothing, because the squash has not been
+pushed yet — so that evidence set is identical whether a merge is in flight or
+never started. There is no read available at pull time.
+
+After any label, accidental or intended, the outcome is readable only by content:
+two-dot diff the PR's own file list against a freshly fetched dev, empty means
+landed. Until that read exists, the honest report is "in flight, outcome unknown".
+An accidental label on a stale head lands the stale payload.
+
+`externally-merged` is not evidence either way. It appears on PRs that landed and
+on PRs the queue ejected when their head moved underneath them.
+
+## A control must match in time, not only in content
+
+Two branches lacking the same commit can plan the same stack differently if they
+planned on opposite sides of an apply. One read clean at 21:52 and the other
+refused twelve rules at 22:29, with the apply at 22:12 — so "another branch
+without X is also clean" proved nothing, and briefly indicted a landing for
+replacing twelve security-group rules in production.
+
+Compare plan-job start times before comparing plan contents, and name the applies
+that landed in between. The trunk's own answer is the landing verdict artifacts at
+several consecutive builds, never a branch.
