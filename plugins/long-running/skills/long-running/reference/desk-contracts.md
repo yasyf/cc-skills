@@ -310,6 +310,34 @@ stacked child carrying its parent's payload. It is no longer sufficient alone.
 Before trusting any new check, feed it one input known to be absent and confirm it says
 so. A check that has never been observed failing has not been tested.
 
+## Destroying an environment before its rows leave reds every landing in between
+
+A landing schedules a job per enabled stack and treats a stack with no state as one to
+**import**. So when an environment is destroyed live while its rows are still declared in
+the tree, every landing build after the destroy tries to import the whole environment back
+from adoption records pointing at resources that no longer exist, and dies in preview:
+
+```
+aws:ec2:Vpc  <env>  import error: Preview failed: resource 'vpc-0c47b1e6127bcc069' does not exist
+pulumi:pulumi:Stack  network-<env>  create error: preview failed
+```
+
+Nothing is at risk, because every one of these fails in preview and writes nothing. What is
+lost is the pipeline: on 2026-09-17 the trunk landing pipeline went **40 builds with zero
+passes** across 95 minutes, 27 outright failed, and every hard failure in the sample build
+was a `land <staging stack>` job, nine of nine. No stack anywhere in the estate applied
+during that window, so every other lane's landing silently waited too.
+
+**The ordering rule: the row removal lands first, or in the same window as the destroy.**
+Never destroy live and let the rows follow. The window between the two is exactly as long
+as the outage.
+
+Reading it from the desk: the give-away is a landing build whose hard failures are all
+`land` jobs for one environment, all reporting `does not exist` on import. Count the
+environment's jobs per build to see the clearing, since each row-removal PR that lands drops
+its share. Recovery needs no intervention, only the row PRs; the first build after the last
+one is the first that can pass.
+
 ## Refuse to grade rather than grade from a broken instrument
 
 Two conditions make every answer about the trunk unreliable, and both are silent.
