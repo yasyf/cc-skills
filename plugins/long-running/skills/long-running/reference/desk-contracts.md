@@ -310,6 +310,40 @@ stacked child carrying its parent's payload. It is no longer sufficient alone.
 Before trusting any new check, feed it one input known to be absent and confirm it says
 so. A check that has never been observed failing has not been tested.
 
+## A pending-owner stack renders no plan, so do not gate on one
+
+The desk's default bar is "grade the plan artifact, never the lane's reported op counts".
+That bar assumes an artifact exists. For a stack whose enablement sidecar still reads
+`pending-owner`, one never will:
+
+```ts
+if (written.skipped !== undefined) {
+  invariant(written.skipped === PENDING_OWNER, ...)
+  return { stack, outcome: "pending-owner" }
+}
+```
+
+The plan exits 0 and writes `skipped` with **no ops and no digest**. So demanding a plan
+comment for a rows-or-records PR against a pending-owner stack is demanding something the
+pipeline cannot produce, and a lane that cannot produce it will either stall or hand over
+hand-run numbers, which is the input the bar exists to reject.
+
+**The substitute bar for a no-plan PR**, and it is checkable rather than a judgement call:
+
+- green CI and ai-review success
+- the diff contains **no enablement flip**, i.e. no `.apply.yaml` change. That is what makes
+  a no-plan PR unable to cause an apply, and it is one `gh api .../files` away.
+- the plan is graded on the **enable** PR, where it renders, and that PR is where the
+  import-class bar actually bites
+
+This is why splitting rows from enablement matters beyond tidiness. Rows plus enablement in
+one PR produces something with a plan surface the desk cannot read and an apply it cannot
+refuse. Rows alone produces something with no plan surface and no apply, which is safe to
+land on green; enablement alone produces a plan the desk can grade properly.
+
+Distinguish this from a plan that **errored**. `could not be previewed` with a real error is
+evidence of a problem and a hold. `pending-owner` is evidence of nothing and is not.
+
 ## `protect` aborts the preview, so the state edit comes before the grep
 
 A retained delete is caught by grepping a preview for `[retain]`. That works only when a
