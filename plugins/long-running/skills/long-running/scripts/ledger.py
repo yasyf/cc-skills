@@ -21,7 +21,8 @@ STDLIB ONLY. A PR row exists because one of our lanes reported it, or because re
 was handed its number; the repository's PR list is never read and GraphQL is never
 called. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows in the same ledger. A landing is proven by the
-squash on the base branch in ``--checkout``, never by the PR's merged field. Buildkite
+base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
+merged field and never by searching the base log for its number. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
 """
@@ -51,7 +52,6 @@ LABELLABLE_STATES = ("clean", "behind", "has_hooks")
 FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
 SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
-LOG_DEPTH = "400"
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 LANDED = "landed"
@@ -117,7 +117,7 @@ ROUTE_TEXT = (
     "(PR, head, verdict); the merge label waits on that head reading green and merge-clean."
 )
 REFUSAL = {
-    "closed": "#{pr} is {state}; a landing is read from the {base} log, never labelled",
+    "closed": "#{pr} is {state}; a landing is read from the {base} tree, never labelled",
     "moved": "head moved: expected {expected}, the forge has {head}; grade the new head before labelling",
     "held": "#{pr} is held: {reason} until {until}",
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
@@ -379,17 +379,30 @@ def route_message(pr: str, head: str, lane: str, job: str, verdict: str) -> str:
     return f"to {lane}:\n{body}\n{ROUTE_TEXT}"
 
 
-def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[str, str] | None:
+def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str, head: str) -> tuple[str, str] | None:
+    """Has the base branch taken this PR's payload?
+
+    Graded by content, because the two cheaper signals both fail silently. Searching
+    the base log for ``(#<pr>)`` misses a parent whose stacked child carried its
+    payload, after which the parent merges as a no-op under no number of its own; and
+    a shallow checkout truncates that traversal at a depth that moves with each fetch.
+    An empty two-dot diff over the PR's own files cannot lie: the base tree holds that
+    content. Two dots, never three, since three would diff against the merge base and
+    report the branch side regardless of what the base received.
+    """
     git = ["git", "-C", str(checkout)]
     shell.run(git + ["fetch", "-q", "origin", base])
-    suffix = f"(#{pr})"
-    log = shell.run(git + ["log", "FETCH_HEAD", "--format=%H %s", "-n", LOG_DEPTH, "--fixed-strings", f"--grep={suffix}"])
-    for line in log.splitlines():
-        sha, _, subject = line.partition(" ")
-        if subject.endswith(suffix):
-            landed_at = shell.run(git + ["log", "-1", "--format=%cI", sha]).strip()
-            return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
-    return None
+    files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
+    if not files:
+        return None
+    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
+    if shell.run(git + ["diff", "--numstat", "FETCH_HEAD", head, "--"] + files).strip():
+        return None
+    delivered = shell.run(git + ["log", "FETCH_HEAD", "-1", "--format=%H %cI", "--"] + files).split()
+    if not delivered:
+        return None
+    sha, landed_at = delivered[0], delivered[1]
+    return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
 
 
 def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> str | None:
@@ -624,14 +637,14 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
         if pull["state"] == "open":
             continue
         base = pull["base"]["ref"]
-        squash = squash_on_base(shell, checkout, base, pr)
-        if squash:
-            sha, landed_at = squash
+        delivered = landed_on_base(shell, gh, checkout, base, pr, pull["head"]["sha"])
+        if delivered:
+            sha, landed_at = delivered
             notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
-            print(f"landed #{pr} as {sha[:9]} on {base} at {landed_at}")
+            print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
         else:
             notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
-            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}; a base deletion reads the same as a landing, so the row stays until its lane answers")
+            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: closed with its payload absent from the base tree, so the row stays until its lane answers")
         moved += 1
     return moved
 

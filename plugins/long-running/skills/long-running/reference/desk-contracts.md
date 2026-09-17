@@ -130,19 +130,35 @@ risk. A non-empty result means the payload moved, so the head needs grading agai
 before the label returns.
 
 **The pull request page cannot say whether it landed.** It reads `closed` with `merged`
-false on everything the queue lands, and the head is not an ancestor of the trunk. Grep
-the trunk for the squash, then for the change's own text when the answer has to be
-certain.
+false on everything the queue lands, and the head is not an ancestor of the trunk.
+
+**The trunk log cannot say it either, and it fails silently.** Searching the trunk log
+for the number is the instinct, and it produces false negatives from two independent
+mechanisms. A stacked child can land its parent's payload, after which the parent merges
+as a no-op and no commit ever carries its number: one desk read a parent as unlanded for
+half an hour after the child's squash had already delivered every byte of it. And a
+shallow clone truncates the traversal without an error, at a depth that changes with
+whatever the last fetch happened to deepen, so the same grep answers differently minute
+to minute.
+
+Ask the tree instead. An empty two-dot diff over the pull request's own files means the
+trunk holds that content, whatever any log, page or ancestry says.
 
 ```sh
-git log origin/<trunk> --oneline | grep '(#<n>)'
+files=$(gh api "repos/<repo>/pulls/<n>/files?per_page=100" --jq '.[].filename')
+printf '%s\n' "$files" | tr '\n' '\0' |
+  xargs -0 git diff --numstat origin/<trunk> <head> --      # empty means it landed
 ```
 
+Two-dot, never three-dot: three dots diff against the merge base and would show the
+payload as present on the branch side no matter what the trunk received. Restrict to the
+pull request's own files, because the trunk moves under everything else.
+
 **Pulling a label is a request, not a stop.** The queue may already hold the entry, and it
-lands on its own schedule minutes later. So the desk pulls, then greps the trunk, then says
-what happened, and never reports a pull as an outcome. The desk also re-labels nothing until
-that trunk check passes, because the pull request it is about to re-label may have landed
-while it was diagnosing. One desk pulled at 01:10, reported that nothing landed, and
+lands on its own schedule minutes later. So the desk pulls, then reads the trunk tree, then
+says what happened, and never reports a pull as an outcome. The desk also re-labels nothing
+until that content check passes, because the pull request it is about to re-label may have
+landed while it was diagnosing. One desk pulled at 01:10, reported that nothing landed, and
 re-labelled at 01:13, one minute after the queue merged the payload it had tried to stop.
 
 Two rules follow from the same mechanism. A pull request body is corrected before the

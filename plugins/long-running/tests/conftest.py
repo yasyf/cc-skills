@@ -36,7 +36,9 @@ class FakeShell(ledger.Shell):
         self.pulls: dict[str, dict] = {}
         self.commit_dates: dict[str, str] = {}
         self.pull_heads: dict[str, str] = {}
-        self.base_log: list[tuple[str, str]] = []
+        self.pr_files: dict[str, list[str]] = {}
+        self.delivered: dict[str, tuple[str, str]] = {}
+        self.diffed_head = ""
         self.conflicts: dict[str, list[str]] = {}
         self.labelled: list[str] = []
         self.unlabelled: list[str] = []
@@ -82,6 +84,8 @@ class FakeShell(ledger.Shell):
             return "[]"
         if parts[:1] == ["issues"] and parts[2:] == ["labels"]:
             return fixture("labels.json")
+        if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
+            return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
         if parts[:1] == ["commits"] and len(parts) == 2:
             return json.dumps({"sha": parts[1], "commit": {"committer": {"date": self.commit_dates[parts[1]]}}})
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
@@ -136,10 +140,14 @@ class FakeShell(ledger.Shell):
             if paths:
                 raise subprocess.CalledProcessError(1, argv, output="tree\n" + "".join(f"100644 blob x\t{p}\n" for p in paths))
             return "tree\n"
+        if verb == "diff" and "--numstat" in argv:
+            self.diffed_head = argv[argv.index("FETCH_HEAD") + 1]
+            if self.diffed_head in self.delivered:
+                return ""
+            return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
         if verb == "log" and argv[4] == "FETCH_HEAD":
-            return "".join(f"{sha} {subject}\n" for sha, subject in self.base_log)
-        if verb == "log" and argv[4] == "-1":
-            return self.commit_dates[argv[-1]] + "\n"
+            sha, when = self.delivered[self.diffed_head]
+            return f"{sha} {when}\n"
         raise AssertionError(f"unexpected git call: {argv}")
 
     @staticmethod
