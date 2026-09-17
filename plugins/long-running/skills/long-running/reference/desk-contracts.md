@@ -310,11 +310,11 @@ stacked child carrying its parent's payload. It is no longer sufficient alone.
 Before trusting any new check, feed it one input known to be absent and confirm it says
 so. A check that has never been observed failing has not been tested.
 
-## A pending-owner stack renders no plan, so do not gate on one
+## A pending-owner stack with no state renders no plan, so do not gate on one
 
 The desk's default bar is "grade the plan artifact, never the lane's reported op counts".
 That bar assumes an artifact exists. For a stack whose enablement sidecar still reads
-`pending-owner`, one never will:
+`pending-owner` **and** which is absent from the backend, one never will:
 
 ```ts
 if (written.skipped !== undefined) {
@@ -323,10 +323,17 @@ if (written.skipped !== undefined) {
 }
 ```
 
-The plan exits 0 and writes `skipped` with **no ops and no digest**. So demanding a plan
-comment for a rows-or-records PR against a pending-owner stack is demanding something the
-pipeline cannot produce, and a lane that cannot produce it will either stall or hand over
-hand-run numbers, which is the input the bar exists to reject.
+The plan exits 0 and writes `skipped` with **no ops and no digest**. Demanding a plan
+comment for a rows-or-records PR against such a stack demands something the pipeline
+cannot produce. The lane then stalls, or hands over hand-run numbers, which is the input
+the bar exists to reject.
+
+Both halves of the condition are load-bearing. The skip is guarded on the enablement being
+held **and** the stack not already existing in the backend, so a held stack that already
+carries state previews normally, with full ops and a digest. Check the backend before
+concluding that a hold is why no plan rendered, and never cite the hold to justify flipping
+a stack that has state: the preview is already free there, and the flip buys the grade
+nothing.
 
 **So the enablement flip belongs IN the PR the desk grades, not in a follow-up.** The plan
 is computed from the branch's own tree. A branch that carries `apply: enabled` renders a
@@ -396,6 +403,28 @@ Accepting a job's output when the build is green and refusing it when the build 
 not a stricter gate. It is reading the build colour after all, selectively, which is the
 thing the first half of the rule exists to stop. The practical cost is real too: a
 build-level gate makes every hold hostage to any unrelated blocker in the same build.
+
+## A landed tooling fix does not reach a branch that predates it
+
+CI builds its own tooling from the branch under test, not from the trunk. So a bug fixed
+and landed an hour ago is still live on every branch whose head does not contain the fix,
+and those branches keep failing on it in exactly the shape they failed before.
+
+This reads, from the desk, like a regression in the fix. Four PRs failing identically on a
+defect the trunk no longer has is the signal, and the check is one command per head:
+
+```sh
+git merge-base --is-ancestor <fix-sha> <pr-head> && echo has || echo lacks
+```
+
+Run it before reporting a regression, before reopening the fix's own PR, and before
+escalating. The remedy is a rebase by the owning lane, not a second fix.
+
+One failure can also hide another. Where the pipeline asserts that every stack planned
+before it renders the diagram, a stack that cannot preview fails the assertion and the
+render step never runs. Clearing the earlier failure then surfaces the later one on the
+same head. Tell the lane rebasing for one cause to expect the other, so a second error
+does not read as a second problem.
 
 ## Destroying an environment before its rows leave reds every landing in between
 
