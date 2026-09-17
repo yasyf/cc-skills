@@ -404,6 +404,35 @@ not a stricter gate. It is reading the build colour after all, selectively, whic
 thing the first half of the rule exists to stop. The practical cost is real too: a
 build-level gate makes every hold hostage to any unrelated blocker in the same build.
 
+## An op that removes access is graded on the line's provenance, not only its effect
+
+The usual grade asks what a plan will do. For an op that removes or narrows
+access, that question is not sufficient, because the same diff describes both a
+hardening change converging and a hardening change being reverted. Only the
+history tells you which.
+
+A lane reported a plan removing federated trust from six roles in a privileged
+account, traced it to a flag they believed was mis-ported, read live in four
+accounts, and proposed clearing the flag. Every source agreed and the conclusion
+was backwards: the flag had been added deliberately by a pull request that closed
+exactly that hole, and the plan was the convergence that pull request promised.
+The row was right and live was behind. One command settled it:
+
+```sh
+git log -L <line>,<line>:<file> <trunk>
+```
+
+**Three sources agreeing about what code does say nothing about who chose it or
+why.** Mechanism is cheap to prove and answers the wrong question. So before
+grading a plan whose ops remove trust, permissions, or policy statements, read
+the commit that introduced the line the plan follows, and treat "the row says X
+and live says Y" as an incomplete finding until someone has. The check costs
+thirty seconds and inverts verdicts.
+
+The desk runs this itself and does not rely on the lane having done it. A plan of
+this class goes to the owner, not to a label: applying it is a decision about
+intent, which no plan artifact settles.
+
 ## A plan's `diffs` and `digest` each hide something, in opposite directions
 
 Two fields invite the same mistake, reading a summary as if it were the thing
