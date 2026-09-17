@@ -388,17 +388,20 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
     a shallow checkout truncates that traversal at a depth that moves with each fetch.
     An empty two-dot diff over the PR's own files cannot lie: the base tree holds that
     content. Two dots, never three, since three would diff against the merge base and
-    report the branch side regardless of what the base received.
+    report the branch side regardless of what the base received. Both sides are named
+    refs rather than ``FETCH_HEAD``, which the second fetch would otherwise move onto
+    the head and make every row diff against itself and read as landed.
     """
     git = ["git", "-C", str(checkout)]
-    shell.run(git + ["fetch", "-q", "origin", base])
     files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
     if not files:
         return None
+    tip = f"refs/desk/base/{base}"
+    shell.run(git + ["fetch", "-q", "origin", f"+refs/heads/{base}:{tip}"])
     shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
-    if shell.run(git + ["diff", "--numstat", "FETCH_HEAD", head, "--"] + files).strip():
+    if shell.run(git + ["diff", "--numstat", tip, head, "--"] + files).strip():
         return None
-    delivered = shell.run(git + ["log", "FETCH_HEAD", "-1", "--format=%H %cI", "--"] + files).split()
+    delivered = shell.run(git + ["log", tip, "-1", "--format=%H %cI", "--"] + files).split()
     if not delivered:
         return None
     sha, landed_at = delivered[0], delivered[1]

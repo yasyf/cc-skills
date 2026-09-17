@@ -130,7 +130,7 @@ class FakeShell(ledger.Shell):
     def _git(self, argv):
         verb = argv[3]
         if verb == "fetch":
-            ref = argv[-1]
+            ref = argv[-1].lstrip("+").split(":")[0]
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
             return ""
         if verb == "rev-parse":
@@ -141,14 +141,22 @@ class FakeShell(ledger.Shell):
                 raise subprocess.CalledProcessError(1, argv, output="tree\n" + "".join(f"100644 blob x\t{p}\n" for p in paths))
             return "tree\n"
         if verb == "diff" and "--numstat" in argv:
-            self.diffed_head = argv[argv.index("FETCH_HEAD") + 1]
-            if self.diffed_head in self.delivered:
+            left, right = self._resolve(argv[5]), self._resolve(argv[6])
+            assert left != right, f"diffed {argv[5]} against {argv[6]}: both resolve to {left}"
+            self.diffed_head = right
+            if right in self.delivered:
                 return ""
             return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
-        if verb == "log" and argv[4] == "FETCH_HEAD":
+        if verb == "log" and argv[5] == "-1":
+            assert self._resolve(argv[4]) == "base-tip", f"named the landing commit from {argv[4]}"
             sha, when = self.delivered[self.diffed_head]
             return f"{sha} {when}\n"
         raise AssertionError(f"unexpected git call: {argv}")
+
+    def _resolve(self, ref: str) -> str:
+        if ref == "FETCH_HEAD":
+            return self.fetched
+        return "base-tip" if ref.startswith("refs/desk/base/") else ref
 
     @staticmethod
     def _upsert(store, key, updates):
