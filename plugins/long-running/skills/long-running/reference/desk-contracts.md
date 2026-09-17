@@ -124,6 +124,13 @@ certain.
 git log origin/<trunk> --oneline | grep '(#<n>)'
 ```
 
+**Pulling a label is a request, not a stop.** The queue may already hold the entry, and it
+lands on its own schedule minutes later. So the desk pulls, then greps the trunk, then says
+what happened, and never reports a pull as an outcome. The desk also re-labels nothing until
+that trunk check passes, because the pull request it is about to re-label may have landed
+while it was diagnosing. One desk pulled at 01:10, reported that nothing landed, and
+re-labelled at 01:13, one minute after the queue merged the payload it had tried to stop.
+
 Two rules follow from the same mechanism. A pull request body is corrected before the
 label goes on and never after, because the squash takes the body as it stands at merge
 time and discards the branch commit message. A body edit does not move the head, so it
