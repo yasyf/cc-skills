@@ -40,6 +40,10 @@ class FakeShell(ledger.Shell):
         self.delivered: dict[str, tuple[str, str]] = {}
         self.diffed_head = ""
         self.closed_by: dict[str, str] = {}
+        self.shallow = False
+        self.fetch_fails = ""
+        self.children: list[dict] = []
+        self.ejected: dict[str, tuple[str, str]] = {}
         self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
         self.labelled: list[str] = []
@@ -89,8 +93,17 @@ class FakeShell(ledger.Shell):
                 return json.dumps([{"name": name} for name in self.pr_labels[parts[1]]])
             return fixture("labels.json")
         if parts[:1] == ["issues"] and parts[2:] == ["events"]:
+            events = []
+            if parts[1] in self.ejected:
+                at, ej = self.ejected[parts[1]]
+                events.append({"event": "labeled", "created_at": at, "label": {"name": "merge"}, "actor": {"login": "yasyf"}})
+                events.append({"event": "unlabeled", "created_at": ej, "label": {"name": "merge"}, "actor": {"login": "graphite-app[bot]"}})
             login = self.closed_by.get(parts[1])
-            return json.dumps([{"event": "closed", "actor": {"login": login}}] if login else [])
+            if login:
+                events.append({"event": "closed", "created_at": "2026-09-17T00:00:00Z", "actor": {"login": login}})
+            return json.dumps(events)
+        if parts[:1] == ["pulls"] and len(parts) == 1 and "base=" in endpoint:
+            return json.dumps(self.children)
         if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
             return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
         if parts[:1] == ["commits"] and len(parts) == 2:
@@ -137,9 +150,13 @@ class FakeShell(ledger.Shell):
     def _git(self, argv):
         verb = argv[3]
         if verb == "fetch":
+            if self.fetch_fails:
+                raise subprocess.CalledProcessError(1, argv, stderr=self.fetch_fails)
             ref = argv[-1].lstrip("+").split(":")[0]
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
             return ""
+        if verb == "rev-parse" and "--is-shallow-repository" in argv:
+            return ("true" if self.shallow else "false") + "\n"
         if verb == "rev-parse":
             return self.fetched + "\n"
         if verb == "merge-tree":

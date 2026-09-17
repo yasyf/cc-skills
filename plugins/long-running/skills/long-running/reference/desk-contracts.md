@@ -179,6 +179,64 @@ parent's payload, where the parent merges as a no-op and its own page shows only
 the queue closed something. Neither source is sufficient alone, and the order matters,
 because the tree is cheap and certain when it agrees.
 
+## Retarget a child before labelling its parent, never after
+
+When a parent lands, the queue deletes its branch and the forge closes every pull request
+based on it. Reopening is refused outright:
+
+```
+state cannot be changed. The <branch> branch has been deleted.
+```
+
+The tempting fix is to retarget the child the instant the squash appears. That is a race
+measured in seconds, and a poll does not win it: one desk watched at thirty-second
+intervals, got `HTTP 422` on its retarget, and lost a pull request whose one-line fix was
+still absent from the trunk.
+
+**So the ordering is the fix, not the reaction.** A child's base moves to the trunk before
+its parent is ever labelled, at which point the parent's branch deletion touches nothing.
+The desk enforces this by refusing to label a pull request whose branch is still the base
+of an open one, naming the children in the refusal. Retargeting is cheap and reversible;
+a closed child is neither.
+
+Retargeting alone does not rebase. A child moved onto the trunk still carries its parent's
+commits and will re-show that diff until it is rebased, so check the file count before
+labelling: one file where one belongs, not sixteen.
+
+## A neutral check is a held finding, not an abstention
+
+`ai-review` reports `neutral` when it holds a pull request on a blocking finding. That is
+not a failure, so a sweep for failed check runs misses it, and it is a check run rather
+than a status, so the combined status misses it too. The pull request reads green
+everywhere while `mergeable_state` sits at `blocked` indefinitely.
+
+One desk labelled on that surface and the pull request sat unlandable for five hours,
+having never entered the queue at all. Across that board the correlation was complete:
+every pull request that landed had `ai-review` at success, and the only one at neutral was
+the only one blocked.
+
+Require success explicitly. The reason for a hold is always a review comment on the diff,
+so surface that rather than the check's state, and never clear it by re-running the review.
+
+## Refuse to grade rather than grade from a broken instrument
+
+Two conditions make every answer about the trunk unreliable, and both are silent.
+
+A **shallow clone** truncates history traversal at a depth that moves with each fetch, so
+the same query answers differently minute to minute and succeeds on recent landings while
+failing on older ones. `git rev-parse --is-shallow-repository` is one word and settles it.
+
+A **failed fetch** leaves the previous state in place, so a pass that continues grades
+yesterday's trunk while reporting it as today's. Worktrees share a ref lock, so a
+concurrent fetch in another lane is enough:
+
+```
+error: cannot lock ref 'refs/remotes/origin/dev': is at <a> but expected <b>
+```
+
+In both cases the desk writes nothing and says why. A pass that grades nothing is
+recoverable; a pass that grades wrongly is not.
+
 **Pulling a label is a request, not a stop.** The queue may already hold the entry, and it
 lands on its own schedule minutes later. So the desk pulls, then reads the trunk tree, then
 says what happened, and never reports a pull as an outcome. The desk also re-labels nothing

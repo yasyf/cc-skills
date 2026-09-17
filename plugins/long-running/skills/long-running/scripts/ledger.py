@@ -54,6 +54,7 @@ SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
+QUEUE_BOT = "graphite-app[bot]"
 EXTERNALLY_MERGED = "externally-merged"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -129,6 +130,10 @@ REFUSAL = {
     "checks": "failed check runs on {head}: {names}",
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
     "fetched": "refs/pull/{pr}/head is {fetched} on the forge, not {head}",
+    "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
+    "children": "#{pr}'s branch {branch} is the base of {children}; retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
+    "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
 }
 
 
@@ -225,6 +230,51 @@ def default_lock(ledger: str) -> Path:
 def refuse(kind: str, **values: object) -> int:
     print(f"REFUSED {REFUSAL[kind].format(**values)}")
     return 1
+
+
+def is_shallow(shell: Shell, checkout: Path) -> bool:
+    return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+
+
+def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
+    """Fetch, converting a failure into ForgeUnreachable.
+
+    A concurrent fetch in another worktree loses the ref lock, and a pass that grades
+    after a failed fetch grades the previous state while reporting it as current.
+    """
+    try:
+        shell.run(["git", "-C", str(checkout), "fetch", "-q", "origin", *refs])
+    except subprocess.CalledProcessError as error:
+        raise ForgeUnreachable(REFUSAL["fetch"].format(ref=" ".join(refs), detail=(error.stderr or "").strip())) from error
+
+
+def open_children(gh: Github, branch: str) -> list[str]:
+    """Open pull requests whose base is this branch.
+
+    Scoped to one branch we own, never a repository listing. A child left on a parent's
+    branch is closed by the forge when that branch is deleted, and reopening is refused,
+    so the retarget has to happen before the parent carries a label rather than in a
+    race with its landing.
+    """
+    return [str(pull["number"]) for pull in gh.api("pulls", base=branch, state="open")]
+
+
+def queue_ejected(gh: Github, pr: str) -> str:
+    """When did the queue eject this pull request, if it did?
+
+    An ejection and a landing look identical: both end with the queue's bot removing
+    the merge label. Only the events separate them, and nothing announces an ejection.
+    """
+    events = gh.api(f"issues/{pr}/events?per_page=100")
+    labelled = [e["created_at"] for e in events if e["event"] == "labeled" and e["label"]["name"] == MERGE_LABEL]
+    ejected = [
+        e["created_at"]
+        for e in events
+        if e["event"] == "unlabeled" and e["label"]["name"] == MERGE_LABEL and e["actor"]["login"] == QUEUE_BOT
+    ]
+    if ejected and (not labelled or ejected[-1] > labelled[-1]):
+        return ejected[-1]
+    return ""
 
 
 def ai_review(checks: dict) -> str:
@@ -401,12 +451,14 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
     making every row diff against itself and read as landed.
     """
     git = ["git", "-C", str(checkout)]
+    if is_shallow(shell, checkout):
+        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
     files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
     if not files:
         return None
     tip = f"refs/desk/base/{base}"
-    shell.run(git + ["fetch", "-q", "origin", f"+refs/heads/{base}:{tip}"])
-    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
+    fetch(shell, checkout, f"+refs/heads/{base}:{tip}")
+    fetch(shell, checkout, f"+refs/pull/{pr}/head:refs/desk/pr{pr}")
     if shell.run(git + ["diff", "--numstat", tip, head, "--"] + files).strip():
         return None
     delivered = shell.run(git + ["log", tip, "-1", "--format=%H %cI", "--"] + files).split()
@@ -613,9 +665,16 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     status = gh.api(f"commits/{head}/status")
     if status["state"] != "success":
         return refuse("status", state=status["state"], head=head[:9])
-    failed = [run["name"] for run in gh.api(f"commits/{head}/check-runs")["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
+    checks = gh.api(f"commits/{head}/check-runs")
+    failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
         return refuse("checks", head=head[:9], names=", ".join(failed))
+    verdict = ai_review(checks)
+    if verdict != "success":
+        return refuse("ai-review", state=verdict, head=head[:9])
+    children = open_children(gh, pull["head"]["ref"])
+    if children:
+        return refuse("children", pr=args.pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=base)
     if args.checkout:
         conflict = merge_conflicts(shell, args.checkout, args.pr, base, head)
         if conflict:
@@ -660,6 +719,10 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
     for pr in prs:
         pull = gh.api(f"pulls/{pr}")
         if pull["state"] == "open":
+            ejected = queue_ejected(gh, pr)
+            if ejected:
+                notes.set_fields(pr, {"ejected_at": ejected})
+                print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
             continue
         base = pull["base"]["ref"]
         delivered = landed_on_base(shell, gh, checkout, base, pr, pull["head"]["sha"])

@@ -35,7 +35,7 @@ def desk_shell(**pull) -> FakeShell:
     }
     shell.commit_dates[HEAD] = stamp(timedelta(minutes=-5))
     shell.pull_heads[PR] = HEAD
-    shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
+    shell.routes[f"checks:{HEAD}"] = "check-runs-green.json"
     return shell
 
 
@@ -463,3 +463,67 @@ def test_summary_without_a_checkout_prints_without_reconciling(tmp_path):
     assert run(shell, "summary", "--ledger", LEDGER) == 0
 
     assert shell.fields(PR)["state"] == "labelled"
+
+
+def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
+    """Neutral is not a failure and is absent from the combined status, so nothing else sees it."""
+    shell = desk_shell()
+    shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
+
+    assert label(shell) == 1
+    assert "REFUSED ai-review is neutral" in capsys.readouterr().out
+
+
+def test_label_refuses_an_absent_ai_review(capsys):
+    shell = desk_shell()
+    shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
+
+    assert label(shell) == 1
+    assert "REFUSED ai-review is absent" in capsys.readouterr().out
+
+
+def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
+    """The forge closes the child when the parent's branch is deleted, and reopen is refused."""
+    shell = desk_shell()
+    shell.children = [{"number": 21720}]
+
+    assert label(shell) == 1
+    out = capsys.readouterr().out
+    assert "is the base of #21720" in out
+    assert "BEFORE labelling" in out
+
+
+def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
+    """Trunk traversal truncates at a depth that moves with every fetch."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.shallow = True
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
+    assert "shallow clone" in capsys.readouterr().err
+    assert shell.fields(PR).get("state") is None
+
+
+def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(capsys, tmp_path):
+    """A concurrent fetch in another worktree loses the ref lock."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.fetch_fails = "cannot lock ref 'refs/remotes/origin/dev'"
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
+    assert "cannot lock ref" in capsys.readouterr().err
+    assert shell.fields(PR).get("state") is None
+
+
+def test_reconcile_reports_a_queue_ejection_on_a_row_that_still_reads_open(capsys, tmp_path):
+    """An ejection and a landing both end with the queue's bot removing the label."""
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.ejected[PR] = ("2026-09-17T02:04:29Z", "2026-09-17T02:09:24Z")
+
+    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert "EJECTED by the queue at 2026-09-17T02:09:24Z" in capsys.readouterr().out
+    assert shell.fields(PR)["ejected_at"] == "2026-09-17T02:09:24Z"
