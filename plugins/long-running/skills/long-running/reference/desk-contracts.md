@@ -310,6 +310,34 @@ stacked child carrying its parent's payload. It is no longer sufficient alone.
 Before trusting any new check, feed it one input known to be absent and confirm it says
 so. A check that has never been observed failing has not been tested.
 
+## A build's colour is not a job's verdict, in either direction
+
+The desk enforces one half of this constantly: a green landing build does not mean a stack
+applied, so read the job's own output. The other half is the same rule and gets forgotten,
+because it points the way you do not want to go.
+
+**A red build is not evidence that a job failed, or that its reading is void.** Jobs are
+per-stack and independent. A build that fails on one stack says nothing about a different
+stack whose job passed and printed its plan.
+
+A gate worded "a landing reads stack X same" is answered by X's job, not by the build. When
+a lane asks whether a red build can satisfy it, the test is whether the failing job shares
+anything with the question: same stack, same domain, same credential path, same cause. If it
+shares nothing, the reading stands.
+
+```
+:pulumi: land plat-usw2-relay-dns   state=passed  soft_failed=false  exit=0
+dns/plat-usw2-relay: same=6
+```
+
+That satisfied a hold on the relay stack while the build overall read `failing`, because the
+build's only other failure was an unrelated stack blocked by two protected state entries.
+
+Accepting a job's output when the build is green and refusing it when the build is red is
+not a stricter gate. It is reading the build colour after all, selectively, which is the
+thing the first half of the rule exists to stop. The practical cost is real too: a
+build-level gate makes every hold hostage to any unrelated blocker in the same build.
+
 ## Destroying an environment before its rows leave reds every landing in between
 
 A landing schedules a job per enabled stack and treats a stack with no state as one to
