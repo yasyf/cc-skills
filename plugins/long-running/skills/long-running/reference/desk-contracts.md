@@ -44,6 +44,20 @@ RULING NEEDED: <the question, one line>; options: A <..> / B <..> / C <..>
 prints the line to forward. The root answers with the letter. Two rulings with the same
 question on the same PR are one ruling.
 
+## Reconcile before reporting, over every row
+
+`ledger.py reconcile --repo --ledger --checkout` settles **every non-terminal row** against the
+trunk and the forge, and `ledger.py summary` runs it first whenever it is given `--repo` and
+`--checkout`. A row nobody has touched for an hour is exactly the one that has gone stale, so the
+sweep's input is the whole board rather than the rows the desk just changed.
+
+A pass that walks only what the desk changed cannot find what the desk failed to do: it reports
+zero movement truthfully every time, because it is iterating the wrong set. One desk reported a
+board as 131 merged with three rows open and needing lanes; walking every row found seventeen
+stale and the real count at 148, with two of the three "open" rows closed by their own lanes hours
+earlier. A lane closing its own pull request never reaches the desk as an event, which is why a
+`held` row decays silently.
+
 ## The desk to root summary, at most ten lines, once an hour
 
 `ledger.py summary` prints it; the desk sends it unchanged. Line one is always the

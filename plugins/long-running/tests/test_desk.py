@@ -349,3 +349,47 @@ def test_init_creates_the_ledger_and_prints_its_id(capsys):
 
     ledger_id = capsys.readouterr().out.strip()
     assert shell.stores[ledger_id]["title"] == "desk: civ2"
+
+
+def test_reconcile_settles_a_row_nobody_touched(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+    shell.base_log = [(SQUASH, f"lightning: bake policy (#{PR})")]
+    shell.commit_dates[SQUASH] = "2026-09-16T08:00:00+00:00"
+
+    assert run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+    assert "reconciled 1 non-terminal rows, 1 moved" in capsys.readouterr().out
+
+
+def test_reconcile_rereads_no_terminal_row(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "landed"}})
+
+    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert not [argv for argv in shell.calls if argv[:2] == ["gh", "api"] and f"pulls/{PR}" in " ".join(argv)]
+
+
+def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+    shell.base_log = [(SQUASH, f"lightning: bake policy (#{PR})")]
+    shell.commit_dates[SQUASH] = "2026-09-16T08:00:00+00:00"
+
+    assert run(shell, "summary", "--ledger", LEDGER, "--repo", REPO, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    out = capsys.readouterr().out
+    assert out.index(f"landed #{PR}") < out.index("desk 2"), "reconcile must run before the report prints"
+
+
+def test_summary_without_a_checkout_prints_without_reconciling(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+
+    assert run(shell, "summary", "--ledger", LEDGER) == 0
+
+    assert shell.fields(PR)["state"] == "labelled"

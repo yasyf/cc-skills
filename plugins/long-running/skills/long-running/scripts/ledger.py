@@ -56,6 +56,7 @@ NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
+TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -616,18 +617,14 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
-    gh = Github(shell, args.repo)
-    notes = Notes(shell, args.ledger)
-    rows = notes.pr_rows()
-    for pr in [args.pr] if args.pr else sorted(rows, key=int):
-        if rows.get(pr, {}).get("state") == LANDED:
-            continue
+def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
+    moved = 0
+    for pr in prs:
         pull = gh.api(f"pulls/{pr}")
         if pull["state"] == "open":
             continue
         base = pull["base"]["ref"]
-        squash = squash_on_base(shell, args.checkout, base, pr)
+        squash = squash_on_base(shell, checkout, base, pr)
         if squash:
             sha, landed_at = squash
             notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
@@ -635,10 +632,31 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
         else:
             notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
             print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}; a base deletion reads the same as a landing, so the row stays until its lane answers")
+        moved += 1
+    return moved
+
+
+def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
+    gh = Github(shell, args.repo)
+    notes = Notes(shell, args.ledger)
+    rows = notes.pr_rows()
+    prs = [args.pr] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
+    settle(shell, gh, notes, args.checkout, prs)
+    return 0
+
+
+def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    rows = notes.pr_rows()
+    open_rows = [pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES]
+    moved = settle(shell, Github(shell, args.repo), notes, args.checkout, sorted(open_rows, key=int))
+    print(f"reconciled {len(open_rows)} non-terminal rows, {moved} moved")
     return 0
 
 
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
+    if args.repo and args.checkout:
+        cmd_reconcile(args, shell)
     print("\n".join(summary_lines(Notes(shell, args.ledger).rows(), now(), timedelta(seconds=args.window_seconds))))
     return 0
 
@@ -755,8 +773,15 @@ def build_parser() -> argparse.ArgumentParser:
     landed.add_argument("--pr")
     landed.set_defaults(handler=cmd_landed)
 
+    reconcile = subparsers.add_parser("reconcile", help="settle every non-terminal row against the trunk and the forge")
+    add_ledger(reconcile, repo=True)
+    reconcile.add_argument("--checkout", type=Path, required=True)
+    reconcile.set_defaults(handler=cmd_reconcile)
+
     summary = subparsers.add_parser("summary", help="the hourly desk-to-root report, at most ten lines")
     add_ledger(summary)
+    summary.add_argument("--repo")
+    summary.add_argument("--checkout", type=Path)
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
     summary.set_defaults(handler=cmd_summary)
 
