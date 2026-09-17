@@ -726,3 +726,40 @@ replacing twelve security-group rules in production.
 Compare plan-job start times before comparing plan contents, and name the applies
 that landed in between. The trunk's own answer is the landing verdict artifacts at
 several consecutive builds, never a branch.
+
+## Three refs, not one, decide which head is current
+
+A concurrent restack moves a lane's head without the lane doing anything, and it
+reached three lanes in one night. The tell is always the same: a sha or file count
+that does not match what the lane shipped. Compare all three of the local head,
+`origin/<branch>`, and the PR's own `headRefOid`; trusting any single one is how a
+certification ends up naming a head that has stopped existing.
+
+The desk's exposure is a label. If the head moves after the label, the queue ejects
+the PR and the label is consumed, so the work has to be relabelled on a settled
+head. Ask a lane to tell you when it has stopped pushing before labelling a branch
+that is being restacked.
+
+## A child whose base branch is squashed away cannot be recovered
+
+When a parent lands, its branch is deleted, and GitHub auto-closes any PR based on
+it. `gh pr reopen` is refused outright — the child is dead, not stale. Retargeting
+is not available either, because there is no base to retarget from.
+
+The only move is a replacement PR: rebase the branch onto the trunk, where git drops
+the parent's commit as already-applied, and open a new one with `gt track --parent
+dev` so it has a real stack record. Retarget a child BEFORE its parent lands, or
+accept that it will need replacing.
+
+## A docs-only diff can carry a live security defect
+
+A PR that touches only prose has no plan surface, and the desk's grade correctly
+says so — but that boundary is about what a plan can prove, not about risk. One
+docs-only diff instructed the owner to place a Slack signing secret, a bot token
+and a Buildkite `write_builds` token under a prefix that every publisher-queue
+instance profile can read, which would have let a job forge the human approval
+gating its own release.
+
+No bar grades prose. When a doc tells a human where to put a secret, read the grant
+for that path rather than the sentence: the policy file and the queue's policy list
+are the evidence. "Docs-only" is not a synonym for low-risk.
