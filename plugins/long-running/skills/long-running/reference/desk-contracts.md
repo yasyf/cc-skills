@@ -310,6 +310,29 @@ stacked child carrying its parent's payload. It is no longer sufficient alone.
 Before trusting any new check, feed it one input known to be absent and confirm it says
 so. A check that has never been observed failing has not been tested.
 
+## `protect` aborts the preview, so the state edit comes before the grep
+
+A retained delete is caught by grepping a preview for `[retain]`. That works only when a
+preview exists. If the resource also carries `protect`, the preview **aborts**:
+
+```
+error: Preview failed: resource "<urn>" cannot be deleted because it is protected.
+Resources: 32 unchanged, 3 errored
+```
+
+There is no op list to grep, so a desk that says "grep first, then edit the state" has
+given an impossible instruction, and a lane that reports "zero retained deletes" from an
+aborted preview has reported a number that could not have been anything else.
+
+The order is: clear `protect` and `retainOnDelete` in one state edit, re-preview, then grep.
+**The edit is the operative step and the grep confirms it worked**, not the reverse. A zero
+before the edit means the preview never ran; a zero after it means the ops really are plain
+deletes.
+
+The same abort is what a landing shows when an environment's rows leave while protected
+state entries remain, so a desk triaging a stuck `land` job should check for `protect`
+before assuming drift or a bar refusal.
+
 ## A build's colour is not a job's verdict, in either direction
 
 The desk enforces one half of this constantly: a green landing build does not mean a stack
