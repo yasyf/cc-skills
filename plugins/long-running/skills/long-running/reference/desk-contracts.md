@@ -476,6 +476,20 @@ check, look for something known to exist. For a count, feed it a case whose coun
 you know. Say in the report that the control ran, because a reader cannot
 distinguish a check that passed from one that could not fail.
 
+**The same rule governs debugging a check, and that is the half people miss.**
+Asked why a comparison returned a negative, the instinct is to enumerate the
+reasons it might have and narrow by exhaustion. Each elimination buys one fact of
+the form "this cannot be the cause". A single observed SUCCESS of the same
+mechanism buys far more. It proves at once what the mechanism can parse, what
+shape its inputs really take, and that it can return the passing answer at all.
+
+One desk spent an hour on why a document comparison failed, eliminating six
+candidates by reading both sides of the code, and never looked for an instance of
+that comparison succeeding. One sat two builds away. It ruled out three standing
+theories in a stroke and narrowed the question from the machinery to a single
+resource. So before enumerating why a check failed here, find where it last
+passed. If it has never passed anywhere, that is the finding.
+
 ## A plan's `diffs` and `digest` each hide something, in opposite directions
 
 Two fields invite the same mistake, reading a summary as if it were the thing
