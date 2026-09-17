@@ -644,3 +644,30 @@ fourteen hours under green jobs before anyone read one.
 
 The refusal is per stack, not per op, so count the cost by the whole plan: an
 admitted import or adopt sitting beside one refused update does not apply either.
+
+## Read every precondition from the graded revision, not from the trunk
+
+The enablement gate suppresses offenders on a stack whose `apply.yaml` says
+`pending-owner`, because a held stack's land job runs the check and exits. Read
+that sidecar from the plan artifact's own `commit`. Read it from `origin/dev` and
+the gate passes exactly one class of PR: the enable, which is the PR that flips
+`pending-owner` to `enabled` and so arms every op the gate just called
+informational.
+
+Generalise it before trusting any gate: ask which PR changes this gate's input.
+That PR is the one the gate cannot grade.
+
+An enable PR therefore gets graded twice — once as written, and once asking what
+its own sidecar change makes reachable. Its plan is the plan of a stack that is
+about to become appliable.
+
+## Audit what a broken instrument already passed
+
+On finding a grading defect, the next step is not the fix, it is the sweep. Pull
+every `plan/apply-<stack>.json` from the newest passed landing build and list the
+stacks with `"passed": false`. That is the whole refused set on the trunk, it
+needs no PR, and it answers "did the defect already let something through" with a
+read instead of a hope.
+
+Keep the number. It is the refused column, and an audit that produces an exact
+count is worth more than the defect that prompted it.
