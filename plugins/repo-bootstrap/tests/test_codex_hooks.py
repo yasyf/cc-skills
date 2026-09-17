@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 COMMON = REPO_ROOT / "plugins" / "codex" / "capt-hook" / "hooks" / "common.py"
 INSTALLER = REPO_ROOT / "plugins" / "codex" / "scripts" / "install-binary.sh"
 SHIM = REPO_ROOT / "plugin" / "guides" / "sh" / "binrun-shim.sh"
+ARM_ONE = "\n# Arm 1:"
 
 
 @pytest.fixture
@@ -103,11 +104,21 @@ def test_path_binrun_without_pinned_runner(common, plugin, monkeypatch, tmp_path
     assert common.codex_ask_argv() == [str(found), str(plugin.descriptor)]
 
 
-def shim_runner_bin(**env: str) -> Path:
+def shim_prologue() -> str:
     # The fragment, not the rendered launcher: CI renders only after merge.
     body = SHIM.read_text()
-    argv = ["bash", "-c", f'{body[: body.index("\nfail()")]}\nprintf %s "$RUNNER_BIN"']
-    return Path(subprocess.run(argv, capture_output=True, text=True, check=True, env=env).stdout)
+    return body[: body.index(ARM_ONE)]
+
+
+def run_shim_prologue(**env: str) -> subprocess.CompletedProcess[str]:
+    argv = ["/bin/bash", "-c", f'{shim_prologue()}\nprintf %s "$RUNNER_BIN"']
+    return subprocess.run(argv, capture_output=True, text=True, env=env)
+
+
+def shim_runner_bin(**env: str) -> Path:
+    done = run_shim_prologue(**env)
+    assert done.returncode == 0, done.stderr
+    return Path(done.stdout)
 
 
 def test_runner_lookup_mirrors_the_launcher(common):
@@ -132,6 +143,12 @@ def test_runner_path_matches_the_shim(common, monkeypatch, tmp_path):
     monkeypatch.setenv("DAEMONKIT_HOME", str(override))
     assert common.runner_home() == override / ".daemonkit"
     assert shim_runner_bin(PATH="/usr/bin:/bin", DAEMONKIT_HOME=str(override)) == pinned()
+
+
+def test_shim_refuses_an_unresolvable_passwd_home(tmp_path):
+    done = run_shim_prologue(PATH=str(tmp_path / "empty"), HOME=str(tmp_path / "redirected"))
+    assert done.returncode != 0
+    assert str(tmp_path / "redirected") not in done.stdout
 
 
 def test_falls_back_to_launcher_without_binrun(common, plugin):
