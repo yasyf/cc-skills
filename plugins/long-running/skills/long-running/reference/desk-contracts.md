@@ -404,6 +404,36 @@ not a stricter gate. It is reading the build colour after all, selectively, whic
 thing the first half of the rule exists to stop. The practical cost is real too: a
 build-level gate makes every hold hostage to any unrelated blocker in the same build.
 
+## A plan's `diffs` and `digest` each hide something, in opposite directions
+
+Two fields invite the same mistake, reading a summary as if it were the thing
+summarised. Both cost a wrong verdict, one in each direction.
+
+**`diffs` is the raw preview diff, not what the op applies.** A classifier that
+subtracts the keys an adoption record pins in `ignoreChanges` before deciding the
+op's class will leave those keys in the reported diff. So an op in an admitted
+class can legitimately list a create-time argument the provider never returns.
+That looks exactly like a non-tag change riding into an admitted class, which is
+the thing to refuse, so read the classifier rather than the label: if the op could
+only have been classified that way with the pin in place, the classification is
+itself the evidence the pin took effect. Confirm the pin in the branch's own
+record, then admit it.
+
+**A matching `digest` is silent about provider ops, because the hash filters
+them.** Where the digest is computed over the ops with `pulumi:providers:`
+entries removed, two plans agreeing on it agree about resources and about nothing
+else. This matters because a hand plan run under the writer role pins the
+terraform role into the provider and reports those ops as `same`, while CI plans
+under the planner and reports them as updates to the assumed roles. Same intent,
+same digest, different provider classification. The filter is deliberate and
+makes a hand plan and a CI plan of one intent agree regardless of role.
+
+So when a lane's counts and the artifact's counts differ **only** on
+`pulumi:providers:` entries, that is expected and not a discrepancy to chase.
+Never argue a lane's counts down on the strength of a digest match: it cannot
+arbitrate the provider rows, and doing so overrules someone who is right. Compare
+provider ops by reading both lists.
+
 ## A landed tooling fix does not reach a branch that predates it
 
 CI builds its own tooling from the branch under test, not from the trunk. So a bug fixed
