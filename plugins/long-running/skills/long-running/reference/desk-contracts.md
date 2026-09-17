@@ -818,3 +818,31 @@ Rebuilding a stale head reproduces the failure. Triggering rebuilds on lanes' be
 
 PRs with no plan surface keep labelling cleanly throughout and are not evidence the
 condition has cleared.
+
+## Reading a grant proves who CAN read a path, not who NEEDS to
+
+A docs-only diff moved three release-approval secrets off a prefix every
+publisher-queue instance profile can read. Reading the policy file and the queue's
+policy list confirmed the exposure, and the fix was still wrong for one of the
+three: the step that posts the Slack message is itself a CI job, so a bot token on
+an unreadable prefix means the button is never posted.
+
+The rule the lane landed on: **who must read each secret, not how sensitive each
+sounds.** Count the readers per path, and note that the consequences are
+asymmetric in a way sensitivity hides — a job that can post to a channel is noise,
+a job that can forge a signed click or unblock its own build defeats the gate.
+
+The desk cannot grade this. Which step runs where is in no artifact the bar reads,
+so the honest boundary is: no plan surface, the grant read proves reachability, and
+necessity is the lane's to establish.
+
+## A count derived from an API must survive a rate limit
+
+Three grades came back `AssertionError: apply-path set derived empty` because
+Buildkite 429'd the derivation query and the helper's `except` returned an empty
+set. An empty apply-path set grades every stack as land-path, the permissive
+direction — so the assert was the only thing between a throttle and a wrong verdict.
+
+Back off on 429 inside the shared fetch, keep the assert as the backstop, and pace
+re-runs. **A rate limit is the one error that must never reach a caller as a missing
+value**, because every derived set treats empty as a real answer.
