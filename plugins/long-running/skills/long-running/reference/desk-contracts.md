@@ -247,13 +247,25 @@ the queue enqueued others and produced a batch every one to two minutes.
 **Contract: a labelled pull request with no `added` line after twenty minutes is wedged,
 and the desk acts rather than waits.** In order, stopping at the first that works:
 
-1. Re-request the queue's own mergeability check run over REST. Expect this to fail with
+1. **Check how stale the head is, before anything else.** A branch far enough behind the
+   trunk can be green on its own checks and still be un-enqueueable, and this is the most
+   common cause by a wide margin. If `mergeable_state` is `dirty`, or the head is many
+   commits behind, the answer is a rebase and none of the steps below are needed.
+2. Re-request the queue's own mergeability check run over REST. Expect this to fail with
    404 when the check belongs to another GitHub App, because the token cannot re-run
    another App's check; that is not a misconfiguration, it is the normal answer.
-2. Pull the label and re-add it once, then wait five minutes.
-3. Pull the label, then ask the **owning lane** to push one empty commit and re-record the
-   Graphite parent. The desk does not push to a lane's head for a fault that is not in
+3. Pull the label and re-add it once, then wait five minutes.
+4. Pull the label, then ask the **owning lane** to rebase onto the trunk tip and re-record
+   the Graphite parent. The desk does not push to a lane's head for a fault that is not in
    their pull request, and the label comes off first so nothing is consumed mid-push.
+
+Step 1 is first because of how the one worked case actually resolved. A pull request sat
+unenqueued for over ninety minutes; the label toggle did nothing, the check re-request
+returned 404, and an empty commit did not move it either and left the branch `dirty` as
+the trunk kept moving. A plain rebase onto the trunk tip fixed it: the queue's own
+mergeability check then ran and passed on its own, and the queue accepted the label within
+a minute. An empty commit is not a cheaper rebase; it re-runs CI against the same stale
+base and tells you nothing the rebase would not have told you.
 
 Escalate to the owner only if all three fail. A wedged queue entry is a mechanical lever,
 not a decision.
