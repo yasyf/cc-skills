@@ -66,7 +66,7 @@ def subject_in_scope(evt: BaseHookEvent) -> bool:
 
 
 def runner_home() -> Path:
-    return Path(os.environ.get("DAEMONKIT_HOME") or Path.home() / ".daemonkit")
+    return real_home() / ".daemonkit"
 
 
 def binrun_bin() -> str | None:
