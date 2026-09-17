@@ -283,6 +283,41 @@ def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
     assert "landed_sha" not in shell.fields(PR)
 
 
+def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, tmp_path):
+    """A squash onto a moved base equals neither side, so content cannot see it."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.closed_by[PR] = "graphite-app[bot]"
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert "the queue closed it" in capsys.readouterr().out
+
+
+def test_an_externally_merged_label_settles_it_too(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.pr_labels[PR] = ["externally-merged"]
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "landed"
+
+
+def test_a_person_closing_it_is_not_a_landing(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.closed_by[PR] = "yasyf"
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+
+
 def test_a_pr_with_no_files_never_reads_as_landed(tmp_path):
     """An empty file list makes every diff empty, which would land every empty row."""
     shell = desk_shell(state="closed")

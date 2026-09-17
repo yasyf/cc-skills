@@ -54,6 +54,8 @@ SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
+QUEUE_BOT = "graphite-app[bot]"
+EXTERNALLY_MERGED = "externally-merged"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
@@ -380,17 +382,24 @@ def route_message(pr: str, head: str, lane: str, job: str, verdict: str) -> str:
 
 
 def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str, head: str) -> tuple[str, str] | None:
-    """Has the base branch taken this PR's payload?
+    """Does the base tree hold this PR's payload right now?
 
-    Graded by content, because the two cheaper signals both fail silently. Searching
-    the base log for ``(#<pr>)`` misses a parent whose stacked child carried its
-    payload, after which the parent merges as a no-op under no number of its own; and
-    a shallow checkout truncates that traversal at a depth that moves with each fetch.
-    An empty two-dot diff over the PR's own files cannot lie: the base tree holds that
-    content. Two dots, never three, since three would diff against the merge base and
-    report the branch side regardless of what the base received. Both sides are named
-    refs rather than ``FETCH_HEAD``, which the second fetch would otherwise move onto
-    the head and make every row diff against itself and read as landed.
+    Tree equality proves a landing. A difference proves nothing, so this returns None
+    for "cannot tell from content" and the caller consults the forge. Two findings put
+    it that way: the base can take the payload and then move on one of the files, and a
+    squash onto a moved base merges branch with base, so the result equals neither side
+    for a file both touched and the head's blob never appears in history at all.
+
+    What content answers and the forge cannot: a stacked child carrying its parent's
+    payload, after which the parent merges as a no-op under no number of its own. No
+    commit on the base ever carries that number, so searching the log for ``(#<pr>)``
+    finds nothing. A shallow checkout truncates that search further, at a depth that
+    moves with each fetch.
+
+    Two dots, never three: three would diff against the merge base and report the
+    branch side regardless of what the base received. Both sides are named refs rather
+    than ``FETCH_HEAD``, which the second fetch would otherwise move onto the head,
+    making every row diff against itself and read as landed.
     """
     git = ["git", "-C", str(checkout)]
     files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
@@ -633,6 +642,19 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def queue_closed(gh: Github, pr: str) -> bool:
+    """Did the merge queue take this PR, rather than a person abandoning it?
+
+    Asked only when content cannot tell, which is whenever the base moved on one of the
+    PR's files after the squash. The queue closes through its own bot and marks the PR
+    externally merged; a person closing it does neither.
+    """
+    if any(label["name"] == EXTERNALLY_MERGED for label in gh.api(f"issues/{pr}/labels")):
+        return True
+    closes = [event for event in gh.api(f"issues/{pr}/events?per_page=100") if event["event"] == "closed"]
+    return bool(closes) and closes[-1]["actor"]["login"] == QUEUE_BOT
+
+
 def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
     moved = 0
     for pr in prs:
@@ -645,9 +667,12 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
             sha, landed_at = delivered
             notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
             print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
+        elif queue_closed(gh, pr):
+            notes.set_fields(pr, {"state": LANDED, "base": base})
+            print(f"landed #{pr} on {base}: the queue closed it, and {base} has moved on its files since")
         else:
             notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
-            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: closed with its payload absent from the base tree, so the row stays until its lane answers")
+            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: a human closed it and its payload is absent, so the row stays until its lane answers")
         moved += 1
     return moved
 

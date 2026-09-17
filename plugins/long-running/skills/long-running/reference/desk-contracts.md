@@ -141,8 +141,8 @@ shallow clone truncates the traversal without an error, at a depth that changes 
 whatever the last fetch happened to deepen, so the same grep answers differently minute
 to minute.
 
-Ask the tree instead. An empty two-dot diff over the pull request's own files means the
-trunk holds that content, whatever any log, page or ancestry says.
+Ask the tree, then the forge. An empty two-dot diff over the pull request's own files
+means the trunk holds that content, whatever any log, page or ancestry says.
 
 ```sh
 files=$(gh api "repos/<repo>/pulls/<n>/files?per_page=100" --jq '.[].filename')
@@ -153,6 +153,27 @@ printf '%s\n' "$files" | tr '\n' '\0' |
 Two-dot, never three-dot: three dots diff against the merge base and would show the
 payload as present on the branch side no matter what the trunk received. Restrict to the
 pull request's own files, because the trunk moves under everything else.
+
+**A difference is not an answer.** Tree equality proves a landing; nothing proves the
+absence of one from content alone. Two pull requests that had already landed read as
+unlanded minutes later, because the trunk moved on one of their files in between, and
+because a squash onto a moved trunk merges the branch with the trunk, so the result
+equals neither side for a file both touched and the head's blob never appears in the
+trunk's history at all. Checking whether the head's blob ever appeared does not rescue
+it; that was tried and it failed on the same pair.
+
+So when the tree differs, ask the forge who closed it. The queue closes through its own
+bot and marks the pull request externally merged; a person closing it does neither.
+
+```sh
+gh api "repos/<repo>/issues/<n>/events?per_page=100" \
+  --jq '[.[]|select(.event=="closed")][-1].actor.login'   # the queue bot means landed
+```
+
+Content still answers the one thing the forge cannot see: a stacked child carrying its
+parent's payload, where the parent merges as a no-op and its own page shows only that
+the queue closed something. Neither source is sufficient alone, and the order matters,
+because the tree is cheap and certain when it agrees.
 
 **Pulling a label is a request, not a stop.** The queue may already hold the entry, and it
 lands on its own schedule minutes later. So the desk pulls, then reads the trunk tree, then

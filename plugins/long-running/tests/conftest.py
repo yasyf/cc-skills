@@ -39,6 +39,8 @@ class FakeShell(ledger.Shell):
         self.pr_files: dict[str, list[str]] = {}
         self.delivered: dict[str, tuple[str, str]] = {}
         self.diffed_head = ""
+        self.closed_by: dict[str, str] = {}
+        self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
         self.labelled: list[str] = []
         self.unlabelled: list[str] = []
@@ -83,7 +85,12 @@ class FakeShell(ledger.Shell):
             self.unlabelled.append(f"{parts[1]}:{parts[3]}")
             return "[]"
         if parts[:1] == ["issues"] and parts[2:] == ["labels"]:
+            if parts[1] in self.pr_labels:
+                return json.dumps([{"name": name} for name in self.pr_labels[parts[1]]])
             return fixture("labels.json")
+        if parts[:1] == ["issues"] and parts[2:] == ["events"]:
+            login = self.closed_by.get(parts[1])
+            return json.dumps([{"event": "closed", "actor": {"login": login}}] if login else [])
         if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
             return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
         if parts[:1] == ["commits"] and len(parts) == 2:
