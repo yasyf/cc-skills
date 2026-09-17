@@ -328,18 +328,20 @@ comment for a rows-or-records PR against a pending-owner stack is demanding some
 pipeline cannot produce, and a lane that cannot produce it will either stall or hand over
 hand-run numbers, which is the input the bar exists to reject.
 
-**The substitute bar for a no-plan PR**, and it is checkable rather than a judgement call:
+**So the enablement flip belongs IN the PR the desk grades, not in a follow-up.** The plan
+is computed from the branch's own tree. A branch that carries `apply: enabled` renders a
+plan for that stack on its own infra-report build, which is exactly what makes the rows
+gradeable before anything lands.
 
-- green CI and ai-review success
-- the diff contains **no enablement flip**, i.e. no `.apply.yaml` change. That is what makes
-  a no-plan PR unable to cause an apply, and it is one `gh api .../files` away.
-- the plan is graded on the **enable** PR, where it renders, and that PR is where the
-  import-class bar actually bites
+Splitting them inverts that and is the mistake to avoid. Rows alone land ungraded, because
+no plan can render while the sidecar holds; the later enable PR then renders a plan whose
+ops describe content that is **already on the trunk**, so the import-class bar is applied
+after the fact to something it can no longer refuse. Two small PRs feel safer and are
+strictly worse.
 
-This is why splitting rows from enablement matters beyond tidiness. Rows plus enablement in
-one PR produces something with a plan surface the desk cannot read and an apply it cannot
-refuse. Rows alone produces something with no plan surface and no apply, which is safe to
-land on green; enablement alone produces a plan the desk can grade properly.
+Where a no-plan PR is unavoidable, the substitute bar is green CI, ai-review success, and a
+diff carrying no `.apply.yaml` change, which is one `gh api .../files` away and is what makes
+it unable to cause an apply. Treat that as the degraded case rather than the target.
 
 Distinguish this from a plan that **errored**. `could not be previewed` with a real error is
 evidence of a problem and a hold. `pending-owner` is evidence of nothing and is not.
