@@ -671,3 +671,30 @@ read instead of a hope.
 
 Keep the number. It is the refused column, and an audit that produces an exact
 count is worth more than the defect that prompted it.
+
+## The job's verb decides whether the bar applies at all
+
+A stack's infra-landing job is either `:pulumi: land <env>-<domain>` or
+`:pulumi: apply <env>-<domain>`. Only `land` runs the import-class bar. Running
+`landingAdmits` over an apply-path stack invents a refusal that can never happen,
+which is how a P0 got raised over `ci/core-usw2-auto`: it runs `apply`, took its
+two BucketObject replaces without complaint, and nothing was ever gated.
+
+Derive the apply-path set from the live job names rather than hardcoding it, and
+fail loudly if the derivation comes back empty — an empty set silently grades every
+stack as land-path, which is the permissive direction. There are three today:
+`core-gbl-auto-buildkite`, `core-usw2-auto-ci`, `plat-use1-prod-ci`.
+
+The PR plan comment has the same defect and says "the landing would refuse" for
+these stacks. Never quote that line for an apply-path stack.
+
+## A control must be read-only
+
+Running the labelling gate "as a control" to check a lookup fix labelled a PR the
+desk was actively refusing. The gate's last act is to apply the label; there is no
+dry-run. Pulled in forty seconds and nothing landed, but a labelled head is
+queueable and custody had transferred.
+
+Pick a control that cannot act: a refusing input (the gate exits before the write),
+or the read the gate makes rather than the gate. Before using any tool as a probe,
+ask what it does on success, not only on failure.
