@@ -763,3 +763,31 @@ gating its own release.
 No bar grades prose. When a doc tells a human where to put a secret, read the grant
 for that path rather than the sentence: the policy file and the queue's policy list
 are the evidence. "Docs-only" is not a synonym for low-risk.
+
+## Date a failure to its build, or two readings both hold and disagree
+
+One cleanup produced three different errors on the same stack in ninety minutes:
+`cannot be deleted because it is protected`, then `error: diffing` after a validate
+404 on a live-deleted resource, then `import error: Preview failed: resource does
+not exist` because the trunk still declared the row and its record. Each reading was
+correct at its own build and stale by the next, and two agents each quoted one as
+current.
+
+Every failure claim carries its build number and time. "A retry fails identically"
+is a statement about one build, not about the stack.
+
+## A checker refuses rather than returns when its input will not resolve
+
+Four instances in one shift of one defect: a filter that can silently match nothing
+produces a number, and the number is always permissive. `grep -c || echo 0` printing
+`0\n0`; a log grep keyed on line shape printing `reconciles: 0` beside sixteen found
+events; `export TOK=$(cat missing-file)` clobbering a working token so every poll
+401'd in silence; a failed `git diff` reading as "no differences" and therefore
+LANDED for a sha that does not exist.
+
+So: parse structured output and key on fields, print what was counted beside the
+count, verify a sha before diffing against it, assert a file list is non-empty, and
+check exit status rather than output emptiness. Then feed the checker one input known
+to fail and confirm it refuses. For env-or-file fallbacks use `${VAR:-$(cat file)}`,
+never `$(cat file || echo "$VAR")` — that only works when the file is missing rather
+than empty.
