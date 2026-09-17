@@ -85,3 +85,48 @@ Push the fix as a new head on the same branch, then send landing-desk the 3-line
 
 A second red on the same head with the same job is not routed again. A new head that
 is still red is, and so is a different job on the same head.
+
+## The custody check: content, never ancestry or patch identity
+
+A lane force-pushing seconds after a label is the most expensive race at this desk, and
+the two questions it raises both have a wrong instinct attached. Answer them with
+content, in this order, and pull the label before diagnosing. Pulling is one reversible
+call; landing a head whose plan was never graded is not.
+
+**Ancestry cannot say which head the queue took.** The queue squashes, so the trial
+merge has neither candidate head as an ancestor and `git merge-base --is-ancestor`
+answers no for both. Find a line that exists in exactly one of the two heads and look
+for it in the trial merge's tree.
+
+```sh
+git show <twin-sha>:<path> | grep -c '<line only the newer head has>'
+```
+
+**`git patch-id` cannot say whether the new head is the same work.** It hashes
+surrounding context, so a rebase changes it even when the change is byte-identical.
+Diff the two heads restricted to the pull request's own files.
+
+```sh
+FILES=$(git diff --name-only $(git merge-base $NEW origin/<trunk>) $NEW)
+git diff --stat $OLD $NEW -- $FILES      # empty means the payload is unchanged
+```
+
+An empty result means a pure rebase, so re-label the current head and nothing was at
+risk. A non-empty result means the payload moved, so the head needs grading again
+before the label returns.
+
+**The pull request page cannot say whether it landed.** It reads `closed` with `merged`
+false on everything the queue lands, and the head is not an ancestor of the trunk. Grep
+the trunk for the squash, then for the change's own text when the answer has to be
+certain.
+
+```sh
+git log origin/<trunk> --oneline | grep '(#<n>)'
+```
+
+Two rules follow from the same mechanism. A pull request body is corrected before the
+label goes on and never after, because the squash takes the body as it stands at merge
+time and discards the branch commit message. A body edit does not move the head, so it
+never conflicts with leaving the branch alone. And when two open pull requests touch the
+same lines, the hold goes on immediately and the ownership question is asked from behind
+it, because the queue does not wait for a ruling.
