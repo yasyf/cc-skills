@@ -42,6 +42,7 @@ class FakeShell(ledger.Shell):
         self.closed_by: dict[str, str] = {}
         self.shallow = False
         self.fetch_fails = ""
+        self.base_squash = ""
         self.children: list[dict] = []
         self.ejected: dict[str, tuple[str, str]] = {}
         self.pr_labels: dict[str, list[str]] = {}
@@ -171,6 +172,8 @@ class FakeShell(ledger.Shell):
             if right in self.delivered:
                 return ""
             return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
+        if verb == "log" and "--grep" in " ".join(argv):
+            return self.base_squash + ("\n" if self.base_squash else "")
         if verb == "log" and argv[5] == "-1":
             assert self._resolve(argv[4]) == "base-tip", f"named the landing commit from {argv[4]}"
             sha, when = self.delivered[self.diffed_head]

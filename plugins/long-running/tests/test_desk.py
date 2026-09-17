@@ -288,12 +288,12 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
-    shell.pr_labels[PR] = ["externally-merged"]
+    shell.base_squash = "abc1234def5 infra: something that carried it (#21221)"
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR)["state"] == "landed"
-    assert "the queue closed it" in capsys.readouterr().out
+    assert "which has moved on its files since" in capsys.readouterr().out
 
 
 def test_the_queues_bot_closing_a_stacked_child_is_not_a_landing(tmp_path):
@@ -308,7 +308,8 @@ def test_the_queues_bot_closing_a_stacked_child_is_not_a_landing(tmp_path):
     assert shell.fields(PR)["state"] == "closed-without-squash"
 
 
-def test_an_externally_merged_label_settles_it_too(tmp_path):
+def test_an_externally_merged_label_settles_nothing(tmp_path):
+    """The queue applies it to open pull requests whose content never reached the trunk."""
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
@@ -316,7 +317,7 @@ def test_an_externally_merged_label_settles_it_too(tmp_path):
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
-    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["state"] == "closed-without-squash"
 
 
 def test_a_person_closing_it_is_not_a_landing(tmp_path):

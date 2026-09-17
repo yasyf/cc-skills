@@ -162,17 +162,24 @@ equals neither side for a file both touched and the head's blob never appears in
 trunk's history at all. Checking whether the head's blob ever appeared does not rescue
 it; that was tried and it failed on the same pair.
 
-So when the tree differs, ask the forge, and ask for the queue's own mark rather than
-for the closing actor. The actor proves nothing: the queue's bot also closes a stacked
-child when its base branch is deleted, landing nothing. One desk read such a child as
-landed while its one-line fix was still absent from the trunk, which retires the row and
-guarantees nobody reopens the pull request.
+So when the tree differs, ask the trunk again, never the forge. **Nothing the forge
+asserts about itself is admissible here.** The closing actor proves nothing, because the
+queue's bot also closes a stacked child when its base branch is deleted, landing nothing.
+The queue's own merged label proves nothing either: it is applied to pull requests that
+are still open and whose content never arrived, two of which carried it while their trees
+differed and no commit named them.
+
+Both of those were adopted as the fix for the previous one. The rule that survived is
+that only the trunk answers, through its tree or through a commit it names:
 
 ```sh
-gh api "repos/<repo>/issues/<n>/labels" --jq '.[].name' | grep -qx externally-merged
+git log origin/<trunk> --oneline -400 --fixed-strings --grep="(#<n>)"
 ```
 
-A squash the trunk log names by number counts too. Nothing else does.
+One more trap sits under this. If the pull request's base branch has been deleted,
+`origin/<base>` does not resolve, git diffs nothing, and an empty diff reads as a
+landing. Verify the base ref exists before believing an empty result, or a stacked child
+whose parent landed will read as landed itself while its payload is still missing.
 
 Content still answers the one thing the forge cannot see: a stacked child carrying its
 parent's payload, where the parent merges as a no-op and its own page shows only that

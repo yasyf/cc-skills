@@ -55,7 +55,6 @@ WINDOW_SECONDS = 3600
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 QUEUE_BOT = "graphite-app[bot]"
-EXTERNALLY_MERGED = "externally-merged"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
@@ -700,18 +699,22 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def queue_closed(gh: Github, pr: str) -> bool:
-    """Did the merge queue LAND this PR, rather than close it for some other reason?
+def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> str:
+    """The squash the base log names for this PR, if there is one.
 
     Asked only when content cannot tell, which is whenever the base moved on one of the
     PR's files after the squash.
 
-    The closing actor proves nothing. The queue's bot also closes a stacked child when
-    its base branch is deleted, landing nothing: one such child read LANDED here while
-    its one-line fix was still absent from the trunk, which retires the row and
-    guarantees nobody reopens the pull request. Only the queue's own mark counts.
+    Nothing the forge asserts about itself is admissible here. The closing actor proves
+    nothing, because the queue's bot also closes a stacked child when its base branch is
+    deleted, landing nothing. The queue's own `externally-merged` label proves nothing
+    either: it is applied to OPEN pull requests whose content never reached the trunk —
+    two carried it while their trees still differed and no commit named them. Only the
+    trunk answers, through its tree or through a commit it names.
     """
-    return any(label["name"] == EXTERNALLY_MERGED for label in gh.api(f"issues/{pr}/labels"))
+    git = ["git", "-C", str(checkout)]
+    log = shell.run(git + ["log", f"refs/desk/base/{base}", "--oneline", "-400", "--fixed-strings", f"--grep=(#{pr})"])
+    return log.split(" ", 1)[0] if log.strip() else ""
 
 
 def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
@@ -730,9 +733,9 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
             sha, landed_at = delivered
             notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
             print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
-        elif queue_closed(gh, pr):
-            notes.set_fields(pr, {"state": LANDED, "base": base})
-            print(f"landed #{pr} on {base}: the queue closed it, and {base} has moved on its files since")
+        elif (squash := squash_on_base(shell, checkout, base, pr)):
+            notes.set_fields(pr, {"state": LANDED, "landed_sha": squash, "base": base})
+            print(f"landed #{pr} as {squash[:9]} on {base}, which has moved on its files since")
         else:
             notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
             print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: a human closed it and its payload is absent, so the row stays until its lane answers")
