@@ -433,6 +433,17 @@ The desk runs this itself and does not rely on the lane having done it. A plan o
 this class goes to the owner, not to a label: applying it is a decision about
 intent, which no plan artifact settles.
 
+**Make the trigger mechanical, because an access removal does not announce
+itself.** The op that caused this reads `update`, on a role, and nothing in its
+class says anything was taken away; the removal lives inside the document. A rule
+that fires only when the grader recognises the shape fails on the night someone is
+in a hurry, which is the night it matters. The op already carries the trigger: the
+document appears by name in the `diffs` array. So fire the provenance check on any
+op whose diffs name a trust or policy document, whatever the op's class and
+however benign the content reads. Over-triggering costs thirty seconds; the
+alternative depends on reading the content correctly first, which is the step that
+failed.
+
 ## A plan's `diffs` and `digest` each hide something, in opposite directions
 
 Two fields invite the same mistake, reading a summary as if it were the thing
