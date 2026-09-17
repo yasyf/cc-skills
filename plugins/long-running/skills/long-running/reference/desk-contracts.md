@@ -612,3 +612,35 @@ time and discards the branch commit message. A body edit does not move the head,
 never conflicts with leaving the branch alone. And when two open pull requests touch the
 same lines, the hold goes on immediately and the ownership question is asked from behind
 it, because the queue does not wait for a ruling.
+
+## A plan taken inside the apply window is not the trunk's state
+
+"This landed change cannot apply" is answered by the landing build whose commit IS
+the change, never by a plan artifact. Query it by full sha: the short form returns
+zero builds, which reads as no evidence rather than a bad query. Read the apply
+job's own verdict line, `<stack>: applied; post-apply preview all same`.
+
+A plan taken minutes before that apply finishes shows pre-apply drift, and drift
+is indistinguishable from a stuck op: the same ops, the same offender classes, the
+same refusal verdict. A PR branch is worse still, because it usually lacks the
+commit and so proposes to undo the apply. The artifact carries no hint that an
+apply is in flight.
+
+Before calling any refusal permanent, name the plan's timestamp and ask whether an
+apply for that commit finished after it. If one did, regrade and say nothing until
+you have.
+
+## A landing records `passed: false` while its Buildkite job reports green
+
+The land step exits zero whether the stack was admitted or refused. The verdict
+lives in `plan/apply-<stack>.json`, as `"passed"` plus a `refused` array naming
+each op with its urn, row and record key. A green pipeline is therefore consistent
+with a stack that has applied nothing for hours.
+
+So a green landing is not evidence that a stack converged. Reconciling "what is on
+the trunk" against "what is applied" means reading those artifacts, per stack, for
+the stacks a change touched. Two production stacks refused every landing for
+fourteen hours under green jobs before anyone read one.
+
+The refusal is per stack, not per op, so count the cost by the whole plan: an
+admitted import or adopt sitting beside one refused update does not apply either.
