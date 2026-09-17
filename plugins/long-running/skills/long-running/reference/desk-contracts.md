@@ -490,6 +490,16 @@ theories in a stroke and narrowed the question from the machinery to a single
 resource. So before enumerating why a check failed here, find where it last
 passed. If it has never passed anywhere, that is the finding.
 
+**A control proves the path it exercised, not the path you care about.** The
+passing instance above matched the failing one on resource type and on the exact
+diff key, and still did not cover it. Different code rendered the two. One went
+through the ordinary builder; the other took an escape hatch, reached only when
+the ordinary builder cannot express what the resource needs. Surface similarity is
+what makes a control look apt, and the renderer underneath is what makes it apt.
+So when citing a success, name the path it took and check the failing case takes
+the same one. The lane holding the failing case usually knows the paths diverge
+when the desk does not.
+
 ## A plan's `diffs` and `digest` each hide something, in opposite directions
 
 Two fields invite the same mistake, reading a summary as if it were the thing
