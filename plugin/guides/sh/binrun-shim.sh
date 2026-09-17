@@ -36,7 +36,10 @@ DESCRIPTOR="$ROOT/bin/{{binary}}.binrun"
 # exec'd binary cannot derive the plugin root from its own path. Export it: a tool
 # that overrides its embedded copies with plugin-root files reads this first.
 export BINRUN_PLUGIN_ROOT="$ROOT"
-RUNNER_HOME="${DAEMONKIT_HOME:-$HOME/.daemonkit}"
+# daemonkit's realhome: DAEMONKIT_HOME names a home directory, and its fallback is
+# the passwd home, not $HOME. binrun resolves its cache the same way.
+eval "passwd_home=~$(id -un)"
+RUNNER_HOME="${DAEMONKIT_HOME:-$passwd_home}/.daemonkit"
 RUNNER_DIR="$RUNNER_HOME/binrun/$RUNNER_TAG"
 RUNNER_BIN="$RUNNER_DIR/binrun"
 

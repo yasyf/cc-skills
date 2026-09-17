@@ -7,6 +7,7 @@ import os
 import pwd
 import re
 import sqlite3
+import subprocess
 import sys
 import time
 import types
@@ -17,6 +18,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMMON = REPO_ROOT / "plugins" / "codex" / "capt-hook" / "hooks" / "common.py"
+INSTALLER = REPO_ROOT / "plugins" / "codex" / "scripts" / "install-binary.sh"
+SHIM = REPO_ROOT / "plugin" / "guides" / "sh" / "binrun-shim.sh"
 
 
 @pytest.fixture
@@ -43,8 +46,9 @@ def plugin(common, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(common, "PLUGIN_ROOT", root)
     monkeypatch.setattr(common, "LAUNCHER", launcher)
     monkeypatch.setattr(common, "DESCRIPTOR", descriptor)
+    monkeypatch.setattr(common.pwd, "getpwuid", lambda _: types.SimpleNamespace(pw_dir=str(home)))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("HOME", str(tmp_path / "redirected"))
     monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
     monkeypatch.delenv("BINRUN_BIN", raising=False)
     return types.SimpleNamespace(root=root, launcher=launcher, descriptor=descriptor, home=home)
@@ -73,7 +77,7 @@ def test_pinned_runner_under_home_daemonkit(common, plugin, monkeypatch, tmp_pat
 def test_pinned_runner_under_daemonkit_home_override(common, plugin, monkeypatch, tmp_path):
     override = tmp_path / "dk"
     executable(plugin.home / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
-    pinned = executable(override / "binrun" / "v9.9.9" / "binrun")
+    pinned = executable(override / ".daemonkit" / "binrun" / "v9.9.9" / "binrun")
     monkeypatch.setenv("DAEMONKIT_HOME", str(override))
     assert common.codex_ask_argv() == [str(pinned), str(plugin.descriptor)]
 
@@ -88,6 +92,7 @@ def test_stale_shared_runner_is_never_chosen(common, plugin, monkeypatch, tmp_pa
     assert common.codex_ask_argv() == [str(plugin.launcher)]
     override = tmp_path / "dk"
     executable(override / "bin" / "binrun")
+    executable(override / "binrun" / "v9.9.9" / "binrun")
     monkeypatch.setenv("DAEMONKIT_HOME", str(override))
     assert common.codex_ask_argv() == [str(plugin.launcher)]
 
@@ -98,16 +103,35 @@ def test_path_binrun_without_pinned_runner(common, plugin, monkeypatch, tmp_path
     assert common.codex_ask_argv() == [str(found), str(plugin.descriptor)]
 
 
+def shim_runner_bin(**env: str) -> Path:
+    # The fragment, not the rendered launcher: CI renders only after merge.
+    body = SHIM.read_text()
+    argv = ["bash", "-c", f'{body[: body.index("\nfail()")]}\nprintf %s "$RUNNER_BIN"']
+    return Path(subprocess.run(argv, capture_output=True, text=True, check=True, env=env).stdout)
+
+
 def test_runner_lookup_mirrors_the_launcher(common):
-    installer = REPO_ROOT / "plugins" / "codex" / "scripts" / "install-binary.sh"
-    assert common.LAUNCHER.resolve() == installer.resolve()
-    shim = installer.read_text()
+    shim = INSTALLER.read_text()
+    assert common.LAUNCHER.resolve() == INSTALLER.resolve()
     assert re.fullmatch(r"v\d+\.\d+\.\d+", common.RUNNER_TAG.search(shim)[1])
-    assert 'RUNNER_HOME="${DAEMONKIT_HOME:-$HOME/.daemonkit}"\n' in shim
-    assert 'RUNNER_DIR="$RUNNER_HOME/binrun/$RUNNER_TAG"\n' in shim
-    assert 'RUNNER_BIN="$RUNNER_DIR/binrun"\n' in shim
     arms = [shim.index(arm) for arm in ('exec "$BINRUN_BIN"', 'exec "$RUNNER_BIN"', "command -v binrun")]
     assert arms == sorted(arms)
+
+
+def test_runner_path_matches_the_shim(common, monkeypatch, tmp_path):
+    tag = common.RUNNER_TAG.search(SHIM.read_text())[1]
+
+    def pinned() -> Path:
+        return common.runner_home() / "binrun" / tag / "binrun"
+
+    monkeypatch.delenv("DAEMONKIT_HOME", raising=False)
+    assert common.runner_home() == Path(pwd.getpwuid(os.getuid()).pw_dir) / ".daemonkit"
+    assert shim_runner_bin(PATH="/usr/bin:/bin", HOME=str(tmp_path / "redirected")) == pinned()
+
+    override = tmp_path / "dk"
+    monkeypatch.setenv("DAEMONKIT_HOME", str(override))
+    assert common.runner_home() == override / ".daemonkit"
+    assert shim_runner_bin(PATH="/usr/bin:/bin", DAEMONKIT_HOME=str(override)) == pinned()
 
 
 def test_falls_back_to_launcher_without_binrun(common, plugin):
