@@ -113,7 +113,7 @@ answers no for both. Find a line that exists in exactly one of the two heads and
 for it in the trial merge's tree.
 
 ```sh
-git show <twin-sha>:<path> | grep -c '<line only the newer head has>'
+git show <twin-sha>:<path> | grep -q '<line only the newer head has>' && echo took-newer
 ```
 
 **`git patch-id` cannot say whether the new head is the same work.** It hashes
@@ -121,8 +121,8 @@ surrounding context, so a rebase changes it even when the change is byte-identic
 Diff the two heads restricted to the pull request's own files.
 
 ```sh
-FILES=$(git diff --name-only $(git merge-base $NEW origin/<trunk>) $NEW)
-git diff --stat $OLD $NEW -- $FILES      # empty means the payload is unchanged
+git diff --name-only $(git merge-base $NEW origin/<trunk>) $NEW > /tmp/files
+while IFS= read -r f; do git diff --stat $OLD $NEW -- "$f"; done < /tmp/files
 ```
 
 An empty result means a pure rebase, so re-label the current head and nothing was at
@@ -224,6 +224,79 @@ the only one blocked.
 
 Require success explicitly. The reason for a hold is always a review comment on the diff,
 so surface that rather than the check's state, and never clear it by re-running the review.
+
+## The label vanishing means enqueued, ejected, or nothing; the activity comment decides
+
+The queue bot removes the label both when it accepts a pull request and when it rejects
+one, within seconds either way, so the removal carries no information. Read the **Merge
+activity** comment instead, which the queue writes on the pull request under the human
+account rather than the bot account, so a filter on the bot author finds nothing and the
+desk wrongly concludes there is no queue record at all.
+
+- `added this pull request to the merge queue` and no later line: enqueued, waiting for a
+  batch. A removal seconds after the label went on is the queue consuming it.
+- `couldn't merge this PR because it had merge conflicts`: ejected, and the head needs a
+  rebase before the label returns.
+- the `detected` line with no `added` line, ever: **the label was never consumed.** The
+  pull request is not in the queue and nothing will happen to it.
+
+That third state is silent and indefinite. One green pull request sat in it for over
+ninety minutes, mergeable clean, both builds success, review approved, in no twin, while
+the queue enqueued others and produced a batch every one to two minutes.
+
+**Contract: a labelled pull request with no `added` line after twenty minutes is wedged,
+and the desk acts rather than waits.** In order, stopping at the first that works:
+
+1. Re-request the queue's own mergeability check run over REST. Expect this to fail with
+   404 when the check belongs to another GitHub App, because the token cannot re-run
+   another App's check; that is not a misconfiguration, it is the normal answer.
+2. Pull the label and re-add it once, then wait five minutes.
+3. Pull the label, then ask the **owning lane** to push one empty commit and re-record the
+   Graphite parent. The desk does not push to a lane's head for a fault that is not in
+   their pull request, and the label comes off first so nothing is consumed mid-push.
+
+Escalate to the owner only if all three fail. A wedged queue entry is a mechanical lever,
+not a decision.
+
+## Prove a landing positively, never by the absence of a diff
+
+Every check above compares the trunk against a head and reads an empty result as "the
+same". That shape has a failure mode that fires on exactly the input it exists to catch,
+because three ordinary things all produce empty output with a zero exit status: a pathspec
+that matches no file, a command that errored with stderr redirected away, and genuinely
+identical content. Only the third is a landing, and nothing downstream can tell them apart.
+
+The pathspec case is the one that actually fired. A desk graded twelve pull requests with
+
+```sh
+FILES=$(gh api ".../files" --jq '.[].filename' | tr '\n' ' ')
+[ -z "$(git diff origin/dev "$SHA" -- $FILES)" ] && echo LANDED
+```
+
+and reported a pull request as landed while all ten of its files differed and both of the
+files it adds were absent from the trunk. The agent shell is zsh, which does **not**
+word-split an unquoted `$FILES`, so git received one 216-character pathspec matching
+nothing, compared nothing, printed nothing and exited 0. The identical line under bash
+emits 14884 bytes. A `#!/bin/bash` script run as a file was unaffected; only the inline
+command broke. Loop one path per call, or use `${=FILES}`, and never join paths into one
+unquoted word.
+
+`grep -c` has the mirror defect: it prints `0` **and** exits 1 on no match, so
+`c=$(... | grep -c X || echo 0)` yields two lines, `[ "$c" = 0 ]` is false, and every
+absent symbol reads as present. Use `grep -q` for presence.
+
+So the desk does not conclude a landing from an emptiness test. It requires one of two
+positive readings, both of which are impossible to fake by accident:
+
+- a file the pull request **adds** exists on the trunk, `git cat-file -e origin/<trunk>:<new-path>`
+- the trunk carries a squash naming the number, `git log origin/<trunk> --oneline --grep='(#N)'`,
+  valid only once `git rev-parse --is-shallow-repository` reads false
+
+Tree equality stays useful as corroboration and is still the only signal that catches a
+stacked child carrying its parent's payload. It is no longer sufficient alone.
+
+Before trusting any new check, feed it one input known to be absent and confirm it says
+so. A check that has never been observed failing has not been tested.
 
 ## Refuse to grade rather than grade from a broken instrument
 
