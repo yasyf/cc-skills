@@ -162,13 +162,17 @@ equals neither side for a file both touched and the head's blob never appears in
 trunk's history at all. Checking whether the head's blob ever appeared does not rescue
 it; that was tried and it failed on the same pair.
 
-So when the tree differs, ask the forge who closed it. The queue closes through its own
-bot and marks the pull request externally merged; a person closing it does neither.
+So when the tree differs, ask the forge, and ask for the queue's own mark rather than
+for the closing actor. The actor proves nothing: the queue's bot also closes a stacked
+child when its base branch is deleted, landing nothing. One desk read such a child as
+landed while its one-line fix was still absent from the trunk, which retires the row and
+guarantees nobody reopens the pull request.
 
 ```sh
-gh api "repos/<repo>/issues/<n>/events?per_page=100" \
-  --jq '[.[]|select(.event=="closed")][-1].actor.login'   # the queue bot means landed
+gh api "repos/<repo>/issues/<n>/labels" --jq '.[].name' | grep -qx externally-merged
 ```
+
+A squash the trunk log names by number counts too. Nothing else does.
 
 Content still answers the one thing the forge cannot see: a stacked child carrying its
 parent's payload, where the parent merges as a no-op and its own page shows only that

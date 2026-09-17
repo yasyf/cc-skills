@@ -54,7 +54,6 @@ SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
-QUEUE_BOT = "graphite-app[bot]"
 EXTERNALLY_MERGED = "externally-merged"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -643,16 +642,17 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def queue_closed(gh: Github, pr: str) -> bool:
-    """Did the merge queue take this PR, rather than a person abandoning it?
+    """Did the merge queue LAND this PR, rather than close it for some other reason?
 
     Asked only when content cannot tell, which is whenever the base moved on one of the
-    PR's files after the squash. The queue closes through its own bot and marks the PR
-    externally merged; a person closing it does neither.
+    PR's files after the squash.
+
+    The closing actor proves nothing. The queue's bot also closes a stacked child when
+    its base branch is deleted, landing nothing: one such child read LANDED here while
+    its one-line fix was still absent from the trunk, which retires the row and
+    guarantees nobody reopens the pull request. Only the queue's own mark counts.
     """
-    if any(label["name"] == EXTERNALLY_MERGED for label in gh.api(f"issues/{pr}/labels")):
-        return True
-    closes = [event for event in gh.api(f"issues/{pr}/events?per_page=100") if event["event"] == "closed"]
-    return bool(closes) and closes[-1]["actor"]["login"] == QUEUE_BOT
+    return any(label["name"] == EXTERNALLY_MERGED for label in gh.api(f"issues/{pr}/labels"))
 
 
 def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
