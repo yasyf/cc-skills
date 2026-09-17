@@ -791,3 +791,30 @@ check exit status rather than output emptiness. Then feed the checker one input 
 to fail and confirm it refuses. For env-or-file fallbacks use `${VAR:-$(cat file)}`,
 never `$(cat file || echo "$VAR")` — that only works when the file is missing rather
 than empty.
+
+## One dead stack reds every PR that reaches it
+
+`assertPlanned` turns a hard plan failure on one stack into a whole-build failure,
+so a stack that cannot preview reds PRs that never touch it. That is worse than the
+no-artifact case: the stack does not merely vanish from the refused column, it stops
+unrelated work from being gradeable at all.
+
+So attribute a red infra-report by reading the failing job before suspecting the
+head, and keep three numbers rather than one: refused stacks, stacks that produced
+no artifact, and the build's own state. The no-artifact set is computable — an env in
+the ledger at `adopting` or `verified` whose domain-and-env pair appears in no
+verdict artifact for that build.
+
+## Ask whether a fix lives in the tree or in the world before rebuilding
+
+When a landing removes a declaration whose live object is already gone, the trunk
+plans clean immediately and every branch based before that squash still declares it,
+plans an import of a missing id, and fails. The fix propagates by rebase only.
+
+Rebuilding a stale head reproduces the failure. Triggering rebuilds on lanes' behalf
+"to save them a push" costs every lane a cycle. The instruction is *rebase past
+<squash>*, and it is testable per head with `git merge-base --is-ancestor <squash>
+<head>` rather than by reading a log each time.
+
+PRs with no plan surface keep labelling cleanly throughout and are not evidence the
+condition has cleared.
