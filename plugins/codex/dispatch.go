@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/yasyf/cc-interact/procs"
 )
@@ -21,6 +24,7 @@ func askMode(args []string) {
 	owner := ""
 	lane := ""
 	schemaName := ""
+	var mcpServers []string
 	var extraFlags []string
 	var rest []string
 
@@ -84,6 +88,12 @@ loop:
 					", or a file path (./NAME for an extensionless one)", 2)
 			}
 			i += 2
+		case a == "--mcp":
+			if nxt == "" {
+				die("codex-ask: --mcp takes a comma-separated server list", 2)
+			}
+			mcpServers = strings.Split(nxt, ",")
+			i += 2
 		case a == "--dispatch":
 			dispatch = true
 			i++
@@ -118,6 +128,7 @@ loop:
 	if scratch != "" && laneName != "" {
 		die("codex-ask: -l and -s are mutually exclusive", 2)
 	}
+	mcpMounts := mcpMountFlags(mcpServers)
 	// Resolved before the question is read, so a bad name mints nothing.
 	named := ""
 	if laneName != "" {
@@ -224,12 +235,15 @@ loop:
 		extraFlags = append(extraFlags, "--output-schema", schema)
 	}
 
-	// developer_instructions carries the browser + ccx/MCP-off directives, resolved
+	// developer_instructions carries the browser + ccx directives, resolved
 	// relative to this binary's own path (not cwd).
 	dev := readAgentsMd()
 	// The lane contract lands after the baseline so the cached prefix stays stable.
 	if lane != "" {
 		dev += "\n\n" + strings.TrimRight(string(readShipped(embeddedLanes, "lanes/"+lane+".md")), "\n")
+	}
+	if mcpServers != nil {
+		dev += "\n\n" + mcpContract(mcpServers)
 	}
 
 	replyTmp := reply + ".tmp"
@@ -238,8 +252,6 @@ loop:
 		"-c", "model=" + model,
 		"-c", "model_reasoning_effort=" + effort,
 		"-c", "service_tier=fast",
-		// No MCP mounts in a lane: zero correctness gain, real overhead, wedges mid-call.
-		"-c", "mcp_servers={}",
 		"-c", "developer_instructions=" + dev,
 		"-o", replyTmp,
 		"--json", "--color", "never",
@@ -248,6 +260,7 @@ loop:
 		// trusted-directory check.
 		"--skip-git-repo-check",
 	}
+	argv = append(argv, mcpMounts...)
 	argv = append(argv, extraFlags...)
 
 	// Reap the prior generation's staged reply temp (a SIGKILLed worker can't run
@@ -337,6 +350,61 @@ func readAgentsMd() string {
 		}
 	}
 	return strings.TrimRight(embeddedAgentsMd, "\n")
+}
+
+type mcpServer struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+const mcpListTimeout = 15 * time.Second
+
+func mcpMountFlags(requested []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), mcpListTimeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json")
+	c.WaitDelay = time.Second
+	out, err := c.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		die("codex-ask: `codex mcp list --json` timed out after "+mcpListTimeout.String(), 2)
+	}
+	if err != nil {
+		die("codex-ask: cannot list configured MCP servers: "+err.Error(), 2)
+	}
+	var configured []mcpServer
+	if err := json.Unmarshal(out, &configured); err != nil {
+		die("codex-ask: cannot read `codex mcp list --json`: "+err.Error(), 2)
+	}
+	enabled := make(map[string]bool, len(configured))
+	names := make([]string, 0, len(configured))
+	for _, s := range configured {
+		enabled[s.Name] = s.Enabled
+		names = append(names, s.Name)
+	}
+	for _, want := range requested {
+		on, known := enabled[want]
+		switch {
+		case !known:
+			die("codex-ask: --mcp names no configured server "+want+"; ~/.codex/config.toml configures "+
+				strings.Join(names, ", "), 2)
+		case !on:
+			die("codex-ask: --mcp server "+want+" is disabled; enable it in ~/.codex/config.toml", 2)
+		}
+	}
+	var flags []string
+	// codex -c merges tables, so mcp_servers={} subtracts nothing; only a per-server enabled=false unmounts one.
+	for _, s := range configured {
+		if !contains(requested, s.Name) {
+			flags = append(flags, "-c", "mcp_servers."+s.Name+".enabled=false")
+		}
+	}
+	return append(flags, "--disable", "apps")
+}
+
+func mcpContract(servers []string) string {
+	return "## MCP\n\nThis lane mounts these MCP servers: " + strings.Join(servers, ", ") +
+		". Their tools may not be listed up front; call them by name (mcp__<server>__<tool>) " +
+		"when the work needs them. No other MCP server is mounted, and the ccx ban is unchanged."
 }
 
 //go:embed lanes/*.md

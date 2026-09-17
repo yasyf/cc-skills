@@ -264,8 +264,8 @@ hook(
     message=(
         "Don't call `codex exec` directly — route every codex dispatch through codex-ask. It "
         "pins the model, reasoning effort, service tier, and OAuth auth, feeds "
-        "developer_instructions from the plugin AGENTS.md, disables MCP server mounts, and owns "
-        "the disk protocol (absolute scratch, staged reply on rc 0, and --await/--collect "
+        "developer_instructions from the plugin AGENTS.md, mounts no MCP server unless --mcp "
+        "names one, and owns the disk protocol (absolute scratch, staged reply on rc 0, and --await/--collect "
         f"recovery). Rerun as `{PLUGIN_BIN} [-s <lane>] - <<'Q' … Q` in the foreground."
     ),
     block=True,

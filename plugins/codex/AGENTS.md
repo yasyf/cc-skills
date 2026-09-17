@@ -31,9 +31,12 @@ Core loop:
 
 ## Tooling
 
-Never invoke `ccx` or any MCP tooling — those belong to the calling Claude
-session, not to you, and a call into them wedges the run. Use `rg`, `sed`,
-`git`, and the standard command-line tools instead.
+Never invoke `ccx` — it belongs to the calling Claude session, not to you, and
+a call into it wedges the run. Use `rg`, `sed`, `git`, and the standard
+command-line tools instead.
+
+No MCP server is mounted unless this lane's own contract names one. Call
+only the servers it names, by full tool name, when the work needs them.
 
 ## Replies
 

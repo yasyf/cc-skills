@@ -395,7 +395,8 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
     assert go_files, "no Go source found in plugins/codex"
     text = "\n".join(p.read_text() for p in go_files)
     for needle in (
-        # pinned model / effort / fast-tier / mcp-off / dev-instructions on the exec line
+        # pinned model / effort / fast-tier / mcp-off (per-server disable + apps
+        # disable) / dev-instructions on the exec line
         "gpt-6-astra",
         "gpt-5.6-sol",
         "gpt-5.6-luna",
@@ -403,7 +404,8 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         '"model=" + model',
         '"model_reasoning_effort=" + effort',
         "service_tier=fast",
-        "mcp_servers={}",
+        '".enabled=false"',
+        '"--disable", "apps"',
         '"developer_instructions=" + dev',
         "danger-full-access",
         '"-o", replyTmp',
@@ -501,6 +503,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -565,7 +568,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert "--disable shell_tool" in luna_log
     assert "--skip-git-repo-check" in luna_log
 
-    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "boom event"\nexit 7\n')
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho "boom event"\nexit 7\n')
     fail = ask("ping")
     assert fail.returncode == 7, fail.stdout + fail.stderr
     assert "boom event" in fail.stdout
@@ -658,6 +661,7 @@ def test_codex_ask_run_survives_pgid_kill_and_await_recovers(templates_dir, tmp_
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -744,7 +748,7 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
         return subprocess.run([str(script), *args], cwd=cwd, env=e, text=True, capture_output=True, timeout=30)
 
     # exit-7 stub: sync exits 7 with the log tail; --await replays it
-    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "boom detail"\nexit 7\n')
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho "boom detail"\nexit 7\n')
     stub.chmod(0o755)
     sdir = tmp_path / "s1"
     run = ask("-s", str(sdir), "ping")
@@ -757,7 +761,7 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
 
     # exit 0 but empty reply -> silent codex death: nonzero exit + log tail,
     # both sync and via --await
-    stub.write_text('#!/bin/sh\ncat > /dev/null\necho "turn cut off"\nexit 0\n')
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho "turn cut off"\nexit 0\n')
     edir = tmp_path / "s-empty"
     empty_run = ask("-s", str(edir), "ping")
     assert empty_run.returncode == 1, empty_run.stdout + empty_run.stderr
@@ -772,6 +776,7 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
     # serve the previous run's exit-7 status
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -794,17 +799,16 @@ def test_codex_ask_await_failure_status_and_clean_errors(templates_dir, tmp_path
     assert not list(cwd.iterdir())
 
     # no codex, but uv stays reachable so the shebang launches (else this passes
-    # vacuously on `env: uv: not found`): worker records status 127, headers still
-    # arrive. Assert no stray real codex.
+    # vacuously on `env: uv: not found`): the MCP server listing fails first, rc 2,
+    # before any lane is minted. Assert no stray real codex.
     uv_dir = _uv_only_dir(tmp_path)
     bare_path = f"{uv_dir}:/usr/bin:/bin"
     assert shutil.which("codex", path=bare_path) is None, "test PATH must resolve no real codex"
     bare = _codex_env(stub_bin, tmpdir, PATH=bare_path)
     nocodex = subprocess.run([str(script), "ping"], cwd=cwd, env=bare, text=True, capture_output=True, timeout=30)
-    assert nocodex.returncode == 127, nocodex.stdout + nocodex.stderr
-    assert "REPLY_FILE:" in nocodex.stdout and "AWAIT:" in nocodex.stdout
-    reply = re.search(r"^REPLY_FILE: (.+)$", nocodex.stdout, re.M).group(1)
-    assert (Path(reply).parent / "status").read_text().strip() == "127"
+    assert nocodex.returncode == 2, nocodex.stdout + nocodex.stderr
+    assert "cannot list configured MCP servers" in nocodex.stderr
+    assert "REPLY_FILE:" not in nocodex.stdout
 
 
 def test_codex_ask_runs_base(templates_dir, tmp_path):
@@ -816,6 +820,7 @@ def test_codex_ask_runs_base(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -860,7 +865,7 @@ def test_codex_ask_empty_question_mints_nothing(templates_dir, tmp_path):
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
-    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho ok\n')
     stub.chmod(0o755)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
@@ -885,6 +890,7 @@ def test_codex_ask_prints_headers_before_codex_produces_output(templates_dir, tm
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -926,6 +932,7 @@ def test_codex_ask_concurrent_scratch_reuse_never_crashes(templates_dir, tmp_pat
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1125,6 +1132,7 @@ def test_codex_ask_reply_published_only_on_zero_exit(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1175,6 +1183,7 @@ def test_codex_ask_reply_staging_is_atomic(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1310,6 +1319,7 @@ def test_codex_ask_schema_passthrough(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1403,6 +1413,7 @@ def test_codex_ask_reply_tmp_removed_on_failure(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1434,6 +1445,7 @@ def test_codex_ask_foreground_lane_reuse_serializes(templates_dir, tmp_path):
     stub = stub_bin / "codex"
     stub.write_text(
         "#!/bin/sh\n"
+        '[ "$1" = mcp ] && { printf "[]"; exit 0; }\n'
         'out=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done\n'
         "cat > /dev/null\n"
@@ -1552,7 +1564,7 @@ def test_codex_ask_signal_exit_normalized(templates_dir, tmp_path):
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
-    stub.write_text("#!/bin/sh\ncat > /dev/null\nkill -TERM $$\n")
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\nkill -TERM $$\n')
     stub.chmod(0o755)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
@@ -1565,10 +1577,10 @@ def test_codex_ask_signal_exit_normalized(templates_dir, tmp_path):
     assert (lane / "status").read_text().strip() == "143"
 
 
-def test_codex_ask_worker_spawn_failure_durable_status(templates_dir, tmp_path):
-    # A non-executable codex is a spawn error, not a not-found: durable status 126,
-    # never a statusless hang. PATH is isolated so execvp can't fall through to a
-    # real codex on the host.
+def test_codex_ask_unrunnable_codex_fails_before_minting(templates_dir, tmp_path):
+    # A non-executable codex fails the MCP server listing at once, rc 2, never a
+    # statusless hang and never a half-minted lane. PATH is isolated so execvp
+    # can't fall through to a real codex on the host.
     script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
@@ -1583,8 +1595,9 @@ def test_codex_ask_worker_spawn_failure_durable_status(templates_dir, tmp_path):
     run = subprocess.run(
         [str(script), "-s", str(lane), "ping"], env=env, text=True, capture_output=True, timeout=30
     )
-    assert run.returncode == 126, run.stdout + run.stderr
-    assert (lane / "status").read_text().strip() == "126"
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "cannot list configured MCP servers" in run.stderr
+    assert not (lane / "status").exists()
 
 
 def test_codex_ask_concurrent_await_recovery(templates_dir, tmp_path):
@@ -1613,7 +1626,7 @@ def test_codex_ask_live_lane_refusal_fresh_meta(templates_dir, tmp_path):
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
-    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho ok\n')
     stub.chmod(0o755)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
@@ -1657,7 +1670,7 @@ def test_codex_ask_runs_dir_guard(templates_dir, tmp_path):
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
     stub = stub_bin / "codex"
-    stub.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n")
+    stub.write_text('#!/bin/sh\n[ "$1" = mcp ] && { printf "[]"; exit 0; }\ncat > /dev/null\necho ok\n')
     stub.chmod(0o755)
     cwd = tmp_path / "repo"
     cwd.mkdir()

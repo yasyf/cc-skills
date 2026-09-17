@@ -503,12 +503,12 @@ func TestForegroundLaneLockSurvivesGC(t *testing.T) {
 	runs := mustTempDir(t)
 	stubDir := mustTempDir(t)
 	release := filepath.Join(mustTempDir(t), "release")
-	writeStub(t, stubDir, "#!/bin/sh\n"+
+	writeStub(t, stubDir, stubCodex("[]",
 		"out=\"\"; prev=\"\"\n"+
-		"for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=$a; prev=$a; done\n"+
-		"cat > /dev/null\n"+
-		"while [ ! -f "+release+" ]; do sleep 0.05; done\n"+
-		"[ -n \"$out\" ] && echo done > \"$out\"\n")
+			"for a in \"$@\"; do [ \"$prev\" = \"-o\" ] && out=$a; prev=$a; done\n"+
+			"cat > /dev/null\n"+
+			"while [ ! -f "+release+" ]; do sleep 0.05; done\n"+
+			"[ -n \"$out\" ] && echo done > \"$out\"\n"))
 	scope := canonicalScope(t)
 	lane := filepath.Join(mustTempDir(t), "lane")
 	t.Cleanup(func() { killLane(lane) })
