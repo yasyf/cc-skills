@@ -1431,3 +1431,36 @@ Two habits follow. When a value came from a doc, a vendor client or an API respo
 source in the body and not only in the commit, because the body is what a future reader has.
 And when a reviewer says a constant looks wrong, do not answer with the passing test. Read
 the upstream definition, because the test and the constant are the same claim twice.
+
+## Some changes have no surface to prove them on
+
+Four failures in one night were checks that ran and lied. A fifth is worse and reads as
+nothing at all: the evidence class the desk grades from does not exist for the change in
+front of it.
+
+Two instances, hours apart. A retirement gate takes its plan before the apply, so it
+structurally cannot see a residue the apply itself manufactures; the gate was honest and
+the property was outside its reach. Then a pull request touching only adoption records
+scheduled no plan, because plans are scheduled by the trees a diff reaches and records are
+not one of them. Its checks were green, its reviewer found nothing, and neither fact spoke
+to whether the change did what it claimed. Both left "the change is correct" ungraded until
+the landing.
+
+This is not a gap to close by grading harder. A desk that reads plan artifacts has nothing
+to read when the diff schedules no plan, and no amount of waiting produces a preview that
+was never going to run. The failure mode to avoid is treating the surfaces that *are* green
+as though they stood in for the missing one: the tests passed, the reviewer was satisfied,
+the status was success, and none of that was evidence about the remedy.
+
+So the report changes rather than the grade. Say "no plan surface, the landing decides", and
+say it in the message that accompanies the label, so nobody downstream reads a labelled
+change as a verified one. Where the lane has flagged the change as a probe rather than a
+fix, carry that word: the difference between a fix and a probe is exactly the difference
+between a proven and an unproven remedy, and it is the lane's word to use, not the desk's to
+soften.
+
+Two habits follow. When a change cannot be graded before landing, arrange two independent
+readers of the landing rather than one, because the reading is now the only evidence and a
+single reader is a single point of failure. And when a PR's diff touches only a class that
+schedules nothing, note that in the ledger row rather than recording a bare label, so a
+later audit can tell a verified landing from an unverified one.
