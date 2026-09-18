@@ -887,3 +887,69 @@ creates the row declares, and the gap names what never registered. Second, a har
 plan failure is not a refusal. There is no verdict artifact, no `refused` array, and
 nothing for the bar to grade — the correct desk output is "not gradeable", never
 "clean".
+
+## Grade a delete by what else the plan does, not by a missing field
+
+I raised two component deletes as destroying S3 buckets. They destroy no cloud
+object. Both the owning lane and the bar's author pulled the same artifact and got
+the same answer: zero child ops under either shell, every child alive as a
+top-level resource, zero S3 deletes anywhere in the stack.
+
+My evidence was `retained: null`, which I read as "not a state-only drop, therefore
+a real delete of children". On a Pulumi component shell that field carries no
+information at all: the op has no `provider`, the resource has no cloud identity,
+and `retainOnDelete` is meaningless on something with no cloud object to retain.
+**Absence of the safe marker is not presence of the dangerous case.**
+
+The lane's replacement rule is positive and is now the desk's: treat a `delete`
+whose op carries no `provider` as state-only, and grade the danger from whether any
+child resource in the same plan also plans `delete`.
+
+The sharper lesson is that I had the disproof in my own hand. The same message
+reported two `delete` ops across all 178 stacks in the estate. If the buckets were
+going, their deletes would have been in that count. **Before sending a finding, run
+its own numbers against it** — a total you already computed is the cheapest
+refutation available, and the one you will never think to consult.
+
+## A pipeline that did not run and a pipeline that found nothing are different facts
+
+Two sibling PRs on overlapping paths disagreed: one drew an infra-report build, the
+other drew none. I labelled the second on weaker evidence and said so. The lane
+then proved the asymmetry was correct, and the mechanism splits into two independent
+questions the desk had been treating as one.
+
+**Whether a build runs is about the cache key.** `infra-report` is a cache unit over
+`INFRA_CHECK_READS`, and `INFRA_PACKAGE_READS` excludes the whole of the CI package
+and re-admits individually named files. Touch one and the unit runs; touch none and
+it prunes, correctly. A missing build is therefore usually the design working.
+
+**Whether plan artifacts exist is about reaching a stack.** A build can run and
+upload zero verdicts, which is a positive proof of no plan surface and is stronger
+than any argument from file paths.
+
+So the gate now refuses only when the diff touches a named read and the build is
+missing anyway, and says so plainly otherwise. Two control tests, both directions:
+the PR that touched `modes.ts` is why it built, and the PR that touched none is why
+it did not. And do not accept "these files are all under the CI package, so nothing
+plans" — that premise was false on a PR whose conclusion was right anyway.
+
+## A bar change can have an observable, if it writes a new field
+
+A guard PR has no plan surface, so a green build says only that it compiles. But
+when the change also makes the engine *record* something, the artifact becomes the
+proof that the code ran.
+
+The PR reducing the landing bar added a `belowVerified` field to every op. Comparing
+one stack's verdict across the two engines settled it without reading a line of the
+diff:
+
+| build | field present | values |
+|---|---|---|
+| the PR's engine | 103 of 103 ops | 81 true, 22 false |
+| the previous engine | 0 of 103 | all null |
+
+The distribution matters as much as the presence. 81 of 103 reading `true` means
+most of that stack is below verified and a destroy there would be refused. **A bar
+that admits everything and a bar that is never consulted look identical from a green
+build**; a non-degenerate distribution distinguishes them. Ask what a guard writes,
+not only what it returns.
