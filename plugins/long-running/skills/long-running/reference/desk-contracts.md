@@ -1328,3 +1328,36 @@ with origin are different facts. Then it made the identical mistake in a stronge
 not stale but a different branch entirely, and used the result to overrule a correct
 report. A rule you are actively teaching is not a rule you are following. Check yourself
 against the rule you just wrote down, in the same hour you wrote it.
+
+## A check's title names its category, not its verdict
+
+A failing check invites you to read its title and stop. The title is a category label,
+often a constant of the repository, and on a security scanner it can be a standing
+warning that appears on every pull request in the estate. The verdict lives in the
+conclusion and the reasons live in the summary body and the annotations.
+
+The concrete case: a scanner titled every run in the repo with a warning that three
+language configurations present on the trunk were absent from the analysis, which is
+simply what happens when a diff touches only one language. Four landed pull requests
+carried that title and all concluded neutral. One concluded failure with the identical
+title, and its summary carried a high-severity alert the title never mentioned. Matching
+the title to the nearest plausible category produced a staleness diagnosis, a
+recommendation to rebase, and a lane doing work that could not help, because the cause
+was a finding rather than a missing input.
+
+The cheapest disproof of a category theory is a known-good comparison. One passing pull
+request carrying the same title refutes the whole theory in a single read, and it costs
+one API call. Reach for that before explaining a red, not after someone disputes it.
+
+Two further habits follow. Read the conclusion as the verdict and the body as the
+reason, and quote the body when reporting, because a title quoted alone transmits the
+same mistake to whoever reads the report. And when the finding turns out to be
+substantively wrong — a scanner pattern-matching a test double as if it were a trust
+decision — the disposition is still not to wave it through. Prefer the change that makes
+the pattern precise over the annotation that silences it: a stricter form removes the
+alert and improves the code, while a suppression leaves a standing exception on exactly
+the file a future reader will trust.
+
+The compounding cost is what makes this worth a contract. A wrong red diagnosis does not
+merely fail to help. It sends a lane to rebase, amend, or rerun, and it spends their
+time on a hypothesis you could have falsified before sending it.
