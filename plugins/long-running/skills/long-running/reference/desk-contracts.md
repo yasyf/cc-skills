@@ -846,3 +846,44 @@ direction — so the assert was the only thing between a throttle and a wrong ve
 Back off on 429 inside the shared fetch, keep the assert as the backstop, and pace
 re-runs. **A rate limit is the one error that must never reach a caller as a missing
 value**, because every derived set treats empty as a real answer.
+
+## A uniform failure across independent inputs indicts the instrument
+
+Four PRs graded in one loop all died on `HTTP Error 404` against
+`builds/22161/artifacts`. Four independent heads do not share a failure; the tool
+does. The cause was mine: the grader takes **build** numbers and I passed PR
+numbers, so every URL named a build that does not exist.
+
+The useful part is the shape, not the typo. Second instance in one shift: an
+infra-report lookup that scanned the last thirty builds returned a false "none" on
+four heads at once. **When N independent subjects fail identically, stop grading the
+subjects and go read the instrument.** The inverse is just as strong: when N
+subjects report an identical clean result, ask whether the check can fail at all.
+
+This 404 was the good version of the failure. The tool raised rather than returning
+an empty artifact list, so nothing downstream read "no plan artifacts, therefore
+nothing to refuse". A grader that answers a malformed request with an empty set is
+the silent-zero family again, wearing a different hat.
+
+## Autonaming disabled means a resource's name may be spelled something else
+
+A new `lambda` row kind reddened its whole build with
+`aws:lambda:Permission release-approval/function-invoke — error: automatic naming is
+disabled but no explicit name was provided`, and `assertPlanned` escalated that one
+stack into `Invariant violation: ci plans: core-usw2-auto-ci failed to plan`.
+
+`infra/engine.ts` writes `pulumi:autonaming: value: mode: disabled` into every
+synthesized project, and `infra/engine.test.ts` asserts it. So **every** resource in
+the estate needs an explicit name — but "name" is not always a field called `name`.
+On `aws.lambda.Permission` it is `statementId`. On `aws.lambda.FunctionUrl` there is
+no name property at all, so that resource is fine. A kind author who checks only for
+a missing `name:` will ship the defect.
+
+Two reading lessons beyond the fix. First, the log reported one failing resource and
+`1 errored`, but **both** Permissions omitted `statementId`; the preview stopped at
+the first, so the reported set understates the defect. Reconcile the creates the log
+does report (here four: LogGroup, Role, RolePolicyAttachment, Function) against the
+creates the row declares, and the gap names what never registered. Second, a hard
+plan failure is not a refusal. There is no verdict artifact, no `refused` array, and
+nothing for the bar to grade — the correct desk output is "not gradeable", never
+"clean".
