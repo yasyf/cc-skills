@@ -1077,3 +1077,43 @@ pointed at the wrong artifacts, a stale contract, or a pagination bound looks li
 **Keep reading verdict artifacts positively rather than watching for refusals to
 appear.** Absence of the bad signal was never the good one, and it is worth least at
 the moment it becomes most common.
+
+## A hold is about a sha, exactly like a grade
+
+I held two PRs because their plans proposed destroying six live resources. The
+reasoning was right about the plan I had read and wrong about the pull requests: both
+heads had moved, one of them twice, and the current trees carried the row whose
+absence caused the deletes. The bar's author caught it, and their reading was stale
+too, on a different pair of shas again — three separate readings of one head inside
+ten minutes.
+
+I have been disciplined all night about dating a grade to its sha and its build, and
+treated a hold as though it were a property of the pull request. It is not. **A hold
+is a statement about one sha, expires the moment the head moves, and has to be
+re-read on the same schedule as a grade.** A stale hold is worse than a stale grade,
+because it blocks work while looking like diligence.
+
+The durable fix is a refresh step over every live ledger row that re-reads the head
+before anything is quoted, and prints which ones moved with the reminder that any
+grade or hold naming the old sha is void. Heads move faster than grades complete.
+
+## Pick the layer that can see the distinction
+
+The six deletes were admitted by the reduced bar, so I reached for the bar. Two
+corrections, both from the lane that owns it.
+
+A blanket "refuse a delete of a resource with no adoption record" refuses the entire
+retire programme, which is most of the current workload, and correctly deletes
+unadopted things by design. The ledger status is *identical* for "deleting something
+we meant to retire" and "deleting something a stale branch does not know about", so
+the bar cannot separate them. That distinction is not a ledger fact, and no amount of
+widening makes it one.
+
+What made the case alarming was never the op class or the status. It was that the plan
+was computed against a baseline predating the resource. **Staleness is visible to the
+change-set gate and invisible to the bar**, so the fix belongs there and catches the
+whole class rather than the one op type that happened to be noticed.
+
+The general error was reaching for the surface I grade rather than the surface that
+holds the evidence. Ask which layer can actually see the thing being distinguished
+before proposing a rule anywhere.
