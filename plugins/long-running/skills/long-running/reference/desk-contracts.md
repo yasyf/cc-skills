@@ -953,3 +953,43 @@ most of that stack is below verified and a destroy there would be refused. **A b
 that admits everything and a bar that is never consulted look identical from a green
 build**; a non-degenerate distribution distinguishes them. Ask what a guard writes,
 not only what it returns.
+
+## A label is not a promise, and an ejection is silent
+
+Two PRs I labelled did not land and nothing said so. The merge queue ejects by
+removing the `merge` label and doing nothing else: no comment, no commit status, no
+message. One sat recorded as queued for twenty minutes while it was idle and
+ejected; the other was ejected from `mergeable_state: clean` with every build on its
+head green and no trial-merge sha to blame, its only anomaly a base 309 commits
+behind the trunk.
+
+So the desk's own record drifts in the one direction that matters: a lane waits on a
+squash that will never come while the ledger reports the PR in flight. **After
+labelling, confirm the landing. Do not assume it.**
+
+The tell is the `merge` label's absence together with no squash on the trunk and the
+PR still open. But that is also exactly what a merge in flight looks like, because
+the label is removed at pickup too — the same ambiguity that once had me report a
+labelled PR as never-queued when it had already landed. **One sample cannot tell
+those apart.** Two samples minutes apart that agree can, and the checker refuses to
+rule on the first one rather than guessing.
+
+On a confirmed ejection the head needs a rebase before any re-label. Re-labelling a
+head the queue keeps dropping is a loop, not a retry.
+
+## Grade the merge, not the head, when the trunk moves faster than you
+
+A lane whose PRs touch 130-plus stacks kept going dirty between the grade and the
+gate, because the trunk lands every couple of minutes and a large diff goes stale in
+less time than the grade takes. Three separate labels missed their window.
+
+The stopgap is a gate pinned to the graded sha: it runs the full check the moment the
+PR reads clean, and **stops without labelling if the head has moved**, because a
+moved head makes the grade stale. That guard is the whole value — a bare
+label-when-clean loop eventually labels a head nobody read. It fired correctly when
+the lane cascaded a rebase underneath it.
+
+The real fix is upstream and not yet built: grade the *merge* of the head with
+current trunk rather than the head itself, since the merge is what the queue will
+build. A head is a moving target against a moving trunk; the merge result is the
+thing both sides actually agree on.
