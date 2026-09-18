@@ -1141,3 +1141,26 @@ The corollary for the desk's own output: printing a plan's baseline against the
 current tip is an observation and costs one field read, because the artifact already
 records the sha it was planned on. Turning that observation into a gate is the
 remaining work, and it is the path intersection rather than the read.
+
+## Never label a stacked child and its base in the same pass
+
+I labelled a parent and its child three minutes apart. The parent landed, which
+deleted its branch, and the forge auto-closed the child whose base that branch was.
+Retarget refused, reopen refused. The child's work survived on its branch and the
+pull request did not — it needs a replacement number, which loses its review history
+and its CI record.
+
+The desk already had the rule that a held child dies when its base lands. What it did
+not have is that **labelling is what makes the base land**, so the desk is the agent
+of the deletion rather than a bystander to it.
+
+The order is: land the base, wait for the lane to retarget the child to trunk, then
+grade and label the child. A child still based on another pull request's branch is not
+labellable however clean its plan reads, and the tell is one field — the base ref is
+not the trunk.
+
+The recoverable case is worth checking before declaring a loss: confirm the head
+branch still exists on the remote, that it merges cleanly into trunk, and whether it
+already contains the parent's squash. All three held here, which made it a re-submit
+rather than a reconstruction. Note the surviving branch tip may not be the sha the
+dead pull request records; resolve it from the remote, not from the PR.
