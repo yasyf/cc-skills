@@ -1047,3 +1047,33 @@ the merge rather than the head, a head that has fallen behind a trunk landing wh
 renamed, moved or deleted anything is unverified however green it reads — and the
 cheap tell is whether any landing since the branch's base touched a symbol the branch
 imports.
+
+## Pin the input before comparing two verdicts
+
+I proved a widened bar applied a previously-refused op by reading the new verdict and
+the post-apply plan. Sound, and weaker than what the bar's author did: they held the
+**plan digest** constant across the two landings, so the verdict was the only thing
+that differed.
+
+That distinction is the whole difference between a comparison and a coincidence. A
+changed outcome on a changed plan proves nothing about the change you are testing. I
+had the digest in front of me and used it only to confirm I was looking at the same
+plan the lane had measured, not as the control it actually was.
+
+Their second reading is worth copying too: a `create` that reads `same` on the next
+plan is the resource existing, which answers the live question without a credential
+for the provider's console.
+
+## An empty refused column is also what a broken grader looks like
+
+The bar's author named a consequence of widening it that the desk should expect:
+fewer refusals, more stacks converging, and a refused column mostly empty rather than
+mostly noise. One stack that had applied nothing now applies three updates the old
+bar would have refused.
+
+Which means the desk loses its loudest signal exactly when the estate gets healthier.
+A refused column at zero is what success looks like and it is also what a grader
+pointed at the wrong artifacts, a stale contract, or a pagination bound looks like.
+**Keep reading verdict artifacts positively rather than watching for refusals to
+appear.** Absence of the bad signal was never the good one, and it is worth least at
+the moment it becomes most common.
