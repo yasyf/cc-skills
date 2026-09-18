@@ -1117,3 +1117,27 @@ whole class rather than the one op type that happened to be noticed.
 The general error was reaching for the surface I grade rather than the surface that
 holds the evidence. Ask which layer can actually see the thing being distinguished
 before proposing a rule anywhere.
+
+## A staleness gate must not read the tree it is judging
+
+A gate that detects stale plans by reading tree contents at gate time inherits
+exactly the staleness it exists to catch: the tree it reads has moved too, so its
+verdict is a statement about a moment that has already passed.
+
+So its comparison has to be diff-local. Which paths did the commits between the
+plan's baseline and the current tip touch, intersected against the paths that stack
+reads. That is a question about commits and paths, both immutable once written, and it
+stays true whatever moves underneath it. Reading the tree asks a question whose answer
+expires.
+
+The same shape decides which claims are cheap anywhere near a moving head. A
+**diff-local** argument — these two file sets do not intersect, so a squash cannot
+drop a file it does not touch — holds whatever the head. An **ancestry** argument
+survives only because heads move forward, which is monotone but fragile. A claim about
+**tree contents** is void the moment anything pushes. Prefer the first, accept the
+second knowing why it works, and re-read before making the third.
+
+The corollary for the desk's own output: printing a plan's baseline against the
+current tip is an observation and costs one field read, because the artifact already
+records the sha it was planned on. Turning that observation into a gate is the
+remaining work, and it is the path intersection rather than the read.
