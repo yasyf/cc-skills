@@ -1361,3 +1361,42 @@ the file a future reader will trust.
 The compounding cost is what makes this worth a contract. A wrong red diagnosis does not
 merely fail to help. It sends a lane to rebase, amend, or rerun, and it spends their
 time on a hypothesis you could have falsified before sending it.
+
+## A retirement's effect on the stack it retires from is ungraded
+
+Every gate around a retirement asks what the deletion breaks in the repository. Does a
+test still name a deleted path, does a component directory still have an importer, does the
+diff carry the append its predecessor needed. None of them asks the question that actually
+matters to the running system: after this retirement, is any live resource in the surviving
+stack left claimed by nothing.
+
+The case that proved it cost an estate-wide outage. A retirement removed eight instances
+and fifty-nine files from one stack, all tofu component directories and atmos entries,
+which is exactly the class that touches nothing live. It passed the deleted-path check
+because no deleted path was named in code. Its review covered the deleted tests and the
+invariants re-homed to replace them, thoroughly and correctly. It landed. The next apply of
+that stack then ran, succeeded, and reported three parameters still wanting adoption
+afterwards, so the post-apply re-preview was not all-same, the job failed, and **every
+landing build after it failed on the same job**. Seven commits went unapplied before anyone
+noticed, including a production change that had been waiting on a twenty-four hour
+condition.
+
+Two things follow, and the first is the cheap one.
+
+The detection is trivial and nobody was doing it: a landing pipeline that fails on the same
+job across several consecutive and unrelated commits is one cause, not several. Walk the
+build list back to the last pass and the boundary names the commit. That is two reads and it
+converts an unexplained red into a dated one. Uniformity across independent inputs is the
+signal, whether the common factor is an instrument or a landed change.
+
+The prevention is the harder one and it belongs in the retirement's own gate. The question
+to add is whether the stack still adopts everything it adopted before, asked of the stack
+rather than of the diff. A retirement that removes the records through which live resources
+were claimed leaves those resources orphaned, and the repository looks fine: the rows are
+consistent, the tests pass, the deleted paths have no readers. Only a plan against the
+surviving stack shows it, and only a post-apply plan shows it as the failure it becomes.
+
+One caution on the report. The temporal boundary and the scope overlap together are strong
+evidence and they are still not a mechanism. Name them as what they are, ask the owning lane
+the question that decides the fix, and do not narrate a causal chain from a deleted
+directory to an orphaned resource until someone has read one.
