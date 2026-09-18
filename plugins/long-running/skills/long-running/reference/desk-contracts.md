@@ -1263,3 +1263,46 @@ When the fix lands on the lane, say which fix. Carrying the fixture into the tes
 keeps every assertion alive; deleting the failing tests also turns the build green. In
 the real case one of the four was the only thing checking that no branch outside the
 release picker receives a grant, and nothing in the failure output said so.
+
+## A landing verdict has no post-apply census, only a post-apply boolean
+
+An apply verdict looks like it reports what the apply did. It does not. Its `ops`
+table is the census of the plan that was approved *before* the apply ran, echoed into
+the record; the engine builds it from the pre-apply plan and there is no post-apply
+plan artifact anywhere in the build. The only post-apply evidence a landing produces
+is one boolean, set from a re-preview taken after the write and evaluated for
+no-op-ness.
+
+This matters because an `ops` table showing updates on a verdict that succeeded reads
+exactly like a stuck plan: the change appears still pending. It is not pending. It is
+the approved proposal being reprinted next to the outcome. Reading it as the outcome
+produces a confident false negative on a resource that did converge, and the shape is
+seductive because the numbers are real and internally consistent.
+
+The correction runs deeper than it first looks. The wrong rule to reach for is that a
+post-apply plan cannot equal the verdict's census. That invents a comparison: there is
+no post-apply plan in the artifact set, so nothing is being compared. The right rule
+is that the census and the boolean answer different questions, and only one of them is
+about the apply.
+
+The boolean carries one exception worth naming, because it is the common case on a
+converged resource. When every op in the approved plan is `same`, the engine
+short-circuits before opening the stack: it logs that there is nothing to apply and
+returns the boolean hardcoded true, never taking the after-preview. So on an all-`same`
+verdict, true means nothing was proposed, which is sound but is not the same fact as a
+re-preview confirming convergence. Two readings, stated separately:
+
+- `ops` all `same` plus a true boolean: nothing was proposed, nothing was verified.
+- a non-`same` op plus a true boolean: a post-apply re-preview found no offender.
+
+Only the second is post-apply evidence, and a report that blurs them overclaims on
+precisely the runs where the resource was already in the desired state.
+
+One further trap sits next to this. The predicate that decides admission may be
+reached through more than one import path and still be one function, while a *string*
+describing what is admitted is composed separately from a constant that the widening
+left behind. When a refusal message lists fewer op classes than the gate admits, the
+gate is right and the message is stale. A reader comparing the message against the
+artifact will conclude the predicate diverged. Check whether the thing that disagrees
+decides anything before reporting a divergence: prose in an error message decides
+nothing.
