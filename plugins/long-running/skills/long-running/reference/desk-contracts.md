@@ -1225,3 +1225,41 @@ request's own file count, so a mis-split throws instead of matching nothing. And
 a pathspec-based verdict stand alone — `git merge-base --is-ancestor <head> trunk` and
 `git ls-tree -d trunk <a directory the PR deletes>` are one call each, and neither can be
 fooled by a bad pathspec.
+
+## A cached unit can skip the job that grades a deletion
+
+A green status answers a question about the cache key, not about the suite. When a
+cache unit judges itself untouched, the job it guards does not run slowly or return
+empty — it never appears in the build at all, and the combined status is `success`.
+Grading a retirement on that green is grading a test that did not execute.
+
+The gap is specific and it is not the one the repo already enforces. A coverage test
+checks that a unit's reads reach every path a cached step's *command* executes.
+Nothing checks the paths that step's *code opens at runtime*. A test whose source
+lives inside the unit can read a data file far outside it, and deleting that data file
+moves no cache key. Measured on one real PR: 68 files changed, every one under a
+prefix the unit excludes, unit reported untouched, job absent, branch green. The merge
+commit missed the cache for unrelated reasons, ran the job, and four tests died on
+`ENOENT` against two snapshot files the PR had deleted.
+
+So a retirement is the case where a branch build is least able to grade itself, which
+is the opposite of the intuition: deleting a directory looks like the most visible
+change a diff can make, and it is the one most likely to be invisible to the cache.
+
+The gate is cheap and belongs before the label, not after the rejection. For every
+file the pull request deletes, grep the literal path across **the pull request's own
+head tree** and refuse on a hit. Greping the head rather than trunk is what makes it
+usable: a PR that retires a file and fixes its reader in the same commit passes, while
+one that retires only the file is refused. Control-test it in both directions before
+trusting it — on the known-bad input it must name the reading file, and on a PR that
+deletes a genuinely unread file it must pass.
+
+Its limit is worth stating in the same breath, because a gate that is believed to
+cover more than it does is worse than none. It matches literal paths. It cannot see a
+test that asserts on a *name* derived from a deleted entry rather than on a path, so a
+hard red of that shape still has to be read from the build.
+
+When the fix lands on the lane, say which fix. Carrying the fixture into the test tree
+keeps every assertion alive; deleting the failing tests also turns the build green. In
+the real case one of the four was the only thing checking that no branch outside the
+release picker receives a grant, and nothing in the failure output said so.
