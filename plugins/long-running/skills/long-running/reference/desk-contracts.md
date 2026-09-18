@@ -993,3 +993,57 @@ The real fix is upstream and not yet built: grade the *merge* of the head with
 current trunk rather than the head itself, since the merge is what the queue will
 build. A head is a moving target against a moving trunk; the merge result is the
 thing both sides actually agree on.
+
+## A refusal count is not the stack's cost
+
+I reported one stack's inadmissible `create` as "the entire refused column, the only
+offender across 178 stacks", and concluded the owning lane owed nothing. The refusal
+count was right. The conclusion was wrong, and the cost was a customer-visible defect
+left live for hours.
+
+That stack carried two real ops. The create the bar refused, and an `adopt` on a
+firewall ruleset that the bar admitted — and which was the actual fix for a rule
+ordering that was returning 403 to every update request from one country. **A landing
+skips per stack, not per op**, so the one inadmissible op took the admitted one down
+with it, and nothing in that stack had applied since the PR landed.
+
+The mechanical failure is how the desk reads its own output. The grader prints the
+offenders and the op census; I read the offenders. The census said `1 adopt, 1 create,
+34 same, 3 update` in every message I sent, and I never asked what the adopt was,
+because an admitted op felt like it needed no attention. An admitted op on a refused
+stack is not applied. It is stuck, exactly like the offender.
+
+So report a refusal as the whole pending set, never as the offender alone, and when
+telling a lane they owe nothing, ask what else that stack is holding.
+
+## Pagination bounded at a guess reads truncation as absence
+
+Reading the verdict for that same stack, I looped four pages of 100 artifacts, found
+no apply verdict, and nearly reported the stack as never applied. The build had 1500
+artifacts; the file was on page five.
+
+Third instance of this shape: a file list truncating at 30 without `--paginate`, a
+build lookup scanning the last 30 builds and returning a false "none" on four heads,
+and now a page bound I chose myself. **Loop until the page comes back empty.** A
+bound picked to feel generous is a silent-zero generator, and the failure always
+points the same way — absence, which reads as a clean answer.
+
+## A clean merge is not a compiling merge
+
+A PR sat labelled, `mergeable_state: clean`, every check green, and would have landed
+a type error. Another lane's PR had landed a rename; this branch imported the old
+symbols. The rebase applied with **no conflict**, because nothing overlapped
+textually, and the branch's own CI had run against a trunk that still had the old
+names.
+
+So the three signals the desk leans on — combined status, mergeable state, a green
+suite — are all statements about the head against the trunk *it was built on*.
+Nothing in a pull request's own checks evaluates the merge result against a trunk
+that has moved since. Textual mergeability and semantic compatibility are different
+properties, and git only reports the first.
+
+The queue ejected it, which was luck rather than a safety net. Until the desk grades
+the merge rather than the head, a head that has fallen behind a trunk landing which
+renamed, moved or deleted anything is unverified however green it reads — and the
+cheap tell is whether any landing since the branch's base touched a symbol the branch
+imports.
