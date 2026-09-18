@@ -1298,11 +1298,33 @@ re-preview confirming convergence. Two readings, stated separately:
 Only the second is post-apply evidence, and a report that blurs them overclaims on
 precisely the runs where the resource was already in the desired state.
 
-One further trap sits next to this. The predicate that decides admission may be
-reached through more than one import path and still be one function, while a *string*
-describing what is admitted is composed separately from a constant that the widening
-left behind. When a refusal message lists fewer op classes than the gate admits, the
-gate is right and the message is stale. A reader comparing the message against the
-artifact will conclude the predicate diverged. Check whether the thing that disagrees
-decides anything before reporting a divergence: prose in an error message decides
-nothing.
+## Read the trunk, not the checkout, for any claim about the trunk
+
+A shared checkout sits on whatever branch someone left it on. Ours was a branch with
+1958 files different from the trunk. Every plain `grep`, `sed`, `cat` or bounded-reader
+call against a path in it therefore describes an unlanded branch, and nothing in the
+output says so. The command, the flags and the result all look identical to a trunk read.
+
+This is the worst-shaped error available to a desk, because it is silent, it flatters
+whoever runs it, and it fires hardest exactly when it matters. A branch usually contains
+the change you are looking for, so the reading confirms whatever you already believed.
+Used once, it produced a confident rebuttal of a correct finding from another lane,
+complete with quoted line numbers that existed nowhere on the trunk. The lane could not
+reproduce it at any sha, said so precisely, and asked which sha had been read. There was
+no sha: the answer was a working tree.
+
+So a claim about the trunk is read from the trunk by name, with `git show
+<remote>/<trunk>:<path>`, `git ls-tree`, or `git log`. Never a bare path. When the error
+is found, audit the whole session rather than the one claim: in the real case the engine
+reading survived with its line numbers off by nine, the cache-unit reading survived
+because the relevant absence held on both trees, and only the release path was wrong.
+Two of three surviving is not a reason to trust the method; it is the reason the method
+is dangerous.
+
+The compounding lesson is about teaching. The same desk had, minutes earlier, corrected
+another lane for concluding a failure was on the trunk when their tree was merely clean
+of their own edits, and had told them a tree clean of your changes and a tree current
+with origin are different facts. Then it made the identical mistake in a stronger form,
+not stale but a different branch entirely, and used the result to overrule a correct
+report. A rule you are actively teaching is not a rule you are following. Check yourself
+against the rule you just wrote down, in the same hour you wrote it.
