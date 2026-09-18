@@ -954,28 +954,37 @@ that admits everything and a bar that is never consulted look identical from a g
 build**; a non-degenerate distribution distinguishes them. Ask what a guard writes,
 not only what it returns.
 
-## A label is not a promise, and an ejection is silent
+## RETRACTED: label absence is not an ejection. Read the queue's twin
 
-Two PRs I labelled did not land and nothing said so. The merge queue ejects by
-removing the `merge` label and doing nothing else: no comment, no commit status, no
-message. One sat recorded as queued for twenty minutes while it was idle and
-ejected; the other was ejected from `mergeable_state: clean` with every build on its
-head green and no trial-merge sha to blame, its only anomaly a base 309 commits
-behind the trunk.
+An earlier version of this section said the queue ejects silently by removing the
+`merge` label, and that two agreeing samples minutes apart distinguish an ejection
+from a merge in flight. **Both claims are wrong and the section caused four wrong
+verdicts.**
 
-So the desk's own record drifts in the one direction that matters: a lane waits on a
-squash that will never come while the ledger reports the PR in flight. **After
-labelling, confirm the landing. Do not assume it.**
+`graphite-app[bot]` removes that label from every pull request 15 to 208 seconds after
+it is applied, on the ones that land as well as the ones that do not: the removal is
+the queue consuming the request at pickup. Two samples of a meaningless field agree
+with each other, which is why the "confirmation" felt like corroboration.
 
-The tell is the `merge` label's absence together with no squash on the trunk and the
-PR still open. But that is also exactly what a merge in flight looks like, because
-the label is removed at pickup too — the same ambiguity that once had me report a
-labelled PR as never-queued when it had already landed. **One sample cannot tell
-those apart.** Two samples minutes apart that agree can, and the checker refuses to
-rule on the first one rather than guessing.
+**The sound check is the queue's draft twin.** Find the
+`[Graphite MQ] Draft PR GROUP:* (PRs <n>)` pull request and read its `buildkite/test`:
+red is the real ejection and its failing job names the cause; green means it merged.
+**No twin at all means the PR never entered the queue**, and then the cause is a
+conflict rather than a test. The reason is also quoted verbatim in the PR's "Merge
+activity" comment. Distance behind the trunk predicts none of this.
 
-On a confirmed ejection the head needs a rebase before any re-label. Re-labelling a
-head the queue keeps dropping is a loop, not a retry.
+Two failure shapes hide under the same symptom, both invisible on the PR's own head.
+A **semantic merge conflict** git resolves with no marker — the branch imports a symbol
+the trunk renamed in the same region — kills the twin in `Render and upload the
+pipeline`, which compiles the definition and so produces no test result at all. And a
+**textual conflict with the batch already in flight**, on a file every PR of that kind
+appends to, drops the second of any two queued together; label those one at a time.
+
+The wider lesson is the expensive one. This knowledge was already written down and
+indexed before the night began, on three separate lines, and a fresh contradicting
+note got written and acted on instead. **Before building a detector on the absence of
+something, confirm the thing is present in the good case** — one query asking whether a
+landed PR also loses its label would have ended it immediately.
 
 ## Grade the merge, not the head, when the trunk moves faster than you
 
