@@ -1400,3 +1400,34 @@ One caution on the report. The temporal boundary and the scope overlap together 
 evidence and they are still not a mechanism. Name them as what they are, ask the owning lane
 the question that decides the fix, and do not narrate a causal chain from a deleted
 directory to an orphaned resource until someone has read one.
+
+## A test that encodes the same wrong constant cannot catch it
+
+The four failures in one night that cost the most all had one shape: a check that could not
+fail on the input it existed to catch. Three were infrastructure. The fourth was a plain
+tautology and is the purest instance, so it is the one to remember.
+
+A constant declared `COUNT = 3` carried a comment naming it the wire code for a count. The
+value is the code for a gauge; count is 1. A test asserted the emitted type equalled 3 and
+passed. So the suite confirmed the defect, confidently, on every run. The test pinned the
+constant rather than checking it, and a pin and a check are indistinguishable from the
+outside: both are green, both name the right field, both would fail if someone changed the
+code.
+
+What settles a constant is never a test in the same repository. It is the upstream
+definition, read twice from independent sources. In the real case the lane read the enum
+from the vendor's TypeScript client and its Go client and got the same four values, then
+cited both in the body so the next reader does not repeat the lookup. That is the standard
+for any value whose meaning lives outside the tree: wire codes, API enums, header names,
+severity levels, resource type strings.
+
+The generalisation is about what a test can witness. A test witnesses a relationship between
+two things in the tree. When one of them is a claim about the outside world, the test is
+mute on the claim however precisely it pins the relationship. So a constant whose name
+asserts something the value may not is not made safer by more assertions on it; it is made
+safer by a citation.
+
+Two habits follow. When a value came from a doc, a vendor client or an API response, put the
+source in the body and not only in the commit, because the body is what a future reader has.
+And when a reviewer says a constant looks wrong, do not answer with the passing test. Read
+the upstream definition, because the test and the constant are the same claim twice.
