@@ -35,7 +35,7 @@ def desk_shell(**pull) -> FakeShell:
     }
     shell.commit_dates[HEAD] = stamp(timedelta(minutes=-5))
     shell.pull_heads[PR] = HEAD
-    shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
+    shell.routes[f"checks:{HEAD}"] = "check-runs-green.json"
     return shell
 
 
@@ -185,11 +185,11 @@ def test_label_refuses_a_red_status_or_failed_check(capsys):
     assert "REFUSED failed check runs on 3f3acff97: buildkite/test/gate-sand-build-timing" in capsys.readouterr().out
 
 
-def test_label_refuses_a_closed_pr_because_landing_is_read_from_the_base_log(capsys):
+def test_label_refuses_a_closed_pr_because_landing_is_read_from_the_base_tree(capsys):
     shell = desk_shell(state="closed")
 
     assert label(shell) == 1
-    assert "REFUSED #21221 is closed; a landing is read from the dev log" in capsys.readouterr().out
+    assert "REFUSED #21221 is closed; a landing is read from the dev tree" in capsys.readouterr().out
 
 
 def test_label_with_a_checkout_refuses_a_head_that_conflicts_with_the_base(capsys, tmp_path):
@@ -242,11 +242,11 @@ def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     assert shell.fields(PR)["label_pulled_at"] == ""
 
 
-def test_landed_is_read_from_the_base_log_never_from_merged(capsys, tmp_path):
+def test_landed_is_read_from_the_base_tree_never_from_merged(capsys, tmp_path):
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
-    shell.base_log = [("f" * 40, "infra: later change (#21230)"), (SQUASH, f"lightning: bake policy (#{PR})")]
-    shell.commit_dates[SQUASH] = "2026-09-16T08:00:00+00:00"
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
 
@@ -255,19 +255,90 @@ def test_landed_is_read_from_the_base_log_never_from_merged(capsys, tmp_path):
     assert row["landed_sha"] == SQUASH
     assert row["landed_at"] == "2026-09-16T08:00:00Z"
     assert row["lane"] == LANE
-    assert f"landed #{PR} as {SQUASH[:9]} on dev" in capsys.readouterr().out
+    assert f"landed #{PR}, payload delivered by {SQUASH[:9]} on dev" in capsys.readouterr().out
     assert not [argv for argv in shell.calls if "graphql" in " ".join(argv)]
 
 
-def test_a_body_mention_of_the_number_is_not_a_landing(tmp_path):
+def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, tmp_path):
+    """The parent merges as a no-op, so no commit on the base ever carries its number."""
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
-    shell.base_log = [("f" * 40, f"infra: mentions (#{PR}) in passing (#21230)")]
+    shell.pr_files[PR] = ["infra/rows/storage/vpc-flow-logs-bucket.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-17T01:55:07+00:00")
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert not [argv for argv in shell.calls if "--grep" in argv], "the base log is never searched by number"
+
+
+def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR)["state"] == "closed-without-squash"
     assert "landed_sha" not in shell.fields(PR)
+
+
+def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, tmp_path):
+    """A squash onto a moved base equals neither side, so content cannot see it."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.base_squash = "abc1234def5 infra: something that carried it (#21221)"
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert "which has moved on its files since" in capsys.readouterr().out
+
+
+def test_the_queues_bot_closing_a_stacked_child_is_not_a_landing(tmp_path):
+    """Deleting a parent's branch closes its child through the same bot, landing nothing."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/ci/refresh-cluster-lock.sh"]
+    shell.closed_by[PR] = "graphite-app[bot]"
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+
+
+def test_an_externally_merged_label_settles_nothing(tmp_path):
+    """The queue applies it to open pull requests whose content never reached the trunk."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.pr_labels[PR] = ["externally-merged"]
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+
+
+def test_a_person_closing_it_is_not_a_landing(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.closed_by[PR] = "yasyf"
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+
+
+def test_a_pr_with_no_files_never_reads_as_landed(tmp_path):
+    """An empty file list makes every diff empty, which would land every empty row."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
 
 
 def test_landed_leaves_open_prs_alone_and_never_rereads_a_landed_row(tmp_path):
@@ -349,3 +420,111 @@ def test_init_creates_the_ledger_and_prints_its_id(capsys):
 
     ledger_id = capsys.readouterr().out.strip()
     assert shell.stores[ledger_id]["title"] == "desk: civ2"
+
+
+def test_reconcile_settles_a_row_nobody_touched(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+
+    assert run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+    assert "reconciled 1 non-terminal rows, 1 moved" in capsys.readouterr().out
+
+
+def test_reconcile_rereads_no_terminal_row(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "landed"}})
+
+    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert not [argv for argv in shell.calls if argv[:2] == ["gh", "api"] and f"pulls/{PR}" in " ".join(argv)]
+
+
+def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+
+    assert run(shell, "summary", "--ledger", LEDGER, "--repo", REPO, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    out = capsys.readouterr().out
+    assert out.index(f"landed #{PR},") < out.index("desk 2"), "reconcile must run before the report prints"
+
+
+def test_summary_without_a_checkout_prints_without_reconciling(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+
+    assert run(shell, "summary", "--ledger", LEDGER) == 0
+
+    assert shell.fields(PR)["state"] == "labelled"
+
+
+def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
+    """Neutral is not a failure and is absent from the combined status, so nothing else sees it."""
+    shell = desk_shell()
+    shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
+
+    assert label(shell) == 1
+    assert "REFUSED ai-review is neutral" in capsys.readouterr().out
+
+
+def test_label_refuses_an_absent_ai_review(capsys):
+    shell = desk_shell()
+    shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
+
+    assert label(shell) == 1
+    assert "REFUSED ai-review is absent" in capsys.readouterr().out
+
+
+def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
+    """The forge closes the child when the parent's branch is deleted, and reopen is refused."""
+    shell = desk_shell()
+    shell.children = [{"number": 21720}]
+
+    assert label(shell) == 1
+    out = capsys.readouterr().out
+    assert "is the base of #21720" in out
+    assert "BEFORE labelling" in out
+
+
+def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
+    """Trunk traversal truncates at a depth that moves with every fetch."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.shallow = True
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
+    assert "shallow clone" in capsys.readouterr().err
+    assert shell.fields(PR).get("state") is None
+
+
+def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(capsys, tmp_path):
+    """A concurrent fetch in another worktree loses the ref lock."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.fetch_fails = "cannot lock ref 'refs/remotes/origin/dev'"
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
+    assert "cannot lock ref" in capsys.readouterr().err
+    assert shell.fields(PR).get("state") is None
+
+
+def test_reconcile_reports_a_queue_ejection_on_a_row_that_still_reads_open(capsys, tmp_path):
+    """An ejection and a landing both end with the queue's bot removing the label."""
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.ejected[PR] = ("2026-09-17T02:04:29Z", "2026-09-17T02:09:24Z")
+
+    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert "EJECTED by the queue at 2026-09-17T02:09:24Z" in capsys.readouterr().out
+    assert shell.fields(PR)["ejected_at"] == "2026-09-17T02:09:24Z"

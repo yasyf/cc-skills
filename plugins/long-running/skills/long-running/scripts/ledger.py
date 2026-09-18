@@ -21,7 +21,8 @@ STDLIB ONLY. A PR row exists because one of our lanes reported it, or because re
 was handed its number; the repository's PR list is never read and GraphQL is never
 called. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows in the same ledger. A landing is proven by the
-squash on the base branch in ``--checkout``, never by the PR's merged field. Buildkite
+base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
+merged field and never by searching the base log for its number. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
 """
@@ -51,11 +52,12 @@ LABELLABLE_STATES = ("clean", "behind", "has_hooks")
 FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
 SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
-LOG_DEPTH = "400"
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
+QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
+TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -116,7 +118,7 @@ ROUTE_TEXT = (
     "(PR, head, verdict); the merge label waits on that head reading green and merge-clean."
 )
 REFUSAL = {
-    "closed": "#{pr} is {state}; a landing is read from the {base} log, never labelled",
+    "closed": "#{pr} is {state}; a landing is read from the {base} tree, never labelled",
     "moved": "head moved: expected {expected}, the forge has {head}; grade the new head before labelling",
     "held": "#{pr} is held: {reason} until {until}",
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
@@ -127,6 +129,10 @@ REFUSAL = {
     "checks": "failed check runs on {head}: {names}",
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
     "fetched": "refs/pull/{pr}/head is {fetched} on the forge, not {head}",
+    "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
+    "children": "#{pr}'s branch {branch} is the base of {children}; retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
+    "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
 }
 
 
@@ -223,6 +229,51 @@ def default_lock(ledger: str) -> Path:
 def refuse(kind: str, **values: object) -> int:
     print(f"REFUSED {REFUSAL[kind].format(**values)}")
     return 1
+
+
+def is_shallow(shell: Shell, checkout: Path) -> bool:
+    return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+
+
+def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
+    """Fetch, converting a failure into ForgeUnreachable.
+
+    A concurrent fetch in another worktree loses the ref lock, and a pass that grades
+    after a failed fetch grades the previous state while reporting it as current.
+    """
+    try:
+        shell.run(["git", "-C", str(checkout), "fetch", "-q", "origin", *refs])
+    except subprocess.CalledProcessError as error:
+        raise ForgeUnreachable(REFUSAL["fetch"].format(ref=" ".join(refs), detail=(error.stderr or "").strip())) from error
+
+
+def open_children(gh: Github, branch: str) -> list[str]:
+    """Open pull requests whose base is this branch.
+
+    Scoped to one branch we own, never a repository listing. A child left on a parent's
+    branch is closed by the forge when that branch is deleted, and reopening is refused,
+    so the retarget has to happen before the parent carries a label rather than in a
+    race with its landing.
+    """
+    return [str(pull["number"]) for pull in gh.api("pulls", base=branch, state="open")]
+
+
+def queue_ejected(gh: Github, pr: str) -> str:
+    """When did the queue eject this pull request, if it did?
+
+    An ejection and a landing look identical: both end with the queue's bot removing
+    the merge label. Only the events separate them, and nothing announces an ejection.
+    """
+    events = gh.api(f"issues/{pr}/events?per_page=100")
+    labelled = [e["created_at"] for e in events if e["event"] == "labeled" and e["label"]["name"] == MERGE_LABEL]
+    ejected = [
+        e["created_at"]
+        for e in events
+        if e["event"] == "unlabeled" and e["label"]["name"] == MERGE_LABEL and e["actor"]["login"] == QUEUE_BOT
+    ]
+    if ejected and (not labelled or ejected[-1] > labelled[-1]):
+        return ejected[-1]
+    return ""
 
 
 def ai_review(checks: dict) -> str:
@@ -378,17 +429,42 @@ def route_message(pr: str, head: str, lane: str, job: str, verdict: str) -> str:
     return f"to {lane}:\n{body}\n{ROUTE_TEXT}"
 
 
-def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[str, str] | None:
+def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str, head: str) -> tuple[str, str] | None:
+    """Does the base tree hold this PR's payload right now?
+
+    Tree equality proves a landing. A difference proves nothing, so this returns None
+    for "cannot tell from content" and the caller consults the forge. Two findings put
+    it that way: the base can take the payload and then move on one of the files, and a
+    squash onto a moved base merges branch with base, so the result equals neither side
+    for a file both touched and the head's blob never appears in history at all.
+
+    What content answers and the forge cannot: a stacked child carrying its parent's
+    payload, after which the parent merges as a no-op under no number of its own. No
+    commit on the base ever carries that number, so searching the log for ``(#<pr>)``
+    finds nothing. A shallow checkout truncates that search further, at a depth that
+    moves with each fetch.
+
+    Two dots, never three: three would diff against the merge base and report the
+    branch side regardless of what the base received. Both sides are named refs rather
+    than ``FETCH_HEAD``, which the second fetch would otherwise move onto the head,
+    making every row diff against itself and read as landed.
+    """
     git = ["git", "-C", str(checkout)]
-    shell.run(git + ["fetch", "-q", "origin", base])
-    suffix = f"(#{pr})"
-    log = shell.run(git + ["log", "FETCH_HEAD", "--format=%H %s", "-n", LOG_DEPTH, "--fixed-strings", f"--grep={suffix}"])
-    for line in log.splitlines():
-        sha, _, subject = line.partition(" ")
-        if subject.endswith(suffix):
-            landed_at = shell.run(git + ["log", "-1", "--format=%cI", sha]).strip()
-            return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
-    return None
+    if is_shallow(shell, checkout):
+        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
+    files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
+    if not files:
+        return None
+    tip = f"refs/desk/base/{base}"
+    fetch(shell, checkout, f"+refs/heads/{base}:{tip}")
+    fetch(shell, checkout, f"+refs/pull/{pr}/head:refs/desk/pr{pr}")
+    if shell.run(git + ["diff", "--numstat", tip, head, "--"] + files).strip():
+        return None
+    delivered = shell.run(git + ["log", tip, "-1", "--format=%H %cI", "--"] + files).split()
+    if not delivered:
+        return None
+    sha, landed_at = delivered[0], delivered[1]
+    return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
 
 
 def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> str | None:
@@ -588,9 +664,16 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     status = gh.api(f"commits/{head}/status")
     if status["state"] != "success":
         return refuse("status", state=status["state"], head=head[:9])
-    failed = [run["name"] for run in gh.api(f"commits/{head}/check-runs")["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
+    checks = gh.api(f"commits/{head}/check-runs")
+    failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
         return refuse("checks", head=head[:9], names=", ".join(failed))
+    verdict = ai_review(checks)
+    if verdict != "success":
+        return refuse("ai-review", state=verdict, head=head[:9])
+    children = open_children(gh, pull["head"]["ref"])
+    if children:
+        return refuse("children", pr=args.pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=base)
     if args.checkout:
         conflict = merge_conflicts(shell, args.checkout, args.pr, base, head)
         if conflict:
@@ -616,29 +699,71 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> str:
+    """The squash the base log names for this PR, if there is one.
+
+    Asked only when content cannot tell, which is whenever the base moved on one of the
+    PR's files after the squash.
+
+    Nothing the forge asserts about itself is admissible here. The closing actor proves
+    nothing, because the queue's bot also closes a stacked child when its base branch is
+    deleted, landing nothing. The queue's own `externally-merged` label proves nothing
+    either: it is applied to OPEN pull requests whose content never reached the trunk —
+    two carried it while their trees still differed and no commit named them. Only the
+    trunk answers, through its tree or through a commit it names.
+    """
+    git = ["git", "-C", str(checkout)]
+    log = shell.run(git + ["log", f"refs/desk/base/{base}", "--oneline", "-400", "--fixed-strings", f"--grep=(#{pr})"])
+    return log.split(" ", 1)[0] if log.strip() else ""
+
+
+def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
+    moved = 0
+    for pr in prs:
+        pull = gh.api(f"pulls/{pr}")
+        if pull["state"] == "open":
+            ejected = queue_ejected(gh, pr)
+            if ejected:
+                notes.set_fields(pr, {"ejected_at": ejected})
+                print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
+            continue
+        base = pull["base"]["ref"]
+        delivered = landed_on_base(shell, gh, checkout, base, pr, pull["head"]["sha"])
+        if delivered:
+            sha, landed_at = delivered
+            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
+            print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
+        elif (squash := squash_on_base(shell, checkout, base, pr)):
+            notes.set_fields(pr, {"state": LANDED, "landed_sha": squash, "base": base})
+            print(f"landed #{pr} as {squash[:9]} on {base}, which has moved on its files since")
+        else:
+            notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
+            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: a human closed it and its payload is absent, so the row stays until its lane answers")
+        moved += 1
+    return moved
+
+
 def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     rows = notes.pr_rows()
-    for pr in [args.pr] if args.pr else sorted(rows, key=int):
-        if rows.get(pr, {}).get("state") == LANDED:
-            continue
-        pull = gh.api(f"pulls/{pr}")
-        if pull["state"] == "open":
-            continue
-        base = pull["base"]["ref"]
-        squash = squash_on_base(shell, args.checkout, base, pr)
-        if squash:
-            sha, landed_at = squash
-            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
-            print(f"landed #{pr} as {sha[:9]} on {base} at {landed_at}")
-        else:
-            notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
-            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}; a base deletion reads the same as a landing, so the row stays until its lane answers")
+    prs = [args.pr] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
+    settle(shell, gh, notes, args.checkout, prs)
+    return 0
+
+
+def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    rows = notes.pr_rows()
+    open_rows = [pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES]
+    moved = settle(shell, Github(shell, args.repo), notes, args.checkout, sorted(open_rows, key=int))
+    print(f"reconciled {len(open_rows)} non-terminal rows, {moved} moved")
     return 0
 
 
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
+    if args.repo and args.checkout:
+        cmd_reconcile(args, shell)
     print("\n".join(summary_lines(Notes(shell, args.ledger).rows(), now(), timedelta(seconds=args.window_seconds))))
     return 0
 
@@ -755,8 +880,15 @@ def build_parser() -> argparse.ArgumentParser:
     landed.add_argument("--pr")
     landed.set_defaults(handler=cmd_landed)
 
+    reconcile = subparsers.add_parser("reconcile", help="settle every non-terminal row against the trunk and the forge")
+    add_ledger(reconcile, repo=True)
+    reconcile.add_argument("--checkout", type=Path, required=True)
+    reconcile.set_defaults(handler=cmd_reconcile)
+
     summary = subparsers.add_parser("summary", help="the hourly desk-to-root report, at most ten lines")
     add_ledger(summary)
+    summary.add_argument("--repo")
+    summary.add_argument("--checkout", type=Path)
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
     summary.set_defaults(handler=cmd_summary)
 
