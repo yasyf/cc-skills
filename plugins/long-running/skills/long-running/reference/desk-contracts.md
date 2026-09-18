@@ -1438,29 +1438,39 @@ Four failures in one night were checks that ran and lied. A fifth is worse and r
 nothing at all: the evidence class the desk grades from does not exist for the change in
 front of it.
 
-Two instances, hours apart. A retirement gate takes its plan before the apply, so it
-structurally cannot see a residue the apply itself manufactures; the gate was honest and
-the property was outside its reach. Then a pull request touching only adoption records
-scheduled no plan, because plans are scheduled by the trees a diff reaches and records are
-not one of them. Its checks were green, its reviewer found nothing, and neither fact spoke
-to whether the change did what it claimed. Both left "the change is correct" ungraded until
-the landing.
+One real instance, and one I got wrong in a way worth recording beside it.
 
-This is not a gap to close by grading harder. A desk that reads plan artifacts has nothing
-to read when the diff schedules no plan, and no amount of waiting produces a preview that
-was never going to run. The failure mode to avoid is treating the surfaces that *are* green
-as though they stood in for the missing one: the tests passed, the reviewer was satisfied,
-the status was success, and none of that was evidence about the remedy.
+The real one: a retirement gate takes its plan before the apply, so it structurally cannot
+see a residue the apply itself manufactures. `#22146`'s gate passed 8/8 while showing
+`add-tags`, which is admitted and additive; the `~version` residue only stands alone once the
+apply has written those tags. `infra/lib/retire.ts` already computes the right refusal with
+`beyondTags` — it is read at the wrong time. The gate was honest and the property was outside
+its reach.
 
-So the report changes rather than the grade. Say "no plan surface, the landing decides", and
-say it in the message that accompanies the label, so nobody downstream reads a labelled
-change as a verified one. Where the lane has flagged the change as a probe rather than a
-fix, carry that word: the difference between a fix and a probe is exactly the difference
-between a proven and an unproven remedy, and it is the lane's word to use, not the desk's to
-soften.
+The one I got wrong: I recorded that a pull request touching only adoption records schedules
+no plan. **It does.** `infra-report` planned the stack and uploaded `plan/<env>-<domain>.json`
+for exactly such a diff. What had happened is that a lane grepped the pull request's comments,
+found no plan comment, and concluded the surface did not exist; I repeated that as a contract.
+The companion fold and the artifact upload are separate things, and the artifact is the better
+read because it carries the op list rather than a rendering of it. **A missing plan comment is
+not a missing plan. List the build's artifacts before concluding a surface does not exist.**
+
+So the class is narrower than one bad night suggested, and the remaining discipline is about
+the real case. A desk that reads plan artifacts has nothing to read when the diff genuinely
+schedules none, and no amount of waiting produces a preview that was never going to run. The
+failure mode to avoid is treating the surfaces that *are* green as though they stood in for a
+missing one: the tests passed, the reviewer was satisfied, the status was success, and none of
+that was evidence about the remedy.
+
+Where the surface really is absent, the report changes rather than the grade. Say "no plan
+surface, the landing decides", and say it in the message that accompanies the label, so nobody
+downstream reads a labelled change as a verified one. Where the lane has flagged the change as
+a probe rather than a fix, carry that word: the difference between a fix and a probe is exactly
+the difference between a proven and an unproven remedy, and it is the lane's word to use, not
+the desk's to soften.
 
 Two habits follow. When a change cannot be graded before landing, arrange two independent
 readers of the landing rather than one, because the reading is now the only evidence and a
 single reader is a single point of failure. And when a PR's diff touches only a class that
-schedules nothing, note that in the ledger row rather than recording a bare label, so a
-later audit can tell a verified landing from an unverified one.
+schedules nothing, note that in the ledger row rather than recording a bare label, so a later
+audit can tell a verified landing from an unverified one.
