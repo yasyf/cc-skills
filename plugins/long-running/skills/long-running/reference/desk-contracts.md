@@ -1173,3 +1173,55 @@ branch still exists on the remote, that it merges cleanly into trunk, and whethe
 already contains the parent's squash. All three held here, which made it a re-submit
 rather than a reconstruction. Note the surviving branch tip may not be the sha the
 dead pull request records; resolve it from the remote, not from the PR.
+
+## A count is not a composition
+
+I read a plan artifact as post-apply, reported that a production change had not
+applied, and blocked a maintenance window. It was the pre-apply plan **after a
+refresh**: the refresh had resolved two provider diffs, which moved the totals, and
+left the real ops still pending.
+
+Retracting it, I offered a rule to explain the misread: a post-apply plan cannot equal
+the verdict's census. The terminal artifacts refuted that too.
+
+| artifact | census | which resources hold the updates |
+|---|---|---|
+| refreshed pre-apply | same 19, update 2 | the two parameter groups |
+| apply verdict | same 19, update 2 | — |
+| post-apply | same 19, update 2 | the two providers |
+
+Three identical censuses, and the composition inverts between the first and the last.
+**Two plans can agree on every total and disagree on every resource.** The only sound
+read is per-resource: which URN holds which op. A census answers "how much moved", never
+"what moved", and the desk's whole job is the second question.
+
+The procedural half is worse than the misread. I wrote the caveat that the build was not
+terminal, then led with the confident negative anyway. **A caveat under a confident
+headline does not travel** — people act on the headline. If the evidence is not terminal,
+the headline says unknown, or it waits.
+
+## A pathspec that matches nothing proves a landing
+
+The landing check this document used to carry is fail-open under zsh:
+
+```sh
+files=$(git diff --name-only <head>~1 <head>)      # newline-joined
+git diff --name-only origin/dev <head> -- $files   # empty => landed
+```
+
+zsh performs no word splitting on unquoted parameter expansion, so `$files` arrives as
+one pathspec containing every newline. It matches no path, git correctly reports no
+differences within it, and the check prints the output that is supposed to *prove* the
+landing. Measured on one real PR: `-- $files` gave 0 differing, `-- ${(f)files}` gave 68,
+and no pathspec at all gave 85. Under bash the same line is correct, because bash splits
+it — so the defect follows the interpreter, not the code.
+
+The direction is what makes it dangerous, and it is the same shape as `grep -c || echo 0`
+and an empty left side in `rev-list --count ..trunk`: **the failure produces the positive
+verdict.**
+
+Two fixes, both cheap. Build the list as an array and assert its length against the pull
+request's own file count, so a mis-split throws instead of matching nothing. And never let
+a pathspec-based verdict stand alone — `git merge-base --is-ancestor <head> trunk` and
+`git ls-tree -d trunk <a directory the PR deletes>` are one call each, and neither can be
+fooled by a bad pathspec.
