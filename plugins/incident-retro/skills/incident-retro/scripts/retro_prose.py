@@ -21,9 +21,12 @@ PROSE_MODEL = "astra"
 PROSE_LOCK = "prose.lock.json"
 WRITE_LOCK = ".prose.lock"
 PROSE_TIMEOUT = 1800
-PROSE_BATCH = 24
+PROSE_BATCH = 36
 SLOP_ROUNDS = 2
 SLOP_BUDGET = 3
+FIELD_MARK = "<!-- field:"
+SEPARATOR = "\n\n"
+LEGACY = "legacy"
 REPLY_KEYS = ("REPLY_FILE", "LOG_FILE")
 WRITING_DOCS = "writing-docs"
 SKILL_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "skills"
@@ -31,7 +34,8 @@ LANES = Path.home() / ".cache" / "incident-retro" / "prose"
 PANEL = re.compile(r'(<section\b[^>]*\bclass="[^"]*\bxs-panel\b[^"]*"[^>]*>)(.*?)(</section>)', re.S | re.I)
 PANEL_KIND = re.compile(r'\bdata-kind="([^"]*)"', re.I)
 TAG = re.compile(r"<[^>]+>")
-FACT = re.compile(r"https?://\S+|`[^`]+`|\b\d+(?:[.,:/-]\d+)*[a-zA-Z%]*\b")
+FACT = re.compile(r"https?://\S+|\b[\w.-]*[\w]*(?:_[\w.-]+)+\b|\b\d+(?:[.,:/-]\d+)*[a-zA-Z%]*\b")
+FENCE = re.compile(r"`+")
 NAME = re.compile(r"\b[A-Z][\w.-]*(?:[A-Z][\w.-]*)*\b")
 SENTENCE_HEAD = re.compile(r"(?:^|[.!?)\]]\s+|\n\s*|[-*]\s+)([A-Z][\w.-]*)")
 REPLY_SCHEMA = {
@@ -154,7 +158,8 @@ def targets(retro, R: dict, root: Path) -> dict:
 
 
 def facts(text: str):
-    bare = TAG.sub(" ", text)
+    """The tokens a rewrite may not move. Backticks are markup, so `8 GiB` and 8 GiB weigh the same."""
+    bare = FENCE.sub("", TAG.sub(" ", text))
     tokens = sorted(FACT.findall(bare))
     heads = set(SENTENCE_HEAD.findall(bare))
     names = {n for n in NAME.findall(bare) if n not in heads or any(c.isupper() for c in n[1:])}
@@ -211,8 +216,8 @@ def budgets(retro) -> list:
     ]
 
 
-def revision_order(order: str, findings: dict, rules: dict, store: dict) -> str:
-    lines = [order, "", "## The prose lint already read your last reply", "",
+def revision_order(preamble: str, findings: dict, rules: dict, store: dict) -> str:
+    lines = [preamble, "", "## The prose lint already read your last reply", "",
              "`slop-cop` ran over the text you returned and flagged the passages below. Its rule catalogue is the "
              "same file the work order names. Rewrite each field so the flagged passage is gone, keeping every fact, "
              "every citation and every budget above. A flagged passage is a defect in the writing, not a false "
@@ -324,16 +329,39 @@ def ask(question: str, schema: dict, lane: Path, timeout: float) -> dict:
     }
 
 
-def lint(text: str) -> list:
+def slop_cop(text: str, deep: bool) -> list:
     if not shutil.which(SLOP_COP):
         return []
-    run = subprocess.run([SLOP_COP, "check", "-", "--lang=markdown", "--llm"],
-                         input=text, capture_output=True, text=True)
+    argv = [SLOP_COP, "check", "-", "--lang=markdown", "--llm" if deep else "--llm-effort=off"]
+    run = subprocess.run(argv, input=text, capture_output=True, text=True)
     try:
         report = json.loads(run.stdout)
     except ValueError:
         return []
     return report.get("violations") or []
+
+
+def lint(landed: dict, deep: bool) -> dict:
+    """address -> violations, linting the batch in one model pass and attributing by offset."""
+    found = {a: slop_cop(t, False) for a, t in landed.items()}
+    if not deep:
+        return {a: v for a, v in found.items() if v}
+    joined, spans = [], []
+    at = 0
+    for addr, text in landed.items():
+        head = f"{FIELD_MARK} {addr}\n\n"
+        at += len(head)
+        spans.append((at, at + len(text), addr))
+        joined.append(head + text)
+        at += len(text) + len(SEPARATOR)
+    for v in slop_cop(SEPARATOR.join(joined), True):
+        start = v.get("startIndex", -1)
+        for lo, hi, addr in spans:
+            if lo <= start < hi:
+                v["startIndex"] = start - lo
+                found.setdefault(addr, []).append(v)
+                break
+    return {a: v for a, v in found.items() if v}
 
 
 def rule_catalogue(lane: Path) -> Path:
@@ -380,6 +408,40 @@ def load_lock(root: Path) -> dict:
     return lock
 
 
+def newly_required(retro, R: dict, root: Path, store: dict) -> list:
+    """The fields 0.3.0 adds or tightens, which a pre-0.3.0 retro cannot already satisfy."""
+    over = set()
+    for i, t in enumerate(retro.entries(R, "timeline")):
+        if isinstance(t.get("text"), str) and retro.words(retro.prose_only(t["text"])) > retro.ENTRY_WORDS:
+            over.add(f"{t.get('id') or f'timeline[{i}]'}.text")
+    for c in retro.entries(R, "causes"):
+        if isinstance(c.get("text"), str) and retro.words(retro.prose_only(c["text"])) > retro.CAUSE_BODY_WORDS:
+            over.add(f"{c.get('id')}.text")
+    out = []
+    for addr, spec in store.items():
+        if spec["kind"] == "short name" and not spec["text"].strip():
+            out.append(addr)
+        elif spec["kind"] in ("summary panel", "section takeaway") or addr in over:
+            out.append(addr)
+    return sorted(out)
+
+
+def grandfather(retro, R: dict, root: Path, store: dict, wanted: set, lock: dict):
+    """Pin every field this migration leaves alone, once. A field the lock already knows keeps its
+    provenance, so a hand edit cannot launder itself as legacy by running the migration again."""
+    stamped = 0
+    for addr, spec in store.items():
+        if addr in wanted or not spec["text"].strip():
+            continue
+        if isinstance(lock["fields"].get(addr), dict):
+            continue
+        lock["fields"][addr] = {"sha256": digest(spec["text"]), "kind": LEGACY,
+                                "grandfathered": retro.plugin_version(),
+                                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        stamped += 1
+    return stamped
+
+
 def unlocked(retro, R: dict, root: Path) -> list:
     """Addresses whose current text carries no provenance from this command."""
     lock = load_lock(root)["fields"]
@@ -398,6 +460,12 @@ def unlocked(retro, R: dict, root: Path) -> list:
 
 def check_lock(retro, rep, R: dict, root: Path):
     lock = load_lock(root)
+    onset = ((R.get("timestamps") or {}).get("onset") or "")[:10] or (R.get("meta") or {}).get("date", "")
+    legacy = sorted(a for a, f in lock["fields"].items() if isinstance(f, dict) and f.get("kind") == LEGACY)
+    if legacy and onset > retro.LEGACY_CUTOFF:
+        rep.err(f"{len(legacy)} field(s) carry {LEGACY} provenance on a retro that starts {onset}, after "
+                f"incident-retro {retro.LEGACY_CUTOFF}; the migration path is for retros written before this "
+                f"version, so run retro.py prose without --quick")
     missing = unlocked(retro, R, root)
     if missing:
         shown = ", ".join(missing[:6]) + (f" and {len(missing) - 6} more" if len(missing) > 6 else "")
@@ -461,11 +529,13 @@ def prose(args) -> int:
             if f not in store:
                 print(f"prose: {f} is not a prose field; retro.py prose {root} --list names them", file=sys.stderr)
                 return 1
+    elif args.quick:
+        wanted = [a for a in newly_required(retro, R, root, store) if a in unlocked(retro, R, root)]
     elif args.stale:
         wanted = unlocked(retro, R, root)
     else:
         wanted = sorted(store)
-    if not wanted:
+    if not wanted and not args.quick:
         print("prose: every field already carries astra provenance")
         return 0
     lane_root = LANES / ((R.get("meta") or {}).get("slug") or root.resolve().name)
@@ -519,7 +589,7 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
                 spec["landed"] = text
                 lock["fields"][addr] = {"sha256": digest(text), "run": got["run"], "log": got["log"],
                                         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-            findings = {a: v for a in sorted(answered) for v in [lint(batch_landed[a])] if v}
+            findings = lint({a: batch_landed[a] for a in sorted(answered)}, not args.quick)
             for addr in answered:
                 lock["fields"][addr]["slop"] = len(findings.get(addr) or [])
             if not findings or attempt == SLOP_ROUNDS:
@@ -528,8 +598,9 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
                           f"{SLOP_ROUNDS} revision round(s) in {len(findings)} field(s)")
                 break
             print(f"prose: slop-cop flagged {sum(len(v) for v in findings.values())} passage(s) in "
-                  f"{len(findings)} field(s); asking {PROSE_MODEL} to rewrite them")
-            question = revision_order(order, findings, rules, store)
+                  f"{len(findings)} field(s); asking {PROSE_MODEL} to rewrite those")
+            question = revision_order(work_order(retro, R, root, sorted(findings), store, rules_file),
+                                      findings, rules, store)
         for addr in batch:
             if addr not in batch_landed and not any(r.startswith(addr + ":") for r in refused):
                 refused.append(f"{addr}: the reply never answered")
@@ -549,6 +620,12 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
         write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
         landed.update(batch_landed)
 
+    if args.quick:
+        stamped = grandfather(retro, R, root, store, set(landed), lock)
+        lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
+        write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+        print(f"prose: pinned {stamped} pre-existing field(s) as {LEGACY} provenance at plugin "
+              f"{retro.plugin_version()}; a later edit to one still has to go through {PROSE_MODEL}")
     print(f"prose: wrote {len(landed)} field(s), {len(written)} of them summary panels, and locked them to "
           f"gpt-6-astra in {PROSE_LOCK}")
     print(f"prose: {lock['slop']} slop-cop finding(s) across every locked field, budget {SLOP_BUDGET}")
@@ -562,6 +639,8 @@ def add_prose_parser(sub, retro):
     p.add_argument("dir")
     p.add_argument("--field", action="append", help="one field address to rewrite; repeatable")
     p.add_argument("--stale", action="store_true", help="only the fields carrying no astra provenance")
+    p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask astra only for what this "
+                   "version newly requires, skip the model lint rounds, and pin the rest as legacy provenance")
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")
