@@ -7,6 +7,36 @@ All drafting and revision in this reference belongs to `gpt-6-astra` at
 A useful retro explains the conditions that produced an incident and the
 changes that reduce recurrence. It does not grade the people involved.
 
+## The title states the mechanism
+
+Most readers read only the title, and most were not in the response. State
+what changed, what that change caused, and what broke in one sentence. Make
+the causal chain clear to someone who does not know the service.
+
+A symptom followed by internal names after a colon describes the alert and
+assumes responder knowledge. A bare symptom omits the cause.
+
+- Bad: "Invocations stay Pending and schedules stop: restate-worker on old
+  image inserts into renamed workflow_runs column"
+- Bad: "Checkout errors after a rate-limit config push"
+- Good: "A migration ran but not every service that reads the schema was
+  deployed, so run creation failed for 71 minutes"
+- Good: "A rate-limit config gave tenants without a custom limit a burst of
+  zero, so checkouts failed for 94 minutes"
+
+The good titles name the change, its effect on the system, the visible
+impact, and the duration. Include the duration when the incident had a clear
+window. Service, image, table, and column names belong in a cause, where
+readers look for that detail.
+
+Keep it under 120 characters and 20 words. `check` warns on a colon and on an
+identifier in the title, because both mark the shapes above.
+
+The slug has the form `<incident date>-<three to six plain words>`, under 60
+characters, so a long title never becomes a long URL. Use the words colleagues
+use to name the incident aloud: `2026-09-18-schema-ahead-of-deploy`.
+Do not form it by replacing the title's spaces.
+
 ## Blameless voice
 
 Write about systems, controls, interfaces, defaults, incentives, and missing
@@ -77,7 +107,8 @@ The sentence must stand on its own after deleting the citation. Write *The
 empty override map sets the burst limit to zero (C1).* Do not write *The burst
 limit comes from (C1).*
 
-Every window, cause, action, and sub-incident carries an `h` handle. Write a
+Every window, cause, action, decision, hypothesis, unknown, and sub-incident
+carries an `h` handle. Write a
 distinct noun phrase of two to five words that sounds natural in a sentence.
 Name the thing, not its register type. "zero burst default" works; "root cause
 decision" does not.
@@ -95,6 +126,37 @@ precise wording, use everyday terms, and explain what the entry means to a
 reader outside the team. Do not include ids or file paths. Omit issue numbers
 and phrases such as `we decided`. A twin adds the consequence instead of
 repeating its title.
+
+## Each opening line stands alone
+
+The page shows one line per entry and keeps the details behind a disclosure.
+Each opening line must make sense on its own.
+
+A section's `takeaway` states its conclusion in thirty words or fewer. It
+must answer the reader who stops at that sentence. Write "The rollback
+stopped it inside a minute," not "This section covers the response."
+
+A cause's plain twin appears in the causal chain before the cause is
+expanded. State the mechanism in 25 words or fewer. Put the detail, evidence,
+and code in `text`, which opens on a click.
+
+Each panel heading in `summary.html` answers its question in words a reader
+outside the response understands. The body gives evidence for that answer.
+Keep the heading and body together within 70 words. Once the causes and
+actions are settled, write the five panels from the completed record.
+
+Mark eight timeline entries or fewer with `key: true`. Choose the events
+needed to explain the incident: what changed, when impact began, when anyone
+knew, what changed the investigation, the mitigation, the fix. Everything else
+stays in the full list, which is one click away and searchable.
+
+Write each `recognize` row for a responder at three in the morning with no
+context. Describe the signal visible on screen before explaining what it
+means.
+
+Write an `unknown` as a question. Use "Why does the canary region take the
+same config push as production?" instead of a topic label such as "canary
+investigation."
 
 ## Unrecorded facts
 

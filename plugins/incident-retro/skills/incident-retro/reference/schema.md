@@ -19,8 +19,8 @@ here.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `title` | yes | h1, rail brand, browser title |
-| `slug` | yes | download filenames: `<slug>-incident-retro.md` |
+| `title` | yes | h1, rail brand, browser title. One plain sentence stating the causal mechanism, under 120 characters and 20 words. `check` warns on a colon separating a symptom from its internals and on an identifier such as a column name, image name, or filename. [reference/writing.md](writing.md) gives the rule and examples |
+| `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, under 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
 | `status` | yes | `draft`, `in-review`, `reviewed`, `resolved`; rendered Draft, Under review, Reviewed, Closed out. `draft` is the only status that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped` |
 | `subtitle` | no | defaults to "Incident retrospective" |
@@ -32,7 +32,7 @@ here.
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
-| `sections` | no | `{<sectionId>: {sub}}` one-line sub-copy under a section header; ids are `overview`, `timeline`, `impact`, `causes`, `resolution`, `actions`, `lessons`, `evidence`, `notes` |
+| `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; `takeaway` states the section's conclusion in 30 words or fewer, so readers get the answer before opening the detail. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
 | `ai` | no | `{suggest?: {<sectionId>: ["…"]}}` the questions the assistant offers while a section is on screen; the endpoint and keys live in `ai.json`, never here |
 | `acronyms` | no | words the capitalisation lint holds to their own spelling, on top of the built-in list plus `TTD`, `TTE`, `TTM`, `TTR`, `SEV` |
 | `draft` | no | boolean; pins a draft banner as in design-doc |
@@ -40,6 +40,28 @@ here.
 | `rev`, `revisions` | no | written by `retro.py snapshot`, never by hand; `revisions[].files.evidence` is the digest of every file under `evidence/` at that snapshot |
 
 The page reads four `localStorage` keys: `design-doc-ai`, `design-doc-github`, `design-doc-theme`, and `design-doc-wording`. They keep their design-doc names so one browser override works on both kinds of page.
+
+## `summary.html`: the executive summary
+
+`summary.html` sits beside `retro.json` and is the only part of the retro
+written as markup. It is a body-level fragment of
+`<section class="xs-panel" data-kind="…">` blocks and shares the design-doc
+skill's summary contract. The page places it above the Overview after
+stripping event handlers and any URL that is not http(s).
+
+One panel answers each question, in this order: `what-happened`, `impact`,
+`why`, `what-changed`, `still-open`. Each opens with an `<h2>` or `<h3>`
+stating the answer. Each panel, including its heading, has 70 words or fewer;
+the whole summary has 300 or fewer. Cite registers as the rest of the retro
+does, so `(C1)` renders as its handle. A `.xs-stats` block of `.xs-stat` tiles
+shows the numbers readers need before reaching the tiles below.
+
+`check` errors on a page tag, an embed, an inline handler, a foreign URL
+scheme, or an unknown or repeated `data-kind`. It warns on a missing panel, a
+panel out of order, a missing heading, a word count over budget, a citation
+no register defines, and a leftover TODO. A reviewed retro answers every
+question. `retro.py text` prints the summary first, and print renders every
+panel expanded.
 
 ## `summary`, `impact`, `resolution`, `detection`: twinned prose
 
@@ -79,9 +101,10 @@ source.
 
 ## `timeline`: what happened, in order
 
-The shape is `[{id?, ts, kind, text, actor?, window?, phase?, refs?}]`, sorted by `ts`. `check` errors on an entry out of order.
+The shape is `[{id?, ts, kind, text, actor?, window?, phase?, key?, refs?}]`, sorted by `ts`. `check` errors on an entry out of order.
 
 - `kind`: `deploy`, `alert`, `report`, `hypothesis`, `action`, `mitigation`, `resolution`, `allclear`.
+- `key`: `true` on an entry needed to explain the incident. The page opens on the key moments. The full list is collapsed, searchable, and filterable by kind, phase, and actor. `check` warns when no entry is marked as key or more than eight are.
 - `id` is optional and `T\d+`: an entry gets one only when a cause's `evidence` or prose cites it. `check` warns on an id nothing cites and errors on a cited `T#` no entry carries. A `(T7)` citation renders as the entry's local time.
 - `phase`: `before` or `after`, required on an entry whose `ts` falls outside `[onset, allClear or resolved]`; an entry inside the incident carries none.
 - `window`: a window id the entry belongs to.
@@ -107,6 +130,45 @@ Each action entry follows `[{id, t, h, owner, source, state, links?, due?, note?
 - `state`: `todo`, `in-progress`, `done`, `dropped`; rendered To do, In progress, Done, Dropped.
 - `links`: links as below; `closes: true` marks the pull request or issue whose landing completes the action. `retro.py links --fetch` reports an action `done` whose closing change is still open, and one `todo` or `in-progress` whose closing change merged.
 - `due`: `YYYY-MM-DD`. `note`: one sentence, for a dropped action the reason.
+
+## `decisions`: choices made during the response
+
+Each entry follows `[{id, t, h, who, when, why, alternatives?, refs?, links?}]`.
+Ids are `D\d+`. `t` is the decision as one line of sixteen words or fewer,
+`who` the person or team who made it, `when` its timestamp, and `why` the
+reasoning at the time. Do not rewrite it with hindsight. `alternatives`
+names the options not taken.
+
+Each decision appears as a collapsed row under
+Detection and response. The closed row shows the decision and its time;
+expanding it shows the reasoning.
+
+## `hypotheses`: suspected causes and the evidence that settled them
+
+Each entry follows `[{id, t, h, status, exonerated?, evidence?}]`. Ids are
+`H\d+`; `status` is `ruled-out`, `confirmed` or `open`. `exonerated` is the
+observation that settled it, and `check` requires one on a ruled-out entry.
+`evidence` resolves as a cause's does. The page renders the entries as a
+table so the next responder can see which explanations were ruled out.
+
+## `recognize`: how to recognize this next time
+
+`[{signal, means, do}]`, each column 25 words or fewer. `signal` is what a
+responder sees, `means` what it tells them, and `do` the next step. The
+page renders the rows as a table in their own section after Lessons.
+
+## `unknowns`: questions the record leaves unanswered
+
+Each entry follows `[{id, q, h, why?, owner?, refs?}]`. Ids are `U\d+`; `q`
+is the open question in 25 words or fewer; `why` says why it stayed open or
+why it matters; `owner` names the person responsible for answering it.
+These gaps appear on the page instead of remaining in `NOTES.md`.
+
+## `glossary`
+
+`[{term, def}]`, each definition 30 words or fewer. Define the terms this
+retro uses with a meaning specific to the system, not general vocabulary.
+`check` errors on a repeated term.
 
 ## `lessons`
 
@@ -145,7 +207,7 @@ Tiles, the windows gantt, the swimlane, notebooks, monitors, Slack threads, the 
 
 ## Ids, handles and citations
 
-Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, and `I\d+`, unique across the file. In prose, `(C1)` or `(C1, T7)` renders as the handles in parentheses, the way design-doc renders `(DQ12)`; `retro.py text` does the same. A handle `h` is required on every window, cause, action, and sub-incident. It is a two-to-five-word phrase a reader says aloud, with no trailing period or id. `check` errors on a citation no register defines and on a title or handle that names an id.
+Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, `I\d+`, `D\d+`, `H\d+`, and `U\d+`, unique across the file. In prose, `(C1)` or `(C1, T7)` renders as the handles in parentheses, the way design-doc renders `(DQ12)`; `retro.py text` does the same. A handle `h` is required on every window, cause, action, and sub-incident. It is a two-to-five-word phrase a reader says aloud, with no trailing period or id. `check` errors on a citation no register defines and on a title or handle that names an id.
 
 ## Links
 
@@ -175,6 +237,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 | File | Role |
 |---|---|
 | `retro.json` | canonical structured retro |
+| `summary.html` | the hand-written executive summary, a body-level fragment |
 | `NOTES.md` | prose that does not fit structure |
 | `evidence/datadog/`, `evidence/slack/`, `evidence/images/` | snapshot files the page renders |
 | `history/rev-<N>.json` | archived revisions, written by `snapshot` |
@@ -186,13 +249,15 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 
 Errors unless noted; `--strict` promotes the strict warnings.
 
-1. `meta`: title, slug, date present; status, severity, authors without `@`, repo, ref, timezone, `homeLink`, `subIncidents`, sections, ai.
+1. `meta`: title, slug, date present; status, severity, authors without `@`, repo, ref, timezone, `homeLink`, `subIncidents`, sections, ai. Checks title length, colons, and identifiers; slug shape, length, and word count; and the length of every section's opening sentence.
 2. Timestamps parse with an offset and stay in order; onset and resolved set unless draft, enforced in strict mode.
 3. Windows: ids, kind, start before end, incident resolves; overlaps on one team warn.
-4. Timeline: order, kinds, unique ids, phase outside the incident, refs are https, Slack refs are permalinks with snapshots, and deploys carry a change ref. Missing snapshots and change refs warn.
+4. Timeline: order, kinds, unique ids, phase outside the incident, refs are https, Slack refs are permalinks with snapshots, and deploys carry a change ref. Warns on missing snapshots or change refs, no key moment, or more than eight key moments.
 5. Impact metrics: `measured` boolean, cites resolve.
-6. Causes: ids, kinds, evidence resolves, code shape, links without `closes`; strict mode requires a root cause once reviewed.
+6. Causes: ids, kinds, evidence resolves, code shape, links without `closes`; strict mode requires a root cause once reviewed and limits the length of each opening statement in the causal chain.
 7. Actions: ids, states, owner, source resolves, `closes` only on pull requests or issues, due dates; strict mode requires owners and rejects open actions on a resolved retro.
+7a. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
+7b. `summary.html`: the fragment rules, the panel vocabulary and order, and the word budgets.
 8. Evidence: files exist, snapshot schemas and ids match, images carry alt, prs carry a role; notebook windows, liveness, and monitors without files warn.
 9. Citations and footnotes resolve.
 10. Handles present and well-formed; twins present and within the rules; a twin left stale across a snapshot.

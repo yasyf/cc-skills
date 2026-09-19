@@ -15,13 +15,13 @@ the registers and places them where a reader expects them:
 | Kind | Renders without a declaration when | Where |
 |---|---|---|
 | `ir.tiles` | always | top of Overview |
-| `ir.windows` | `windows` has an entry | Overview, under the summary |
-| `ir.timeline` | `timeline` has eight or more entries | head of Timeline |
-| `ir.causes` | `causes` has an entry | head of Causes |
-| `ir.monitor` | per `detection.monitors[]` entry | Resolution and detection |
+| `ir.windows` | `windows` has an entry | Overview, under the tiles |
+| `ir.timeline` | `timeline` has eight or more entries | head of Timeline, above the key moments |
+| `ir.causes` | `causes` has an entry | head of Causes, as the causal chain |
+| `ir.monitor` | per `detection.monitors[]` entry | Detection and response |
 | `ir.actions` | `actions` has an entry | Action items |
-| `ir.notebook` | per `evidence.notebooks[]` entry, first one open | Evidence |
-| `ir.slack-thread` | per `evidence.slack[]` entry | Evidence |
+| `ir.notebook` | per `evidence.notebooks[]` entry, collapsed | Evidence |
+| `ir.slack-thread` | per `evidence.slack[]` entry, collapsed | Evidence |
 
 Declare a block in `components` to place one elsewhere or with other
 options. A declared block is placed by naming its id in one of five fields:
@@ -101,10 +101,10 @@ resting view.
 ## `ir.notebook`
 
 A Datadog notebook drawn from its snapshot under `evidence/datadog/`. The
-block is a collapsible card: the header carries the notebook's name, the cell
-count and author, and an Open in Datadog link; the first line inside states
-when the snapshot was taken and the window it covers, with a warning pill
-when the notebook used a live window at fetch time.
+card starts collapsed: its closed row shows the notebook's name, cell count,
+author, and an Open in Datadog link. `open: true` starts it expanded. The
+expanded card opens with the snapshot time and the window it covers. A
+warning pill marks a notebook that used a live window at fetch time.
 
 Cells render by type. Markdown cells go through the same Markdown dialect as
 the rest of the retro. Timeseries cells draw with uPlot, series coloured
@@ -120,7 +120,7 @@ query, so the reader can open it in Datadog. Every cell host ends up with
 
 `notebook` names the `evidence.notebooks[]` id. `cells` picks cell indexes,
 `height` sets the chart height (180 to 480), `title` replaces the notebook's
-name, and `open: false` starts the card collapsed. uPlot loads from jsdelivr
+name, and `open: true` starts the card expanded. uPlot loads from jsdelivr
 the first time a notebook mounts; charts are recreated at three times the
 resolution for print and re-inked when the colour scheme changes.
 
@@ -147,9 +147,14 @@ later it recovered, computed from `detection.monitors[].fired` and
 
 ## `ir.slack-thread`
 
-A Slack thread from its snapshot under `evidence/slack/`. The header names
-the channel, counts the messages and states when the snapshot was captured,
-with an Open in Slack link. Each message shows an initials avatar, the
+A Slack thread from its snapshot under `evidence/slack/`. The block is
+collapsed by default: the closed row shows the channel, whether it is a
+thread, the message count, the participants, and the opening line. Readers
+can use these details to decide whether to open the thread.
+`open: true` starts it expanded.
+
+Open, the block states when the snapshot was captured, links to Slack, and
+shows each message with an initials avatar, the
 author, the local time (UTC on hover), the text, reactions and file names.
 Slack's mrkdwn is rendered after escaping: `<@U…>` mentions become the user
 name the snapshot recorded (or `@unknown`), `<url|label>` becomes a link,

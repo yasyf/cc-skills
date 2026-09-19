@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Checkout API returned 502s and the order queue backed up",
-    "slug": "checkout-api-returned-502s-and-the-order-queue-backed-up",
+    "slug": "2026-03-14-checkout-api-returned-502s-order-queue",
     "date": "2026-03-14",
     "subtitle": "Incident retrospective",
     "status": "resolved",
@@ -252,6 +252,8 @@
       }
     ]
   },
+  "decisions": [],
+  "hypotheses": [],
   "actions": [
     {
       "id": "AI1",
@@ -356,6 +358,7 @@
       }
     ]
   },
+  "recognize": [],
   "evidence": {
     "notebooks": [
       {
@@ -437,6 +440,8 @@
       }
     ]
   },
+  "unknowns": [],
+  "glossary": [],
   "notes": [
     {
       "t": "Supporting information",

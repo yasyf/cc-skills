@@ -21,6 +21,11 @@ SKILL = Path(__file__).resolve().parent.parent
 FIXTURES = SKILL / "fixtures"
 DEFAULT_TZ = "America/Los_Angeles"
 SUBTITLE = "Incident retrospective"
+SLUG_WORDS = 6
+SLUG_STOPWORDS = {"a", "an", "the", "and", "or", "but", "so", "of", "to", "in", "on", "at", "for", "from", "with",
+                  "without", "by", "as", "is", "was", "were", "been", "be", "that", "this", "it", "its", "no", "not",
+                  "every", "all", "any", "some", "our", "we", "us", "had", "has", "have", "did", "does", "do", "into",
+                  "over", "under", "after", "before", "while", "when", "than", "then", "there", "their", "them"}
 CANONICAL = ("This file is the canonical retro. Snapshots of the evidence live under evidence/; prose that does not "
              "fit structure lives in NOTES.md; incident-retro.html renders from this file.")
 REPORT_HEADING = "## Import report"
@@ -181,6 +186,11 @@ def mailto_names(s: str) -> list:
 
 def slugify(s: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", s.lower())).strip("-") or "retro"
+
+
+def import_slug(title: str, date) -> str:
+    stem = [w for w in slugify(title).split("-") if w and w not in SLUG_STOPWORDS][:SLUG_WORDS]
+    return "-".join(([date.isoformat()] if date else []) + stem)
 
 
 def normalise_heading(text: str) -> tuple:
@@ -546,8 +556,9 @@ class Importer:
             "timestamps": {"onset": None, "detected": None, "engaged": None, "mitigated": None, "resolved": None, "allClear": None},
             "windows": [], "timeline": [], "impact": {"text": "", "p": "", "teams": [], "metrics": []},
             "causes": [], "resolution": {"text": "", "p": "", "links": []}, "detection": {"text": "", "p": "", "monitors": []},
-            "actions": [], "lessons": {"well": [], "wrong": [], "lucky": []},
-            "evidence": {k: [] for k in EVIDENCE_KEYS}, "notes": [], "components": {}, "housekeeping": []}
+            "decisions": [], "hypotheses": [], "actions": [], "lessons": {"well": [], "wrong": [], "lucky": []},
+            "recognize": [], "evidence": {k: [] for k in EVIDENCE_KEYS}, "unknowns": [], "glossary": [],
+            "notes": [], "components": {}, "housekeeping": []}
         self.pr_roles = {}
         self.link_seen = set()
         self.sub_incidents = []
@@ -1441,8 +1452,8 @@ class Importer:
                 why = "the earliest timeline entry or window" + (f"; {why}" if why else "")
         self.report.header.insert(1, f"Date: {date.isoformat() if date else '(none)'}" + (f" (from {why})" if date else " (no `Date:` field, title bracket, `--date` or dated timeline row)"))
         owners = {GITHUB_PR.match(p["url"]) and f"{GITHUB_PR.match(p['url'])[1]}/{GITHUB_PR.match(p['url'])[2]}" for p in self.retro["evidence"]["prs"]}
-        ordered = {"title": meta["title"], "slug": slugify(meta["title"]), "date": date.isoformat() if date else "", "subtitle": SUBTITLE,
-                   "status": meta["status"]}
+        ordered = {"title": meta["title"], "slug": import_slug(meta["title"], date), "date": date.isoformat() if date else "",
+                   "subtitle": SUBTITLE, "status": meta["status"]}
         if "incident" in meta:
             ordered["incident"] = meta["incident"]
         ordered["authors"] = meta["authors"]
