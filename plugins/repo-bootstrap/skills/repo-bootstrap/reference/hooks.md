@@ -118,13 +118,13 @@ plugin (see *Adding and removing rules*).
 
 ### `models` (general pack)
 
-Enforces the CLAUDE.md **Models** routing table (§ Plan Execution & Orchestration) at
-PreToolUse. Eight hooks:
+Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
+`§ Plan Execution & Orchestration`) at PreToolUse. Eight hooks:
 
 - **Haiku gate (block).** Denies an `Agent`/`Task` call that explicitly passes a
   haiku-tier `model`, unless the prompt reads as single-fact mechanical work
   (classify/label/tag one thing per item). Recovery is in the deny message: use
-  `sonnet`, or drop `model` to inherit the session model.
+  `sonnet` — dropping `model` runs opus, not the session model.
 - **Prose gate (block).** Denies an `Agent`/`Task` spawn whose deliverable is prose
   the subagent would write itself on a Claude model, with any pin (fable included)
   or none. Route the writing through codex on gpt-6-astra at `xhigh`: spawn the
@@ -137,24 +137,29 @@ PreToolUse. Eight hooks:
 - **Fable-implementation nudge (LLM, warn).** An `Agent`/`Task` spawn that would run
   on fable (unpinned or `model: fable`) with an implementation-shaped prompt gets an
   LLM-judged reminder that implementation defaults to opus (`xhigh`, or `high` when
-  bounded and decision-light) and repetitive bounded sweeps plus terminal-heavy
-  execution route to gpt-6-astra via the `codex:codex-wrapper` agent. Judged, not pattern-matched,
-  because fable is often intentional — design review, hard planning,
-  long-horizon agentic driving, sustained tool-driving, and very sensitive or
-  error-prone implementation stay there (prose/writing, code/diff review and
+  bounded and decision-light) and repetitive bounded sweeps plus shell-heavy
+  execution route to gpt-6-astra via the `codex:codex-wrapper` agent. Judged, not
+  pattern-matched, because fable is often intentional — only implementation of very
+  sensitive or error-prone code (auth, migrations, concurrency, data loss, crypto)
+  stays there; browser automation, QA sweeps, and other sustained tool-driving
+  delegate to an opus `xhigh` subagent instead (prose/writing, code/diff review and
   security review route to gpt-6-astra via their own nudges); when uncertain it
   stays silent.
 - **Delegated review/diagnosis nudge (LLM, warn).** An `Agent`/`Task` spawn that would
   run code/diff review, a security review/audit or verification of security-sensitive
   code, or bug diagnosis on fable gets a reminder that these route to gpt-6-astra via
   the `codex:codex-wrapper` agent (spawn it with the self-contained question);
-  `Skill(codex)` works from the main conversation. Design review, prose review, and findings
-  synthesis stay on fable; when uncertain it stays silent.
+  `Skill(codex)` works from the main conversation. Code/diff review is astra's
+  finder lane, with a refuter only at audit depth; a miss escalates to opus
+  `xhigh` first, reaching fable only once opus `xhigh` has actually fallen short.
+  Design/architecture review and findings synthesis are opus `xhigh` lanes, not
+  fable; when uncertain it stays silent.
 - **Workflow review/diagnosis nudge (LLM, warn).** The same reminder for a `Workflow`
   whose finder, refuter, security-audit, or diagnosis stages would run on fable.
 - **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via
   `scriptPath`) pins `agent()` steps to haiku gets a reminder that haiku is for
-  mechanical map/apply steps only — judgment-bearing stages inherit or route up.
+  mechanical map/apply steps only — an unpinned stage runs opus, not the session
+  model, so judgment-bearing stages need an explicit pin or route up.
 - **Workflow prose nudge (warn).** A `Workflow` whose script runs a stage that
   would write prose itself on a Claude model gets the matching reminder, with any
   pin (fable included) or none. Route the writing through codex on gpt-6-astra at
