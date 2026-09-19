@@ -156,6 +156,7 @@ SLUG_STOPWORDS = {"a", "an", "the", "and", "or", "but", "so", "of", "to", "in", 
 TITLE_INTERNALS = re.compile(r"[a-z0-9]_[a-z0-9]|\b[a-z]+[A-Z][a-z]|\.(?:py|ts|tsx|go|rs|sql|json|ya?ml)\b|--[a-z]")
 TAKEAWAY_WORDS = 18
 REFERENCE_SECTIONS = ("evidence", "glossary", "notes")
+LEGACY_CUTOFF = "2026-09-19"
 STATEMENT_WORDS = 25
 KEY_MOMENTS = 8
 DECISION_TITLE_WORDS = 16
@@ -249,6 +250,11 @@ def load_retro(root: Path, cmd: str):
         print(f"{cmd}: retro.json must be a JSON object", file=sys.stderr)
         return None
     return data
+
+
+def plugin_version() -> str:
+    manifest = SKILL.parents[1] / ".claude-plugin" / "plugin.json"
+    return json.loads(manifest.read_text())["version"] if manifest.exists() else "0"
 
 
 def write_retro(root: Path, R: dict):

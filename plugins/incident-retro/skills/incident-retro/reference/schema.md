@@ -305,9 +305,9 @@ Register ids replace array paths, so a cause uses `C1.text`, not
 prose, revision notes, and `NOTES.md` are outside this command's field list
 and provenance check.
 
-The enumeration still includes a `takeaway` address for every object in
-`meta.sections`, including reference sections. Those reference takeaways
-violate the section rule above; `--stale` leaves them alone when absent.
+The enumeration excludes `takeaway` addresses for
+`REFERENCE_SECTIONS = ("evidence", "glossary", "notes")`. Their `sub` addresses
+remain in the field list.
 Slack snapshots and their mechanically derived row labels are outside the
 prose field list.
 
@@ -323,30 +323,54 @@ draft. The command calls `codex-ask -m astra` as a subprocess with a JSON reply 
 `{"fields": [{"id": "<address>", "text": "<wording>"}]}`. It writes accepted
 text directly into `retro.json` and `summary.html`.
 
-Before writing a field, it strips HTML tags and compares URL, backtick-code,
-and numeric tokens, including counts, dates, and times. It also compares a
-set of capitalized names, excluding ordinary sentence-initial words.
+Before writing a field, it strips HTML tags and backticks, then compares
+URLs, identifiers containing underscores, and numeric tokens, including
+counts, dates, and times. ``FENCE = re.compile(r"`+")`` removes code-span
+delimiters before tokenization, so 8 GiB and `` `8 GiB` `` compare equal.
+The identifier `manifest_section` stays protected with or
+without backticks. Dropping it or changing a number rejects the field.
+
+The command also compares a set of capitalized names, excluding ordinary
+sentence-initial words.
 Changed tokens reject that field; accepted fields in the same batch still
 land. An empty field may use tokens from its containing entry and selected
-snapshot context. This is a token check, not a complete fact check: unquoted
-lowercase identifiers and URLs inside HTML attributes are not protected.
+snapshot context.
+
+This is a token check, not a complete fact check:
+lowercase identifiers without underscores and URLs inside HTML attributes
+are outside that token comparison. Backticks do not protect
+arbitrary code-span contents.
 Review the returned wording against the record.
 
 | Flag | Effect |
 |---|---|
 | `--list` | Print each field as `empty`, `locked`, or `unlocked`; make no model call |
 | `--field <address>` | Rewrite that field; repeat for several fields. An unknown address errors |
-| `--stale` | Rewrite nonempty fields without a matching digest and required short names `h` that are missing or empty. Leave absent optional prose alone; `--field` takes precedence |
-| `--batch <N>` | Fields per model call; default 24 |
+| `--stale` | Rewrite nonempty fields without a matching digest and required short names `h` that are missing or empty. Leave absent optional prose alone |
+| `--quick` | Migrate a retro written before 0.3.0: rewrite newly required fields, run deterministic lint only, and pin remaining pre-existing prose as legacy provenance |
+| `--batch <N>` | Fields per model call; `PROSE_BATCH = 36` |
 | `--dry-run` | Prepare the rule catalog and print the first selected batch's work order without calling the model or changing the retro |
-| `--timeout <seconds>` | Timeout per model call; default 1800 |
+| `--timeout <seconds>` | Timeout per model call; `PROSE_TIMEOUT = 1800` |
 
-Without a selection flag, the command selects every enumerated field. Each
-batch runs `slop-cop check --lang=markdown --llm` on accepted reply fields.
-It returns each violation's rule id, matched text, rule directive, and
+Without a selection flag, the command selects every enumerated field.
+`--field` takes selection precedence over `--quick`, which takes precedence
+over `--stale`. Combining `--field` with `--quick` still skips model lint and
+pins the other fields as legacy.
+
+Each accepted reply field runs through the deterministic rules with
+`slop-cop check --lang=markdown --llm-effort=off`. Without the explicit `off`,
+slop-cop automatically enables its model pass when the Codex CLI is on
+`PATH`. A full prose run also calls `slop-cop check --lang=markdown --llm`
+once per batch of accepted reply fields, joined with field delimiters. Each
+finding's character offset identifies its field and becomes a field-local
+offset. `--quick` omits this batched model lint pass; the fact freeze still
+checks every reply.
+
+The command returns each violation's rule id, matched text, rule directive, and
 suggested change to Astra for revision, with an explanation when present.
 `SLOP_ROUNDS = 2` allows two rewrites after the first draft, stopping early
-when no findings remain. The same model writes every round within the
+when no findings remain. Each revision asks only for the fields the lint
+flagged. The same model writes every round within the
 command's subprocess pipeline; no other model edits the returned text.
 The command reports refused fields but still exits zero; inspect the report
 and rerun those addresses with `--field`.
@@ -364,7 +388,8 @@ Before model calls and writes, `prose` takes an exclusive, nonblocking
 ends. A competing claim exits nonzero and names the holder's pid. Two
 concurrent runs used to lose each other's fields because each wrote back a
 whole file it had read before the other's batch landed. The initial record
-read still precedes the claim, so the lock does not protect that read.
+read still precedes the claim; the command rereads the record under the claim
+before writing.
 `.prose.lock` is removed when the writing run ends and is safe to delete
 after a killed run if no other run holds it.
 
@@ -375,9 +400,9 @@ Successful replacement leaves no scratch file.
 
 `prose.lock.json` sits beside `retro.json`. Its top level records
 `model: "gpt-6-astra"`, `command: "codex-ask -m astra"`, and the total `slop`
-count. Each field records `sha256`, the reply's run directory in `run`, its
-`log` path, a UTC `at` timestamp, and a `slop` count of findings left after
-revision. `check --strict` sums the per-field counts and fails above
+count. Each field written by Astra records `sha256`, the reply's run
+directory in `run`, its `log` path, a UTC `at` timestamp, and a `slop` count
+of findings left after revision. `check --strict` sums the per-field counts and fails above
 `SLOP_BUDGET = 3`, naming up to five fields with the most findings. This gate
 covers the prose fields recorded in the lock, not the whole rendered
 document.
@@ -387,6 +412,41 @@ nonempty enumerated field lacks a matching digest. A hand edit or another
 model's rewrite changes that digest; run
 `retro.py prose <dir> --field <address>` to restore provenance. The check
 compares text hashes only; it does not authenticate the model, run, or log.
+
+### `--quick`: migrate a retro written before 0.3.0
+
+`retro.py prose <dir> --quick` is the migration path for existing prose from
+before 0.3.0. Use the full command for new work. `newly_required` selects
+missing short names, summary panels, narrative section takeaways, timeline
+text over `ENTRY_WORDS = 25`, and cause text over `CAUSE_BODY_WORDS = 90`.
+
+The two body counts exclude URLs and inline code. The selection uses 25,
+not the non-strict error threshold `ENTRY_WORDS_MAX = 40`. Panels follow
+`SUMMARY_PANEL_WORDS = 35` and `SUMMARY_BUDGET = 150`; takeaways follow
+`TAKEAWAY_WORDS = 18`. The command skips selected fields whose hashes
+already match. Prepare all five panel containers and the narrative section
+objects first; the command enumerates only structures present in the files.
+
+`grandfather` pins each remaining nonempty enumerated field without a
+matching digest in `prose.lock.json`. The entry contains `sha256`,
+`"kind": "legacy"` (`LEGACY = "legacy"`), a `grandfathered` value from
+`plugin_version()`, and a UTC `at` timestamp. Matching entries retain their
+existing provenance. A matching legacy digest satisfies the strict
+provenance check for an eligible retro; every other validation still applies.
+
+`LEGACY_CUTOFF = "2026-09-19"` limits this migration path. `check` uses the
+date portion of `timestamps.onset`, falling back to `meta.date`. If that
+date is after the cutoff and any lock entry has legacy provenance, `check`
+errors even without `--strict` and tells the author to run `prose` without
+`--quick`. The cutoff date itself is allowed. This gate prevents legacy
+provenance on later incidents; it does not establish when the retro was
+written.
+
+A later edit breaks the field's hash and fails `check --strict`. Send the
+edited field through `prose --field` without `--quick`. Running `--quick`
+again does not clear that failure: the migration pins a field only when the
+lock has no entry for it, so an edited field keeps the hash it was pinned
+with and stays failing until Astra rewrites it.
 
 ## `render-check`: the initial page
 
@@ -434,7 +494,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 |---|---|
 | `retro.json` | canonical structured retro |
 | `summary.html` | the executive summary, a body-level fragment whose panel prose is written by `prose` |
-| `prose.lock.json` | model and command metadata, total `slop`, and each accepted field's digest, run directory, log path, timestamp, and remaining `slop` count |
+| `prose.lock.json` | model and command metadata, total `slop`, and each accepted field's digest, run directory, log path, timestamp, and remaining `slop` count; migrated legacy entries carry a digest, `kind`, `grandfathered` plugin version, and timestamp |
 | `.prose.lock` | transient exclusive writer claim (`WRITE_LOCK = ".prose.lock"`); removed when the writing run ends and safe to delete after a killed run if no other run holds it |
 | `<filename>.<pid>.part` | transient sibling used to replace `retro.json` or `prose.lock.json` atomically; removed by successful replacement |
 | `~/.cache/incident-retro/prose/<slug>/slop-cop-rules.json` | the linter's full rule catalog, outside the published retro directory |
@@ -471,4 +531,4 @@ Errors unless noted; `--strict` promotes the strict warnings.
 18. Revision history integrity.
 19. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
 20. `summary.html`: the fragment rules, panel vocabulary and order, 35 words per panel, 150 total, and a first heading that does not restate the title.
-21. Prose provenance: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
+21. Prose provenance: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
