@@ -336,7 +336,8 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
     # The fable row opens on its single lane, not on the orchestration lanes it
-    # used to claim; design review and synthesis sit in the opus row.
+    # used to claim; design review stays opus, while synthesis defaults to opus
+    # with astra equally accepted.
     assert "| fable-5 | 2 | 9 | 9 | Exactly one lane:" in claude
     assert "synthesis/accept-reject" in claude
     # Prose routes to gpt-6-astra via the codex skill; capt-hook's prose gate

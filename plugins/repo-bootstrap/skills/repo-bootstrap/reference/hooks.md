@@ -152,8 +152,9 @@ Enforces the CLAUDE.md **Models** routing table (`## Model Routing`, formerly
   `Skill(codex)` works from the main conversation. Code/diff review is astra's
   finder lane, with a refuter only at audit depth; a miss escalates to opus
   `xhigh` first, reaching fable only once opus `xhigh` has actually fallen short.
-  Design/architecture review and findings synthesis are opus `xhigh` lanes, not
-  fable; when uncertain it stays silent.
+  Design/architecture review is an opus `xhigh` lane, not fable; findings
+  synthesis defaults to opus `xhigh` with astra equally accepted, and a
+  synthesis lane on astra is never flagged; when uncertain it stays silent.
 - **Workflow review/diagnosis nudge (LLM, warn).** The same reminder for a `Workflow`
   whose finder, refuter, security-audit, or diagnosis stages would run on fable.
 - **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via

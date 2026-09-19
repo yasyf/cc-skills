@@ -145,8 +145,9 @@ shared AGENTS.md:
   implementation delegates here rather than editing inline on fable, and
   individual bounded decision-light changes land here too since Opus 5 —
   which as of this split also carries orchestration, design review, hard
-  planning, long-horizon agentic driving, sustained hands-on tool-driving,
-  and review-findings synthesis, all moved off fable); fable-5 keeps exactly
+  planning, long-horizon agentic driving, and sustained hands-on
+  tool-driving, all moved off fable, and review-findings synthesis by
+  default with astra equally accepted); fable-5 keeps exactly
   one lane, sensitive or error-prone implementation (the one implementation
   lane fable keeps), reached as a typed subagent and never by editing
   inline, even when the root agent driving the plan runs fable; the recon
