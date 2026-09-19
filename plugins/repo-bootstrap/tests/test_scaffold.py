@@ -295,12 +295,9 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
-    # 2026-07-03 flip, rebalanced 2026-08-01: opus xhigh is the delegation
-    # default and the implementation lane at every horizon; fable keeps
-    # long-horizon agentic driving plus the sensitive carve-out, and an
-    # implementation miss crosses models (opus <-> sol at xhigh) before
-    # reaching fable. Regressing either phrase would re-route implementation
-    # subagents back to fable (or resurrect the backwards escalation direction).
+    # Opus xhigh is the delegation default and the implementation lane at every
+    # horizon; fable keeps only the sensitive carve-out. Regressing these would
+    # re-route implementation subagents back to fable.
     assert "| opus-5 | 4 | 8 | 8 |" in claude
     assert "when in doubt, opus" in claude
     assert "when in doubt, fable" not in claude
@@ -309,13 +306,23 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     # main loop — direct edits are where implementation actually happens (the
     # capt-hook main-loop nudge enforces the same directive).
     assert "rather than editing inline on fable" in claude
-    # Sustained hands-on tool-driving (browser automation, QA sweeps) is fable's
-    # lane since the 2026-08-01 rebalance — the phrase now lives in the fable row.
+    # Sustained hands-on tool-driving and long-horizon agentic runs are opus lanes.
     assert "hands-on tool-driving" in claude
     assert "long-horizon agentic driving" in claude
-    assert "an implementation miss crosses models first" in claude
-    assert "an opus miss retries on gpt-6-astra `xhigh`, an astra miss on opus `xhigh`" in claude
-    assert "reaches fable only after both cross-model attempts fall short" in claude
+    # The routing table is its own H2, mirroring the user's global CLAUDE.md.
+    assert "\n## Model Routing\n" in claude
+    # Escalation: implementation crosses opus <-> astra first; every other lane
+    # needs an actual opus xhigh miss before fable. Pins the direction.
+    assert "crosses between opus `xhigh` and astra `xhigh`" in claude
+    assert "reaches fable only once opus `xhigh` has actually fallen short" in claude
+    assert "never on the guess that it will" in claude
+    # An unpinned spawn runs opus; fable on a subagent is always typed by hand.
+    assert "Subagents never inherit fable" in claude
+    assert "A spawn naming no `model` runs opus" in claude
+    # How a lane runs is not what kind of work it is.
+    assert "Spawn convenience is not a routing input" in claude
+    # A bounded N-unit sweep executes a written bar; opus is never its lane.
+    assert "never runs on opus" in claude
     assert "the one implementation lane fable keeps" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
@@ -328,7 +335,9 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "sweeps fan out to gpt-6-astra" in claude
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
-    assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
+    # The fable row opens on its single lane, not on the orchestration lanes it
+    # used to claim; design review and synthesis sit in the opus row.
+    assert "| fable-5 | 2 | 9 | 9 | Exactly one lane:" in claude
     assert "synthesis/accept-reject" in claude
     # Prose routes to gpt-6-astra via the codex skill; capt-hook's prose gate
     # blocks a Claude-model spawn that would write the prose itself.
