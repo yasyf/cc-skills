@@ -83,6 +83,15 @@ class AtomicWrite(unittest.TestCase):
 
 
 class StaleFields(unittest.TestCase):
+    def test_an_empty_headline_counts_as_stale(self):
+        """--quick intersects with the stale set, so a headline missing from it is never written."""
+        store = {"meta.title": {"kind": retro_prose.HEADLINE, "text": ""},
+                 "meta.subtitle": {"kind": retro_prose.SUBTITLE, "text": ""},
+                 "C1.code.caption": {"kind": "prose", "text": ""}}
+        stale = [a for a, s in store.items()
+                 if not s["text"].strip() and s["kind"] in retro_prose.REQUIRED_KINDS]
+        self.assertEqual(sorted(stale), ["meta.subtitle", "meta.title"])
+
     def test_a_required_short_name_that_is_missing_counts_as_stale(self):
         store = {"T1.h": {"kind": "short name", "text": ""},
                  "C1.code.caption": {"kind": "prose", "text": ""},
@@ -120,6 +129,76 @@ class Grandfathering(unittest.TestCase):
         lock = {"fields": {"C1.text": {"sha256": retro_prose.digest("astra wording"), "run": "/runs/x"}}}
         retro_prose.grandfather(self.retro, {}, self.root, store, set(), lock)
         self.assertNotIn("kind", lock["fields"]["C1.text"])
+
+
+class HeadlineAndSubtitle(unittest.TestCase):
+    """0.3.0 required a compact title but gave no way to write one. Both are prose fields now."""
+
+    def setUp(self):
+        self.retro = type("Retro", (), {"DOC_TITLE_CHARS": 60, "DOC_TITLE_WORDS": 8, "SUBTITLE_CHARS": 120,
+                                        "SUBTITLE_WORDS": 20, "words": staticmethod(lambda s: len(s.split()))})
+
+    def spec(self, kind, text):
+        return {"kind": kind, "text": text, "holder": {}, "key": "title", "grounded": True}
+
+    def test_an_overlong_headline_is_over_budget(self):
+        long = "A migration ran before all services using the schema were deployed, so run creation stopped"
+        self.assertTrue(retro_prose.over_budget(self.retro, self.spec(retro_prose.HEADLINE, long)))
+
+    def test_a_compact_headline_is_within_budget(self):
+        self.assertFalse(retro_prose.over_budget(self.retro, self.spec(retro_prose.HEADLINE,
+                                                                      "Run creation stopped for 71 minutes")))
+
+    def test_a_headline_may_not_invent_a_fact_the_subtitle_lacks(self):
+        source = json.dumps({"subtitle": "A config set burst limits to zero, stopping checkouts."})
+        self.assertTrue(retro_prose.fact_drift("", "Checkouts blocked for 94 minutes", source))
+
+    def test_a_headline_drawn_from_the_subtitle_is_accepted(self):
+        source = json.dumps({"subtitle": "A config set burst limits to zero, stopping checkouts for 94 minutes."})
+        self.assertEqual(retro_prose.fact_drift("", "Checkouts blocked for 94 minutes", source), [])
+
+    def test_shortening_an_overlong_headline_may_drop_words(self):
+        source = json.dumps({"subtitle": "A migration ran before the workers deployed, so run creation stopped."})
+        self.assertEqual(retro_prose.fact_drift("", "Run creation stopped", source), [])
+
+
+class OperatorNotes(unittest.TestCase):
+    """An operator steers the writing without writing it."""
+
+    def store(self):
+        return {"meta.title": {"kind": retro_prose.HEADLINE, "text": ""},
+                "C1.text": {"kind": "prose", "text": "x"}}
+
+    def test_an_addressed_note_reaches_only_that_field(self):
+        store = self.store()
+        self.assertEqual(retro_prose.attach_notes(store, ["meta.title=name the cause"]), "")
+        self.assertEqual(store["meta.title"]["note"], "name the cause")
+        self.assertNotIn("note", store["C1.text"])
+
+    def test_a_bare_note_reaches_every_field(self):
+        store = self.store()
+        retro_prose.attach_notes(store, ["prefer the operator's words"])
+        self.assertEqual({s["note"] for s in store.values()}, {"prefer the operator's words"})
+
+    def test_a_note_for_an_unknown_address_is_reported(self):
+        self.assertEqual(retro_prose.attach_notes(self.store(), ["meta.nope=hi"]), "meta.nope")
+
+    def test_notes_survive_the_reread_under_the_claim(self):
+        """The record is re-read inside the lock, which once discarded the notes attached before it."""
+        root = Path(tempfile.mkdtemp())
+        (root / "retro.json").write_text(json.dumps({"meta": {"slug": "s"}}))
+        seen, original_read, original_write = [], retro_prose.read_record, retro_prose.write_prose
+        retro_prose.read_record = lambda retro, where: ({"meta": {}}, self.store())
+        retro_prose.write_prose = lambda retro, R, root, args, store, *a, **k: seen.append(
+            store["meta.title"].get("note")) or 0
+        try:
+            args = type("Args", (), {"retro": None, "dir": str(root), "list": False,
+                                     "field": ["meta.title"], "stale": False, "quick": False,
+                                     "dry_run": False, "batch": 4, "note": ["meta.title=name the cause"]})()
+            retro_prose.prose(args)
+        finally:
+            retro_prose.read_record, retro_prose.write_prose = original_read, original_write
+        self.assertEqual(seen, ["name the cause"], "the note did not survive the re-read under the claim")
 
 
 class BatchedLint(unittest.TestCase):

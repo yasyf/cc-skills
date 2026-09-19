@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Checkouts blocked for 94 minutes",
-    "subtitle": "A rate-limit config set burst limits to zero for tenants without custom limits, stopping checkouts for 94 minutes",
+    "subtitle": "A rate-limit config set burst limits to zero for tenants without overrides, so checkouts failed for 94 minutes.",
     "tags": [
       "rate-limiting",
       "config-push",

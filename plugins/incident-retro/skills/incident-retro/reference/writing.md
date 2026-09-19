@@ -9,10 +9,10 @@ changes that reduce recurrence. It does not grade the people involved.
 
 ## The headline names the failure and the subtitle states the mechanism
 
-Write `meta.title` as the compact headline a reader uses to name the
-incident. Write `meta.subtitle` as one sentence stating what changed, what
-that change caused, and what broke. Both must make sense to someone who was
-not in the response.
+Astra writes `meta.title` and `meta.subtitle` through `retro.py prose`.
+The headline names the failure. The subtitle states what changed, what
+that change caused, and what broke in one sentence. Both must make sense
+to someone who was not in the response.
 
 - Bad title: "Invocations stay Pending and schedules stop: restate-worker
   on old image inserts into renamed `workflow_runs` column"
@@ -23,23 +23,43 @@ not in the response.
 - Good subtitle: "A config gave tenants without a custom limit a burst of
   zero, so checkouts failed for 94 minutes."
 
-The title has at most 60 characters and 8 words; either excess is an error.
-The subtitle has at most 120 characters and 20 words; excess characters are
-an error and excess words draw a strict warning. Use no colon or identifier
-in either field. Those shapes draw strict warnings too. Put service, image,
-table, and column names in a cause, where readers look for that detail.
+The title has at most `DOC_TITLE_WORDS = 8` words and
+`DOC_TITLE_CHARS = 60` characters; either excess is an error. It takes no
+final period. The subtitle has at most `SUBTITLE_WORDS = 20` words and
+`SUBTITLE_CHARS = 120` characters; excess characters are an error and excess
+words draw a strict warning. Use no colon or identifier in either field.
+Those shapes draw strict warnings too. Put service, image, table, and column
+names in a cause, where readers look for that detail.
 
-For an existing retro, move its old `meta.title` into `meta.subtitle`, then
-write a new compact `meta.title`. The old subtitle's browser-title suffix
-meaning is gone. Include a duration only when it helps explain the failure
-and follows the recorded endpoints.
+Use the repeatable `--note "[ADDR=]TEXT"` flag to steer the writing without
+writing it. `ADDR=text` directs one field; bare text directs every field
+selected for the run. A later note replaces an earlier note for the same
+field. The work order marks the note `REQUIRED` and tells Astra that
+returning the current wording unchanged does not answer it. Select the
+field explicitly when revising it:
+
+```bash
+$TOOL prose <dir> --field meta.title \
+  --note "meta.title=lead with the disk filling up"
+```
+
+In a measured run, this changed "Read failures and resource exhaustion" to
+"A full disk, failed reads, and exhausted executors".
+
+For a retro written before 0.3.0, move its old `meta.title` into
+`meta.subtitle`, clear `meta.title`, and run
+`retro.py prose <dir> --quick`. Astra writes the newly required prose.
+The old subtitle's browser-title suffix meaning is gone.
+Include a duration only when it helps explain the failure and follows
+the recorded endpoints.
 
 Write 2 to 6 distinct lower-case topical tags in `meta.tags`, joining words
 with hyphens. Name the system, failure class, and surface, as in `migration`,
 `release-pipeline`, and `paging`. Keep team codenames in `meta.teams`; the page
-already shows their chips and warns when a tag repeats one. Title, subtitle,
-and tags are data, not prose. The author writes them; `retro.py prose` does
-not select them.
+already shows their chips and warns when a tag repeats one. Tags are
+operator-chosen data from a controlled vocabulary for filtering, not
+writing. `meta.tags` is not a prose field and `retro.py prose` does not
+select it.
 
 The slug has the form `<incident date>-<three to six plain words>`, at most 60
 characters. Use the words colleagues use to name the incident aloud:
@@ -240,10 +260,11 @@ text evidence; treat a match as a publishing block.
 Run `retro.py prose <dir>` after assembling the record. It sends the authored
 fields listed in [reference/schema.md](schema.md#prose-authored-fields-and-provenance)
 through `codex-ask -m astra`, writes accepted wording directly, and records
-its hashes in `prose.lock.json`. These fields include action titles and
-notes, decision titles and alternatives, hypothesis titles, and sub-incident
-titles. `--stale` selects required short names that are absent or empty as
-well as nonempty fields without matching provenance. It leaves absent
+its hashes in `prose.lock.json`. These fields include the headline and
+subtitle, action titles and notes, decision titles and alternatives,
+hypothesis titles, and sub-incident titles. `--stale` selects empty headlines
+and subtitles, required short names that are absent or empty, and nonempty
+fields without matching provenance. It leaves absent
 optional prose alone.
 
 The work order names this writing contract and the full rule catalog from
@@ -276,13 +297,22 @@ Do not hand-edit accepted text: `check --strict` rejects a changed field
 until `retro.py prose <dir> --field <address>` writes it again.
 
 Preserve numbers, times, identifiers, URLs, code-span contents, names,
-citations, and footnotes when revising. Backticks are markup: the fact
+citations, and footnotes in fields other than the headline and subtitle.
+Backticks are markup: the fact
 freeze strips them before tokenizing, so adding a code span around 8 GiB
 does not change its facts. The fact freeze protects identifiers containing
 underscores, such as `manifest_section`, with or without backticks. The
 command still refuses a reply that drops the identifier or changes a number.
 It checks the tokens it recognizes; review the meaning too. Fields outside its enumeration
 still follow this writing contract and the Astra routing in `SKILL.md`.
+
+For the headline and subtitle, the fact freeze checks grounding instead of
+requiring every fact from the previous text to survive compression.
+Grounding is the other field plus `summary.text` and `summary.p`.
+`over_budget()` decides whether the current text also belongs: within both
+budgets, it stays so a run can re-derive provenance; over either budget, it
+is excluded. Astra may omit facts when shortening these fields but may
+invent none. Review the meaning as well as the protected tokens.
 
 Run the generated Markdown through the prose gate after the structural edit
 and again after the final tone edit:
@@ -297,14 +327,29 @@ carry incident facts; rewrite them directly.
 
 ### Migrate prose written before 0.3.0
 
-Use `retro.py prose <dir> --quick` for the initial migration of a retro
-written before 0.3.0. It asks Astra for missing short names, the five summary
-panels, narrative section takeaways at `TAKEAWAY_WORDS = 18`, and timeline
-or cause text over 25 or 90 words. Fields with matching hashes stay as they
-are. The fact freeze remains on; only deterministic lint runs. Prepare the
-panel containers and section objects before running the command.
+Version 0.3.0 required a compact title but gave Astra no way to write it:
+`targets()` omitted `meta.title`, so `--field meta.title` returned
+`not a prose field`. Migration left an empty required title and a strict error
+that an operator could not legitimately fix by hand. Version 0.3.1 makes
+the headline and subtitle prose fields.
 
-Other nonempty pre-existing prose without matching provenance is pinned
+Move the old `meta.title` into `meta.subtitle`, replacing the browser-title
+suffix, then clear `meta.title` and supply `meta.tags`. Run
+`retro.py prose <dir> --quick` for the initial migration. To write one field
+on demand, use `--field`, as in `prose --field meta.title`.
+
+`prose --field meta.title` wrote a 5-word, 37-character headline in
+71 seconds with zero lint findings on a copy of a real retro whose title
+the rollout had left empty.
+
+`--quick` asks Astra for empty or over-budget headlines and subtitles,
+missing short names, the five summary panels, narrative section takeaways at
+`TAKEAWAY_WORDS = 18`, and timeline or cause text over 25 or 90 words.
+Fields with matching hashes stay as they are. The fact freeze remains on;
+only deterministic lint runs. Prepare the panel containers and section
+objects before running the command.
+
+Other nonempty pre-existing prose without a lock entry is pinned
 with `"kind": "legacy"`, its `sha256`, and a `grandfathered` stamp naming
 the plugin version. These hashes satisfy the strict provenance gate for
 eligible retros. A later edit breaks the hash; send that field through
@@ -314,6 +359,7 @@ eligible retros. A later edit breaks the hash; send that field through
 `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. The restriction applies
 without `--strict` and directs the author to run `prose` without `--quick`.
 The date gate keeps the migration path from skipping Astra on later incidents.
-The gate checks the incident date, not the writing date, and another `--quick`
-run can pin changed prose again. The [migration reference](schema.md#--quick-migrate-a-retro-written-before-030)
+The gate checks the incident date, not the writing date. Another `--quick`
+run preserves existing lock entries, including stale hashes; it cannot
+re-pin an edited field. The [migration reference](schema.md#--quick-migrate-a-retro-written-before-030)
 states those enforcement limits; `--quick` is not a general escape hatch.

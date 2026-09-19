@@ -952,6 +952,20 @@
       "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3026254714/codex-q-845048274.log",
       "at": "2026-09-19T18:29:17Z",
       "slop": 0
+    },
+    "meta.title": {
+      "sha256": "11a4d81cbbf363f346730e4cfdd1a20510e830ca44f09041a18f0516f138e376",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.537680005",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.537680005/codex-q-1109294652.log",
+      "at": "2026-09-19T20:12:35Z",
+      "slop": 0
+    },
+    "meta.subtitle": {
+      "sha256": "f82dccfbc1f12004ae42f01e9f97b3f9dde55f0d2da5861198872bebee9ec02f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1499608055",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1499608055/codex-q-2262211707.log",
+      "at": "2026-09-19T20:14:31Z",
+      "slop": 0
     }
   },
   "command": "codex-ask -m astra",

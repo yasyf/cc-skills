@@ -19,9 +19,9 @@ here.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `title` | yes | Compact headline used for the page's `h1`, rail brand, and browser title. At most 60 characters and 8 words; either excess is an error. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
-| `subtitle` | yes | One causal sentence beneath the headline, at most 120 characters and 20 words. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
-| `tags` | yes | 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team codename warns |
+| `title` | yes | Astra-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
+| `subtitle` | yes | Astra-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
+| `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team codename warns |
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
 | `status` | yes | `draft`, `in-review`, `reviewed`, `resolved`; rendered Draft, Under review, Reviewed, Closed out. `draft` is the only status that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped` |
@@ -45,8 +45,10 @@ and collapsed structure. Conclusions belong in the narrative sections that
 argue them. A reference takeaway or a narrative takeaway over 18 words draws
 a strict warning.
 
-For an existing retro, move the old `meta.title` into `meta.subtitle` and
-write a new compact `meta.title`. Replace the old subtitle value, including
+For a retro written before 0.3.0, move the old `meta.title` into
+`meta.subtitle`, clear `meta.title`, and run
+`retro.py prose <dir> --quick` to write the newly required prose through
+Astra. Replace the old subtitle value, including
 "Incident retrospective"; it no longer supplies a browser-title suffix.
 Add topical tags separately from the codenames in `meta.teams`.
 
@@ -280,12 +282,15 @@ an action's link.
 ## `prose`: authored fields and provenance
 
 `retro.py prose <dir>` routes the fields below through `codex-ask -m astra`.
-`meta.title`, `meta.subtitle`, and `meta.tags` are data, not prose; the author
-writes them. `--list` prints the addresses available in the current record,
+`targets()` enumerates `meta.title` as `headline` and `meta.subtitle` as
+`subtitle`; both are addressable with `--field`. `meta.tags` stays
+operator-chosen data: tags are a controlled vocabulary for filtering, not
+writing. `--list` prints the addresses available in the current record,
 including empty fields whose containing objects exist.
 
 | Fields | Addresses |
 |---|---|
+| Headline and subtitle | `meta.title` (`headline`), `meta.subtitle` (`subtitle`) |
 | Section openers and takeaways | `meta.sections.<sectionId>.sub`, `meta.sections.<sectionId>.takeaway` |
 | Short names | `<id>.h`, `timeline[<index>].h` when no id exists, `evidence.<kind>[<index>].h` for notebooks, monitors, builds, and PRs |
 | Twinned blocks | `summary.text`, `summary.p`, and the same pair on `impact`, `resolution`, and `detection` |
@@ -323,7 +328,8 @@ draft. The command calls `codex-ask -m astra` as a subprocess with a JSON reply 
 `{"fields": [{"id": "<address>", "text": "<wording>"}]}`. It writes accepted
 text directly into `retro.json` and `summary.html`.
 
-Before writing a field, it strips HTML tags and backticks, then compares
+The fact freeze strips HTML tags and backticks before comparing tokens.
+Existing fields other than the headline and subtitle must preserve
 URLs, identifiers containing underscores, and numeric tokens, including
 counts, dates, and times. ``FENCE = re.compile(r"`+")`` removes code-span
 delimiters before tokenization, so 8 GiB and `` `8 GiB` `` compare equal.
@@ -336,7 +342,17 @@ Changed tokens reject that field; accepted fields in the same batch still
 land. An empty field may use tokens from its containing entry and selected
 snapshot context.
 
-This is a token check, not a complete fact check:
+The headline and subtitle use their grounding instead of their previous
+text for the fact freeze. Grounding contains the other field, `summary.text`,
+and `summary.p`.
+
+`over_budget()` compares the field's current text with its word and
+character limits. Text within both limits also joins the grounding
+so a run that re-derives provenance can retain its facts. Text over either
+limit is excluded. A shorter headline or subtitle may drop words and facts;
+it may not invent them. The rule is "invent nothing," not "preserve everything."
+
+The fact freeze checks recognized tokens, not all facts:
 lowercase identifiers without underscores and URLs inside HTML attributes
 are outside that token comparison. Backticks do not protect
 arbitrary code-span contents.
@@ -346,7 +362,8 @@ Review the returned wording against the record.
 |---|---|
 | `--list` | Print each field as `empty`, `locked`, or `unlocked`; make no model call |
 | `--field <address>` | Rewrite that field; repeat for several fields. An unknown address errors |
-| `--stale` | Rewrite nonempty fields without a matching digest and required short names `h` that are missing or empty. Leave absent optional prose alone |
+| `--note "[ADDR=]TEXT"` | Steer one field with `ADDR=text`, or every selected field with bare text; repeatable. A later note replaces an earlier note for the same field |
+| `--stale` | Rewrite nonempty fields without a matching digest, empty headlines and subtitles, and required short names `h` that are missing or empty. Leave absent optional prose alone |
 | `--quick` | Migrate a retro written before 0.3.0: rewrite newly required fields, run deterministic lint only, and pin remaining pre-existing prose as legacy provenance |
 | `--batch <N>` | Fields per model call; `PROSE_BATCH = 36` |
 | `--dry-run` | Prepare the rule catalog and print the first selected batch's work order without calling the model or changing the retro |
@@ -356,6 +373,19 @@ Without a selection flag, the command selects every enumerated field.
 `--field` takes selection precedence over `--quick`, which takes precedence
 over `--stale`. Combining `--field` with `--quick` still skips model lint and
 pins the other fields as legacy.
+
+An operator note directs Astra without supplying the prose. The work order
+marks it `REQUIRED` and says that returning the current text unchanged does
+not answer it. Notes do not select fields; use `--field` to request the
+rewrite. For example:
+
+```bash
+retro.py prose <dir> --field meta.title \
+  --note "meta.title=lead with the disk filling up"
+```
+
+In a measured run, that note changed "Read failures and resource exhaustion"
+to "A full disk, failed reads, and exhausted executors".
 
 Each accepted reply field runs through the deterministic rules with
 `slop-cop check --lang=markdown --llm-effort=off`. Without the explicit `off`,
@@ -415,10 +445,26 @@ compares text hashes only; it does not authenticate the model, run, or log.
 
 ### `--quick`: migrate a retro written before 0.3.0
 
-`retro.py prose <dir> --quick` is the migration path for existing prose from
-before 0.3.0. Use the full command for new work. `newly_required` selects
+Version 0.3.0 required a compact `meta.title`, but `targets()` did not
+enumerate it. `prose --field meta.title` returned `not a prose field`.
+Migration left the required title empty and `check --strict` failing.
+Only Astra could write it, so the command provided no way to satisfy the
+check. Version 0.3.1 adds the missing prose fields.
+
+For a retro written before 0.3.0, move the old `meta.title` into
+`meta.subtitle`, replacing the browser-title suffix, and clear `meta.title`.
+Supply `meta.tags` yourself. Run `retro.py prose <dir> --quick` for the
+migration. To write one field on demand, use `--field`, as in
+`retro.py prose <dir> --field meta.title`.
+
+`prose --field meta.title` wrote a 5-word, 37-character headline in
+71 seconds with zero lint findings on a copy of a real retro whose title
+the rollout had left empty.
+
+`--quick` selects empty or over-budget headlines and subtitles,
 missing short names, summary panels, narrative section takeaways, timeline
 text over `ENTRY_WORDS = 25`, and cause text over `CAUSE_BODY_WORDS = 90`.
+Use the full command for new work.
 
 The two body counts exclude URLs and inline code. The selection uses 25,
 not the non-strict error threshold `ENTRY_WORDS_MAX = 40`. Panels follow
@@ -427,12 +473,13 @@ not the non-strict error threshold `ENTRY_WORDS_MAX = 40`. Panels follow
 already match. Prepare all five panel containers and the narrative section
 objects first; the command enumerates only structures present in the files.
 
-`grandfather` pins each remaining nonempty enumerated field without a
-matching digest in `prose.lock.json`. The entry contains `sha256`,
+`grandfather` pins each remaining nonempty enumerated field with no entry
+in `prose.lock.json`. The entry contains `sha256`,
 `"kind": "legacy"` (`LEGACY = "legacy"`), a `grandfathered` value from
-`plugin_version()`, and a UTC `at` timestamp. Matching entries retain their
-existing provenance. A matching legacy digest satisfies the strict
-provenance check for an eligible retro; every other validation still applies.
+`plugin_version()`, and a UTC `at` timestamp. Existing entries retain their
+provenance even when their hashes no longer match. A matching legacy digest
+satisfies the strict provenance check for an eligible retro; every other
+validation still applies.
 
 `LEGACY_CUTOFF = "2026-09-19"` limits this migration path. `check` uses the
 date portion of `timestamps.onset`, falling back to `meta.date`. If that
