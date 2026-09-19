@@ -125,9 +125,11 @@ PreToolUse. Eight hooks:
   haiku-tier `model`, unless the prompt reads as single-fact mechanical work
   (classify/label/tag one thing per item). Recovery is in the deny message: use
   `sonnet`, or drop `model` to inherit the session model.
-- **Prose gate (block).** Denies an `Agent`/`Task` call that pins haiku/sonnet/opus
-  on a writing-shaped prompt — all prose routes to fable; drop `model` or pass
-  `model: fable`.
+- **Prose gate (block).** Denies an `Agent`/`Task` spawn whose deliverable is prose
+  the subagent would write itself on a Claude model, with any pin (fable included)
+  or none. Route the writing through codex on gpt-6-astra at `xhigh`: spawn the
+  `codex:codex-wrapper` agent with a self-contained writing brief, or state in the
+  prompt that the subagent delegates every sentence there and lands it verbatim.
 - **Explore auto-upgrade (rewrite).** An `Explore` or `claude-code-guide` subagent
   spawned without a `model` param silently runs haiku; this rewrite fills in
   `model: sonnet` (never touching an explicit choice) and notes the upgrade in
@@ -153,8 +155,12 @@ PreToolUse. Eight hooks:
 - **Workflow haiku nudge (warn).** A `Workflow` whose script (inline or via
   `scriptPath`) pins `agent()` steps to haiku gets a reminder that haiku is for
   mechanical map/apply steps only — judgment-bearing stages inherit or route up.
-- **Workflow prose nudge (warn).** A `Workflow` whose script pins a non-fable model
-  on prose-shaped stages gets the matching reminder that writing routes to fable.
+- **Workflow prose nudge (warn).** A `Workflow` whose script runs a stage that
+  would write prose itself on a Claude model gets the matching reminder, with any
+  pin (fable included) or none. Route the writing through codex on gpt-6-astra at
+  `xhigh`: give the stage `agentType: 'codex:codex-wrapper'` with a self-contained
+  writing brief, or have its prompt delegate every sentence there and land it
+  verbatim.
 
 Remove or tailor by overriding with a local `models` hook. If a repo legitimately
 runs haiku fleets (bulk single-fact classification), the gate already allows

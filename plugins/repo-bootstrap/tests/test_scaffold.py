@@ -330,9 +330,8 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
     assert "| fable-5 | 2 | 9 | 9 | Orchestration, design/architecture review" in claude
     assert "synthesis/accept-reject" in claude
-    # All prose/writing routes to fable (capt-hook blocks non-fable pins on
-    # writing prompts). Dropping the phrase would silently re-open down-routing
-    # of docs and user-facing text.
+    # Prose routes to gpt-6-astra via the codex skill; capt-hook's prose gate
+    # blocks a Claude-model spawn that would write the prose itself.
     assert "never down-route writing" in claude
     # 2026-07-03: security review/audit + verification of security-sensitive code
     # route to gpt-6-astra; implementing that code stays fable (carve-out must survive).

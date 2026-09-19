@@ -26,8 +26,8 @@ construction.
 Work the phases below in order. Each ends with an **Exit criteria** line —
 don't advance until it holds.
 
-The profile's prose is writing: it always runs on fable — never delegate it
-to a down-routed subagent; inherit the session model or pass `model: fable`.
+The profile's prose runs on gpt-6-astra at `xhigh` through the codex
+skill, never through a Claude `model:` pin.
 
 ## Terminology
 
