@@ -27,6 +27,9 @@ SLOP_BUDGET = 3
 FIELD_MARK = "<!-- field:"
 SEPARATOR = "\n\n"
 LEGACY = "legacy"
+HEADLINE = "headline"
+SUBTITLE = "subtitle"
+REQUIRED_KINDS = ("short name", HEADLINE, SUBTITLE)
 REPLY_KEYS = ("REPLY_FILE", "LOG_FILE")
 WRITING_DOCS = "writing-docs"
 SKILL_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "skills"
@@ -133,6 +136,8 @@ def targets(retro, R: dict, root: Path) -> dict:
     """address -> {kind, text, holder, key} over every authored sentence."""
     out = {}
     meta = R.get("meta") or {}
+    for key, kind in (("title", HEADLINE), ("subtitle", SUBTITLE)):
+        out[f"meta.{key}"] = {"kind": kind, "holder": meta, "key": key}
     for sid, cfg in (meta.get("sections") or {}).items():
         if isinstance(cfg, dict):
             for key, kind in (("sub", "section opener"), ("takeaway", "section takeaway")):
@@ -201,6 +206,12 @@ def contract_files(retro) -> list:
 
 def budgets(retro) -> list:
     return [
+        f"meta.title is the headline: the failure named in {retro.DOC_TITLE_WORDS} words or fewer and "
+        f"{retro.DOC_TITLE_CHARS} characters or fewer, no colon, no service, image, table or column name. It says "
+        f"what broke and, where it fits, what caused it. It is not a sentence and takes no final period",
+        f"meta.subtitle is the one sentence stating the mechanism: what changed, what that caused, and what broke, in "
+        f"{retro.SUBTITLE_WORDS} words or fewer and {retro.SUBTITLE_CHARS} characters or fewer, no colon, no "
+        f"identifier. The headline and the subtitle carry different words; the headline is not the subtitle truncated",
         f"a short name (h) is {retro.HANDLE_WORDS} words or fewer, a noun phrase with no trailing period, no register "
         f"id, and no sentence verb: it is what a collapsed row shows in place of the sentence",
         f"a timeline entry's text is {retro.ENTRY_WORDS} words or fewer and never more than {retro.ENTRY_WORDS_MAX}",
@@ -231,6 +242,15 @@ def revision_order(preamble: str, findings: dict, rules: dict, store: dict) -> s
         lines += violation_lines(violations, rules)
         lines.append("")
     return "\n".join(lines)
+
+
+def over_budget(retro, spec: dict) -> bool:
+    text = spec["text"].strip()
+    if spec["kind"] == HEADLINE:
+        return len(text) > retro.DOC_TITLE_CHARS or retro.words(text) > retro.DOC_TITLE_WORDS
+    if spec["kind"] == SUBTITLE:
+        return len(text) > retro.SUBTITLE_CHARS or retro.words(text) > retro.SUBTITLE_WORDS
+    return False
 
 
 def work_order(retro, R: dict, root: Path, batch: list, store: dict, rules: Path = None) -> str:
@@ -293,18 +313,26 @@ def work_order(retro, R: dict, root: Path, batch: list, store: dict, rules: Path
         "heading, no label, no markdown fence, no commentary. A field whose current text is empty is one you are "
         "writing for the first time, from the entry quoted beneath it.",
         "",
+        "A field carrying a line marked REQUIRED takes that instruction from the operator who ran this command. It "
+        "outranks your reading of the field: satisfy it, and do not return the current text unchanged.",
+        "",
     ]
     for addr in batch:
         spec = store[addr]
         lines.append(f"### {addr}")
         lines.append(f"kind: {spec['kind']}")
         if spec["text"].strip():
-            lines.append("current text:")
+            lines.append("current text:" + (" (over budget — rewrite it shorter)" if over_budget(retro, spec) else ""))
             lines.append(spec["text"])
         else:
             lines.append("current text: (empty — write it)")
-            lines.append("the entry it stands for:")
-            lines.append(json.dumps(spec.get("source_obj") or {}, indent=1, ensure_ascii=False))
+        if spec.get("source_obj") is not None and (spec.get("grounded") or not spec["text"].strip()):
+            lines.append("write it from this, and name nothing this does not:")
+            lines.append(json.dumps(spec["source_obj"], indent=1, ensure_ascii=False))
+        if spec.get("note"):
+            lines.append(f"REQUIRED, from the operator, and it overrides your own judgement about this field: "
+                         f"{spec['note']}. Return wording that satisfies it even when the current text already "
+                         f"reads well; returning the current text unchanged does not answer this.")
         lines.append("")
     return "\n".join(lines)
 
@@ -419,9 +447,12 @@ def newly_required(retro, R: dict, root: Path, store: dict) -> list:
             over.add(f"{c.get('id')}.text")
     out = []
     for addr, spec in store.items():
-        if spec["kind"] == "short name" and not spec["text"].strip():
+        text, kind = spec["text"].strip(), spec["kind"]
+        if kind in REQUIRED_KINDS and not text:
             out.append(addr)
-        elif spec["kind"] in ("summary panel", "section takeaway") or addr in over:
+        elif kind in (HEADLINE, SUBTITLE) and over_budget(retro, spec):
+            out.append(addr)
+        elif kind in ("summary panel", "section takeaway") or addr in over:
             out.append(addr)
     return sorted(out)
 
@@ -449,7 +480,7 @@ def unlocked(retro, R: dict, root: Path) -> list:
     for addr, spec in targets(retro, R, root).items():
         text = spec["text"]
         if not text.strip():
-            if spec["kind"] == "short name":
+            if spec["kind"] in REQUIRED_KINDS:
                 out.append(addr)
             continue
         entry = lock.get(addr)
@@ -501,12 +532,34 @@ def read_record(retro, root: Path):
     if R is None:
         return None, None
     store = targets(retro, R, root)
+    meta, summary = R.get("meta") or {}, R.get("summary") or {}
+    grounding = {"title": meta.get("title", ""), "subtitle": meta.get("subtitle", ""),
+                 "summary": summary.get("text", ""), "summary_plain": summary.get("p", "")}
     for addr, spec in store.items():
-        if not spec["text"].strip() and spec["holder"] is not None:
+        if spec["kind"] in (HEADLINE, SUBTITLE):
+            drop = spec["key"] if over_budget(retro, spec) else None
+            spec["source_obj"] = {k: v for k, v in grounding.items() if v and k != drop}
+            spec["grounded"] = True
+        elif not spec["text"].strip() and spec["holder"] is not None:
             obj = {k: v for k, v in spec["holder"].items() if isinstance(v, (str, int, float, bool))}
             obj.update(evidence_snapshot(root, spec["holder"]))
             spec["source_obj"] = obj
     return R, store
+
+
+def attach_notes(store: dict, notes) -> str:
+    """'ADDR=text' steers one field; bare text steers every field this run asks for."""
+    problems = []
+    for note in notes or []:
+        addr, sep, text = note.partition("=")
+        if sep and addr in store:
+            store[addr]["note"] = text.strip()
+        elif sep and addr.startswith("meta.") or sep and "." in addr:
+            problems.append(addr)
+        else:
+            for spec in store.values():
+                spec["note"] = note.strip()
+    return ", ".join(problems)
 
 
 def prose(args) -> int:
@@ -514,6 +567,11 @@ def prose(args) -> int:
     root = Path(args.dir)
     R, store = read_record(retro, root)
     if R is None:
+        return 1
+    unknown = attach_notes(store, getattr(args, "note", None))
+    if unknown:
+        print(f"prose: --note names {unknown}, which is not a prose field; "
+              f"retro.py prose {root} --list names them", file=sys.stderr)
         return 1
     if args.list:
         lock = load_lock(root)["fields"]
@@ -548,6 +606,7 @@ def prose(args) -> int:
             R, store = read_record(retro, root)
             if R is None:
                 return 1
+            attach_notes(store, getattr(args, "note", None))
             wanted = [a for a in wanted if a in store]
             return write_prose(retro, R, root, args, store, wanted, lane_root, rules_file)
     except Busy as held:
@@ -580,7 +639,8 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
                                    else f"{addr}: the reply is empty")
                     continue
                 spec = store[addr]
-                drift = fact_drift(spec["text"], text, json.dumps(spec.get("source_obj") or {}))
+                before = "" if spec.get("grounded") else spec["text"]
+                drift = fact_drift(before, text, json.dumps(spec.get("source_obj") or {}))
                 if drift:
                     refused += [f"{addr}: {d}" for d in drift]
                     continue
@@ -644,5 +704,7 @@ def add_prose_parser(sub, retro):
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")
+    p.add_argument("--note", action="append", metavar="[ADDR=]TEXT", help="steer the writing without writing it: "
+                   "'ADDR=text' for one field, bare text for every field in this run; repeatable")
     p.add_argument("--dry-run", action="store_true", help="print the work order instead of calling the model")
     p.set_defaults(fn=prose, retro=retro)

@@ -7,17 +7,18 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 # incident-retro
 
 GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all new prose,
-including summaries, plain twins, handles, revision notes, and publication
-text. Use `retro.py prose` for its enumerated fields in `retro.json` and
-`summary.html`; it calls `codex-ask -m astra` and records their provenance in
+including headlines, subtitles, summaries, plain twins, handles, revision
+notes, and publication text. Use `retro.py prose` for its enumerated fields
+in `retro.json` and `summary.html`; it calls `codex-ask -m astra` and records their provenance in
 `prose.lock.json`. It has no fallback writer. For a retro written before
 0.3.0, use the `--quick` migration below to retain eligible existing prose.
 
 For prose outside that field list, delegated authors use the same model and
-effort. In Codex, set these explicitly when spawning an author. From Claude, load the `codex` skill and
+effort. In Codex, set the model and effort explicitly when spawning an author. From Claude, load the `codex` skill and
 use `codex-ask -m astra`; Claude collects evidence and publishes the result,
-but delegates the writing. Title, subtitle, and tags are data and remain the
-author's to write.
+but delegates the writing. Tags remain operator-chosen data: they are a
+controlled vocabulary for filtering, not writing. `meta.tags` is outside
+the prose field list.
 
 An incident retro pairs one canonical `retro.json` with committed evidence snapshots and an executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
 
@@ -40,9 +41,9 @@ Read [reference/writing.md](reference/writing.md) before Draft, [reference/evide
 `retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then runs the prose command:
 
 - Fill `retro.json` from inspected evidence. Do not infer a missing event, cause, owner, or outcome.
-- Write a compact `meta.title` within 60 characters and 8 words, and a causal sentence in `meta.subtitle` within 120 characters and 20 words. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
+- Run `prose` to have Astra write `meta.title` as a headline within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters, with no final period. Astra writes `meta.subtitle` as a causal sentence within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
 - Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep team codenames in `meta.teams`.
-- For an existing retro, move the old `meta.title` into `meta.subtitle`, write a new compact headline, and add tags. Replace the old subtitle's browser-title suffix value.
+- For a retro written before 0.3.0, move the old `meta.title` into `meta.subtitle`, clear `meta.title`, and run `prose --quick` to write the newly required prose through Astra. Supply the tags yourself. Replace the old subtitle's browser-title suffix value.
 - Once the causes and actions are settled, prepare one `summary.html` panel per question and run its wording through `prose`.
 - Fetch Slack messages with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
 - Write every timestamp as ISO 8601 with a UTC offset. `meta.timezone` controls display only.
@@ -106,12 +107,24 @@ Follow [reference/writing.md](reference/writing.md). Mark a required answer as n
 $TOOL prose <dir> --list
 $TOOL prose <dir>
 $TOOL prose <dir> --field C1.text --field C1.p
+$TOOL prose <dir> --field meta.title \
+  --note "meta.title=lead with the disk filling up"
 ```
 
-`--stale` selects nonempty fields without matching provenance and required
-short names `h` that are absent or empty. It leaves absent optional prose
-alone. The field list includes action titles and notes, decision titles and
-alternatives, hypothesis titles, and sub-incident titles.
+`--note "[ADDR=]TEXT"` is repeatable. `ADDR=text` steers one field; bare text
+steers every selected field. A later note replaces an earlier note for the
+same field. Notes direct the writing without supplying it and do not change
+field selection. The work order marks each note `REQUIRED` and tells Astra
+that returning the current text unchanged does not answer it. The disk
+note changed "Read failures and resource exhaustion" to "A full disk,
+failed reads, and exhausted executors" in a measured run.
+
+`--stale` selects nonempty fields without matching provenance, empty
+headlines and subtitles, and required short names `h` that are absent or
+empty. It leaves absent optional prose alone. The field list includes
+`meta.title` as `headline`, `meta.subtitle`
+as `subtitle`, action titles and notes, decision titles and alternatives,
+hypothesis titles, and sub-incident titles.
 
 `--batch` defaults to `PROSE_BATCH = 36` fields per call, and `--timeout` to
 `PROSE_TIMEOUT = 1800` seconds per call. `--dry-run` prints the first batch's
@@ -140,8 +153,14 @@ identical findings.
 
 The fact freeze strips backticks before tokenizing. Adding a code span
 around 8 GiB preserves the same facts; `manifest_section` stays protected
-with or without backticks. Dropping the identifier or changing a number
-still refuses the field.
+with or without backticks. The command rejects rewrites that drop
+identifiers or change numbers in fields other than the headline and subtitle.
+
+For the headline and subtitle, the fact freeze checks the other field plus
+`summary.text` and `summary.p`. `over_budget()` decides whether the current
+text also belongs in that grounding. Text within both budgets stays so a
+run can re-derive provenance. The command excludes text over either budget.
+Astra may drop facts to shorten these fields but may invent none.
 
 Work orders, schemas, and the rule catalog live under
 `~/.cache/incident-retro/prose/<slug>/`, keyed by `meta.slug`. Replies and
@@ -164,21 +183,36 @@ Writes to `retro.json` and `prose.lock.json` each use a
 
 ### Migrate a retro written before 0.3.0
 
-Use `--quick` for the initial migration of an older retro:
+Version 0.3.0 required a compact title but `targets()` omitted `meta.title`.
+`prose --field meta.title` returned `not a prose field`, leaving migrated
+retros with an empty required title and a permanent strict error. Only
+Astra may write the title, so the command provided no way to satisfy the
+check. Version 0.3.1 makes the headline and subtitle prose fields.
+
+Move the old `meta.title` into `meta.subtitle`, replacing the browser-title
+suffix, clear `meta.title`, and supply `meta.tags`. Run `--quick` for the
+initial migration:
 
 ```bash
 $TOOL prose <dir> --quick
 ```
 
-It asks Astra only for missing short names, the five summary panels,
-narrative section takeaways within `TAKEAWAY_WORDS = 18`, and timeline or
-cause text over `ENTRY_WORDS = 25` or `CAUSE_BODY_WORDS = 90`. Prepare the
+To write one field on demand, use `--field`, as in `prose --field meta.title`.
+
+`prose --field meta.title` wrote a 5-word, 37-character headline in
+71 seconds with zero lint findings on a copy of a real retro whose title
+the rollout had left empty.
+
+`--quick` asks Astra only for empty or over-budget headlines and subtitles,
+missing short names, the five summary panels, narrative section takeaways within
+`TAKEAWAY_WORDS = 18`, and timeline or cause text over `ENTRY_WORDS = 25`
+or `CAUSE_BODY_WORDS = 90`. Prepare the
 panel containers and narrative section objects first. The command skips
 fields whose hashes already match and runs deterministic lint only. The
 fact freeze stays on.
 
-`grandfather` records other nonempty pre-existing fields without matching
-provenance in `prose.lock.json` with `"kind": "legacy"`, their `sha256`,
+`grandfather` records other nonempty pre-existing fields with no entry in
+`prose.lock.json` with `"kind": "legacy"`, their `sha256`,
 and a `grandfathered` stamp naming the plugin version. Matching legacy
 hashes satisfy the strict provenance gate for eligible retros. A later
 edit breaks its hash; run `prose --field` without `--quick` for that field.
@@ -186,12 +220,15 @@ edit breaks its hash; run `prose --field` without `--quick` for that field.
 `LEGACY_CUTOFF = "2026-09-19"` prevents legacy provenance on later
 incidents. `check` compares the onset date, falling back to `meta.date`,
 and errors after that date even without `--strict`. Its error directs the
-author to run `prose` without `--quick`. This checks the incident date,
-not when the retro was written. Another `--quick` run can pin changed prose
-again, so use this path only for the initial migration. New writing goes
-through the full command; `--quick` is not a general escape hatch.
+author to run `prose` without `--quick`. The gate checks the incident date,
+not when the retro was written.
 
-A measured migration of a pre-0.3.0 retro with 15 timeline entries and
+Another `--quick` run preserves existing lock entries, so it cannot re-pin
+a field after a hand edit. Use this path
+only for the initial migration. New writing goes through the full command;
+`--quick` is not a general escape hatch.
+
+A measured 0.3.0 migration of an older retro with 15 timeline entries and
 4 causes asked Astra for 61 fields against 138 in a full run. It pinned
 77 fields as legacy, made 6 model calls, and took about 16 minutes.
 
@@ -236,7 +273,7 @@ rule is counted and can fail these gates.
 
 Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
 
-When changing the prose pipeline, run its 14 tests from this skill
+When changing the prose pipeline, run its 26 tests from this skill
 directory:
 
 ```bash
@@ -244,11 +281,14 @@ python3 scripts/test_retro_prose.py
 ```
 
 The suite checks the exclusive claim and its release, recovery after a
-process exits while holding the lock, the record read under the claim,
-atomic replacement, scratch cleanup, the stale-field rule, attribution of
-batched lint findings, and six fact-freeze cases. The fact-freeze cases
-cover code-span markup and identifiers with underscores as well as changed
-numbers and invented facts.
+process exits while holding the lock, and the record read under the claim.
+It checks atomic replacement, scratch cleanup, the stale-field rule,
+attribution of batched lint findings, and legacy provenance that cannot
+re-pin hand edits.
+It also checks headline budgets and grounding, addressed and global notes,
+unknown note addresses, and notes surviving the record reread. The
+fact-freeze cases cover code-span markup and identifiers with underscores
+as well as changed numbers, invented facts, and headline compression.
 
 ## Phase 5: Publish
 
@@ -282,7 +322,7 @@ Import an existing Google Docs Markdown export into a draft:
 $TOOL import-gdoc <md> [<docs.json>] --out <dir> [--tz <zone>]
 ```
 
-Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer puts the document's own heading into `meta.subtitle` and leaves `meta.title` and `meta.tags` empty, recording that work in the import notes. Write the compact title and topical tags, and check that the subtitle states the mechanism within its limits. Handles and twins also need completion through `prose`; collect the referenced evidence before continuing at Draft.
+Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer puts the document's own heading into `meta.subtitle` and leaves `meta.title` and `meta.tags` empty, recording that work in the import notes. Leave the title empty and run `prose --field meta.title --field meta.subtitle` to write both through Astra. Supply topical tags yourself. Handles and twins also need completion through `prose`; collect the referenced evidence before continuing at Draft.
 
 ## Reference files
 
