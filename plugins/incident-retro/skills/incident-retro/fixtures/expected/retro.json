@@ -1,9 +1,10 @@
 {
   "meta": {
-    "title": "Checkout API returned 502s and the order queue backed up",
+    "title": "",
+    "subtitle": "Checkout API returned 502s and the order queue backed up",
+    "tags": [],
     "slug": "2026-03-14-checkout-api-returned-502s-order-queue",
     "date": "2026-03-14",
-    "subtitle": "Incident retrospective",
     "status": "resolved",
     "incident": {
       "number": 7,

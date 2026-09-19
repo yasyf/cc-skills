@@ -16,6 +16,8 @@ Imported from `gdoc-export.md` with the Docs API export (title `[2026-03-14] Che
 - Sub-incidents: 2 from the `Summary (Multiple incidents)` list, ids I1..I2; `[N]` prefixes elsewhere became `(IN)` citations
 - Monitor 2 under Detection registered with role `caught`; change it if the monitor missed the incident
 - Zone hint `All times Pacific, 2026-03-14 (PDT, UTC-7).` agrees with `--tz America/Los_Angeles`
+- Subtitle: Checkout API returned 502s and the order queue backed up (the document's own heading)
+- Title: (none) — write the headline and the topical tags; `check` errors until both are there
 - Repo: acme/monorepo (every pull request link names it)
 - Every `h` handle and `p` plain twin is empty: the Draft pass writes them.
 - Every time without an explicit zone was read in `America/Los_Angeles`; confirm the zone before publishing.

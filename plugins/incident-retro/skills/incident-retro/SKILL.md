@@ -8,15 +8,21 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all prose,
 including summaries, plain twins, handles, revision notes, and publication
-text. Delegated authors use the same model and effort. In Codex, set these
-explicitly when spawning an author. From Claude, load the `codex` skill and
-use its `codex-ask -m astra` route, which pins both settings; Claude may
-collect evidence and publish the result, but must delegate the writing.
-Prose helpers try Astra first and may use Claude only when Astra fails.
+text. Use `retro.py prose` for its enumerated fields in `retro.json` and
+`summary.html`; it calls `codex-ask -m astra` and records their provenance in
+`prose.lock.json`. It has no fallback writer.
 
-An incident retro pairs one canonical `retro.json` with committed evidence snapshots and a hand-written executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
+For prose outside that field list, delegated authors use the same model and
+effort. In Codex, set these explicitly when spawning an author. From Claude, load the `codex` skill and
+use `codex-ask -m astra`; Claude collects evidence and publishes the result,
+but delegates the writing. Title, subtitle, and tags are data and remain the
+author's to write.
 
-The page is for readers who did not take part in the response. It opens with the executive summary, then the tiles, the key moments, and the causal chain. Every section starts with one sentence that states its conclusion and keeps the details behind a disclosure. Each opening sentence must make sense on its own.
+An incident retro pairs one canonical `retro.json` with committed evidence snapshots and an executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
+
+The page is for readers who did not take part in the response. It opens with the executive summary, then the tiles, the key moments, and the causal chain. Narrative sections start with a takeaway of 18 words or fewer (`TAKEAWAY_WORDS = 18`) and keep the details behind a disclosure.
+
+`REFERENCE_SECTIONS = ("evidence", "glossary", "notes")` open on their heading and collapsed structure, with no takeaway. Conclusions belong in the sections that argue them. Closed timeline, cause, decision, and unknown rows show a short name `h`; their sentences appear on expansion. Each short name and section opener must make sense on its own.
 
 Use one driver for every mechanical step:
 
@@ -30,15 +36,17 @@ Read [reference/writing.md](reference/writing.md) before Draft, [reference/evide
 
 ## What the agent writes
 
-`retro.py` scaffolds, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent writes the incident itself and the Slack snapshots:
+`retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then runs the prose command:
 
 - Fill `retro.json` from inspected evidence. Do not infer a missing event, cause, owner, or outcome.
-- State the causal mechanism in one plain sentence in `meta.title`. Set `meta.slug` to the incident date plus three to six plain words. The rule and its examples are in [reference/writing.md](reference/writing.md).
-- Once the causes and actions are settled, write `summary.html` by hand with one panel per question.
+- Write a compact `meta.title` within 60 characters and 8 words, and a causal sentence in `meta.subtitle` within 120 characters and 20 words. Use no colon or identifier in either. Set `meta.slug` to the incident date plus three to six plain words. The rule and examples are in [reference/writing.md](reference/writing.md).
+- Add 2 to 6 distinct topical `meta.tags`, such as `migration`, `release-pipeline`, and `paging`. Keep team codenames in `meta.teams`.
+- For an existing retro, move the old `meta.title` into `meta.subtitle`, write a new compact headline, and add tags. Replace the old subtitle's browser-title suffix value.
+- Once the causes and actions are settled, prepare one `summary.html` panel per question and run its wording through `prose`.
 - Fetch Slack messages with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
 - Write every timestamp as ISO 8601 with a UTC offset. `meta.timezone` controls display only.
 - Write each plain twin `p` in 30 words or fewer. Keep every fact from the precise wording, but include no register id or file path.
-- Write each handle `h` as a distinct two-to-five-word noun phrase. Windows, causes, actions, and sub-incidents all need handles.
+- Give every window, timeline entry, cause, action, decision, hypothesis, unknown, sub-incident, and notebook, monitor, build, or PR evidence entry a distinct noun-phrase `h` of 2 to 6 words. A nonempty handle outside that range errors even without strict mode. Missing handles and register ids draw strict warnings; trailing periods warn. Evidence labels do not waive the handle requirement. Slack snapshots are verbatim evidence; never pass them through a language model. The renderer derives their row labels mechanically.
 - Use deployment or service codenames in public prose. Never publish the name of a customer, company, workspace, or account.
 
 ## Phase 1: Gather
@@ -46,8 +54,11 @@ Read [reference/writing.md](reference/writing.md) before Draft, [reference/evide
 Create a fresh directory, then collect the source material before drafting.
 
 ```bash
-$TOOL scaffold <dir> --title "<title>" --date YYYY-MM-DD [--incident N]
+$TOOL scaffold <dir> --title "<headline>" --subtitle "<causal sentence>" \
+  --tags "migration,release-pipeline" --date YYYY-MM-DD [--incident N]
 ```
+
+Without `--subtitle`, scaffold copies the title into the subtitle. Without `--tags`, it leaves an empty list that fails `check`.
 
 Collect incident-channel permalinks, Datadog notebook and monitor ids, pull requests, issue-tracker links, builds, Sentry issues, run ids, and images. Prefer a permalink to a pasted claim because the rendered retro can connect the claim to its source.
 
@@ -76,17 +87,63 @@ Fill `timestamps` first. The opening tiles depend on `onset`, `detected`, `engag
 Then draft in reading order:
 
 1. Add `windows` for distinct periods of outage or degradation, including partial impact.
-2. Build the timestamp-sorted `timeline`. Name each actor by role or first name and attach a source in `refs` wherever one exists. Mark eight or fewer entries needed to explain the incident with `key: true`.
+2. Build the timestamp-sorted `timeline`. Give each entry a short name `h` and event text within 25 words. Name each actor by role or first name and attach a source in `refs` wherever one exists. Mark eight or fewer entries needed to explain the incident with `key: true`.
 3. Separate the trigger and root cause from contributing causes. Attach the evidence that supports each claim.
 4. State `impact` through observed effects and measured or estimated metrics.
 5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward. Record the `decisions` made during the response, who made each, and why. Record the `hypotheses` ruled out and the evidence that cleared them.
 6. Fill every applicable `lessons` column from the evidence, then write the `recognize` rows for the next responder.
 7. Give every action an owner, source, state, and due date when one exists.
 8. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
-9. Write the plain twins and handles alongside their precise text. Write one `takeaway` per section in `meta.sections`.
-10. Write `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`.
+9. Write the plain twins and handles alongside their precise text. Write one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
+10. Prepare `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Keep each heading and body within 35 words (`SUMMARY_PANEL_WORDS = 35`), all panels within 150 (`SUMMARY_BUDGET = 150`), and give the first heading an answer beyond the headline.
+11. Run `prose --list` to inspect the field addresses, then `prose` to write them through Astra.
+12. Review refused fields and lint findings, and rerun affected addresses with `--field`. Keep `prose.lock.json` beside the record.
 
 Follow [reference/writing.md](reference/writing.md). Mark a required answer as not recorded when the sources do not provide it. Never invent connective events to make the story read more smoothly.
+
+```bash
+$TOOL prose <dir> --list
+$TOOL prose <dir>
+$TOOL prose <dir> --field C1.text --field C1.p
+```
+
+`--stale` selects nonempty fields without matching provenance and required
+short names `h` that are absent or empty. It leaves absent optional prose
+alone. The field list includes action titles and notes, decision titles and
+alternatives, hypothesis titles, and sub-incident titles.
+
+`--batch` defaults to 24 fields per call, and `--timeout` to 1800
+seconds per call. `--dry-run` prints the first batch's work order without
+calling the model. The field list and token-preservation limits are in
+[reference/schema.md](reference/schema.md#prose-authored-fields-and-provenance).
+The command writes accepted fields even when it refuses others, so inspect
+the report before continuing. After a later edit, rerun the affected field
+through `prose`; a changed hash fails `check --strict`.
+
+The work order names the writing contract and the full rule catalog from
+`slop-cop rules --pretty`, so Astra writes to the rules in the first draft.
+The command then runs `slop-cop check --llm` on accepted reply fields and
+returns each finding's rule id, matched text, directive, and suggested
+change to Astra. It allows two revision rounds per batch (`SLOP_ROUNDS = 2`)
+within the same subprocess pipeline. No other model edits the text.
+
+Work orders, schemas, and the rule catalog live under
+`~/.cache/incident-retro/prose/<slug>/`, keyed by `meta.slug`. Replies and
+logs stay in the run directory returned by `codex-ask`; the lock records
+their paths. `prose.lock.json` stays beside `retro.json`; `.prose.lock` and
+the atomic-write scratch files are transient. The retro directory is
+published as a static site.
+
+Before model calls and writes, the command takes an exclusive, nonblocking
+`fcntl.flock` on `.prose.lock` beside `retro.json` and holds it until writing
+ends. A competing claim exits nonzero and names the holder's pid. Two
+concurrent runs used to lose each other's fields because each wrote back a
+whole file it had read before the other's batch landed. The initial record
+read still precedes the claim. `.prose.lock` is removed when the writing run
+ends and is safe to delete after a killed run if no other run holds it.
+Writes to `retro.json` and `prose.lock.json` each use a
+`<filename>.<pid>.part` sibling followed by `Path.replace`, which uses
+`os.replace`; successful replacement leaves no scratch file.
 
 ## Phase 3: Evidence
 
@@ -113,9 +170,34 @@ $TOOL pdf <dir>
 
 Fix every structural error. Triage every prose finding against [reference/writing.md](reference/writing.md). Inspect the generated PDF; file existence does not prove that its layout and charts read correctly across page breaks.
 
-`--strict` enforces limits on the title and slug, the executive summary's panel and total word counts, each section's opening sentence, each cause's opening statement, and the key-moment count. When a check fails, revise the passage to make it easier to read. Cutting words only to pass the check misses its purpose.
+`--strict` enforces the headline, subtitle, tags, slug, short names, twins, takeaways, and key-moment rules. Narrative takeaways have at most 18 words; `evidence`, `glossary`, and `notes` carry none. The word limits are 25 for timeline text, 90 for cause text, 60 for decision reasoning, 45 for unknown reasoning, and 35 per summary panel with 150 total. Strict mode also requires a matching `prose.lock.json` digest for every nonempty enumerated prose field and rejects missing short names.
+
+The lock records per-field `slop` counts and a total; strict mode sums those
+counts and fails above `SLOP_BUDGET = 3`, naming the fields with the most
+findings. The prose gate covers the landed prose fields, not the whole rendered
+document. Revise failed prose through `prose --field`, then rerun the checks.
+
+`render-check` measures the initial page, with disclosures closed by default. Its visible-word budget is 1500 unless `--words` overrides it. It rejects visible Slack messages and the notebook, monitor, and transcript body selectors documented in the schema. Height and open-disclosure count are reported without a limit. It does not force `open: true` components closed.
+
+Visibility follows what the browser paints, using `Element.checkVisibility()`
+and `getClientRects()` and excluding `[aria-hidden=true]` content as
+decorative. A closed disclosure whose body paints because of a CSS `display`
+rule is counted and can fail these gates.
 
 Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
+
+When changing the prose pipeline, run its nine tests from this skill
+directory:
+
+```bash
+python3 scripts/test_retro_prose.py
+```
+
+The suite checks the exclusive claim and its release, atomic replacement,
+scratch cleanup, the stale-field rule, and three fact-freeze cases. Its
+crash-recovery case passes a string to `Owner` where a `Path` is
+required, so the child exits before taking the lock; that case does not
+verify recovery from a held lock.
 
 ## Phase 5: Publish
 
@@ -127,6 +209,10 @@ $TOOL links <dir> --fetch
 ```
 
 Write the snapshot note for a returning reader. Name what changed and why it matters without register ids. Add another `--item` for each distinct change.
+
+For the hand-maintained design-docs index, make each retro card read
+`meta.title`, `meta.subtitle`, and `meta.tags` from that retro's `retro.json`.
+The retro page also exposes its space-separated tags as `html[data-tags]`.
 
 Move `meta.status` through this lifecycle:
 
@@ -145,7 +231,7 @@ Import an existing Google Docs Markdown export into a draft:
 $TOOL import-gdoc <md> [<docs.json>] --out <dir> [--tz <zone>]
 ```
 
-Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer leaves handles and twins empty on purpose. Finish them and collect the referenced evidence before continuing at Draft.
+Read the Import report in `NOTES.md`. Review every timestamp conversion, kind guess, actor, link classification, image, and unplaced block. The importer puts the document's own heading into `meta.subtitle` and leaves `meta.title` and `meta.tags` empty, recording that work in the import notes. Write the compact title and topical tags, and check that the subtitle states the mechanism within its limits. Handles and twins also need completion through `prose`; collect the referenced evidence before continuing at Draft.
 
 ## Reference files
 

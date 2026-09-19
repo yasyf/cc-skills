@@ -1,29 +1,33 @@
 <section class="xs-panel" data-kind="what-happened">
-  <h2>A config push set burst limits to zero for tenants without custom limits</h2>
-  <p><b>rate-limit-v7</b> moved each tenant's burst allowance into an override map. Tenants absent from the map had no value, so they took an empty field's zero value. Their first request in every window was refused. The push reached all regions in one step.</p>
+<h2>A zero burst limit blocked unlisted tenants</h2>
+<p>The <code>rate-limit-v7</code> profile moved allowances into an override map. Empty fields blocked each window's first request; the push reached all regions in one step.</p>
 </section>
 
 <section class="xs-panel" data-kind="impact">
-  <h3>212 tenants could not check out for 94 minutes, and no order was lost</h3>
-  <div class="xs-stats">
-    <div class="xs-stat"><span class="xs-value">94m</span><span class="xs-label">checkouts failing (W1)</span></div>
-    <div class="xs-stat"><span class="xs-value">3 180</span><span class="xs-label">checkouts refused</span></div>
-    <div class="xs-stat"><span class="xs-value">212</span><span class="xs-label">of 340 tenants</span></div>
-  </div>
-  <p>The retry queue held and replayed every refused checkout. Orders were delayed, not lost (W2).</p>
+<h3>
+Checkouts failed for 212 tenants for 94 minutes
+</h3>
+<div class="xs-stats">
+<div class="xs-stat"><span class="xs-value">94m</span><span class="xs-label">(W1)</span></div>
+<div class="xs-stat"><span class="xs-value">3 180</span><span class="xs-label">refused</span></div>
+<div class="xs-stat"><span class="xs-value">212</span><span class="xs-label">of 340 tenants</span></div>
+</div>
+<p>The retry queue held and replayed every failed checkout; orders were delayed, none lost (W2).</p>
 </section>
 
 <section class="xs-panel" data-kind="why">
-  <h3>The default was missing, the rollout reached every region, and the monitor was slow</h3>
-  <p>The missing fallback caused the refusals (C1). The rollout spread the bad config to every region in a single step (C2). The 5xx monitor averages over fifteen minutes, so support heard from customers before on-call heard from Datadog (C3).</p>
+<h3>The rollout compounded refusals</h3>
+<p>A missing fallback caused refusals (C1); the rollout spread them everywhere simultaneously (C2). The <code>5xx</code> monitor averaged fifteen minutes; support received customer reports before Datadog alerted on-call (C3).</p>
 </section>
 
 <section class="xs-panel" data-kind="what-changed">
-  <h3>The fallback now sets a floor, and a test rejects profiles without a default</h3>
-  <p>The rollback stopped the refusals within a minute (T10). That afternoon a burst floor of one shipped with a schema test that rejects profiles without a default (AI1). The checkout 5xx monitor now evaluates over five minutes (AI2).</p>
+<h3>The burst floor is one</h3>
+<p>Rollback stopped refusals within a minute (T10). That afternoon's schema test rejects profiles without defaults (AI1). The checkout <code>5xx</code> monitor evaluates over five minutes (AI2).</p>
 </section>
 
 <section class="xs-panel" data-kind="still-open">
-  <h3>A staged config rollout is still needed to contain other config defects</h3>
-  <p>The floor stops this bug. A profile with a different defect still reaches every region at once; the staged rollout work remains open (AI3). The record left two questions unanswered in <a href="#unknowns">Still unknown</a>.</p>
+<h3>
+Staged rollout work remains open
+</h3>
+<p>The floor prevents this bug; other defects reach every region simultaneously (AI3). See <a href="#unknowns">Still unknown</a> for two unanswered questions.</p>
 </section>

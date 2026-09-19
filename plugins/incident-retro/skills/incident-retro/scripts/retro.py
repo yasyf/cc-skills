@@ -29,7 +29,7 @@ state with --fetch, and reports an action whose state disagrees with the
 change that closes it. text prints the retro as Markdown in reading order,
 the input for the prose gates. pdf prints the served page. Stdlib only.
 """
-import argparse, copy, datetime, hashlib, importlib.util, json, re, shutil, subprocess, sys, zoneinfo
+import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, zoneinfo
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -77,6 +77,7 @@ EVIDENCE_LABEL = {"notebooks": "Notebooks", "monitors": "Monitors", "slack": "Sl
                   "linear": "Linear", "builds": "Builds", "prs": "Pull requests", "runs": "Runs", "images": "Images",
                   "docs": "Documents"}
 SNAPSHOT_SCHEMA = {"notebooks": "ir.notebook/1", "monitors": "ir.monitor/1", "slack": "ir.slack/1"}
+EVIDENCE_NAMED = ("notebooks", "monitors", "builds", "prs")
 COMPONENT_HOSTS = (("impact", "impact"), ("resolution", "resolution"), ("detection", "detection"))
 COMPONENT_LISTS = ("causes", "notes")
 RETRO_ACRONYMS = ("TTD", "TTE", "TTM", "TTR", "SEV")
@@ -94,7 +95,30 @@ DERIVED_NUMBER = re.compile(r"\b\d+(?:\.\d+)?\s*(?:min(?:ute)?s?|h(?:ou)?rs?|day
 DERIVED_TOPIC = re.compile(r"detect|mitigat|resolv|engag|onset|fired|all[- ]?clear", re.I)
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 RENDER_TIMEOUT = 60
-RENDER_CHECK_VIEWPORT = {"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False}
+RENDER_CHECK_VIEWPORT = {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False}
+VISIBLE_WORDS = 1500
+VISIBLE_SLACK = 0
+VISIBLE_JS = """(() => {
+ const decorative = node => node.closest("[aria-hidden=true]") !== null;
+ const hidden = node => decorative(node)
+  || !node.checkVisibility({contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true})
+  || !node.getClientRects().length;
+ const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+ let words = 0;
+ for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+  const text = n.nodeValue.trim();
+  if (!text || !n.parentElement || hidden(n.parentElement)) continue;
+  words += text.split(/\\s+/).length;
+ }
+ const shown = sel => [...document.querySelectorAll(sel)].filter(el => !hidden(el)).length;
+ return {
+  words,
+  height: document.documentElement.scrollHeight,
+  slack: shown(".ir-msg, .ir-slack .sumline"),
+  bodies: shown(".ir-msg .msg, .ir-cell table, .ir-mon table, .ir-nb .nbbody"),
+  open: shown("details[open]"),
+ };
+})()"""
 RENDER_STATE_JS = """({
  ready: document.documentElement.dataset.ready || "",
  failed: [...document.querySelectorAll('[data-failed="1"]')].map(h => (h.dataset.source || h.dataset.component || h.id || h.tagName).split("\\n")[0].slice(0, 60)),
@@ -109,13 +133,19 @@ TWINNED = (("summary", "the summary"), ("impact", "the impact"), ("resolution", 
            ("detection", "the detection story"))
 HANDLED = (("windows", "W"), ("causes", "C"), ("actions", "AI"), ("decisions", "D"), ("hypotheses", "H"),
            ("unknowns", "U"))
+HANDLE_WORDS = 6
 TITLE_WORDS = 12
 ACTION_TITLE_WORDS = 16
 LESSON_WORDS = 40
 METRIC_FIELDS = {"label", "value", "unit", "delta", "measured", "cites"}
 NOTE_LENGTH = 90
-DOC_TITLE_CHARS = 120
-DOC_TITLE_WORDS = 20
+DOC_TITLE_CHARS = 60
+DOC_TITLE_WORDS = 8
+SUBTITLE_CHARS = 120
+SUBTITLE_WORDS = 20
+TAG_COUNT = (2, 6)
+TAG_SHAPE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+TITLE_ECHO = 0.6
 SLUG_CHARS = 60
 SLUG_WORDS = (3, 6)
 SLUG_SHAPE = re.compile(r"(\d{4}-\d{2}-\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)")
@@ -124,18 +154,24 @@ SLUG_STOPWORDS = {"a", "an", "the", "and", "or", "but", "so", "of", "to", "in", 
                   "every", "all", "any", "some", "our", "we", "us", "had", "has", "have", "did", "does", "do", "into",
                   "over", "under", "after", "before", "while", "when", "than", "then", "there", "their", "them"}
 TITLE_INTERNALS = re.compile(r"[a-z0-9]_[a-z0-9]|\b[a-z]+[A-Z][a-z]|\.(?:py|ts|tsx|go|rs|sql|json|ya?ml)\b|--[a-z]")
-TAKEAWAY_WORDS = 30
+TAKEAWAY_WORDS = 18
+REFERENCE_SECTIONS = ("evidence", "glossary", "notes")
 STATEMENT_WORDS = 25
 KEY_MOMENTS = 8
 DECISION_TITLE_WORDS = 16
 RECOGNIZE_WORDS = 25
 UNKNOWN_WORDS = 25
 GLOSSARY_WORDS = 30
+ENTRY_WORDS = 25
+ENTRY_WORDS_MAX = 40
+CAUSE_BODY_WORDS = 90
+DECISION_BODY_WORDS = 60
+UNKNOWN_BODY_WORDS = 45
 SUMMARY_KINDS = ("what-happened", "impact", "why", "what-changed", "still-open")
 SUMMARY_KIND_TITLES = {"what-happened": "What happened", "impact": "What it cost", "why": "Why it happened",
                        "what-changed": "What changed", "still-open": "What is still open"}
-SUMMARY_PANEL_WORDS = 70
-SUMMARY_BUDGET = 300
+SUMMARY_PANEL_WORDS = 35
+SUMMARY_BUDGET = 150
 SUMMARY_PAGE_TAG = re.compile(r"</?(html|head|body)\b", re.I)
 SUMMARY_EMBED_TAG = re.compile(r"<(iframe|object|embed|script|style|form)\b", re.I)
 SUMMARY_EVENT_ATTR = re.compile(r"\son[a-z]+\s*=", re.I)
@@ -216,7 +252,10 @@ def load_retro(root: Path, cmd: str):
 
 
 def write_retro(root: Path, R: dict):
-    (root / "retro.json").write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n")
+    path = root / "retro.json"
+    scratch = path.with_name(f"retro.json.{os.getpid()}.part")
+    scratch.write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n")
+    scratch.replace(path)
 
 
 def load_builder():
@@ -310,53 +349,62 @@ def prose_only(text: str) -> str:
     return PROSE_SKIP.sub(" ", text)
 
 
-def prose_fields(R: dict):
-    def text(where, value):
-        if isinstance(value, str) and value.strip():
-            yield where, value
+def prose_slots(R: dict):
+    """(address, holder, key) for every field a writer authors in retro.json."""
+    def slot(where, holder, key):
+        if isinstance(holder, dict):
+            yield where, holder, key
 
-    yield from text("summary.text", (R.get("summary") or {}).get("text"))
+    yield from slot("summary.text", R.get("summary"), "text")
     for e in entries(R, "windows"):
-        yield from text(f"{e.get('id')}.text", e.get("text"))
+        yield from slot(f"{e.get('id')}.text", e, "text")
     for i, e in enumerate(entries(R, "timeline")):
-        yield from text(f"{e.get('id') or f'timeline[{i}]'}.text", e.get("text"))
+        yield from slot(f"{e.get('id') or f'timeline[{i}]'}.text", e, "text")
     impact = R.get("impact") or {}
-    yield from text("impact.text", impact.get("text"))
+    yield from slot("impact.text", R.get("impact"), "text")
     for i, t in enumerate(impact.get("teams") or []):
-        if isinstance(t, dict):
-            yield from text(f"impact.teams[{i}].text", t.get("text"))
+        yield from slot(f"impact.teams[{i}].text", t, "text")
     for e in entries(R, "causes"):
-        yield from text(f"{e.get('id')}.text", e.get("text"))
-        code = e.get("code")
-        if isinstance(code, dict):
-            yield from text(f"{e.get('id')}.code.caption", code.get("caption"))
-    yield from text("resolution.text", (R.get("resolution") or {}).get("text"))
-    yield from text("detection.text", (R.get("detection") or {}).get("text"))
+        yield from slot(f"{e.get('id')}.text", e, "text")
+        yield from slot(f"{e.get('id')}.code.caption", e.get("code"), "caption")
+    for e in entries(R, "actions"):
+        yield from slot(f"{e.get('id')}.t", e, "t")
+        yield from slot(f"{e.get('id')}.note", e, "note")
+    for s in (R.get("meta") or {}).get("subIncidents") or []:
+        yield from slot(f"{s.get('id')}.t", s, "t")
+    yield from slot("resolution.text", R.get("resolution"), "text")
+    yield from slot("detection.text", R.get("detection"), "text")
     for e in entries(R, "decisions"):
-        yield from text(f"{e.get('id')}.why", e.get("why"))
+        yield from slot(f"{e.get('id')}.t", e, "t")
+        yield from slot(f"{e.get('id')}.why", e, "why")
+        yield from slot(f"{e.get('id')}.alternatives", e, "alternatives")
     for e in entries(R, "hypotheses"):
-        yield from text(f"{e.get('id')}.exonerated", e.get("exonerated"))
+        yield from slot(f"{e.get('id')}.t", e, "t")
+        yield from slot(f"{e.get('id')}.exonerated", e, "exonerated")
     for i, row in enumerate(R.get("recognize") or []):
-        if isinstance(row, dict):
-            for key in ("signal", "means", "do"):
-                yield from text(f"recognize[{i}].{key}", row.get(key))
+        for key in ("signal", "means", "do"):
+            yield from slot(f"recognize[{i}].{key}", row, key)
     for e in entries(R, "unknowns"):
-        yield from text(f"{e.get('id')}.q", e.get("q"))
-        yield from text(f"{e.get('id')}.why", e.get("why"))
+        yield from slot(f"{e.get('id')}.q", e, "q")
+        yield from slot(f"{e.get('id')}.why", e, "why")
     for i, row in enumerate(R.get("glossary") or []):
-        if isinstance(row, dict):
-            yield from text(f"glossary[{i}].def", row.get("def"))
+        yield from slot(f"glossary[{i}].def", row, "def")
     for key, _ in LESSON_COLUMNS:
         for i, e in enumerate((R.get("lessons") or {}).get(key) or []):
-            if isinstance(e, dict):
-                yield from text(f"lessons.{key}[{i}].text", e.get("text"))
+            yield from slot(f"lessons.{key}[{i}].text", e, "text")
     for i, e in enumerate((R.get("evidence") or {}).get("images") or []):
-        if isinstance(e, dict):
-            yield from text(f"evidence.images[{i}].caption", e.get("caption"))
+        yield from slot(f"evidence.images[{i}].caption", e, "caption")
     for i, e in enumerate(entries(R, "notes")):
-        yield from text(f"notes[{i}].md", e.get("md"))
+        yield from slot(f"notes[{i}].md", e, "md")
     for i, e in enumerate(entries(R, "footnotes")):
-        yield from text(f"footnotes[{e.get('n', i)}].b", e.get("b"))
+        yield from slot(f"footnotes[{e.get('n', i)}].b", e, "b")
+
+
+def prose_fields(R: dict):
+    for where, holder, key in prose_slots(R):
+        value = holder.get(key)
+        if isinstance(value, str) and value.strip():
+            yield where, value
 
 
 def retro_slug(given, title: str, date: str) -> str:
@@ -392,12 +440,13 @@ def scaffold(args) -> int:
         for name in PROJECT_FILES:
             p = dest / name
             p.write_text(p.read_text().replace("PROJECT_TITLE", args.title).replace("PROJECT_SLUG", slug)
-                         .replace("PROJECT_DATE", date))
+                         .replace("PROJECT_SUBTITLE", args.subtitle or args.title).replace("PROJECT_DATE", date))
         R = json.loads((dest / "retro.json").read_text())
         if args.incident is None:
             R["meta"].pop("incident")
         else:
             R["meta"]["incident"] = {"number": args.incident}
+        R["meta"]["tags"] = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
         write_retro(dest, R)
     print(f"scaffolded {dest} ({'Acme example' if args.example else 'starter'})")
     print(f"serve:  cd {dest} && python3 -m http.server 8641")
@@ -477,7 +526,7 @@ def render_check(args) -> int:
     page = builder.doc_page(root)
     chrome = builder.Chrome(builder.require_chrome())
     server, base = builder.serve(root)
-    problems, state = [], {}
+    problems, state, visible = [], {}, {}
     try:
         session = builder.open_page(chrome, base + page)
         chrome.call("Emulation.setDeviceMetricsOverride", RENDER_CHECK_VIEWPORT, session=session)
@@ -485,6 +534,7 @@ def render_check(args) -> int:
         if ready["ready"] != "1":
             problems.append(builder.ready_problem(ready, args.timeout))
         state = builder.evaluate(chrome, session, RENDER_STATE_JS) or {}
+        visible = builder.evaluate(chrome, session, VISIBLE_JS) or {}
     except builder.ChromeError as e:
         problems.append(str(e))
     finally:
@@ -505,12 +555,24 @@ def render_check(args) -> int:
     has_timeseries = any(cell.get("type") == "timeseries" for cell in notebook_cells(root, R))
     if has_timeseries and state and not state.get("uplot"):
         problems.append("a notebook carries a timeseries cell but window.uPlot never loaded; the charts are blank")
+    if visible:
+        if visible["words"] > args.words:
+            problems.append(f"the page opens on {visible['words']} words; {args.words} is what a reader finishes "
+                            f"before deciding to open anything, so move the rest behind a disclosure")
+        if visible["slack"] > VISIBLE_SLACK:
+            problems.append(f"{visible['slack']} Slack message line(s) render with every disclosure closed; a "
+                            f"transcript opens only when a reader asks for it")
+        if visible["bodies"]:
+            problems.append(f"{visible['bodies']} notebook, monitor or transcript body render(s) with every "
+                            f"disclosure closed")
     for p in problems:
         print(f"ERROR: {p}")
     if problems:
         print("\n".join(report))
         return 1
     print(f"render-check: page ready, {state.get('cells', 0)} notebook cell(s) rendered, every component mounted")
+    print(f"render-check: {visible.get('words', 0)} words and {visible.get('height', 0)}px tall with every "
+          f"disclosure closed, {visible.get('open', 0)} open")
     return 0
 
 
@@ -529,16 +591,60 @@ def notebook_cells(root: Path, R: dict):
 
 def check_title(rep, title: str):
     if len(title) > DOC_TITLE_CHARS:
-        rep.err(f"meta.title is {len(title)} characters; a title states the mechanism in {DOC_TITLE_CHARS} or fewer")
+        rep.err(f"meta.title is {len(title)} characters; the headline names the failure in {DOC_TITLE_CHARS} or "
+                f"fewer, and the causal sentence belongs in meta.subtitle")
     elif words(title) > DOC_TITLE_WORDS:
-        rep.strict_warn(f"meta.title is {words(title)} words; {DOC_TITLE_WORDS} is the bound for one plain sentence")
+        rep.err(f"meta.title is {words(title)} words; {DOC_TITLE_WORDS} is the bound for a headline, and the causal "
+                f"sentence belongs in meta.subtitle")
     if ":" in title:
-        rep.strict_warn("meta.title carries a colon, the shape of a symptom followed by its internals; write the one "
-                        "sentence a reader outside the response would say")
+        rep.strict_warn("meta.title carries a colon, the shape of a symptom followed by its internals; write the "
+                        "noun phrase a reader outside the response would say")
     found = TITLE_INTERNALS.search(title)
     if found:
         rep.strict_warn(f"meta.title names {found.group(0)!r}, an identifier rather than a mechanism; a column, image "
                         "or service name belongs in a cause, not the title")
+
+
+def check_subtitle(rep, subtitle: str):
+    if len(subtitle) > SUBTITLE_CHARS:
+        rep.err(f"meta.subtitle is {len(subtitle)} characters; one sentence states the mechanism in "
+                f"{SUBTITLE_CHARS} or fewer")
+    elif words(subtitle) > SUBTITLE_WORDS:
+        rep.strict_warn(f"meta.subtitle is {words(subtitle)} words; {SUBTITLE_WORDS} is the bound for one plain sentence")
+    if ":" in subtitle:
+        rep.strict_warn("meta.subtitle carries a colon, the shape of a symptom followed by its internals; write the "
+                        "one sentence a reader outside the response would say")
+    found = TITLE_INTERNALS.search(subtitle)
+    if found:
+        rep.strict_warn(f"meta.subtitle names {found.group(0)!r}, an identifier rather than a mechanism; a column, "
+                        "image or service name belongs in a cause, not the subtitle")
+
+
+def check_tags(rep, meta, tags):
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        rep.err("meta.tags must be a list of lower-case hyphenated topical tags, as in [\"migration\", \"release-pipeline\"]")
+        return
+    low, high = TAG_COUNT
+    if not low <= len(tags) <= high:
+        rep.err(f"meta.tags carries {len(tags)} tags; {low} to {high} name the system, the failure class and the "
+                f"surface without turning into a second summary")
+    for t in tags:
+        if not TAG_SHAPE.fullmatch(t):
+            rep.err(f"meta.tags carries {t!r}; a tag is lower-case words joined by hyphens")
+    duplicated = sorted({t for t in tags if tags.count(t) > 1})
+    if duplicated:
+        rep.err(f"meta.tags repeats {', '.join(duplicated)}")
+    teams = {slugify(t) for t in (meta.get("teams") or ()) if isinstance(t, str)}
+    shared = sorted(set(tags) & teams)
+    if shared:
+        rep.warn(f"meta.tags repeats the team codename{'s' if len(shared) > 1 else ''} {', '.join(shared)}; the page "
+                 "already renders team chips, and a tag names a system or a failure class")
+
+
+def overlap(a: str, b: str) -> float:
+    left = {w for w in re.findall(r"[a-z0-9]+", a.lower()) if w not in SLUG_STOPWORDS}
+    right = {w for w in re.findall(r"[a-z0-9]+", b.lower()) if w not in SLUG_STOPWORDS}
+    return len(left & right) / len(left) if left else 0.0
 
 
 def check_slug(rep, R, meta, slug: str):
@@ -559,11 +665,14 @@ def check_slug(rep, R, meta, slug: str):
 
 
 def check_meta(rep, R, meta):
-    for k in ("title", "slug", "date"):
+    for k in ("title", "subtitle", "slug", "date"):
         if not (isinstance(meta.get(k), str) and meta[k].strip()):
             rep.err(f"meta.{k} is missing or empty")
     if isinstance(meta.get("title"), str) and meta["title"].strip():
         check_title(rep, meta["title"].strip())
+    if isinstance(meta.get("subtitle"), str) and meta["subtitle"].strip():
+        check_subtitle(rep, meta["subtitle"].strip())
+    check_tags(rep, meta, meta.get("tags"))
     if isinstance(meta.get("slug"), str) and meta["slug"].strip():
         check_slug(rep, R, meta, meta["slug"].strip())
     if isinstance(meta.get("date"), str) and not is_date(meta["date"]):
@@ -652,7 +761,11 @@ def check_meta(rep, R, meta):
                 for extra in sorted(set(cfg) - {"sub", "takeaway"}):
                     rep.warn(f"meta.sections[{sid}] carries {extra!r}, which the page ignores")
                 take = cfg.get("takeaway")
-                if isinstance(take, str) and words(take) > TAKEAWAY_WORDS:
+                if isinstance(take, str) and sid in REFERENCE_SECTIONS:
+                    rep.strict_warn(f"meta.sections[{sid}].takeaway states a conclusion for a reference section; "
+                                    f"{', '.join(REFERENCE_SECTIONS)} carry a heading and their collapsed structure, "
+                                    f"and the conclusions live in the sections that argue them")
+                elif isinstance(take, str) and words(take) > TAKEAWAY_WORDS:
                     rep.strict_warn(f"meta.sections[{sid}].takeaway is {words(take)} words; a section opens on one "
                                     f"sentence of {TAKEAWAY_WORDS} or fewer, with the detail behind the disclosure")
     acronyms = meta.get("acronyms")
@@ -801,6 +914,12 @@ def check_timeline(rep, R, ts: dict, window_ids: set, slack_snapshots: set) -> s
             rep.err(f"{where}: kind {t.get('kind')!r} not in {', '.join(TIMELINE_KINDS)}")
         if not (isinstance(t.get("text"), str) and t["text"].strip()):
             rep.err(f"{where}.text is missing or empty")
+        elif words(prose_only(t["text"])) > ENTRY_WORDS_MAX:
+            rep.err(f"{where}.text is {words(prose_only(t['text']))} words; an entry says what happened in "
+                    f"{ENTRY_WORDS} and the detail it carries belongs in a cause or the evidence it cites")
+        elif words(prose_only(t["text"])) > ENTRY_WORDS:
+            rep.strict_warn(f"{where}.text is {words(prose_only(t['text']))} words; {ENTRY_WORDS} is the bound for one "
+                            f"moment, and the short name h is what a reader sees first")
         actor = t.get("actor")
         if actor is not None and not (isinstance(actor, str) and actor.strip()):
             rep.err(f"{where}.actor must be a non-empty string")
@@ -911,6 +1030,9 @@ def check_causes(rep, R, known: set, sub_ids: set, status: str, slack_snapshots:
         if statement and words(statement) > STATEMENT_WORDS:
             rep.strict_warn(f"{cid} opens on a {words(statement)}-word statement; the chain reads as one line of "
                             f"{STATEMENT_WORDS} words or fewer, with the rest behind the disclosure")
+        if isinstance(c.get("text"), str) and words(prose_only(c["text"])) > CAUSE_BODY_WORDS:
+            rep.strict_warn(f"{cid}.text is {words(prose_only(c['text']))} words; a cause argues itself in "
+                            f"{CAUSE_BODY_WORDS}, and the rest is evidence to cite rather than prose to write")
         if c.get("incident") is not None and c["incident"] not in sub_ids:
             rep.err(f"{cid}: incident {c['incident']!r} is not in meta.subIncidents")
         if c.get("kind") == "root":
@@ -1075,7 +1197,7 @@ def summary_markdown(html: str) -> list:
     return out[1:] if out else []
 
 
-def check_summary(rep, root: Path, known: set, status: str):
+def check_summary(rep, root: Path, known: set, status: str, title: str = ""):
     path = root / SUMMARY_PAGE
     if not path.exists():
         rep.strict_warn(f"{SUMMARY_PAGE} is missing; the retro opens without an executive summary")
@@ -1127,6 +1249,9 @@ def check_summary(rep, root: Path, known: set, status: str):
             rep.strict_warn(f"{where} carries no heading; the heading is the answer, the body is the evidence")
         elif words(panel["heading"]) < 4:
             rep.strict_warn(f"{where} heads on {panel['heading']!r}, which reads as a label; the heading is the answer")
+        elif panel is panels[0] and title and overlap(panel["heading"], title) >= TITLE_ECHO:
+            rep.strict_warn(f"{where} heads on {panel['heading']!r}, which restates meta.title a few lines above it; "
+                            f"the first panel carries the reader forward from the headline, never back over it")
         for cited in ID_TOKEN.findall(panel["text"]):
             if cited not in known:
                 rep.warn(f"{where} cites {cited}, which no register defines")
@@ -1154,6 +1279,9 @@ def check_decisions(rep, R, known: set) -> set:
         for key in ("who", "why"):
             if not (isinstance(d.get(key), str) and d[key].strip()):
                 rep.err(f"{did}.{key} is missing; a decision records who made it and why")
+        if isinstance(d.get("why"), str) and words(prose_only(d["why"])) > DECISION_BODY_WORDS:
+            rep.strict_warn(f"{did}.why is {words(prose_only(d['why']))} words; the reasoning recorded at the time "
+                            f"fits {DECISION_BODY_WORDS}")
         if "@" in str(d.get("who", "")):
             rep.err(f"{did}.who names {d['who']!r}; people are named, never addressed")
         when = d.get("when")
@@ -1223,6 +1351,9 @@ def check_unknowns(rep, R, known: set) -> set:
             rep.err(f"{uid}.q is missing; an unknown is written as the question nobody answered")
         elif words(u["q"]) > UNKNOWN_WORDS:
             rep.strict_warn(f"{uid}.q is {words(u['q'])} words; an open question is {UNKNOWN_WORDS} words or fewer")
+        if isinstance(u.get("why"), str) and words(prose_only(u["why"])) > UNKNOWN_BODY_WORDS:
+            rep.strict_warn(f"{uid}.why is {words(prose_only(u['why']))} words; why a question stayed open fits "
+                            f"{UNKNOWN_BODY_WORDS}")
         if "@" in str(u.get("owner", "")):
             rep.err(f"{uid}.owner names {u['owner']!r}; people are named, never addressed")
         for cited in u.get("refs") or []:
@@ -1471,6 +1602,31 @@ def check_ids_by(rep, items, key, pattern, label) -> set:
     return seen
 
 
+def reconsidered(root: Path, where: str) -> bool:
+    """True when the plain twin was written through the prose lane no earlier than its wording."""
+    writer = sibling_module("retro_prose")
+    if writer is None:
+        return False
+    fields = writer.load_lock(root)["fields"]
+    twin, wording = fields.get(f"{where}.p"), fields.get(f"{where}.text")
+    return bool(twin and wording and twin.get("at", "") >= wording.get("at", ""))
+
+
+def short_named(R: dict):
+    for reg, _ in HANDLED:
+        for e in entries(R, reg):
+            yield str(e.get("id")), e
+    for s in (R.get("meta") or {}).get("subIncidents") or []:
+        if isinstance(s, dict):
+            yield str(s.get("id")), s
+    for i, t in enumerate(entries(R, "timeline")):
+        yield str(t.get("id") or f"timeline[{i}]"), t
+    for kind in EVIDENCE_NAMED:
+        for i, e in enumerate((R.get("evidence") or {}).get(kind) or []):
+            if isinstance(e, dict):
+                yield f"evidence.{kind}[{i}]", e
+
+
 def check_handles_and_twins(rep, R, root: Path, known: set):
     ids = id_matcher(known)
     cited = set()
@@ -1478,21 +1634,23 @@ def check_handles_and_twins(rep, R, root: Path, known: set):
         cited.update(ids.findall(prose_only(text)))
     for c in entries(R, "causes"):
         cited.update(e for e in c.get("evidence") or [] if isinstance(e, str))
-    handled = [(reg, e) for reg, _ in HANDLED for e in entries(R, reg)]
-    handled += [("meta.subIncidents", s) for s in (R.get("meta") or {}).get("subIncidents") or [] if isinstance(s, dict)]
-    for reg, e in handled:
-        ident = str(e.get("id"))
+    for ident, e in short_named(R):
         h = e.get("h")
         if h is None or (isinstance(h, str) and not h.strip()):
-            rep.strict_warn(f"{ident} has no handle h; write the 2–5 word noun phrase a citation shows")
+            rep.strict_warn(f"{ident} has no short name h; write the phrase of {HANDLE_WORDS} words or fewer that "
+                            f"stands for it in every collapsed view and every citation")
             continue
         if not isinstance(h, str):
             rep.err(f"{ident}.h must be a string")
             continue
         if h.rstrip().endswith("."):
-            rep.warn(f"{ident}.h ends with a period; a handle is a phrase, not a sentence")
-        for issue in handle_issues(prose_only(h), ids):
-            rep.strict_warn(f"{ident}.h {issue}")
+            rep.warn(f"{ident}.h ends with a period; a short name is a phrase, not a sentence")
+        if not 1 < words(prose_only(h)) <= HANDLE_WORDS:
+            rep.err(f"{ident}.h is {words(prose_only(h))} words; a short name reads at a glance in two to "
+                    f"{HANDLE_WORDS}")
+        named = sorted(set(ids.findall(prose_only(h))))
+        if named:
+            rep.strict_warn(f"{ident}.h names register ids {', '.join(named)}")
         if isinstance(e.get("t"), str):
             named = sorted(set(ids.findall(e["t"])))
             if named:
@@ -1527,7 +1685,7 @@ def check_handles_and_twins(rep, R, root: Path, known: set):
         for issue in twin_issues(prose_only(p), prose_only(text), ids):
             rep.strict_warn(f"{where}.p {issue}")
         before = previous.get(where)
-        if before and before[0] != text and before[1] == p:
+        if before and before[0] != text and before[1] == p and not reconsidered(root, where):
             rep.err(f"{where}: the wording changed since the last snapshot but the plain twin did not; rewrite p")
 
 
@@ -1879,7 +2037,7 @@ def check(args) -> int:
     check_resolution(rep, R)
     check_recognize(rep, R)
     check_glossary(rep, R)
-    check_summary(rep, root, known, status)
+    check_summary(rep, root, known, status, str(meta.get("title") or ""))
     check_lessons(rep, R)
     check_evidence_register(rep, R, root, ts, known, evidence_lists)
     evidence = sibling_module("retro_evidence")
@@ -1887,6 +2045,9 @@ def check(args) -> int:
         evidence.evidence_check(root, rep, R)
     check_citations(rep, R, known)
     check_handles_and_twins(rep, R, root, known)
+    writer = sibling_module("retro_prose")
+    if writer is not None:
+        writer.check_lock(sys.modules[__name__], rep, R, root)
     check_derived_prose(rep, R)
     check_capitalisation(rep, R)
     check_components(rep, R, root, known, slack_snapshots)
@@ -2229,6 +2390,8 @@ def text(args) -> int:
     out = []
     if not args.section:
         out.append(f"# {meta.get('title', '')}")
+        if meta.get("subtitle"):
+            out.append(meta["subtitle"])
         incident = meta.get("incident") or {}
         dateline = [meta.get("date"), STATUS_LABEL.get(meta.get("status"), meta.get("status")),
                     f"incident #{incident['number']}" if incident.get("number") else None, incident.get("severity"),
@@ -2261,12 +2424,19 @@ def import_missing(args) -> int:
     return 1
 
 
+def prose_missing(args) -> int:
+    print("prose: scripts/retro_prose.py is missing; the astra writing lane ships with it", file=sys.stderr)
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sc = sub.add_parser("scaffold", help="create a fresh directory for one incident retro")
     sc.add_argument("dir")
-    sc.add_argument("--title")
+    sc.add_argument("--title", help=f"the headline, {DOC_TITLE_WORDS} words or fewer")
+    sc.add_argument("--subtitle", help="the one sentence stating the causal mechanism (default: the title)")
+    sc.add_argument("--tags", help=f"{TAG_COUNT[0]} to {TAG_COUNT[1]} lower-case topical tags, comma separated")
     sc.add_argument("--date", help="date of the writeup, YYYY-MM-DD (default: today)")
     sc.add_argument("--incident", type=int, help="the incident number")
     sc.add_argument("--slug")
@@ -2280,6 +2450,7 @@ def main():
     rc = sub.add_parser("render-check", help="render the retro in headless Chrome and fail on an unmounted component or unrendered cell")
     rc.add_argument("dir")
     rc.add_argument("--timeout", type=float, default=RENDER_TIMEOUT, help="seconds to wait for the page to report ready")
+    rc.add_argument("--words", type=int, default=VISIBLE_WORDS, help="words the page may show with every disclosure closed")
     rc.set_defaults(fn=render_check)
     sn = sub.add_parser("snapshot", help="record a revision of retro.json and the evidence digest")
     sn.add_argument("dir", nargs="?", default=".")
@@ -2307,6 +2478,13 @@ def main():
         ig = sub.add_parser("import-gdoc", help="turn a Google Docs post-mortem export into a draft retro (scripts/retro_import.py)")
         ig.add_argument("rest", nargs=argparse.REMAINDER)
         ig.set_defaults(fn=import_missing)
+    writer = sibling_module("retro_prose")
+    if writer is not None:
+        writer.add_prose_parser(sub, sys.modules[__name__])
+    else:
+        pr = sub.add_parser("prose", help="write every authored sentence through gpt-6-astra (scripts/retro_prose.py)")
+        pr.add_argument("rest", nargs=argparse.REMAINDER)
+        pr.set_defaults(fn=prose_missing)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
         evidence.add_evidence_parsers(sub)

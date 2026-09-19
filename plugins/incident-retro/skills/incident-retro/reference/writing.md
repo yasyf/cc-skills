@@ -7,35 +7,44 @@ All drafting and revision in this reference belongs to `gpt-6-astra` at
 A useful retro explains the conditions that produced an incident and the
 changes that reduce recurrence. It does not grade the people involved.
 
-## The title states the mechanism
+## The headline names the failure and the subtitle states the mechanism
 
-Most readers read only the title, and most were not in the response. State
-what changed, what that change caused, and what broke in one sentence. Make
-the causal chain clear to someone who does not know the service.
+Write `meta.title` as the compact headline a reader uses to name the
+incident. Write `meta.subtitle` as one sentence stating what changed, what
+that change caused, and what broke. Both must make sense to someone who was
+not in the response.
 
-A symptom followed by internal names after a colon describes the alert and
-assumes responder knowledge. A bare symptom omits the cause.
+- Bad title: "Invocations stay Pending and schedules stop: restate-worker
+  on old image inserts into renamed `workflow_runs` column"
+- Good title: "Run creation blocked by a partial deploy"
+- Good subtitle: "A migration changed the schema before every reader was
+  deployed, so run creation failed."
+- Good title: "Checkouts blocked for 94 minutes"
+- Good subtitle: "A config gave tenants without a custom limit a burst of
+  zero, so checkouts failed for 94 minutes."
 
-- Bad: "Invocations stay Pending and schedules stop: restate-worker on old
-  image inserts into renamed `workflow_runs` column"
-- Bad: "Checkout errors after a rate-limit config push"
-- Good: "A migration ran but not every service that reads the schema was
-  deployed, so run creation failed for 71 minutes"
-- Good: "A rate-limit config gave tenants without a custom limit a burst of
-  zero, so checkouts failed for 94 minutes"
+The title has at most 60 characters and 8 words; either excess is an error.
+The subtitle has at most 120 characters and 20 words; excess characters are
+an error and excess words draw a strict warning. Use no colon or identifier
+in either field. Those shapes draw strict warnings too. Put service, image,
+table, and column names in a cause, where readers look for that detail.
 
-The good titles name the change, its effect on the system, the visible
-impact, and the duration. Include the duration when the incident had a clear
-window. Service, image, table, and column names belong in a cause, where
-readers look for that detail.
+For an existing retro, move its old `meta.title` into `meta.subtitle`, then
+write a new compact `meta.title`. The old subtitle's browser-title suffix
+meaning is gone. Include a duration only when it helps explain the failure
+and follows the recorded endpoints.
 
-Use at most 120 characters and 20 words. `check` warns on a colon and on an
-identifier in the title, because both mark the shapes above.
+Write 2 to 6 distinct lower-case topical tags in `meta.tags`, joining words
+with hyphens. Name the system, failure class, and surface, as in `migration`,
+`release-pipeline`, and `paging`. Keep team codenames in `meta.teams`; the page
+already shows their chips and warns when a tag repeats one. Title, subtitle,
+and tags are data, not prose. The author writes them; `retro.py prose` does
+not select them.
 
 The slug has the form `<incident date>-<three to six plain words>`, at most 60
-characters, so a long title never becomes a long URL. Use the words colleagues
-use to name the incident aloud: `2026-09-18-schema-ahead-of-deploy`.
-Do not form it by replacing the title's spaces.
+characters. Use the words colleagues use to name the incident aloud:
+`2026-09-18-schema-ahead-of-deploy`. Do not form it by replacing the title's
+spaces.
 
 ## Blameless voice
 
@@ -88,7 +97,7 @@ time to detect, engage, mitigate, and resolve from those fields. It derives
 window durations and monitor latency as well. Action state drives the progress
 bar.
 
-Titles and section takeaways are the only exceptions to the body-prose rule
+Titles, subtitles, and section takeaways are the only exceptions to the body-prose rule
 below. Include a duration there only when elapsed time is part of the
 conclusion a reader needs without the tiles. Compute it from recorded
 endpoints and name the interval. Recheck the value when either endpoint
@@ -106,20 +115,41 @@ and `measured: false` for estimates. Describe the measurement boundary in
 ## Citations and handles
 
 A citation follows the sentence it supports: `(C1)` or `(C1, T7)`. The
-renderer replaces each id with its handle. The exported Markdown does the
-same, while the id remains available in the interactive card.
+page replaces each id with its handle, while the id remains available in
+the interactive card. `retro.py text` still uses local time for timeline
+citations.
 
 The sentence must stand on its own after deleting the citation. Write *The
 empty override map sets the burst limit to zero (C1).* Do not write *The burst
 limit comes from (C1).*
 
-Every window, cause, action, decision, hypothesis, unknown, and sub-incident
-carries an `h` handle. Write a
-distinct noun phrase of two to five words that sounds natural in a sentence.
-Name the thing, not its register type. "zero burst default" works; "root cause
-decision" does not.
+Every window, timeline entry, cause, action, decision, hypothesis, unknown,
+and sub-incident carries an `h` short name. So does every notebook, monitor,
+build, and PR evidence entry, even one with a `label`. Write a distinct noun
+phrase that names the event or mechanism without repeating its sentence.
 
-Timeline handles are derived from the event's local time, so add a `T#` id only
+- Short name: "zero burst default"
+- Full wording: "The empty override map sets the burst limit to zero."
+- Short name: "first support report"
+- Full wording: "Support posted the first checkout failure report."
+
+Use 2 to 6 words, with no trailing period or register id. A nonempty handle
+outside that range is an error even without strict mode. Missing handles and
+register ids draw strict warnings; trailing periods warn. Name the thing,
+not its register type: "root cause decision" does not tell the reader what
+happened.
+
+The short name is what closed timeline, cause, decision, and unknown rows
+show in place of the sentence. The action table also shows the short name;
+Full wording reveals its title and note. Notes use `t` for their closed
+heading. Evidence cards still use snapshot names and labels. A short name
+must stand on its own before the reader expands it.
+
+Slack rows use participants and mechanically extracted opening words. A
+Slack snapshot is verbatim evidence, not authored prose; never pass it
+through a language model.
+
+A timeline entry needs `h` whether it has an id. Add a `T#` id only
 when another entry cites that event.
 
 ## Plain twins
@@ -138,20 +168,35 @@ repeating its title.
 The page shows one line per entry and keeps the details behind a disclosure.
 Each opening line must make sense on its own.
 
-A section's `takeaway` states its conclusion in thirty words or fewer. It
-must answer the reader who stops at that sentence. Write "Rolling back the
-config stopped checkout errors within a minute," not "This section covers
-the response." The duration follows the title and takeaway exception in
+A narrative section's `takeaway` states its conclusion in 18 words or fewer
+(`TAKEAWAY_WORDS = 18`). It must answer the reader who stops at that sentence.
+Write "Rolling back the config stopped checkout errors within a minute,"
+not "This section covers the response." The duration follows the title,
+subtitle, and takeaway exception in
 [Numbers come from data](#numbers-come-from-data).
 
-A cause's plain twin appears in the causal chain before the cause is
-expanded. State the mechanism in 25 words or fewer. Put the detail, evidence,
-and code in `text`, which opens on a click.
+`REFERENCE_SECTIONS = ("evidence", "glossary", "notes")` carry no takeaway.
+Each opens on its heading and collapsed structure. Put conclusions in the
+narrative sections that argue them; a reference takeaway draws a strict
+warning.
+
+A cause-tree node shows only the short name `h`. State the mechanism in the
+plain twin in 25 words or fewer. Its detail row also opens with `h`;
+expansion shows the selected plain or full wording, evidence, and code.
+
+Keep a timeline entry's `text` within 25 words. Above 25 draws a strict
+warning; above 40 is an error without strict mode. A cause's `text` has at
+most 90 words, a decision's `why` 60, and an unknown's `why` 45. These three
+limits draw strict warnings; all four body counts exclude URLs and inline
+code. Move supporting detail into cited evidence.
 
 Each panel heading in `summary.html` answers its question in words a reader
 outside the response understands. The body gives evidence for that answer.
-Keep the heading and body together within 70 words. Once the causes and
-actions are settled, write the five panels from the completed record.
+Keep the heading and body together within 35 words (`SUMMARY_PANEL_WORDS = 35`)
+and all five panels within 150 (`SUMMARY_BUDGET = 150`). The first heading
+must advance the explanation beyond `meta.title`; repeating its wording
+draws a strict warning. Once the causes and actions are settled, write the
+panels from the completed record.
 
 Mark eight timeline entries or fewer with `key: true`. Choose the events
 needed to explain the incident: what changed, when impact began, when anyone
@@ -191,6 +236,36 @@ Configure `--forbidden-terms`, `FORBIDDEN_TERMS`, or the nearest
 text evidence; treat a match as a publishing block.
 
 ## Prose gate
+
+Run `retro.py prose <dir>` after assembling the record. It sends the authored
+fields listed in [reference/schema.md](schema.md#prose-authored-fields-and-provenance)
+through `codex-ask -m astra`, writes accepted wording directly, and records
+its hashes in `prose.lock.json`. These fields include action titles and
+notes, decision titles and alternatives, hypothesis titles, and sub-incident
+titles. `--stale` selects required short names that are absent or empty as
+well as nonempty fields without matching provenance. It leaves absent
+optional prose alone.
+
+The work order names this writing contract and the full rule catalog from
+`slop-cop rules --pretty`. Read each rule's description, tip, and
+`llmDirective` before the first draft. The command runs `slop-cop check
+--llm` over accepted reply fields and returns violations to Astra with the
+rule id, matched text, the rule's directive, and the suggested change.
+`SLOP_ROUNDS = 2` allows two revision rounds per batch. The same model writes
+and revises the text within the subprocess pipeline.
+
+The lock records each field's remaining `slop` count and their total.
+`check --strict` fails above `SLOP_BUDGET = 3`, naming the fields with the most
+findings.
+This gate covers the landed prose fields; the rendered document still needs
+the separate check below. Inspect the refused-field and lint reports.
+Do not hand-edit accepted text: `check --strict` rejects a changed field
+until `retro.py prose <dir> --field <address>` writes it again.
+
+Preserve numbers, times, identifiers, URLs, code spans, names, citations, and
+footnotes when revising. The command rejects changes to the fact tokens it
+recognizes; review the meaning too. Fields outside its enumeration still
+follow this writing contract and the Astra routing in `SKILL.md`.
 
 Run the generated Markdown through the prose gate after the structural edit
 and again after the final tone edit:
