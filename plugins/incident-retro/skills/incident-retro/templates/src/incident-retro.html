@@ -64,7 +64,7 @@ sup.fn a{color:var(--accent)}
 nav#rail{position:sticky;top:0;height:100vh;width:250px;flex:0 0 250px;border-right:1px solid var(--line);padding:22px 0 20px 22px;display:flex;flex-direction:column;gap:1px;background:var(--bg)}
 nav#rail .home{display:block;padding:5px 10px;margin-bottom:8px;font-size:13px;color:var(--ink2);border-right:2px solid transparent}
 nav#rail .home:hover{color:var(--accent);background:var(--bg2);text-decoration:none}
-nav#rail .brand{font-size:14.5px;font-weight:600;line-height:1.3;color:var(--ink);padding:0 10px;margin-bottom:14px}
+nav#rail .brand{font-size:14.5px;font-weight:600;line-height:1.3;color:var(--ink);padding:0 10px;margin-bottom:14px;flex:0 0 auto;max-height:9.1em;overflow:hidden}
 nav#rail a{display:block;padding:5px 10px;border-radius:6px 0 0 6px;color:var(--ink2);font-size:14px;border-right:2px solid transparent}
 nav#rail a:hover{color:var(--ink);text-decoration:none;background:var(--bg2)}
 nav#rail a.on{color:var(--accent);border-right-color:var(--accent);font-weight:600}
@@ -79,7 +79,7 @@ select.toolbtn{width:100%;min-width:0;padding-left:10px;padding-right:6px}
 main{flex:1;min-width:0;padding:0 40px 120px}
 .col{max-width:var(--wide);margin:0 auto}
 
-h1{font-size:clamp(30px,4.2vw,42px);line-height:1.08;letter-spacing:-.022em;font-weight:600;margin:0 0 8px;max-width:22ch;text-wrap:balance}
+h1{font-size:clamp(26px,3.2vw,36px);line-height:1.12;letter-spacing:-.018em;font-weight:600;margin:0 0 8px;max-width:34ch;text-wrap:balance}
 h2{font-size:25px;line-height:1.24;letter-spacing:-.011em;font-weight:600;margin:0 0 8px;max-width:30ch;text-wrap:balance}
 h3{font-size:17px;font-weight:600;margin:0 0 4px}
 h4{font-size:15px;font-weight:600;margin:0 0 4px}
@@ -235,9 +235,63 @@ footer a{cursor:pointer}
 .ir-tile .d{display:block;font-family:var(--mono);font-size:12px;color:var(--ink2);margin-top:4px}
 .ir-tile[data-measured=no] .l::after{content:"estimated";display:inline-block;margin-left:8px;font-size:11px;line-height:1.5;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--ink2);vertical-align:1px}
 .ir-tile .c{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.ir-summary{background:var(--card);border:1px solid var(--line);border-radius:var(--r-fig);padding:16px 22px 18px;margin:22px 0;box-shadow:var(--lift);font-size:16.5px;line-height:1.6}
+.ir-summary{margin:0 0 4px;font-size:17px;line-height:1.55;color:var(--ink2);max-width:var(--measure)}
 .ir-summary p{margin:0 0 8px}
 .ir-summary p:last-child{margin-bottom:0}
+.takeaway{font-size:16.5px;line-height:1.55;margin:0 0 18px;max-width:var(--measure);color:var(--ink);border-left:3px solid var(--accent);padding-left:14px}
+.xs{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:34px 0 8px;padding:8px clamp(18px,3vw,30px) 22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:2px clamp(24px,3vw,44px)}
+.xs-panel{padding:20px 0 6px;min-width:0;border-top:1px solid var(--hero-line)}
+.xs-panel:first-child{grid-column:1/-1;border-top:0;padding-top:26px}
+.xs-panel h2,.xs-panel h3{font-family:var(--display);font-weight:600;font-size:21px;line-height:1.2;letter-spacing:-.005em;margin:0 0 8px;color:var(--hero-ink);max-width:28ch;text-wrap:balance}
+.xs-panel:first-child h2,.xs-panel:first-child h3{font-size:clamp(28px,3.4vw,40px);line-height:1.06;max-width:24ch}
+.xs-panel .xs-kind{display:block;font-family:var(--mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--hero-ink2);margin-bottom:7px}
+.xs-panel p,.xs-panel li{font-size:15px;line-height:1.55;color:var(--hero-ink2);max-width:52ch;margin:0 0 8px}
+.xs-panel p:last-child{margin-bottom:0}
+.xs-panel b,.xs-panel strong{color:var(--hero-ink);font-weight:600}
+.xs-panel ul{margin:0;padding-left:18px}
+.xs-panel a{color:var(--hero-ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--hero-line)}
+.xs-panel a:hover{text-decoration-color:currentColor}
+.xs-panel .cite,.xs-panel .term{text-decoration-color:var(--hero-line)}
+.xs-panel figure{margin:12px 0 0;min-width:0}
+.xs-panel figure svg{display:block;width:100%;height:auto}
+.xs-panel figcaption{font-size:12.5px;color:var(--hero-ink2);margin-top:6px}
+.xs-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px 22px;margin:0 0 10px}
+.xs-stat{min-width:0}
+.xs-stat .xs-value{display:block;font-family:var(--display);font-weight:600;font-size:clamp(26px,2.6vw,34px);line-height:1;font-variant-numeric:tabular-nums;color:var(--hero-ink);overflow-wrap:anywhere}
+.xs-stat .xs-label{display:block;font-size:13px;line-height:1.35;color:var(--hero-ink2);margin-top:5px;max-width:22ch}
+@media (max-width:900px){.xs{grid-template-columns:minmax(0,1fr);padding:4px 18px 18px}}
+.ir-links{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 0}
+details.ir-full{margin:22px 0 4px;border-top:1px solid var(--line)}
+details.ir-full>summary{list-style:none;cursor:pointer;display:flex;gap:10px;align-items:baseline;padding:13px 2px;font-size:15px}
+details.ir-full>summary::-webkit-details-marker{display:none}
+details.ir-full>summary .dis{flex:0 0 12px;color:var(--ink2);line-height:1;transition:transform .12s}
+details.ir-full[open]>summary .dis{transform:rotate(90deg)}
+details.ir-full>summary .t{font-weight:600}
+details.ir-full>summary .count{color:var(--ink2);font-size:13.5px}
+.ir-row.key .x p{font-weight:500}
+.ir-keyempty{padding:14px 2px;color:var(--ink2);font-size:14.5px}
+details.ir-decision{border-bottom:1px solid var(--line);scroll-margin-top:16px}
+details.ir-decision>summary{list-style:none;padding:12px 2px;cursor:pointer}
+details.ir-decision>summary::-webkit-details-marker{display:none}
+details.ir-decision .lrow{display:flex;gap:8px 14px;align-items:baseline;flex-wrap:wrap}
+details.ir-decision .dis{flex:0 0 12px;color:var(--ink2);line-height:1;transition:transform .12s}
+details.ir-decision[open]>summary .dis{transform:rotate(90deg)}
+details.ir-decision .t{flex:1;min-width:200px;font-weight:600;font-size:15px}
+details.ir-decision .when{font-family:var(--mono);font-size:12.5px;color:var(--ink2)}
+details.ir-decision .body{padding:0 2px 16px 26px;font-size:14.5px;max-width:var(--measure)}
+.ir-hyp td:first-child{font-weight:600}
+.ir-hyp .st-dead{white-space:nowrap}
+.ir-recog th:first-child,.ir-recog td:first-child{width:26%}
+.ir-unknowns{margin:16px 0 0;padding:0;list-style:none}
+.ir-unknowns li{border-top:1px solid var(--line);padding:12px 2px;font-size:15px;max-width:var(--measure)}
+.ir-unknowns .q{font-weight:600;display:block}
+.ir-unknowns .why{color:var(--ink2);font-size:14px}
+.ir-unknowns .owner{color:var(--ink2);font-size:13px;font-family:var(--mono);margin-left:6px}
+.ir-gloss dt{font-weight:600;font-size:15px;margin-top:12px}
+.ir-gloss dd{margin:2px 0 0;color:var(--ink2);font-size:14.5px;max-width:var(--measure)}
+.ir-rev{margin:12px 0 0;font-size:14.5px}
+.ir-rev li{margin:6px 0;color:var(--ink2)}
+.ir-rev b{color:var(--ink)}
 .ir-incidents{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:12px 0 0}
 .ir-incident{background:var(--card);border:1px solid var(--line);border-radius:var(--r-node);padding:10px 13px;font-size:14px}
 .ir-incident b{display:block;font-size:14.5px}
@@ -327,6 +381,17 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 .ir-slack .shead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;color:var(--ink2);margin-bottom:8px}
 .ir-slack .shead b{color:var(--ink)}
 .ir-slack .shead a{margin-left:auto}
+details.ir-thread{border:1px solid var(--line);border-radius:var(--r-node);background:var(--card)}
+details.ir-thread>summary{list-style:none;cursor:pointer;padding:11px 14px}
+details.ir-thread>summary::-webkit-details-marker{display:none}
+details.ir-thread .lrow{display:flex;gap:8px 12px;align-items:baseline;flex-wrap:wrap;font-size:14px}
+details.ir-thread .dis{flex:0 0 12px;color:var(--ink2);line-height:1;transition:transform .12s}
+details.ir-thread[open]>summary .dis{transform:rotate(90deg)}
+details.ir-thread .lrow b{font-family:var(--mono);font-size:13.5px}
+details.ir-thread .meta{color:var(--ink2);font-size:13px}
+details.ir-thread .sumline{display:block;margin:4px 0 0 20px;color:var(--ink2);font-size:13.5px;max-width:var(--measure);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details.ir-thread[open]>summary .sumline{display:none}
+details.ir-thread .tbody{padding:0 14px 12px}
 .ir-msg{display:grid;grid-template-columns:34px minmax(0,1fr);gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14.5px}
 .ir-msg:last-child{border-bottom:0}
 .ir-msg>*:not(.av){grid-column:2}
@@ -487,7 +552,17 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
   h2,h3{break-after:avoid}
   details>summary{list-style:none}
   details.ir-cause .sumline{display:none!important}
-  .ir-tile,.ir-fig,.ir-mon,.ir-nb,.ir-cell,.ir-quote,.ir-msg,.ir-col,.ir-imgs figure,details.ir-cause,.ir-row,.twrap{break-inside:avoid}
+  #tlKey,.ir-keyempty,details.ir-full>summary,.xs-kind{display:none!important}
+  details.ir-full{border-top:0;margin-top:0}
+  .xs{background:#fff;border:0;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);border-radius:0;padding:4pt 0 10pt;margin:14pt 0;display:block}
+  .xs-panel{border-top:1px solid var(--line);padding:11pt 0 0;break-inside:avoid}
+  .xs-panel:first-child{border-top:0;padding-top:6pt}
+  .xs-panel:first-child h2,.xs-panel:first-child h3{font-size:19pt;max-width:none}
+  .xs-panel h2,.xs-panel h3{font-size:13.5pt;max-width:none}
+  .xs-panel p,.xs-panel li{max-width:none}
+  .xs-stats{display:flex;gap:26pt}
+  .takeaway{break-after:avoid}
+  .ir-tile,.ir-fig,.ir-mon,.ir-nb,.ir-cell,.ir-quote,.ir-msg,.ir-col,.ir-imgs figure,details.ir-cause,details.ir-decision,.ir-row,.twrap,.ir-unknowns li{break-inside:avoid}
   .ir-row .quote{display:block!important}
   .ir-nb>summary{display:block}
   a{color:inherit}
@@ -508,17 +583,23 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
   <div class="brand" id="navBrand"></div>
   <a href="#overview">Overview</a>
   <a href="#timeline">Timeline</a>
-  <a href="#impact">Impact</a>
   <a href="#causes">Causes</a>
-  <a href="#resolution">Resolution and detection</a>
-  <a href="#actions">Action items</a>
+  <a href="#impact">Impact</a>
+  <a href="#resolution">Detection and response</a>
   <a href="#lessons">Lessons</a>
+  <a href="#recognize">Recognizing it again</a>
+  <a href="#actions">Action items</a>
   <a href="#evidence">Evidence</a>
+  <a href="#unknowns">Still unknown</a>
+  <a href="#glossary">Glossary</a>
   <a href="#notes">Notes</a>
   <div class="spacer"></div>
   <div class="tools">
     <select id="baseSel" class="toolbtn" hidden title="Show what changed since an earlier revision" aria-label="Show what changed since an earlier revision"></select>
-    <button class="toolbtn" id="wordingBtn" type="button" aria-pressed="false" title="Show every entry in its exact wording instead of the plain version">Full wording</button>
+    <div class="toolrow">
+      <button class="toolbtn" id="wordingBtn" type="button" aria-pressed="false" title="Show every entry in its exact wording instead of the plain version">Full wording</button>
+      <button class="toolbtn" id="expandBtn" type="button" aria-pressed="false" title="Open every collapsed section on the page">Expand all</button>
+    </div>
     <details class="railmore">
       <summary>More ▾</summary>
       <div class="mitems">
@@ -545,11 +626,15 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
 
 <div class="diffsum" id="diffPanel" hidden></div>
 
+<div class="xs" id="execHost" hidden></div>
+
 <section id="overview">
   <h2>Overview</h2>
   <p class="sub" data-sub="overview"></p>
-  <div id="tilesHost"></div>
+  <p class="takeaway" data-take="overview" hidden></p>
   <div class="ir-summary" id="summaryHost"></div>
+  <div id="tilesHost"></div>
+  <div class="ir-links" id="linksRow" hidden></div>
   <div class="ir-incidents" id="incidentsHost" hidden></div>
   <div id="windowsHost"></div>
 </section>
@@ -557,30 +642,38 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
 <section id="timeline">
   <h2>Timeline</h2>
   <p class="sub" data-sub="timeline"></p>
+  <p class="takeaway" data-take="timeline" hidden></p>
   <div id="swimHost"></div>
-  <div class="filters" id="tlFilters"></div>
-  <div class="ir-days" id="tlList"></div>
+  <div class="ir-days" id="tlKey"></div>
+  <details class="ir-full" id="tlFull">
+    <summary><span class="dis" aria-hidden="true">›</span><span class="t">Every moment</span><span class="count" id="tlAll"></span></summary>
+    <div class="filters" id="tlFilters"></div>
+    <div class="ir-days" id="tlList"></div>
+  </details>
+</section>
+
+<section id="causes">
+  <h2>Causes</h2>
+  <p class="sub" data-sub="causes"></p>
+  <p class="takeaway" data-take="causes" hidden></p>
+  <div id="causeTree"></div>
+  <div class="ledgers" id="causeList"></div>
 </section>
 
 <section id="impact">
   <h2>Impact</h2>
   <p class="sub" data-sub="impact"></p>
+  <p class="takeaway" data-take="impact" hidden></p>
   <div id="impactText"></div>
   <div id="impactTeams"></div>
   <div class="ir-metrics" id="impactMetrics" hidden></div>
   <div id="impactComponent"></div>
 </section>
 
-<section id="causes">
-  <h2>Causes</h2>
-  <p class="sub" data-sub="causes"></p>
-  <div id="causeTree"></div>
-  <div class="ledgers" id="causeList"></div>
-</section>
-
 <section id="resolution">
-  <h2>Resolution and detection</h2>
+  <h2>Detection and response</h2>
   <p class="sub" data-sub="resolution"></p>
+  <p class="takeaway" data-take="resolution" hidden></p>
   <div id="resolutionText"></div>
   <div id="resolutionComponent"></div>
   <h3 id="detectionHead" style="margin-top:30px">Detection</h3>
@@ -588,31 +681,62 @@ details.ir-cause .codecap{font-size:13px;color:var(--ink2);margin-top:6px}
   <div id="monitorHost"></div>
   <div id="detectionComponent"></div>
   <p class="ir-lat" id="latencyLine" hidden></p>
-</section>
-
-<section id="actions">
-  <h2>Action items</h2>
-  <p class="sub" data-sub="actions"></p>
-  <div id="actionsHost"></div>
+  <h3 id="decisionsHead" style="margin-top:30px" hidden>Decisions taken while it was live</h3>
+  <div class="ledgers" id="decisionsHost"></div>
+  <h3 id="hypothesesHead" style="margin-top:30px" hidden>What we suspected, and what cleared it</h3>
+  <div id="hypothesesHost"></div>
 </section>
 
 <section id="lessons">
   <h2>Lessons</h2>
   <p class="sub" data-sub="lessons"></p>
+  <p class="takeaway" data-take="lessons" hidden></p>
   <div class="ir-cols" id="lessonsHost"></div>
+</section>
+
+<section id="recognize">
+  <h2>How to recognize this next time</h2>
+  <p class="sub" data-sub="recognize"></p>
+  <p class="takeaway" data-take="recognize" hidden></p>
+  <div id="recognizeHost"></div>
+</section>
+
+<section id="actions">
+  <h2>Action items</h2>
+  <p class="sub" data-sub="actions"></p>
+  <p class="takeaway" data-take="actions" hidden></p>
+  <div id="actionsHost"></div>
 </section>
 
 <section id="evidence" class="ir-ev">
   <h2>Evidence</h2>
   <p class="sub" data-sub="evidence"></p>
+  <p class="takeaway" data-take="evidence" hidden></p>
   <div id="evidenceHost"></div>
+</section>
+
+<section id="unknowns">
+  <h2>Still unknown</h2>
+  <p class="sub" data-sub="unknowns"></p>
+  <p class="takeaway" data-take="unknowns" hidden></p>
+  <div id="unknownsHost"></div>
+</section>
+
+<section id="glossary">
+  <h2>Glossary</h2>
+  <p class="sub" data-sub="glossary"></p>
+  <p class="takeaway" data-take="glossary" hidden></p>
+  <div id="glossaryHost"></div>
 </section>
 
 <section id="notes" class="ir-notes">
   <h2>Notes</h2>
   <p class="sub" data-sub="notes"></p>
+  <p class="takeaway" data-take="notes" hidden></p>
   <div id="notesHost"></div>
   <ul class="fnotes" id="fnList" hidden></ul>
+  <h3 id="revHead" hidden>Revision history</h3>
+  <div id="revHost"></div>
 </section>
 
 <footer>
@@ -692,6 +816,11 @@ catch(e){
  return;
 }
 const {meta:META={},summary:SUMMARY={},timestamps:TS={},windows:WINDOWS=[],timeline:TIMELINE=[],impact:IMPACT={},causes:CAUSES=[],resolution:RESOLUTION={},detection:DETECTION={},actions:ACTIONS=[],lessons:LESSONS={},evidence:EVIDENCE={},notes:NOTES=[],footnotes:FOOTNOTES=[]}=R;
+const DECISIONS=Array.isArray(R.decisions)?R.decisions:[];
+const HYPOTHESES=Array.isArray(R.hypotheses)?R.hypotheses:[];
+const RECOGNIZE=Array.isArray(R.recognize)?R.recognize:[];
+const UNKNOWNS=Array.isArray(R.unknowns)?R.unknowns:[];
+const GLOSSARY=Array.isArray(R.glossary)?R.glossary:[];
 const INCIDENTS=Array.isArray(META.subIncidents)?META.subIncidents:[];
 const MONITORS=Array.isArray(DETECTION.monitors)?DETECTION.monitors:[];
 const SLUG=META.slug||"retro";
@@ -711,9 +840,12 @@ const HAS_TWINS=[SUMMARY,IMPACT,RESOLUTION,DETECTION,...CAUSES].some(o=>o&&o.p);
 TIMELINE.forEach((e,i)=>{e._id=e.id||"tl"+(i+1)});
 const REF=Object.create(null);
 const ENTRY=Object.create(null);
-const SECOF={window:"overview",incident:"overview",timeline:"timeline",cause:"causes",action:"actions",fn:"notes"};
-const KIND_GLYPH={window:"▭",incident:"⚑",timeline:"◷",cause:"◆",action:"☐",fn:"※"};
-const KIND_LABEL={window:"Window",incident:"Incident",timeline:"Timeline entry",cause:"Cause",action:"Action item",fn:"Footnote"};
+const SECOF={window:"overview",incident:"overview",timeline:"timeline",cause:"causes",action:"actions",fn:"notes",
+ decision:"resolution",hypothesis:"resolution",unknown:"unknowns"};
+const KIND_GLYPH={window:"▭",incident:"⚑",timeline:"◷",cause:"◆",action:"☐",fn:"※",decision:"⚖",hypothesis:"?",unknown:"◇"};
+const KIND_LABEL={window:"Window",incident:"Incident",timeline:"Timeline entry",cause:"Cause",action:"Action item",fn:"Footnote",
+ decision:"Decision",hypothesis:"Hypothesis",unknown:"Open question"};
+const HYP_LBL={"ruled-out":["st-dead","Ruled out"],confirmed:["st-crit","Confirmed"],open:["st-warn","Still open"]};
 const CAUSE_LBL={root:["st-crit","Root cause"],contributing:["st-acc","Contributing"],trigger:["st-warn","Trigger"]};
 const ACTION_LBL={done:["st-ok","Done"],"in-progress":["st-acc","In progress"],todo:["st-warn","To do"],dropped:["st-dead","Dropped"]};
 const WINDOW_LBL={outage:["st-crit","Outage"],degraded:["st-warn","Degraded"],partial:["st-acc","Partial"]};
@@ -731,6 +863,9 @@ WINDOWS.forEach(w=>addRef(w.id,w.h,"window",w));
 TIMELINE.forEach(t=>{if(t.id)addRef(t.id,t.text,"timeline",t)});
 CAUSES.forEach(c=>addRef(c.id,c.t,"cause",c));
 ACTIONS.forEach(a=>addRef(a.id,a.t,"action",a));
+DECISIONS.forEach(d=>addRef(d.id,d.t,"decision",d));
+HYPOTHESES.forEach(h=>addRef(h.id,h.t,"hypothesis",h));
+UNKNOWNS.forEach(u=>addRef(u.id,u.q,"unknown",u));
 FOOTNOTES.forEach(f=>addRef("fn"+f.n,f.b,"fn",f));
 
 <!-- @include html/links.js -->
@@ -1086,6 +1221,8 @@ function slackQuoteHtml(hit){
  const users=slackUsers(snap);
  return `<div class="ir-quote"><div class="who"><b>${esc(msg.user_name||"unknown")}</b><span>#${esc(snap.channel_name||snap.channel_id||"")}</span><span data-tip="${esc(msgUtc(msg))}">${esc(msgTime(msg))}</span></div><div class="msg">${mrkdwn(msg.text,users)}</div></div>`;
 }
+const slackName=(msg,users)=>msg?(msg.user_name||(users||{})[msg.user_id]||""):"";
+const plainSlack=(msg,users)=>msg?plain(String(msg.text||"").replace(/<[^>]*\|([^>]*)>/g,"$1").replace(/<[^>]*>/g,"")):"";
 function slackMsgHtml(msg,users,snap){
  const react=(msg.reactions||[]).map(r=>`<span>:${esc(r.name)}: ${esc(String(r.count||1))}</span>`).join("");
  const files=(msg.files||[]).length?`<div class="files">${msg.files.length} file${msg.files.length===1?"":"s"}: ${msg.files.map(esc).join(", ")}</div>`:"";
@@ -1178,59 +1315,110 @@ function renderIncidents(){
  host.innerHTML=INCIDENTS.map(i=>`<div class="ir-incident" id="${esc(i.id)}"><b>${inline(i.t||"")}</b><span class="idchip">${esc(i.id)}</span>${i.h?` <span class="chip">${esc(i.h)}</span>`:""}</div>`).join("");
  host.hidden=false;
 }
+const EV_LINKS=[["notebooks","Notebook",x=>x.label||`Notebook ${x.id}`],["monitors","Monitor",x=>x.label||`Monitor ${x.id}`],
+ ["prs","Pull request",x=>x.label||x.role],["builds","Build",x=>x.label],["linear","Issue",x=>x.label||x.key],["docs","Document",x=>x.label]];
+function renderLinksRow(){
+ const host=$("#linksRow");
+ const chips=EV_LINKS.flatMap(([key,kind,lbl])=>(Array.isArray(EVIDENCE[key])?EVIDENCE[key]:[])
+  .filter(x=>x&&x.url&&safeUrl(x.url)).map(x=>hostChipHtml(x.url,lbl(x)||kind))).filter(Boolean);
+ if(!chips.length)return;
+ host.innerHTML=chips.join("");
+ host.hidden=false;
+}
+function renderTakeaways(){
+ const sections=(META.sections&&typeof META.sections==="object")?META.sections:{};
+ document.querySelectorAll("[data-take]").forEach(p=>{
+  const take=(sections[p.dataset.take]||{}).takeaway;
+  if(!take)return;
+  p.innerHTML=inline(take);
+  p.hidden=false;
+ });
+}
 function renderOverview(){
- implicitSlot("~tiles",{kind:"ir.tiles"},$("#tilesHost"));
  renderSummary();
+ implicitSlot("~tiles",{kind:"ir.tiles"},$("#tilesHost"));
+ renderLinksRow();
  renderIncidents();
  if(WINDOWS.length)implicitSlot("~windows",{kind:"ir.windows",lanes:INCIDENTS.length?"incident":(WINDOWS.some(w=>(w.teams||[]).length)?"team":"none"),marks:true},$("#windowsHost"));
 }
 
-let tlKind="all",tlQuery="";
+let tlKind="all",tlPhase="all",tlActor="all",tlQuery="";
 const tlKindsPresent=()=>TL_KINDS.filter(k=>TIMELINE.some(e=>e.kind===k));
+const tlActorsPresent=()=>[...new Set(TIMELINE.map(e=>e.actor).filter(Boolean))].sort();
+const tlPhasesPresent=()=>[["during","While it was live"],...(TIMELINE.some(e=>e.phase==="before")?[["before","Before"]]:[]),
+ ...(TIMELINE.some(e=>e.phase==="after")?[["after","After"]]:[])];
+const KEY_MOMENTS=TIMELINE.filter(e=>e.key===true);
+const keyMoments=()=>KEY_MOMENTS.length?KEY_MOMENTS:TIMELINE;
 function kpill(kind){return `<span class="kpill" data-kind="${esc(kind)}"><i aria-hidden="true">${TL_GLYPH[kind]||"·"}</i>${esc(TL_LABEL[kind]||kind)}</span>`}
 function windowPill(id){
  const w=WINDOWS.find(x=>x.id===id);
  return w?`<a class="wpill" data-kind="${esc(w.kind)}" href="#overview" data-ref="${esc(w.id)}">${esc(handleOf(w.id))}</a>`:"";
 }
-function tlRowHtml(e,unchanged){
- return `<div class="ir-row${unchanged?" unch":""}" id="${esc(e._id)}" data-kind="${esc(e.kind)}">`+
+function tlRowHtml(e,unchanged,idPrefix){
+ return `<div class="ir-row${unchanged?" unch":""}${e.key===true?" key":""}" id="${esc((idPrefix||"")+e._id)}" data-kind="${esc(e.kind)}">`+
   `<span class="t num" data-tip="${esc(utcStr(e.ts))}">${esc(fmtTime(e.ts))}</span>`+
   `<span class="k">${kpill(e.kind)}${e.actor?`<span class="actor" title="${esc(e.actor)}">${esc(e.actor)}</span>`:""}</span>`+
   `<div class="x"><p>${inline(e.text||"")}${e.window?" "+windowPill(e.window):""}${e.id?`<span class="idchip">${esc(e.id)}</span>`:""}${dmark("timeline",e._id)}${e.id?aiAskBtn(e.id):""}</p>${refChipsHtml(e.refs)}</div>`+
   `</div>`;
 }
-function renderTimeline(){
- const host=$("#tlList");host.innerHTML="";
- const hiding=DIFF&&!document.body.classList.contains("show-unch");
- const q=tlQuery.toLowerCase();
- const rows=TIMELINE.filter(e=>(tlKind==="all"||e.kind===tlKind)&&(!q||(e.text+" "+(e.actor||"")+" "+(e.id||"")).toLowerCase().includes(q)));
+function tlDays(host,rows,idPrefix){
  let day="",vis=0,hid=0;
+ const hiding=DIFF&&!document.body.classList.contains("show-unch");
  rows.forEach(e=>{
   const k=dayKey(e.ts);
   if(k!==day){day=k;host.append(el("div","ir-day",esc(fmtDay(e.ts))+(e.phase?` <span class="pill p-dead">${esc(e.phase==="before"?"before the incident":"after the incident")}</span>`:"")))}
   const u=DIFF&&!DIFF.marks["timeline:"+e._id];
   if(u&&hiding)hid++;else vis++;
-  host.insertAdjacentHTML("beforeend",tlRowHtml(e,u));
+  host.insertAdjacentHTML("beforeend",tlRowHtml(e,u,idPrefix));
  });
+ return [vis,hid];
+}
+function renderKeyMoments(){
+ const host=$("#tlKey");host.innerHTML="";
+ const rows=keyMoments();
+ if(!rows.length){host.append(el("div","ir-keyempty","No timeline entries yet."));return}
+ tlDays(host,rows,"key-");
+ if(KEY_MOMENTS.length)host.append(el("div","ir-keyempty",`${KEY_MOMENTS.length} moments carry the story; the full timeline holds ${TIMELINE.length}.`));
+ termify(host);
+}
+const tlMatch=e=>(tlKind==="all"||e.kind===tlKind)
+ &&(tlPhase==="all"||(tlPhase==="during"?!e.phase:e.phase===tlPhase))
+ &&(tlActor==="all"||e.actor===tlActor)
+ &&(!tlQuery||(e.text+" "+(e.actor||"")+" "+(e.id||"")).toLowerCase().includes(tlQuery.toLowerCase()));
+function renderTimeline(){
+ const host=$("#tlList");host.innerHTML="";
+ const rows=TIMELINE.filter(tlMatch);
+ const [vis,hid]=tlDays(host,rows);
  if(!vis&&!hid)host.append(el("div","empty","Nothing in the timeline matches."));
  const cnt=$("#tlCount");
- if(cnt){cnt.textContent=`Showing ${vis} of ${TIMELINE.length}`;cnt.hidden=tlKind==="all"&&!q&&!DIFF;
+ if(cnt){cnt.textContent=`Showing ${vis} of ${TIMELINE.length}`;cnt.hidden=false;
   if(hid){const a=el("span","linkish",` — ${hid} unchanged are hidden, show everything`);a.onclick=toggleUnch;cnt.append(a)}}
  termify(host);
- document.querySelectorAll("#tlFilters .fbtn").forEach(b=>{const on=b.dataset.v===tlKind;b.classList.toggle("on",on);b.setAttribute("aria-pressed",String(on))});
+ document.querySelectorAll("#tlFilters .fbtn[data-g=kind]").forEach(b=>{const on=b.dataset.v===tlKind;b.classList.toggle("on",on);b.setAttribute("aria-pressed",String(on))});
 }
-function filterBar(host,opts,onPick){
+function filterBar(host,group,opts,onPick){
  opts.forEach(([v,l],i)=>{
-  const b=el("button","fbtn"+(i===0?" on":""),esc(l));b.dataset.v=v;b.setAttribute("aria-pressed",String(i===0));
-  b.onclick=()=>{onPick(v);host.querySelectorAll(".fbtn").forEach(x=>{x.classList.remove("on");x.setAttribute("aria-pressed","false")});b.classList.add("on");b.setAttribute("aria-pressed","true")};
+  const b=el("button","fbtn"+(i===0?" on":""),esc(l));b.dataset.v=v;b.dataset.g=group;b.setAttribute("aria-pressed",String(i===0));
+  b.onclick=()=>{onPick(v);host.querySelectorAll(`.fbtn[data-g="${group}"]`).forEach(x=>{x.classList.remove("on");x.setAttribute("aria-pressed","false")});b.classList.add("on");b.setAttribute("aria-pressed","true")};
   host.append(b);
  });
 }
+function pickBar(host,label,opts,onPick){
+ if(opts.length<2)return;
+ const sel=el("select","toolbtn");sel.setAttribute("aria-label",label);
+ [["all",label],...opts].forEach(([v,l])=>{const o=el("option",null,esc(l));o.value=v;sel.append(o)});
+ sel.onchange=()=>onPick(sel.value);
+ host.append(sel);
+}
 function setupTimeline(){
  if(TIMELINE.length>=8)implicitSlot("~timeline",{kind:"ir.timeline",lanes:"kind",windows:true,zoom:true},$("#swimHost"));
+ renderKeyMoments();
+ $("#tlAll").textContent=`${TIMELINE.length} entries`;
  const f=$("#tlFilters");
- filterBar(f,[["all","Everything"],...tlKindsPresent().map(k=>[k,TL_LABEL[k]])],v=>{tlKind=v;renderTimeline()});
+ filterBar(f,"kind",[["all","Everything"],...tlKindsPresent().map(k=>[k,TL_LABEL[k]])],v=>{tlKind=v;renderTimeline()});
  const end=el("span","end");
+ pickBar(end,"Any phase",tlPhasesPresent(),v=>{tlPhase=v;renderTimeline()});
+ pickBar(end,"Anyone",tlActorsPresent().map(a=>[a,a]),v=>{tlActor=v;renderTimeline()});
  const s=el("input","search");s.type="search";s.placeholder="Search the timeline";s.setAttribute("aria-label","Search the timeline");
  s.oninput=()=>{tlQuery=s.value;renderTimeline()};
  s.onkeydown=e=>{if(e.key==="Escape"){e.stopPropagation();s.value="";tlQuery="";renderTimeline()}};
@@ -1280,7 +1468,7 @@ function causeRow(c){
 function renderCauses(){
  const host=$("#causeList");host.innerHTML="";
  const order={trigger:0,root:1,contributing:2};
- [...CAUSES].sort((a,b)=>(order[a.kind]??3)-(order[b.kind]??3)).forEach(c=>{const r=causeRow(c);r.open=c.kind==="root";host.append(r)});
+ [...CAUSES].sort((a,b)=>(order[a.kind]??3)-(order[b.kind]??3)).forEach(c=>host.append(causeRow(c)));
  termify(host);
 }
 function setupCauses(){
@@ -1307,6 +1495,68 @@ function renderResolution(){
  termify($("#resolution"));
 }
 
+function decisionRow(d){
+ const det=el("details","ir-decision");det.id=d.id;
+ const refs=(d.refs||[]).map(x=>REF[x]?refChip(x):refChipHtml(x)).filter(Boolean).join("");
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span><span class="t">${inline(d.t||"")}</span>`+
+  `${d.when?`<span class="when" data-tip="${esc(utcStr(d.when))}">${esc(fmtLocal(d.when))}</span>`:""}`+
+  `<span class="idchip">${esc(d.id)}</span>${dmark("decisions",d.id)}${aiAskBtn(d.id)}</span></summary>`+
+  `<div class="body"><div class="kv"><b>Who decided</b>${esc(d.who||"")}</div>`+
+  `<div class="kv"><b>Why</b>${inline(d.why||"")}</div>`+
+  (d.alternatives?`<div class="kv"><b>What was not taken</b>${inline(d.alternatives)}</div>`:"")+
+  (refs?`<div class="kv"><b>Evidence</b><div class="evid">${refs}</div></div>`:"")+
+  (linksOf(d).length?`<div class="kv"><b>Links</b>${linkChipsHtml(linksOf(d))}</div>`:"")+
+  `</div>`;
+ return det;
+}
+function renderDecisions(){
+ if(!DECISIONS.length)return;
+ $("#decisionsHead").hidden=false;
+ const host=$("#decisionsHost");
+ DECISIONS.forEach(d=>host.append(decisionRow(d)));
+}
+function renderHypotheses(){
+ if(!HYPOTHESES.length)return;
+ $("#hypothesesHead").hidden=false;
+ const rows=HYPOTHESES.map(h=>{
+  const [sc,sl]=HYP_LBL[h.status]||["st-dead",h.status||""];
+  const ev=(h.evidence||[]).map(x=>REF[x]?refChip(x):refChipHtml(x)).filter(Boolean).join("");
+  return `<tr id="${esc(h.id)}"><td>${inline(h.t||"")} <span class="idchip">${esc(h.id)}</span></td>`+
+   `<td><span class="st ${sc}">${esc(sl)}</span></td><td>${inline(h.exonerated||"")}${ev?` <span class="evid">${ev}</span>`:""}</td></tr>`;
+ }).join("");
+ $("#hypothesesHost").innerHTML=`<div class="twrap"><table class="ir-hyp"><thead><tr><th>What we suspected</th><th>Verdict</th><th>What settled it</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function renderRecognize(){
+ if(!RECOGNIZE.length)return;
+ const rows=RECOGNIZE.map(r=>`<tr><td>${inline(r.signal||"")}</td><td>${inline(r.means||"")}</td><td>${inline(r.do||"")}</td></tr>`).join("");
+ $("#recognizeHost").innerHTML=`<div class="twrap"><table class="ir-recog"><thead><tr><th>If you see</th><th>It means</th><th>Do this</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+ termify($("#recognize"));
+}
+function renderUnknowns(){
+ if(!UNKNOWNS.length)return;
+ const ul=el("ul","ir-unknowns");
+ UNKNOWNS.forEach(u=>{
+  const li=el("li");li.id=u.id;
+  li.innerHTML=`<span class="q">${inline(u.q||"")}<span class="idchip">${esc(u.id)}</span>${aiAskBtn(u.id)}</span>`+
+   (u.why?`<span class="why">${inline(u.why)}</span>`:"")+
+   (u.owner?`<span class="owner">${esc(u.owner)}</span>`:"");
+  ul.append(li);
+ });
+ $("#unknownsHost").append(ul);
+ termify($("#unknowns"));
+}
+function renderGlossary(){
+ if(!GLOSSARY.length)return;
+ $("#glossaryHost").innerHTML=`<dl class="ir-gloss">${GLOSSARY.map(g=>`<dt>${esc(g.term||"")}</dt><dd>${inline(g.def||"")}</dd>`).join("")}</dl>`;
+}
+function renderRevisions(){
+ const revs=Array.isArray(META.revisions)?META.revisions:[];
+ if(!revs.length)return;
+ $("#revHead").hidden=false;
+ $("#revHost").innerHTML=`<ul class="ir-rev">${[...revs].reverse().map(r=>
+  `<li><b>Revision ${esc(String(r.rev))}</b>${r.date?` · ${esc(longDate(r.date))}`:""}${r.note?` — ${inline(r.note)}`:""}`+
+  ((r.items||[]).length?`<ul>${r.items.map(i=>`<li>${inline(i)}</li>`).join("")}</ul>`:"")+`</li>`).join("")}</ul>`;
+}
 function setupActions(){
  if(ACTIONS.length)implicitSlot("~actions",{kind:"ir.actions",group:"state",showDone:true},$("#actionsHost"));
 }
@@ -1330,7 +1580,7 @@ function renderEvidence(){
  const nbs=Array.isArray(EVIDENCE.notebooks)?EVIDENCE.notebooks:[];
  if(nbs.length){
   host.append(el("h3",null,"Datadog notebooks"));
-  nbs.forEach((n,i)=>implicitSlot("~notebook-"+n.id,{kind:"ir.notebook",notebook:n.id,bands:true,open:i===0},host));
+  nbs.forEach(n=>implicitSlot("~notebook-"+n.id,{kind:"ir.notebook",notebook:n.id,bands:true},host));
  }
  const mons=Array.isArray(EVIDENCE.monitors)?EVIDENCE.monitors:[];
  if(mons.length){
@@ -1387,26 +1637,57 @@ function renderNotes(){
  termify($("#notes"));
 }
 
+const XS_KIND_LABEL={"what-happened":"What happened","impact":"What it cost","why":"Why it happened",
+ "what-changed":"What changed","still-open":"What is still open"};
+JOBS.push(loadFile("summary.html").catch(()=>"").then(async text=>{
+ if(!text)return;
+ const tpl=el("template");tpl.innerHTML=text;
+ if(!tpl.content.querySelector(".xs-panel"))return;
+ scrub(tpl.content);
+ const host=$("#execHost");
+ host.replaceChildren(tpl.content);
+ host.querySelectorAll(".xs-panel").forEach(p=>{
+  const label=XS_KIND_LABEL[p.dataset.kind];
+  const head=p.querySelector("h1,h2,h3");
+  if(label&&head)head.insertAdjacentHTML("beforebegin",`<span class="xs-kind">${esc(label)}</span>`);
+ });
+ host.querySelectorAll("svg[viewBox]").forEach(setAspect);
+ linkNode(host);
+ termify(host);
+ host.hidden=false;
+ await mountComponents(host);
+}));
+
 renderOverview();
 setupTimeline();
-renderImpact();
 setupCauses();
+renderImpact();
 renderResolution();
-setupActions();
+renderDecisions();
+renderHypotheses();
 renderLessons();
+renderRecognize();
+setupActions();
 renderEvidence();
+renderUnknowns();
+renderGlossary();
 renderNotes();
+renderRevisions();
+renderTakeaways();
 
 const hasEvidence=Object.values(EVIDENCE).some(v=>Array.isArray(v)&&v.length);
 const EMPTIES={
  timeline:!TIMELINE.length,
  impact:!(IMPACT.text||IMPACT.component||(IMPACT.teams||[]).length||(IMPACT.metrics||[]).length),
  causes:!CAUSES.length,
- resolution:!(RESOLUTION.text||RESOLUTION.component||DETECTION.text||DETECTION.component||MONITORS.length),
+ resolution:!(RESOLUTION.text||RESOLUTION.component||DETECTION.text||DETECTION.component||MONITORS.length||DECISIONS.length||HYPOTHESES.length),
  actions:!ACTIONS.length,
  lessons:!$("#lessonsHost").children.length,
+ recognize:!RECOGNIZE.length,
  evidence:!hasEvidence,
- notes:!NOTES.length&&!FOOTNOTES.length
+ unknowns:!UNKNOWNS.length,
+ glossary:!GLOSSARY.length,
+ notes:!NOTES.length&&!FOOTNOTES.length&&!(META.revisions||[]).length
 };
 Object.entries(EMPTIES).forEach(([id,empty])=>{
  if(!empty)return;
@@ -1429,6 +1710,19 @@ Object.entries(EMPTIES).forEach(([id,empty])=>{
   $("#detectionText").innerHTML=mdToHtml(twin(DETECTION,DETECTION.text||""));
   renderCauses();
   mountComponents($("#causeList"));
+ };
+})();
+
+(function(){
+ const b=$("#expandBtn");
+ const boxes=()=>[...document.querySelectorAll("#main details:not(.more)")];
+ let open=false;
+ b.onclick=()=>{
+  open=!open;
+  boxes().forEach(d=>{d.open=open});
+  b.textContent=open?"Collapse all":"Expand all";
+  b.setAttribute("aria-pressed",String(open));
+  b.classList.toggle("on",open);
  };
 })();
 
@@ -1498,19 +1792,24 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#sheet").hidden
 document.addEventListener("click",e=>{const sh=$("#sheet");if(sh.hidden||sh.contains(e.target)||e.target.closest("[data-ref]")||TIP.contains(e.target))return;closeSheet()});
 
 function clearFilters(){
- tlKind="all";tlQuery="";
+ tlKind="all";tlPhase="all";tlActor="all";tlQuery="";
  document.querySelectorAll("#tlFilters input.search").forEach(b=>{b.value=""});
+ document.querySelectorAll("#tlFilters select").forEach(s=>{s.value="all"});
  renderTimeline();
  if(window.irActionsReset)irActionsReset();
 }
 function flash(node){node.classList.add("ai-hl");setTimeout(()=>node.classList.remove("ai-hl"),1800)}
+function openAncestors(node){
+ for(let d=node&&node.closest("details");d;d=d.parentElement&&d.parentElement.closest("details"))d.open=true;
+}
 function revealEntry(id){
  const r=REF[id];
- if(!r){const e=document.getElementById(id);if(e)e.scrollIntoView({block:"start"});return false}
+ if(!r){const e=document.getElementById(id);if(e){openAncestors(e);e.scrollIntoView({block:"start"})}return false}
  const e=ENTRY[id];
- if(r.kind==="cause"){const d=document.getElementById(id);if(d){d.open=true;d.scrollIntoView({block:"center"})}}
+ if(r.kind==="cause"||r.kind==="decision"){const d=document.getElementById(id);if(d){openAncestors(d);d.open=true;d.scrollIntoView({block:"center"})}}
+ else if(r.kind==="hypothesis"||r.kind==="unknown"){const d=document.getElementById(id);if(d){openAncestors(d);d.scrollIntoView({block:"center"});flash(d)}}
  else if(r.kind==="action"){if(window.irActionsReset)irActionsReset();setTimeout(()=>{const tr=document.getElementById("act-"+id);if(tr){tr.scrollIntoView({block:"center"});flash(tr)}},30)}
- else if(r.kind==="timeline"){clearFilters();setTimeout(()=>{const row=document.getElementById(e._id);if(row){row.scrollIntoView({block:"center"});flash(row)}},30)}
+ else if(r.kind==="timeline"){clearFilters();$("#tlFull").open=true;setTimeout(()=>{const row=document.getElementById("key-"+e._id)||document.getElementById(e._id);if(row){openAncestors(row);row.scrollIntoView({block:"center"});flash(row)}},30)}
  else if(r.kind==="window"){const w=$("#windowsHost");(w&&w.firstElementChild?w:$("#overview")).scrollIntoView({block:"center"});document.querySelectorAll(`[data-window="${CSS.escape(id)}"]`).forEach(flash)}
  else if(r.kind==="incident"){const d=document.getElementById(id);if(d){d.scrollIntoView({block:"center"});flash(d)}}
  else if(r.kind==="fn"){const d=document.getElementById("fn-"+id.slice(2));if(d)d.scrollIntoView({block:"center"})}
@@ -1542,7 +1841,7 @@ function settleDeepLink(){
  if(!id)return;
  if(REF[id]){revealEntry(id);return}
  const e=document.getElementById(id);
- if(e){const det=e.closest("details");if(det)det.open=true;e.scrollIntoView({behavior:"instant",block:"start"})}
+ if(e){openAncestors(e);e.scrollIntoView({behavior:"instant",block:"start"})}
 }
 
 const navLinks=[...document.querySelectorAll("#rail a[href^='#']")];
@@ -2028,7 +2327,7 @@ function irNotebook(spec,host,jobs){
  const det=el("details","ddc ir-nb");
  det.dataset.kind="ir.notebook";
  det.id=spec.implicit?"nb-"+id:`nbc-${id}-${++nbSeq}`;
- det.open=spec.open!==false;
+ det.open=spec.open===true;
  if(!nb){
   det.innerHTML=`<summary><b>${esc(spec.title||"Notebook "+id)}</b><span class="meta">snapshot missing</span></summary><div class="nbbody"><p class="netmsg">No snapshot at ${esc(meta.file||"evidence/datadog/notebook-"+id+".json")}. Run <code>retro.py evidence fetch --notebook ${esc(id)}</code>.</p></div>`;
   det.dataset.failed="1";
@@ -2117,17 +2416,28 @@ function irSlack(spec){
  const shown=only&&hit?[hit.msg]:msgs;
  const n=Math.max(1,spec.collapse||6);
  const url=snap.permalink||spec.permalink;
- box.innerHTML=`<div class="shead"><b>#${esc(snap.channel_name||snap.channel_id||"")}</b><span>${snap.thread_ts?"thread · ":""}${msgs.length} message${msgs.length===1?"":"s"}${snap.fetchedAt?" · captured "+esc(fmtLocal(snap.fetchedAt)):""}</span>${safeUrl(url)?`<a class="xbtn" href="${esc(url)}" target="_blank" rel="noopener">Open in Slack</a>`:""}</div>`;
+ const who=[...new Set(shown.map(m=>slackName(m,users)).filter(Boolean))];
+ const det=el("details","ir-thread");
+ det.open=spec.open===true;
+ det.innerHTML=`<summary><span class="lrow"><span class="dis" aria-hidden="true">›</span>`+
+  `<b>#${esc(snap.channel_name||snap.channel_id||"")}</b>`+
+  `<span class="meta">${snap.thread_ts?"thread · ":""}${msgs.length} message${msgs.length===1?"":"s"}`+
+  `${who.length?" · "+esc(who.slice(0,4).join(", "))+(who.length>4?` and ${who.length-4} more`:""):""}</span></span>`+
+  `<span class="sumline">${esc(firstSentence(plainSlack(shown[0],users)))}</span></summary>`;
+ const body=el("div","tbody");
+ body.innerHTML=`<div class="shead"><span>${snap.fetchedAt?"captured "+esc(fmtLocal(snap.fetchedAt)):""}</span>${safeUrl(url)?`<a class="xbtn" href="${esc(url)}" target="_blank" rel="noopener">Open in Slack</a>`:""}</div>`;
  const list=el("div","msgs");
  shown.forEach((m,i)=>{const node=el("div",null,slackMsgHtml(m,users,snap)).firstElementChild;if(i>=n)node.hidden=true;list.append(node)});
- box.append(list);
+ body.append(list);
  if(shown.length>n){
   const b=el("button","xbtn moreb",`Show ${shown.length-n} more`);
   b.onclick=()=>{list.querySelectorAll(".ir-msg[hidden]").forEach(x=>{x.hidden=false});b.remove()};
-  box.append(b);
+  body.append(b);
  }
- if(snap.truncated)box.append(el("p","trunc","The snapshot stops at 50 messages; the rest are in Slack."));
- if((snap.redactions||[]).length)box.append(el("p","trunc",`${snap.redactions.length} passage${snap.redactions.length===1?"":"s"} redacted from the snapshot.`));
+ if(snap.truncated)body.append(el("p","trunc","The snapshot stops at 50 messages; the rest are in Slack."));
+ if((snap.redactions||[]).length)body.append(el("p","trunc",`${snap.redactions.length} passage${snap.redactions.length===1?"":"s"} redacted from the snapshot.`));
+ det.append(body);
+ box.append(det);
  return box;
 }
 
@@ -2170,7 +2480,7 @@ function irActions(spec){
  const head=el("div","acthead");
  head.innerHTML=`<span class="oprog"></span>`;
  const f=el("span","filters");f.style.margin="0";
- filterBar(f,[["all","All"],...Object.keys(ACTION_LBL).filter(s=>ACTIONS.some(a=>actionState(a)===s)).map(s=>[s,ACTION_LBL[s][1]])],v=>{actF=v;renderActionsTable(box,spec)});
+ filterBar(f,"state",[["all","All"],...Object.keys(ACTION_LBL).filter(s=>ACTIONS.some(a=>actionState(a)===s)).map(s=>[s,ACTION_LBL[s][1]])],v=>{actF=v;renderActionsTable(box,spec)});
  const tg=el("span","toggle");
  [["state","By state"],["owner","By owner"],["source","By source"]].forEach(([g,l])=>{const b=el("button",null,l);b.type="button";b.dataset.g=g;b.onclick=()=>{actGroup=g;renderActionsTable(box,spec)};tg.append(b)});
  head.append(f,tg);
@@ -2507,6 +2817,14 @@ function buildDocMd(opt){
  push(`_${[longDate(META.date),META.rev?"revision "+META.rev:null,STATUS_WORD(META.status),inc.number!=null?"incident #"+inc.number:null,inc.severity?String(inc.severity).toUpperCase():null,(META.teams||[]).length?"teams: "+META.teams.join(", "):null,(META.authors||[]).length?"written by "+META.authors.join(", "):null,META.commander?"incident commander "+META.commander:null,META.footerNote].filter(Boolean).join(" · ")}_\n`);
  push("How to read this: the tiles at the top are derived from the timestamps and are the only source for how long anything took. Bracketed ids like C1, AI2, W1 or T4 are citations into the causes, action items, windows and timeline entries below.\n");
  push("## Overview\n");
+ const exec=$("#execHost");
+ if(exec&&!exec.hidden)exec.querySelectorAll(".xs-panel").forEach(p=>{
+  const head=p.querySelector("h1,h2,h3");
+  push(`### ${plain(head?head.textContent:(XS_KIND_LABEL[p.dataset.kind]||"Summary"))}\n`);
+  [...p.querySelectorAll(".xs-stat")].forEach(s=>push(`- **${plain(s.querySelector(".xs-value").textContent)}** — ${plain(s.querySelector(".xs-label").textContent)}`));
+  if(p.querySelector(".xs-stat"))push("");
+  [...p.querySelectorAll("p,li")].forEach(x=>push(plain(x.textContent)+"\n"));
+ });
  const tiles=[];
  IR_MD["ir.tiles"]({},tiles);
  if(tiles.length>3)push(tiles.join("\n"));
@@ -2538,8 +2856,8 @@ function buildDocMd(opt){
    if(c.component)push(componentMd(c.component)+"\n");
   });
  }
- if(RESOLUTION.text||DETECTION.text||MONITORS.length){
-  push("## Resolution and detection\n");
+ if(RESOLUTION.text||DETECTION.text||MONITORS.length||DECISIONS.length||HYPOTHESES.length){
+  push("## Detection and response\n");
   if(RESOLUTION.text)push(RESOLUTION.text+"\n");
   if(flags.twins&&RESOLUTION.p)push("_Plain: "+RESOLUTION.p+"_\n");
   if(linksOf(RESOLUTION).length)push(`_Links: ${linksOf(RESOLUTION).map(linkMd).join(", ")}_\n`);
@@ -2548,13 +2866,31 @@ function buildDocMd(opt){
   if(flags.twins&&DETECTION.p)push("_Plain: "+DETECTION.p+"_\n");
   MONITORS.forEach(m=>push(monitorMd(m.id)+"\n"));
   if(DETECTION.component)push(componentMd(DETECTION.component)+"\n");
+  if(DECISIONS.length){
+   push("### Decisions taken while it was live\n");
+   push("| When | Decision | Who | Why |\n|---|---|---|---|");
+   DECISIONS.forEach(d=>push(`| ${d.when?fmtLocal(d.when):""} | ${plain(d.t)} | ${d.who||""} | ${plain(d.why)} |`));
+   push("");
+  }
+  if(HYPOTHESES.length){
+   push("### What we suspected, and what cleared it\n");
+   push("| Hypothesis | Verdict | What settled it |\n|---|---|---|");
+   HYPOTHESES.forEach(h=>push(`| ${plain(h.t)} | ${(HYP_LBL[h.status]||["",h.status||""])[1]} | ${plain(h.exonerated||"")} |`));
+   push("");
+  }
  }
- if(ACTIONS.length){push("## Action items\n");push(actionsMd()+"\n")}
  const lessonCols=[["well","What went well"],["wrong","What went wrong"],["lucky","Where we got lucky"]].filter(([k])=>(LESSONS[k]||[]).length);
  if(lessonCols.length){
   push("## Lessons\n");
   lessonCols.forEach(([k,label])=>{push(`### ${label}\n`);LESSONS[k].forEach(x=>push("- "+(typeof x==="string"?x:x.text||"")));push("")});
  }
+ if(RECOGNIZE.length){
+  push("## How to recognize this next time\n");
+  push("| If you see | It means | Do this |\n|---|---|---|");
+  RECOGNIZE.forEach(r=>push(`| ${plain(r.signal)} | ${plain(r.means)} | ${plain(r.do)} |`));
+  push("");
+ }
+ if(ACTIONS.length){push("## Action items\n");push(actionsMd()+"\n")}
  if(hasEvidence){
   push("## Evidence\n");
   (EVIDENCE.notebooks||[]).forEach(n=>push(notebookMd(n.id)+"\n"));
@@ -2569,10 +2905,26 @@ function buildDocMd(opt){
   });
   if((EVIDENCE.images||[]).length){push("### Screenshots\n");EVIDENCE.images.forEach(im=>push(`- ${im.file}: ${plain(im.alt||"")}${im.caption?" — "+plain(im.caption):""}${(im.cites||[]).length?" _(see "+im.cites.map(mdRef).join(", ")+")_":""}`));push("")}
  }
+ if(UNKNOWNS.length){
+  push("## Still unknown\n");
+  UNKNOWNS.forEach(u=>push(`- **${plain(u.q)}**${u.why?" — "+plain(u.why):""}${u.owner?" ("+u.owner+")":""}`));
+  push("");
+ }
+ if(GLOSSARY.length){
+  push("## Glossary\n");
+  push("| Term | What it means |\n|---|---|");
+  GLOSSARY.forEach(g=>push(`| ${g.term||""} | ${plain(g.def)} |`));
+  push("");
+ }
  if(NOTES.length||FOOTNOTES.length){
   push("## Notes\n");
   NOTES.forEach(n=>{if(n.t)push(`### ${n.t}\n`);push((n.md||"")+"\n");if(n.component)push(componentMd(n.component)+"\n")});
   FOOTNOTES.forEach(f=>push(`${f.n}. ${f.b}`));
+ }
+ if((META.revisions||[]).length){
+  push("\n## Revision history\n");
+  [...META.revisions].reverse().forEach(r=>push(`- **Revision ${r.rev}**${r.date?" · "+longDate(r.date):""}${r.note?" — "+plain(r.note):""}`));
+  push("");
  }
  return L.join("\n");
 }
@@ -2594,8 +2946,8 @@ async function prepPrint(){
  if(printing)return;
  printing=true;
  HTML.dataset.print="1";
- viewForPrint={tlKind,tlQuery,actF,actShowDone,unch:document.body.classList.contains("show-unch")};
- tlKind="all";tlQuery="";actF="all";actShowDone=true;
+ viewForPrint={tlKind,tlPhase,tlActor,tlQuery,actF,actShowDone,unch:document.body.classList.contains("show-unch")};
+ tlKind="all";tlPhase="all";tlActor="all";tlQuery="";actF="all";actShowDone=true;
  if(DIFF)document.body.classList.add("show-unch");
  rerenderRegisters();
  closedForPrint=[...document.querySelectorAll("details:not([open])")];
@@ -2613,7 +2965,7 @@ function endPrint(){
  closedForPrint=[];
  document.querySelectorAll(".ir-msg[data-print-shown]").forEach(m=>{m.hidden=true;delete m.dataset.printShown});
  const v=viewForPrint;viewForPrint=null;
- tlKind=v.tlKind;tlQuery=v.tlQuery;actF=v.actF;actShowDone=v.actShowDone;
+ tlKind=v.tlKind;tlPhase=v.tlPhase;tlActor=v.tlActor;tlQuery=v.tlQuery;actF=v.actF;actShowDone=v.actShowDone;
  if(DIFF)document.body.classList.toggle("show-unch",v.unch);
  rerenderRegisters();
  TL_VIEWS.forEach(v=>v.redraw());
@@ -2652,7 +3004,7 @@ function cmtDecorate(){
 }
 <!-- @include html/comments.js -->
 
-const AI_SECTION_NAMES={overview:"Overview",timeline:"Timeline",impact:"Impact",causes:"Causes",resolution:"Resolution and detection",actions:"Action items",lessons:"Lessons",evidence:"Evidence",notes:"Notes"};
+const AI_SECTION_NAMES={overview:"Overview",timeline:"Timeline",causes:"Causes",impact:"Impact",resolution:"Detection and response",lessons:"Lessons",recognize:"How to recognize this next time",actions:"Action items",evidence:"Evidence",unknowns:"Still unknown",glossary:"Glossary",notes:"Notes"};
 const AI_SUGGEST={
  overview:["What happened, in one paragraph?","How long were customers affected?"],
  timeline:["When did we first know, and how?","What was the gap between detection and mitigation?"],
@@ -2772,6 +3124,24 @@ function aiEntryText(e,kind){
   L.push(e.id+" · incident · "+plain(e.t));
   L.push("Windows: "+WINDOWS.filter(w=>w.incident===e.id).map(w=>w.id).join(", "));
   L.push("Causes: "+CAUSES.filter(c=>c.incident===e.id).map(c=>c.id).join(", "));
+ }else if(kind==="decision"){
+  L.push(e.id+" · decision taken during the response"+(e.when?" · "+fmtLocal(e.when):"")+(e.who?" · "+e.who:""));
+  L.push("Handle: "+aiHandle(e));
+  L.push("Decision: "+plain(e.t));
+  L.push("Why: "+plain(e.why));
+  if(e.alternatives)L.push("Not taken: "+plain(e.alternatives));
+  if(linksOf(e).length)L.push("Links: "+linksOf(e).map(aiLinkLine).join("; "));
+ }else if(kind==="hypothesis"){
+  L.push(e.id+" · hypothesis · "+(HYP_LBL[e.status]||["",e.status||""])[1]);
+  L.push("Handle: "+aiHandle(e));
+  L.push("Suspected: "+plain(e.t));
+  if(e.exonerated)L.push("What settled it: "+plain(e.exonerated));
+  if((e.evidence||[]).length)L.push("Evidence: "+e.evidence.join(", "));
+ }else if(kind==="unknown"){
+  L.push(e.id+" · open question"+(e.owner?" · "+e.owner:""));
+  L.push("Handle: "+aiHandle(e));
+  L.push("Question: "+plain(e.q));
+  if(e.why)L.push("Why it matters: "+plain(e.why));
  }
  return L.concat(aiEntryExtra(e)).join("\n");
 }

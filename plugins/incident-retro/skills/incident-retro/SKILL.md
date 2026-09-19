@@ -14,7 +14,9 @@ use its `codex-ask -m astra` route, which pins both settings; Claude may
 collect evidence and publish the result, but must delegate the writing.
 Prose helpers try Astra first and may use Claude only when Astra fails.
 
-An incident retro is one canonical `retro.json` beside committed snapshots of the evidence behind it. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
+An incident retro pairs one canonical `retro.json` with committed evidence snapshots and a hand-written executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
+
+The page is for readers who did not take part in the response. It opens with the executive summary, then the tiles, the key moments, and the causal chain. Every section starts with one sentence that states its conclusion and keeps the details behind a disclosure. Each opening sentence must make sense on its own.
 
 Use one driver for every mechanical step:
 
@@ -31,6 +33,8 @@ Read [reference/writing.md](reference/writing.md) before Draft, [reference/evide
 `retro.py` scaffolds, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent writes the incident itself and the Slack snapshots:
 
 - Fill `retro.json` from inspected evidence. Do not infer a missing event, cause, owner, or outcome.
+- State the causal mechanism in one plain sentence in `meta.title`. Set `meta.slug` to the incident date plus three to six plain words. The rule and its examples are in [reference/writing.md](reference/writing.md).
+- Once the causes and actions are settled, write `summary.html` by hand with one panel per question.
 - Fetch Slack messages with the agent's own Slack tooling. Save the resulting `ir.slack/1` files under `evidence/slack/`, then register each file in `evidence.slack[]`.
 - Write every timestamp as ISO 8601 with a UTC offset. `meta.timezone` controls display only.
 - Write each plain twin `p` in 30 words or fewer. Keep every fact from the precise wording, but include no register id or file path.
@@ -72,13 +76,15 @@ Fill `timestamps` first. The opening tiles depend on `onset`, `detected`, `engag
 Then draft in reading order:
 
 1. Add `windows` for distinct periods of outage or degradation, including partial impact.
-2. Build the timestamp-sorted `timeline`. Name each actor by role or first name and attach a source in `refs` wherever one exists.
-3. State `impact` through observed effects and measured or estimated metrics.
-4. Separate the trigger and root cause from contributing causes. Attach the evidence that supports each claim.
-5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward.
-6. Give every action an owner, source, state, and due date when one exists.
-7. Fill every applicable `lessons` column from the evidence.
-8. Write the plain twins and handles in the same pass as their precise text.
+2. Build the timestamp-sorted `timeline`. Name each actor by role or first name and attach a source in `refs` wherever one exists. Mark eight or fewer entries needed to explain the incident with `key: true`.
+3. Separate the trigger and root cause from contributing causes. Attach the evidence that supports each claim.
+4. State `impact` through observed effects and measured or estimated metrics.
+5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward. Record the `decisions` made during the response, who made each, and why. Record the `hypotheses` ruled out and the evidence that cleared them.
+6. Fill every applicable `lessons` column from the evidence, then write the `recognize` rows for the next responder.
+7. Give every action an owner, source, state, and due date when one exists.
+8. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
+9. Write the plain twins and handles alongside their precise text. Write one `takeaway` per section in `meta.sections`.
+10. Write `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`.
 
 Follow [reference/writing.md](reference/writing.md). Mark a required answer as not recorded when the sources do not provide it. Never invent connective events to make the story read more smoothly.
 
@@ -106,6 +112,10 @@ $TOOL pdf <dir>
 ```
 
 Fix every structural error. Triage every prose finding against [reference/writing.md](reference/writing.md). Inspect the generated PDF; file existence does not prove that its layout and charts read correctly across page breaks.
+
+`--strict` enforces limits on the title and slug, the executive summary's panel and total word counts, each section's opening sentence, each cause's opening statement, and the key-moment count. When a check fails, revise the passage to make it easier to read. Cutting words only to pass the check misses its purpose.
+
+Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
 
 ## Phase 5: Publish
 

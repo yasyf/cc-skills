@@ -43,13 +43,16 @@ COMPONENT_SCHEMAS = REFERENCE / "components"
 SHARED = SKILL.parents[2] / "_shared"
 PAGE = "incident-retro.html"
 PDF_NAME = "incident-retro.pdf"
-PROJECT_FILES = ("retro.json", "NOTES.md")
+PROJECT_FILES = ("retro.json", "NOTES.md", "summary.html")
+SUMMARY_PAGE = "summary.html"
 EVIDENCE_DIRS = ("datadog", "slack", "images")
 EVIDENCE_TEXT = {".json", ".md", ".txt", ".csv"}
-SECTION_IDS = ("overview", "timeline", "impact", "causes", "resolution", "actions", "lessons", "evidence", "notes")
-SECTION_TITLES = {"overview": "Overview", "timeline": "Timeline", "impact": "Impact", "causes": "Causes",
-                  "resolution": "Resolution and detection", "actions": "Action items", "lessons": "Lessons",
-                  "evidence": "Evidence", "notes": "Notes"}
+SECTION_IDS = ("overview", "timeline", "causes", "impact", "resolution", "lessons", "recognize", "actions",
+               "evidence", "unknowns", "glossary", "notes")
+SECTION_TITLES = {"overview": "Overview", "timeline": "Timeline", "causes": "Causes", "impact": "Impact",
+                  "resolution": "Detection and response", "lessons": "Lessons",
+                  "recognize": "How to recognize this next time", "actions": "Action items",
+                  "evidence": "Evidence", "unknowns": "Still unknown", "glossary": "Glossary", "notes": "Notes"}
 STATUSES = ("draft", "in-review", "reviewed", "resolved")
 STATUS_LABEL = {"draft": "Draft", "in-review": "Under review", "reviewed": "Reviewed", "resolved": "Closed out"}
 STATUS_RANK = {s: i for i, s in enumerate(STATUSES)}
@@ -77,7 +80,9 @@ SNAPSHOT_SCHEMA = {"notebooks": "ir.notebook/1", "monitors": "ir.monitor/1", "sl
 COMPONENT_HOSTS = (("impact", "impact"), ("resolution", "resolution"), ("detection", "detection"))
 COMPONENT_LISTS = ("causes", "notes")
 RETRO_ACRONYMS = ("TTD", "TTE", "TTM", "TTR", "SEV")
-ID_SHAPES = (r"W\d+", r"T\d+", r"C\d+", r"AI\d+", r"I\d+")
+HYPOTHESIS_STATES = ("ruled-out", "confirmed", "open")
+HYPOTHESIS_LABEL = {"ruled-out": "Ruled out", "confirmed": "Confirmed", "open": "Still open"}
+ID_SHAPES = (r"W\d+", r"T\d+", r"C\d+", r"AI\d+", r"I\d+", r"D\d+", r"H\d+", r"U\d+")
 ID_TOKEN = re.compile(r"(?<![\w-])(?:" + "|".join(ID_SHAPES) + r")(?![\w-])")
 CITE_GROUP = re.compile(r"\(((?:\s*(?:" + "|".join(ID_SHAPES) + r")\s*[,;]?)+)\s*\)")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
@@ -102,12 +107,39 @@ RENDER_STATE_JS = """({
 TEMPLATE_STAMP = re.compile(r"<!-- built by plugins/_shared/build\.py .*?sha256:([0-9a-f]+)")
 TWINNED = (("summary", "the summary"), ("impact", "the impact"), ("resolution", "the resolution"),
            ("detection", "the detection story"))
-HANDLED = (("windows", "W"), ("causes", "C"), ("actions", "AI"))
+HANDLED = (("windows", "W"), ("causes", "C"), ("actions", "AI"), ("decisions", "D"), ("hypotheses", "H"),
+           ("unknowns", "U"))
 TITLE_WORDS = 12
 ACTION_TITLE_WORDS = 16
 LESSON_WORDS = 40
 METRIC_FIELDS = {"label", "value", "unit", "delta", "measured", "cites"}
 NOTE_LENGTH = 90
+DOC_TITLE_CHARS = 120
+DOC_TITLE_WORDS = 20
+SLUG_CHARS = 60
+SLUG_WORDS = (3, 6)
+SLUG_SHAPE = re.compile(r"(\d{4}-\d{2}-\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)")
+SLUG_STOPWORDS = {"a", "an", "the", "and", "or", "but", "so", "of", "to", "in", "on", "at", "for", "from", "with",
+                  "without", "by", "as", "is", "was", "were", "been", "be", "that", "this", "it", "its", "no", "not",
+                  "every", "all", "any", "some", "our", "we", "us", "had", "has", "have", "did", "does", "do", "into",
+                  "over", "under", "after", "before", "while", "when", "than", "then", "there", "their", "them"}
+TITLE_INTERNALS = re.compile(r"[a-z0-9]_[a-z0-9]|\b[a-z]+[A-Z][a-z]|\.(?:py|ts|tsx|go|rs|sql|json|ya?ml)\b|--[a-z]")
+TAKEAWAY_WORDS = 30
+STATEMENT_WORDS = 25
+KEY_MOMENTS = 8
+DECISION_TITLE_WORDS = 16
+RECOGNIZE_WORDS = 25
+UNKNOWN_WORDS = 25
+GLOSSARY_WORDS = 30
+SUMMARY_KINDS = ("what-happened", "impact", "why", "what-changed", "still-open")
+SUMMARY_KIND_TITLES = {"what-happened": "What happened", "impact": "What it cost", "why": "Why it happened",
+                       "what-changed": "What changed", "still-open": "What is still open"}
+SUMMARY_PANEL_WORDS = 70
+SUMMARY_BUDGET = 300
+SUMMARY_PAGE_TAG = re.compile(r"</?(html|head|body)\b", re.I)
+SUMMARY_EMBED_TAG = re.compile(r"<(iframe|object|embed|script|style|form)\b", re.I)
+SUMMARY_EVENT_ATTR = re.compile(r"\son[a-z]+\s*=", re.I)
+SUMMARY_URL_ATTR = re.compile(r"\b(?:href|src|xlink:href)\s*=\s*[\"']([^\"']+)[\"']", re.I)
 
 
 def parse_ts(value):
@@ -248,7 +280,7 @@ def handles_of(R: dict) -> dict:
     for reg, _ in HANDLED:
         for e in entries(R, reg):
             if e.get("id"):
-                out[str(e["id"])] = e.get("h") or e.get("t") or str(e["id"])
+                out[str(e["id"])] = e.get("h") or e.get("t") or e.get("q") or str(e["id"])
     for e in (R.get("meta") or {}).get("subIncidents") or []:
         if isinstance(e, dict) and e.get("id"):
             out[str(e["id"])] = e.get("h") or e.get("t") or str(e["id"])
@@ -261,7 +293,7 @@ def handles_of(R: dict) -> dict:
 
 def retro_ids(R: dict) -> set:
     ids = set()
-    for reg in ("windows", "timeline", "causes", "actions"):
+    for reg in ("windows", "timeline", "causes", "actions", "decisions", "hypotheses", "unknowns"):
         ids.update(str(e["id"]) for e in entries(R, reg) if e.get("id") is not None)
     for e in (R.get("meta") or {}).get("subIncidents") or []:
         if isinstance(e, dict) and e.get("id") is not None:
@@ -300,6 +332,20 @@ def prose_fields(R: dict):
             yield from text(f"{e.get('id')}.code.caption", code.get("caption"))
     yield from text("resolution.text", (R.get("resolution") or {}).get("text"))
     yield from text("detection.text", (R.get("detection") or {}).get("text"))
+    for e in entries(R, "decisions"):
+        yield from text(f"{e.get('id')}.why", e.get("why"))
+    for e in entries(R, "hypotheses"):
+        yield from text(f"{e.get('id')}.exonerated", e.get("exonerated"))
+    for i, row in enumerate(R.get("recognize") or []):
+        if isinstance(row, dict):
+            for key in ("signal", "means", "do"):
+                yield from text(f"recognize[{i}].{key}", row.get(key))
+    for e in entries(R, "unknowns"):
+        yield from text(f"{e.get('id')}.q", e.get("q"))
+        yield from text(f"{e.get('id')}.why", e.get("why"))
+    for i, row in enumerate(R.get("glossary") or []):
+        if isinstance(row, dict):
+            yield from text(f"glossary[{i}].def", row.get("def"))
     for key, _ in LESSON_COLUMNS:
         for i, e in enumerate((R.get("lessons") or {}).get(key) or []):
             if isinstance(e, dict):
@@ -311,6 +357,13 @@ def prose_fields(R: dict):
         yield from text(f"notes[{i}].md", e.get("md"))
     for i, e in enumerate(entries(R, "footnotes")):
         yield from text(f"footnotes[{e.get('n', i)}].b", e.get("b"))
+
+
+def retro_slug(given, title: str, date: str) -> str:
+    if given:
+        return given if SLUG_SHAPE.fullmatch(given) else f"{date}-{slugify(given)}"
+    words_out = [w for w in slugify(title).split("-") if w and w not in SLUG_STOPWORDS]
+    return "-".join([date] + words_out[:SLUG_WORDS[1]])
 
 
 def scaffold(args) -> int:
@@ -334,8 +387,8 @@ def scaffold(args) -> int:
     if not args.example:
         for name in EVIDENCE_DIRS:
             (dest / "evidence" / name).mkdir(parents=True, exist_ok=True)
-        slug = args.slug or slugify(args.title)
         date = args.date or datetime.date.today().isoformat()
+        slug = retro_slug(args.slug, args.title, date)
         for name in PROJECT_FILES:
             p = dest / name
             p.write_text(p.read_text().replace("PROJECT_TITLE", args.title).replace("PROJECT_SLUG", slug)
@@ -474,10 +527,45 @@ def notebook_cells(root: Path, R: dict):
                 yield cell
 
 
-def check_meta(rep, meta):
+def check_title(rep, title: str):
+    if len(title) > DOC_TITLE_CHARS:
+        rep.err(f"meta.title is {len(title)} characters; a title states the mechanism in {DOC_TITLE_CHARS} or fewer")
+    elif words(title) > DOC_TITLE_WORDS:
+        rep.strict_warn(f"meta.title is {words(title)} words; {DOC_TITLE_WORDS} is the bound for one plain sentence")
+    if ":" in title:
+        rep.strict_warn("meta.title carries a colon, the shape of a symptom followed by its internals; write the one "
+                        "sentence a reader outside the response would say")
+    found = TITLE_INTERNALS.search(title)
+    if found:
+        rep.strict_warn(f"meta.title names {found.group(0)!r}, an identifier rather than a mechanism; a column, image "
+                        "or service name belongs in a cause, not the title")
+
+
+def check_slug(rep, R, meta, slug: str):
+    if len(slug) > SLUG_CHARS:
+        rep.err(f"meta.slug is {len(slug)} characters; the slug is a URL, bounded at {SLUG_CHARS}")
+    shape = SLUG_SHAPE.fullmatch(slug)
+    if not shape:
+        rep.err(f"meta.slug {slug!r} is not a date followed by plain words, as in 2026-09-18-schema-ahead-of-deploy")
+        return
+    low, high = SLUG_WORDS
+    count = len(shape.group(2).split("-"))
+    if not low <= count <= high:
+        rep.strict_warn(f"meta.slug carries {count} words after the date; {low} to {high} keeps the URL short")
+    onset = try_ts((R.get("timestamps") or {}).get("onset"))
+    date = onset.astimezone(zone(meta)).date().isoformat() if onset else meta.get("date")
+    if isinstance(date, str) and is_date(date) and shape.group(1) != date:
+        rep.warn(f"meta.slug opens on {shape.group(1)}, not {date}, the day the incident started")
+
+
+def check_meta(rep, R, meta):
     for k in ("title", "slug", "date"):
         if not (isinstance(meta.get(k), str) and meta[k].strip()):
             rep.err(f"meta.{k} is missing or empty")
+    if isinstance(meta.get("title"), str) and meta["title"].strip():
+        check_title(rep, meta["title"].strip())
+    if isinstance(meta.get("slug"), str) and meta["slug"].strip():
+        check_slug(rep, R, meta, meta["slug"].strip())
     if isinstance(meta.get("date"), str) and not is_date(meta["date"]):
         rep.err(f"meta.date {meta['date']!r} is not a calendar date in YYYY-MM-DD")
     if meta.get("status") not in STATUSES:
@@ -557,8 +645,16 @@ def check_meta(rep, meta):
             for sid, cfg in sections.items():
                 if sid not in SECTION_IDS:
                     rep.warn(f"meta.sections[{sid}] is not a section id ({', '.join(SECTION_IDS)})")
-                if not (isinstance(cfg, dict) and isinstance(cfg.get("sub"), str) and cfg["sub"].strip()):
-                    rep.err(f"meta.sections[{sid}] must be {{sub: \"…\"}}")
+                if not isinstance(cfg, dict) or not any(isinstance(cfg.get(k), str) and cfg[k].strip()
+                                                        for k in ("sub", "takeaway")):
+                    rep.err(f"meta.sections[{sid}] must carry 'sub', 'takeaway', or both")
+                    continue
+                for extra in sorted(set(cfg) - {"sub", "takeaway"}):
+                    rep.warn(f"meta.sections[{sid}] carries {extra!r}, which the page ignores")
+                take = cfg.get("takeaway")
+                if isinstance(take, str) and words(take) > TAKEAWAY_WORDS:
+                    rep.strict_warn(f"meta.sections[{sid}].takeaway is {words(take)} words; a section opens on one "
+                                    f"sentence of {TAKEAWAY_WORDS} or fewer, with the detail behind the disclosure")
     acronyms = meta.get("acronyms")
     if acronyms is not None and not (isinstance(acronyms, list) and all(isinstance(a, str) and a.strip() for a in acronyms)):
         rep.err("meta.acronyms must be a list of non-empty strings")
@@ -738,6 +834,15 @@ def check_timeline(rep, R, ts: dict, window_ids: set, slack_snapshots: set) -> s
                     rep.warn(f"{where}: Slack ref {ref['url']} has no snapshot under evidence/slack; the page cannot quote it")
         if t.get("kind") == "deploy" and not any(r["kind"] == "pr" or "buildkite.com" in r["url"] for r in refs):
             rep.warn(f"{where} is a deploy with no pull request or build ref; the reader cannot see what shipped")
+        if t.get("key") is not None and not isinstance(t["key"], bool):
+            rep.err(f"{where}.key must be true or false")
+    flagged = [t for t in items if t.get("key") is True]
+    if items and not flagged:
+        rep.strict_warn(f"no timeline entry carries key: true; the page opens on the key moments and falls back to all "
+                        f"{len(items)} entries until some are flagged")
+    elif len(flagged) > KEY_MOMENTS:
+        rep.strict_warn(f"{len(flagged)} timeline entries carry key: true; the opening view stays readable at "
+                        f"{KEY_MOMENTS} or fewer, and the rest live behind the full list")
     return ids
 
 
@@ -802,6 +907,10 @@ def check_causes(rep, R, known: set, sub_ids: set, status: str, slack_snapshots:
             rep.err(f"{cid}.t is missing or empty")
         elif words(c["t"]) > TITLE_WORDS:
             rep.warn(f"{cid}.t is {words(c['t'])} words; a cause title is a noun phrase of {TITLE_WORDS} words or fewer")
+        statement = c.get("p") or first_sentence(c.get("text") or "")
+        if statement and words(statement) > STATEMENT_WORDS:
+            rep.strict_warn(f"{cid} opens on a {words(statement)}-word statement; the chain reads as one line of "
+                            f"{STATEMENT_WORDS} words or fewer, with the rest behind the disclosure")
         if c.get("incident") is not None and c["incident"] not in sub_ids:
             rep.err(f"{cid}: incident {c['incident']!r} is not in meta.subIncidents")
         if c.get("kind") == "root":
@@ -901,6 +1010,252 @@ def check_resolution(rep, R):
                     parse_ts(m[key])
                 except ValueError as e:
                     rep.err(f"{where}.{key} {m[key]!r} {e}")
+
+
+class SummaryPanels(HTMLParser):
+    HEADINGS = ("h1", "h2", "h3")
+    BLOCKS = ("p", "li", "div")
+    SPACED = ("span", "b", "strong", "em", "br", "small", "code")
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.panels, self.depth, self.buf, self.into = [], 0, [], None
+
+    def _flush(self):
+        text = re.sub(r"\s+", " ", "".join(self.buf)).strip()
+        self.buf = []
+        if text and self.into == "head":
+            self.panels[-1]["heading"] = text
+        elif text and self.into == "body":
+            self.panels[-1]["body"].append(text)
+        self.into = None
+
+    def handle_starttag(self, tag, attrs):
+        if self.depth:
+            self.depth += 1
+            if tag in self.HEADINGS or tag in self.BLOCKS:
+                self._flush()
+                self.into = "head" if tag in self.HEADINGS else "body"
+            elif tag in self.SPACED:
+                self.buf.append(" ")
+            elif tag == "figure":
+                self.panels[-1]["figure"] = True
+        elif tag == "section" and "xs-panel" in classes_of(attrs):
+            self.depth = 1
+            self.panels.append({"kind": dict(attrs).get("data-kind"), "heading": "", "body": [], "figure": False})
+
+    def handle_endtag(self, tag):
+        if not self.depth:
+            return
+        if tag in self.HEADINGS or tag in self.BLOCKS:
+            self._flush()
+        self.depth -= 1
+        if not self.depth:
+            self._flush()
+
+    def handle_data(self, data):
+        if self.depth:
+            self.buf.append(data)
+
+
+def summary_panels(html: str) -> list:
+    parser = SummaryPanels()
+    parser.feed(html)
+    parser.close()
+    for panel in parser.panels:
+        panel["text"] = " ".join([panel["heading"]] + panel["body"]).strip()
+    return parser.panels
+
+
+def summary_markdown(html: str) -> list:
+    out = []
+    for panel in summary_panels(html):
+        out += ["", f"### {panel['heading'] or SUMMARY_KIND_TITLES.get(panel['kind'], 'Summary')}", ""]
+        out += panel["body"]
+    return out[1:] if out else []
+
+
+def check_summary(rep, root: Path, known: set, status: str):
+    path = root / SUMMARY_PAGE
+    if not path.exists():
+        rep.strict_warn(f"{SUMMARY_PAGE} is missing; the retro opens without an executive summary")
+        return
+    fragment = path.read_text()
+    found = SUMMARY_PAGE_TAG.search(fragment)
+    if found:
+        rep.err(f"{SUMMARY_PAGE} carries a <{found.group(1)}> tag; it is a body-level fragment, not a page")
+    found = SUMMARY_EMBED_TAG.search(fragment)
+    if found:
+        rep.err(f"{SUMMARY_PAGE} carries a <{found.group(1)}> tag; the summary is prose and figures, nothing executable")
+    if SUMMARY_EVENT_ATTR.search(fragment):
+        rep.err(f"{SUMMARY_PAGE} carries an inline event handler; the renderer strips it, so the behavior is dead")
+    for url in SUMMARY_URL_ATTR.findall(fragment):
+        scheme = foreign_scheme(url)
+        if scheme:
+            rep.err(f"{SUMMARY_PAGE} links {url} over {scheme}:; link over http(s) or a relative path")
+    if "TODO" in fragment:
+        rep.strict_warn(f"{SUMMARY_PAGE} still carries a TODO; the summary is the one part written by hand")
+    panels = summary_panels(fragment)
+    if not panels:
+        rep.strict_warn(f"{SUMMARY_PAGE} declares no <section class=\"xs-panel\">; the summary is one panel per "
+                        f"question ({', '.join(SUMMARY_KINDS)})")
+        return
+    kinds = [p["kind"] for p in panels]
+    for kind in kinds:
+        if kind not in SUMMARY_KINDS:
+            rep.err(f"{SUMMARY_PAGE} has a panel with data-kind {kind!r}; the questions are {', '.join(SUMMARY_KINDS)}")
+    for kind in set(kinds):
+        if kind and kinds.count(kind) > 1:
+            rep.err(f"{SUMMARY_PAGE} answers {kind!r} {kinds.count(kind)} times; each question is answered once")
+    if kinds and kinds[0] != SUMMARY_KINDS[0]:
+        rep.strict_warn(f"{SUMMARY_PAGE} opens on {kinds[0]!r}; the summary opens on {SUMMARY_KINDS[0]!r}")
+    ordered = [k for k in SUMMARY_KINDS if k in kinds]
+    if [k for k in kinds if k in SUMMARY_KINDS] != ordered:
+        rep.strict_warn(f"{SUMMARY_PAGE} orders its panels {', '.join(str(k) for k in kinds)}; the reading order is "
+                        f"{', '.join(SUMMARY_KINDS)}")
+    if STATUS_RANK.get(status, 0) >= STATUS_RANK["reviewed"]:
+        for missing in [k for k in SUMMARY_KINDS if k not in kinds]:
+            rep.strict_warn(f"{SUMMARY_PAGE} never answers {missing!r}; a reviewed retro answers every question")
+    total = 0
+    for panel in panels:
+        where = f"{SUMMARY_PAGE} panel {panel['kind'] or 'with no data-kind'}"
+        count = words(panel["text"])
+        total += count
+        if count > SUMMARY_PANEL_WORDS:
+            rep.strict_warn(f"{where} is {count} words; a panel answers its question in {SUMMARY_PANEL_WORDS} or fewer")
+        if not panel["heading"]:
+            rep.strict_warn(f"{where} carries no heading; the heading is the answer, the body is the evidence")
+        elif words(panel["heading"]) < 4:
+            rep.strict_warn(f"{where} heads on {panel['heading']!r}, which reads as a label; the heading is the answer")
+        for cited in ID_TOKEN.findall(panel["text"]):
+            if cited not in known:
+                rep.warn(f"{where} cites {cited}, which no register defines")
+    if total > SUMMARY_BUDGET:
+        rep.strict_warn(f"{SUMMARY_PAGE} is {total} words; the summary a reader finishes is {SUMMARY_BUDGET} or fewer")
+
+
+def first_sentence(text: str) -> str:
+    stripped = prose_only(text).strip()
+    return SENTENCE_END.split(stripped, 1)[0].strip() if stripped else ""
+
+
+def check_decisions(rep, R, known: set) -> set:
+    items = entries(R, "decisions")
+    if R.get("decisions") is not None and not isinstance(R["decisions"], list):
+        rep.err("decisions must be a list of {id, t, h, who, when, why}")
+        return set()
+    ids = check_ids(rep, items, r"D\d+", "decisions")
+    for d in items:
+        did = d.get("id")
+        if not (isinstance(d.get("t"), str) and d["t"].strip()):
+            rep.err(f"{did}.t is missing or empty")
+        elif words(d["t"]) > DECISION_TITLE_WORDS:
+            rep.warn(f"{did}.t is {words(d['t'])} words; a decision reads as one line of {DECISION_TITLE_WORDS} or fewer")
+        for key in ("who", "why"):
+            if not (isinstance(d.get(key), str) and d[key].strip()):
+                rep.err(f"{did}.{key} is missing; a decision records who made it and why")
+        if "@" in str(d.get("who", "")):
+            rep.err(f"{did}.who names {d['who']!r}; people are named, never addressed")
+        when = d.get("when")
+        if when is None:
+            rep.strict_warn(f"{did} has no 'when'; a decision during the response carries the moment it was made")
+        else:
+            try:
+                parse_ts(when)
+            except ValueError as e:
+                rep.err(f"{did}.when {when!r} {e}")
+        for cited in d.get("refs") or []:
+            if isinstance(cited, str) and not cited.startswith("https://") and cited not in known:
+                rep.err(f"{did}.refs cites {cited}, which no register defines")
+        check_link_list(rep, str(did), d, False)
+    return ids
+
+
+def check_hypotheses(rep, R, known: set) -> set:
+    items = entries(R, "hypotheses")
+    if R.get("hypotheses") is not None and not isinstance(R["hypotheses"], list):
+        rep.err("hypotheses must be a list of {id, t, h, status, exonerated?}")
+        return set()
+    ids = check_ids(rep, items, r"H\d+", "hypotheses")
+    for hyp in items:
+        hid = hyp.get("id")
+        if not (isinstance(hyp.get("t"), str) and hyp["t"].strip()):
+            rep.err(f"{hid}.t is missing or empty")
+        if hyp.get("status") not in HYPOTHESIS_STATES:
+            rep.err(f"{hid}.status {hyp.get('status')!r} not in {', '.join(HYPOTHESIS_STATES)}")
+        if hyp.get("status") == "ruled-out" and not (isinstance(hyp.get("exonerated"), str) and hyp["exonerated"].strip()):
+            rep.err(f"{hid} is ruled out with no 'exonerated'; record what cleared it")
+        for cited in hyp.get("evidence") or []:
+            if isinstance(cited, str) and not cited.startswith("https://") and cited not in known:
+                rep.err(f"{hid}.evidence cites {cited}, which no register defines")
+    return ids
+
+
+def check_recognize(rep, R):
+    items = R.get("recognize")
+    if items is None:
+        return
+    if not isinstance(items, list):
+        rep.err("recognize must be a list of {signal, means, do}")
+        return
+    for i, row in enumerate(items):
+        where = f"recognize[{i}]"
+        if not isinstance(row, dict):
+            rep.err(f"{where} must be {{signal, means, do}}")
+            continue
+        for key in ("signal", "means", "do"):
+            value = row.get(key)
+            if not (isinstance(value, str) and value.strip()):
+                rep.err(f"{where}.{key} is missing or empty")
+            elif words(value) > RECOGNIZE_WORDS:
+                rep.strict_warn(f"{where}.{key} is {words(value)} words; each column is {RECOGNIZE_WORDS} or fewer")
+
+
+def check_unknowns(rep, R, known: set) -> set:
+    items = entries(R, "unknowns")
+    if R.get("unknowns") is not None and not isinstance(R["unknowns"], list):
+        rep.err("unknowns must be a list of {id, q, h, why?, owner?}")
+        return set()
+    ids = check_ids(rep, items, r"U\d+", "unknowns")
+    for u in items:
+        uid = u.get("id")
+        if not (isinstance(u.get("q"), str) and u["q"].strip()):
+            rep.err(f"{uid}.q is missing; an unknown is written as the question nobody answered")
+        elif words(u["q"]) > UNKNOWN_WORDS:
+            rep.strict_warn(f"{uid}.q is {words(u['q'])} words; an open question is {UNKNOWN_WORDS} words or fewer")
+        if "@" in str(u.get("owner", "")):
+            rep.err(f"{uid}.owner names {u['owner']!r}; people are named, never addressed")
+        for cited in u.get("refs") or []:
+            if isinstance(cited, str) and not cited.startswith("https://") and cited not in known:
+                rep.err(f"{uid}.refs cites {cited}, which no register defines")
+    return ids
+
+
+def check_glossary(rep, R):
+    items = R.get("glossary")
+    if items is None:
+        return
+    if not isinstance(items, list):
+        rep.err("glossary must be a list of {term, def}")
+        return
+    seen = set()
+    for i, row in enumerate(items):
+        where = f"glossary[{i}]"
+        if not isinstance(row, dict):
+            rep.err(f"{where} must be {{term, def}}")
+            continue
+        term = row.get("term")
+        if not (isinstance(term, str) and term.strip()):
+            rep.err(f"{where}.term is missing or empty")
+        elif term.lower() in seen:
+            rep.err(f"{where} defines {term!r} twice")
+        else:
+            seen.add(term.lower())
+        meaning = row.get("def")
+        if not (isinstance(meaning, str) and meaning.strip()):
+            rep.err(f"{where}.def is missing or empty")
+        elif words(meaning) > GLOSSARY_WORDS:
+            rep.strict_warn(f"{where}.def is {words(meaning)} words; a definition is {GLOSSARY_WORDS} or fewer")
 
 
 def check_lessons(rep, R):
@@ -1506,7 +1861,7 @@ def check(args) -> int:
         return 1
     status = meta.get("status")
     draft = status == "draft"
-    sub_ids = check_meta(rep, meta)
+    sub_ids = check_meta(rep, R, meta)
     evidence_lists = check_shapes(rep, R)
     ts = check_timestamps(rep, R, draft)
     slack_snapshots = slack_permalinks_in(root, R)
@@ -1515,9 +1870,16 @@ def check(args) -> int:
     t_ids = check_timeline(rep, R, ts, window_ids, slack_snapshots)
     c_ids = check_causes(rep, R, retro_ids(R), sub_ids, status, slack_snapshots)
     a_ids = check_actions(rep, R, c_ids, status)
-    known = window_ids | {str(i) for i in t_ids} | {str(i) for i in c_ids} | {str(i) for i in a_ids} | {str(i) for i in sub_ids}
+    all_ids = retro_ids(R)
+    d_ids = check_decisions(rep, R, all_ids)
+    h_ids = check_hypotheses(rep, R, all_ids)
+    u_ids = check_unknowns(rep, R, all_ids)
+    known = window_ids | {str(i) for group in (t_ids, c_ids, a_ids, sub_ids, d_ids, h_ids, u_ids) for i in group}
     check_impact(rep, R, known)
     check_resolution(rep, R)
+    check_recognize(rep, R)
+    check_glossary(rep, R)
+    check_summary(rep, root, known, status)
     check_lessons(rep, R)
     check_evidence_register(rep, R, root, ts, known, evidence_lists)
     evidence = sibling_module("retro_evidence")
@@ -1677,6 +2039,9 @@ def text_sections(R: dict, root: Path) -> dict:
     out = {}
 
     lines = []
+    fragment = root / SUMMARY_PAGE
+    if fragment.exists():
+        lines += summary_markdown(fragment.read_text()) + [""]
     tiles = [(d["label"], d["value"], local((R.get("timestamps") or {}).get(d["from"])), local((R.get("timestamps") or {}).get(d["to"])))
              for d in derived_numbers(R.get("timestamps") or {}) if d["value"]]
     lines += md_table(["Tile", "Value", "From", "To"], tiles)
@@ -1745,7 +2110,24 @@ def text_sections(R: dict, root: Path) -> dict:
         fired = try_ts(m.get("fired"))
         latency = f", fired {fmt_duration((fired - onset).total_seconds())} after onset" if fired and onset else ""
         lines.append(f"- Monitor {m.get('id')} ({m.get('role')}{latency})")
+    decisions = entries(R, "decisions")
+    if decisions:
+        lines += ["", "### Decisions made during the response", ""]
+        lines += md_table(["when", "decision", "who", "why"],
+                          [(local(d.get("when")), cite(d.get("t", "")), d.get("who", ""), cite(d.get("why", "")))
+                           for d in decisions])
+    hypotheses = entries(R, "hypotheses")
+    if hypotheses:
+        lines += ["", "### Hypotheses ruled out", ""]
+        lines += md_table(["hypothesis", "verdict", "what settled it"],
+                          [(cite(h.get("t", "")), HYPOTHESIS_LABEL.get(h.get("status"), h.get("status", "")),
+                            cite(h.get("exonerated", ""))) for h in hypotheses])
     out["resolution"] = lines
+
+    recognize = [r for r in R.get("recognize") or [] if isinstance(r, dict)]
+    out["recognize"] = md_table(["signal", "what it means", "what to do"],
+                                [(cite(r.get("signal", "")), cite(r.get("means", "")), cite(r.get("do", "")))
+                                 for r in recognize]) if recognize else []
 
     lines = []
     actions = entries(R, "actions")
@@ -1805,6 +2187,15 @@ def text_sections(R: dict, root: Path) -> dict:
                 label = e.get("label") or e.get("key") or e.get("url")
                 lines.append(f"- [{label}]({e.get('url')})")
     out["evidence"] = lines[1:] if lines else []
+
+    unknowns = entries(R, "unknowns")
+    out["unknowns"] = [f"- {cite(u.get('q', ''))}"
+                       + (f" — {cite(u['why'])}" if u.get("why") else "")
+                       + (f" ({u['owner']})" if u.get("owner") else "") for u in unknowns]
+
+    glossary = [g for g in R.get("glossary") or [] if isinstance(g, dict)]
+    out["glossary"] = md_table(["term", "what it means"],
+                               [(g.get("term", ""), cite(g.get("def", ""))) for g in glossary]) if glossary else []
 
     lines = []
     for n in entries(R, "notes"):

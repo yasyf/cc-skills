@@ -1,7 +1,7 @@
 {
   "kind": "ir.slack-thread",
   "title": "Slack thread",
-  "summary": "A Slack thread or message from its snapshot under evidence/slack/: channel, message count and capture time in the header with an Open in Slack link, then each message with an initials avatar, the author, the local time (UTC on hover), the text with Slack's mrkdwn rendered (mentions from the snapshot's user names, links, bold, italic, strikethrough, code, quotes), reactions and file names. Long threads show the first few messages behind a Show more control. With collapse set to 1 the block renders the single quoted message, which is the card timeline rows and cause evidence open inline. The page renders one per evidence.slack entry in Evidence.",
+  "summary": "A Slack thread or message from its snapshot under evidence/slack/. The block is collapsed by default: the closed row names the channel, whether it is a thread, the message count, the participants and the first line. Open, it shows each message with an initials avatar, the author, the local time (UTC on hover), the text with Slack's mrkdwn rendered (mentions from the snapshot's user names, links, bold, italic, strikethrough, code, quotes), reactions and file names, plus an Open in Slack link. Long threads show the first few messages behind a Show more control. With collapse set to 1 the block renders the single quoted message, which is the card timeline rows and cause evidence open inline. The page renders one per evidence.slack entry in Evidence.",
   "belongs": "Evidence by default. A single-message declaration belongs beside the timeline row or cause it corroborates.",
   "type": "object",
   "required": ["kind", "permalink"],
@@ -10,7 +10,8 @@
     "kind": {"const": "ir.slack-thread"},
     "title": {"type": "string", "minLength": 1},
     "permalink": {"type": "string", "pattern": "^https://[\\w.-]+\\.slack\\.com/archives/[A-Z0-9]+/p\\d{16}", "description": "a permalink that matches an evidence.slack snapshot, or a message inside one"},
-    "collapse": {"type": "integer", "minimum": 1, "maximum": 50, "description": "messages shown before Show more; 1 renders only the quoted message; default 6"}
+    "collapse": {"type": "integer", "minimum": 1, "maximum": 50, "description": "messages shown before Show more; 1 renders only the quoted message; default 6"},
+    "open": {"type": "boolean", "description": "start expanded; default false"}
   },
   "example": {
     "kind": "ir.slack-thread",
