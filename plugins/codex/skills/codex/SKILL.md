@@ -41,13 +41,15 @@ question returns in ~2 minutes, an open-ended design essay does not.
 
 - Code/diff review — sweeping a diff or codebase for bugs, correctness issues, or
   cleanups, including finder and adversarial-refuter passes. This is the review
-  lane per the Models table; the synthesis/accept-reject pass over findings stays
-  with the caller (fable).
+  lane per the Models table. Synthesis/accept-reject over findings defaults to opus
+  at `xhigh`, and astra at `xhigh` through `codex:codex-wrapper` is an equally
+  accepted route.
 - Security review/audit and verification of security-sensitive code — auth, input
   validation, file paths, crypto, secrets. The primary security-verification lane
   per the Models table: implementing that code stays on fable, this lane checks
-  the result, and the synthesis/accept-reject pass over findings stays with the
-  caller (fable). Routing here also quarantines dual-use payloads (exploit code,
+  the result. Synthesis/accept-reject over findings defaults to opus at `xhigh`,
+  and astra at `xhigh` through `codex:codex-wrapper` is an equally accepted route.
+  Routing here also quarantines dual-use payloads (exploit code,
   vuln PoCs, malware analysis) outside the Claude session entirely, so the root
   orchestrator never carries material that could trip fable's dual-use screening
   and downgrade the session.
