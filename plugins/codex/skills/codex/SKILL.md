@@ -88,7 +88,8 @@ question returns in ~2 minutes, an open-ended design essay does not.
 Model variants: `-m astra` (gpt-6-astra) is the default; pass `-m luna` for the
 rote/bulk and recon lanes, `-m sol` to pin the older gpt-5.6-sol. Routing,
 escalation, and when each variant applies live in the fleet Models table
-(CLAUDE.md § Plan Execution & Orchestration) — the script pins tier and effort
+(CLAUDE.md `## Model Routing`, formerly `§ Plan Execution & Orchestration`) —
+the script pins tier and effort
 regardless of variant. Escalation is cross-model for implementation: an astra
 miss retries on opus xhigh, an opus miss on astra xhigh, and fable comes only
 after both.
