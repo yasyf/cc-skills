@@ -248,11 +248,24 @@ optional prose alone.
 
 The work order names this writing contract and the full rule catalog from
 `slop-cop rules --pretty`. Read each rule's description, tip, and
-`llmDirective` before the first draft. The command runs `slop-cop check
---llm` over accepted reply fields and returns violations to Astra with the
-rule id, matched text, the rule's directive, and the suggested change.
+`llmDirective` before the first draft.
+
+The command runs deterministic rules
+per accepted field with `slop-cop check --llm-effort=off`. The explicit flag
+matters: without it, slop-cop enables its model pass when the Codex CLI is
+on `PATH`. The model lint pass runs once per batch over the fields joined
+with delimiters. Findings return to their fields by character offset.
+
+The command sends violations to Astra with the rule id, matched text, the
+rule's directive, and the suggested change.
 `SLOP_ROUNDS = 2` allows two revision rounds per batch. The same model writes
-and revises the text within the subprocess pipeline.
+and revises the text within the subprocess pipeline, re-asking only the
+fields the lint flagged.
+
+In a measured 12-field batch, deterministic lint took 0.26 seconds and the
+batched model pass took 4.32 seconds, with identical findings to the earlier
+roughly 40-second run. Per-field lint with the automatically enabled model
+pass took 3.77 seconds; deterministic lint alone took 0.02 seconds.
 
 The lock records each field's remaining `slop` count and their total.
 `check --strict` fails above `SLOP_BUDGET = 3`, naming the fields with the most
@@ -262,10 +275,14 @@ the separate check below. Inspect the refused-field and lint reports.
 Do not hand-edit accepted text: `check --strict` rejects a changed field
 until `retro.py prose <dir> --field <address>` writes it again.
 
-Preserve numbers, times, identifiers, URLs, code spans, names, citations, and
-footnotes when revising. The command rejects changes to the fact tokens it
-recognizes; review the meaning too. Fields outside its enumeration still
-follow this writing contract and the Astra routing in `SKILL.md`.
+Preserve numbers, times, identifiers, URLs, code-span contents, names,
+citations, and footnotes when revising. Backticks are markup: the fact
+freeze strips them before tokenizing, so adding a code span around 8 GiB
+does not change its facts. The fact freeze protects identifiers containing
+underscores, such as `manifest_section`, with or without backticks. The
+command still refuses a reply that drops the identifier or changes a number.
+It checks the tokens it recognizes; review the meaning too. Fields outside its enumeration
+still follow this writing contract and the Astra routing in `SKILL.md`.
 
 Run the generated Markdown through the prose gate after the structural edit
 and again after the final tone edit:
@@ -277,3 +294,26 @@ $TOOL text <dir> | slop-cop check - --lang=markdown --llm-effort=off
 Fix genuine findings. Keep only constructions that carry necessary technical
 meaning, such as a field-list colon. Parenthetical asides and ellipses do not
 carry incident facts; rewrite them directly.
+
+### Migrate prose written before 0.3.0
+
+Use `retro.py prose <dir> --quick` for the initial migration of a retro
+written before 0.3.0. It asks Astra for missing short names, the five summary
+panels, narrative section takeaways at `TAKEAWAY_WORDS = 18`, and timeline
+or cause text over 25 or 90 words. Fields with matching hashes stay as they
+are. The fact freeze remains on; only deterministic lint runs. Prepare the
+panel containers and section objects before running the command.
+
+Other nonempty pre-existing prose without matching provenance is pinned
+with `"kind": "legacy"`, its `sha256`, and a `grandfathered` stamp naming
+the plugin version. These hashes satisfy the strict provenance gate for
+eligible retros. A later edit breaks the hash; send that field through
+`prose --field` without `--quick`. Use the full command for new writing.
+
+`check` refuses any legacy provenance when the onset date, falling back to
+`meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. The restriction applies
+without `--strict` and directs the author to run `prose` without `--quick`.
+The date gate keeps the migration path from skipping Astra on later incidents.
+The gate checks the incident date, not the writing date, and another `--quick`
+run can pin changed prose again. The [migration reference](schema.md#--quick-migrate-a-retro-written-before-030)
+states those enforcement limits; `--quick` is not a general escape hatch.

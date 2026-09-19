@@ -6,11 +6,12 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 # incident-retro
 
-GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all prose,
+GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all new prose,
 including summaries, plain twins, handles, revision notes, and publication
 text. Use `retro.py prose` for its enumerated fields in `retro.json` and
 `summary.html`; it calls `codex-ask -m astra` and records their provenance in
-`prose.lock.json`. It has no fallback writer.
+`prose.lock.json`. It has no fallback writer. For a retro written before
+0.3.0, use the `--quick` migration below to retain eligible existing prose.
 
 For prose outside that field list, delegated authors use the same model and
 effort. In Codex, set these explicitly when spawning an author. From Claude, load the `codex` skill and
@@ -112,9 +113,10 @@ short names `h` that are absent or empty. It leaves absent optional prose
 alone. The field list includes action titles and notes, decision titles and
 alternatives, hypothesis titles, and sub-incident titles.
 
-`--batch` defaults to 24 fields per call, and `--timeout` to 1800
-seconds per call. `--dry-run` prints the first batch's work order without
-calling the model. The field list and token-preservation limits are in
+`--batch` defaults to `PROSE_BATCH = 36` fields per call, and `--timeout` to
+`PROSE_TIMEOUT = 1800` seconds per call. `--dry-run` prints the first batch's
+work order without calling the model. The field list and token-preservation
+limits are in
 [reference/schema.md](reference/schema.md#prose-authored-fields-and-provenance).
 The command writes accepted fields even when it refuses others, so inspect
 the report before continuing. After a later edit, rerun the affected field
@@ -122,10 +124,24 @@ through `prose`; a changed hash fails `check --strict`.
 
 The work order names the writing contract and the full rule catalog from
 `slop-cop rules --pretty`, so Astra writes to the rules in the first draft.
-The command then runs `slop-cop check --llm` on accepted reply fields and
-returns each finding's rule id, matched text, directive, and suggested
-change to Astra. It allows two revision rounds per batch (`SLOP_ROUNDS = 2`)
-within the same subprocess pipeline. No other model edits the text.
+
+The command runs deterministic lint per accepted reply field with
+`--llm-effort=off`; omitting the flag lets slop-cop enable its model pass
+when the Codex CLI is on `PATH`. Model lint runs once per batch over fields
+joined with delimiters, and character offsets attribute each finding to
+its field. The command returns the rule id, matched text, directive, and
+suggested change to Astra. It allows two revision rounds per batch
+(`SLOP_ROUNDS = 2`), asking only for flagged fields. No other model edits
+the text.
+
+A measured 12-field batch took 0.26 seconds for deterministic lint
+and 4.32 seconds for model lint, against roughly 40 seconds before, with
+identical findings.
+
+The fact freeze strips backticks before tokenizing. Adding a code span
+around 8 GiB preserves the same facts; `manifest_section` stays protected
+with or without backticks. Dropping the identifier or changing a number
+still refuses the field.
 
 Work orders, schemas, and the rule catalog live under
 `~/.cache/incident-retro/prose/<slug>/`, keyed by `meta.slug`. Replies and
@@ -139,11 +155,45 @@ Before model calls and writes, the command takes an exclusive, nonblocking
 ends. A competing claim exits nonzero and names the holder's pid. Two
 concurrent runs used to lose each other's fields because each wrote back a
 whole file it had read before the other's batch landed. The initial record
-read still precedes the claim. `.prose.lock` is removed when the writing run
+read still precedes the claim; the command rereads the record under the
+claim. `.prose.lock` is removed when the writing run
 ends and is safe to delete after a killed run if no other run holds it.
 Writes to `retro.json` and `prose.lock.json` each use a
 `<filename>.<pid>.part` sibling followed by `Path.replace`, which uses
 `os.replace`; successful replacement leaves no scratch file.
+
+### Migrate a retro written before 0.3.0
+
+Use `--quick` for the initial migration of an older retro:
+
+```bash
+$TOOL prose <dir> --quick
+```
+
+It asks Astra only for missing short names, the five summary panels,
+narrative section takeaways within `TAKEAWAY_WORDS = 18`, and timeline or
+cause text over `ENTRY_WORDS = 25` or `CAUSE_BODY_WORDS = 90`. Prepare the
+panel containers and narrative section objects first. The command skips
+fields whose hashes already match and runs deterministic lint only. The
+fact freeze stays on.
+
+`grandfather` records other nonempty pre-existing fields without matching
+provenance in `prose.lock.json` with `"kind": "legacy"`, their `sha256`,
+and a `grandfathered` stamp naming the plugin version. Matching legacy
+hashes satisfy the strict provenance gate for eligible retros. A later
+edit breaks its hash; run `prose --field` without `--quick` for that field.
+
+`LEGACY_CUTOFF = "2026-09-19"` prevents legacy provenance on later
+incidents. `check` compares the onset date, falling back to `meta.date`,
+and errors after that date even without `--strict`. Its error directs the
+author to run `prose` without `--quick`. This checks the incident date,
+not when the retro was written. Another `--quick` run can pin changed prose
+again, so use this path only for the initial migration. New writing goes
+through the full command; `--quick` is not a general escape hatch.
+
+A measured migration of a pre-0.3.0 retro with 15 timeline entries and
+4 causes asked Astra for 61 fields against 138 in a full run. It pinned
+77 fields as legacy, made 6 model calls, and took about 16 minutes.
 
 ## Phase 3: Evidence
 
@@ -186,18 +236,19 @@ rule is counted and can fail these gates.
 
 Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
 
-When changing the prose pipeline, run its nine tests from this skill
+When changing the prose pipeline, run its 14 tests from this skill
 directory:
 
 ```bash
 python3 scripts/test_retro_prose.py
 ```
 
-The suite checks the exclusive claim and its release, atomic replacement,
-scratch cleanup, the stale-field rule, and three fact-freeze cases. Its
-crash-recovery case passes a string to `Owner` where a `Path` is
-required, so the child exits before taking the lock; that case does not
-verify recovery from a held lock.
+The suite checks the exclusive claim and its release, recovery after a
+process exits while holding the lock, the record read under the claim,
+atomic replacement, scratch cleanup, the stale-field rule, attribution of
+batched lint findings, and six fact-freeze cases. The fact-freeze cases
+cover code-span markup and identifiers with underscores as well as changed
+numbers and invented facts.
 
 ## Phase 5: Publish
 
