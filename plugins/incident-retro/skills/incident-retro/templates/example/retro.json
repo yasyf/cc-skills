@@ -1,41 +1,95 @@
 {
   "meta": {
-    "title": "A rate-limit config set burst limits to zero for tenants without custom limits, stopping checkouts for 94 minutes",
-    "subtitle": "Incident retrospective",
+    "title": "Checkouts blocked for 94 minutes",
+    "subtitle": "A rate-limit config set burst limits to zero for tenants without custom limits, stopping checkouts for 94 minutes",
+    "tags": [
+      "rate-limiting",
+      "config-push",
+      "burst-limits",
+      "multi-tenant"
+    ],
     "status": "reviewed",
     "date": "2026-08-21",
     "slug": "2026-08-14-burst-limit-zero",
-    "incident": {"number": 42, "severity": "sev-2", "severityLink": "https://linear.app/acme/issue/OPS-42"},
-    "authors": ["Priya Natarajan", "Tom Okafor"],
+    "incident": {
+      "number": 42,
+      "severity": "sev-2",
+      "severityLink": "https://linear.app/acme/issue/OPS-42"
+    },
+    "authors": [
+      "Priya Natarajan",
+      "Tom Okafor"
+    ],
     "commander": "Priya Natarajan",
-    "attendees": ["Priya Natarajan", "Tom Okafor", "Lena Fischer", "Marcus Bell"],
-    "teams": ["checkout", "platform"],
+    "attendees": [
+      "Priya Natarajan",
+      "Tom Okafor",
+      "Lena Fischer",
+      "Marcus Bell"
+    ],
+    "teams": [
+      "checkout",
+      "platform"
+    ],
     "repo": "acme/monorepo",
     "ref": "main",
     "timezone": "America/Los_Angeles",
-    "homeLink": {"href": "../", "label": "← All retros"},
-    "acronyms": ["Redis"],
-    "sections": {
-      "overview": {"takeaway": "The config push removed the fallback burst limit, so tenants without custom limits had their first request in each window refused until the rollback."},
-      "timeline": {"sub": "Times are Pacific; hover a time for UTC.", "takeaway": "The monitor fired after nineteen minutes, and another 75 passed before anyone read the limiter config."},
-      "causes": {"takeaway": "A missing fallback caused the refusals; the rollout spread the defect to everyone at once, and a slow monitor prolonged the incident."},
-      "impact": {"takeaway": "Tenants without a custom limit could not check out for 94 minutes; no order was lost, but 11 400 confirmations arrived late."},
-      "resolution": {"takeaway": "The rollback stopped refusals inside a minute; that afternoon's fix restored the fallback and added a test that catches the missing default."},
-      "lessons": {"takeaway": "The rollback path and shared channel worked, but the dashboard open at the time led responders to the wrong initial hypothesis."},
-      "recognize": {"takeaway": "A checkout 5xx spike with error bodies showing 429 upstream comes from the edge limiter, not the payment provider."},
-      "actions": {"takeaway": "The fix and faster monitor have shipped; the staged config rollout remains open to prevent other bad configs from reaching every region at once."},
-      "evidence": {"takeaway": "The notebook, monitor, and incident thread are snapshots of their state that day."},
-      "unknowns": {"takeaway": "The record leaves two questions unanswered: the true late-confirmation count and why the canary had the same config."},
-      "glossary": {"takeaway": "These terms have meanings specific to the checkout edge."}
+    "homeLink": {
+      "href": "../",
+      "label": "← All retros"
     },
-    "ai": {"suggest": {"overview": ["What happened, in one paragraph?", "How long were customers affected?"],
-                       "causes": ["What was the root cause, and what merely triggered it?"],
-                       "actions": ["What is still open, and who owns it?"]}},
+    "acronyms": [
+      "Redis"
+    ],
+    "sections": {
+      "overview": {
+        "takeaway": "The config removed the burst fallback, blocking each window's first request for tenants without custom limits until rollback."
+      },
+      "timeline": {
+        "sub": "Times are Pacific; hover over a time to see UTC.",
+        "takeaway": "The monitor fired after nineteen minutes; responders read the limiter config another 75 minutes later."
+      },
+      "causes": {
+        "takeaway": "The rollout spread refusals from the missing fallback everywhere at once. Monitor delays prolonged the incident."
+      },
+      "impact": {
+        "takeaway": "Tenants without custom limits faced checkout failures for 94 minutes; 11 400 confirmations were late. Orders weren't lost."
+      },
+      "resolution": {
+        "takeaway": "Rollback stopped refusals within a minute; that afternoon's fix restored the fallback with a test for missing defaults."
+      },
+      "lessons": {
+        "takeaway": "The rollback and shared channel worked; the open dashboard directed responders toward the wrong initial hypothesis."
+      },
+      "recognize": {
+        "takeaway": "Checkout 5xx spikes with 429 upstream error bodies point to the edge limiter, not the payment provider."
+      },
+      "actions": {
+        "takeaway": "The fix and monitor update shipped; staged rollout work remains open to contain other config defects."
+      },
+      "unknowns": {
+        "takeaway": "The true late-confirmation count and why the canary shared the config remain two unanswered questions."
+      }
+    },
+    "ai": {
+      "suggest": {
+        "overview": [
+          "What happened, in one paragraph?",
+          "How long were customers affected?"
+        ],
+        "causes": [
+          "What was the root cause, and what merely triggered it?"
+        ],
+        "actions": [
+          "What is still open, and who owns it?"
+        ]
+      }
+    },
     "canonical": "This file is the canonical retro. Snapshots of the evidence live under evidence/; prose that does not fit structure lives in NOTES.md; incident-retro.html renders from this file."
   },
   "summary": {
-    "text": "A config push to the checkout edge shipped a rate-limit profile that treated a missing per-tenant burst override as zero (zero burst default). Every tenant without an override saw its first request in each window rejected with a 429, which the checkout API surfaced as a 5xx. The 5xx monitor caught it (slow monitor window), the rollback stopped it, and a burst floor with a config test keeps it from recurring.",
-    "p": "A settings change made the checkout service refuse many requests. A monitor caught it, we rolled the change back, and we added a safety floor so it cannot happen again."
+    "text": "A config push to the checkout edge shipped a rate-limit profile with a zero default for missing per-tenant burst overrides. That zero burst default rejected the first request in each window for every tenant without an override, returning a 429 that the checkout API surfaced as a 5xx. The 5xx monitor's long window delayed detection. A rollback stopped the failures; a burst floor and config test prevent recurrence.",
+    "p": "A settings change blocked many checkout requests. A monitor caught the failures, we reversed the change, and a minimum request allowance now prevents the same failure."
   },
   "timestamps": {
     "onset": "2026-08-14T09:12:00-07:00",
@@ -46,222 +100,782 @@
     "allClear": "2026-08-14T14:00:00-07:00"
   },
   "windows": [
-    {"id": "W1", "h": "checkout outage", "kind": "outage", "start": "2026-08-14T09:12:00-07:00", "end": "2026-08-14T10:46:00-07:00",
-     "text": "Checkouts for tenants without a burst override failed on their first request in every limiter window.", "teams": ["checkout"]},
-    {"id": "W2", "h": "slow retry drain", "kind": "degraded", "start": "2026-08-14T10:46:00-07:00", "end": "2026-08-14T13:05:00-07:00",
-     "text": "The retry queue replayed the failed checkouts at a capped rate, so confirmations arrived late.", "teams": ["checkout", "platform"]}
+    {
+      "id": "W1",
+      "h": "checkout outage",
+      "kind": "outage",
+      "start": "2026-08-14T09:12:00-07:00",
+      "end": "2026-08-14T10:46:00-07:00",
+      "text": "For tenants without a burst override, the first checkout request in every limiter window failed.",
+      "teams": [
+        "checkout"
+      ]
+    },
+    {
+      "id": "W2",
+      "h": "capped retry queue replay",
+      "kind": "degraded",
+      "start": "2026-08-14T10:46:00-07:00",
+      "end": "2026-08-14T13:05:00-07:00",
+      "text": "The retry queue replayed failed checkouts at a capped rate, so their confirmations arrived late.",
+      "teams": [
+        "checkout",
+        "platform"
+      ]
+    }
   ],
   "timeline": [
-    {"id": "T1", "ts": "2026-08-14T08:58:00-07:00", "key": true, "kind": "deploy", "actor": "release bot", "phase": "before",
-     "text": "Config push `rate-limit-v7` rolls to the checkout edge in every region at once.",
-     "refs": [{"url": "https://github.com/acme/monorepo/pull/1234", "kind": "pr", "label": "#1234 rate-limit-v7"}, "https://buildkite.com/acme/edge-config/builds/8812"]},
-    {"ts": "2026-08-14T09:12:00-07:00", "key": true, "kind": "report", "actor": "customer",
-     "text": "First failed checkout lands in the request log; nobody is looking yet.", "window": "W1"},
-    {"id": "T3", "ts": "2026-08-14T09:31:00-07:00", "key": true, "kind": "alert", "actor": "Datadog",
-     "text": "Monitor `Checkout 5xx rate` fires for `region:us-west`.", "window": "W1",
-     "refs": ["https://app.datadoghq.com/monitors/7781234"]},
-    {"ts": "2026-08-14T09:34:00-07:00", "kind": "report", "actor": "support",
-     "text": "Support posts two customer reports in the incident channel.", "window": "W1",
-     "refs": ["https://acme.slack.com/archives/C04INC1DENT/p1786725240000100"]},
-    {"ts": "2026-08-14T09:38:00-07:00", "kind": "action", "actor": "on-call",
-     "text": "Incident declared; Priya takes command and pages the platform on-call.", "window": "W1"},
-    {"ts": "2026-08-14T09:47:00-07:00", "kind": "hypothesis", "actor": "on-call",
-     "text": "Suspected the payment provider; its status page is green and its latency is flat.", "window": "W1"},
-    {"id": "T7", "ts": "2026-08-14T10:02:00-07:00", "key": true, "kind": "hypothesis", "actor": "Tom",
-     "text": "Error bodies carry `429 upstream`; the edge rate limiter becomes the suspect.", "window": "W1",
-     "refs": ["https://app.datadoghq.com/notebook/4410021"]},
-    {"ts": "2026-08-14T10:15:00-07:00", "kind": "action", "actor": "Tom",
-     "text": "Compares the limiter config between `us-west` and the canary region; both carry `rate-limit-v7`.", "window": "W1"},
-    {"ts": "2026-08-14T10:31:00-07:00", "key": true, "kind": "hypothesis", "actor": "Tom",
-     "text": "Confirmed: `rate-limit-v7` sets the per-tenant burst to zero for tenants without an override.", "window": "W1",
-     "refs": [{"url": "https://github.com/acme/monorepo/pull/1234", "kind": "pr"}]},
-    {"id": "T10", "ts": "2026-08-14T10:46:00-07:00", "key": true, "kind": "mitigation", "actor": "on-call",
-     "text": "Edge rolled back to `rate-limit-v6`; the error rate drops within a minute.", "window": "W1",
-     "refs": [{"url": "https://github.com/acme/monorepo/pull/1235", "kind": "pr", "label": "#1235 rollback"}]},
-    {"ts": "2026-08-14T11:20:00-07:00", "kind": "action", "actor": "checkout team",
-     "text": "Replays the failed checkouts from the retry queue at the capped rate.", "window": "W2"},
-    {"ts": "2026-08-14T12:40:00-07:00", "key": true, "kind": "deploy", "actor": "release bot",
-     "text": "Fix ships: a burst floor of one and a config schema test.", "window": "W2",
-     "refs": [{"url": "https://github.com/acme/monorepo/pull/1236", "kind": "pr", "label": "#1236 burst floor"}]},
-    {"ts": "2026-08-14T13:05:00-07:00", "key": true, "kind": "resolution", "actor": "checkout team",
-     "text": "Retry queue drained; confirmation latency back at baseline.", "window": "W2"},
-    {"ts": "2026-08-14T14:00:00-07:00", "kind": "allclear", "actor": "on-call",
-     "text": "Monitor green for an hour; all clear posted to the incident channel.",
-     "refs": ["https://acme.slack.com/archives/C04INC1DENT/p1786725240000100"]},
-    {"ts": "2026-08-18T10:00:00-07:00", "kind": "action", "actor": "Priya", "phase": "after",
-     "text": "Retro meeting held; action items assigned."}
+    {
+      "id": "T1",
+      "ts": "2026-08-14T08:58:00-07:00",
+      "key": true,
+      "kind": "deploy",
+      "actor": "release bot",
+      "phase": "before",
+      "text": "The release bot pushed `rate-limit-v7` to the checkout edge in every region at once.",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1234",
+          "kind": "pr",
+          "label": "#1234 rate-limit-v7"
+        },
+        "https://buildkite.com/acme/edge-config/builds/8812"
+      ],
+      "h": "simultaneous regional config rollout"
+    },
+    {
+      "ts": "2026-08-14T09:12:00-07:00",
+      "key": true,
+      "kind": "report",
+      "actor": "customer",
+      "text": "The first failed checkout appeared in the request log, but no one was watching it yet.",
+      "window": "W1",
+      "h": "first logged checkout failure"
+    },
+    {
+      "id": "T3",
+      "ts": "2026-08-14T09:31:00-07:00",
+      "key": true,
+      "kind": "alert",
+      "actor": "Datadog",
+      "text": "Datadog's `Checkout 5xx rate` monitor fired for `region:us-west`.",
+      "window": "W1",
+      "refs": [
+        "https://app.datadoghq.com/monitors/7781234"
+      ],
+      "h": "checkout error alert"
+    },
+    {
+      "ts": "2026-08-14T09:34:00-07:00",
+      "kind": "report",
+      "actor": "support",
+      "text": "Support posted two customer reports in the incident channel.",
+      "window": "W1",
+      "refs": [
+        "https://acme.slack.com/archives/C04INC1DENT/p1786725240000100"
+      ],
+      "h": "customer reports from support"
+    },
+    {
+      "ts": "2026-08-14T09:38:00-07:00",
+      "kind": "action",
+      "actor": "on-call",
+      "text": "The incident was declared; Priya took command and paged the platform on-call.",
+      "window": "W1",
+      "h": "incident declaration and escalation"
+    },
+    {
+      "ts": "2026-08-14T09:47:00-07:00",
+      "kind": "hypothesis",
+      "actor": "on-call",
+      "text": "The payment provider was suspected; its status page was green and its latency was flat.",
+      "window": "W1",
+      "h": "suspected payment provider failure"
+    },
+    {
+      "id": "T7",
+      "ts": "2026-08-14T10:02:00-07:00",
+      "key": true,
+      "kind": "hypothesis",
+      "actor": "Tom",
+      "text": "Tom found `429 upstream` in the error bodies and suspected the edge rate limiter.",
+      "window": "W1",
+      "refs": [
+        "https://app.datadoghq.com/notebook/4410021"
+      ],
+      "h": "suspected edge rate limiter"
+    },
+    {
+      "ts": "2026-08-14T10:15:00-07:00",
+      "kind": "action",
+      "actor": "Tom",
+      "text": "The limiter config comparison showed that `us-west` and the canary region both carried `rate-limit-v7`.",
+      "window": "W1",
+      "h": "shared limiter config"
+    },
+    {
+      "ts": "2026-08-14T10:31:00-07:00",
+      "key": true,
+      "kind": "hypothesis",
+      "actor": "Tom",
+      "text": "The config check confirmed that `rate-limit-v7` set per-tenant burst to zero for tenants without an override.",
+      "window": "W1",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1234",
+          "kind": "pr"
+        }
+      ],
+      "h": "confirmed zero burst default"
+    },
+    {
+      "id": "T10",
+      "ts": "2026-08-14T10:46:00-07:00",
+      "key": true,
+      "kind": "mitigation",
+      "actor": "on-call",
+      "text": "On-call rolled the edge back to `rate-limit-v6`; the error rate dropped within a minute.",
+      "window": "W1",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1235",
+          "kind": "pr",
+          "label": "#1235 rollback"
+        }
+      ],
+      "h": "edge config rollback"
+    },
+    {
+      "ts": "2026-08-14T11:20:00-07:00",
+      "kind": "action",
+      "actor": "checkout team",
+      "text": "The retry queue replayed the failed checkouts at its capped rate.",
+      "window": "W2",
+      "h": "capped checkout replay"
+    },
+    {
+      "ts": "2026-08-14T12:40:00-07:00",
+      "key": true,
+      "kind": "deploy",
+      "actor": "release bot",
+      "text": "The fix shipped with a burst floor of one and a config schema test.",
+      "window": "W2",
+      "refs": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1236",
+          "kind": "pr",
+          "label": "#1236 burst floor"
+        }
+      ],
+      "h": "burst floor deployment"
+    },
+    {
+      "ts": "2026-08-14T13:05:00-07:00",
+      "key": true,
+      "kind": "resolution",
+      "actor": "checkout team",
+      "text": "The retry queue drained, and confirmation latency returned to baseline.",
+      "window": "W2",
+      "h": "queue drain and latency recovery"
+    },
+    {
+      "ts": "2026-08-14T14:00:00-07:00",
+      "kind": "allclear",
+      "actor": "on-call",
+      "text": "The monitor stayed green for an hour, and the all clear was posted to the incident channel.",
+      "refs": [
+        "https://acme.slack.com/archives/C04INC1DENT/p1786725240000100"
+      ],
+      "h": "all-clear announcement"
+    },
+    {
+      "ts": "2026-08-18T10:00:00-07:00",
+      "kind": "action",
+      "actor": "Priya",
+      "phase": "after",
+      "text": "The retro meeting was held, and action items were assigned.",
+      "h": "retro meeting and action assignments"
+    }
   ],
   "impact": {
-    "text": "Tenants without a burst override could not complete a checkout during the first window (W1); their first request in every limiter window was refused. Tenants with an override were untouched. Through the second window (W2) confirmations for the replayed checkouts arrived late.",
-    "p": "Most customers could not check out for a while, and their retried orders confirmed late afterwards. Customers with custom limits were not affected.",
+    "text": "Tenants without a burst override could not complete a checkout during the first window (W1); the limiter refused their first request in every limiter window. Tenants with an override were unaffected. Through the second window (W2), confirmations for replayed checkouts arrived late.",
+    "p": "Most customers could not check out for a while. Their retried orders confirmed late afterward. Customers with custom limits were unaffected.",
     "component": "impact-by-region",
     "teams": [
-      {"codename": "checkout", "text": "Owned the failing endpoint and the retry queue; ran the replay."},
-      {"codename": "platform", "text": "Owns the edge limiter and the config pipeline that shipped `rate-limit-v7`."}
+      {
+        "codename": "checkout",
+        "text": "Owned the failing endpoint and retry queue and ran the replay."
+      },
+      {
+        "codename": "platform",
+        "text": "Owns the edge limiter and the config pipeline that shipped `rate-limit-v7`."
+      }
     ],
     "metrics": [
-      {"label": "Failed checkouts", "value": "3 180", "unit": "", "delta": "during the outage", "measured": true, "cites": ["W1"]},
-      {"label": "Late confirmations", "value": "11 400", "unit": "", "delta": "during the drain", "measured": false, "cites": ["W2"]},
-      {"label": "Tenants affected", "value": "212", "unit": "", "delta": "of 340", "measured": true, "cites": ["W1"]}
+      {
+        "label": "Failed checkouts",
+        "value": "3 180",
+        "unit": "",
+        "delta": "during the outage",
+        "measured": true,
+        "cites": [
+          "W1"
+        ]
+      },
+      {
+        "label": "Late confirmations",
+        "value": "11 400",
+        "unit": "",
+        "delta": "during the drain",
+        "measured": false,
+        "cites": [
+          "W2"
+        ]
+      },
+      {
+        "label": "Tenants affected",
+        "value": "212",
+        "unit": "",
+        "delta": "of 340",
+        "measured": true,
+        "cites": [
+          "W1"
+        ]
+      }
     ]
   },
   "causes": [
-    {"id": "C1", "kind": "root", "t": "The limiter treated a missing burst override as zero", "h": "zero burst default",
-     "text": "`rate-limit-v7` moved the per-tenant burst from a hard-coded default to a per-tenant override map. A tenant absent from the map fell through to the zero value of the Go struct field, so its first request in every window exceeded a burst of zero and drew a 429. The notebook's second chart shows the 429s rising only for tenants without an override (T7).",
-     "p": "The new settings had no fallback value, so customers without a custom setting got a limit of zero and were refused.",
-     "evidence": ["https://app.datadoghq.com/notebook/4410021", "T7", "https://github.com/acme/monorepo/pull/1234"],
-     "code": {"lang": "go", "source": "burst := overrides[tenant]\nif burst > 0 && count > burst {\n\treturn ErrRateLimited\n}\n// v7 dropped the guard above; a zero burst rejected the first request", "caption": "The v6 guard that v7 removed; the fix restores it as a floor of one (C1)."},
-     "links": [{"url": "https://github.com/acme/monorepo/pull/1236", "kind": "pr", "label": "the fix"}],
-     "component": "limiter-cells"},
-    {"id": "C2", "kind": "trigger", "t": "The config push rolled to every region at once", "h": "single-step config rollout",
-     "text": "Edge config ships through a pipeline with no canary stage, so `rate-limit-v7` reached every region in one step (T1). A staged rollout would have confined the outage to the canary region and shown the 429s before the monitor did.",
-     "p": "The change went everywhere at once instead of to one region first, so there was no small failure to notice before the big one.",
-     "evidence": ["T1", "https://buildkite.com/acme/edge-config/builds/8812"]},
-    {"id": "C3", "kind": "contributing", "t": "The 5xx monitor evaluated over a long window", "h": "slow monitor window",
-     "text": "`Checkout 5xx rate` averages over a fifteen-minute window and requires the whole window to fill, so it fired well after the first failures (T3). Support saw the customer reports before the alert reached on-call.",
-     "p": "The alarm waited for a long stretch of bad data before ringing, so people noticed the problem before the alarm did.",
-     "evidence": ["https://app.datadoghq.com/monitors/7781234", "T3"]}
+    {
+      "id": "C1",
+      "kind": "root",
+      "t": "The limiter treated a missing burst override as zero",
+      "h": "zero burst default",
+      "text": "`rate-limit-v7` replaced the hardcoded per-tenant burst default with an override map. A tenant missing from the map received the Go struct field's zero value. Its first request in every window exceeded a burst of zero and received a 429. The notebook's second chart shows 429s rising only for tenants without an override (T7).",
+      "p": "The new settings lacked a fallback, so customers without custom settings got a limit of zero and their requests were refused.",
+      "evidence": [
+        "https://app.datadoghq.com/notebook/4410021",
+        "T7",
+        "https://github.com/acme/monorepo/pull/1234"
+      ],
+      "code": {
+        "lang": "go",
+        "source": "burst := overrides[tenant]\nif burst > 0 && count > burst {\n\treturn ErrRateLimited\n}\n// v7 dropped the guard above; a zero burst rejected the first request",
+        "caption": "The fix restores the v6 guard that v7 removed, using a floor of one (C1)."
+      },
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1236",
+          "kind": "pr",
+          "label": "the fix"
+        }
+      ],
+      "component": "limiter-cells"
+    },
+    {
+      "id": "C2",
+      "kind": "trigger",
+      "t": "The config push rolled to every region at once",
+      "h": "single-step config rollout",
+      "text": "The edge config pipeline has no canary stage, so `rate-limit-v7` reached every region in one step (T1). A staged rollout would have limited the outage to the canary region and shown the 429s before the monitor fired.",
+      "p": "The change reached every region at once instead of one region first, so a small failure could not warn of a larger one.",
+      "evidence": [
+        "T1",
+        "https://buildkite.com/acme/edge-config/builds/8812"
+      ]
+    },
+    {
+      "id": "C3",
+      "kind": "contributing",
+      "t": "The 5xx monitor evaluated over a long window",
+      "h": "long monitor window",
+      "text": "`Checkout 5xx rate` averages over a fifteen-minute window and requires a full window before firing, so it alerted well after the first failures (T3). Support received customer reports before the alert reached on-call.",
+      "p": "The alarm required a long stretch of failures before firing, so people noticed the problem before the alert.",
+      "evidence": [
+        "https://app.datadoghq.com/monitors/7781234",
+        "T3"
+      ]
+    }
   ],
   "resolution": {
-    "text": "On-call rolled the edge back to `rate-limit-v6` (T10), which stopped the 429s at once. The checkout team replayed the failed orders from the retry queue at its capped rate through the second window (W2). The fix landed the same afternoon: a burst floor of one and a schema test that rejects a profile with an empty override map.",
-    "p": "We undid the change, replayed the orders that had failed, and then shipped a fix with a safety floor and a test.",
+    "text": "On-call rolled the edge back to `rate-limit-v6` (T10), stopping the 429s immediately. The checkout team replayed failed orders from the retry queue at its capped rate through the second window (W2). The fix landed that afternoon with a burst floor of one and a schema test that rejects profiles with an empty override map.",
+    "p": "We reversed the change, retried the failed orders, and then shipped a fix with a minimum request allowance and a test.",
     "component": "fix-rollout",
-    "links": [{"url": "https://github.com/acme/monorepo/pull/1235", "kind": "pr", "label": "rollback"},
-              {"url": "https://github.com/acme/monorepo/pull/1236", "kind": "pr", "label": "burst floor"}]
+    "links": [
+      {
+        "url": "https://github.com/acme/monorepo/pull/1235",
+        "kind": "pr",
+        "label": "rollback"
+      },
+      {
+        "url": "https://github.com/acme/monorepo/pull/1236",
+        "kind": "pr",
+        "label": "burst floor"
+      }
+    ]
   },
   "detection": {
-    "text": "The `Checkout 5xx rate` monitor caught the incident (slow monitor window), but only after its window filled; two customer reports reached support first. The monitor now evaluates over five minutes and pages on the first breach.",
-    "p": "An automatic alarm did catch the problem, but slowly; customers reported it first. The alarm is now faster.",
-    "monitors": [{"id": 7781234, "file": "evidence/datadog/monitor-7781234.json", "role": "caught",
-                  "fired": "2026-08-14T09:31:00-07:00", "recovered": "2026-08-14T10:52:00-07:00"}]
+    "text": "The `Checkout 5xx rate` monitor caught the incident (slow monitor window) only after its window filled. Support received two customer reports first. The monitor now evaluates over five minutes and pages on the first breach.",
+    "p": "Customers reported the problem before the automatic alarm caught it. The alarm now responds sooner.",
+    "monitors": [
+      {
+        "id": 7781234,
+        "file": "evidence/datadog/monitor-7781234.json",
+        "role": "caught",
+        "fired": "2026-08-14T09:31:00-07:00",
+        "recovered": "2026-08-14T10:52:00-07:00"
+      }
+    ]
   },
   "decisions": [
-    {"id": "D1", "t": "Roll back the edge instead of patching the profile", "h": "roll back, not forward",
-     "when": "2026-08-14T10:40:00-07:00", "who": "Priya Natarajan",
-     "why": "The previous profile was ready in the pipeline. Rolling back took one step with a known result; patching forward required a build and review that nobody could shorten.",
-     "alternatives": "Editing the override map by hand in each region would have left three regions in three different states.",
-     "refs": ["T10"],
-     "links": [{"url": "https://github.com/acme/monorepo/pull/1235", "kind": "pr", "label": "rollback"}]},
-    {"id": "D2", "t": "Replay the retry queue at its capped rate instead of raising the cap", "h": "replay at the cap",
-     "when": "2026-08-14T11:12:00-07:00", "who": "Marcus Bell",
-     "why": "The payment provider rate-limits per merchant. Replaying in a burst risked a second incident on a dependency outside our control.",
-     "alternatives": "Lift the replay cap to drain the queue in minutes, risking the provider's unknown limit.",
-     "refs": ["W2"]},
-    {"id": "D3", "t": "Ship the burst floor that day instead of waiting for the staged rollout", "h": "fix before the rollout work",
-     "when": "2026-08-14T12:05:00-07:00", "who": "Tom Okafor",
-     "why": "The floor needed three lines and a test. Leaving this class of failure unresolved over a weekend posed more risk than shipping it; the staged rollout required weeks of pipeline work.",
-     "refs": ["C1", "AI3"]}
+    {
+      "id": "D1",
+      "t": "Roll back the edge rather than patch the profile",
+      "h": "edge profile rollback",
+      "when": "2026-08-14T10:40:00-07:00",
+      "who": "Priya Natarajan",
+      "why": "The previous profile was ready in the pipeline. Rolling back took one step with a known result; patching forward required a build and review that could not be shortened.",
+      "alternatives": "Editing each region's override map by hand would have left three regions in three different states.",
+      "refs": [
+        "T10"
+      ],
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1235",
+          "kind": "pr",
+          "label": "rollback"
+        }
+      ]
+    },
+    {
+      "id": "D2",
+      "t": "Replay the retry queue without raising its rate cap",
+      "h": "capped queue replay",
+      "when": "2026-08-14T11:12:00-07:00",
+      "who": "Marcus Bell",
+      "why": "The payment provider applies rate limits per merchant. A burst of replays risked a second incident on a dependency outside our control.",
+      "alternatives": "Raise the replay cap to drain the queue in minutes, with the risk of exceeding the provider's unknown limit.",
+      "refs": [
+        "W2"
+      ]
+    },
+    {
+      "id": "D3",
+      "t": "Ship the burst floor that day rather than wait for the staged rollout",
+      "h": "same-day burst floor",
+      "when": "2026-08-14T12:05:00-07:00",
+      "who": "Tom Okafor",
+      "why": "The burst floor needed three lines and a test; the staged rollout required weeks of pipeline work. Leaving this class of failure unresolved over a weekend posed more risk than shipping the floor.",
+      "refs": [
+        "C1",
+        "AI3"
+      ],
+      "alternatives": "Wait to ship the burst floor until the staged rollout was ready."
+    }
   ],
   "hypotheses": [
-    {"id": "H1", "t": "The payment provider was failing or rate-limiting requests", "h": "payment provider suspicion",
-     "status": "ruled-out",
-     "exonerated": "The provider's status page was green, and its p99 latency stayed flat throughout the window. Our error bodies carried 429 upstream, which the provider never sends.",
-     "evidence": ["T7", "https://app.datadoghq.com/notebook/4410021"]},
-    {"id": "H2", "t": "The canary region was running an older, healthy config", "h": "canary drift theory",
-     "status": "ruled-out",
-     "exonerated": "A comparison of both regions showed the same `rate-limit-v7` profile. The pipeline has no canary stage to hold one region back.",
-     "evidence": ["C2"]},
-    {"id": "H3", "t": "A Redis eviction dropped the limiter's per-tenant counters", "h": "counter eviction theory",
-     "status": "ruled-out",
-     "exonerated": "Eviction counters stayed flat, and memory stayed well below the limit throughout the window. Refusals followed the override map, not memory pressure."},
-    {"id": "H4", "t": "The config build truncated the override map", "h": "truncated override map",
-     "status": "confirmed",
-     "exonerated": "The build emitted the full map. The missing default caused the fall-through; no map entry was missing. The schema test now checks for that default.",
-     "evidence": ["C1"]}
+    {
+      "id": "H1",
+      "t": "The payment provider was failing requests or rate-limiting them",
+      "h": "payment provider failure",
+      "status": "ruled-out",
+      "exonerated": "The provider's status page was green, and its p99 latency stayed flat throughout the window. Our error bodies contained 429 upstream, which the provider never sends.",
+      "evidence": [
+        "T7",
+        "https://app.datadoghq.com/notebook/4410021"
+      ]
+    },
+    {
+      "id": "H2",
+      "t": "The canary region ran an older, healthy config",
+      "h": "older healthy canary config",
+      "status": "ruled-out",
+      "exonerated": "The comparison found the same `rate-limit-v7` profile in both regions. The pipeline has no canary stage to hold one region back.",
+      "evidence": [
+        "C2"
+      ]
+    },
+    {
+      "id": "H3",
+      "t": "A Redis eviction removed the limiter's per-tenant counters",
+      "h": "per-tenant counter eviction",
+      "status": "ruled-out",
+      "exonerated": "Eviction counters stayed flat, and memory remained well below the limit throughout the window. Refusals followed the override map rather than memory pressure."
+    },
+    {
+      "id": "H4",
+      "t": "The config build truncated the override map",
+      "h": "override map truncation",
+      "status": "confirmed",
+      "exonerated": "The build emitted every map entry. The fall-through came from the missing default, which the schema test now checks for.",
+      "evidence": [
+        "C1"
+      ]
+    }
   ],
   "recognize": [
-    {"signal": "Checkout 5xx errors rise while the payment provider's dashboard stays flat",
-     "means": "The refusal comes from our system between the edge and the API, not the dependency.",
-     "do": "Read an error body before opening a provider dashboard."},
-    {"signal": "Error bodies carrying `429 upstream` behind a 5xx",
-     "means": "The edge limiter refuses the request, and the API translates that refusal into a server error.",
-     "do": "Diff the live limiter profile against the previous one in every region."},
-    {"signal": "Failures on a tenant's first request in each window that stop on later requests",
-     "means": "A burst allowance is at or near zero, not a sustained-rate limit.",
-     "do": "Compare burst values for a failing tenant and an unaffected tenant."},
-    {"signal": "A config push reached every region inside one minute",
-     "means": "No canary received it first, so a bad profile is already in every region.",
-     "do": "Roll back first; the previous profile is ready in the pipeline."}
+    {
+      "signal": "Checkout 5xx errors rise while the payment provider's dashboard stays flat",
+      "means": "Our system rejects the request between the edge and the API; the dependency is not the source.",
+      "do": "Read an error body before checking the provider's dashboard."
+    },
+    {
+      "signal": "A 5xx response with `429 upstream` in its error body",
+      "means": "The edge limiter refuses the request, and the API reports that refusal as a server error.",
+      "do": "In every region, compare the live limiter profile with the previous one."
+    },
+    {
+      "signal": "A tenant's first request fails in each window, but later requests succeed",
+      "means": "The burst allowance is at or near zero; the sustained-rate limit is not the cause.",
+      "do": "Compare the burst values of a failing tenant and an unaffected tenant."
+    },
+    {
+      "signal": "A config push reached every region within one minute",
+      "means": "The canary did not receive the profile first, so the bad profile is already in every region.",
+      "do": "Roll back first. The previous profile is ready in the pipeline."
+    }
   ],
   "unknowns": [
-    {"id": "U1", "q": "How many confirmations reached customers late?", "h": "true late-confirmation count",
-     "why": "The late-confirmation count includes every order whose confirmation left after the session ended. The session log only supports an estimate, and the mail provider's delivery log had expired.",
-     "owner": "Marcus Bell"},
-    {"id": "U2", "q": "Why does the canary region take the same config push as production?", "h": "canary stage question",
-     "why": "The pipeline was designed with a canary stage, but nobody in the review knew when or why it stopped holding one region back.",
-     "owner": "Lena Fischer", "refs": ["C2", "AI3"]},
-    {"id": "U3", "q": "Would the shorter monitor window have fired before the first customer report?", "h": "monitor timing question",
-     "why": "The five-minute window is faster in theory. The retained error-rate data from the first minutes lacks the resolution needed to confirm when it would have fired."}
+    {
+      "id": "U1",
+      "q": "How many confirmations did customers receive late?",
+      "h": "late confirmation count",
+      "why": "The late-confirmation count includes every order whose confirmation was sent after the session ended. The session log supports only an estimate, and the mail provider's delivery log had expired.",
+      "owner": "Marcus Bell"
+    },
+    {
+      "id": "U2",
+      "q": "Why does the canary region receive the same config push as production?",
+      "h": "canary stage history",
+      "why": "The pipeline was designed with a canary stage. The review did not establish when or why it stopped holding one region back.",
+      "owner": "Lena Fischer",
+      "refs": [
+        "C2",
+        "AI3"
+      ]
+    },
+    {
+      "id": "U3",
+      "q": "With the shorter window, would the monitor have fired before the first customer report?",
+      "h": "alert timing versus customer reports",
+      "why": "The five-minute window is faster in theory. The retained error-rate data from the first minutes is too coarse to establish when the monitor would have fired."
+    }
   ],
   "glossary": [
-    {"term": "burst", "def": "The number of requests a tenant may send at once before the sustained rate applies. A burst of zero refuses the first request."},
-    {"term": "override map", "def": "The per-tenant limiter settings in a config profile. A tenant absent from the map takes the profile's default."},
-    {"term": "profile", "def": "One versioned edge limiter config, such as `rate-limit-v7`, shipped as a unit to every region."},
-    {"term": "the edge", "def": "The request layer in front of the checkout API. It applies rate limits before a request reaches application code."},
-    {"term": "retry queue", "def": "The durable queue that holds failed checkouts for replay after the cause is removed."},
-    {"term": "canary region", "def": "The region intended to receive a change first. It currently receives edge config changes at the same time as every other region."}
+    {
+      "term": "burst",
+      "def": "A tenant's allowance for requests sent at once, before the sustained rate applies. A burst of zero refuses the first request."
+    },
+    {
+      "term": "override map",
+      "def": "A config profile's per-tenant limiter settings. Tenants missing from the map use the profile's default."
+    },
+    {
+      "term": "profile",
+      "def": "One versioned config for the edge limiter, such as `rate-limit-v7`, shipped to every region as a unit."
+    },
+    {
+      "term": "the edge",
+      "def": "The layer in front of the checkout API that applies rate limits before requests reach application code."
+    },
+    {
+      "term": "retry queue",
+      "def": "A durable queue that stores failed checkouts for replay once the cause is removed."
+    },
+    {
+      "term": "canary region",
+      "def": "The region meant to receive changes first. Edge config changes currently reach it at the same time as every other region."
+    }
   ],
   "actions": [
-    {"id": "AI1", "t": "Add a burst floor and a config schema test", "h": "burst floor test", "owner": "Tom Okafor", "source": "C1",
-     "state": "done", "links": [{"url": "https://github.com/acme/monorepo/pull/1236", "kind": "pr", "closes": true}]},
-    {"id": "AI2", "t": "Shorten the checkout 5xx monitor window", "h": "faster checkout monitor", "owner": "Priya Natarajan", "source": "C3",
-     "state": "done", "links": [{"url": "https://github.com/acme/monorepo/pull/1240", "kind": "pr", "closes": true}]},
-    {"id": "AI3", "t": "Stage edge config pushes region by region", "h": "staged config rollout", "owner": "Lena Fischer", "source": "C2",
-     "state": "in-progress", "due": "2026-09-15",
-     "links": [{"url": "https://github.com/acme/monorepo/issues/1301", "kind": "issue", "label": "#1301", "closes": true},
-               {"url": "https://linear.app/acme/issue/OPS-51", "label": "OPS-51"}]},
-    {"id": "AI4", "t": "Write the limiter runbook", "h": "limiter runbook", "owner": "Tom Okafor", "source": "lessons",
-     "state": "todo", "due": "2026-09-30"},
-    {"id": "AI5", "t": "Add a synthetic checkout every minute", "h": "synthetic checkout probe", "owner": "Marcus Bell", "source": "review",
-     "state": "dropped", "note": "The faster checkout monitor covers the same gap at no extra cost."}
+    {
+      "id": "AI1",
+      "t": "Add a burst floor and test the config schema",
+      "h": "burst floor and schema test",
+      "owner": "Tom Okafor",
+      "source": "C1",
+      "state": "done",
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1236",
+          "kind": "pr",
+          "closes": true
+        }
+      ],
+      "note": "The burst floor and config schema test are complete."
+    },
+    {
+      "id": "AI2",
+      "t": "Shorten the checkout 5xx monitor's evaluation window",
+      "h": "shorter checkout monitor window",
+      "owner": "Priya Natarajan",
+      "source": "C3",
+      "state": "done",
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/pull/1240",
+          "kind": "pr",
+          "closes": true
+        }
+      ],
+      "note": "The shorter checkout monitor window is in place."
+    },
+    {
+      "id": "AI3",
+      "t": "Roll out edge config changes region by region",
+      "h": "staged config rollout",
+      "owner": "Lena Fischer",
+      "source": "C2",
+      "state": "in-progress",
+      "due": "2026-09-15",
+      "links": [
+        {
+          "url": "https://github.com/acme/monorepo/issues/1301",
+          "kind": "issue",
+          "label": "#1301",
+          "closes": true
+        },
+        {
+          "url": "https://linear.app/acme/issue/OPS-51",
+          "label": "OPS-51"
+        }
+      ],
+      "note": "The regional rollout is still in progress."
+    },
+    {
+      "id": "AI4",
+      "t": "Write the limiter runbook",
+      "h": "limiter runbook",
+      "owner": "Tom Okafor",
+      "source": "lessons",
+      "state": "todo",
+      "due": "2026-09-30",
+      "note": "The limiter runbook remains to be written."
+    },
+    {
+      "id": "AI5",
+      "t": "Add a synthetic checkout every minute",
+      "h": "synthetic checkout probe",
+      "owner": "Marcus Bell",
+      "source": "review",
+      "state": "dropped",
+      "note": "The faster checkout monitor covers the same detection gap at no extra cost."
+    }
   ],
   "lessons": {
     "well": [
-      {"text": "The rollback path worked first time; the edge config pipeline keeps the previous profile hot."},
-      {"text": "Support and on-call shared one channel, so the customer reports reached the responders unfiltered."}
+      {
+        "text": "The rollback worked the first time. The edge config pipeline keeps the previous profile ready to use."
+      },
+      {
+        "text": "Support and on-call shared one channel, so responders received customer reports unfiltered."
+      }
     ],
     "wrong": [
-      {"text": "The first hypothesis chased the payment provider because its dashboard was open; the error bodies had the answer all along."},
-      {"text": "A struct-default fallthrough shipped without a test because the config schema had no notion of a required key."}
+      {
+        "text": "The first hypothesis focused on the payment provider because its dashboard was open. The error bodies already pointed to the cause."
+      },
+      {
+        "text": "The config schema had no way to require a key, so the struct default behavior shipped without a test."
+      }
     ],
     "lucky": [
-      {"text": "The retry queue held every failed checkout, so no order was lost, only delayed."}
+      {
+        "text": "The retry queue retained every failed checkout, so the orders were delayed and none were lost."
+      }
     ]
   },
   "evidence": {
-    "notebooks": [{"id": 4410021, "url": "https://app.datadoghq.com/notebook/4410021", "file": "evidence/datadog/notebook-4410021.json"}],
-    "monitors": [{"id": 7781234, "url": "https://app.datadoghq.com/monitors/7781234", "file": "evidence/datadog/monitor-7781234.json"}],
-    "slack": [{"url": "https://acme.slack.com/archives/C04INC1DENT/p1786725240000100", "file": "evidence/slack/incident-checkout-1786725240.000100.json"}],
-    "sentry": [{"url": "https://acme.sentry.io/issues/5123456/", "label": "UpstreamRateLimited in checkout-api"}],
-    "linear": [{"url": "https://linear.app/acme/issue/OPS-42", "key": "OPS-42", "label": "Incident 42"}],
-    "builds": [{"url": "https://buildkite.com/acme/edge-config/builds/8812", "label": "edge-config #8812"}],
-    "prs": [{"url": "https://github.com/acme/monorepo/pull/1234", "role": "cause"},
-            {"url": "https://github.com/acme/monorepo/pull/1235", "role": "fix"},
-            {"url": "https://github.com/acme/monorepo/pull/1236", "role": "fix"},
-            {"url": "https://github.com/acme/monorepo/pull/1240", "role": "monitor"}],
-    "runs": [{"id": "run_8f3a2c", "label": "Replay of the retry queue", "url": "https://ops.acme.example/runs/run_8f3a2c"}],
-    "images": [{"file": "evidence/images/image-1.png", "alt": "Error rate chart with the rollback marked",
-                "caption": "The error rate falls within a minute of the rollback (W1).", "cites": ["W1"]}],
-    "docs": [{"url": "https://docs.acme.example/runbooks/rate-limiter", "label": "Rate limiter runbook"}]
+    "notebooks": [
+      {
+        "id": 4410021,
+        "url": "https://app.datadoghq.com/notebook/4410021",
+        "file": "evidence/datadog/notebook-4410021.json",
+        "h": "checkout error notebook"
+      }
+    ],
+    "monitors": [
+      {
+        "id": 7781234,
+        "url": "https://app.datadoghq.com/monitors/7781234",
+        "file": "evidence/datadog/monitor-7781234.json",
+        "h": "checkout error monitor"
+      }
+    ],
+    "slack": [
+      {
+        "url": "https://acme.slack.com/archives/C04INC1DENT/p1786725240000100",
+        "file": "evidence/slack/incident-checkout-1786725240.000100.json",
+        "h": "checkout incident thread"
+      }
+    ],
+    "sentry": [
+      {
+        "url": "https://acme.sentry.io/issues/5123456/",
+        "label": "UpstreamRateLimited in checkout-api"
+      }
+    ],
+    "linear": [
+      {
+        "url": "https://linear.app/acme/issue/OPS-42",
+        "key": "OPS-42",
+        "label": "Incident 42"
+      }
+    ],
+    "builds": [
+      {
+        "url": "https://buildkite.com/acme/edge-config/builds/8812",
+        "label": "edge-config #8812",
+        "h": "edge config build"
+      }
+    ],
+    "prs": [
+      {
+        "url": "https://github.com/acme/monorepo/pull/1234",
+        "role": "cause",
+        "h": "burst default removal"
+      },
+      {
+        "url": "https://github.com/acme/monorepo/pull/1235",
+        "role": "fix",
+        "h": "rollback to previous profile"
+      },
+      {
+        "url": "https://github.com/acme/monorepo/pull/1236",
+        "role": "fix",
+        "h": "burst floor fix"
+      },
+      {
+        "url": "https://github.com/acme/monorepo/pull/1240",
+        "role": "monitor",
+        "h": "shorter monitor evaluation window"
+      }
+    ],
+    "runs": [
+      {
+        "id": "run_8f3a2c",
+        "label": "Replay of the retry queue",
+        "url": "https://ops.acme.example/runs/run_8f3a2c"
+      }
+    ],
+    "images": [
+      {
+        "file": "evidence/images/image-1.png",
+        "alt": "Error rate chart with the rollback marked",
+        "caption": "The error rate fell within a minute of the rollback (W1).",
+        "cites": [
+          "W1"
+        ]
+      }
+    ],
+    "docs": [
+      {
+        "url": "https://docs.acme.example/runbooks/rate-limiter",
+        "label": "Rate limiter runbook"
+      }
+    ]
   },
   "notes": [
-    {"t": "Replay accounting", "md": "The retry queue held 3 180 failed checkouts at the rollback. The replay ran at the queue's capped rate so the payment provider saw no burst; every order confirmed by the end of the slow retry drain (W2). Late confirmations counts every order whose confirmation email left after the customer's session ended, which is an estimate from the session log.[^1]"}
+    {
+      "t": "Replay accounting",
+      "md": "The retry queue held 3 180 failed checkouts at rollback. Replay stayed within the queue's rate cap, avoiding a burst at the payment provider; every order confirmed by the end of the slow retry drain (W2). The late confirmation count includes every order whose confirmation email was sent after the customer's session ended. The count is an estimate from the session log.[^1]"
+    }
   ],
   "footnotes": [
-    {"n": 1, "b": "Session end is the last request from the customer's browser; a customer who left the tab open counts as not late."}
+    {
+      "n": 1,
+      "b": "Session end is the customer's last browser request. A customer who left the tab open counts as not late."
+    }
   ],
   "components": {
-    "limiter-cells": {"kind": "ir.notebook", "notebook": 4410021, "cells": [1, 2], "height": 240, "bands": true},
-    "fix-rollout": {"kind": "dd.timeline", "title": "How the fixes land",
-                    "phases": [{"label": "Rollback", "state": "done", "note": "Same hour."},
-                               {"label": "Burst floor", "state": "done", "gate": "AI1"},
-                               {"label": "Faster monitor", "state": "done", "gate": "AI2"},
-                               {"label": "Staged rollout", "state": "next", "gate": "AI3"}]},
-    "impact-by-region": {"kind": "dd.matrix", "title": "Who saw what",
-                         "rows": [{"label": "Without override"}, {"label": "With override"}],
-                         "cols": [{"label": "us-west"}, {"label": "us-east"}, {"label": "eu-central"}],
-                         "cells": [[{"text": "First request refused", "tone": "bad"}, {"text": "First request refused", "tone": "bad"}, {"text": "First request refused", "tone": "bad"}],
-                                   [{"text": "Unaffected", "tone": "ok"}, {"text": "Unaffected", "tone": "ok"}, {"text": "Unaffected", "tone": "ok"}]]}
+    "limiter-cells": {
+      "kind": "ir.notebook",
+      "notebook": 4410021,
+      "cells": [
+        1,
+        2
+      ],
+      "height": 240,
+      "bands": true
+    },
+    "fix-rollout": {
+      "kind": "dd.timeline",
+      "title": "How the fixes land",
+      "phases": [
+        {
+          "label": "Rollback",
+          "state": "done",
+          "note": "Same hour."
+        },
+        {
+          "label": "Burst floor",
+          "state": "done",
+          "gate": "AI1"
+        },
+        {
+          "label": "Faster monitor",
+          "state": "done",
+          "gate": "AI2"
+        },
+        {
+          "label": "Staged rollout",
+          "state": "next",
+          "gate": "AI3"
+        }
+      ]
+    },
+    "impact-by-region": {
+      "kind": "dd.matrix",
+      "title": "Who saw what",
+      "rows": [
+        {
+          "label": "Without override"
+        },
+        {
+          "label": "With override"
+        }
+      ],
+      "cols": [
+        {
+          "label": "us-west"
+        },
+        {
+          "label": "us-east"
+        },
+        {
+          "label": "eu-central"
+        }
+      ],
+      "cells": [
+        [
+          {
+            "text": "First request refused",
+            "tone": "bad"
+          },
+          {
+            "text": "First request refused",
+            "tone": "bad"
+          },
+          {
+            "text": "First request refused",
+            "tone": "bad"
+          }
+        ],
+        [
+          {
+            "text": "Unaffected",
+            "tone": "ok"
+          },
+          {
+            "text": "Unaffected",
+            "tone": "ok"
+          },
+          {
+            "text": "Unaffected",
+            "tone": "ok"
+          }
+        ]
+      ]
+    }
   },
   "housekeeping": []
 }

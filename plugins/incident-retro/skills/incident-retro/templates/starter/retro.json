@@ -1,7 +1,8 @@
 {
   "meta": {
     "title": "PROJECT_TITLE",
-    "subtitle": "Incident retrospective",
+    "subtitle": "PROJECT_SUBTITLE",
+    "tags": [],
     "status": "draft",
     "date": "PROJECT_DATE",
     "slug": "PROJECT_SLUG",

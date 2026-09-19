@@ -20,7 +20,6 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parent.parent
 FIXTURES = SKILL / "fixtures"
 DEFAULT_TZ = "America/Los_Angeles"
-SUBTITLE = "Incident retrospective"
 SLUG_WORDS = 6
 SLUG_STOPWORDS = {"a", "an", "the", "and", "or", "but", "so", "of", "to", "in", "on", "at", "for", "from", "with",
                   "without", "by", "as", "is", "was", "were", "been", "be", "that", "this", "it", "its", "no", "not",
@@ -1452,8 +1451,11 @@ class Importer:
                 why = "the earliest timeline entry or window" + (f"; {why}" if why else "")
         self.report.header.insert(1, f"Date: {date.isoformat() if date else '(none)'}" + (f" (from {why})" if date else " (no `Date:` field, title bracket, `--date` or dated timeline row)"))
         owners = {GITHUB_PR.match(p["url"]) and f"{GITHUB_PR.match(p['url'])[1]}/{GITHUB_PR.match(p['url'])[2]}" for p in self.retro["evidence"]["prs"]}
-        ordered = {"title": meta["title"], "slug": import_slug(meta["title"], date), "date": date.isoformat() if date else "",
-                   "subtitle": SUBTITLE, "status": meta["status"]}
+        ordered = {"title": "", "subtitle": meta["title"], "tags": [],
+                   "slug": import_slug(meta["title"], date), "date": date.isoformat() if date else "",
+                   "status": meta["status"]}
+        self.report.header.append(f"Subtitle: {meta['title']} (the document's own heading)")
+        self.report.header.append("Title: (none) — write the headline and the topical tags; `check` errors until both are there")
         if "incident" in meta:
             ordered["incident"] = meta["incident"]
         ordered["authors"] = meta["authors"]

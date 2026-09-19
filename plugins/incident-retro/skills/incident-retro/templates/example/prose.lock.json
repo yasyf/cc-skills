@@ -1,0 +1,959 @@
+{
+  "model": "gpt-6-astra",
+  "fields": {
+    "AI1.h": {
+      "sha256": "821cf669a3c96a84314c238c7339a046f68a82200478fdf4d214312d51c69c21",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI1.note": {
+      "sha256": "9a3c9393bb5a84e6bf6a266e52a1617d8f88ba2c3bd7420766c9e50b7fdae081",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI1.t": {
+      "sha256": "11371135ada3b239d18173d03ae77e61b1983bf0ec857fcbeeb9c1b978aecbe0",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI2.h": {
+      "sha256": "8445084ea3a7a830a1adec0d481a421e168d8c6428e6790525c53b9bb2771b03",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI2.note": {
+      "sha256": "95efaa29bdfdd3eaf773bf761d4965d30f99584ac0d71d7bae0c85be40f16b02",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI2.t": {
+      "sha256": "c4cb9d02a0568a18e1b87aadc4a6503be99ce6c4637e445c2beba8c97adea794",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI3.h": {
+      "sha256": "44e2cfa4ebeae8e047ae6fa3e824e119f592ffe19f284cd32660c58cb6d4ee5e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI3.note": {
+      "sha256": "511a2599f1f1fab3df5f55245c2d0e22dfd251c7994158fde41f04823ed191c4",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI3.t": {
+      "sha256": "9825ee232fa2ae8efa78c1bb1d2156398e7f9b5ddbb773976a1caaae952b6479",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI4.h": {
+      "sha256": "e3ff209ee0243deddd3f8b226ac0539359bb676ddc820fda676904d110cedc12",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI4.note": {
+      "sha256": "c8a9931cd47c58635206d90e5547f223d92ed4747d6acbe22f649d603ee62b41",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI4.t": {
+      "sha256": "f8ab8c3131b6c5871ca3e81bc7d168c633c55117ecfe667fcb192743b0ae0bd4",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI5.h": {
+      "sha256": "e151bd25774f4771737eff8715dd9c2ff4523344d77319c4b5915d759f6e4dcc",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI5.note": {
+      "sha256": "0dcdeb1f3846121e789a1cf1b7d21927e7b71b735e8bd78f2e93d18c6db0b112",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "AI5.t": {
+      "sha256": "a6d34bd270c4842efab9a1aa755daeb419c6dab48b7087578e3a07ef1b1ba599",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C1.code.caption": {
+      "sha256": "73a88b2b4d20568860089c1abcac9f724e466e2b9c2d77dce8817074d9a4f422",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C1.h": {
+      "sha256": "0077456ce1a1ee3850b88885a5fc7b2277bf154bbe88b18aeb8410ddf4dbd3e0",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C1.p": {
+      "sha256": "680db1da6623ea80e099a1c93350c74f5cc43005461ef6fe58ac276d6d88afc4",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C1.text": {
+      "sha256": "2739601507e3a56bbab467594770cfeb736af8305045bf1944a3ae84943128b4",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C2.h": {
+      "sha256": "42c54c6b1a2efd8b0146812578c1c7d1d459d639f5d89cc58d0dd734bd539a06",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C2.p": {
+      "sha256": "4d4c2ac0d86ac0b7011d3cb89fc736075442fc25b6d9c1d17bd15d79a8105f26",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C2.text": {
+      "sha256": "f5d2119acb78037ea4a6f5698a18229e369574ebc4a4f93eb75cfd1e0a038027",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C3.h": {
+      "sha256": "4e2fe8dafde5e12b387ef0c2eada8cecd9cc84f77db11fb76c378bdc272cdef4",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C3.p": {
+      "sha256": "1a5d765486c2d0fe88fb5ce398f2b10fd680bd8505b65a1d04cae23cf8ce1d84",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.412978284/codex-q-2931932612.log",
+      "at": "2026-09-19T15:05:37Z"
+    },
+    "C3.text": {
+      "sha256": "2d080e1fe06aa9f2ccb989a7f44481a7ab55c95d5f45b0df6319a4985e8868ea",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D1.alternatives": {
+      "sha256": "36a5ae826e57568ccc3d3ab6e926fb24e2c9c7a42a140a0dc91460ba9c847047",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D1.h": {
+      "sha256": "932c63c9ad30016ef4ccae7fe427802bbd886150897a0e116f8eafc6d241875b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D1.t": {
+      "sha256": "e70c5f23d1bb51dc9524c0d0175330d18e282f2e9abf195243ea05be48830ff1",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D1.why": {
+      "sha256": "a05c0cda3b5733262a2ec4525d937f9b9a43b1ec6fbc6c10edef0c44b03203a9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D2.alternatives": {
+      "sha256": "9b3870bd6053bb367a922dce07690aaa0d1f66e49fc7d5110dabd31192790311",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D2.h": {
+      "sha256": "7cbbcd2ce13009d4abd2d7ec723fe1fce6565dd07220a6b860ef127d6e67ce1b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D2.t": {
+      "sha256": "78f9e79e994b7c9aacea2aeb80c8803736d788969476d06cf04b8c517c13eab9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D2.why": {
+      "sha256": "c6e5ecf1438821c7a55c4058a0365235a9362d73d9d8b9f2461646859a7cb443",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D3.alternatives": {
+      "sha256": "1e210ce56697507f422ec704b9a480bbf6e02fb7a3a9c3556e2867a35cd3a32d",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D3.h": {
+      "sha256": "f5c10377575a2a38600df2038dfc91c0791edb1640acd0d3256e4f9ff24c9209",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D3.t": {
+      "sha256": "016c2f48411b8708220cda2b70e62e075cc92a8150da94609983881aa16047a6",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "D3.why": {
+      "sha256": "a0359d761858d76003af4c0fe7abe39e6d6ae6d3ef3db34668950e6609244fbb",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H1.exonerated": {
+      "sha256": "7b5c5603c72a258bc713b064d981067666cbc84ed0bd11eae2d0fde4b4af10aa",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H1.h": {
+      "sha256": "f5864eeeadc80dc8e13c745e25f31e4c8a2e4d7f8d6ce88bfeac23e5c2ec61b2",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H1.t": {
+      "sha256": "af811858cefb3fdd2d14ee60c3c2ff49f28b3266b7578ceb26a6099cd5ef926e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H2.exonerated": {
+      "sha256": "0874bc0ab0d6eb7d175153dfb4c240f4ae036e4df69fbaad963257fa137d654f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H2.h": {
+      "sha256": "85ae9fd9954af920da7beeb05c21cde2d7f45188ba2243e5b2c26fde6cff4009",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H2.t": {
+      "sha256": "7b14d30c7aa11bf65cba9314f12f37c870811705799f511501bd3a09cbb9daee",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H3.exonerated": {
+      "sha256": "fe45309219dd543672aaca481c3a4dd54eb556316ace31cf70eade7e47168ffd",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H3.h": {
+      "sha256": "22c5bc24e1d531adbce73195dfcc3f63fd5d838fb79bedab770fa9095ea2d5f0",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H3.t": {
+      "sha256": "b8aafefb1a35accb0af56aece39968baca7616546f9d0da7e662ef927d184d44",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H4.exonerated": {
+      "sha256": "d4b07f8e3eb624d8e05c76420bbe5880fca04da387e5c157164167cbf8a08cc0",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H4.h": {
+      "sha256": "bb683710dfc084836b3f54892d9822cad5e505eb17b004b297a2b7761116d834",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2945575037/codex-q-1070860499.log",
+      "at": "2026-09-19T15:07:53Z"
+    },
+    "H4.t": {
+      "sha256": "1e8e6a23b9c3b7b6f90dba52d44300409bf85485d62ac151fbab14e049bfb35a",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T1.h": {
+      "sha256": "d8876a83372b7210f43d9f426d37e2a1e207875a01dad80949f2c16ba9f1f945",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T1.text": {
+      "sha256": "6ff29f3e4ba9d3f79a4ddd7254dedfbcff56c7fabfc95af053899668e4c3a652",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "T10.h": {
+      "sha256": "b605bce89d67c7d672752795ac5c7e1dd00ca889288e8d69764eea58e64aa206",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T10.text": {
+      "sha256": "7944e1205d481f89b6581d073a0e0685914d166674e0061d56119f9cc80bba91",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T3.h": {
+      "sha256": "5d3f024f41996c3bcf09933899544ef369da68e654e905a7deec272b141458ea",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T3.text": {
+      "sha256": "2b308db0efdabaa2d1b6a9f57de12da65a5dd5e36722a2253bbb181b5f953e90",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T7.h": {
+      "sha256": "10fb0e8e8e349b299f836a7c2d02ea255eda14e040a5fd13c58b911391406b04",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "T7.text": {
+      "sha256": "d07304aac4e366f38de17ed88cdc05d975447d99aff380933eb3bdf035cdc32d",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U1.h": {
+      "sha256": "ac683ae38147f0555159f500ac1cdb2d40950b7b87d0e22c435baa2f3a598852",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U1.q": {
+      "sha256": "639c3130136877c9b87d2db128144c6a13eccbf9fdd3b114b96458ce1fc05d39",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U1.why": {
+      "sha256": "07135ccd277138c277f6e35d1a1a6d19427dbd55528bea2b65056c99add40271",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U2.h": {
+      "sha256": "df9323223a22d20c5e19569148b3c9eb5216c45c46eadbce8a95e2c957ec8ca6",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U2.q": {
+      "sha256": "24e3ee520e27839ca4d9907aa664d4800d481ae3d1b6c029bcf0365771c65a2b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U2.why": {
+      "sha256": "97ecd63a7076f9d604892bee3a2dc6828bcad99c5e858627764eda23e6e3bc25",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U3.h": {
+      "sha256": "5f2e56036bbd97669a504e06766f6fe2e4a5f6c54e29c619cba81e4eb6a26d4f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U3.q": {
+      "sha256": "147b01512d176222ac726a48328de23ebaa057d1aa4b502087f96b9df9cb48b1",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "U3.why": {
+      "sha256": "c4b09c4cc2d14e79ec926f84ff28cb039b910d8534b872b66af5ffd336360d02",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "W1.h": {
+      "sha256": "abcf18f87a73ad0024ae8ad94d8c6f836f584aab6fdf068ba6a2ec8e0ba10f42",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "W1.text": {
+      "sha256": "ce000146c591c37dc13bbe74781fdfdc85eb3a8ea31896bda51a6c3c7884ae76",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "W2.h": {
+      "sha256": "b10198303a98a9d7ae11436cc6610e28abfba3f3050b41b77912a7180921399f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "W2.text": {
+      "sha256": "9b04e3ed7b8ab56c99e33897d898f1d0ef705bb5c6ced1a6bd3dc9a09ebc5e79",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "detection.p": {
+      "sha256": "82f6b09c8393efa2743865dc316cbe4549b97825a7aa96c009d006486dffe8de",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "detection.text": {
+      "sha256": "0a615a0887ed5bcd5fd361d5e563d27800e8518627fb411f2b450b1b92d84cb9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.683206429/codex-q-4219301070.log",
+      "at": "2026-09-19T15:11:40Z"
+    },
+    "meta.sections.overview.takeaway": {
+      "sha256": "6a097e4ab73d85c0f9c4b9e93ddda4c59f31dbe66a0f5d4d6947dca7cb151f64",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.timeline.sub": {
+      "sha256": "0f3aa6769a34cadd0c9cbe96ab96a80f31afdf13ff95125546972cea429bf697",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "meta.sections.timeline.takeaway": {
+      "sha256": "db15bc0898b91e8c4dca5317afa63372c971635a894812133db73dca51fa0a84",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.causes.takeaway": {
+      "sha256": "0efb2711e7b72259e6e4d5d30774a03c81b5a231dc82b05e9d742ac6150b7208",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.impact.takeaway": {
+      "sha256": "c46757620acbc49f61ec5bdc5351fed44801151c31f473824b8f811f280c074c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.resolution.takeaway": {
+      "sha256": "715727e38dc6831ff9af74977aa1e7fadd6ecc10aa9a0a0a7d05778f669d6899",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.lessons.takeaway": {
+      "sha256": "fc9c90c00456c4ce297d12ca67d973c90fe1a1bcb9a7ea651258fa8fb391638d",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.recognize.takeaway": {
+      "sha256": "a0b40a7336529e792b602b29eefc407b8a13585c0149a5e45329f5404b83bde7",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2407076770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.2407076770/codex-q-1578836529.log",
+      "at": "2026-09-19T18:18:21Z",
+      "slop": 1
+    },
+    "meta.sections.actions.takeaway": {
+      "sha256": "e9fa4259ba10331ab9c735afdb39fdbc6e96441b49548237616c3ba36ab5d25c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.evidence.takeaway": {
+      "sha256": "7e4be6d2af6ab7163edbabf5a80b5032ddd8ceacd157447c18f40f15a54a4e43",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "meta.sections.unknowns.takeaway": {
+      "sha256": "7c3343fdaad1f369da1e3a197d8a8a6b8a0b40906453da3851ad987b8dcfcce5",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "meta.sections.glossary.takeaway": {
+      "sha256": "2f37bd65291f974b37a35d08ca56890ae6a9fac60b2e24c2097b21e7b9339df8",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "summary.text": {
+      "sha256": "70630cf22487434ca8e2df0d4e1f61c0a2e0d978911ce7f162e8bef64ca40614",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[1].text": {
+      "sha256": "55cae4c644c617cf22d9916aee66c530c1d4b17aa6dd2cf5f976c2b16500a36e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[3].text": {
+      "sha256": "45abda5a84939b73414b61f5deb35f56b3f1476c82c7dac0ee6e9ebda02a7211",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[4].text": {
+      "sha256": "fe475551165004b37b72f4fae96e72a74f682b2d45e9584a1de1f649b211664a",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[5].text": {
+      "sha256": "4b5fa717495db90d7dd7a793a071a00c5a48f8d8c801108c5baf39c389d93e9d",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[7].text": {
+      "sha256": "a99aa5d55006f49e85a7a5832fea8562ba24ceb145cf1a04a4d3f8100d7b450b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[8].text": {
+      "sha256": "603540512a09ec307877d100537a6ceb40052d99f4e4667609c34ea99549e05a",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[10].text": {
+      "sha256": "fa7550a8b5f9ac0b4ccf029101abf7cc92a077ab5f44f35ee2284efb844c057a",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[11].text": {
+      "sha256": "9e17b01ad9bcf1f10d71a60e3b6c6c9964cb62356c8397d3362866781097877a",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[12].text": {
+      "sha256": "8584f6f6de64958c52dbf106156739c3981376672c3ff54d75baec958502c400",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[13].text": {
+      "sha256": "ba3334f3a2d8623f82d68617217aeb9f83b803cfbc5a79616cbb33d123661ddd",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "timeline[14].text": {
+      "sha256": "848507b582484c0d334993b13b8c941aad1be47c37bc636cd2385bd3f03273fe",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3819126471/codex-q-802286562.log",
+      "at": "2026-09-19T15:18:21Z"
+    },
+    "impact.text": {
+      "sha256": "da16a44ef931a75d52cadbcd4e58ef383c5c41b9a2bbc622ffde8e41fcdd7728",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "impact.teams[0].text": {
+      "sha256": "fa9e744c167f56dafe90d4386d82fe5e7fe120e339a1c62346d26749c75306c9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "impact.teams[1].text": {
+      "sha256": "e1106084fc82e0d79fc5a324228b3fbdbb4d7b4bc64b5f05c4fbcdeaa2d5e47c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "resolution.text": {
+      "sha256": "f406083c28b713ba333e6d2d1ab6d8f4f57a3923428aa98ae0969c5f314e42f9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[0].signal": {
+      "sha256": "b3a5184ee3b6b9fdeb0d43107c9e3a76788bf09058bbf0c839ba1cd16d41ee6f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[0].means": {
+      "sha256": "c148e857869214f7245730e1b7c42fb9be50de9f488a69f3fb91f8e349a30062",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[0].do": {
+      "sha256": "b3422c3f7bc5b34d0a9d36a0386b36062f7bb97d3b415578ce0437b632fe004e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[1].signal": {
+      "sha256": "d676c59049945970db16e779c0a6a21ae83ce16a7a050ac5cc6a49f9b71b0203",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[1].means": {
+      "sha256": "f55ab89af99aa50e96ef2b67db144197c3004cd96171739527301845d8f585d8",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[1].do": {
+      "sha256": "94d2a98b23fa27d33a2d3f4ebf823c58424c75c2847449ad1d065713c970aa34",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[2].signal": {
+      "sha256": "a5dc9b247c1f9d6c681932cd6bb59b06995f3aafa2ec33fb012b74d3ebbc2ba6",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[2].means": {
+      "sha256": "718831289845e5307d1a16d65c213ef28df8fb1b3f7bcc87e9107631d730fb8b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[2].do": {
+      "sha256": "ad35395c5877583dd305cba4bcf5759241286482b0838d329dcf444af0c63474",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[3].signal": {
+      "sha256": "6621b0be26b4cb3c5a0276ed37da297b322086ff9d2e48d5c8f76de94dc68eb9",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[3].means": {
+      "sha256": "774fa7e17bbbd9049146791763620b52ec31c9f109d35f5f5e930a4861f93d31",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "recognize[3].do": {
+      "sha256": "def46d05a1c0583ae10ddf290228f3439cd28deba69e0bdf73c1be993319df01",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[0].def": {
+      "sha256": "e533d5329179c96e13c875c84ad561a47b729c1138d78229f36ae1d7ce878609",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[1].def": {
+      "sha256": "7311d1ff20c3dc8bfbd2482600cbb22d9b2b294be8db11d7408af7fb2162e074",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[2].def": {
+      "sha256": "704271abd6383732c0606133e8435bf3d004385f0e13ab1ae1486c4777c80d96",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[3].def": {
+      "sha256": "48e80673f9967f2299ccbb8a8ebb43acbe268be043f96f7d2561559b342385e2",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[4].def": {
+      "sha256": "20eae952c734b9fcd435066d11ed8bea16c1e2a214a83aa25c9723472405fd38",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "glossary[5].def": {
+      "sha256": "982585e3acf063cf11ee9d984e50113b19636107ea75f8cdcd2935435ad8083e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "lessons.well[0].text": {
+      "sha256": "10c0ba6ef0f749d4d86839807272c510a572c9efcf1eea490117948e1aeac101",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "lessons.well[1].text": {
+      "sha256": "92ee84d2a41709bfc9d1018a3798bc70a5edc53a45ebc98d8337a3abe098be19",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.364409363/codex-q-263165955.log",
+      "at": "2026-09-19T15:21:18Z"
+    },
+    "lessons.wrong[0].text": {
+      "sha256": "179df0df769b3c589a6162e9feb71f2bd7b053a7716ed527487ce5c8cd5a4484",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "lessons.wrong[1].text": {
+      "sha256": "1947a4d3c87c751c140017672874ed92d135311dd0693ffdcb45eb9838dc1acd",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "lessons.lucky[0].text": {
+      "sha256": "86ffe1fff72202e3ab35f7fcc2d7ad54a62e1ac36b964c1c83ec2c312959b832",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "evidence.images[0].caption": {
+      "sha256": "b7b5d158d105a13e3114dcfaa614cc560a42ac4e947f9f6d1cf6ba7c7f45b112",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "notes[0].md": {
+      "sha256": "20b2fa0f8515f8a9302c6b507b0921bc51dbea02a8e8c90e3e5bc73aa15ffc0c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "footnotes[1].b": {
+      "sha256": "cfea54508c730729e488e17d9cbd4576801001b3a7f00ceeaacac9a189925814",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "summary.p": {
+      "sha256": "0fa54676934f2afa0299fe8ddbf9fdcae90856849ca6388533922ce1bced0def",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "impact.p": {
+      "sha256": "c73e351d99d30e3e05b8d2d5ebd0919d154581c5d47323cbf73f7a0d3a50a4e2",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "resolution.p": {
+      "sha256": "f046e65319c89ee53a39e0291d112109c621cda0f0b5eafd8e7f9d780094eb44",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3361278126/codex-q-1370921315.log",
+      "at": "2026-09-19T15:26:17Z"
+    },
+    "summary.html#what-happened": {
+      "sha256": "9a6b2b47ff2c91a94fb6bc6c039d42089d4ca0cf455d4f3117dbe7047256f863",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "summary.html#impact": {
+      "sha256": "565d3667a506d6cbb7e224aba584fc0dcd822e8def6485a1b2eab9f0a3a2f498",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "summary.html#why": {
+      "sha256": "83d0b610758170e5f7f0f306b1a391d70974b2d7b56a5e79639ee2c7e75555c7",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "summary.html#what-changed": {
+      "sha256": "23c029f514f56b9c25a50c40fd806f76a4d9328602b8911cad23252f914457db",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "summary.html#still-open": {
+      "sha256": "8e8e8e5cfc29a9cf465111e2c0d65f27cecae74acaa5c6803be7ea3b72207fa5",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
+      "at": "2026-09-19T18:24:58Z",
+      "slop": 0
+    },
+    "timeline[1].h": {
+      "sha256": "8d4ead3c5a253714f56dc81c80f7d87bcc4075485c03eb75a9356a9daa147981",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[3].h": {
+      "sha256": "f5a917528c5b69a03c172f15843d2e54cf93638cc2da3dae16107b2293a396eb",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[4].h": {
+      "sha256": "b63e212d802098e0004ed278b2d5b881c8c0d224286244449c584c12fbebd30e",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[5].h": {
+      "sha256": "405ea1563ffebebaee93e932204cb2bf224ba14c5f212cfc2295298f25840737",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[7].h": {
+      "sha256": "e2bcaa49476934ffe819f71b33107b5a8f50ad204ae12c764fc158c7c0933468",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[8].h": {
+      "sha256": "e31cac5b07c1ac151b3d10032eedbcb9930056ec764445f23736497485102777",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[10].h": {
+      "sha256": "4d0104a981f707a50ce56e07b444dff9342988c06cd90567743fc94bf8fee71b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[11].h": {
+      "sha256": "68283b31c8ce7f656e33e738276ec8abae6af3f368680a648336ee260686888b",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[12].h": {
+      "sha256": "7d3a3f5989a1d3bd53eba2f6135df5369e69bcdac1c62cccb174211055a1573c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[13].h": {
+      "sha256": "485387f6ab32376a3ece87dca4efef504dc8bb70e7b39fd871459030006b08a7",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "timeline[14].h": {
+      "sha256": "49dea5951aa5ed3261cdae641ba56e40572de8e3808dd97d7942bac100e36b0c",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.notebooks[0].h": {
+      "sha256": "81333248c68a92892ca46f0b1fbabc3877c77e1ec17b98cb64a9661819d8ad86",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.monitors[0].h": {
+      "sha256": "2408354cff799eaffd345a9e7d5c1a239b81e90b5c323876d92a62c09b86776f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.slack[0].h": {
+      "sha256": "01cba5f621ea359ee25f54e475d1a6a76f0b0cf037257d515934a8729aa244d0",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.prs[0].h": {
+      "sha256": "5500c07c0ce09f9986648122121ddeb27394dc4e71bd57d59de6d294de959ebe",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.prs[1].h": {
+      "sha256": "e1237446c93d81c8f35e9ced3ff2a05034ecdfa23da3cfccd20aa999b5d3fe4f",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.prs[2].h": {
+      "sha256": "bb9f88601f8b967e152864702c3e740cbc5a1e3d8fd1d894c768122489327fd1",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.prs[3].h": {
+      "sha256": "ab60b3f9f22cca48eb1cc1fe7088db1546e6f452a6a7a788b243f11004fca608",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3157522770/codex-q-2008870393.log",
+      "at": "2026-09-19T15:36:15Z",
+      "slop": 0
+    },
+    "evidence.builds[0].h": {
+      "sha256": "9dcba9ee2a466bd41b4f0d255114c366bb4f3da4eef59ce8230643560d4bb3da",
+      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3026254714",
+      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.3026254714/codex-q-845048274.log",
+      "at": "2026-09-19T18:29:17Z",
+      "slop": 0
+    }
+  },
+  "command": "codex-ask -m astra",
+  "slop": 1
+}
