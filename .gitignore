@@ -74,3 +74,6 @@ coverage.txt
 
 # Managed symlink install-binary.sh maintains; never tracked
 /plugins/codex/bin/
+
+# The claim retro.py prose holds while it writes a retro; removed when the run ends
+.prose.lock
