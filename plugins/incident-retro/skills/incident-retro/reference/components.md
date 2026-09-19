@@ -120,7 +120,7 @@ query, so the reader can open it in Datadog. Every cell host ends up with
 
 `notebook` names the `evidence.notebooks[]` id. `cells` picks cell indexes,
 `height` sets the chart height (180 to 480), `title` replaces the notebook's
-name, and `open: true` starts the card expanded. uPlot loads from jsdelivr
+name, and `open: true` starts the card expanded. `uPlot` loads from jsdelivr
 the first time a notebook mounts; charts are recreated at three times the
 resolution for print and re-inked when the colour scheme changes.
 
@@ -149,8 +149,7 @@ later it recovered, computed from `detection.monitors[].fired` and
 
 A Slack thread from its snapshot under `evidence/slack/`. The block is
 collapsed by default: the closed row shows the channel, whether it is a
-thread, the message count, the participants, and the opening line. Readers
-can use these details to decide whether to open the thread.
+thread, the message count, the participants, and the opening line.
 `open: true` starts it expanded.
 
 Open, the block states when the snapshot was captured, links to Slack, and

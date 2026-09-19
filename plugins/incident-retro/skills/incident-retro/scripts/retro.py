@@ -1088,7 +1088,7 @@ def check_summary(rep, root: Path, known: set, status: str):
     if found:
         rep.err(f"{SUMMARY_PAGE} carries a <{found.group(1)}> tag; the summary is prose and figures, nothing executable")
     if SUMMARY_EVENT_ATTR.search(fragment):
-        rep.err(f"{SUMMARY_PAGE} carries an inline event handler; the renderer strips it, so the behaviour is dead")
+        rep.err(f"{SUMMARY_PAGE} carries an inline event handler; the renderer strips it, so the behavior is dead")
     for url in SUMMARY_URL_ATTR.findall(fragment):
         scheme = foreign_scheme(url)
         if scheme:

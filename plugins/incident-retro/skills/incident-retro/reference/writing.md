@@ -17,7 +17,7 @@ A symptom followed by internal names after a colon describes the alert and
 assumes responder knowledge. A bare symptom omits the cause.
 
 - Bad: "Invocations stay Pending and schedules stop: restate-worker on old
-  image inserts into renamed workflow_runs column"
+  image inserts into renamed `workflow_runs` column"
 - Bad: "Checkout errors after a rate-limit config push"
 - Good: "A migration ran but not every service that reads the schema was
   deployed, so run creation failed for 71 minutes"
@@ -29,10 +29,10 @@ impact, and the duration. Include the duration when the incident had a clear
 window. Service, image, table, and column names belong in a cause, where
 readers look for that detail.
 
-Keep it under 120 characters and 20 words. `check` warns on a colon and on an
+Use at most 120 characters and 20 words. `check` warns on a colon and on an
 identifier in the title, because both mark the shapes above.
 
-The slug has the form `<incident date>-<three to six plain words>`, under 60
+The slug has the form `<incident date>-<three to six plain words>`, at most 60
 characters, so a long title never becomes a long URL. Use the words colleagues
 use to name the incident aloud: `2026-09-18-schema-ahead-of-deploy`.
 Do not form it by replacing the title's spaces.
@@ -88,6 +88,12 @@ time to detect, engage, mitigate, and resolve from those fields. It derives
 window durations and monitor latency as well. Action state drives the progress
 bar.
 
+Titles and section takeaways are the only exceptions to the body-prose rule
+below. Include a duration there only when elapsed time is part of the
+conclusion a reader needs without the tiles. Compute it from recorded
+endpoints and name the interval. Recheck the value when either endpoint
+changes.
+
 Never restate a derived duration in prose. Say what happened between the two
 events and let the tiles show the elapsed time. `retro.py check` warns when
 prose states a duration near detection, engagement, mitigation, resolution,
@@ -133,8 +139,10 @@ The page shows one line per entry and keeps the details behind a disclosure.
 Each opening line must make sense on its own.
 
 A section's `takeaway` states its conclusion in thirty words or fewer. It
-must answer the reader who stops at that sentence. Write "The rollback
-stopped it inside a minute," not "This section covers the response."
+must answer the reader who stops at that sentence. Write "Rolling back the
+config stopped checkout errors within a minute," not "This section covers
+the response." The duration follows the title and takeaway exception in
+[Numbers come from data](#numbers-come-from-data).
 
 A cause's plain twin appears in the causal chain before the cause is
 expanded. State the mechanism in 25 words or fewer. Put the detail, evidence,

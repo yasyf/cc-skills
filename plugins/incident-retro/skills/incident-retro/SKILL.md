@@ -14,7 +14,7 @@ use its `codex-ask -m astra` route, which pins both settings; Claude may
 collect evidence and publish the result, but must delegate the writing.
 Prose helpers try Astra first and may use Claude only when Astra fails.
 
-An incident retro is one canonical `retro.json` beside committed snapshots of the evidence behind it, plus `summary.html`, the executive summary written by hand. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
+An incident retro pairs one canonical `retro.json` with committed evidence snapshots and a hand-written executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
 
 The page is for readers who did not take part in the response. It opens with the executive summary, then the tiles, the key moments, and the causal chain. Every section starts with one sentence that states its conclusion and keeps the details behind a disclosure. Each opening sentence must make sense on its own.
 
@@ -115,7 +115,7 @@ Fix every structural error. Triage every prose finding against [reference/writin
 
 `--strict` enforces limits on the title and slug, the executive summary's panel and total word counts, each section's opening sentence, each cause's opening statement, and the key-moment count. When a check fails, revise the passage to make it easier to read. Cutting words only to pass the check misses its purpose.
 
-Open the served page and read it without assuming knowledge of the response. Before anything is expanded, the summary, the tiles, the key moments, and the causal chain should explain what happened, what it cost, and why.
+Open the served page as a reader who did not take part in the response. Confirm that the initial view explains the failure and its cause, with enough evidence to assess the impact.
 
 ## Phase 5: Publish
 

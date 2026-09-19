@@ -19,8 +19,8 @@ here.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `title` | yes | h1, rail brand, browser title. One plain sentence stating the causal mechanism, under 120 characters and 20 words. `check` warns on a colon separating a symptom from its internals and on an identifier such as a column name, image name, or filename. [reference/writing.md](writing.md) gives the rule and examples |
-| `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, under 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
+| `title` | yes | Page heading, rail brand, and browser title. One plain sentence stating the causal mechanism, at most 120 characters and 20 words. `check` warns on a colon separating a symptom from its internals and on an identifier such as a column name, image name, or filename. [reference/writing.md](writing.md) gives the rule and examples |
+| `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
 | `status` | yes | `draft`, `in-review`, `reviewed`, `resolved`; rendered Draft, Under review, Reviewed, Closed out. `draft` is the only status that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped` |
 | `subtitle` | no | defaults to "Incident retrospective" |
@@ -47,7 +47,7 @@ The page reads four `localStorage` keys: `design-doc-ai`, `design-doc-github`, `
 written as markup. It is a body-level fragment of
 `<section class="xs-panel" data-kind="…">` blocks and shares the design-doc
 skill's summary contract. The page places it above the Overview after
-stripping event handlers and any URL that is not http(s).
+stripping event handlers and any URL that is not HTTP or HTTPS.
 
 One panel answers each question, in this order: `what-happened`, `impact`,
 `why`, `what-changed`, `still-open`. Each opens with an `<h2>` or `<h3>`
@@ -136,7 +136,7 @@ Each action entry follows `[{id, t, h, owner, source, state, links?, due?, note?
 Each entry follows `[{id, t, h, who, when, why, alternatives?, refs?, links?}]`.
 Ids are `D\d+`. `t` is the decision as one line of sixteen words or fewer,
 `who` the person or team who made it, `when` its timestamp, and `why` the
-reasoning at the time. Do not rewrite it with hindsight. `alternatives`
+reasoning recorded at the time. `alternatives`
 names the options not taken.
 
 Each decision appears as a collapsed row under
@@ -146,7 +146,7 @@ expanding it shows the reasoning.
 ## `hypotheses`: suspected causes and the evidence that settled them
 
 Each entry follows `[{id, t, h, status, exonerated?, evidence?}]`. Ids are
-`H\d+`; `status` is `ruled-out`, `confirmed` or `open`. `exonerated` is the
+`H\d+`; `status` is `ruled-out`, `confirmed`, or `open`. `exonerated` is the
 observation that settled it, and `check` requires one on a ruled-out entry.
 `evidence` resolves as a cause's does. The page renders the entries as a
 table so the next responder can see which explanations were ruled out.
@@ -166,8 +166,8 @@ These gaps appear on the page instead of remaining in `NOTES.md`.
 
 ## `glossary`
 
-`[{term, def}]`, each definition 30 words or fewer. Define the terms this
-retro uses with a meaning specific to the system, not general vocabulary.
+`[{term, def}]`, each definition 30 words or fewer. Each term has a meaning
+specific to this system; general vocabulary does not need a glossary entry.
 `check` errors on a repeated term.
 
 ## `lessons`
@@ -207,7 +207,7 @@ Tiles, the windows gantt, the swimlane, notebooks, monitors, Slack threads, the 
 
 ## Ids, handles and citations
 
-Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, `I\d+`, `D\d+`, `H\d+`, and `U\d+`, unique across the file. In prose, `(C1)` or `(C1, T7)` renders as the handles in parentheses, the way design-doc renders `(DQ12)`; `retro.py text` does the same. A handle `h` is required on every window, cause, action, and sub-incident. It is a two-to-five-word phrase a reader says aloud, with no trailing period or id. `check` errors on a citation no register defines and on a title or handle that names an id.
+Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, `I\d+`, `D\d+`, `H\d+`, and `U\d+`, unique across the file. In prose, `(C1)` or `(C1, T7)` renders as the handles in parentheses, the way design-doc renders `(DQ12)`; `retro.py text` does the same. A handle `h` is required on every window, cause, action, decision, hypothesis, unknown, and sub-incident. It is a two-to-five-word phrase a reader says aloud, with no trailing period or id. `check` errors on a citation no register defines and on a title or handle that names an id.
 
 ## Links
 
@@ -256,8 +256,6 @@ Errors unless noted; `--strict` promotes the strict warnings.
 5. Impact metrics: `measured` boolean, cites resolve.
 6. Causes: ids, kinds, evidence resolves, code shape, links without `closes`; strict mode requires a root cause once reviewed and limits the length of each opening statement in the causal chain.
 7. Actions: ids, states, owner, source resolves, `closes` only on pull requests or issues, due dates; strict mode requires owners and rejects open actions on a resolved retro.
-7a. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
-7b. `summary.html`: the fragment rules, the panel vocabulary and order, and the word budgets.
 8. Evidence: files exist, snapshot schemas and ids match, images carry alt, prs carry a role; notebook windows, liveness, and monitors without files warn.
 9. Citations and footnotes resolve.
 10. Handles present and well-formed; twins present and within the rules; a twin left stale across a snapshot.
@@ -269,3 +267,5 @@ Errors unless noted; `--strict` promotes the strict warnings.
 16. Template freshness against `plugins/_shared` when that source tree is present.
 17. `ai.json` beside the retro or in its parent directory.
 18. Revision history integrity.
+19. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
+20. `summary.html`: the fragment rules, the panel vocabulary and order, and the word budgets.
