@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:d009b218c9e0 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:1ae54ab46903 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -425,8 +425,13 @@ body.asof .xs::after{content:"the final account";display:block;margin-top:var(--
 .livecard dd{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;color:var(--hero-ink)}
 
 .xs{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:0 clamp(18px,3vw,30px) var(--s-6)}
-.xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
+.xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
 .xs-steps::-webkit-scrollbar{display:none}
+.xs-step{scroll-snap-align:start}
+@media (max-width:600px){
+  .xs-steps{flex-wrap:wrap;gap:0 var(--s-5);overflow:visible}
+  .xs-step{padding:var(--s-2) 0;margin-bottom:0}
+}
 .xs-step{flex:0 0 auto;background:none;border:0;border-bottom:2px solid transparent;padding:var(--s-4) 0;margin-bottom:-1px;color:var(--hero-ink2);font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
 .xs-step:hover{color:var(--hero-ink)}
 .xs-step[aria-selected=true]{color:var(--hero-ink);border-bottom-color:var(--hero-ink)}
@@ -592,8 +597,7 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
   .filters .end{margin-left:0}
   .filters input.search{min-width:0;flex:1 1 160px}
   #statusBar{margin:0 calc(-1 * var(--s-5));padding:var(--s-3) var(--s-5)}
-  .sb-state{gap:var(--s-2) var(--s-4);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
-  .sb-state::-webkit-scrollbar{display:none}
+  .sb-state{gap:var(--s-2) var(--s-4)}
   .sb-end,.sb-marks{display:none}
   .xs{padding:0 var(--s-5) var(--s-5)}
   .livecard{padding:var(--s-5)}
@@ -2516,18 +2520,19 @@ function execSteps(host,panels){
   nav.append(b);
   return b;
  });
- const show=i=>{
+ const show=(i,move)=>{
   panels.forEach((p,j)=>{p.hidden=j!==i});
   tabs.forEach((b,j)=>{b.setAttribute("aria-selected",String(j===i));b.tabIndex=j===i?0:-1});
+  if(move)tabs[i].scrollIntoView({block:"nearest",inline:"nearest",behavior:reduced()?"auto":"smooth"});
  };
  tabs.forEach((b,i)=>{
-  b.onclick=()=>show(i);
+  b.onclick=()=>show(i,true);
   b.onkeydown=e=>{
    const d=e.key==="ArrowRight"?1:e.key==="ArrowLeft"?-1:0;
    if(!d)return;
    e.preventDefault();
    const next=(i+d+tabs.length)%tabs.length;
-   show(next);tabs[next].focus();
+   show(next,true);tabs[next].focus();
   };
  });
  show(0);
