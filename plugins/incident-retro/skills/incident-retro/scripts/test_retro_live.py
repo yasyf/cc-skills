@@ -3,12 +3,12 @@
 
   python3 scripts/test_retro_live.py
 """
-import argparse, io, json, shutil, sys, tempfile, unittest
+import argparse, io, json, os, shutil, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import retro, retro_live
+import retro, retro_live, retro_prose
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "live"
 INDEX_PAGE = """<!doctype html>
@@ -246,6 +246,194 @@ class Scrubbing(unittest.TestCase):
     def test_a_team_with_no_aliases_leaves_the_text_alone(self):
         blank = retro_live.scrubber([{"codename": "Polar", "aliases": []}])
         self.assertEqual(blank("Northwind called"), "Northwind called")
+
+    def test_a_short_alias_does_not_match_inside_a_longer_word(self):
+        """Finding 7: alias Box turned 'Sandbox workers' into 'SandPolar workers'."""
+        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Box"]}])
+        self.assertEqual(scrub("Sandbox workers failed"), "Sandbox workers failed")
+        self.assertEqual(scrub("Box workers failed"), "Polar workers failed")
+
+    def test_an_alias_still_matches_against_punctuation(self):
+        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Northwind"]}])
+        self.assertEqual(scrub("#northwind-outage"), "#Polar-outage")
+        self.assertEqual(scrub("(Northwind)"), "(Polar)")
+
+    def test_an_identifier_carrying_the_alias_is_left_alone(self):
+        scrub = retro_live.scrubber([{"codename": "Polar", "aliases": ["Box"]}])
+        self.assertEqual(scrub("sandbox_pool and BoxCutter"), "sandbox_pool and BoxCutter")
+
+
+def git_docs() -> Path:
+    """A docs checkout with a bare origin, so a push is a real push."""
+    home = Path(tempfile.mkdtemp())
+    origin, docs = home / "origin", home / "docs"
+    subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
+    docs.mkdir()
+    for argv in (["init", "-q"], ["config", "user.email", "live@test"], ["config", "user.name", "live"],
+                 ["remote", "add", "origin", str(origin)]):
+        subprocess.run(["git", "-C", str(docs), *argv], check=True)
+    (docs / retro_live.RETRO_DIR).mkdir()
+    (docs / "index.html").write_text(INDEX_PAGE)
+    (docs / retro_live.RETRO_DIR / "index.html").write_text(RETRO_INDEX_PAGE)
+    subprocess.run(["git", "-C", str(docs), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(docs), "commit", "-qm", "init"], check=True)
+    return docs
+
+
+def pushed_ref(docs: Path, branch: str) -> str:
+    origin = subprocess.run(["git", "-C", str(docs), "ls-remote", "origin", f"refs/heads/{branch}"],
+                            capture_output=True, text=True, check=True)
+    return origin.stdout.strip()
+
+
+class PushGate(unittest.TestCase):
+    """The gate reads the artifact being pushed, not a scrubbed copy of part of it."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), git_docs()
+        self.branch = f"live/{SLUG}"
+        run(retro_live.init, args(self.incident, self.docs, forbidden_terms="Northwind|Contoso EU"))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+
+    def sync(self, **extra):
+        settings = {"no_push": False, "forbidden_terms": "Northwind|Contoso EU"}
+        settings.update(extra)
+        return run(retro_live.sync, args(self.incident, self.docs, **settings))
+
+    def test_a_clean_sync_reaches_the_branch(self):
+        self.assertEqual(self.sync(), 0)
+        self.assertTrue(pushed_ref(self.docs, self.branch))
+
+    def test_a_raw_alias_in_the_branch_name_refuses_the_push(self):
+        record = json.loads((self.root / "retro.json").read_text())
+        record["live"]["source"]["branch"] = "live/NORTHWIND-browser-outage"
+        (self.root / "retro.json").write_text(json.dumps(record))
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(pushed_ref(self.docs, "live/NORTHWIND-browser-outage"), "")
+
+    def test_a_raw_alias_in_a_staged_file_name_refuses_the_push(self):
+        (self.root / retro_live.SLACK_DIR).mkdir(parents=True, exist_ok=True)
+        (self.root / retro_live.SLACK_DIR / "NORTHWIND-notes.txt").write_text("nothing to see")
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(pushed_ref(self.docs, self.branch), "")
+
+    def test_a_raw_alias_inside_an_html_blob_refuses_the_push(self):
+        """Finding 2: the old gate only read .json/.md/.txt/.csv, so html walked through it."""
+        (self.root / retro_live.SLACK_DIR).mkdir(parents=True, exist_ok=True)
+        (self.root / retro_live.SLACK_DIR / "archived.html").write_text("<p>Northwind reported it</p>")
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(pushed_ref(self.docs, self.branch), "")
+
+    def test_no_term_source_at_all_refuses_the_push(self):
+        """Finding 3: a missing source only warned, so an unscrubbable retro published."""
+        state = json.loads((self.incident / "state.json").read_text())
+        state["teams"] = []
+        (self.incident / "state.json").write_text(json.dumps(state))
+        environ = dict(os.environ)
+        os.environ.pop("FORBIDDEN_TERMS", None)
+        try:
+            self.assertEqual(self.sync(forbidden_terms=None), 1)
+        finally:
+            os.environ.clear()
+            os.environ.update(environ)
+        self.assertEqual(pushed_ref(self.docs, self.branch), "")
+
+    def test_the_aliases_alone_can_gate_the_push(self):
+        environ = dict(os.environ)
+        os.environ.pop("FORBIDDEN_TERMS", None)
+        try:
+            self.assertEqual(self.sync(forbidden_terms=None), 0)
+        finally:
+            os.environ.clear()
+            os.environ.update(environ)
+        self.assertTrue(pushed_ref(self.docs, self.branch))
+
+    def test_the_push_leaves_the_checkout_head_and_index_alone(self):
+        head = subprocess.run(["git", "-C", str(self.docs), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, check=True).stdout
+        self.assertEqual(self.sync(), 0)
+        after = subprocess.run(["git", "-C", str(self.docs), "rev-parse", "HEAD"],
+                               capture_output=True, text=True, check=True).stdout
+        self.assertEqual(head, after)
+        staged = subprocess.run(["git", "-C", str(self.docs), "diff", "--cached", "--name-only"],
+                                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(staged.strip(), "")
+
+
+class SlugDerivation(unittest.TestCase):
+    """Finding 1: a lowercase codename let the raw title reach the slug, the paths and the message."""
+
+    def test_the_title_is_scrubbed_before_it_becomes_a_slug(self):
+        incident, docs = incident_dir(), docs_checkout()
+        state = json.loads((incident / "state.json").read_text())
+        state["title"] = "Northwind Foods runs stalled"
+        (incident / "state.json").write_text(json.dumps(state))
+        self.assertEqual(run(retro_live.init, args(incident, docs)), 0)
+        slug = json.loads((incident / "state.json").read_text())["retro_slug"]
+        self.assertNotIn("northwind", slug)
+        self.assertIn("polar", slug)
+        self.assertTrue((docs / retro_live.RETRO_DIR / slug).is_dir())
+
+
+class SnapshotRebuild(unittest.TestCase):
+    """Finding 4: a snapshot captured before an alias was known stayed raw on disk."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        state = json.loads((self.incident / "state.json").read_text())
+        state["teams"] = [{"id": "t1", "codename": "Polar", "aliases": []}]
+        (self.incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        run(retro_live.sync, args(self.incident, self.docs))
+
+    def blob(self) -> str:
+        return "".join(p.read_text() for p in (self.root / retro_live.SLACK_DIR).glob("*.json"))
+
+    def test_the_first_sync_keeps_a_name_no_alias_covers(self):
+        self.assertIn("Northwind Foods", self.blob())
+
+    def test_a_snapshot_the_log_dropped_does_not_keep_a_name_a_later_alias_covers(self):
+        """The finding's compound case: the thread leaves the log, the alias arrives after it, and
+        the raw file left on disk blocks every later push."""
+        log = (self.incident / "slack-log.jsonl").read_text().splitlines()
+        kept = [line for line in log if "Northwind Foods" not in line]
+        self.assertEqual(len(kept), len(log) - 1, "the fixture no longer carries the raw-name thread")
+        (self.incident / "slack-log.jsonl").write_text("\n".join(kept) + "\n")
+        state = json.loads((self.incident / "state.json").read_text())
+        state["teams"] = [{"id": "t1", "codename": "Polar", "aliases": ["Northwind Foods", "Northwind"]}]
+        (self.incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.assertNotIn("Northwind", self.blob(), "a snapshot the log dropped kept its raw name")
+
+    def test_a_snapshot_no_longer_in_the_log_is_dropped(self):
+        orphan = self.root / retro_live.SLACK_DIR / "outage-1700000000.000001.json"
+        orphan.write_text('{"schema": "ir.slack/1"}')
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.assertFalse(orphan.exists(), "the sync rebuilds the snapshot set from the log")
+
+
+class StateIsReadUnderTheClaim(unittest.TestCase):
+    """Finding 5: a sync that waited for the claim published the state it read before waiting."""
+
+    def test_state_is_reread_while_the_claim_is_held(self):
+        incident, docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(incident, docs))
+        root = docs / retro_live.RETRO_DIR / SLUG
+        held, original = [], retro_live.read_state
+
+        def watching(where):
+            held.append((root / retro_prose.WRITE_LOCK).exists()
+                        and bool((root / retro_prose.WRITE_LOCK).read_text().strip()))
+            return original(where)
+
+        retro_live.read_state = watching
+        try:
+            run(retro_live.sync, args(incident, docs))
+        finally:
+            retro_live.read_state = original
+        self.assertFalse(held[0], "the first read resolves the slug, before the claim")
+        self.assertTrue(len(held) > 1 and held[-1], "state was never re-read under the claim")
 
 
 class LiveBlock(unittest.TestCase):

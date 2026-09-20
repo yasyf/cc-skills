@@ -64,7 +64,11 @@ class Busy(RuntimeError):
 
 
 class Owner:
-    """An exclusive claim on one retro, held for the life of the run."""
+    """An exclusive claim on one retro, held for the life of the run.
+
+    The lock file is never unlinked. Unlinking it while another run holds a flock on that inode
+    hands the next run a fresh inode to lock, so two runs own the retro at once.
+    """
 
     def __init__(self, root: Path):
         self.path = root / WRITE_LOCK
@@ -86,9 +90,11 @@ class Owner:
         return self
 
     def __exit__(self, *exc):
+        self.handle.seek(0)
+        self.handle.truncate()
+        self.handle.flush()
         fcntl.flock(self.handle, fcntl.LOCK_UN)
         self.handle.close()
-        self.path.unlink(missing_ok=True)
 
 
 def write_atomic(path: Path, text: str):
