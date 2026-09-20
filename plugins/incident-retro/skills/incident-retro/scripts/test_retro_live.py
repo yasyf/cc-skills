@@ -95,6 +95,13 @@ class Init(unittest.TestCase):
     def test_a_second_init_refuses_rather_than_overwriting(self):
         self.assertEqual(run(retro_live.init, args(self.incident, self.docs)), 1)
 
+    def test_an_existing_empty_directory_is_written_into(self):
+        """A checkout may create the path ahead of init; only files in it are a refusal."""
+        incident, docs = incident_dir(), docs_checkout()
+        (docs / retro_live.RETRO_DIR / SLUG).mkdir(parents=True)
+        self.assertEqual(run(retro_live.init, args(incident, docs)), 0)
+        self.assertTrue((docs / retro_live.RETRO_DIR / SLUG / "retro.json").exists())
+
 
 class Sync(unittest.TestCase):
     def setUp(self):

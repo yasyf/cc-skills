@@ -161,7 +161,7 @@ Each block contains `text` and `p` plus section-specific fields. `text` is the w
 "timestamps": {"onset": "…", "detected": "…", "engaged": "…", "mitigated": "…", "resolved": "…", "allClear": "…"}
 ```
 
-Every key is present; a value is a timestamp or `null`. `check` enforces `onset ≤ detected ≤ engaged ≤ mitigated ≤ resolved ≤ allClear` over the values present, and that `onset` and `resolved` are set unless `status` is `draft`.
+Every key is present; a value is a timestamp or `null`. `check` enforces `onset ≤ detected ≤ engaged ≤ mitigated ≤ resolved ≤ allClear` over the values present, and that `onset` and `resolved` are set unless `status` is `ongoing` or `draft`. A `resolved` still null on an `ongoing` retro is the normal state and draws no warning, since the incident has not ended.
 
 The file never stores derived values. The time-to-detect tile uses
 `TTD = detected − onset`, while the time-to-engage tile uses
@@ -208,7 +208,7 @@ Each cause entry follows `[{id, kind, t, h, text, p, evidence?, code?, links?, i
 
 Each action entry follows `[{id, t, h, owner, source, state, links?, due?, note?}]` and the rules below.
 
-- Ids `AI\d+`; `t` is one line of sixteen words or fewer; `h` names the table row. The Full wording toggle reveals `t` and `note`.
+- Ids `AI\d+`; `t` is one line of sixteen words or fewer; `h` names the card. The page renders each action as a card of title, owner, and a state badge in a fixed column, with `due` on its own line, so a long title wraps instead of widening a table. The Full wording toggle reveals `t` and `note`.
 - `owner`: a person's or team's name. `check --strict` errors on a missing owner.
 - `source`: the cause id the action answers, or `lessons` or `review`.
 - `state`: `todo`, `in-progress`, `done`, `dropped`; rendered To do, In progress, Done, Dropped.
@@ -560,13 +560,35 @@ retro.py live finalize <incident-dir> --docs <checkout> [--tags T]
 The inputs are the incident skill's `state.json` and `slack-log.jsonl` under
 `~/.claude/incidents/<incident-id>/`, whose shape
 `.agents/skills/incident/references/state.md` specifies. None of the three
-commands calls a model, so the same state produces the same `retro.json`.
+commands calls a model, so nothing here is authored or sampled.
+
+Two syncs of one unchanged state agree on every field the inputs determine:
+the timeline, the causes and actions and their wording, and
+`live.phase`, `headline`, `currentState` and `next`. Five values track the
+wall clock instead, and differ between those two runs:
+
+| Value | Reads the clock because |
+|---|---|
+| `live.updatedAt` | it is the sync's own timestamp, and the page's staleness warning reads it |
+| `windows[0].end` | an incident with no all-clear has not ended, so the window runs to now |
+| `evidence/slack/*.json` `fetchedAt` | it records when the snapshot was written |
+| `causes[].identifiedAt` | the first sync to see a diagnosis stamps it |
+| `actions[].history[].ts` | a sync that finds a changed disposition stamps the entry it appends |
+
+The first three of those are rewritten on every sync, by design. The last two
+are the record of when the response learned something, so a sync preserves
+them: `identifiedAt` is carried forward from the previous record, and a
+`history` entry is appended only when the derived state differs from the last
+one. Rerunning a sync against unchanged state therefore leaves both alone.
 
 `init` chooses the slug as `<local date of started_at>-<slug of title>`,
 writes it back to `state.retro_slug`, scaffolds
 `<checkout>/incident-retros/<slug>/` with `status: "ongoing"` and
 `live.source`, and adds the `data-retro` card to the head of the list on both
-`index.html` pages. It refuses a directory that already exists.
+`index.html` pages. As `scaffold` does, it refuses a destination that already
+holds files and writes into an existing empty directory, so a path the
+checkout created in advance is usable. A second `init` over a scaffolded retro
+is refused; `sync` is what brings that one current.
 
 `sync` takes the writer claim, then derives the whole record. The timeline
 comes from Slack thread roots, deploys, monitor `fired_at`, and pull requests
