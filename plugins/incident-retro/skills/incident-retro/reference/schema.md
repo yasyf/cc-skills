@@ -590,17 +590,37 @@ holds files and writes into an existing empty directory, so a path the
 checkout created in advance is usable. A second `init` over a scaffolded retro
 is refused; `sync` is what brings that one current.
 
-`sync` takes the writer claim, then derives the whole record. The timeline
-comes from Slack thread roots, deploys, monitor `fired_at`, and pull requests
-opened and merged. One outage window runs from `started_at` to the all-clear
-or now. `causes` come from `diagnoses`, carrying `identifiedAt`. `actions`
-come from `inventory`, with the disposition as the state, the matching `prs`
-as links, and a `history` entry appended only on a change. It replaces every raw
-customer name with its team's codename through `teams[].aliases`, writes one
-`ir.slack/1` snapshot per thread, runs `check`, and force-pushes `retro.json`
-and `evidence/slack/` to `live/<slug>` as an orphan commit built through a
-temporary index, so the checkout's HEAD and index never move. A `check` error
-or a forbidden-terms hit refuses the push. `--no-push` writes and checks only.
+`sync` takes the writer claim, then reads `state.json` and the previous
+`retro.json` under it, so a sync that waited for the claim does not publish the
+state it read before waiting. It derives the whole record from there. The
+timeline comes from Slack thread roots, deploys, monitor `fired_at`, and pull
+requests opened and merged. One outage window runs from `started_at` to the
+all-clear or now. `causes` come from `diagnoses`, carrying `identifiedAt`.
+`actions` come from `inventory`, with the disposition as the state, the
+matching `prs` as links, and a `history` entry appended only on a change. The
+`evidence/slack/` set is rebuilt from the log on every sync rather than added
+to, so a thread the log no longer carries leaves with it and an alias added
+today reaches a snapshot captured yesterday.
+
+Scrubbing happens once, at the source: `state.json` is scrubbed through
+`teams[].aliases` before anything derives from it, so the slug, the title, the
+card and every register are scrubbed by construction rather than after the
+fact. Matching is case-insensitive on word boundaries, longest alias first, so
+the alias `Box` rewrites `Box` and leaves `Sandbox` alone. Slack messages are
+scrubbed the same way, including the channel name that reaches snapshot
+metadata and the snapshot's own file name.
+
+The push gate then reads the artifact itself rather than a copy of part of it.
+`sync` builds the orphan commit first, through a temporary index so the
+checkout's HEAD and index never move, and holds against it: every path and
+every blob in that tree whatever the file type, plus the branch name, the slug
+and the commit message. Terms come from two independent sources, the aliases
+and the configured forbidden terms, and a hit from either refuses the push with
+the term masked. A `check` error refuses it too. When neither source resolves —
+no `--forbidden-terms`, no `FORBIDDEN_TERMS`, no `.customer-names` up the tree,
+and no aliases in `state.teams` — nothing can check the branch, so `sync`
+refuses to push and says so. There is no flag to proceed anyway.
+`--no-push` writes and checks the retro without building or pushing anything.
 
 `finalize` drops `live.source`, moves the status to `draft`, fills
 `timestamps.resolved` from `all_clear_at`, and hands the retro to the existing

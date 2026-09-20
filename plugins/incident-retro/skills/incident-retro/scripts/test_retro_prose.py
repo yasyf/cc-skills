@@ -26,7 +26,17 @@ class ExclusiveClaim(unittest.TestCase):
             pass
         with retro_prose.Owner(self.root):
             pass
-        self.assertFalse((self.root / retro_prose.WRITE_LOCK).exists())
+        lock = self.root / retro_prose.WRITE_LOCK
+        self.assertTrue(lock.exists(), "the lock file is the claim's identity and outlives the run")
+        self.assertEqual(lock.read_text().strip(), "", "a released claim names no holder")
+
+    def test_the_lock_file_is_never_unlinked(self):
+        """Unlinking it lets the next run lock a fresh inode while this one still holds the old."""
+        lock = self.root / retro_prose.WRITE_LOCK
+        with retro_prose.Owner(self.root):
+            first = lock.stat().st_ino
+        with retro_prose.Owner(self.root):
+            self.assertEqual(lock.stat().st_ino, first, "the claim moved to a new inode")
 
     def test_a_crashed_run_does_not_wedge_the_retro(self):
         script = (f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r});"
