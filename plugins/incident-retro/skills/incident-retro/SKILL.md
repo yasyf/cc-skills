@@ -6,6 +6,8 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 # incident-retro
 
+While `meta.status` is `ongoing`, the live commands derive the record from
+incident state without producing LLM-authored prose. After `live finalize`,
 GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all new prose,
 including headlines, subtitles, summaries, plain twins, handles, revision
 notes, and publication text. Use `retro.py prose` for its enumerated fields
@@ -22,7 +24,7 @@ the prose field list.
 
 An incident retro pairs one canonical `retro.json` with committed evidence snapshots and an executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
 
-The page is for readers who did not take part in the response. It opens with the executive summary, then the tiles, the key moments, and the causal chain. Narrative sections start with a takeaway of 18 words or fewer (`TAKEAWAY_WORDS = 18`) and keep the details behind a disclosure.
+The page is for readers who did not take part in the response. Beneath the title, subtitle, tags, and status, it opens with the status strip, executive summary, What's changed, timeline, and causes, then impact, resolution, lessons, actions, evidence, and the remaining sections. Narrative sections start with a takeaway of 18 words or fewer (`TAKEAWAY_WORDS = 18`) and keep the details behind a disclosure.
 
 `REFERENCE_SECTIONS = ("evidence", "glossary", "notes")` open on their heading and collapsed structure, with no takeaway. Conclusions belong in the sections that argue them. Closed timeline, cause, decision, and unknown rows show a short name `h`; their sentences appear on expansion. Each short name and section opener must make sense on its own.
 
@@ -36,7 +38,74 @@ The AWS Systems Manager Parameter Store paths come from the caller. The AWS prof
 
 Read [reference/writing.md](reference/writing.md) before Draft, [reference/evidence.md](reference/evidence.md) before Gather, and [reference/schema.md](reference/schema.md) whenever a field is unclear.
 
-## What the agent writes
+## Live incident
+
+At intake, use the incident skill's `state.json` and `slack-log.jsonl` under
+`<incident-dir>`. Set `state.retro_slug` to the incident date plus three to
+six plain words and use codenames in the title and slug before scaffolding.
+Configure `--forbidden-terms`, `FORBIDDEN_TERMS`, or `.customer-names` in the
+design-docs checkout before publishing.
+
+```bash
+$TOOL live init <incident-dir> --docs <design-docs-checkout>
+```
+
+`init` creates `incident-retros/<slug>/` with `meta.status: "ongoing"`,
+records the slug in state, and adds cards to both index pages. It makes no
+commit or pull request. Open and merge the shell PR once, with the retro
+and both cards in its first commit. Share the resulting page URL as the
+incident's status link. Pages deploys only from `main`, about 10 minutes
+after merge; that delay applies to the shell, not to each live update.
+
+Run sync on every change to `state.json` or `slack-log.jsonl`:
+
+```bash
+$TOOL live sync <incident-dir> --docs <design-docs-checkout>
+```
+
+`sync` derives the timeline, windows, causes, actions, and Slack snapshots,
+updates `live.updatedAt`, and force-pushes `retro.json` and `evidence/slack/`
+to `live/<slug>`. The checkout's HEAD and index stay in place. Use
+`--no-push` to write and check locally. No live command calls a model;
+do not run `prose` or draft narrative while the incident is ongoing.
+
+Every live push must pass the codename scrub and forbidden-terms check.
+`sync` replaces names through `teams[].aliases`, then runs `check`; an
+error blocks the push. Keep the aliases and forbidden-terms source complete.
+No CI guards `live/<slug>`, so a missing terms source is a publishing block
+even though `check` only warns about it.
+
+While status is `ongoing` and `live.source` is set, the page polls that
+branch through the GitHub contents API every 30 seconds. It uses the token
+from `ai.json`, redraws on a changed SHA, and preserves scroll position and
+open disclosures. A pulsing Live pill marks the page; five minutes without
+an update shows a staleness warning. A failed fetch uses the merged record.
+
+At all-clear, sync the final state and stop the updater before finalizing:
+
+```bash
+$TOOL live finalize <incident-dir> --docs <design-docs-checkout> \
+  --tags "migration,release-pipeline"
+```
+
+`finalize` removes `live.source`, sets `meta.status` to `draft`, and fills an
+unset `timestamps.resolved` from `state.all_clear_at`. Supply two to six topical
+tags; the draft requires them. It changes local files and runs `check`.
+Continue through Gather, Draft, Evidence, Check, and Publish in the same
+directory and at the same URL. Astra writes all prose from this point on,
+using `retro.py prose` for its enumerated fields. The published draft no
+longer polls the live branch.
+
+The sticky time scrubber under the title block shows the page as of a chosen
+instant. Drag its playhead, step between events with the left and right
+arrows, or select Live/Now to reset. Link to an instant with `?at=<iso>`.
+The existing `?since=` revision-diff parameter is separate and unchanged.
+
+Actions and hypotheses replay only with `history`; causes appear at their
+`identifiedAt`. Without those fields, entries show their current state with
+a muted "no time data" mark. See [reference/components.md](reference/components.md#the-time-scrubber).
+
+## What the agent writes after all-clear
 
 `retro.py` scaffolds, writes prose, validates, renders, snapshots, and fetches Datadog evidence. The authoring agent assembles the incident record and Slack snapshots, then runs the prose command:
 
@@ -53,7 +122,8 @@ Read [reference/writing.md](reference/writing.md) before Draft, [reference/evide
 
 ## Phase 1: Gather
 
-Create a fresh directory, then collect the source material before drafting.
+After `live finalize`, collect the source material in the existing retro
+directory. For a retro that did not start live, create a fresh directory:
 
 ```bash
 $TOOL scaffold <dir> --title "<headline>" --subtitle "<causal sentence>" \
@@ -93,11 +163,11 @@ Then draft in reading order:
 3. Separate the trigger and root cause from contributing causes. Attach the evidence that supports each claim.
 4. State `impact` through observed effects and measured or estimated metrics.
 5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward. Record the `decisions` made during the response, who made each, and why. Record the `hypotheses` ruled out and the evidence that cleared them.
-6. Fill every applicable `lessons` column from the evidence, then write the `recognize` rows for the next responder.
+6. Fill every applicable `lessons` group from the evidence, then write the `recognize` rows for the next responder.
 7. Give every action an owner, source, state, and due date when one exists.
 8. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
 9. Write the plain twins and handles alongside their precise text. Write one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
-10. Prepare `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Keep each heading and body within 35 words (`SUMMARY_PANEL_WORDS = 35`), all panels within 150 (`SUMMARY_BUDGET = 150`), and give the first heading an answer beyond the headline.
+10. Prepare `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
 11. Run `prose --list` to inspect the field addresses, then `prose` to write them through Astra.
 12. Review refused fields and lint findings, and rerun affected addresses with `--field`. Keep `prose.lock.json` beside the record.
 
@@ -257,7 +327,7 @@ $TOOL pdf <dir>
 
 Fix every structural error. Triage every prose finding against [reference/writing.md](reference/writing.md). Inspect the generated PDF; file existence does not prove that its layout and charts read correctly across page breaks.
 
-`--strict` enforces the headline, subtitle, tags, slug, short names, twins, takeaways, and key-moment rules. Narrative takeaways have at most 18 words; `evidence`, `glossary`, and `notes` carry none. The word limits are 25 for timeline text, 90 for cause text, 60 for decision reasoning, 45 for unknown reasoning, and 35 per summary panel with 150 total. Strict mode also requires a matching `prose.lock.json` digest for every nonempty enumerated prose field and rejects missing short names.
+`--strict` enforces the headline, subtitle, tags, slug, short names, twins, takeaways, and key-moment rules. Narrative takeaways have at most 18 words; `evidence`, `glossary`, and `notes` carry none. The word limits are 25 for timeline text, 90 for cause text, 60 for decision reasoning, and 45 for unknown reasoning. Each `summary.html` panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Strict mode also requires a matching `prose.lock.json` digest for every nonempty enumerated prose field and rejects missing short names.
 
 The lock records per-field `slop` counts and a total; strict mode sums those
 counts and fails above `SLOP_BUDGET = 3`, naming the fields with the most
@@ -307,6 +377,7 @@ The retro page also exposes its space-separated tags as `html[data-tags]`.
 
 Move `meta.status` through this lifecycle:
 
+- `ongoing` from intake through the live response, before prose drafting.
 - `draft` while evidence and prose are incomplete.
 - `in-review` when the strict checks pass and the retro is ready for comments.
 - `reviewed` after the retro meeting confirms the record and action items.

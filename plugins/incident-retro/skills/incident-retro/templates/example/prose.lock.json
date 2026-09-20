@@ -786,39 +786,34 @@
       "at": "2026-09-19T15:26:17Z"
     },
     "summary.html#what-happened": {
-      "sha256": "9a6b2b47ff2c91a94fb6bc6c039d42089d4ca0cf455d4f3117dbe7047256f863",
-      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
-      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
-      "at": "2026-09-19T18:24:58Z",
-      "slop": 0
+      "sha256": "7f524472e468a9d8fda91edabb4eb80097d76d5008acd6635f251801e4c9b396",
+      "kind": "legacy",
+      "grandfathered": "0.4.0",
+      "at": "2026-09-20T04:23:32Z"
     },
     "summary.html#impact": {
-      "sha256": "565d3667a506d6cbb7e224aba584fc0dcd822e8def6485a1b2eab9f0a3a2f498",
-      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
-      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
-      "at": "2026-09-19T18:24:58Z",
-      "slop": 0
+      "sha256": "ba1e8abd26c7bd60ee23b6051b9fe2e0a9d2a7a444fc2b0ac3587a495bc2c197",
+      "kind": "legacy",
+      "grandfathered": "0.4.0",
+      "at": "2026-09-20T04:23:32Z"
     },
     "summary.html#why": {
-      "sha256": "83d0b610758170e5f7f0f306b1a391d70974b2d7b56a5e79639ee2c7e75555c7",
-      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
-      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
-      "at": "2026-09-19T18:24:58Z",
-      "slop": 0
+      "sha256": "990b2f7458b16e22bade63e767019171ded510b34bff6dac4e206c6a6462bbc0",
+      "kind": "legacy",
+      "grandfathered": "0.4.0",
+      "at": "2026-09-20T04:23:32Z"
     },
     "summary.html#what-changed": {
-      "sha256": "23c029f514f56b9c25a50c40fd806f76a4d9328602b8911cad23252f914457db",
-      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
-      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
-      "at": "2026-09-19T18:24:58Z",
-      "slop": 0
+      "sha256": "89fd39b157b52184c127bc7265914156993012c78a4be8b8f4f1d9d896a31706",
+      "kind": "legacy",
+      "grandfathered": "0.4.0",
+      "at": "2026-09-20T04:23:32Z"
     },
     "summary.html#still-open": {
-      "sha256": "8e8e8e5cfc29a9cf465111e2c0d65f27cecae74acaa5c6803be7ea3b72207fa5",
-      "run": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509",
-      "log": "/Users/yasyf/.cache/codex-ask/runs/codex-ask.1026837509/codex-q-2257508504.log",
-      "at": "2026-09-19T18:24:58Z",
-      "slop": 0
+      "sha256": "f75416705e74a16eccca264675762b30c45fa62a08aacd4e44b5a779b482c406",
+      "kind": "legacy",
+      "grandfathered": "0.4.0",
+      "at": "2026-09-20T04:23:32Z"
     },
     "timeline[1].h": {
       "sha256": "8d4ead3c5a253714f56dc81c80f7d87bcc4075485c03eb75a9356a9daa147981",

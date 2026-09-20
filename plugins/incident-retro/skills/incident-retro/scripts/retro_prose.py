@@ -64,7 +64,11 @@ class Busy(RuntimeError):
 
 
 class Owner:
-    """An exclusive claim on one retro, held for the life of the run."""
+    """An exclusive claim on one retro, held for the life of the run.
+
+    The lock file is never unlinked. Unlinking it while another run holds a flock on that inode
+    hands the next run a fresh inode to lock, so two runs own the retro at once.
+    """
 
     def __init__(self, root: Path):
         self.path = root / WRITE_LOCK
@@ -86,9 +90,11 @@ class Owner:
         return self
 
     def __exit__(self, *exc):
+        self.handle.seek(0)
+        self.handle.truncate()
+        self.handle.flush()
         fcntl.flock(self.handle, fcntl.LOCK_UN)
         self.handle.close()
-        self.path.unlink(missing_ok=True)
 
 
 def write_atomic(path: Path, text: str):
@@ -219,8 +225,9 @@ def budgets(retro) -> list:
         f"an unknown's why is {retro.UNKNOWN_BODY_WORDS}",
         f"a plain twin (p) is {retro.TWIN_WORDS} words or fewer, or a third of the wording it twins, and it names no "
         f"register id and no file path",
-        f"a summary panel including its heading is {retro.SUMMARY_PANEL_WORDS} words or fewer, and the whole summary "
-        f"is {retro.SUMMARY_BUDGET}",
+        f"a summary panel is one <h3 class=\"xs-head\"> headline of {retro.XS_HEAD_WORDS} words or fewer over a "
+        f"<ul class=\"xs-points\"> of {retro.XS_POINTS} or fewer <li> points, each {retro.XS_POINT_WORDS} words or "
+        f"fewer; the headline is the answer and the points are the evidence, with no prose outside them",
         f"a section takeaway is {retro.TAKEAWAY_WORDS} words or fewer, a section opener one line",
         f"a lesson is {retro.LESSON_WORDS} words or fewer, a glossary definition {retro.GLOSSARY_WORDS}, an open "
         f"question {retro.UNKNOWN_WORDS}, a recognize cell {retro.RECOGNIZE_WORDS}",

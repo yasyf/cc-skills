@@ -10,6 +10,7 @@
   retro.py pdf <dir>
   retro.py evidence fetch|slack … (scripts/retro_evidence.py)
   retro.py import-gdoc <exported.md> [<docs.json>] --out <dir> [--tz Z] [--date YYYY-MM-DD]
+  retro.py live init|sync|finalize <incident-dir> --docs <checkout> (scripts/retro_live.py)
 
 scaffold creates a directory for one retro holding the renderer, retro.json,
 NOTES.md and an empty evidence tree, or the Acme worked example. check lints
@@ -27,7 +28,10 @@ and the evidence digest in history/. links lists the pull requests and
 issues every action, cause and resolution carries, resolves their GitHub
 state with --fetch, and reports an action whose state disagrees with the
 change that closes it. text prints the retro as Markdown in reading order,
-the input for the prose gates. pdf prints the served page. Stdlib only.
+the input for the prose gates. pdf prints the served page. live scaffolds,
+refreshes and closes a retro while the incident is still running, deriving
+every field from the incident skill's state.json and slack-log.jsonl.
+Stdlib only.
 """
 import argparse, copy, datetime, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, zoneinfo
 from pathlib import Path
@@ -53,9 +57,11 @@ SECTION_TITLES = {"overview": "Overview", "timeline": "Timeline", "causes": "Cau
                   "resolution": "Detection and response", "lessons": "Lessons",
                   "recognize": "How to recognize this next time", "actions": "Action items",
                   "evidence": "Evidence", "unknowns": "Still unknown", "glossary": "Glossary", "notes": "Notes"}
-STATUSES = ("draft", "in-review", "reviewed", "resolved")
-STATUS_LABEL = {"draft": "Draft", "in-review": "Under review", "reviewed": "Reviewed", "resolved": "Closed out"}
+STATUSES = ("ongoing", "draft", "in-review", "reviewed", "resolved")
+STATUS_LABEL = {"ongoing": "Ongoing", "draft": "Draft", "in-review": "Under review", "reviewed": "Reviewed",
+                "resolved": "Closed out"}
 STATUS_RANK = {s: i for i, s in enumerate(STATUSES)}
+PROVISIONAL = ("ongoing", "draft")
 WINDOW_KINDS = ("outage", "degraded", "partial")
 TIMELINE_KINDS = ("deploy", "alert", "report", "hypothesis", "action", "mitigation", "resolution", "allclear")
 CAUSE_KINDS = ("root", "contributing", "trigger")
@@ -168,11 +174,18 @@ ENTRY_WORDS_MAX = 40
 CAUSE_BODY_WORDS = 90
 DECISION_BODY_WORDS = 60
 UNKNOWN_BODY_WORDS = 45
+LIVE_PHASES = ("detected", "investigating", "identified", "mitigated", "resolved")
+LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "source")
+PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
+                "mitigated": ("engaged", "mitigated"),
+                "resolved": ("engaged", "mitigated", "resolved", "allClear")}
+LIVE_LINE_WORDS = 25
 SUMMARY_KINDS = ("what-happened", "impact", "why", "what-changed", "still-open")
 SUMMARY_KIND_TITLES = {"what-happened": "What happened", "impact": "What it cost", "why": "Why it happened",
                        "what-changed": "What changed", "still-open": "What is still open"}
-SUMMARY_PANEL_WORDS = 35
-SUMMARY_BUDGET = 150
+XS_HEAD_WORDS = 14
+XS_POINTS = 3
+XS_POINT_WORDS = 18
 SUMMARY_PAGE_TAG = re.compile(r"</?(html|head|body)\b", re.I)
 SUMMARY_EMBED_TAG = re.compile(r"<(iframe|object|embed|script|style|form)\b", re.I)
 SUMMARY_EVENT_ATTR = re.compile(r"\son[a-z]+\s*=", re.I)
@@ -632,8 +645,9 @@ def check_tags(rep, meta, tags):
         return
     low, high = TAG_COUNT
     if not low <= len(tags) <= high:
-        rep.err(f"meta.tags carries {len(tags)} tags; {low} to {high} name the system, the failure class and the "
-                f"surface without turning into a second summary")
+        report = rep.strict_warn if meta.get("status") == "ongoing" else rep.err
+        report(f"meta.tags carries {len(tags)} tags; {low} to {high} name the system, the failure class and the "
+               f"surface without turning into a second summary")
     for t in tags:
         if not TAG_SHAPE.fullmatch(t):
             rep.err(f"meta.tags carries {t!r}; a tag is lower-case words joined by hyphens")
@@ -713,7 +727,7 @@ def check_meta(rep, R, meta):
         for v in values:
             if key != "teams" and ("@" in v or v.lower().startswith("mailto:")):
                 rep.err(f"meta.{key} names {v!r}; people are named, never addressed")
-    if meta.get("status") != "draft" and not meta.get("authors"):
+    if meta.get("status") not in PROVISIONAL and not meta.get("authors"):
         rep.strict_warn("meta.authors is empty; a retro past draft names who wrote it")
     commander = meta.get("commander")
     if commander is not None and not (isinstance(commander, str) and commander.strip() and "@" not in commander):
@@ -809,7 +823,7 @@ def check_ids(rep, items, pattern, label) -> set:
     return seen
 
 
-def check_timestamps(rep, R, draft: bool) -> dict:
+def check_timestamps(rep, R, provisional: bool) -> dict:
     raw = R.get("timestamps")
     if not isinstance(raw, dict):
         rep.err("timestamps must be an object with onset, detected, engaged, mitigated, resolved, allClear")
@@ -821,10 +835,10 @@ def check_timestamps(rep, R, draft: bool) -> dict:
         value = raw.get(key)
         if value is None:
             if key in ("onset", "resolved"):
-                if draft:
+                if not provisional:
+                    rep.err(f"timestamps.{key} is null; only an ongoing or draft retro may leave it unset")
+                elif (R.get("meta") or {}).get("status") != "ongoing" or key == "onset":
                     rep.warn(f"timestamps.{key} is null; the tiles cannot compute anything without it")
-                else:
-                    rep.err(f"timestamps.{key} is null; only a draft may leave it unset")
             continue
         try:
             parsed[key] = parse_ts(value)
@@ -835,6 +849,95 @@ def check_timestamps(rep, R, draft: bool) -> dict:
         if b < a:
             rep.err(f"timestamps.{kb} ({b.isoformat()}) is before timestamps.{ka} ({a.isoformat()}); the order is {' ≤ '.join(TIMESTAMP_KEYS)}")
     return parsed
+
+
+def check_history(rep, where, entry, key: str, states, current):
+    """The scrubber reads history[] to render an entry as it stood at T."""
+    rows = entry.get("history")
+    if rows is None:
+        return
+    if not isinstance(rows, list) or not rows:
+        rep.err(f"{where}.history must be a non-empty list of {{ts, {key}}}")
+        return
+    stamps = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            rep.err(f"{where}.history[{i}] is not an object")
+            continue
+        try:
+            stamps.append(parse_ts(row.get("ts")))
+        except ValueError as e:
+            rep.err(f"{where}.history[{i}].ts {row.get('ts')!r} {e}")
+        if row.get(key) not in states:
+            rep.err(f"{where}.history[{i}].{key} {row.get(key)!r} not in {', '.join(states)}")
+        for extra in sorted(set(row) - {"ts", key}):
+            rep.warn(f"{where}.history[{i}] carries {extra!r}, which the scrubber ignores")
+    if any(b < a for a, b in zip(stamps, stamps[1:])):
+        rep.err(f"{where}.history runs backwards; the scrubber steps through it in order")
+    last = rows[-1] if isinstance(rows[-1], dict) else {}
+    if last.get(key) in states and last[key] != current:
+        rep.err(f"{where}.history ends on {last[key]!r} but {where}.{key} is {current!r}; the last entry is the "
+                f"state the page renders at now")
+
+
+def check_phase_clock(rep, R, phase: str):
+    """The strip reads live.phase and the tiles derive from timestamps, so the two state one story."""
+    timestamps = R.get("timestamps") if isinstance(R.get("timestamps"), dict) else {}
+    for key in PHASE_STAMPS[phase]:
+        if not timestamps.get(key):
+            rep.err(f"live.phase is {phase!r} but timestamps.{key} is null; the phase says the incident "
+                    f"reached that point, so the moment it did belongs on the clock the tiles read")
+    for key in TIMESTAMP_KEYS:
+        if not timestamps.get(key):
+            continue
+        reached = sorted(p for p in LIVE_PHASES if key in PHASE_STAMPS[p])
+        if reached and phase not in reached:
+            rep.err(f"timestamps.{key} is set but live.phase is {phase!r}; that clock belongs to "
+                    f"{' or '.join(reached)}")
+
+
+def check_live(rep, R, status: str):
+    live = R.get("live")
+    if live is None:
+        if status == "ongoing":
+            rep.err("meta.status is ongoing but the retro carries no live block; run retro.py live init")
+        return
+    if not isinstance(live, dict):
+        rep.err("live must be an object {updatedAt, phase, headline, currentState, next, source?}")
+        return
+    for extra in sorted(set(live) - set(LIVE_FIELDS)):
+        rep.err(f"live.{extra} is not one of {', '.join(LIVE_FIELDS)}")
+    try:
+        parse_ts(live.get("updatedAt"))
+    except ValueError as e:
+        rep.err(f"live.updatedAt {live.get('updatedAt')!r} {e}")
+    if live.get("phase") not in LIVE_PHASES:
+        rep.err(f"live.phase {live.get('phase')!r} not in {', '.join(LIVE_PHASES)}")
+    else:
+        check_phase_clock(rep, R, live["phase"])
+    for key, budget in (("headline", XS_HEAD_WORDS), ("currentState", LIVE_LINE_WORDS), ("next", LIVE_LINE_WORDS)):
+        value = live.get(key)
+        if not (isinstance(value, str) and value.strip()):
+            rep.err(f"live.{key} is missing or empty; the status strip reads it while the incident runs")
+        elif words(value) > budget:
+            rep.strict_warn(f"live.{key} is {words(value)} words; the strip shows {budget} or fewer")
+    source = live.get("source")
+    if source is None:
+        if status == "ongoing":
+            rep.err("live.source is unset on an ongoing retro; the page polls {repo, branch} for its updates")
+        return
+    if status != "ongoing":
+        rep.err(f"live.source still names a branch on a {status} retro; retro.py live finalize drops it when the "
+                f"page stops polling")
+    if not isinstance(source, dict):
+        rep.err("live.source must be {repo, branch}")
+        return
+    if not (isinstance(source.get("repo"), str) and REPO_SLUG.match(source["repo"])):
+        rep.err(f"live.source.repo {source.get('repo')!r} is not an owner/repo slug")
+    if not (isinstance(source.get("branch"), str) and GIT_REF.fullmatch(source.get("branch") or "")):
+        rep.err(f"live.source.branch {source.get('branch')!r} is not a branch name")
+    for extra in sorted(set(source) - {"repo", "branch"}):
+        rep.err(f"live.source.{extra} is not one of repo, branch")
 
 
 def check_link_list(rep, where, entry, closes_ok: bool, field: str = "links") -> list:
@@ -1041,6 +1144,11 @@ def check_causes(rep, R, known: set, sub_ids: set, status: str, slack_snapshots:
                             f"{CAUSE_BODY_WORDS}, and the rest is evidence to cite rather than prose to write")
         if c.get("incident") is not None and c["incident"] not in sub_ids:
             rep.err(f"{cid}: incident {c['incident']!r} is not in meta.subIncidents")
+        if c.get("identifiedAt") is not None:
+            try:
+                parse_ts(c["identifiedAt"])
+            except ValueError as e:
+                rep.err(f"{cid}.identifiedAt {c['identifiedAt']!r} {e}")
         if c.get("kind") == "root":
             roots[c.get("incident")] = roots.get(c.get("incident"), 0) + 1
         evidence = c.get("evidence")
@@ -1108,6 +1216,7 @@ def check_actions(rep, R, cause_ids: set, status: str) -> set:
         note = a.get("note")
         if note is not None and not (isinstance(note, str) and note.strip()):
             rep.err(f"{aid}.note must be a non-empty string")
+        check_history(rep, str(aid), a, "state", ACTION_STATES, state)
         links = check_link_list(rep, str(aid), a, True)
         if state == "done" and not links:
             rep.warn(f"{aid} is done but links nothing; the change that landed it belongs here")
@@ -1141,42 +1250,70 @@ def check_resolution(rep, R):
 
 
 class SummaryPanels(HTMLParser):
-    HEADINGS = ("h1", "h2", "h3")
-    BLOCKS = ("p", "li", "div")
+    """The deck contract: one xs-head, one xs-points list, an optional xs-stats block."""
+
+    HEADINGS = ("h1", "h2", "h3", "h4")
+    BLOCKS = ("p", "li", "div", "figcaption")
     SPACED = ("span", "b", "strong", "em", "br", "small", "code")
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.panels, self.depth, self.buf, self.into = [], 0, [], None
+        self.panels, self.depth, self.buf, self.into, self.zones = [], 0, [], None, []
+
+    def _zone(self):
+        return self.zones[-1][1] if self.zones else None
 
     def _flush(self):
         text = re.sub(r"\s+", " ", "".join(self.buf)).strip()
-        self.buf = []
-        if text and self.into == "head":
-            self.panels[-1]["heading"] = text
-        elif text and self.into == "body":
-            self.panels[-1]["body"].append(text)
+        self.buf, into = [], self.into
         self.into = None
+        if not text:
+            return
+        panel = self.panels[-1]
+        if into == "head":
+            panel["heading"] = text
+            return
+        zone = self._zone()
+        if zone == "stats":
+            panel["stats"].append(text)
+        elif zone == "points" and into == "point":
+            panel["points"].append(text)
+        else:
+            panel["stray"].append(text)
 
     def handle_starttag(self, tag, attrs):
-        if self.depth:
-            self.depth += 1
-            if tag in self.HEADINGS or tag in self.BLOCKS:
-                self._flush()
-                self.into = "head" if tag in self.HEADINGS else "body"
-            elif tag in self.SPACED:
-                self.buf.append(" ")
-            elif tag == "figure":
-                self.panels[-1]["figure"] = True
-        elif tag == "section" and "xs-panel" in classes_of(attrs):
-            self.depth = 1
-            self.panels.append({"kind": dict(attrs).get("data-kind"), "heading": "", "body": [], "figure": False})
+        if not self.depth:
+            if tag == "section" and "xs-panel" in classes_of(attrs):
+                self.depth, self.zones = 1, []
+                self.panels.append({"kind": dict(attrs).get("data-kind"), "heading": "", "headTag": "",
+                                    "headClasses": set(), "points": [], "stats": [], "stray": [], "figure": False})
+            return
+        self.depth += 1
+        classes = classes_of(attrs)
+        if "xs-stats" in classes:
+            self.zones.append((self.depth, "stats"))
+        elif tag == "ul" and "xs-points" in classes:
+            self.zones.append((self.depth, "points"))
+        if tag in self.HEADINGS:
+            self._flush()
+            self.into = "head"
+            self.panels[-1]["headTag"] = tag
+            self.panels[-1]["headClasses"] = classes
+        elif tag in self.BLOCKS:
+            self._flush()
+            self.into = "point" if tag == "li" else "block"
+        elif tag in self.SPACED:
+            self.buf.append(" ")
+        elif tag == "figure":
+            self.panels[-1]["figure"] = True
 
     def handle_endtag(self, tag):
         if not self.depth:
             return
         if tag in self.HEADINGS or tag in self.BLOCKS:
             self._flush()
+        if self.zones and self.zones[-1][0] == self.depth:
+            self.zones.pop()
         self.depth -= 1
         if not self.depth:
             self._flush()
@@ -1191,7 +1328,7 @@ def summary_panels(html: str) -> list:
     parser.feed(html)
     parser.close()
     for panel in parser.panels:
-        panel["text"] = " ".join([panel["heading"]] + panel["body"]).strip()
+        panel["text"] = " ".join([panel["heading"]] + panel["points"] + panel["stray"]).strip()
     return parser.panels
 
 
@@ -1199,7 +1336,10 @@ def summary_markdown(html: str) -> list:
     out = []
     for panel in summary_panels(html):
         out += ["", f"### {panel['heading'] or SUMMARY_KIND_TITLES.get(panel['kind'], 'Summary')}", ""]
-        out += panel["body"]
+        out += [f"- {point}" for point in panel["points"]]
+        out += panel["stray"]
+        if panel["stats"]:
+            out.append(" · ".join(panel["stats"]))
     return out[1:] if out else []
 
 
@@ -1244,25 +1384,38 @@ def check_summary(rep, root: Path, known: set, status: str, title: str = ""):
     if STATUS_RANK.get(status, 0) >= STATUS_RANK["reviewed"]:
         for missing in [k for k in SUMMARY_KINDS if k not in kinds]:
             rep.strict_warn(f"{SUMMARY_PAGE} never answers {missing!r}; a reviewed retro answers every question")
-    total = 0
     for panel in panels:
         where = f"{SUMMARY_PAGE} panel {panel['kind'] or 'with no data-kind'}"
-        count = words(panel["text"])
-        total += count
-        if count > SUMMARY_PANEL_WORDS:
-            rep.strict_warn(f"{where} is {count} words; a panel answers its question in {SUMMARY_PANEL_WORDS} or fewer")
         if not panel["heading"]:
-            rep.strict_warn(f"{where} carries no heading; the heading is the answer, the body is the evidence")
-        elif words(panel["heading"]) < 4:
-            rep.strict_warn(f"{where} heads on {panel['heading']!r}, which reads as a label; the heading is the answer")
-        elif panel is panels[0] and title and overlap(panel["heading"], title) >= TITLE_ECHO:
-            rep.strict_warn(f"{where} heads on {panel['heading']!r}, which restates meta.title a few lines above it; "
-                            f"the first panel carries the reader forward from the headline, never back over it")
+            rep.strict_warn(f"{where} carries no heading; the panel is one h3.xs-head answer over its points")
+        else:
+            if panel["headTag"] != "h3" or "xs-head" not in panel["headClasses"]:
+                rep.err(f"{where} heads on <{panel['headTag']}> with no xs-head class; the deck reads one "
+                        f"<h3 class=\"xs-head\"> per panel")
+            if words(panel["heading"]) > XS_HEAD_WORDS:
+                rep.strict_warn(f"{where} heads on {words(panel['heading'])} words; a headline lands in "
+                                f"{XS_HEAD_WORDS} or fewer, and the detail moves into the points")
+            elif words(panel["heading"]) < 4:
+                rep.strict_warn(f"{where} heads on {panel['heading']!r}, which reads as a label; the heading is the answer")
+            elif panel is panels[0] and title and overlap(panel["heading"], title) >= TITLE_ECHO:
+                rep.strict_warn(f"{where} heads on {panel['heading']!r}, which restates meta.title a few lines above it; "
+                                f"the first panel carries the reader forward from the headline, never back over it")
+        if not panel["points"]:
+            rep.strict_warn(f"{where} carries no <ul class=\"xs-points\">; the heading is the answer and the points "
+                            f"are the evidence for it")
+        elif len(panel["points"]) > XS_POINTS:
+            rep.strict_warn(f"{where} carries {len(panel['points'])} points; a panel a reader scans carries "
+                            f"{XS_POINTS} or fewer")
+        for point in panel["points"]:
+            if words(point) > XS_POINT_WORDS:
+                rep.strict_warn(f"{where} carries a {words(point)}-word point; each reads as one line of "
+                                f"{XS_POINT_WORDS} words or fewer")
+        for stray in panel["stray"]:
+            rep.strict_warn(f"{where} carries prose outside its points: {first_line(stray, 60)!r}; the panel is a "
+                            f"headline, its points, and optionally a .xs-stats block")
         for cited in ID_TOKEN.findall(panel["text"]):
             if cited not in known:
                 rep.warn(f"{where} cites {cited}, which no register defines")
-    if total > SUMMARY_BUDGET:
-        rep.strict_warn(f"{SUMMARY_PAGE} is {total} words; the summary a reader finishes is {SUMMARY_BUDGET} or fewer")
 
 
 def first_sentence(text: str) -> str:
@@ -1319,6 +1472,7 @@ def check_hypotheses(rep, R, known: set) -> set:
             rep.err(f"{hid}.status {hyp.get('status')!r} not in {', '.join(HYPOTHESIS_STATES)}")
         if hyp.get("status") == "ruled-out" and not (isinstance(hyp.get("exonerated"), str) and hyp["exonerated"].strip()):
             rep.err(f"{hid} is ruled out with no 'exonerated'; record what cleared it")
+        check_history(rep, str(hid), hyp, "status", HYPOTHESIS_STATES, hyp.get("status"))
         for cited in hyp.get("evidence") or []:
             if isinstance(cited, str) and not cited.startswith("https://") and cited not in known:
                 rep.err(f"{hid}.evidence cites {cited}, which no register defines")
@@ -2024,10 +2178,11 @@ def check(args) -> int:
         print("ERROR: meta must be an object")
         return 1
     status = meta.get("status")
-    draft = status == "draft"
+    provisional = status in PROVISIONAL
     sub_ids = check_meta(rep, R, meta)
+    check_live(rep, R, status)
     evidence_lists = check_shapes(rep, R)
-    ts = check_timestamps(rep, R, draft)
+    ts = check_timestamps(rep, R, provisional)
     slack_snapshots = slack_permalinks_in(root, R)
     check_windows(rep, R, ts, sub_ids)
     window_ids = {str(w.get("id")) for w in entries(R, "windows")}
@@ -2052,7 +2207,7 @@ def check(args) -> int:
     check_citations(rep, R, known)
     check_handles_and_twins(rep, R, root, known)
     writer = sibling_module("retro_prose")
-    if writer is not None:
+    if writer is not None and status != "ongoing":
         writer.check_lock(sys.modules[__name__], rep, R, root)
     check_derived_prose(rep, R)
     check_capitalisation(rep, R)
@@ -2435,6 +2590,11 @@ def prose_missing(args) -> int:
     return 1
 
 
+def live_missing(args) -> int:
+    print("live: scripts/retro_live.py is missing; the live-incident commands ship with it", file=sys.stderr)
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2491,6 +2651,13 @@ def main():
         pr = sub.add_parser("prose", help="write every authored sentence through gpt-6-astra (scripts/retro_prose.py)")
         pr.add_argument("rest", nargs=argparse.REMAINDER)
         pr.set_defaults(fn=prose_missing)
+    updater = sibling_module("retro_live")
+    if updater is not None:
+        updater.add_live_parser(sub, sys.modules[__name__])
+    else:
+        lv = sub.add_parser("live", help="keep a retro current while the incident runs (scripts/retro_live.py)")
+        lv.add_argument("rest", nargs=argparse.REMAINDER)
+        lv.set_defaults(fn=live_missing)
     evidence = sibling_module("retro_evidence")
     if evidence is not None:
         evidence.add_evidence_parsers(sub)

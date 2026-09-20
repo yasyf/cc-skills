@@ -7,6 +7,43 @@
 and an `example`. `retro.py check` validates every entry of `components` in
 `retro.json` against its schema.
 
+## Page order
+
+Below the title, subtitle, tags, and status, the page shows the status strip,
+executive summary, What's changed, timeline, and causes, followed by impact,
+resolution, lessons, actions, evidence, and the remaining sections.
+What's changed is a collapsed one-line revision summary. Overview keeps
+its tiles, windows, and links; it does not repeat the summary prose.
+
+The status strip stays visible with an Ongoing, Mitigated, or Resolved pill,
+duration, time to detect and mitigate, affected teams, and open-action count.
+A live record also shows how long ago it updated. The executive summary is a
+deck with tabs on desktop and a stacked accordion on mobile devices, first
+panel open. Each panel follows the [summary contract](schema.md#summaryhtml-the-executive-summary).
+
+## The time scrubber
+
+A sticky bar under the title block carries window bands, key-moment ticks,
+a draggable playhead, left and right controls to step between events, and a
+Live/Now reset. The rail stays sticky on the left. Its caption shows the
+selected time, phase, and latest key event. `?at=<iso>` opens the page at
+that instant; use a timestamp with a UTC offset. The separate `?since=`
+query parameter still selects a revision comparison and is unaffected.
+
+At time T, timeline entries after T are hidden, windows are clipped, and
+tiles use only timestamps at or before T. Actions and hypotheses replay
+their state from `actions[].history` and `hypotheses[].history`; causes stay
+hidden until `causes[].identifiedAt`. These fields are optional. An entry
+without them keeps its static, current state with a muted "no time data"
+mark; the scrubber never infers a history.
+
+While `meta.status` is `ongoing` and `live.source` is set, the page polls
+`retro.json` from `live/<slug>` through the GitHub contents API every
+30 seconds, using the token from `ai.json`. A changed SHA redraws the page
+without losing scroll position or open disclosures. A pulsing Live pill
+marks the feed; five minutes without an update shows a staleness warning.
+A failed fetch uses the merged record.
+
 ## How blocks reach the page
 
 Most `ir.*` blocks render without a declaration. The page derives them from
@@ -60,9 +97,10 @@ transcript text out of the summary.
 
 Timeline entries, causes, decisions, and unknowns start closed and show `h`
 in place of their full wording. Notes also start closed, using `t` as their
-heading. Lesson columns, hypothesis and recognition tables, the glossary,
-and revision history use the same disclosure. The action table shows `h`;
-the Full wording toggle reveals its full titles and notes.
+heading. Lessons form a vertical stack of well, wrong, and lucky groups
+with counts; one toggle opens or closes all three. Hypothesis and recognition
+tables, the glossary, and revision history use the same disclosure. Action
+cards show `h`; the Full wording toggle reveals their full titles and notes.
 
 The Overview link row starts behind a disclosure showing its link count.
 In Evidence, Sentry issues, Linear issues, builds, pull requests, runs, and
@@ -248,15 +286,17 @@ permalink open the same single-message card inline.
 
 The action tracker. A progress bar reads "N of M done"; an action is done
 when its `state` is `done` or when a link marked `closes` has merged on
-GitHub. Filters narrow the table by state and a toggle groups the rows by
+GitHub. Filters narrow the card list by state and a toggle groups the cards by
 state, owner or source. `group` sets the starting grouping and
 `showDone: false` hides done and dropped items.
 
-Each row shows the id, handle, owner, and source; the source is a citation
+Each card shows the id, handle, owner, and source; the source is a citation
 chip or "Lessons" / "Review". It also shows the state pill, due date, and
 linked pull requests and issues with their live GitHub state when the site
 carries a token. The Full wording toggle reveals the title and any action
 note beneath the handle; the due date remains visible in either mode.
+The title wraps beside the owner and a fixed-width state column sized to
+its badge. The due date occupies its own line, without horizontal scrolling.
 
 ```json
 {"kind": "ir.actions", "group": "owner", "showDone": false}
