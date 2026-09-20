@@ -7,6 +7,13 @@ page renders it from disk. `retro.py evidence fetch` writes the Datadog files.
 The authoring agent writes Slack files through its own Slack tooling, then
 `retro.py check` validates the full set.
 
+While the incident is ongoing, `retro.py live sync` builds Slack snapshots
+from `<incident-dir>/slack-log.jsonl` in `--docs <checkout>` without calling a
+model. It groups messages by channel and thread, replaces customer names
+through `state.teams[].aliases`, and registers the files in `evidence.slack`.
+Each sync checks and force-pushes `retro.json` and `evidence/slack/` to
+`live/<slug>`. Datadog snapshots still use `evidence fetch` after all-clear.
+
 Three formats exist, each named by a `schema` string carrying a version:
 `ir.notebook/1`, `ir.monitor/1`, `ir.slack/1`. A renderer refuses a file
 whose `schema` it does not know.
@@ -242,6 +249,10 @@ it did not screen the payload.
 `retro.json` and `NOTES.md`. It also scans every text file under `evidence/`,
 so a snapshot written with `--allow-terms` still fails the check until the
 terms are removed or the list is updated.
+
+Every push to `live/<slug>` passes this check after the codename scrub.
+No CI guards that branch. Configure the forbidden-terms source before
+syncing; resolve a warning about unchecked names before publishing.
 
 ## Write Slack snapshots
 
