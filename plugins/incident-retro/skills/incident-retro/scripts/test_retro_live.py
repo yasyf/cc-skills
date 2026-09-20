@@ -413,6 +413,118 @@ class SnapshotRebuild(unittest.TestCase):
         self.assertFalse(orphan.exists(), "the sync rebuilds the snapshot set from the log")
 
 
+class PhaseAndTimestamps(unittest.TestCase):
+    """The strip reads live.phase and the tiles derive from timestamps; they cannot disagree."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        run(retro_live.sync, args(self.incident, self.docs))
+
+    def record(self) -> dict:
+        return json.loads((self.root / "retro.json").read_text())
+
+    def state(self, **changes):
+        state = json.loads((self.incident / "state.json").read_text())
+        state.update(changes)
+        (self.incident / "state.json").write_text(json.dumps(state))
+
+    def test_a_mitigated_phase_stamps_engaged_and_mitigated(self):
+        record = self.record()
+        self.assertEqual(record["live"]["phase"], "mitigated")
+        self.assertEqual(record["timestamps"]["engaged"], "2026-09-02T16:10:00-07:00")
+        self.assertEqual(record["timestamps"]["mitigated"], "2026-09-02T16:52:00-07:00")
+
+    def test_the_causal_deploy_before_onset_is_not_the_mitigation(self):
+        """The fixture's only deploy is the one that caused the incident, at 13:40, before onset."""
+        mitigated = self.record()["timestamps"]["mitigated"]
+        self.assertTrue(mitigated, "the mitigated phase left the clock unset")
+        self.assertGreater(retro.parse_ts(mitigated), retro.parse_ts("2026-09-02T13:40:00-07:00"))
+
+    def test_the_stamps_stay_in_order(self):
+        stamps = [retro.parse_ts(v) for v in
+                  (self.record()["timestamps"][k] for k in retro.TIMESTAMP_KEYS) if v]
+        self.assertEqual(stamps, sorted(stamps))
+
+    def test_a_stamp_is_carried_forward_rather_than_moved(self):
+        record = self.record()
+        record["timestamps"]["mitigated"] = "2026-09-02T16:30:00-07:00"
+        (self.root / "retro.json").write_text(json.dumps(record))
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.assertEqual(self.record()["timestamps"]["mitigated"], "2026-09-02T16:30:00-07:00")
+
+    def test_a_phase_no_timestamp_in_state_explains_is_stamped_by_the_sync(self):
+        self.state(prs=[], deploys=[], detected_at="2026-09-02T15:25:32-07:00")
+        run(retro_live.sync, args(self.incident, self.docs))
+        first = self.record()
+        self.assertEqual(first["live"]["phase"], "mitigated")
+        self.assertTrue(first["timestamps"]["mitigated"], "the phase implies a mitigation moment")
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.assertEqual(self.record()["timestamps"]["mitigated"], first["timestamps"]["mitigated"])
+
+    def test_the_all_clear_stamps_resolved(self):
+        self.state(all_clear_at="2026-09-02T17:30:00-07:00")
+        run(retro_live.sync, args(self.incident, self.docs))
+        record = self.record()
+        self.assertEqual(record["live"]["phase"], "resolved")
+        self.assertEqual(record["timestamps"]["resolved"], "2026-09-02T17:30:00-07:00")
+        self.assertEqual(record["timestamps"]["allClear"], "2026-09-02T17:30:00-07:00")
+
+
+class PhaseAgreesWithTimestamps(unittest.TestCase):
+    def report(self, phase, timestamps):
+        record = {"timestamps": timestamps,
+                  "live": {"updatedAt": "2026-09-02T16:00:00Z", "phase": phase, "headline": "Runs stalled for Polar",
+                           "currentState": "One issue is open.", "next": "Waiting on the hotfix.",
+                           "source": {"repo": "Forge-AI/design-docs", "branch": "live/x"}}}
+        rep = retro.Report(False)
+        retro.check_live(rep, record, "ongoing")
+        return rep
+
+    def test_a_mitigated_phase_with_no_mitigation_timestamp_is_an_error(self):
+        rep = self.report("mitigated", {"engaged": "2026-09-02T16:10:00-07:00", "mitigated": None})
+        self.assertTrue(any("timestamps.mitigated" in e for e in rep.errors))
+
+    def test_a_mitigation_timestamp_an_earlier_phase_denies_is_an_error(self):
+        rep = self.report("investigating", {"engaged": "2026-09-02T16:10:00-07:00",
+                                            "mitigated": "2026-09-02T16:52:00-07:00"})
+        self.assertTrue(any("mitigated" in e for e in rep.errors))
+
+    def test_an_agreeing_phase_and_clock_pass(self):
+        rep = self.report("mitigated", {"engaged": "2026-09-02T16:10:00-07:00",
+                                        "mitigated": "2026-09-02T16:52:00-07:00"})
+        self.assertEqual(rep.errors, [])
+
+
+class MonitorIds(unittest.TestCase):
+    """A string id reached the push gate as an unreadable failure; it fails at read time now."""
+
+    def state(self, value):
+        incident = incident_dir()
+        state = json.loads((incident / "state.json").read_text())
+        state["monitors"] = [{"id": value, "url": "https://app.datadoghq.com/monitors/312516332",
+                              "fired_at": "2026-09-02T15:25:32-07:00"}]
+        (incident / "state.json").write_text(json.dumps(state))
+        return incident
+
+    def test_a_digit_string_id_is_read_as_the_integer_it_names(self):
+        state = retro_live.read_state(self.state("312516332"))
+        self.assertEqual(state["monitors"][0]["id"], 312516332)
+
+    def test_a_non_numeric_id_fails_at_read_time(self):
+        with self.assertRaises(SystemExit) as refused:
+            retro_live.read_state(self.state("monitor-312516332"))
+        self.assertIn("monitors[0].id", str(refused.exception))
+
+    def test_a_string_id_reaches_the_retro_as_an_integer(self):
+        incident, docs = self.state("312516332"), docs_checkout()
+        self.assertEqual(run(retro_live.init, args(incident, docs)), 0)
+        self.assertEqual(run(retro_live.sync, args(incident, docs)), 0)
+        record = json.loads((docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())
+        self.assertEqual(record["evidence"]["monitors"][0]["id"], 312516332)
+
+
 class StateIsReadUnderTheClaim(unittest.TestCase):
     """Finding 5: a sync that waited for the claim published the state it read before waiting."""
 
@@ -447,7 +559,8 @@ class LiveBlock(unittest.TestCase):
                  "currentState": "One of two issues is open.", "next": "Waiting on the hotfix.",
                  "source": {"repo": "Forge-AI/design-docs", "branch": "live/x"}}
         block.update(extra)
-        return {"live": block}
+        return {"timestamps": {"onset": "2026-09-02T14:02:00-07:00", "engaged": "2026-09-02T15:40:00-07:00"},
+                "live": block}
 
     def test_a_well_formed_block_passes(self):
         self.assertEqual(self.report(self.live()).errors, [])

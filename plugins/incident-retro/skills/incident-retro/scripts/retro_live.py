@@ -102,11 +102,29 @@ def scrub_state(state: dict, scrub) -> dict:
     return out
 
 
+def numeric_id(holder: dict, where: str):
+    """Datadog ids are integers on the page, and some state.json files carry them as strings."""
+    value = holder.get("id")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        holder["id"] = int(value.strip())
+        return
+    raise SystemExit(f"live: {where}.id is {value!r}; a Datadog id is an integer, or the digits of one "
+                     f"as a string")
+
+
 def read_state(incident: Path) -> dict:
     path = incident / STATE
     if not path.exists():
         raise SystemExit(f"live: {path} not found; the incident skill writes it at intake")
-    return json.loads(path.read_text())
+    state = json.loads(path.read_text())
+    for i, monitor in enumerate(state.get("monitors") or []):
+        numeric_id(monitor, f"{STATE} monitors[{i}]")
+    notebook = state.get("notebook")
+    if isinstance(notebook, dict) and notebook.get("id") is not None:
+        numeric_id(notebook, f"{STATE} notebook")
+    return state
 
 
 def read_slack(incident: Path) -> list:
@@ -135,17 +153,47 @@ def issue_number(issue_id) -> str:
     return found.group(1) if found else ""
 
 
-def live_phase(state: dict) -> str:
+def response_floor(state: dict, retro):
+    """Nothing before detection is a response to the incident; the deploy that caused it is not
+    the deploy that mitigated it."""
+    return retro.try_ts(state.get("detected_at")) or retro.try_ts(state.get("started_at"))
+
+
+def earliest(values, retro, floor):
+    found = [(when, v) for v, when in ((v, retro.try_ts(v)) for v in values)
+             if when and (floor is None or when >= floor)]
+    return min(found)[1] if found else None
+
+
+def live_phase(state: dict, retro) -> str:
     if state.get("all_clear_at"):
         return "resolved"
     dispositions = {e.get("disposition") for e in state.get("inventory") or []}
-    if state.get("deploys") or dispositions & {"fixed", "mitigated", "already_fixed"}:
+    floor = response_floor(state, retro)
+    if dispositions & {"fixed", "mitigated", "already_fixed"} or earliest(
+            [d.get("at") for d in state.get("deploys") or []], retro, floor):
         return "mitigated"
     if state.get("diagnoses"):
         return "identified"
     if state.get("detected_at"):
         return "investigating"
     return "detected"
+
+
+def implied_timestamps(state: dict, retro, phase: str, previous: dict, now: datetime.datetime) -> dict:
+    """The phase is a claim about the clock, so stamp what it claims. A moment state.json cannot
+    date is stamped by the sync that first saw it and carried forward from there."""
+    wanted = retro.PHASE_STAMPS.get(phase, ())
+    floor = response_floor(state, retro)
+    prs, deploys = state.get("prs") or [], state.get("deploys") or []
+    sources = {
+        "engaged": [p.get("opened_at") for p in prs] + [d.get("at") for d in deploys],
+        "mitigated": [d.get("at") for d in deploys] + [p.get("merged_at") for p in prs
+                                                       if p.get("kind") == "hotfix"],
+        "resolved": [state.get("all_clear_at")],
+        "allClear": [state.get("all_clear_at")],
+    }
+    return {key: previous.get(key) or earliest(sources[key], retro, floor) or stamp(now) for key in wanted}
 
 
 def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
@@ -160,7 +208,7 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
         nxt = clip("Open: " + "; ".join(e.get("summary", "") for e in open_issues[:2]), retro.STATEMENT_WORDS)
     else:
         nxt = "Every issue has a disposition; waiting on the all-clear."
-    block = {"updatedAt": stamp(now), "phase": live_phase(state),
+    block = {"updatedAt": stamp(now), "phase": live_phase(state, retro),
              "headline": clip(state.get("title") or "", retro.XS_HEAD_WORDS),
              "currentState": clip(counts, retro.STATEMENT_WORDS), "next": nxt}
     if source is not None:
@@ -298,10 +346,11 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     meta["status"] = "ongoing"
     meta["teams"] = [t["codename"] for t in state.get("teams") or [] if isinstance(t, dict) and t.get("codename")]
     timestamps = R.setdefault("timestamps", {})
+    previous = dict(timestamps)
     timestamps["onset"] = state.get("started_at")
     timestamps["detected"] = state.get("detected_at")
-    timestamps["allClear"] = state.get("all_clear_at")
     R["live"] = live_block(state, retro, now, source)
+    timestamps.update(implied_timestamps(state, retro, R["live"]["phase"], previous, now))
     return R
 
 

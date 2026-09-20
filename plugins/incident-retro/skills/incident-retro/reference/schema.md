@@ -120,12 +120,35 @@ bullets, and print renders every panel expanded.
 authored. `updatedAt` is the sync's timestamp and drives the page's staleness
 warning. `phase` is one of `detected`, `investigating`, `identified`,
 `mitigated`, `resolved` (`LIVE_PHASES`), derived from the all-clear, the
-deploys, the dispositions and the diagnoses, in that order. `headline` reads
+dispositions, the deploys and the diagnoses, in that order. Only a deploy at or
+after `detected_at` counts, since the deploy that caused the incident is not
+the one that mitigated it. `headline` reads
 in `XS_HEAD_WORDS = 14` words or fewer; `currentState` and `next` in
 `STATEMENT_WORDS = 25`. `source` names the branch the page polls through the
 GitHub contents API while the incident runs; `live finalize` drops it, and
 `check` errors on a `source` that outlives `status: "ongoing"` or on an
 `ongoing` retro carrying no `live` block at all.
+
+`phase` is a claim about the clock, so `check` holds the two to one story
+through `PHASE_STAMPS`, in both directions: a phase whose implied timestamps
+are null is an error, and a timestamp no phase that far along would explain is
+an error too.
+
+| `phase` | the timestamps it claims |
+|---|---|
+| `detected` | none beyond `onset` and `detected` |
+| `investigating`, `identified` | `engaged` |
+| `mitigated` | `engaged`, `mitigated` |
+| `resolved` | `engaged`, `mitigated`, `resolved`, `allClear` |
+
+`sync` stamps what the phase claims, from the best moment `state.json` carries:
+`engaged` from the earliest pull request opened or deploy, `mitigated` from the
+earliest deploy or merged hotfix, `resolved` and `allClear` from `all_clear_at`.
+Every candidate must fall at or after `detected_at`, so the causal deploy is
+never read as the mitigation. A moment `state.json` cannot date is stamped by
+the sync that first saw the phase and carried forward from there, as
+`identifiedAt` is, so the tiles can compute time-to-mitigate the moment the
+strip says "Mitigated".
 
 ## As-of-T: `history`, `identifiedAt`
 
@@ -712,5 +735,5 @@ Errors unless noted; `--strict` promotes the strict warnings.
 18. Revision history integrity.
 19. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
 20. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
-21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
+21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
 22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
