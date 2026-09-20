@@ -176,6 +176,9 @@ DECISION_BODY_WORDS = 60
 UNKNOWN_BODY_WORDS = 45
 LIVE_PHASES = ("detected", "investigating", "identified", "mitigated", "resolved")
 LIVE_FIELDS = ("updatedAt", "phase", "headline", "currentState", "next", "source")
+PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
+                "mitigated": ("engaged", "mitigated"),
+                "resolved": ("engaged", "mitigated", "resolved", "allClear")}
 LIVE_LINE_WORDS = 25
 SUMMARY_KINDS = ("what-happened", "impact", "why", "what-changed", "still-open")
 SUMMARY_KIND_TITLES = {"what-happened": "What happened", "impact": "What it cost", "why": "Why it happened",
@@ -877,6 +880,22 @@ def check_history(rep, where, entry, key: str, states, current):
                 f"state the page renders at now")
 
 
+def check_phase_clock(rep, R, phase: str):
+    """The strip reads live.phase and the tiles derive from timestamps, so the two state one story."""
+    timestamps = R.get("timestamps") if isinstance(R.get("timestamps"), dict) else {}
+    for key in PHASE_STAMPS[phase]:
+        if not timestamps.get(key):
+            rep.err(f"live.phase is {phase!r} but timestamps.{key} is null; the phase says the incident "
+                    f"reached that point, so the moment it did belongs on the clock the tiles read")
+    for key in TIMESTAMP_KEYS:
+        if not timestamps.get(key):
+            continue
+        reached = sorted(p for p in LIVE_PHASES if key in PHASE_STAMPS[p])
+        if reached and phase not in reached:
+            rep.err(f"timestamps.{key} is set but live.phase is {phase!r}; that clock belongs to "
+                    f"{' or '.join(reached)}")
+
+
 def check_live(rep, R, status: str):
     live = R.get("live")
     if live is None:
@@ -894,6 +913,8 @@ def check_live(rep, R, status: str):
         rep.err(f"live.updatedAt {live.get('updatedAt')!r} {e}")
     if live.get("phase") not in LIVE_PHASES:
         rep.err(f"live.phase {live.get('phase')!r} not in {', '.join(LIVE_PHASES)}")
+    else:
+        check_phase_clock(rep, R, live["phase"])
     for key, budget in (("headline", XS_HEAD_WORDS), ("currentState", LIVE_LINE_WORDS), ("next", LIVE_LINE_WORDS)):
         value = live.get(key)
         if not (isinstance(value, str) and value.strip()):
