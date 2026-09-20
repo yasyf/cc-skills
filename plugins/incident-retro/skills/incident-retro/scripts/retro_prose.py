@@ -219,8 +219,9 @@ def budgets(retro) -> list:
         f"an unknown's why is {retro.UNKNOWN_BODY_WORDS}",
         f"a plain twin (p) is {retro.TWIN_WORDS} words or fewer, or a third of the wording it twins, and it names no "
         f"register id and no file path",
-        f"a summary panel including its heading is {retro.SUMMARY_PANEL_WORDS} words or fewer, and the whole summary "
-        f"is {retro.SUMMARY_BUDGET}",
+        f"a summary panel is one <h3 class=\"xs-head\"> headline of {retro.XS_HEAD_WORDS} words or fewer over a "
+        f"<ul class=\"xs-points\"> of {retro.XS_POINTS} or fewer <li> points, each {retro.XS_POINT_WORDS} words or "
+        f"fewer; the headline is the answer and the points are the evidence, with no prose outside them",
         f"a section takeaway is {retro.TAKEAWAY_WORDS} words or fewer, a section opener one line",
         f"a lesson is {retro.LESSON_WORDS} words or fewer, a glossary definition {retro.GLOSSARY_WORDS}, an open "
         f"question {retro.UNKNOWN_WORDS}, a recognize cell {retro.RECOGNIZE_WORDS}",

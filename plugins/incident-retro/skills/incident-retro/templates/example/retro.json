@@ -369,7 +369,8 @@
           "label": "the fix"
         }
       ],
-      "component": "limiter-cells"
+      "component": "limiter-cells",
+      "identifiedAt": "2026-08-14T10:31:00-07:00"
     },
     {
       "id": "C2",
@@ -381,7 +382,8 @@
       "evidence": [
         "T1",
         "https://buildkite.com/acme/edge-config/builds/8812"
-      ]
+      ],
+      "identifiedAt": "2026-08-14T10:31:00-07:00"
     },
     {
       "id": "C3",
@@ -393,7 +395,8 @@
       "evidence": [
         "https://app.datadoghq.com/monitors/7781234",
         "T3"
-      ]
+      ],
+      "identifiedAt": "2026-08-14T11:20:00-07:00"
     }
   ],
   "resolution": {
@@ -482,6 +485,16 @@
       "evidence": [
         "T7",
         "https://app.datadoghq.com/notebook/4410021"
+      ],
+      "history": [
+        {
+          "ts": "2026-08-14T09:47:00-07:00",
+          "status": "open"
+        },
+        {
+          "ts": "2026-08-14T10:02:00-07:00",
+          "status": "ruled-out"
+        }
       ]
     },
     {
@@ -492,6 +505,16 @@
       "exonerated": "The comparison found the same `rate-limit-v7` profile in both regions. The pipeline has no canary stage to hold one region back.",
       "evidence": [
         "C2"
+      ],
+      "history": [
+        {
+          "ts": "2026-08-14T09:55:00-07:00",
+          "status": "open"
+        },
+        {
+          "ts": "2026-08-14T10:14:00-07:00",
+          "status": "ruled-out"
+        }
       ]
     },
     {
@@ -499,7 +522,17 @@
       "t": "A Redis eviction removed the limiter's per-tenant counters",
       "h": "per-tenant counter eviction",
       "status": "ruled-out",
-      "exonerated": "Eviction counters stayed flat, and memory remained well below the limit throughout the window. Refusals followed the override map rather than memory pressure."
+      "exonerated": "Eviction counters stayed flat, and memory remained well below the limit throughout the window. Refusals followed the override map rather than memory pressure.",
+      "history": [
+        {
+          "ts": "2026-08-14T10:05:00-07:00",
+          "status": "open"
+        },
+        {
+          "ts": "2026-08-14T10:22:00-07:00",
+          "status": "ruled-out"
+        }
+      ]
     },
     {
       "id": "H4",
@@ -509,6 +542,16 @@
       "exonerated": "The build emitted every map entry. The fall-through came from the missing default, which the schema test now checks for.",
       "evidence": [
         "C1"
+      ],
+      "history": [
+        {
+          "ts": "2026-08-14T10:18:00-07:00",
+          "status": "open"
+        },
+        {
+          "ts": "2026-08-14T10:31:00-07:00",
+          "status": "confirmed"
+        }
       ]
     }
   ],
@@ -601,7 +644,21 @@
           "closes": true
         }
       ],
-      "note": "The burst floor and config schema test are complete."
+      "note": "The burst floor and config schema test are complete.",
+      "history": [
+        {
+          "ts": "2026-08-14T14:10:00-07:00",
+          "state": "todo"
+        },
+        {
+          "ts": "2026-08-14T16:05:00-07:00",
+          "state": "in-progress"
+        },
+        {
+          "ts": "2026-08-14T18:40:00-07:00",
+          "state": "done"
+        }
+      ]
     },
     {
       "id": "AI2",
@@ -617,7 +674,17 @@
           "closes": true
         }
       ],
-      "note": "The shorter checkout monitor window is in place."
+      "note": "The shorter checkout monitor window is in place.",
+      "history": [
+        {
+          "ts": "2026-08-14T14:10:00-07:00",
+          "state": "todo"
+        },
+        {
+          "ts": "2026-08-18T11:00:00-07:00",
+          "state": "done"
+        }
+      ]
     },
     {
       "id": "AI3",
@@ -639,7 +706,17 @@
           "label": "OPS-51"
         }
       ],
-      "note": "The regional rollout is still in progress."
+      "note": "The regional rollout is still in progress.",
+      "history": [
+        {
+          "ts": "2026-08-14T14:10:00-07:00",
+          "state": "todo"
+        },
+        {
+          "ts": "2026-08-25T09:30:00-07:00",
+          "state": "in-progress"
+        }
+      ]
     },
     {
       "id": "AI4",
@@ -649,7 +726,13 @@
       "source": "lessons",
       "state": "todo",
       "due": "2026-09-30",
-      "note": "The limiter runbook remains to be written."
+      "note": "The limiter runbook remains to be written.",
+      "history": [
+        {
+          "ts": "2026-08-20T17:00:00-07:00",
+          "state": "todo"
+        }
+      ]
     },
     {
       "id": "AI5",
@@ -658,7 +741,17 @@
       "owner": "Marcus Bell",
       "source": "review",
       "state": "dropped",
-      "note": "The faster checkout monitor covers the same detection gap at no extra cost."
+      "note": "The faster checkout monitor covers the same detection gap at no extra cost.",
+      "history": [
+        {
+          "ts": "2026-08-20T17:00:00-07:00",
+          "state": "todo"
+        },
+        {
+          "ts": "2026-08-27T15:45:00-07:00",
+          "state": "dropped"
+        }
+      ]
     }
   ],
   "lessons": {

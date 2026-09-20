@@ -1,0 +1,33 @@
+{
+  "incident_id": "2026-09-02-executors-cannot-reach-browsers",
+  "retro_slug": null,
+  "title": "Executors could not reach browsers",
+  "phase": 2,
+  "started_at": "2026-09-02T14:02:00-07:00",
+  "detected_at": "2026-09-02T15:25:32-07:00",
+  "all_clear_at": null,
+  "severity": null,
+  "channels": [{"name": "#outage", "id": "C0909AD1458"}],
+  "teams": [
+    {"id": "team_0ddq7rbsdd9akafvh5fahe0rdg", "codename": "Polar", "aliases": ["Northwind Foods", "Northwind"]},
+    {"id": "team_7fkq1mwsdd9akafvh5fahe0abc", "codename": "Mamba", "aliases": ["Contoso EU"]}
+  ],
+  "notebook": {"id": 15440320, "url": "https://app.datadoghq.com/notebook/15440320"},
+  "monitors": [{"id": 312516332, "url": "https://app.datadoghq.com/monitors/312516332", "fired_at": "2026-09-02T15:25:32-07:00"}],
+  "inventory": [
+    {"id": "i1", "summary": "Runs stall waiting for a browser that never arrives", "raised_by": "slack", "source_ts": "1788387720.000100", "disposition": "open", "lane": "dx:i1"},
+    {"id": "i2", "summary": "Queue slots stay held by stalled runs", "raised_by": "user", "source_ts": null, "disposition": "mitigated", "lane": "dx:i2"}
+  ],
+  "diagnoses": {
+    "i1": {"fixable_now": true, "cause": "A deploy assigned executors to pools that can lack browser namespaces, so browser requests stall", "files": [], "service": "api", "onset": "2026-09-02T14:02:00-07:00", "mitigation": null}
+  },
+  "lanes": {},
+  "prs": [
+    {"url": "https://github.com/Forge-AI/monorepo/pull/22601", "kind": "hotfix", "issue": "i1", "opened_at": "2026-09-02T16:10:00-07:00", "merged_at": "2026-09-02T16:52:00-07:00"}
+  ],
+  "linear": [],
+  "deploys": [
+    {"target": "api", "build": "releases/2026-09-02/4", "url": "https://buildkite.com/forge/release-v2/builds/8812", "at": "2026-09-02T13:40:00-07:00", "rollback": false}
+  ],
+  "updated_at": "2026-09-02T16:55:00-07:00"
+}

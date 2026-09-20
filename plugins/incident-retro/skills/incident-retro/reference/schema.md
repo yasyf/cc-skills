@@ -2,7 +2,8 @@
 
 `retro.json` is the contract shared by the evidence snapshots and
 `incident-retro.html`. The `retro.py` driver reads the same contract through
-`check`, `prose`, `text`, `snapshot`, `links`, `render-check`, and `pdf`.
+`check`, `prose`, `text`, `snapshot`, `links`, `render-check`, `live`, and
+`pdf`.
 Markdown-bearing string fields accept `[text](url)` links and `` `code` ``.
 They also accept `**bold**` and `*italic*`. The same mini dialect as the
 design-doc renderer handles `[^n]` footnote tokens. Run
@@ -24,7 +25,7 @@ here.
 | `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team codename warns |
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
-| `status` | yes | `draft`, `in-review`, `reviewed`, `resolved`; rendered Draft, Under review, Reviewed, Closed out. `draft` is the only status that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped` |
+| `status` | yes | `ongoing`, `draft`, `in-review`, `reviewed`, `resolved`; rendered Ongoing, Draft, Under review, Reviewed, Closed out. `ongoing` and `draft` are the statuses that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped`. An `ongoing` retro is one `retro.py live sync` writes while the incident runs, so it carries a `live` block, skips the prose-provenance gate, and takes the tag count as a strict warning rather than an error |
 | `incident` | no | `{number?, severity?, severityLink?}`; `number` a positive integer, `severity` matches `sev-N`, `severityLink` an https URL |
 | `authors`, `attendees` | no | lists of people's names; never an email or `mailto:` (`check` errors on `@`). A retro past `draft` names its authors |
 | `commander` | no | the incident commander's name |
@@ -75,21 +76,74 @@ skill's summary contract. The page places it above the Overview after
 stripping event handlers and any URL that is not HTTP or HTTPS.
 
 One panel answers each question, in this order: `what-happened`, `impact`,
-`why`, `what-changed`, `still-open`. Each opens with an `<h2>` or `<h3>`
-stating the answer. Each panel, including its heading, has 35 words or fewer
-(`SUMMARY_PANEL_WORDS = 35`); the whole summary has 150 or fewer
-(`SUMMARY_BUDGET = 150`). Cite registers as the rest of the retro
-does, so `(C1)` renders as its handle. A `.xs-stats` block of `.xs-stat` tiles
-shows the numbers readers need before reaching the tiles below.
+`why`, `what-changed`, `still-open`. A panel is a deck card, not a paragraph:
+
+```html
+<section class="xs-panel" data-kind="impact">
+<h3 class="xs-head">Checkouts failed for 212 tenants for 94 minutes</h3>
+<div class="xs-stats">
+<div class="xs-stat"><span class="xs-value">94m</span><span class="xs-label">(W1)</span></div>
+</div>
+<ul class="xs-points">
+<li>The retry queue held and replayed every failed checkout.</li>
+<li>Orders were delayed, none lost (W2).</li>
+</ul>
+</section>
+```
+
+The `<h3 class="xs-head">` headline is the answer, in `XS_HEAD_WORDS = 14`
+words or fewer. The `<ul class="xs-points">` carries the evidence for it as
+`XS_POINTS = 3` or fewer `<li>` of `XS_POINT_WORDS = 18` words or fewer. The
+`.xs-stats` block of `.xs-stat` tiles is optional and shows the numbers
+readers need before reaching the tiles below. Cite registers as the rest of
+the retro does, so `(C1)` renders as its handle.
 
 `check` errors on a page tag, an embed, an inline handler, a foreign URL
-scheme, or an unknown or repeated `data-kind`. It warns on a missing panel, a
-panel out of order, a missing heading, a word count over budget, a citation
-no register defines, and a leftover TODO. A reviewed retro answers every
-question. The first panel's heading also draws a strict warning when at least
-60% of its distinct non-stopwords occur in `meta.title`; headings under four
-words draw the short-heading warning instead. `retro.py text` prints the
-summary first, and print renders every panel expanded.
+scheme, an unknown or repeated `data-kind`, and a heading that is not an
+`h3.xs-head`. It warns on a missing panel, a panel out of order, a missing
+heading, a headline or point over budget, a fourth point, prose outside the
+points, a citation no register defines, and a leftover TODO. A reviewed retro
+answers every question. The first panel's heading also draws a strict warning
+when at least 60% of its distinct non-stopwords occur in `meta.title`;
+headings under four words draw the short-heading warning instead.
+`retro.py text` prints the summary first, rendering each panel's points as
+bullets, and print renders every panel expanded.
+
+## `live`: the block an ongoing retro updates
+
+```json
+"live": {"updatedAt": "…", "phase": "investigating", "headline": "…", "currentState": "…", "next": "…",
+         "source": {"repo": "Forge-AI/design-docs", "branch": "live/<slug>"}}
+```
+
+`retro.py live sync` writes the whole block from `state.json`; nothing here is
+authored. `updatedAt` is the sync's timestamp and drives the page's staleness
+warning. `phase` is one of `detected`, `investigating`, `identified`,
+`mitigated`, `resolved` (`LIVE_PHASES`), derived from the all-clear, the
+deploys, the dispositions and the diagnoses, in that order. `headline` reads
+in `XS_HEAD_WORDS = 14` words or fewer; `currentState` and `next` in
+`STATEMENT_WORDS = 25`. `source` names the branch the page polls through the
+GitHub contents API while the incident runs; `live finalize` drops it, and
+`check` errors on a `source` that outlives `status: "ongoing"` or on an
+`ongoing` retro carrying no `live` block at all.
+
+## As-of-T: `history`, `identifiedAt`
+
+The time scrubber renders the page as it stood at T, so the registers whose
+state changes during the response record when it changed. Every field is
+optional; an entry without one renders as it stands now, marked as carrying
+no time data, and is never guessed at.
+
+- `actions[].history`: `[{ts, state}]`, ascending, each `state` from
+  `ACTION_STATES`, the last one equal to the action's current `state`.
+- `hypotheses[].history`: `[{ts, status}]`, the same shape over
+  `HYPOTHESIS_STATES`.
+- `causes[].identifiedAt`: the timestamp the cause was first named, so the
+  scrubber hides it before the response had it.
+
+`live sync` appends to a `history` only when the derived state differs from
+the last entry, and carries `identifiedAt` forward from the previous sync, so
+the first sync that saw a cause is the one the page shows.
 
 ## `summary`, `impact`, `resolution`, `detection`: twinned prose
 
@@ -468,7 +522,7 @@ Use the full command for new work.
 
 The two body counts exclude URLs and inline code. The selection uses 25,
 not the non-strict error threshold `ENTRY_WORDS_MAX = 40`. Panels follow
-`SUMMARY_PANEL_WORDS = 35` and `SUMMARY_BUDGET = 150`; takeaways follow
+`XS_HEAD_WORDS = 14`, `XS_POINTS = 3` and `XS_POINT_WORDS = 18`; takeaways follow
 `TAKEAWAY_WORDS = 18`. The command skips selected fields whose hashes
 already match. Prepare all five panel containers and the narrative section
 objects first; the command enumerates only structures present in the files.
@@ -494,6 +548,43 @@ edited field through `prose --field` without `--quick`. Running `--quick`
 again does not clear that failure: the migration pins a field only when the
 lock has no entry for it, so an edited field keeps the hash it was pinned
 with and stays failing until Astra rewrites it.
+
+## `live`: the retro while the incident runs
+
+```
+retro.py live init     <incident-dir> --docs <checkout> [--slug S] [--tags T] [--repo O/R]
+retro.py live sync     <incident-dir> --docs <checkout> [--no-push]
+retro.py live finalize <incident-dir> --docs <checkout> [--tags T]
+```
+
+The inputs are the incident skill's `state.json` and `slack-log.jsonl` under
+`~/.claude/incidents/<incident-id>/`, whose shape
+`.agents/skills/incident/references/state.md` specifies. None of the three
+commands calls a model, so the same state produces the same `retro.json`.
+
+`init` chooses the slug as `<local date of started_at>-<slug of title>`,
+writes it back to `state.retro_slug`, scaffolds
+`<checkout>/incident-retros/<slug>/` with `status: "ongoing"` and
+`live.source`, and adds the `data-retro` card to the head of the list on both
+`index.html` pages. It refuses a directory that already exists.
+
+`sync` takes the writer claim, then derives the whole record. The timeline
+comes from Slack thread roots, deploys, monitor `fired_at`, and pull requests
+opened and merged. One outage window runs from `started_at` to the all-clear
+or now. `causes` come from `diagnoses`, carrying `identifiedAt`. `actions`
+come from `inventory`, with the disposition as the state, the matching `prs`
+as links, and a `history` entry appended only on a change. It replaces every raw
+customer name with its team's codename through `teams[].aliases`, writes one
+`ir.slack/1` snapshot per thread, runs `check`, and force-pushes `retro.json`
+and `evidence/slack/` to `live/<slug>` as an orphan commit built through a
+temporary index, so the checkout's HEAD and index never move. A `check` error
+or a forbidden-terms hit refuses the push. `--no-push` writes and checks only.
+
+`finalize` drops `live.source`, moves the status to `draft`, fills
+`timestamps.resolved` from `all_clear_at`, and hands the retro to the existing
+`prose` and publish flow. `meta.tags` is operator-chosen and cannot be
+derived, so `--tags` supplies it; without tags the draft's `check` reports the
+missing count as the error it is.
 
 ## `render-check`: the initial page
 
@@ -540,6 +631,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 | File | Role |
 |---|---|
 | `retro.json` | canonical structured retro |
+| `live/<slug>` branch | `retro.json` and `evidence/slack/` as `live sync` last pushed them, the ref the page polls while `meta.status` is `ongoing` |
 | `summary.html` | the executive summary, a body-level fragment whose panel prose is written by `prose` |
 | `prose.lock.json` | model and command metadata, total `slop`, and each accepted field's digest, run directory, log path, timestamp, and remaining `slop` count; migrated legacy entries carry a digest, `kind`, `grandfathered` plugin version, and timestamp |
 | `.prose.lock` | transient exclusive writer claim (`WRITE_LOCK = ".prose.lock"`); removed when the writing run ends and safe to delete after a killed run if no other run holds it |
@@ -559,7 +651,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 Errors unless noted; `--strict` promotes the strict warnings.
 
 1. `meta`: title, subtitle, tags, slug, date present; status, severity, authors without `@`, repo, ref, timezone, `homeLink`, `subIncidents`, sections, ai. Checks headline and subtitle limits, colons, and identifiers; tag count, shape, and uniqueness; and slug shape, length, and word count. Takeaways over 18 words and any string takeaway on `evidence`, `glossary`, or `notes` draw strict warnings.
-2. Timestamps parse with an offset and stay in order; onset and resolved set unless draft, enforced in strict mode.
+2. Timestamps parse with an offset and stay in order; onset and resolved set unless the status is `ongoing` or `draft`.
 3. Windows: ids, kind, start before end, incident resolves; overlaps on one team warn.
 4. Timeline: order, kinds, unique ids, phase outside the incident, refs are https, Slack refs are permalinks with snapshots, and deploys carry a change ref. Warns on missing snapshots or change refs, no key moment, or more than eight key moments. Text over 25 words draws a strict warning; over 40 is an error.
 5. Impact metrics: `measured` boolean, cites resolve.
@@ -577,5 +669,6 @@ Errors unless noted; `--strict` promotes the strict warnings.
 17. `ai.json` beside the retro or in its parent directory.
 18. Revision history integrity.
 19. Decisions, hypotheses, recognize rows, unknowns, and the glossary: ids, required fields, timestamps, citations, and the word limits above.
-20. `summary.html`: the fragment rules, panel vocabulary and order, 35 words per panel, 150 total, and a first heading that does not restate the title.
-21. Prose provenance: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
+20. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
+21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
+22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.

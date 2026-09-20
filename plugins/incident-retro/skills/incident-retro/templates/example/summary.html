@@ -1,33 +1,47 @@
 <section class="xs-panel" data-kind="what-happened">
-<h2>A zero burst limit blocked unlisted tenants</h2>
-<p>The <code>rate-limit-v7</code> profile moved allowances into an override map. Empty fields blocked each window's first request; the push reached all regions in one step.</p>
+<h3 class="xs-head">A zero burst limit blocked unlisted tenants</h3>
+<ul class="xs-points">
+<li>The <code>rate-limit-v7</code> profile moved allowances into an override map.</li>
+<li>Empty fields blocked each window's first request.</li>
+<li>The push reached all regions in one step.</li>
+</ul>
 </section>
 
 <section class="xs-panel" data-kind="impact">
-<h3>
-Checkouts failed for 212 tenants for 94 minutes
-</h3>
+<h3 class="xs-head">Checkouts failed for 212 tenants for 94 minutes</h3>
 <div class="xs-stats">
 <div class="xs-stat"><span class="xs-value">94m</span><span class="xs-label">(W1)</span></div>
 <div class="xs-stat"><span class="xs-value">3 180</span><span class="xs-label">refused</span></div>
 <div class="xs-stat"><span class="xs-value">212</span><span class="xs-label">of 340 tenants</span></div>
 </div>
-<p>The retry queue held and replayed every failed checkout; orders were delayed, none lost (W2).</p>
+<ul class="xs-points">
+<li>The retry queue held and replayed every failed checkout.</li>
+<li>Orders were delayed, none lost (W2).</li>
+</ul>
 </section>
 
 <section class="xs-panel" data-kind="why">
-<h3>The rollout compounded refusals</h3>
-<p>A missing fallback caused refusals (C1); the rollout spread them everywhere simultaneously (C2). The <code>5xx</code> monitor averaged fifteen minutes; support received customer reports before Datadog alerted on-call (C3).</p>
+<h3 class="xs-head">The rollout compounded refusals</h3>
+<ul class="xs-points">
+<li>A missing fallback caused refusals (C1).</li>
+<li>The rollout spread them everywhere simultaneously (C2).</li>
+<li>The <code>5xx</code> monitor averaged fifteen minutes, so support heard before Datadog did (C3).</li>
+</ul>
 </section>
 
 <section class="xs-panel" data-kind="what-changed">
-<h3>The burst floor is one</h3>
-<p>Rollback stopped refusals within a minute (T10). That afternoon's schema test rejects profiles without defaults (AI1). The checkout <code>5xx</code> monitor evaluates over five minutes (AI2).</p>
+<h3 class="xs-head">The burst floor is one</h3>
+<ul class="xs-points">
+<li>Rollback stopped refusals within a minute (T10).</li>
+<li>That afternoon's schema test rejects profiles without defaults (AI1).</li>
+<li>The checkout <code>5xx</code> monitor evaluates over five minutes (AI2).</li>
+</ul>
 </section>
 
 <section class="xs-panel" data-kind="still-open">
-<h3>
-Staged rollout work remains open
-</h3>
-<p>The floor prevents this bug; other defects reach every region simultaneously (AI3). See <a href="#unknowns">Still unknown</a> for two unanswered questions.</p>
+<h3 class="xs-head">Staged rollout work remains open</h3>
+<ul class="xs-points">
+<li>The floor prevents this bug; other defects still reach every region at once (AI3).</li>
+<li>See <a href="#unknowns">Still unknown</a> for two unanswered questions.</li>
+</ul>
 </section>
