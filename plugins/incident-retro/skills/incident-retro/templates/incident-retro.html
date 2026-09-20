@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:dafaabe5ca9b — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:7e1d40e7e8ac — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -2619,11 +2619,18 @@ function renderStatusState(){
  bits.push(field(tsAt("resolved")?"total":"so far",span));
  bits.push(field(teams===1?"team":"teams",teams?String(teams):""));
  bits.push(live?`<span class="sf"><span class="sv">${open} of ${live}</span>actions open</span>`:"");
- if(LIVE&&LIVE.updatedAt&&AS_OF==null){
-  const age=Date.now()-(tsOf(LIVE.updatedAt)||0);
-  bits.push(`<span class="sf${age>5*60e3?" sb-stale":""}">updated ${esc(relTime(LIVE.updatedAt))}</span>`);
- }
+ if(LIVE&&LIVE.updatedAt&&AS_OF==null)bits.push('<span class="sf" id="sbAge"></span>');
  host.innerHTML=bits.filter(Boolean).join("");
+ tickAge();
+}
+const STALE_MS=5*60e3;
+const liveAge=()=>Date.now()-(tsOf(LIVE&&LIVE.updatedAt)||0);
+function tickAge(){
+ const node=$("#sbAge");
+ if(!node)return;
+ const ms=liveAge();
+ node.textContent=ms<60e3?`updated ${Math.max(0,Math.round(ms/1000))} s ago`:`updated ${relTime(LIVE.updatedAt)}`;
+ node.classList.toggle("sb-stale",ms>STALE_MS);
 }
 function renderLiveCard(){
  const host=$("#liveCard");
@@ -4582,7 +4589,7 @@ function watchLive(token){
   scrollTo({top:y,behavior:"instant"});
   if(!liveWatchable())stopLive();
  };
- POLL_TIMERS.push(setInterval(tick,LIVE_POLL_MS),setInterval(renderStatusState,60e3));
+ POLL_TIMERS.push(setInterval(tick,LIVE_POLL_MS),setInterval(tickAge,1000));
  window.irLivePolling=()=>POLL_TIMERS.length>0;
  window.irLiveTick=tick;
  tick();
