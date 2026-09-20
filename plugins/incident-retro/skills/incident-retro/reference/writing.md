@@ -2,7 +2,9 @@
 
 All drafting and revision in this reference belongs to `gpt-6-astra` at
 `xhigh`, including delegated writing passes. Follow the prose routing in
-`../SKILL.md`.
+`../SKILL.md`. While status is `ongoing`, `live init` and `live sync` derive
+the record from incident state and produce no LLM-authored prose. This
+writing flow starts after `live finalize` moves the same retro to `draft`.
 
 A useful retro explains the conditions that produced an incident and the
 changes that reduce recurrence. It does not grade the people involved.
@@ -160,8 +162,8 @@ not its register type: "root cause decision" does not tell the reader what
 happened.
 
 The short name is what closed timeline, cause, decision, and unknown rows
-show in place of the sentence. The action table also shows the short name;
-Full wording reveals its title and note. Notes use `t` for their closed
+show in place of the sentence. The action cards also show the short name;
+Full wording reveals their titles and notes. Notes use `t` for their closed
 heading. Evidence cards still use snapshot names and labels. A short name
 must stand on its own before the reader expands it.
 
@@ -210,13 +212,16 @@ most 90 words, a decision's `why` 60, and an unknown's `why` 45. These three
 limits draw strict warnings; all four body counts exclude URLs and inline
 code. Move supporting detail into cited evidence.
 
-Each panel heading in `summary.html` answers its question in words a reader
-outside the response understands. The body gives evidence for that answer.
-Keep the heading and body together within 35 words (`SUMMARY_PANEL_WORDS = 35`)
-and all five panels within 150 (`SUMMARY_BUDGET = 150`). The first heading
-must advance the explanation beyond `meta.title`; repeating its wording
-draws a strict warning. Once the causes and actions are settled, write the
-panels from the completed record.
+Each panel in `summary.html` has one `h3.xs-head` answering its question in
+words a reader outside the response understands. Keep it within
+`XS_HEAD_WORDS = 14` words. Its `ul.xs-points` gives the evidence in
+`XS_POINTS = 3` or fewer `li`, each within `XS_POINT_WORDS = 18` words.
+An optional `.xs-stats` block holds stat tiles.
+
+The first heading must advance the explanation beyond `meta.title`;
+repeating its wording draws a strict warning. Once the causes and actions
+are settled, write the panels from the completed record. These limits govern
+the executive deck, not the separate `summary.text` and `summary.p` fields.
 
 Mark eight timeline entries or fewer with `key: true`. Choose the events
 needed to explain the incident: what changed, when impact began, when anyone
@@ -236,7 +241,7 @@ investigation."
 Never invent a cause, timestamp, owner, impact, or outcome to complete the
 shape. Write "Not recorded" in both `text` and `p` when the sources do not
 answer a required narrative. Leave optional arrays empty; the renderer
-hides empty lesson columns and unused evidence groups.
+hides empty lesson groups and unused evidence groups.
 
 Keep uncertainty explicit. Mark a metric as estimated, name the evidence that
 supports a likely cause, and leave the status at `draft` while a required fact
@@ -254,6 +259,11 @@ retro.
 Configure `--forbidden-terms`, `FORBIDDEN_TERMS`, or the nearest
 `.customer-names` file. `retro.py check` scans `retro.json`, `NOTES.md`, and
 text evidence; treat a match as a publishing block.
+
+The same gate applies before every push to `live/<slug>`, which has no CI.
+`live sync` first replaces names using `teams[].aliases`, then runs `check`
+before pushing. Configure the forbidden-terms source before the first sync;
+the command's warning about a missing source does not clear the push.
 
 ## Prose gate
 
