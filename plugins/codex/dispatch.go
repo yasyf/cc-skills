@@ -362,7 +362,9 @@ const mcpListTimeout = 15 * time.Second
 func mcpMountFlags(requested []string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), mcpListTimeout)
 	defer cancel()
-	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json")
+	// Config load parses each enabled plugin's .mcp.json before any -c override, so
+	// one bad transport fails the dispatch and no mcp_servers override undoes it.
+	c := exec.CommandContext(ctx, "codex", "mcp", "list", "--json", "--disable", "plugins")
 	c.WaitDelay = time.Second
 	out, err := c.Output()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -398,7 +400,7 @@ func mcpMountFlags(requested []string) []string {
 			flags = append(flags, "-c", "mcp_servers."+s.Name+".enabled=false")
 		}
 	}
-	return append(flags, "--disable", "apps")
+	return append(flags, "--disable", "apps", "--disable", "plugins")
 }
 
 func mcpContract(servers []string) string {

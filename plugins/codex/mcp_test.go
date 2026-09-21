@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +72,33 @@ func TestMCPMountsOnlyTheNamedServers(t *testing.T) {
 	if !strings.Contains(dev[block:], "slack") {
 		t.Fatalf("MCP contract does not name slack:\n%s", dev[block:])
 	}
+}
+
+// A user-level codex plugin's .mcp.json is merged at config load, so a plugin
+// declaring a bad transport used to kill every dispatch before the prompt was read.
+func TestDispatchDisablesUserPlugins(t *testing.T) {
+	runs := mustTempDir(t)
+	recorded := filepath.Join(mustTempDir(t), "mcp-argv")
+	stub := "#!/bin/sh\n[ \"$1\" = mcp ] && { printf '%s\\n' \"$@\" > " + recorded + "; printf '%s' '[]'; exit 0; }\n" +
+		stubCodexReplyBody
+	stdout, stderr, code := askRun(t, runs, stub, "ping")
+	if code != 0 {
+		t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	listing, err := os.ReadFile(recorded) //nolint:gosec // reads the argv this test's own stub recorded
+	if err != nil {
+		t.Fatalf("read recorded listing argv: %v", err)
+	}
+	if !contains(strings.Split(strings.TrimRight(string(listing), "\n"), "\n"), "plugins") {
+		t.Fatalf("`codex mcp list` ran with plugins loaded:\n%s", listing)
+	}
+	argv := cmdArgv(t, laneDir(t, stdout))
+	for i, arg := range argv {
+		if arg == "--disable" && argv[i+1] == "plugins" {
+			return
+		}
+	}
+	t.Fatalf("dispatch argv does not disable user plugins:\n%v", argv)
 }
 
 func TestMCPContractLandsAfterTheLaneContract(t *testing.T) {
