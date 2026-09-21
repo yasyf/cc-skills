@@ -23,10 +23,8 @@ script owns every mechanic: it pins `-c model=gpt-6-astra
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules, the § Replies reply contract, no
 ccx inside lanes — so every run arrives knowing the house reply shape),
-mounts no MCP server unless `--mcp` names one and runs `--disable plugins` so a
-user-level codex plugin can neither mount servers into a lane nor fail the run at
-config load (its `.mcp.json` is parsed before any `-c` override, so one malformed
-plugin used to kill every dispatch), unsets `OPENAI_API_KEY` so codex always
+mounts no MCP server unless `--mcp` names one, runs `--disable plugins`
+(invalid plugin MCP config fails before `-c` overrides apply), unsets `OPENAI_API_KEY` so codex always
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
 billing-capped and never mounts the hosted `image_gen` tool), and keeps every
 run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
