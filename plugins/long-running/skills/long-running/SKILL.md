@@ -131,11 +131,11 @@ carrying no news.*
 at its head. When the base moves under a stack that plan reached, the desk prints the
 stacks and the movers in the grade and labels anyway. The landing plans the tree it
 actually applies and refuses its own op classes there, so the gate that matters sits
-where the tree is real, and any class the desk would refuse on a plan belongs in the
+where the tree is real. Any class the desk would refuse on a plan belongs in the
 landing's admission rule, not in a pre-merge staleness check. A rebase is owed for a
-merge conflict and for nothing else. *Prevents the bounce where every green PR is refused
-because an unrelated stack moved, rebased, and re-run through CI for half an hour with no
-change to what the landing does.*
+merge conflict and for nothing else. *Prevents the bounce where a green PR is refused
+because an unrelated stack moved and then spends half an hour in a rebase and a CI
+re-run that change nothing about what the landing does.*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
