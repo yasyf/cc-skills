@@ -51,7 +51,9 @@ Do, in this order, forever:
      conflicts with the base; a refusal names the reason and is the end of it. Where
      the drive carries a bar beyond CI (a plan comment, a grader's verdict), read it
      before labelling and hold the PR with that reason when it is missing for this
-     head.
+     head. A plan the base has moved under is not such a reason: print the stale
+     stacks and the movers, label anyway, and let the landing grade the tree it
+     applies. A rebase is asked for on a merge conflict and for nothing else.
   4. Route. `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Send exactly the
