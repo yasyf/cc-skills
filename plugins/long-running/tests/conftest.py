@@ -36,7 +36,16 @@ class FakeShell(ledger.Shell):
         self.pulls: dict[str, dict] = {}
         self.commit_dates: dict[str, str] = {}
         self.pull_heads: dict[str, str] = {}
-        self.base_log: list[tuple[str, str]] = []
+        self.pr_files: dict[str, list[str]] = {}
+        self.delivered: dict[str, tuple[str, str]] = {}
+        self.diffed_head = ""
+        self.closed_by: dict[str, str] = {}
+        self.shallow = False
+        self.fetch_fails = ""
+        self.base_squash = ""
+        self.children: list[dict] = []
+        self.ejected: dict[str, tuple[str, str]] = {}
+        self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
         self.labelled: list[str] = []
         self.unlabelled: list[str] = []
@@ -81,7 +90,23 @@ class FakeShell(ledger.Shell):
             self.unlabelled.append(f"{parts[1]}:{parts[3]}")
             return "[]"
         if parts[:1] == ["issues"] and parts[2:] == ["labels"]:
+            if parts[1] in self.pr_labels:
+                return json.dumps([{"name": name} for name in self.pr_labels[parts[1]]])
             return fixture("labels.json")
+        if parts[:1] == ["issues"] and parts[2:] == ["events"]:
+            events = []
+            if parts[1] in self.ejected:
+                at, ej = self.ejected[parts[1]]
+                events.append({"event": "labeled", "created_at": at, "label": {"name": "merge"}, "actor": {"login": "yasyf"}})
+                events.append({"event": "unlabeled", "created_at": ej, "label": {"name": "merge"}, "actor": {"login": "graphite-app[bot]"}})
+            login = self.closed_by.get(parts[1])
+            if login:
+                events.append({"event": "closed", "created_at": "2026-09-17T00:00:00Z", "actor": {"login": login}})
+            return json.dumps(events)
+        if parts[:1] == ["pulls"] and len(parts) == 1 and "base=" in endpoint:
+            return json.dumps(self.children)
+        if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
+            return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
         if parts[:1] == ["commits"] and len(parts) == 2:
             return json.dumps({"sha": parts[1], "commit": {"committer": {"date": self.commit_dates[parts[1]]}}})
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
@@ -126,9 +151,13 @@ class FakeShell(ledger.Shell):
     def _git(self, argv):
         verb = argv[3]
         if verb == "fetch":
-            ref = argv[-1]
+            if self.fetch_fails:
+                raise subprocess.CalledProcessError(1, argv, stderr=self.fetch_fails)
+            ref = argv[-1].lstrip("+").split(":")[0]
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
             return ""
+        if verb == "rev-parse" and "--is-shallow-repository" in argv:
+            return ("true" if self.shallow else "false") + "\n"
         if verb == "rev-parse":
             return self.fetched + "\n"
         if verb == "merge-tree":
@@ -136,11 +165,25 @@ class FakeShell(ledger.Shell):
             if paths:
                 raise subprocess.CalledProcessError(1, argv, output="tree\n" + "".join(f"100644 blob x\t{p}\n" for p in paths))
             return "tree\n"
-        if verb == "log" and argv[4] == "FETCH_HEAD":
-            return "".join(f"{sha} {subject}\n" for sha, subject in self.base_log)
-        if verb == "log" and argv[4] == "-1":
-            return self.commit_dates[argv[-1]] + "\n"
+        if verb == "diff" and "--numstat" in argv:
+            left, right = self._resolve(argv[5]), self._resolve(argv[6])
+            assert left != right, f"diffed {argv[5]} against {argv[6]}: both resolve to {left}"
+            self.diffed_head = right
+            if right in self.delivered:
+                return ""
+            return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
+        if verb == "log" and "--grep" in " ".join(argv):
+            return self.base_squash + ("\n" if self.base_squash else "")
+        if verb == "log" and argv[5] == "-1":
+            assert self._resolve(argv[4]) == "base-tip", f"named the landing commit from {argv[4]}"
+            sha, when = self.delivered[self.diffed_head]
+            return f"{sha} {when}\n"
         raise AssertionError(f"unexpected git call: {argv}")
+
+    def _resolve(self, ref: str) -> str:
+        if ref == "FETCH_HEAD":
+            return self.fetched
+        return "base-tip" if ref.startswith("refs/desk/base/") else ref
 
     @staticmethod
     def _upsert(store, key, updates):
