@@ -37,6 +37,7 @@ class FakeShell(ledger.Shell):
         self.commit_dates: dict[str, str] = {}
         self.pull_heads: dict[str, str] = {}
         self.pr_files: dict[str, list[str]] = {}
+        self.reviews: dict[str, list[dict]] = {}
         self.delivered: dict[str, tuple[str, str]] = {}
         self.diffed_head = ""
         self.closed_by: dict[str, str] = {}
@@ -105,6 +106,9 @@ class FakeShell(ledger.Shell):
             return json.dumps(events)
         if parts[:1] == ["pulls"] and len(parts) == 1 and "base=" in endpoint:
             return json.dumps(self.children)
+        if parts[:1] == ["pulls"] and parts[2:] == ["reviews"]:
+            size, page = int(params["per_page"]), int(params["page"])
+            return json.dumps(self.reviews.get(parts[1], [])[(page - 1) * size : page * size])
         if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
             return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
         if parts[:1] == ["commits"] and len(parts) == 2:
@@ -112,7 +116,10 @@ class FakeShell(ledger.Shell):
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
             return fixture(self.routes.get(f"status:{parts[1]}", "status-success.json"))
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
-            return fixture(self.routes.get(f"checks:{parts[1]}", "check-runs.json"))
+            checks = json.loads(fixture(self.routes.get(f"checks:{parts[1]}", "check-runs.json")))
+            if "check_name" in params:
+                checks["check_runs"] = [run for run in checks["check_runs"] if run["name"] == params["check_name"]]
+            return json.dumps(checks)
         raise AssertionError(f"unexpected gh endpoint: {endpoint}")
 
     def _listed(self, number: str) -> dict:
