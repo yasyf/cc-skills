@@ -112,7 +112,7 @@ def test_eviction_names_the_downstack_pr_from_merge_activity(poll):
         "- Sep 23, 11:29 PM UTC: The Graphite merge queue removed this pull request due to "
         "downstack failures on PR #24450.\n",
     )
-    run = poll(surface(pull(labels=("merge",)), events=[labeled(1)], comments=[activity]))
+    run = poll(surface(pull(), events=[labeled(1)], comments=[activity]))
     assert "QUEUED yasyf 11" in run.lines
     assert run.done == "DONE evicted downstack #24450"
 
@@ -173,3 +173,75 @@ def test_poll_uses_rest_only(poll):
     run = poll(queued, surface(pull(), events=[labeled(1), unlabeled(2)]))
     assert run.gh_calls
     assert all(call.startswith("api ") and "graphql" not in call for call in run.gh_calls)
+
+
+def test_startup_failure_is_a_failed_check(poll):
+    run = poll(surface(pull(), runs=[check_run("build", conclusion="startup_failure")]))
+    assert run.done == "DONE checks-failed"
+
+
+def test_unknown_conclusion_is_pending(poll):
+    run = poll(surface(pull(), runs=[check_run("build", conclusion="stale")]))
+    assert run.done is None
+
+
+def test_removal_seen_before_the_label_snapshot_catches_up_still_evicts(poll):
+    racing = surface(pull(labels=("merge",)), events=[labeled(1), unlabeled(2)])
+    dropped = surface(pull(), events=[labeled(1), unlabeled(2)])
+    run = poll(racing, dropped)
+    assert run.done == "DONE evicted unknown label removed by graphite-app[bot]"
+
+
+def test_failed_event_read_never_reports_green(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    blind = surface(pull(), events=[labeled(1)])
+    blind[f"issues/{PR}/events"] = "FAIL"
+    run = poll(queued, blind, blind)
+    assert run.done is None
+
+
+def test_label_gone_before_its_event_arrives_holds_the_watch(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    lagging = surface(pull(), events=[labeled(1)])
+    dropped = surface(pull(), events=[labeled(1), unlabeled(2)])
+    run = poll(queued, lagging, dropped)
+    assert run.done == "DONE evicted unknown label removed by graphite-app[bot]"
+    assert run.passes == 3
+
+
+def test_requeue_after_a_drop_in_one_interval_is_not_evicted(poll):
+    activity = comment(
+        13,
+        "### Merge activity\n\n"
+        "* **Sep 23, 11:31 PM UTC**: The Graphite merge queue couldn't merge this PR because **it had merge conflicts**.\n"
+        "* **Sep 23, 11:40 PM UTC**: `yasyf` added this pull request to the Graphite merge queue.\n",
+    )
+    run = poll(surface(pull(labels=("merge",)), events=[labeled(1)], comments=[activity]))
+    assert "QUEUED yasyf 13" in run.lines
+    assert run.done is None
+
+
+def test_second_eviction_after_a_relabel_between_polls_is_reported(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    first = surface(pull(), events=[labeled(1), unlabeled(2)])
+    assert poll(queued, first).done.startswith("DONE evicted ")
+    again = [labeled(1), unlabeled(2), labeled(3, at="2026-09-23T23:40:00Z"), unlabeled(4, at="2026-09-23T23:45:00Z")]
+    run = poll(surface(pull(), events=again))
+    assert run.done == "DONE evicted unknown label removed by graphite-app[bot]"
+
+
+def test_fresh_watch_does_not_replay_old_merge_activity(poll, tmp_path):
+    (tmp_path / "state.json").unlink()
+    history = (
+        "### Merge activity\n\n"
+        "* **Sep 23, 10:49 PM UTC**: The Graphite merge queue couldn't merge this PR because **it had merge conflicts**.\n"
+    )
+    edited = history + "* **Sep 23, 11:50 PM UTC**: The merge label 'merge' was detected.\n"
+    computing = pull(mergeable=None, mergeable_state="unknown")
+    run = poll(
+        surface(computing, comments=[comment(14, history)]),
+        surface(computing, comments=[comment(14, edited)]),
+        surface(pull(), comments=[comment(14, edited)]),
+    )
+    assert run.done == "DONE all-green"
+    assert run.passes == 3

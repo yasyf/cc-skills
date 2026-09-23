@@ -21,4 +21,5 @@ for ((p = pass; p >= 0; p--)); do
   fixture=""
 done
 [ -n "$fixture" ] || { echo "gh: Not Found (HTTP 404) $path" >&2; exit 1; }
+[ "$(cat "$fixture")" != '"FAIL"' ] || { echo "gh: HTTP 502 $path" >&2; exit 1; }
 if [ -n "$expr" ]; then jq -rc "$expr" "$fixture"; else cat "$fixture"; fi

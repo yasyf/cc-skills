@@ -20,15 +20,17 @@
 # true between them. A null mergeable (GitHub still recomputing after the base
 # or head moved) is no read at all. Fires once per head.
 #
-# evicted: a bot took the queue label off, or the queue's merge-activity
-# comment logged a drop. Fires once per eviction; relabelling re-arms it.
+# evicted: the latest queue-label event is a bot taking the label off, or the
+# queue's merge-activity comment logs a drop as its latest queue entry. Fires
+# once per removal event; relabelling re-arms it.
 #
 # all-green needs every check passed, mergeable true, and the PR neither
 # carrying the queue label nor evicted and waiting for a relabel: a queued PR
 # is watched until it lands or the queue drops it.
 #
-# A fresh state file watches from now on; pre-seed .watermarks to replay a PR's
-# existing comments, reviews and label events.
+# A fresh state file watches from now on: label events before its start and the
+# merge-activity entries already posted are history. Pre-seed .watermarks to
+# replay them.
 set -euo pipefail
 
 STATE_SCHEMA=2
@@ -48,8 +50,8 @@ CHECK_RUNS='.check_runs[] | {
     elif .conclusion == "success" then "pass"
     elif .conclusion == "neutral" or .conclusion == "skipped" then "skipping"
     elif .conclusion == "cancelled" then "cancel"
-    elif .conclusion == "stale" then "pending"
-    else "fail" end),
+    elif .conclusion | IN("failure", "timed_out", "action_required", "startup_failure") then "fail"
+    else "pending" end),
   link: (.details_url // .html_url // ""),
   detail: ([.output.title, .output.summary] | map(select(. != null)) | join("\n"))
 }'
@@ -87,16 +89,17 @@ QUEUE_BULLETS="$QUEUE_ENTRIES"'
 
 QUEUE_EVENTS='
   def bot: .actor.type == "Bot" or (.actor.login | endswith("[bot]"));
-  def queue_label: .label == $label;
-  (map(select(.event == "labeled" and queue_label)) | last) as $labeled
-  | map(select([.created_at, .id] > [$wm.at, $wm.id])) as $fresh
-  | ($fresh | map(select(.event == "unlabeled" and queue_label))) as $unlabels
+  sort_by(.id) as $events
+  | ($events | map(select((.event == "labeled" or .event == "unlabeled") and .label == $label))) as $flips
+  | ($flips | map(select(.event == "labeled")) | last) as $labeled
+  | ($flips | last) as $last
   | {
       labeled_by: ($labeled.actor.login // "-"),
-      evicted_by: ($unlabels | map(select(bot)) | last | .actor.login),
-      unqueued_by: ($unlabels | map(select(bot | not)) | last | .actor.login),
-      pushed_in_queue: ($labeled != null and any(.[]; .event == "head_ref_force_pushed" and .id > $labeled.id)),
-      wm: (map({ at: .created_at, id }) + [$wm] | max_by([.at, .id]))
+      last: (
+        if $last != null and [$last.created_at, $last.id] > [$since.at, $since.id]
+        then { id: ($last.id | tostring), event: $last.event, actor: $last.actor.login, bot: ($last | bot) }
+        else null end),
+      pushed_in_queue: ($labeled != null and any($events[]; .event == "head_ref_force_pushed" and .id > $labeled.id))
     }'
 
 usage() {
@@ -146,12 +149,14 @@ mkdir -p "$(dirname "$STATE_FILE")"
 
 STATE='{}'
 empty_passes=0
+FRESH=1
+if [ -f "$STATE_FILE" ] && jq -e '.watermarks' "$STATE_FILE" >/dev/null 2>&1; then FRESH=0; fi
 
 normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" '
     { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
       mergeable_false_reads: 0, conflicted_head: null,
-      queue: { label: null, head: null, evicted: null },
+      queue: { label: null, head: null, evicted: null, evicted_event: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
     | .watermarks = ({ comments: $now, reviews: $now, events: { at: $now, id: 0 } } * (.watermarks // {}))
@@ -210,7 +215,7 @@ closed_verdict() {
 }
 
 eviction_reason() {
-  local merge_state=$1 mergeable=$2 head=$3 checks=$4 queue=$5 downstack failing
+  local merge_state=$1 mergeable=$2 head=$3 checks=$4 queue=$5 actor=$6 downstack failing
   if [ "$merge_state" = dirty ] || [ "$mergeable" = false ]; then
     printf 'conflicts mergeable_state=%s\n' "$merge_state"
     return
@@ -232,13 +237,14 @@ eviction_reason() {
     printf 'failed-ci %s\n' "${failing//[$'\r\n\t']/ }"
     return
   fi
-  printf 'unknown label removed by %s\n' "$(jq -r '.evicted_by' <<<"$queue")"
+  printf 'unknown label removed by %s\n' "$actor"
 }
 
 poll() {
   local view head prev base pr_state merged mergeable merge_state present
-  local checks checks_ok=1 events items seen wm_c wm_r next_c next_r queue
-  local activity act_id act_author act_seen act_n bullets drop reads
+  local checks checks_ok=1 events events_ok=1 items seen wm_c wm_r next_c next_r queue baseline
+  local activity act_id act_author act_seen act_n bullets drop reads was_queued
+  local last_event last_id last_bot last_actor
   local evicted="" conflicted=0 settled n_checks verdict closed_as
 
   view=$(gh api "repos/$REPO/pulls/$PR" \
@@ -263,9 +269,19 @@ poll() {
   [ "$checks_ok" = 1 ] || checks='[]'
 
   events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
-    2>/dev/null | jq -cs .) || events='[]'
+    2>/dev/null | jq -cs .) || events_ok=0
+  [ "$events_ok" = 1 ] || events='[]'
 
   load_state
+
+  if [ "$FRESH" = 1 ]; then
+    if baseline=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+      --jq '.[] | select((.body // "") | test("Merge activity")) | { id, body }' 2>/dev/null |
+      jq -cs "map({ key: (.id | tostring), value: ($QUEUE_ENTRIES | length) }) | from_entries"); then
+      STATE=$(jq -c --argjson b "$baseline" '.merge_activity = $b * .merge_activity' <<<"$STATE")
+      FRESH=0
+    fi
+  fi
 
   prev=$(state '.head_at_last_pass // ""')
   if [ "$head" != "$prev" ]; then
@@ -316,35 +332,38 @@ poll() {
     bullets=$(jq -c --argjson seen "$act_seen" "$QUEUE_BULLETS" <<<"$activity")
     emit "$(jq -r --arg author "$act_author" --arg id "$act_id" \
       'select(.kind == "queued") | "QUEUED \($author) \($id)"' <<<"$bullets")"
-    drop=$(jq -rs 'map(select(.kind == "drop")) | last // empty | "\(.class) \(.detail)"' <<<"$bullets")
+    drop=$(jq -rs 'last // empty | select(.kind == "drop") | "\(.class) \(.detail)"' <<<"$bullets")
     STATE=$(jq -c --arg id "$act_id" --argjson n "$act_n" '.merge_activity[$id] = $n' <<<"$STATE")
   fi
 
-  queue=$(jq -c --argjson wm "$(jq -c '.watermarks.events' <<<"$STATE")" --arg label "$QUEUE_LABEL" \
+  queue=$(jq -c --argjson since "$(jq -c '.watermarks.events' <<<"$STATE")" --arg label "$QUEUE_LABEL" \
     "$QUEUE_EVENTS" <<<"$events")
+  last_event=$(jq -r '.last.event // ""' <<<"$queue")
+  last_id=$(jq -r '.last.id // ""' <<<"$queue")
+  last_bot=$(jq -r '.last.bot // false' <<<"$queue")
+  last_actor=$(jq -r '.last.actor // "-"' <<<"$queue")
+  was_queued=$(state '.queue.label == true')
 
   if [ "$present" = true ]; then
-    if [ "$(state '.queue.label')" != true ]; then
+    if [ "$was_queued" != true ]; then
       emit "QUEUED $(jq -r '.labeled_by' <<<"$queue") label"
-      STATE=$(jq -c --arg h "$head" '.queue = { label: true, head: $h, evicted: null }' <<<"$STATE")
+      STATE=$(jq -c --arg h "$head" '.queue.label = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
     fi
-  else
+  elif [ "$last_event" = unlabeled ] && [ "$last_bot" = true ] && [ "$last_id" != "$(state '.queue.evicted_event // ""')" ]; then
+    evicted=${drop:-$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue" "$last_actor")}
+  elif [ -n "$drop" ] && [ "$(state '.queue.evicted == null')" = true ]; then
+    evicted=$drop
+  elif [ "$was_queued" = true ] && [ "$last_event" = unlabeled ]; then
+    emit "UNQUEUED $last_actor"
+    STATE=$(jq -c '.queue.label = false' <<<"$STATE")
+  elif [ "$was_queued" != true ]; then
     STATE=$(jq -c '.queue.label = false' <<<"$STATE")
   fi
-
-  if [ "$(state '.queue.evicted == null')" = true ]; then
-    if [ -n "$drop" ]; then
-      evicted=$drop
-    elif [ "$present" = false ] && [ "$(jq -r '.evicted_by != null' <<<"$queue")" = true ]; then
-      evicted=$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue")
-    fi
-  fi
   if [ -n "$evicted" ]; then
-    STATE=$(jq -c --arg r "$evicted" --arg h "$head" '
+    STATE=$(jq -c --arg r "$evicted" --arg h "$head" --arg e "$last_id" --arg ev "$last_event" '
       .queue.evicted = $r | .queue.label = false
+      | if $ev == "unlabeled" then .queue.evicted_event = $e else . end
       | if ($r | startswith("conflicts ")) then .conflicted_head = $h else . end' <<<"$STATE")
-  elif [ "$present" = false ] && [ "$(jq -r '.unqueued_by != null' <<<"$queue")" = true ]; then
-    emit "UNQUEUED $(jq -r '.unqueued_by' <<<"$queue")"
   fi
 
   reads=$(state '.mergeable_false_reads')
@@ -354,9 +373,8 @@ poll() {
   esac
   if [ "$merge_state" = dirty ] || [ "$reads" -ge "$MERGEABLE_FALSE_READS" ]; then conflicted=1; fi
 
-  STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" --arg m "$merge_state" --argjson n "$reads" \
-    --argjson e "$(jq -c '.wm' <<<"$queue")" '
-    .watermarks.comments = $c | .watermarks.reviews = $r | .watermarks.events = $e
+  STATE=$(jq -c --arg c "$next_c" --arg r "$next_r" --arg m "$merge_state" --argjson n "$reads" '
+    .watermarks.comments = $c | .watermarks.reviews = $r
     | .merge_state_seen = $m | .mergeable_false_reads = $n' <<<"$STATE")
   write_state
 
@@ -382,7 +400,8 @@ poll() {
   [ "$checks_ok" = 1 ] || return 0
 
   settled=0
-  if [ "$mergeable" = true ] && [ "$present" = false ] && [ "$(state '.queue.evicted == null')" = true ]; then
+  if [ "$mergeable" = true ] && [ "$present" = false ] && [ "$events_ok" = 1 ] &&
+    [ "$(state '.queue.label != true and .queue.evicted == null')" = true ]; then
     settled=1
   fi
 

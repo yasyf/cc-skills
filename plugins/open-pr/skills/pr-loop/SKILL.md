@@ -8,8 +8,9 @@ allowed-tools: Bash(gh:*, ccx:*, jq:*, bash:*), Read, Edit, Write, Grep, Monitor
 
 Attach to an already-open PR and iterate until CI is green and the bots are
 quiet. `open-pr` opens a PR and hands the watch to a background agent that
-runs unattended and reports once; this skill is the surface a human drives —
-a day later, on a red check, on review comments, or on a PR someone else
+runs unattended with interim eviction reports and a final verdict. This
+skill is the surface a human drives — a day later, on a red check, on
+review comments, or on a PR someone else
 opened. The human is present, so decisions go to them directly.
 
 ## Attach
@@ -37,7 +38,8 @@ the PR branch when not already on it (`gh pr checkout <pr>`).
 
 Per-PR state lives at `<cache>/pr/<number>.json`, where `<cache>` comes from
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-cache.sh" path <owner/repo>`. It
-carries `head_at_last_pass`, comment and review watermarks, `checks_seen`,
+carries `head_at_last_pass`, comment, review, and event watermarks, queue
+and conflict state, `checks_seen`,
 an `attempts` map per check, and the `applied` log — the schema is in
 [reference/triage.md](reference/triage.md). Read it before the first poll:
 the attempts map is what carries the two-attempt cap across a restart, and a
@@ -57,16 +59,26 @@ Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <s
 One stdout line per event:
 
 ```
-CHECK   <name> <bucket> <link>
-REVIEW  <author> <state> <id>
-COMMENT <author> <id> <first-80-chars>
-QUEUED  <author> <id>
-DONE    all-green | merged | queue-merged | closed | checks-failed |
-        conflicted | deadline-still-open
+CHECK    <name> <bucket> <link>
+REVIEW   <author> <state> <id>
+COMMENT  <author> <id> <first-80>
+QUEUED   <actor> <label|comment-id>
+UNQUEUED <actor>
+DONE     all-green | merged | queue-merged | closed | checks-failed |
+         conflicted | deadline-still-open
+DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 ```
 
-`QUEUED` is not terminal — the PR entered the merge queue and is still in
-flight, so the watch continues. `queue-merged` is a merge: the queue
+The script reads the PR, check runs, commit statuses, issue events, reviews,
+and comments through REST. `PR_POLL_INTERVAL` defaults to 120 seconds, with
+a floor of 120 seconds or 10 times `PR_POLL_STACK`, whichever is larger.
+`PR_POLL_STACK` is the number of concurrent PR watches (default 1). Prefix
+the Monitor command with `PR_POLL_QUEUE_LABEL=<label>` when the repo's queue
+label is not `merge`.
+
+`QUEUED` keeps the watch armed through green checks. `UNQUEUED` means a
+human removed the queue label; neither event ends the round.
+`queue-merged` is a merge: the queue
 squash-merges, so the PR reads `CLOSED` with a null `mergedAt` and only the
 squash on the base branch or the queue's "Merged by" line distinguishes it
 from an abandoned one. `deadline-still-open` ends the watch on time instead
@@ -78,18 +90,40 @@ exited stays stopped. Each `DONE` is therefore the end of a round, not the
 end of the loop.
 
 The states behind the tokens, by meaning: open (checks running or red),
-green (every check passed), queued for merge (a queue holds it — still in
-flight, the queue can eject it), merged, abandoned, conflicted (the head no
-longer merges into its base — `mergeStateStatus` reports it and no check
-does, so the checks read green on a PR that cannot merge; the resolution,
-a rebase or a hand merge, is the user's). Green, conflicted and both
-terminal states end the loop: `TaskStop` the monitor and report — on a queue
-lane, merged vs abandoned comes from the landing on the base branch (see
-Attach), never the state field and never the closer actor. Queued keeps the
-watch armed. On failed checks, triage the
-reds; ship or rebut what triage settles, then **arm a fresh Monitor** on
-the new head and keep going. The loop ends when what remains is green,
-exhausted its two attempts, or awaiting a decision.
+green (checks passed, `mergeable: true`, neither queued nor evicted pending
+relabel), queued for merge (still watched through green), evicted (a bot
+removed the queue label or a merge-activity bullet logged a drop), merged,
+abandoned, and conflicted. A conflict needs one `mergeable_state: dirty`
+read, or two `mergeable: false` reads with no true between; null/unknown
+mergeability is not a read. It fires once per head.
+
+Report conflicts immediately: run `git fetch origin <base>`, then
+`git merge-tree --write-tree --name-only --no-messages origin/<base> <head>`.
+The lines after the first tree oid are the conflicted paths. Report
+`blocked: conflicts with <base> in <paths>` with the options of rebasing
+onto the base tip or resolving by hand; rewriting the branch is the user's
+call. `TaskStop` the monitor and end the loop.
+
+Report `evicted: <reason> <detail>` immediately, including the same
+merge-tree paths for conflicts. Then **arm a fresh Monitor on the same
+state file** and keep watching for the caller's relabel. The recorded
+eviction suppresses a second report of the same label removal and prevents `all-green`;
+a recorded conflict stays silent on the same head. Relabel clears the
+eviction and emits `QUEUED`. The watch still sees a new head, a landing, or
+the deadline.
+
+The caller relabels after pushing any fix; the watcher never
+relabels. Triage `failed-ci` like `checks-failed`, fix the named PR for
+`downstack #N`, relabel after `head-moved`, and report the text for
+`other` or `unknown`.
+
+Green, merged, abandoned, and the deadline end the loop: `TaskStop` the
+monitor and report. On a queue lane, merged versus abandoned comes from the
+landing on the base branch (see Attach), never the state field or the
+closer actor. On failed checks, triage the reds; ship or rebut what triage
+settles, then **arm a fresh Monitor** on the new head and keep going.
+Exhausted attempts or a fix needing a decision end the loop with a report;
+an eviction report keeps the watch armed for relabel.
 
 ## Ground truth
 
@@ -181,11 +215,11 @@ emitting a line per event, so it composes with a watching human, not with
 Monitor.
 
 <success_criteria>
-The loop ends in one of three states, each reported plainly: the PR is green
-and quiet (every check passing, every actionable comment answered — fixed,
-rebutted, or replied); the PR merged or was abandoned underneath the loop,
-told apart by the closer actor, never the state field; or each remaining
-red has either an exhausted attempts record or a decision brought back with
-2–4 concrete options. Every shipped fix passed all four gates first and
-appears in the state file's `applied` log. The monitor is stopped.
+The loop ends with a report: the PR is green and quiet (checks passing,
+`mergeable: true`, neither queued nor evicted, every actionable comment
+answered); it merged or was abandoned, told apart by the landing on the
+base; or it is blocked by conflicts, exhausted attempts, a decision, or the
+deadline. Evictions report immediately and keep the watch armed for
+relabel. Every shipped fix passed all four gates first and appears in the
+state file's `applied` log. The monitor is stopped when the loop ends.
 </success_criteria>

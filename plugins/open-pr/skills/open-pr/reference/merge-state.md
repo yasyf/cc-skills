@@ -57,16 +57,26 @@ gh api repos/<owner>/<name>/issues/<n>/comments \
 
 ## Queue drops
 
-The queue reports itself in one "Merge activity" comment it **edits in place**, appending a bullet per event, and DMs the author on Slack. Nothing else fires: no new comment, no check, no timeline event a watcher can key on. So poll that comment's `updated_at` and body, not the comment list — a watcher keyed on new comments sees a queue drop as silence. The comment is authored by whoever enqueued the PR, not by `graphite-app[bot]`, so an author filter on the queue bot matches nothing.
+Graphite drops a PR by removing its queue label. The REST `issues/<n>/events` endpoint records an `unlabeled` event by `graphite-app[bot]`, often with no "Merge activity" bullet at all. A head push after labelling can dequeue it too. Read the label events:
+
+```bash
+gh api "repos/<owner>/<name>/issues/<n>/events" --jq '.[] | select(.event == "unlabeled" and .label.name == "merge") | {actor: .actor.login, type: .actor.type, created_at}'
+```
+
+The queue also edits one "Merge activity" comment in place. Read its `updated_at` and body for the reason when a bullet exists; a watcher keyed on new comments misses the edit. The comment sits under whoever enqueued the PR, so filtering for `graphite-app[bot]` misses it.
 
 ```bash
 gh api "repos/<owner>/<name>/issues/<n>/comments" \
   --jq '.[] | select(.body | test("Merge activity")) | {id, updated_at, body}'
 ```
 
-Observed verdict lines, each the last bullet of a drop: `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, and `couldn't merge this PR because **it failed for an unknown reason**` — that last one names no cause and a re-enqueue is what answers it. A drop takes the merge label off with it, so the fix is: push the rebase or the fix first, then relabel. Relabelling first re-enqueues the rejected head, and relabelling without a push is a no-op — the queue drops it again for the same reason.
+Observed drop bullets include `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, `removed this pull request due to downstack failures on PR #24450`, and `couldn't merge this PR because **it failed for an unknown reason**`. A downstack failure names the PR dropped first; fix that PR. An unknown reason needs the check evidence before a diagnosis.
 
-**Removing the label does not dequeue an in-flight PR.** Once the queue has taken it, the label is a record of how it got there, not a handle on it: Graphite landed one PR 50 minutes after its label came off, on a head amended in between (`#19776`, `#19850`). To actually hold a PR, close it or red a required check.
+After a base move, `mergeable_state` can read `unknown` for minutes; one unknown read is not a verdict. `dirty` or `mergeable: false` is conflict evidence. The poll script reports `conflicted` on one dirty read or two false reads with no true between; null mergeability neither counts nor resets them.
+
+The watcher reports `evicted` immediately and re-arms on the same state file. The caller pushes any rebase or fix before relabelling; relabelling first re-enqueues the rejected head, and the later push can dequeue it again. A `head-moved` eviction needs a relabel after the push. Before reporting an eviction, the script checks for the squash on the base and reports `queue-merged` if it finds one.
+
+**Manually removing the label does not guarantee an in-flight PR stops.** Graphite landed one PR 50 minutes after its label came off, on a head amended in between (`#19776`, `#19850`). To actually hold a PR, close it or red a required check.
 
 **Landing a parent deletes its head branch, which auto-closes the child.** GitHub closes a PR whose base ref disappears, and a closed PR whose branch was force-pushed after the close cannot be reopened — the work is recoverable only by recreating the base branch at trunk and opening a fresh PR (`#19700` lost that way, `#19707` recovered). Before landing a stack's bottom, repoint every child's base at trunk.
 

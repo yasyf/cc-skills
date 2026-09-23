@@ -170,14 +170,21 @@ time, and where a human eye should look first.
 
 ```json
 {
+  "schema": 2,
   "pr": 123,
   "repo": "acme/widgets",
   "head_at_last_pass": "4f2a91c0e8b7d6a5c4f3e2d1b0a9f8e7d6c5b4a3",
   "watermarks": {
-    "issue_comments": "2026-07-26T04:11:09Z",
-    "review_comments": "2026-07-26T04:13:52Z"
+    "comments": "2026-07-26T04:11:09Z",
+    "reviews": "2026-07-26T04:13:52Z",
+    "events": { "at": "2026-07-26T04:13:52Z", "id": 456 }
   },
-  "checks_seen": { "test (3.12)": "failure", "lint": "success" },
+  "checks_seen": { "test (3.12)": "fail", "lint": "pass" },
+  "merge_activity": {},
+  "merge_state_seen": "clean",
+  "mergeable_false_reads": 0,
+  "conflicted_head": null,
+  "queue": { "label": false, "head": null, "evicted": null, "evicted_event": null },
   "attempts": { "test (3.12)": 1 },
   "applied": [
     {
@@ -190,13 +197,21 @@ time, and where a human eye should look first.
 }
 ```
 
-- `head_at_last_pass` — the PR head the last time every check was green; a
-  differing current head means commits landed since.
-- `watermarks` — ISO timestamps passed as `?since=` to the comment
-  endpoints so each comment surfaces once; `pr-poll.sh` advances them as it
-  emits.
+- `schema` — state-file version 2.
+- `head_at_last_pass` — the PR head at the last pass; a new head resets check buckets and false-read count.
+- `watermarks.comments` — ISO timestamp passed as `?since=` to issue and review comment endpoints.
+- `watermarks.reviews` — ISO timestamp used to filter reviews by `submitted_at`.
+- `watermarks.events` — `{at, id}` start of the watch; queue-label events at or before it are history. Never advanced.
 - `checks_seen` — last known bucket per check; `pr-poll.sh` emits a `CHECK`
   line only on change.
+- `merge_activity` — count of merge-activity bullets already read per comment id; a fresh watch records the existing bullets as history.
+- `merge_state_seen` — the last REST `mergeable_state` value.
+- `mergeable_false_reads` — false reads since the last true or head change; null neither counts nor resets.
+- `conflicted_head` — head already reported conflicted, including conflict evictions; suppresses repeats on that head.
+- `queue.label` — recorded queue-label presence; null before the first pass, false on eviction.
+- `queue.head` — head recorded when the queue label was observed becoming present.
+- `queue.evicted` — emitted eviction reason and detail; null until eviction, cleared on relabel.
+- `queue.evicted_event` — id of the label-removal event last reported as an eviction.
 - `attempts` — per check, the count of shipped fixes while it stayed red.
   Increment after each ship targeting the check; clear the entry when the
   check goes green, so a fresh failure on new commits starts a fresh count.
