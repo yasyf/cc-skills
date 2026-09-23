@@ -45,15 +45,18 @@ Do, in this order, forever:
      the repository's pull requests; a PR you cannot trace to a lane's report is not
      yours, and there is no "unknown" list.
   3. Grade. For every row reporting clean: re-read the head on the forge, then
-     `ledger.py label --pr <n> --expect-head <sha> --checkout <path>`. The tool
-     refuses a closed PR, a moved head, a held PR, a head labelled or pulled before,
-     a head under a minute old, a red status, a failed check, and a head that
-     conflicts with the base; a refusal names the reason and is the end of it. Where
-     the drive carries a bar beyond CI (a plan comment, a grader's verdict), read it
-     before labelling and hold the PR with that reason when it is missing for this
-     head. A plan the base has moved under is not such a reason: print the stale
-     stacks and the movers, label anyway, and let the landing grade the tree it
-     applies. A rebase is asked for on a merge conflict and for nothing else.
+     `ledger.py label --pr <n> --expect-head <sha> --checkout <path>`. The tool refuses
+     a closed PR, a moved head, a held PR, a head labelled or pulled before, a head
+     under a minute old, a red status, a failed check, a PR with no approval in force
+     (any commit counts; a dismissed or withdrawn approval does not), a head whose
+     latest `ai-review` check has not completed, and a head that conflicts with the
+     base; a refusal names the reason and is the end of it. On success it records the
+     approvers in `approved_by` and names them in the output. Where the drive carries a
+     bar beyond CI (a plan comment, a grader's verdict), read it before labelling and
+     hold the PR with that reason when it is missing for this head. A plan the base has
+     moved under is not such a reason: print the stale stacks and the movers, label
+     anyway, and let the landing grade the tree it applies. A rebase is asked for on a
+     merge conflict and for nothing else.
   4. Route. `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Send exactly the

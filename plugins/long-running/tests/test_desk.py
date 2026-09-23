@@ -36,7 +36,12 @@ def desk_shell(**pull) -> FakeShell:
     shell.commit_dates[HEAD] = stamp(timedelta(minutes=-5))
     shell.pull_heads[PR] = HEAD
     shell.routes[f"checks:{HEAD}"] = "check-runs-green.json"
+    shell.reviews[PR] = [review("APPROVED", HEAD)]
     return shell
+
+
+def review(state: str, commit: str, login: str = "yasyf") -> dict:
+    return {"state": state, "commit_id": commit, "user": {"login": login}}
 
 
 def report(shell, verdict="clean", head=HEAD, lane=LANE) -> int:
@@ -481,6 +486,62 @@ def test_label_refuses_an_absent_ai_review(capsys):
 
     assert label(shell) == 1
     assert "REFUSED ai-review is absent" in capsys.readouterr().out
+
+
+def test_label_refuses_a_pr_with_no_reviews(capsys):
+    shell = desk_shell()
+    shell.reviews[PR] = []
+
+    assert label(shell) == 1
+    assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
+    assert shell.labelled == []
+    assert shell.keys() == []
+
+
+def test_label_accepts_an_approval_of_an_earlier_head(capsys):
+    shell = desk_shell()
+    shell.reviews[PR] = [review("APPROVED", OLD_HEAD)]
+
+    assert label(shell, "--expect-head", HEAD) == 0
+    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.fields(PR)["approved_by"] == "yasyf"
+
+
+def test_label_refuses_a_dismissed_approval_of_the_head(capsys):
+    shell = desk_shell()
+    shell.reviews[PR] = [review("DISMISSED", HEAD)]
+
+    assert label(shell) == 1
+    assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
+    shell = desk_shell()
+    shell.reviews[PR] = [review("APPROVED", HEAD), review("CHANGES_REQUESTED", HEAD)]
+
+    assert label(shell) == 1
+    assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys):
+    shell = desk_shell()
+    shell.routes[f"checks:{HEAD}"] = "check-runs-ai-review-in-progress.json"
+
+    assert label(shell) == 1
+    assert "REFUSED ai-review still reviewing 3f3acff97" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
+    shell = desk_shell()
+    shell.reviews[PR] = [review("COMMENTED", OLD_HEAD, "bot")] * 100 + [review("APPROVED", HEAD, "yasyf"), review("APPROVED", HEAD, "octocat")]
+
+    assert label(shell) == 0
+    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.fields(PR)["approved_by"] == "octocat,yasyf"
+    assert "approved by octocat,yasyf" in capsys.readouterr().out
 
 
 def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):

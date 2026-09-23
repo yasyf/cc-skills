@@ -98,11 +98,14 @@ twenty times in an hour.*
 
 **D3. The label goes on a head once, after the desk re-reads it.** `ledger.py label`
 re-reads the head from the forge. It refuses a closed PR, a moved head, a held PR, a
-head it labelled or pulled before, a head under a minute old, a red status, and a failed
-check run. With `--checkout` it also refuses a head that conflicts with the base. A
-refusal names the reason and ends the attempt; the desk routes or holds, it never
-retries the same head. *Prevents the re-queue loop where an ejected head is relabelled
-unchanged and ejected again until someone notices.*
+head it labelled or pulled before, a head under a minute old, a red status, a failed
+check run, a PR with no approval in force (any commit counts; a dismissed or withdrawn
+approval does not), and a head whose latest `ai-review` check has not completed. With
+`--checkout` it also refuses a head that conflicts with the base. On success it records
+the approvers in `approved_by` and names them in the output. A refusal names the reason
+and ends the attempt; the desk routes or holds, it never retries the same head.
+*Prevents the re-queue loop where an ejected head is relabelled unchanged and ejected
+again until someone notices.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py landed` fetches the
 base branch and settles a closed row by `git log` for a subject ending `(#n)`, never by

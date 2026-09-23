@@ -43,6 +43,9 @@ from urllib.parse import urlencode
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
+APPROVED = "APPROVED"
+REVIEW_DECISIONS = (APPROVED, "CHANGES_REQUESTED", "DISMISSED")
+PAGE_SIZE = 100
 ROUTE_STATES = ("dirty", "blocked")
 KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = ("clean", "red", "conflicting", "held")
@@ -129,6 +132,8 @@ REFUSAL = {
     "checks": "failed check runs on {head}: {names}",
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
     "fetched": "refs/pull/{pr}/head is {fetched} on the forge, not {head}",
+    "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
+    "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
     "children": "#{pr}'s branch {branch} is the base of {children}; retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
@@ -158,6 +163,14 @@ class Github:
         if params:
             endpoint = f"{endpoint}?{urlencode(params)}"
         return json.loads(self.shell.run(["gh", "api", endpoint]))
+
+    def paged(self, path: str) -> list[dict]:
+        items: list[dict] = []
+        page = 1
+        while batch := self.api(path, per_page=PAGE_SIZE, page=page):
+            items += batch
+            page += 1
+        return items
 
     def add_label(self, number: str, name: str) -> None:
         self.shell.run(
@@ -281,6 +294,16 @@ def ai_review(checks: dict) -> str:
         if run["name"] == AI_REVIEW_CHECK:
             return run["conclusion"] or run["status"]
     return AI_REVIEW_ABSENT
+
+
+def latest_ai_review(gh: Github, head: str) -> dict | None:
+    runs = gh.api(f"commits/{head}/check-runs", check_name=AI_REVIEW_CHECK)["check_runs"]
+    return max(runs, key=lambda run: run["started_at"], default=None)
+
+
+def approvers(gh: Github, pr: str) -> list[str]:
+    decisions = {review["user"]["login"]: review["state"] for review in gh.paged(f"pulls/{pr}/reviews") if review["state"] in REVIEW_DECISIONS}
+    return sorted(login for login, state in decisions.items() if state == APPROVED)
 
 
 def grade(gh: Github, number: str) -> dict[str, str]:
@@ -655,6 +678,9 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
         return refuse("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
     if fields.get("label_head") == head and fields.get("labelled_at"):
         return refuse("labelled", head=head[:9], at=fields["labelled_at"])
+    approved = approvers(gh, args.pr)
+    if not approved:
+        return refuse("unapproved", pr=args.pr)
     if pull["mergeable_state"] not in LABELLABLE_STATES:
         return refuse("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
     committed = parse_iso(gh.api(f"commits/{head}")["commit"]["committer"]["date"])
@@ -668,7 +694,10 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
         return refuse("checks", head=head[:9], names=", ".join(failed))
-    verdict = ai_review(checks)
+    review = latest_ai_review(gh, head)
+    if review and review["status"] != "completed":
+        return refuse("reviewing", head=head[:9])
+    verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
     if verdict != "success":
         return refuse("ai-review", state=verdict, head=head[:9])
     children = open_children(gh, pull["head"]["ref"])
@@ -684,8 +713,9 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
         return 0
     gh.add_label(args.pr, MERGE_LABEL)
     labelled = utc_stamp()
-    notes.set_fields(args.pr, {"head": head, "base": base, "label_head": head, "labelled_at": labelled, "label_pulled_at": "", "label_pull_reason": ""})
-    print(f"labelled #{args.pr} {head} at {labelled}")
+    approved_by = ",".join(approved)
+    notes.set_fields(args.pr, {"head": head, "base": base, "label_head": head, "labelled_at": labelled, "approved_by": approved_by, "label_pulled_at": "", "label_pull_reason": ""})
+    print(f"labelled #{args.pr} {head} at {labelled}, approved by {approved_by}")
     return 0
 
 
