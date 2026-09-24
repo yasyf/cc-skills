@@ -137,7 +137,7 @@ Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
               "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>")
 ```
 
-One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller's relabel. Push any fix before adding the queue label; relabelling is the caller's call.
+One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller to re-enqueue by label or in Graphite's UI. Push any fix before re-enqueueing; the caller decides when to re-enqueue.
 
 After adding the queue label to a PR whose watcher already reported `clean`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
 

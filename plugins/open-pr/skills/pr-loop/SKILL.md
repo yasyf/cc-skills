@@ -80,8 +80,10 @@ a floor of 120 seconds or 10 times `PR_POLL_STACK`, whichever is larger.
 the Monitor command with `PR_POLL_QUEUE_LABEL=<label>` when the repo's queue
 label is not `merge`.
 
-`QUEUED` keeps the watch armed through green checks. `UNQUEUED` means a
-human removed the queue label; neither event ends the round.
+`QUEUED` means the PR entered the queue by label or a Graphite UI enqueue
+bullet, and keeps the watch armed through green checks. A bullet names the
+enqueuer, not the comment author. `UNQUEUED` means a human removed the queue
+label or dequeued the PR in Graphite's UI; neither event ends the round.
 `queue-merged` is a merge: the queue
 squash-merges, so the PR reads `CLOSED` with a null `mergedAt` and only the
 squash on the base branch or the queue's "Merged by" line distinguishes it
@@ -98,10 +100,11 @@ monitor whose command exited stays stopped. Each `DONE` is therefore the
 end of a round, not the end of the loop.
 
 The states behind the tokens, by meaning: open (checks running or red),
-green (checks passed, `mergeable: true`, neither queued nor evicted pending
-relabel), queued for merge (still watched through green), evicted (a bot
-removed the queue label or a merge-activity bullet logged a drop), merged,
-abandoned, and conflicted. A conflict needs one `mergeable_state: dirty`
+green (checks passed, `mergeable: true`, queue state read, neither queued nor
+evicted pending re-enqueue), queued for merge (still watched through green),
+evicted (a bot removed the queue label from an unresolved stint, or the latest
+queue entry is a drop bullet, regardless of the label or `mergeable_state`),
+merged, abandoned, and conflicted. A conflict needs one `mergeable_state: dirty`
 read, or two `mergeable: false` reads with no true between; null/unknown
 mergeability is not a read. It fires once per head.
 
@@ -112,17 +115,27 @@ The lines after the first tree oid are the conflicted paths. Report
 onto the base tip or resolving by hand; rewriting the branch is the user's
 call. `TaskStop` the monitor and end the loop.
 
-Report `evicted: <reason> <detail>` immediately, including the same
-merge-tree paths for conflicts. Then **arm a fresh Monitor on the same
-state file** and keep watching for the caller's relabel. The recorded
-eviction suppresses a second report of the same label removal and prevents `all-green`;
-a recorded conflict stays silent on the same head. Relabel clears the
+Report `evicted: <reason> <detail>` immediately. For conflicts, state that
+the PR was dropped from the merge queue for conflicts against trunk and
+needs a rebase onto trunk. Read the head and base with
+`gh pr view <pr> --json headRefOid,baseRefName`, and trunk with
+`gh repo view <repo> --json defaultBranchRef --jq .defaultBranchRef.name`.
+Run `git fetch origin <trunk>`, then
+`git merge-tree --write-tree --name-only --no-messages origin/<trunk> <head>`.
+Include the trunk, head SHA, base branch, and conflicted paths in the report.
+
+Then **arm a fresh Monitor on the same state file** and keep watching for
+the caller to re-enqueue. `.queue.resolved_stint` records the `labeled`
+event id whose stint ended in an eviction report or `UNQUEUED`; a later bot
+unlabel of that stint stays silent, and a relabel starts a new stint.
+A recorded eviction prevents `all-green`; a recorded conflict stays silent
+on the same head. Re-enqueueing by label or in Graphite's UI clears the
 eviction and emits `QUEUED`. The watch still sees a new head, a landing, or
 the deadline.
 
-The caller relabels after pushing any fix; the watcher never
-relabels. Triage `failed-ci` like `checks-failed`, fix the named PR for
-`downstack #N`, relabel after `head-moved`, and report the text for
+The caller re-enqueues after pushing any fix; the watcher never
+re-enqueues. Triage `failed-ci` like `checks-failed`, fix the named PR for
+`downstack #N`, re-enqueue after `head-moved`, and report the text for
 `other` or `unknown`.
 
 Green, merged, abandoned, and the deadline end the loop: `TaskStop` the
@@ -131,7 +144,7 @@ landing on the base branch (see Attach), never the state field or the
 closer actor. On failed checks, triage the reds; ship or rebut what triage
 settles, then **arm a fresh Monitor** on the new head and keep going.
 Exhausted attempts or a fix needing a decision end the loop with a report;
-an eviction report keeps the watch armed for relabel.
+an eviction report keeps the watch armed for re-enqueue.
 
 ## Ground truth
 
@@ -228,6 +241,6 @@ The loop ends with a report: the PR is green and quiet (checks passing,
 answered); it merged or was abandoned, told apart by the landing on the
 base; or it is blocked by conflicts, exhausted attempts, a decision, or the
 deadline. Evictions report immediately and keep the watch armed for
-relabel. Every shipped fix passed all four gates first and appears in the
+re-enqueue. Every shipped fix passed all four gates first and appears in the
 state file's `applied` log. The monitor is stopped when the loop ends.
 </success_criteria>
