@@ -479,7 +479,7 @@ poll() {
 while :; do
   poll
   now=$(date +%s)
-  watch_started=$(jq -r '.started_at' <<<"$STATE")
+  watch_started=$(jq -r --argjson s "$STARTED" '.started_at // $s' <<<"$STATE")
   if [ "$DEADLINE" -gt 0 ] && [ $((now - watch_started)) -ge "$DEADLINE" ]; then
     finish deadline-still-open
   fi

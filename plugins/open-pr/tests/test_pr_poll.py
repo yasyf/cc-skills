@@ -474,3 +474,11 @@ def test_fresh_watch_after_a_ui_dequeue_ignores_the_trailing_bot_unlabel(poll, t
     run = poll(lingering, cleaned)
     assert not any(line.startswith(("QUEUED ", "DONE evicted")) for line in run.lines)
     assert run.done == "DONE all-green"
+
+
+def test_first_pass_that_fails_before_reading_state_keeps_the_deadline(poll):
+    blind = surface(pull())
+    blind[f"issues/{PR}/events"] = "FAIL"
+    run = poll(blind, PENDING, env={"PR_POLL_DEADLINE": "3600"})
+    assert run.done is None
+    assert run.passes == 2
