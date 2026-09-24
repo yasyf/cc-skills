@@ -1,0 +1,26 @@
+name: long-running CI
+
+on:
+  push:
+    paths:
+      - "plugins/long-running/**"
+      - ".github/workflows/long-running-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/long-running/**"
+      - ".github/workflows/long-running-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: pytest
+        run: uv run --project plugins/long-running pytest plugins/long-running/tests -q
+      - name: capt-hook pack test
+        run: uvx --isolated 'capt-hook>=12.56.0' pack test plugins/long-running
