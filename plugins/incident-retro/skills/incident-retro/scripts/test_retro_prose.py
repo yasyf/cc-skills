@@ -3,7 +3,7 @@
 
   python3 scripts/test_retro_prose.py
 """
-import json, subprocess, sys, tempfile, unittest
+import contextlib, io, json, os, signal, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -69,7 +69,8 @@ class RecordIsReadUnderTheClaim(unittest.TestCase):
         retro_prose.write_prose = lambda *a, **k: 0
         try:
             args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "field": None,
-                                     "stale": False, "quick": False, "dry_run": False, "batch": 4})()
+                                     "stale": False, "quick": False, "dry_run": False, "batch": 4,
+                                     "detach": False, "await_run": False})()
             retro_prose.prose(args)
         finally:
             retro_prose.read_record, retro_prose.write_prose = original_read, original_write
@@ -204,7 +205,8 @@ class OperatorNotes(unittest.TestCase):
         try:
             args = type("Args", (), {"retro": None, "dir": str(root), "list": False,
                                      "field": ["meta.title"], "stale": False, "quick": False,
-                                     "dry_run": False, "batch": 4, "note": ["meta.title=name the cause"]})()
+                                     "dry_run": False, "batch": 4, "note": ["meta.title=name the cause"],
+                                     "detach": False, "await_run": False})()
             retro_prose.prose(args)
         finally:
             retro_prose.read_record, retro_prose.write_prose = original_read, original_write
@@ -247,6 +249,59 @@ class FactFreeze(unittest.TestCase):
     def test_dropping_an_identifier_is_refused(self):
         self.assertTrue(retro_prose.fact_drift("column manifest_section was renamed",
                                                "the column was renamed", ""))
+
+
+class DetachedRun(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.lane = self.root / "lane"
+        self.poll, retro_prose.AWAIT_POLL = retro_prose.AWAIT_POLL, 0.05
+        self.children = []
+
+    def tearDown(self):
+        retro_prose.AWAIT_POLL = self.poll
+        for pid in self.children:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def detach(self, script: str) -> int:
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = retro_prose.detach(self.root, self.lane, ["-c", script])
+        self.children.append(int((self.lane / retro_prose.RUN_PID).read_text()))
+        return code
+
+    def await_detached(self, seconds: float):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = retro_prose.await_detached(self.root, self.lane, seconds)
+        return code, out.getvalue()
+
+    def test_await_returns_the_runs_exit_status_and_its_log(self):
+        self.assertEqual(self.detach("print('prose: wrote 3 field(s)'); raise SystemExit(3)"), 0)
+        code, out = self.await_detached(30)
+        self.assertEqual(code, 3)
+        self.assertIn("prose: wrote 3 field(s)", out)
+        self.assertIn("exited 3", out)
+
+    def test_await_hands_back_a_fresh_await_line_while_the_run_is_still_going(self):
+        self.detach("import time; time.sleep(30)")
+        code, out = self.await_detached(0.2)
+        self.assertEqual(code, retro_prose.STILL_RUNNING)
+        self.assertIn("AWAIT: ", out)
+        self.assertTrue(out.rstrip().endswith("--await"))
+
+    def test_a_second_detach_is_refused_while_the_first_runs(self):
+        self.detach("import time; time.sleep(30)")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(retro_prose.detach(self.root, self.lane, ["-c", "pass"]), 1)
+        self.assertIn("already writing", err.getvalue())
+
+    def test_await_without_a_detached_run_says_how_to_start_one(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(retro_prose.await_detached(self.root, self.lane, 0), 1)
+        self.assertIn("--detach", err.getvalue())
 
 
 if __name__ == "__main__":

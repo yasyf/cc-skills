@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Route every authored sentence of a retro through gpt-6-astra, and lock it there.
 
-  retro.py prose <dir> [--field ADDR]… [--stale] [--batch N] [--dry-run]
+  retro.py prose <dir> [--field ADDR]… [--stale] [--batch N] [--dry-run] [--detach]
+  retro.py prose <dir> --await
   retro.py prose <dir> --list
 
 The command enumerates the prose a writer authors, builds one work order
@@ -12,7 +13,7 @@ model, run directory, log and per-field digest in prose.lock.json. `check
 --strict` reads that lock, so a hand edit or another model's rewrite fails the
 gate until this command runs again.
 """
-import fcntl, hashlib, json, os, re, shutil, subprocess, sys, time
+import fcntl, hashlib, json, os, re, shlex, shutil, subprocess, sys, time
 from pathlib import Path
 
 CODEX_ASK = "codex-ask"
@@ -34,6 +35,13 @@ REPLY_KEYS = ("REPLY_FILE", "LOG_FILE")
 WRITING_DOCS = "writing-docs"
 SKILL_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "skills"
 LANES = Path.home() / ".cache" / "incident-retro" / "prose"
+RUN_LOG = "run.log"
+RUN_EXIT = "run.exit"
+RUN_PID = "run.pid"
+RUN_LOCK = "run.lock"
+AWAIT_SECONDS = 540
+AWAIT_POLL = 5
+STILL_RUNNING = 75
 PANEL = re.compile(r'(<section\b[^>]*\bclass="[^"]*\bxs-panel\b[^"]*"[^>]*>)(.*?)(</section>)', re.S | re.I)
 PANEL_KIND = re.compile(r'\bdata-kind="([^"]*)"', re.I)
 TAG = re.compile(r"<[^>]+>")
@@ -575,6 +583,12 @@ def prose(args) -> int:
     R, store = read_record(retro, root)
     if R is None:
         return 1
+    lane_root = LANES / ((R.get("meta") or {}).get("slug") or root.resolve().name)
+    runs = lane_root / f"detached-{digest(str(root.resolve()))[:12]}"
+    if args.await_run:
+        return await_detached(root, runs)
+    if args.detach:
+        return detach(root, runs, [a for a in sys.argv if a != "--detach"])
     unknown = attach_notes(store, getattr(args, "note", None))
     if unknown:
         print(f"prose: --note names {unknown}, which is not a prose field; "
@@ -603,7 +617,6 @@ def prose(args) -> int:
     if not wanted and not args.quick:
         print("prose: every field already carries astra provenance")
         return 0
-    lane_root = LANES / ((R.get("meta") or {}).get("slug") or root.resolve().name)
     rules_file = rule_catalogue(lane_root)
     if args.dry_run:
         print(work_order(retro, R, root, wanted[:args.batch], store, rules_file))
@@ -619,6 +632,65 @@ def prose(args) -> int:
     except Busy as held:
         print(f"prose: {held} is already writing {root}; two runs overwrite each other's fields", file=sys.stderr)
         return 1
+
+
+def await_command(root: Path) -> str:
+    return shlex.join([sys.executable, str(Path(sys.argv[0]).resolve()), "prose", str(root.resolve()), "--await"])
+
+
+def detached_pid(runs: Path):
+    pid_file = runs / RUN_PID
+    if not pid_file.exists():
+        return None
+    pid = int(pid_file.read_text())
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    return pid
+
+
+def detach(root: Path, runs: Path, argv: list) -> int:
+    runs.mkdir(parents=True, exist_ok=True)
+    log, status = runs / RUN_LOG, runs / RUN_EXIT
+    with (runs / RUN_LOCK).open("a") as claim:
+        fcntl.flock(claim, fcntl.LOCK_EX)
+        if not status.exists() and detached_pid(runs) is not None:
+            print(f"prose: a detached run is already writing {root}; wait on it with {await_command(root)}",
+                  file=sys.stderr)
+            return 1
+        status.unlink(missing_ok=True)
+        with log.open("w") as out:
+            child = subprocess.Popen(
+                ["sh", "-c", '"$@"; echo $? > "$0.tmp" && mv "$0.tmp" "$0"', str(status), sys.executable, *argv],
+                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"})
+        (runs / RUN_PID).write_text(str(child.pid))
+    print(f"prose: detached pid {child.pid}, log {log}")
+    print(f"AWAIT: {await_command(root)}")
+    return 0
+
+
+def await_detached(root: Path, runs: Path, seconds: float = AWAIT_SECONDS) -> int:
+    log, status = runs / RUN_LOG, runs / RUN_EXIT
+    if not log.exists():
+        print(f"prose: no detached run recorded for {root}; start one with --detach", file=sys.stderr)
+        return 1
+    deadline = time.monotonic() + seconds
+    while not status.exists() and detached_pid(runs) is not None and time.monotonic() < deadline:
+        time.sleep(AWAIT_POLL)
+    sys.stdout.write(log.read_text())
+    if status.exists():
+        code = int(status.read_text())
+        print(f"prose: detached run exited {code}")
+        return code
+    if detached_pid(runs) is None:
+        print("prose: the detached run died without an exit status; read the log above and run prose again",
+              file=sys.stderr)
+        return 1
+    print(f"prose: still running after {seconds:.0f}s")
+    print(f"AWAIT: {await_command(root)}")
+    return STILL_RUNNING
 
 
 def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lane_root: Path, rules_file: Path) -> int:
@@ -714,4 +786,8 @@ def add_prose_parser(sub, retro):
     p.add_argument("--note", action="append", metavar="[ADDR=]TEXT", help="steer the writing without writing it: "
                    "'ADDR=text' for one field, bare text for every field in this run; repeatable")
     p.add_argument("--dry-run", action="store_true", help="print the work order instead of calling the model")
+    p.add_argument("--detach", action="store_true", help="start the run in its own session, print an AWAIT: line, "
+                   "and return at once")
+    p.add_argument("--await", dest="await_run", action="store_true", help=f"block up to {AWAIT_SECONDS}s on the "
+                   f"detached run; exits with its status, or {STILL_RUNNING} and a fresh AWAIT: line while it runs")
     p.set_defaults(fn=prose, retro=retro)
