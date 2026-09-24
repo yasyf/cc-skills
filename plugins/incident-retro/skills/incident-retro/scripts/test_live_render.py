@@ -42,6 +42,7 @@ PAGE_STATE = """JSON.stringify({
   scrubMax: Number(document.querySelector("#sbTrack").getAttribute("aria-valuemax")),
   statusPill: (document.querySelector("#docMeta .pill") || {}).textContent,
   liveCard: !document.querySelector("#liveCard").hidden,
+  liveBanner: (document.querySelector("#liveCard .lc-banner") || {}).textContent || "",
   polling: window.irLivePolling(),
   stubHits: window.__stubHits || 0,
   duplicateIds: (() => {
@@ -147,6 +148,8 @@ class LivePollRebuildsThePage(unittest.TestCase):
             shell = self.page_state(chrome, session)
             self.assertFalse(any(shell["sections"].values()), "empty registers left their sections visible")
             self.assertTrue(shell["liveCard"], "an ongoing retro showed no live card")
+            self.assertRegex(shell["liveBanner"], r"^Live incident in progressDetectedupdated ",
+                             "the live banner lost its phase or its age")
 
             self.publish(record(timeline=TIMELINE, actions=ACTIONS))
             filled = self.poll(chrome, session)
