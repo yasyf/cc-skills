@@ -130,12 +130,30 @@ Ship reports the branch, the PR number and URL, and the head sha. The handoff ne
 
 ## Hand off the watch
 
+Resolve `${CLAUDE_PLUGIN_ROOT}` to its absolute path in the caller at spawn
+time and fill in `poll:` with the ready-to-run command. The variable is
+substituted in this skill's text; the subagent does not receive it. Pass the
+sentence after `poll:` verbatim so the watcher can arm the script even if
+the harness omits its agent definition.
+
 ```
 Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
       name: "pr-watch-<number>",
       prompt: "pr: <number>\nurl: <url>\nrepo: <owner/name>\nhead: <sha>\n"
-              "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>")
+              "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>\n"
+              "poll: bash \"<abs plugin root>/scripts/pr-poll.sh\" <owner/name> <number> <cache>/pr/<number>.json\n"
+              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing.")
 ```
+
+After spawning, verify that the poll script wrote its state file:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-watch-armed.sh" "<cache>/pr/<number>.json"
+```
+
+On exit 1, `SendMessage` the watcher the same `poll:` line again and run
+the check a second time. If it fails again, report to the user that the
+watch is unarmed. An agent spawn alone does not prove the script is running.
 
 One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller to re-enqueue by label or in Graphite's UI. Push any fix before re-enqueueing; the caller decides when to re-enqueue.
 
