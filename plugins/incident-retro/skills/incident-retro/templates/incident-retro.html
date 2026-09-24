@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:7e1d40e7e8ac — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:e1c1ef5a64ad — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -419,7 +419,10 @@ body.asof .xs::after{content:"the final account";display:block;margin-top:var(--
 
 .livecard{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:var(--s-6) clamp(18px,3vw,30px)}
 .livecard h2{font-family:var(--display);font-weight:600;font-size:clamp(26px,3.2vw,38px);line-height:1.08;margin:var(--s-3) 0 0;color:var(--hero-ink);max-width:22ch}
-.livecard .lc-kind{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.09em;text-transform:uppercase;color:var(--hero-ink2)}
+.lc-banner{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-4);max-width:none;margin:0 0 var(--s-4);padding:var(--s-4) var(--s-5);border-radius:var(--r-ctl);background:var(--crit);color:var(--bg)}
+.lc-banner i{width:12px;height:12px;flex-basis:12px}
+.lc-banner strong{font-family:var(--display);font-size:var(--t-3xl);line-height:1.1;margin-right:auto}
+.lc-banner span{font-family:var(--mono);font-size:var(--t-sm);letter-spacing:.09em;text-transform:uppercase}
 .livecard dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:var(--s-5) clamp(24px,3vw,44px);margin:var(--s-6) 0 0}
 .livecard dt{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.09em;text-transform:uppercase;color:var(--hero-ink2)}
 .livecard dd{margin:var(--s-2) 0 0;font-size:var(--t-lg);line-height:1.5;color:var(--hero-ink)}
@@ -2626,22 +2629,25 @@ function renderStatusState(){
 const STALE_MS=5*60e3;
 const liveAge=()=>Date.now()-(tsOf(LIVE&&LIVE.updatedAt)||0);
 function tickAge(){
- const node=$("#sbAge");
- if(!node)return;
+ const sb=$("#sbAge"),lc=$("#lcAge");
+ if(!sb&&!lc)return;
  const ms=liveAge();
- node.textContent=ms<60e3?`updated ${Math.max(0,Math.round(ms/1000))} s ago`:`updated ${relTime(LIVE.updatedAt)}`;
- node.classList.toggle("sb-stale",ms>STALE_MS);
+ const text=ms<60e3?`updated ${Math.max(0,Math.round(ms/1000))} s ago`:`updated ${relTime(LIVE.updatedAt)}`;
+ if(sb){sb.textContent=text;sb.classList.toggle("sb-stale",ms>STALE_MS)}
+ if(lc)lc.textContent=text;
 }
 function renderLiveCard(){
  const host=$("#liveCard");
- if(!LIVE||!ongoing()){host.hidden=true;return}
+ if(!LIVE||!ongoing()){host.hidden=true;host.innerHTML="";return}
  const row=(label,text)=>text?`<div><dt>${esc(label)}</dt><dd>${inline(text)}</dd></div>`:"";
  const pairs=row("Right now",LIVE.currentState)+row("Next",LIVE.next);
- host.innerHTML=`<span class="lc-kind">${esc(PHASE[LIVE.phase][1])}</span>`+
+ host.innerHTML=`<p class="lc-banner sb-live" role="status"><i aria-hidden="true"></i><strong>Live incident in progress</strong>`+
+  `<span>${esc(PHASE[LIVE.phase][1])}</span>${LIVE.updatedAt?'<span id="lcAge"></span>':""}</p>`+
   `<h2>${inline(LIVE.headline||META.subtitle||META.title||"")}</h2>`+
   (pairs?`<dl>${pairs}</dl>`:"");
  host.hidden=false;
  linkNode(host);
+ tickAge();
 }
 
 let SCRUB={stops:[],t0:0,t1:0,c0:0,c1:0,PRE:0,CORE:100,POST:0};
