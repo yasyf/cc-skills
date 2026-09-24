@@ -61,9 +61,9 @@ worktree and the reply tax on notifications that carry no news.*
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
 them (`log_append`, `investigation_*`, `note_add`, `task_add`), never into the
 orchestrator's window. `TaskCreate`/`TaskUpdate` is the root's only state. Report to the
-user on milestones or when they must act, never per event. At roughly half the window on
-a long drive, write the handoff plan and hand off instead of continuing. *Prevents the
-forced mid-drive handoff with nothing written down to hand over.*
+user on milestones or when they must act, never per event. Once `long-running` is
+invoked, the session's compaction handoff runs on its own — see Compaction handoff
+below. *Prevents the forced mid-drive handoff with nothing written down to hand over.*
 
 ## The landing desk and its ledger
 
@@ -265,26 +265,66 @@ and records nothing. `unlabel --reason` records why a label came off and blocks 
 re-label of that head; it does not stop a queue that already took the PR. A lane
 asking what it owns gets `ledger.py show --red`, never the raw table.
 
-### Handoff plan
+### Compaction handoff
 
-At roughly half the window, write this and stop driving.
+Once `long-running` is invoked — the Skill call itself, or a `/long-running` prompt —
+this plugin's capt-hook pack keeps the session's compaction handoff on autopilot for
+the rest of the session, compactions included. Nothing inside the session clears it
+early.
+
+**Threshold.** The window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env, else the
+`autoCompactWindow` setting, else the model default (1M for `[1m]`, 200k otherwise).
+`threshold = window − 33k`. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it further.
+The hook fires on the main-session `Stop`, never a subagent's, once used tokens cross
+80% of that threshold.
+
+**Archive, then rewrite.** The hook archives the plan itself, as
+`<stem>.<YYYY-MM-DD>-<HHMM>-pre-compact.md` in UTC beside it. Never archive by hand —
+the guard that lets a plan rewrite through checks for exactly this sibling — and never
+`cat >` the plan to dodge that guard; write over it and let the archive carry the loss.
+
+It then blocks the turn with a directive: do not enter plan mode. Record any durable
+state still living only in this conversation in cc-notes first (ledger, rulings log,
+notes) — the archive is history, not a store. Then rewrite the plan with one `Write`,
+dropping everything unnecessary (finished work, superseded state, anything the
+archives already hold), using exactly this skeleton:
 
 ```md
-## State
-<what is true now, verified, with ids>
+# <title> (compacted <date>Z)
 
+## Restart here (read first)
+<role, the lane-contract path, the landing-desk agent + its ledger id, the rulings-log id>
+
+## Mandate (owner, verbatim)
+## Standing constraints
+## End state
+## Owner decisions (never re-ask)
+## State at <date>Z
 ## Live lanes
-| lane | owns | last verdict | expected next message |
+## Owed follow-ups
+## Owner actions pending
+## Key notes
 
-## Automatic chains
-<what lands with nobody acting, and what fires when it does>
+## Done means
 
-## Owner actions
-<what only the human can do: console clicks, approvals, credentials>
-
-## Ids
-<PRs, builds, stacks, worktrees, cc-notes ids>
+## Archived plans (history only, never needed to restart)
+- <one line per archive, newest first>
 ```
+
+`Restart here` front-loads what a cold restart needs before anything else: the role
+this session is playing, where the lane contract lives, which agent is the landing desk
+and its ledger id, and the rulings-log id. It carries no recap of finished work. A
+mid-drive gotcha that matters to a fresh restart belongs there too, not buried in
+`Key notes`.
+
+Then end the turn. The hook types `/compact` through orca itself; outside orca it
+allows the stop and tells the user to run `/compact` by hand instead. After compaction,
+`SessionStart` points the fresh context at the rewritten plan — that plan supersedes
+the summary, read it first.
+
+Auto-compaction can still fire mid-turn, ahead of the proactive 80% check, if one turn
+alone grows past 20% of the threshold. `PreCompact` and `SessionStart` re-ground on the
+plan either way, so nothing is lost, only unplanned.
 
 ## Anti-patterns seen
 
@@ -306,6 +346,8 @@ At roughly half the window, write this and stop driving.
 - A head relabelled after every queue ejection: the same conflicting head was queued
   and dropped twelve times while its rebase sat unstarted.
 - Stacks landed one PR at a time bottom-up, each waiting on a retarget and a fresh CI run.
+- Re-deriving the archive name or hand-typing the compaction prompt instead of letting
+  the compaction-handoff hook do both.
 
 ## Checklist before every tool call
 
