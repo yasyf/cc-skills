@@ -119,7 +119,7 @@ def poll(tmp_path: Path):
     state_file.write_text(json.dumps({"watermarks": {"comments": EPOCH, "reviews": EPOCH, "events": {"at": EPOCH, "id": 0}}}))
     runs = 0
 
-    def run(*passes: dict[str, object]) -> Run:
+    def run(*passes: dict[str, object], env: dict[str, str] | None = None) -> Run:
         nonlocal runs
         runs += 1
         root = tmp_path / f"run{runs}"
@@ -140,6 +140,7 @@ def poll(tmp_path: Path):
             "FAKE_PASS_FILE": str(pass_file),
             "FAKE_MAX_PASS": str(len(passes) - 1),
             "PR_POLL_DEADLINE": "0",
+            **(env or {}),
         }
         result = subprocess.run(
             ["bash", str(SCRIPT), REPO, str(PR), str(state_file)],

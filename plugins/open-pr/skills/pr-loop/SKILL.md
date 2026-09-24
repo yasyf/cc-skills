@@ -48,13 +48,17 @@ PR the background watcher already worked has its history here.
 ## Watch
 
 Foreground `sleep` is blocked in this harness, so the watch is a Monitor
-over the bundled poll script:
+over the bundled poll script, at the harness's 30-minute ceiling:
 
 ```
 Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <state-file>',
         description: "CI checks and bot comments on <repo>#<pr>",
-        persistent: true)
+        timeout_ms: 1800000)
 ```
+
+The script is the watch; a hand-rolled check loop has no state file, no
+deadline and no round boundary, and dies with the cap the first time CI
+outlasts it.
 
 One stdout line per event:
 
@@ -65,7 +69,7 @@ COMMENT  <author> <id> <first-80>
 QUEUED   <actor> <label|comment-id>
 UNQUEUED <actor>
 DONE     all-green | merged | queue-merged | closed | checks-failed |
-         conflicted | deadline-still-open
+         conflicted | deadline-still-open | window-elapsed
 DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 ```
 
@@ -82,12 +86,16 @@ human removed the queue label; neither event ends the round.
 squash-merges, so the PR reads `CLOSED` with a null `mergedAt` and only the
 squash on the base branch or the queue's "Merged by" line distinguishes it
 from an abandoned one. `deadline-still-open` ends the watch on time instead
-of polling forever; `PR_POLL_DEADLINE` sets it, four hours by default.
+of polling forever; `PR_POLL_DEADLINE` sets it, four hours by default,
+counted from the state file's `started_at`. `window-elapsed` is the script
+ending its own round after `PR_POLL_WINDOW` seconds (25 minutes, under the
+Monitor cap) with nothing decided: re-arm the same command on the same
+state file at once, silently. A harness expiry notice in place of a `DONE`
+line means the same thing.
 
-`pr-poll.sh` exits after any `DONE` line, which ends that watch —
-`persistent: true` only removes the timeout, so a monitor whose command
-exited stays stopped. Each `DONE` is therefore the end of a round, not the
-end of the loop.
+`pr-poll.sh` exits after any `DONE` line, which ends that watch, and a
+monitor whose command exited stays stopped. Each `DONE` is therefore the
+end of a round, not the end of the loop.
 
 The states behind the tokens, by meaning: open (checks running or red),
 green (checks passed, `mergeable: true`, neither queued nor evicted pending

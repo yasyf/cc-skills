@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[ -z "${FAKE_SLEEP:-}" ] || command sleep "$FAKE_SLEEP"
 pass=$(($(cat "$FAKE_PASS_FILE") + 1))
 if [ "$pass" -gt "$FAKE_MAX_PASS" ]; then
   kill -TERM "$PPID"

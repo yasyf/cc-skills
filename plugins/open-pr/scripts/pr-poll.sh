@@ -10,7 +10,7 @@
 #   QUEUED   <actor> <label|comment-id>
 #   UNQUEUED <actor>
 #   DONE     all-green | merged | queue-merged | closed | checks-failed |
-#            conflicted | deadline-still-open
+#            conflicted | deadline-still-open | window-elapsed
 #   DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 #
 # Exits 0 after DONE. QUEUED means the queue label is on the PR; UNQUEUED
@@ -28,6 +28,12 @@
 # carrying the queue label nor evicted and waiting for a relabel: a queued PR
 # is watched until it lands or the queue drops it.
 #
+# window-elapsed: the harness kills a Monitor after 30 minutes and announces it
+# with one expiry notice a background agent can miss, so the script ends its own
+# round after PR_POLL_WINDOW seconds (25 minutes) and the watcher re-arms it on
+# the same state file. The deadline counts from the state file's started_at, so
+# it spans windows.
+#
 # A fresh state file watches from now on: label events before its start and the
 # merge-activity entries already posted are history. Pre-seed .watermarks to
 # replay them.
@@ -41,6 +47,8 @@ INTERVAL_FLOOR_PER_PR=10
 QUEUE_LABEL="${PR_POLL_QUEUE_LABEL:-merge}"
 DEADLINE="${PR_POLL_DEADLINE:-14400}"
 [[ $DEADLINE =~ ^[0-9]+$ ]] || DEADLINE=14400
+WINDOW="${PR_POLL_WINDOW:-1500}"
+[[ $WINDOW =~ ^[0-9]+$ ]] || WINDOW=1500
 STARTED=$(date +%s)
 
 CHECK_RUNS='.check_runs[] | {
@@ -116,6 +124,11 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   concurrently watched PR: set PR_POLL_STACK to the number of PRs being
   watched at once (default 1). PR_POLL_QUEUE_LABEL names the merge-queue
   label (default merge).
+
+  A round ends with DONE window-elapsed after PR_POLL_WINDOW seconds (1500,
+  under the harness's 30-minute Monitor cap); re-run on the same state file
+  to continue. DONE deadline-still-open ends the whole watch PR_POLL_DEADLINE
+  seconds (14400) after the state file's started_at.
 EOF
   exit 2
 }
@@ -153,12 +166,14 @@ FRESH=1
 if [ -f "$STATE_FILE" ] && jq -e '.watermarks' "$STATE_FILE" >/dev/null 2>&1; then FRESH=0; fi
 
 normalize() {
-  jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" '
+  jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" \
+    --argjson started "$STARTED" '
     { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
       mergeable_false_reads: 0, conflicted_head: null,
       queue: { label: null, head: null, evicted: null, evicted_event: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
+    | .started_at = (.started_at // $started)
     | .watermarks = ({ comments: $now, reviews: $now, events: { at: $now, id: 0 } } * (.watermarks // {}))
   ' <<<"$STATE"
 }
@@ -428,8 +443,13 @@ poll() {
 
 while :; do
   poll
-  if [ "$DEADLINE" -gt 0 ] && [ $(($(date +%s) - STARTED)) -ge "$DEADLINE" ]; then
+  now=$(date +%s)
+  watch_started=$(jq -r '.started_at' <<<"$STATE")
+  if [ "$DEADLINE" -gt 0 ] && [ $((now - watch_started)) -ge "$DEADLINE" ]; then
     finish deadline-still-open
+  fi
+  if [ "$WINDOW" -gt 0 ] && [ $((now - STARTED)) -ge "$WINDOW" ]; then
+    finish window-elapsed
   fi
   sleep "$INTERVAL"
 done
