@@ -57,15 +57,15 @@ gh api repos/<owner>/<name>/issues/<n>/comments \
 
 ## Queue drops
 
-Graphite drops a PR by removing its queue label. The REST `issues/<n>/events` endpoint records an `unlabeled` event by `graphite-app[bot]`, often with no "Merge activity" bullet at all. A head push after labelling can dequeue it too. Read the label events:
+Graphite can drop a labeled PR by removing its queue label. The REST `issues/<n>/events` endpoint records an `unlabeled` event by `graphite-app[bot]`, often with no "Merge activity" bullet at all. A head push after labeling can dequeue it too. Read the label events:
 
 ```bash
 gh api "repos/<owner>/<name>/issues/<n>/events" --jq '.[] | select(.event == "unlabeled" and .label.name == "merge") | {actor: .actor.login, type: .actor.type, created_at}'
 ```
 
-A PR enqueued from Graphite's UI never carries the label, so it has no label events at all. Its enqueue and its drop exist only as "Merge activity" bullets, and GitHub can read it `mergeable_state: clean` throughout: a stacked PR's base is `graphite-base/<n>`, and GitHub does not evaluate the conflict against trunk that dropped it (`#24549`).
+A PR enqueued from Graphite's UI carries no queue label. Its enqueue and drop appear as "Merge activity" bullets, without label events. On [#24549](https://github.com/Forge-AI/monorepo/pull/24549), GitHub read `mergeable_state: clean` against `graphite-base/24549` while the queue dropped the PR for conflicts against trunk `dev`. The poller records the enqueue bullet as queued and holds through green checks; a drop as the latest queue entry evicts regardless of the label or `mergeable_state`.
 
-The queue also edits one "Merge activity" comment in place. Read its `updated_at` and body for the reason when a bullet exists; a watcher keyed on new comments misses the edit. The comment sits under whoever enqueued the PR, so filtering for `graphite-app[bot]` misses it.
+The queue also edits one "Merge activity" comment in place. Read its `updated_at` and body for the reason when a bullet exists; a watcher keyed on new comments misses the edit. The author can be the enqueuer or `graphite-app[bot]`, so match the body instead of filtering by author.
 
 ```bash
 gh api "repos/<owner>/<name>/issues/<n>/comments" \
@@ -74,9 +74,11 @@ gh api "repos/<owner>/<name>/issues/<n>/comments" \
 
 Observed drop bullets include `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, `removed this pull request due to downstack failures on PR #24450`, `removed this pull request due to **removal of a downstack PR #23278**`, `couldn't merge this PR because **it was not satisfying all requirements** (Failed CI (buildkite/test))`, and `couldn't merge this PR because **it failed for an unknown reason**`. A downstack failure or removal names the PR dropped first; fix that PR. A failed-CI drop names the check. An unknown reason needs the check evidence before a diagnosis.
 
+A human dequeue in Graphite's UI logs "`<user>` removed this pull request from the ... merge queue" and emits `UNQUEUED <user>`. It resolves the queue stint, so a later bot unlabel of that stint stays silent. This applies with no label ([#24061](https://github.com/Forge-AI/monorepo/pull/24061)) and with a bot unlabel after the UI dequeue ([#23278](https://github.com/Forge-AI/monorepo/pull/23278)).
+
 After a base move, `mergeable_state` can read `unknown` for minutes; one unknown read is not a verdict. `dirty` or `mergeable: false` is conflict evidence. The poll script reports `conflicted` on one dirty read or two false reads with no true between; null mergeability neither counts nor resets them.
 
-The watcher reports `evicted` immediately and re-arms on the same state file. The caller pushes any rebase or fix before relabelling; relabelling first re-enqueues the rejected head, and the later push can dequeue it again. A `head-moved` eviction needs a relabel after the push. Before reporting an eviction, the script checks for the squash on the base and reports `queue-merged` if it finds one.
+The watcher reports `evicted` immediately and re-arms on the same state file. The caller pushes any rebase or fix before re-enqueueing (label or UI); re-enqueueing first submits the rejected head, and the later push can dequeue it again. Either route clears the recorded eviction and emits `QUEUED`. A `head-moved` eviction needs a re-enqueue after the push. Before reporting an eviction, the script checks for the squash on the base and reports `queue-merged` if it finds one.
 
 **Manually removing the label does not guarantee an in-flight PR stops.** Graphite landed one PR 50 minutes after its label came off, on a head amended in between (`#19776`, `#19850`). To actually hold a PR, close it or red a required check.
 

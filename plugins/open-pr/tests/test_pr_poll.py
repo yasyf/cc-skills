@@ -4,6 +4,8 @@ import json
 
 import pytest
 from conftest import (
+    EPOCH,
+    HEAD,
     MOVED_HEAD,
     PR,
     check_run,
@@ -354,4 +356,121 @@ def test_graphite_drop_bullet_is_classified(poll, bullet, done):
 def test_graphite_bookkeeping_bullet_is_neither_queued_nor_dropped(poll, bullet):
     run = poll(surface(pull(), comments=[merge_activity(22, bullet)]))
     assert not any(line.startswith("QUEUED ") for line in run.lines)
+    assert run.done == "DONE all-green"
+
+
+def test_ui_dequeue_without_a_label_is_unqueued_not_evicted(poll):
+    enqueued = f"`andrewmbenton` added this pull request to the [Graphite merge queue]({QUEUE_URL})."
+    dequeued = f"`andrewmbenton`  removed this pull request from the [Graphite merge queue]({QUEUE_URL})."
+    run = poll(
+        surface(pull(), comments=[merge_activity(5790504993, enqueued)]),
+        surface(pull(), comments=[merge_activity(5790504993, enqueued, dequeued)]),
+    )
+    assert run.lines[-3:] == ["QUEUED andrewmbenton 5790504993", "UNQUEUED andrewmbenton", "DONE all-green"]
+    assert run.passes == 2
+
+
+def test_ui_dequeue_consumes_the_bot_unlabel_that_follows_it(poll):
+    dequeued = f"`yasyf`  removed this pull request from the [Graphite merge queue]({QUEUE_URL})."
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)], comments=[merge_activity(5791423562, ENQUEUED)])
+    racing = surface(
+        pull(labels=("merge",)), events=[labeled(1)], comments=[merge_activity(5791423562, ENQUEUED, dequeued)]
+    )
+    unlabelled = surface(
+        pull(), events=[labeled(1), unlabeled(2)], comments=[merge_activity(5791423562, ENQUEUED, dequeued)]
+    )
+    run = poll(queued, racing, unlabelled)
+    assert "UNQUEUED yasyf" in run.lines
+    assert not any(line.startswith("DONE evicted") for line in run.lines)
+    assert run.done == "DONE all-green"
+    assert run.passes == 3
+
+
+def test_relabel_after_a_ui_dequeue_queues_again(poll):
+    dequeued = f"`yasyf`  removed this pull request from the [Graphite merge queue]({QUEUE_URL})."
+    dropped = surface(
+        pull(labels=("merge",)), events=[labeled(1)], comments=[merge_activity(5791423562, ENQUEUED, dequeued)]
+    )
+    relabelled = surface(
+        pull(labels=("merge",)),
+        events=[labeled(1), unlabeled(2), labeled(3, at="2026-09-23T23:40:00Z")],
+        comments=[merge_activity(5791423562, ENQUEUED, dequeued)],
+    )
+    run = poll(dropped, relabelled, relabelled)
+    assert run.lines[-1] == "QUEUED yasyf label"
+    assert run.done is None
+
+
+def test_watch_resumed_from_a_schema_1_state_file_on_a_ui_queued_pr_reports_the_drop(poll, tmp_path):
+    (tmp_path / "state.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "head_at_last_pass": HEAD,
+                "checks_seen": {"build": "pass"},
+                "merge_activity": {"5811623691": 1},
+                "attempts": {},
+                "watermarks": {"comments": "2026-09-24T09:36:06Z", "reviews": EPOCH},
+            }
+        )
+    )
+    stacked = pull(base="graphite-base/24549")
+    run = poll(
+        surface(stacked, comments=[merge_activity(5811623691, ENQUEUED)]),
+        surface(stacked, comments=[merge_activity(5811623691, ENQUEUED, CONFLICTED)]),
+    )
+    assert run.lines == [
+        "DONE evicted conflicts The Graphite merge queue couldn't merge this PR because it had merge conflicts."
+    ]
+    assert run.passes == 2
+
+
+def test_fresh_watch_on_a_ui_queued_pr_holds_through_green(poll, tmp_path):
+    (tmp_path / "state.json").unlink()
+    queued = surface(pull(), comments=[merge_activity(5811623691, ENQUEUED)])
+    run = poll(queued, queued, queued, queued)
+    assert run.done is None
+    assert run.state["queue"]["queued"] is True
+
+
+def test_ui_requeue_after_a_human_unlabel_between_polls_stays_queued(poll):
+    labelled = surface(pull(labels=("merge",)), events=[labeled(1)])
+    requeued = surface(
+        pull(),
+        events=[labeled(1), unlabeled(2, actor="yasyf")],
+        comments=[merge_activity(5811623691, ENQUEUED)],
+    )
+    run = poll(labelled, requeued, requeued)
+    assert "QUEUED yasyf 5811623691" in run.lines
+    assert not any(line.startswith("UNQUEUED ") for line in run.lines)
+    assert run.done is None
+
+
+def test_requeue_and_drop_in_one_interval_after_an_eviction_reports_again(poll):
+    assert poll(surface(pull(), comments=[merge_activity(21, ENQUEUED, CONFLICTED)])).done.startswith(
+        "DONE evicted conflicts "
+    )
+    again = merge_activity(21, ENQUEUED, CONFLICTED, ENQUEUED, CONFLICTED)
+    run = poll(surface(pull(), comments=[again]))
+    assert run.done == (
+        "DONE evicted conflicts The Graphite merge queue couldn't merge this PR because it had merge conflicts."
+    )
+
+
+def test_failed_comment_read_never_reports_green(poll):
+    pending = surface(pull(), runs=[check_run("build", status="in_progress", conclusion=None)])
+    blind = surface(pull())
+    blind[f"issues/{PR}/comments"] = "FAIL"
+    run = poll(pending, blind, blind)
+    assert run.done is None
+
+
+def test_fresh_watch_after_a_ui_dequeue_ignores_the_trailing_bot_unlabel(poll, tmp_path):
+    (tmp_path / "state.json").unlink()
+    dequeued = f"`yasyf`  removed this pull request from the [Graphite merge queue]({QUEUE_URL})."
+    activity = merge_activity(5791423562, ENQUEUED, dequeued)
+    lingering = surface(pull(labels=("merge",)), events=[labeled(1)], comments=[activity])
+    cleaned = surface(pull(), events=[labeled(1), unlabeled(2, at="2099-01-01T00:00:00Z")], comments=[activity])
+    run = poll(lingering, cleaned)
+    assert not any(line.startswith(("QUEUED ", "DONE evicted")) for line in run.lines)
     assert run.done == "DONE all-green"

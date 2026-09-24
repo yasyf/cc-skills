@@ -13,20 +13,23 @@
 #            conflicted | deadline-still-open | window-elapsed
 #   DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 #
-# Exits 0 after DONE. QUEUED means the queue label is on the PR; UNQUEUED
-# means a human took it off. Neither is terminal.
+# Exits 0 after DONE. QUEUED means the PR entered the merge queue, by the queue
+# label or by a merge-activity enqueue entry; UNQUEUED means a human took it
+# out, by removing the label or by dequeuing it in the queue's UI. Neither is
+# terminal.
 #
 # conflicted: mergeable_state dirty, or mergeable false on two reads with no
 # true between them. A null mergeable (GitHub still recomputing after the base
 # or head moved) is no read at all. Fires once per head.
 #
-# evicted: the latest queue-label event is a bot taking the label off, or the
-# queue's merge-activity comment logs a drop as its latest queue entry. Fires
-# once per removal event; relabelling re-arms it.
+# evicted: the queue's merge-activity comment logs a drop as its latest queue
+# entry, whatever the label and mergeable state read, or a bot takes the label
+# off a stint no report has ended yet. Fires once per stint; re-enqueueing, by
+# label or in the UI, re-arms it.
 #
-# all-green needs every check passed, mergeable true, and the PR neither
-# carrying the queue label nor evicted and waiting for a relabel: a queued PR
-# is watched until it lands or the queue drops it.
+# all-green needs every check passed, mergeable true, the queue state read, and
+# the PR neither queued nor evicted and waiting to re-enter: a queued PR is
+# watched until it lands or the queue drops it.
 #
 # window-elapsed: the harness kills a Monitor after 30 minutes and announces it
 # with one expiry notice a background agent can miss, so the script ends its own
@@ -35,11 +38,12 @@
 # it spans windows.
 #
 # A fresh state file watches from now on: label events before its start and the
-# merge-activity entries already posted are history. Pre-seed .watermarks to
-# replay them.
+# merge-activity entries already posted are history, except that the latest
+# posted queue entry decides whether the watch starts queued. Pre-seed
+# .watermarks to replay them.
 set -euo pipefail
 
-STATE_SCHEMA=2
+STATE_SCHEMA=3
 EMPTY_PASSES_BEFORE_GREEN=3
 MERGEABLE_FALSE_READS=2
 INTERVAL_MIN=120
@@ -84,6 +88,8 @@ QUEUE_BULLETS="$QUEUE_ENTRIES"'
   | (gsub("\\[(?<t>[^]]*)\\]\\([^)]*\\)"; "\(.t)") | gsub("[*`]"; "") | gsub("[\r\n\t]+"; " ") | sub("^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{1,2}:[0-9]{2} [AP]M UTC: "; "")) as $text
   | if ($text | test("added this pull request to the .*merge queue"; "i"))
       then { kind: "queued", actor: ($text | capture("^(?<who>[^ ]+) +added this pull request").who // null) }
+    elif ($text | test("^[^ ]+ +removed this pull request from the .*queue"; "i"))
+      then { kind: "unqueued", actor: ($text | capture("^(?<who>[^ ]+) ").who) }
     elif ($text | test("downstack (failures? on (PR )?|PR )#[0-9]+"; "i"))
       then { kind: "drop", class: "downstack",
              detail: ("#" + ($text | capture("downstack (failures? on (PR )?|PR )#(?<n>[0-9]+)"; "i").n)) }
@@ -104,6 +110,7 @@ QUEUE_EVENTS='
   | ($flips | last) as $last
   | {
       labeled_by: ($labeled.actor.login // "-"),
+      stint: (if $labeled == null then "" else ($labeled.id | tostring) end),
       last: (
         if $last != null and [$last.created_at, $last.id] > [$since.at, $since.id]
         then { id: ($last.id | tostring), event: $last.event, actor: $last.actor.login, bot: ($last | bot) }
@@ -171,7 +178,7 @@ normalize() {
     --argjson started "$STARTED" '
     { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
       mergeable_false_reads: 0, conflicted_head: null,
-      queue: { label: null, head: null, evicted: null, evicted_event: null },
+      queue: { queued: null, head: null, evicted: null, resolved_stint: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
     | .started_at = (.started_at // $started)
@@ -258,9 +265,9 @@ eviction_reason() {
 
 poll() {
   local view head prev base pr_state merged mergeable merge_state present
-  local checks checks_ok=1 events events_ok=1 items seen wm_c wm_r next_c next_r queue baseline
-  local activity act_id act_author act_seen act_n bullets drop reads was_queued
-  local last_event last_id last_bot last_actor
+  local checks checks_ok=1 events comments items seen wm_c wm_r next_c next_r queue
+  local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
+  local last_event last_bot last_actor stint
   local evicted="" conflicted=0 settled n_checks verdict closed_as
 
   view=$(gh api "repos/$REPO/pulls/$PR" \
@@ -285,17 +292,38 @@ poll() {
   [ "$checks_ok" = 1 ] || checks='[]'
 
   events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
-    2>/dev/null | jq -cs .) || events_ok=0
-  [ "$events_ok" = 1 ] || events='[]'
+    2>/dev/null | jq -cs .) || return 0
 
   load_state
 
-  if [ "$FRESH" = 1 ]; then
-    if baseline=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-      --jq '.[] | select((.body // "") | test("Merge activity")) | { id, body }' 2>/dev/null |
-      jq -cs "map({ key: (.id | tostring), value: ($QUEUE_ENTRIES | length) }) | from_entries"); then
-      STATE=$(jq -c --argjson b "$baseline" '.merge_activity = $b * .merge_activity' <<<"$STATE")
-      FRESH=0
+  wm_c=$(state '.watermarks.comments')
+  comments=$(gh api --paginate "repos/$REPO/issues/$PR/comments?since=$wm_c" \
+    --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null) || return 0
+  comments+=$'\n'$(gh api --paginate "repos/$REPO/pulls/$PR/comments?since=$wm_c" \
+    --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null || true)
+
+  queue=$(jq -c --argjson since "$(jq -c '.watermarks.events' <<<"$STATE")" --arg label "$QUEUE_LABEL" \
+    "$QUEUE_EVENTS" <<<"$events")
+  last_event=$(jq -r '.last.event // ""' <<<"$queue")
+  last_bot=$(jq -r '.last.bot // false' <<<"$queue")
+  last_actor=$(jq -r '.last.actor // "-"' <<<"$queue")
+  stint=$(jq -r '.stint' <<<"$queue")
+
+  if [ "$FRESH" = 1 ] || [ "$(state '.queue.queued == null')" = true ]; then
+    if history=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+      --jq '.[] | select((.body // "") | test("Merge activity")) | { id, at: .created_at, body }' 2>/dev/null |
+      jq -cs .); then
+      if [ "$FRESH" = 1 ]; then
+        STATE=$(jq -c --argjson h "$history" \
+          ".merge_activity = (\$h | map({ key: (.id | tostring), value: ($QUEUE_ENTRIES | length) }) | from_entries) * .merge_activity" \
+          <<<"$STATE")
+        FRESH=0
+      fi
+      latest=$(jq -c --argjson seen 0 "sort_by(.at) | last // empty | [$QUEUE_BULLETS] | last // empty" <<<"$history")
+      STATE=$(jq -c --argjson l "${latest:-null}" --arg h "$head" --arg s "$stint" '
+        .queue.queued = ($l.kind == "queued")
+        | if $l.kind == "queued" then .queue.head = $h else . end
+        | if $l.kind == "unqueued" or $l.kind == "drop" then .queue.resolved_stint = $s else . end' <<<"$STATE")
     fi
   fi
 
@@ -323,21 +351,15 @@ poll() {
   ' <<<"$items")"
   next_r=$(jq -rs --arg wm "$wm_r" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_r=$wm_r
 
-  wm_c=$(state '.watermarks.comments')
-  items=$(
-    gh api --paginate "repos/$REPO/issues/$PR/comments?since=$wm_c" \
-      --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null || true
-    gh api --paginate "repos/$REPO/pulls/$PR/comments?since=$wm_c" \
-      --jq '.[] | { id, author: .user.login, at: .created_at, body }' 2>/dev/null || true
-  )
   emit "$(jq -rs --arg wm "$wm_c" '
     map(select(.at > $wm)) | sort_by(.at) | .[]
     | "COMMENT \(.author) \(.id) \((.body // "") | gsub("[\r\n]+"; " ") | .[0:80])"
-  ' <<<"$items")"
-  next_c=$(jq -rs --arg wm "$wm_c" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_c=$wm_c
+  ' <<<"$comments")"
+  next_c=$(jq -rs --arg wm "$wm_c" '[.[].at] + [$wm] | max' <<<"$comments" 2>/dev/null) || next_c=$wm_c
 
-  drop=""
-  activity=$(jq -cs 'map(select((.body // "") | test("Merge activity"))) | sort_by(.at) | last // empty' <<<"$items")
+  latest=""
+  requeued=false
+  activity=$(jq -cs 'map(select((.body // "") | test("Merge activity"))) | sort_by(.at) | last // empty' <<<"$comments")
   if [ -n "$activity" ]; then
     act_id=$(jq -r '.id' <<<"$activity")
     act_author=$(jq -r '.author' <<<"$activity")
@@ -346,39 +368,51 @@ poll() {
     # A shorter log than last pass is a replaced comment, not a rewind.
     [ "$act_n" -ge "$act_seen" ] || act_seen=0
     bullets=$(jq -c --argjson seen "$act_seen" "$QUEUE_BULLETS" <<<"$activity")
-    emit "$(jq -r --arg author "$act_author" --arg id "$act_id" \
-      'select(.kind == "queued") | "QUEUED \(.actor // $author) \($id)"' <<<"$bullets")"
-    drop=$(jq -rs 'last // empty | select(.kind == "drop") | "\(.class) \(.detail)"' <<<"$bullets")
+    emit "$(jq -r --arg author "$act_author" --arg id "$act_id" '
+      if .kind == "queued" then "QUEUED \(.actor // $author) \($id)"
+      elif .kind == "unqueued" then "UNQUEUED \(.actor)"
+      else empty end' <<<"$bullets")"
+    latest=$(jq -cs 'last // empty' <<<"$bullets")
+    requeued=$(jq -rs 'any(.[]; .kind == "queued")' <<<"$bullets")
     STATE=$(jq -c --arg id "$act_id" --argjson n "$act_n" '.merge_activity[$id] = $n' <<<"$STATE")
   fi
 
-  queue=$(jq -c --argjson since "$(jq -c '.watermarks.events' <<<"$STATE")" --arg label "$QUEUE_LABEL" \
-    "$QUEUE_EVENTS" <<<"$events")
-  last_event=$(jq -r '.last.event // ""' <<<"$queue")
-  last_id=$(jq -r '.last.id // ""' <<<"$queue")
-  last_bot=$(jq -r '.last.bot // false' <<<"$queue")
-  last_actor=$(jq -r '.last.actor // "-"' <<<"$queue")
-  was_queued=$(state '.queue.label == true')
+  latest_kind=$(jq -r '.kind // ""' <<<"${latest:-null}")
 
-  if [ "$present" = true ]; then
-    if [ "$was_queued" != true ]; then
-      emit "QUEUED $(jq -r '.labeled_by' <<<"$queue") label"
-      STATE=$(jq -c --arg h "$head" '.queue.label = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
+  case "$latest_kind" in
+  queued)
+    STATE=$(jq -c --arg h "$head" '.queue.queued = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
+    if [ "$present" != true ] && [ "$last_event" = unlabeled ]; then
+      STATE=$(jq -c --arg s "$stint" '.queue.resolved_stint = $s' <<<"$STATE")
     fi
-  elif [ "$last_event" = unlabeled ] && [ "$last_bot" = true ] && [ "$last_id" != "$(state '.queue.evicted_event // ""')" ]; then
-    evicted=${drop:-$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue" "$last_actor")}
-  elif [ -n "$drop" ] && [ "$(state '.queue.evicted == null')" = true ]; then
-    evicted=$drop
-  elif [ "$was_queued" = true ] && [ "$last_event" = unlabeled ]; then
-    emit "UNQUEUED $last_actor"
-    STATE=$(jq -c '.queue.label = false' <<<"$STATE")
-  elif [ "$was_queued" != true ]; then
-    STATE=$(jq -c '.queue.label = false' <<<"$STATE")
-  fi
+    ;;
+  unqueued)
+    STATE=$(jq -c --arg s "$stint" '.queue.queued = false | .queue.resolved_stint = $s' <<<"$STATE")
+    ;;
+  drop)
+    if [ "$requeued" = true ] || [ "$(state '.queue.evicted == null')" = true ]; then
+      evicted=$(jq -r '"\(.class) \(.detail)"' <<<"$latest")
+    fi
+    ;;
+  *)
+    if [ "$present" = true ]; then
+      if [ "$(jq -c --arg s "$stint" '.queue.queued != true and .queue.resolved_stint != $s' <<<"$STATE")" = true ]; then
+        emit "QUEUED $(jq -r '.labeled_by' <<<"$queue") label"
+        STATE=$(jq -c --arg h "$head" '.queue.queued = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
+      fi
+    elif [ "$last_event" = unlabeled ] && [ "$stint" != "$(state '.queue.resolved_stint // ""')" ]; then
+      if [ "$last_bot" = true ]; then
+        evicted=$(eviction_reason "$merge_state" "$mergeable" "$head" "$checks" "$queue" "$last_actor")
+      elif [ "$(state '.queue.queued')" = true ]; then
+        emit "UNQUEUED $last_actor"
+        STATE=$(jq -c --arg s "$stint" '.queue.queued = false | .queue.resolved_stint = $s' <<<"$STATE")
+      fi
+    fi
+    ;;
+  esac
   if [ -n "$evicted" ]; then
-    STATE=$(jq -c --arg r "$evicted" --arg h "$head" --arg e "$last_id" --arg ev "$last_event" '
-      .queue.evicted = $r | .queue.label = false
-      | if $ev == "unlabeled" then .queue.evicted_event = $e else . end
+    STATE=$(jq -c --arg r "$evicted" --arg h "$head" --arg s "$stint" '
+      .queue.evicted = $r | .queue.queued = false | .queue.resolved_stint = $s
       | if ($r | startswith("conflicts ")) then .conflicted_head = $h else . end' <<<"$STATE")
   fi
 
@@ -416,8 +450,8 @@ poll() {
   [ "$checks_ok" = 1 ] || return 0
 
   settled=0
-  if [ "$mergeable" = true ] && [ "$present" = false ] && [ "$events_ok" = 1 ] &&
-    [ "$(state '.queue.label != true and .queue.evicted == null')" = true ]; then
+  if [ "$mergeable" = true ] && [ "$present" = false ] &&
+    [ "$(state '.queue.queued == false and .queue.evicted == null')" = true ]; then
     settled=1
   fi
 

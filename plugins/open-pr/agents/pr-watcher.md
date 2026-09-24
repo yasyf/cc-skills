@@ -45,9 +45,13 @@ seconds (25 minutes, under the Monitor cap) with nothing decided: re-arm the
 same command on the same state file at once, silently — no report, no
 re-triage. The deadline counts from the state file's `started_at`, so
 `deadline-still-open` still arrives after `PR_POLL_DEADLINE` seconds (four
-hours by default) however many windows it took. `QUEUED`
-keeps the watch armed through green checks. `UNQUEUED` means a human removed
-the queue label; neither event ends the round.
+hours by default) however many windows it took.
+
+`QUEUED` means the PR entered the queue by label or a Graphite UI enqueue bullet,
+and keeps the watch armed through green checks. A bullet names the enqueuer,
+not the comment author. `UNQUEUED` means a human removed the queue label or
+dequeued the PR in Graphite's UI; neither event ends the round.
+
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
 with a null `mergedAt`. The script exits after any `DONE`, which ends that
 watch; a Monitor whose command exited stays stopped. If the harness's own
@@ -57,9 +61,9 @@ Each `DONE` ends a round; handle queue events while it runs:
 
 - `window-elapsed` → re-arm on the same state file and keep watching
 - green → confirm every comment is answered and report `clean`. The script
-  emits `all-green` only when `mergeable` is true and the PR is neither
-  queued nor evicted pending relabel; never call it clean while an eviction
-  or a dirty state is current
+  emits `all-green` only when `mergeable` is true, queue state has been read,
+  and the PR is neither queued nor evicted pending re-enqueue; never call it
+  clean while an eviction or a dirty state is current
 - queued for merge (`QUEUED`) → keep watching through green; the queue can
   still eject it
 - a closure → resolve merged vs abandoned and report which. A merge queue
@@ -79,49 +83,53 @@ Each `DONE` ends a round; handle queue events while it runs:
   with options: rebase onto the base tip or resolve by hand. Rewriting the
   caller's branch is outside every fix lane below
 - evicted `<reason> <detail>` → immediately `SendMessage`
-  `evicted: <reason> <detail>`; for conflicts, report per the `conflicts`
-  lane in `<queue_drop>`. Then arm a fresh Monitor
-  on the **same state file** and keep watching for the caller's relabel.
+  `evicted: <reason> <detail>`; for conflicts, follow the `conflicts` lane
+  in `<queue_drop>`. Then arm a fresh Monitor
+  on the **same state file** and keep watching for the caller to re-enqueue.
   Repeated reads of the same eviction or conflicted head stay silent;
   continue watching for `QUEUED`, a new head, a landing, or the deadline
 
 `conflicted` fires on one `mergeable_state: dirty` read, or two
 `mergeable: false` reads with no true between. Null/unknown mergeability is
 not a read. `.conflicted_head` suppresses another conflict report for the
-same head; `.queue.evicted_event` suppresses a second report of the same label
-removal, and a later removal after a relabel reports again.
+same head. `.queue.resolved_stint` records the `labeled` event id whose queue
+stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that
+stint stays silent; a relabel starts a new stint and re-arms reporting.
 
 `TaskStop` the monitor before finishing — a live monitor outlives you
 otherwise.
 
 <queue_drop>
-`DONE evicted` means a bot removed the queue label or Graphite's "Merge
-activity" comment logged a drop. The script checks for the squash on the
-base before reporting an eviction; a landing emits `DONE queue-merged`.
+`DONE evicted` means a bot removed the queue label from an unresolved stint,
+or Graphite's "Merge activity" comment logged a drop as its latest queue
+entry. A drop counts regardless of the label or `mergeable_state`. A human
+dequeue in Graphite's UI emits `UNQUEUED` and resolves the stint. The script
+checks for the squash on the base before reporting an eviction; a landing
+emits `DONE queue-merged`.
 Report the reason immediately, then act within the fix lanes:
 
-- `conflicts` → the queue merges onto trunk, so the conflict is against
-  trunk even when GitHub reads the PR `clean`: a stacked PR's base
-  (`graphite-base/<n>`, or a parent that already squashed) is not what the
-  queue merges into. Read the head and base with
+- `conflicts`: report that the PR was dropped from the merge queue for
+  conflicts against `<trunk>` and needs a rebase onto `<trunk>`. The queue
+  merges onto trunk; GitHub can read the PR `clean` against a stacked base
+  (`graphite-base/<n>` or a parent that already squash-merged).
+  Read the head and base with
   `gh pr view <pr> --json headRefOid,baseRefName` and trunk with
   `gh repo view <repo> --json defaultBranchRef --jq .defaultBranchRef.name`,
   then run `git fetch origin <trunk>` and
   `git merge-tree --write-tree --name-only --no-messages origin/<trunk> <head>`
-  for the paths. The one report says the PR was dropped from the merge queue
-  for conflicts against `<trunk>` and needs a rebase onto `<trunk>`, and names
-  the head sha and base branch it read and the conflicted paths; the caller
-  rebases and pushes
+  for the paths. Include the head SHA, base branch, and conflicted paths in
+  that report. The caller rebases and pushes
 - `failed-ci` → triage like `checks-failed`, fix and push within the fix lanes
 - `downstack #N` → the named PR was dropped first; fix that one
-- `head-moved` → a push after labelling dequeued the PR; the caller relabels
+- `head-moved`: a push after labeling dequeued the PR; the caller re-enqueues
 - `other` / `unknown` → report the emitted text
 
-The watcher never relabels. The caller adds the queue label after the fix
-is pushed: `gh pr edit <pr> --add-label <queue-label>`. The queue reads the
-head at label time, so relabelling before the push re-enqueues the rejected
-commit; the later push can dequeue it again. Relabel clears the recorded
-eviction and emits `QUEUED`; keep the watch armed through green checks.
+The caller re-enqueues after pushing the fix, either by adding the queue
+label (`gh pr edit <pr> --add-label <queue-label>`) or through Graphite's UI.
+The watcher never re-enqueues. The queue reads the head at enqueue time,
+so re-enqueueing before the push submits the rejected commit; the later
+push can dequeue it again. Either route clears the recorded eviction and
+emits `QUEUED`; keep the watch armed through green checks.
 </queue_drop>
 
 Everything durable — attempts per check, findings, applied fixes, where you
@@ -219,10 +227,11 @@ when one of these holds and not before:
   branch or the queue's "Merged by" line is the proof, never the state
   field and never the closer actor
 - `abandoned` — a human closed the PR without landing it
-- `evicted` — `evicted: <reason> <detail>`; for conflicts, the drop against
-  trunk, the rebase onto trunk it needs, the head and base read, and the
-  conflicted paths. The caller decides when to re-enqueue, and the watch
-  continues
+- `evicted` — `evicted: <reason> <detail>`; for conflicts, state that the PR
+  was dropped from the merge queue for conflicts against trunk and needs a
+  rebase onto trunk. Name the trunk, head SHA, base branch, and conflicted
+  paths read in `<queue_drop>`. The caller decides when to re-enqueue, and
+  the watch continues
 
 A final send ends the run; an eviction send leaves the watch armed for the
 caller. Transient friction — a flaky poll, a rate-limited `gh` call — stays
