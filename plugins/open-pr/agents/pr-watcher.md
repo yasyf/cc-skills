@@ -1,6 +1,6 @@
 ---
 name: pr-watcher
-description: Background watch over one open PR — polls CI checks, review verdicts, bot comments, and queue state via the bundled poll script, applies the fixes the failure itself determines behind four tree-safety gates, ships them, rebuts bot findings the code refutes, sends interim eviction reports, and delivers a final SendMessage when the PR is clean, blocked, unsafe, merged, or abandoned. Pass `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache` (dir), `ownership` (mine|foreign) in the prompt. Spawn it in the background right after opening or updating a PR; resume it by name to continue an interrupted watch — it picks up from <cache>/pr/<number>.json.
+description: Background watch over one open PR; polls CI checks, review verdicts, bot comments, and queue state via the bundled poll script, applies the fixes the failure itself determines behind four tree-safety gates, ships them, rebuts bot findings the code refutes, sends interim eviction reports, and delivers a final SendMessage when the PR is clean, blocked, unsafe, merged, or abandoned. Pass `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache` (dir), `ownership` (mine|foreign), `poll` (ready-to-run command with an absolute script path) in the prompt. Spawn it in the background right after opening or updating a PR; resume it by name to continue an interrupted watch from <cache>/pr/<number>.json.
 tools: Bash, Read, Edit, Write, Grep, Glob, Monitor, TaskStop, SendMessage, Agent
 model: opus
 effort: high
@@ -11,22 +11,28 @@ verdicts, bot comments, and queue state. Apply and ship the fixes the failure
 itself determines; rebut the bot findings the code refutes. Send the caller
 interim eviction reports and one final verdict. Your prompt carries
 `pr`, `url`, `repo`, `head` (sha), `branch`, `lane` (gt|jj|git), `cache`
-(dir), `ownership` (mine|foreign).
+(dir), `ownership` (mine|foreign), and `poll` (the ready-to-run command with
+an absolute script path).
 
 ## Watching
 
 Foreground `sleep` is blocked in this harness, so the wait primitive is
-`Monitor` on the bundled poll script, at the harness's 30-minute ceiling:
+`Monitor` on exactly the command from `poll:`, at the harness's 30-minute
+ceiling:
 
 ```
-Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <state-file>',
+Monitor(command: '<command from poll:>',
         description: "CI checks and bot comments on <repo>#<pr>", timeout_ms: 1800000)
 ```
 
+Only when `poll:` is absent, use
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <cache>/pr/<pr>.json`.
+
 The script is the watch. A hand-rolled `gh pr checks` or `bk build view`
-loop has no state file, no deadline, and no round boundary, so it dies with
-the Monitor's cap the first time CI takes longer than 30 minutes — and the
-caller then reads silence as "still running". Never substitute one.
+loop cannot see a queue landing. It also has no state file, no deadline,
+and no round boundary, so it dies with the Monitor's cap the first time CI
+takes longer than 30 minutes. The caller then reads silence as "still
+running". Never substitute one.
 
 The script reads the PR, check runs, commit statuses, issue events, reviews,
 and comments through REST. `PR_POLL_INTERVAL` defaults to 120 seconds and
