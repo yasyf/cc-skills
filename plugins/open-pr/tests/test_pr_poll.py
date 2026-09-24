@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import (
     MOVED_HEAD,
     PR,
@@ -270,3 +271,87 @@ def test_deadline_counts_from_the_state_files_started_at(poll, tmp_path):
     run = poll(PENDING, env={"PR_POLL_DEADLINE": "10"})
     assert run.done == "DONE deadline-still-open"
     assert run.state["started_at"] == 1000
+QUEUE_URL = "https://app.graphite.com/merges?org=Forge-AI&repo=monorepo"
+
+
+def graphite_pr(number: int) -> str:
+    return f"https://app.graphite.com/github/pr/Forge-AI/monorepo/{number}"
+
+
+def merge_activity(comment_id: int, *bullets: str) -> dict:
+    body = "### Merge activity\n\n" + "".join(f"* **Sep 24, 9:36 AM UTC**: {bullet}\n" for bullet in bullets)
+    return comment(comment_id, body, author="graphite-app[bot]", at="2026-09-24T09:36:06Z")
+
+
+ENQUEUED = f"`yasyf` added this pull request to the [Graphite merge queue]({QUEUE_URL})."
+CONFLICTED = f"The [Graphite merge queue]({QUEUE_URL}) couldn't merge this PR because **it had merge conflicts**."
+
+
+def test_ui_enqueue_then_conflict_drop_without_a_label_is_evicted(poll):
+    stacked = pull(base="graphite-base/24549")
+    run = poll(
+        surface(stacked, comments=[merge_activity(5811623691, ENQUEUED)]),
+        surface(stacked, comments=[merge_activity(5811623691, ENQUEUED, CONFLICTED)]),
+    )
+    assert run.lines[-2:] == [
+        "QUEUED yasyf 5811623691",
+        "DONE evicted conflicts The Graphite merge queue couldn't merge this PR because it had merge conflicts.",
+    ]
+    assert run.passes == 2
+
+
+@pytest.mark.parametrize(
+    ("bullet", "done"),
+    [
+        (CONFLICTED, "conflicts The Graphite merge queue couldn't merge this PR because it had merge conflicts."),
+        (
+            "This pull request was removed from the merge queue due to merge conflicts, "
+            "please rebase before retrying merge.",
+            "conflicts This pull request was removed from the merge queue due to merge conflicts, pleas",
+        ),
+        (
+            f"This pull request can not be added to the [Graphite merge queue]({QUEUE_URL}). "
+            "Please try rebasing and resubmitting to merge when ready. ",
+            "conflicts This pull request can not be added to the Graphite merge queue. Please try rebas",
+        ),
+        (
+            f'[Graphite]({graphite_pr(23278)}) disabled "merge when ready" on this PR due to: '
+            "a merge conflict with the target branch; resolve the conflict and try again..",
+            'conflicts Graphite disabled "merge when ready" on this PR due to: a merge conflict with th',
+        ),
+        (
+            f"The [Graphite merge queue]({QUEUE_URL}) removed this pull request due to "
+            f"**downstack failures on PR #[23280]({graphite_pr(23280)})**.",
+            "downstack #23280",
+        ),
+        (
+            f"The [Graphite merge queue]({QUEUE_URL}) removed this pull request due to "
+            f"**removal of a downstack PR #[23278]({graphite_pr(23278)})**.",
+            "downstack #23278",
+        ),
+        (
+            f"The [Graphite merge queue]({QUEUE_URL}) couldn't merge this PR because "
+            "**it was not satisfying all requirements** (Failed CI (buildkite/test)).",
+            "failed-ci buildkite/test",
+        ),
+    ],
+)
+def test_graphite_drop_bullet_is_classified(poll, bullet, done):
+    run = poll(surface(pull(), comments=[merge_activity(21, ENQUEUED, bullet)]))
+    assert run.done == f"DONE evicted {done}"
+
+
+@pytest.mark.parametrize(
+    "bullet",
+    [
+        f"The merge label 'merge' was detected. This PR will be added to the [Graphite merge queue]({QUEUE_URL}) "
+        "once it meets the requirements.",
+        f"The merge label 'merge' was removed. This PR will no longer be merged by the [Graphite merge queue]({QUEUE_URL})",
+        f"CI is running for this pull request on a draft pull request ([#24065]({graphite_pr(24065)})) "
+        "due to your merge queue CI optimization settings.",
+    ],
+)
+def test_graphite_bookkeeping_bullet_is_neither_queued_nor_dropped(poll, bullet):
+    run = poll(surface(pull(), comments=[merge_activity(22, bullet)]))
+    assert not any(line.startswith("QUEUED ") for line in run.lines)
+    assert run.done == "DONE all-green"

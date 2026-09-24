@@ -27,12 +27,13 @@ def pull(
     labels: tuple[str, ...] = (),
     state: str = "open",
     merged: bool = False,
+    base: str = "dev",
 ) -> dict:
     return {
         "state": state,
         "merged": merged,
         "head": {"sha": head},
-        "base": {"ref": "dev"},
+        "base": {"ref": base},
         "mergeable": mergeable,
         "mergeable_state": mergeable_state,
         "labels": [{"name": name} for name in labels],

@@ -83,14 +83,15 @@ QUEUE_BULLETS="$QUEUE_ENTRIES"'
   | .[$seen:][]
   | (gsub("\\[(?<t>[^]]*)\\]\\([^)]*\\)"; "\(.t)") | gsub("[*`]"; "") | gsub("[\r\n\t]+"; " ") | sub("^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{1,2}:[0-9]{2} [AP]M UTC: "; "")) as $text
   | if ($text | test("added this pull request to the .*merge queue"; "i"))
-      then { kind: "queued" }
-    elif ($text | test("downstack failures? on (PR )?#[0-9]+"; "i"))
+      then { kind: "queued", actor: ($text | capture("^(?<who>[^ ]+) +added this pull request").who // null) }
+    elif ($text | test("downstack (failures? on (PR )?|PR )#[0-9]+"; "i"))
       then { kind: "drop", class: "downstack",
-             detail: ("#" + ($text | capture("downstack failures? on (PR )?#(?<n>[0-9]+)"; "i").n)) }
+             detail: ("#" + ($text | capture("downstack (failures? on (PR )?|PR )#(?<n>[0-9]+)"; "i").n)) }
     elif ($text | test("merge conflict|try rebasing"; "i"))
       then { kind: "drop", class: "conflicts", detail: $text[0:80] }
-    elif ($text | test("ci (failed|failure)|failing (required )?check|failed (required )?check|failed for an unknown reason"; "i"))
-      then { kind: "drop", class: "failed-ci", detail: $text[0:80] }
+    elif ($text | test("ci (failed|failure)|failed ci|failing (required )?check|failed (required )?check|failed for an unknown reason"; "i"))
+      then { kind: "drop", class: "failed-ci",
+             detail: ($text | capture("failed ci \\((?<check>[^)]+)\\)"; "i").check // $text[0:80]) }
     elif ($text | test("couldn.t merge this PR|can ?not be added to the|removed this pull request|removed .* from the .*queue|disabled \"merge when ready\""; "i"))
       then { kind: "drop", class: "other", detail: $text[0:80] }
     else empty end'
@@ -346,7 +347,7 @@ poll() {
     [ "$act_n" -ge "$act_seen" ] || act_seen=0
     bullets=$(jq -c --argjson seen "$act_seen" "$QUEUE_BULLETS" <<<"$activity")
     emit "$(jq -r --arg author "$act_author" --arg id "$act_id" \
-      'select(.kind == "queued") | "QUEUED \($author) \($id)"' <<<"$bullets")"
+      'select(.kind == "queued") | "QUEUED \(.actor // $author) \($id)"' <<<"$bullets")"
     drop=$(jq -rs 'last // empty | select(.kind == "drop") | "\(.class) \(.detail)"' <<<"$bullets")
     STATE=$(jq -c --arg id "$act_id" --argjson n "$act_n" '.merge_activity[$id] = $n' <<<"$STATE")
   fi

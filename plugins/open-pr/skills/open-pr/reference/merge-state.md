@@ -63,6 +63,8 @@ Graphite drops a PR by removing its queue label. The REST `issues/<n>/events` en
 gh api "repos/<owner>/<name>/issues/<n>/events" --jq '.[] | select(.event == "unlabeled" and .label.name == "merge") | {actor: .actor.login, type: .actor.type, created_at}'
 ```
 
+A PR enqueued from Graphite's UI never carries the label, so it has no label events at all. Its enqueue and its drop exist only as "Merge activity" bullets, and GitHub can read it `mergeable_state: clean` throughout: a stacked PR's base is `graphite-base/<n>`, and GitHub does not evaluate the conflict against trunk that dropped it (`#24549`).
+
 The queue also edits one "Merge activity" comment in place. Read its `updated_at` and body for the reason when a bullet exists; a watcher keyed on new comments misses the edit. The comment sits under whoever enqueued the PR, so filtering for `graphite-app[bot]` misses it.
 
 ```bash
@@ -70,7 +72,7 @@ gh api "repos/<owner>/<name>/issues/<n>/comments" \
   --jq '.[] | select(.body | test("Merge activity")) | {id, updated_at, body}'
 ```
 
-Observed drop bullets include `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, `removed this pull request due to downstack failures on PR #24450`, and `couldn't merge this PR because **it failed for an unknown reason**`. A downstack failure names the PR dropped first; fix that PR. An unknown reason needs the check evidence before a diagnosis.
+Observed drop bullets include `couldn't merge this PR because **it had merge conflicts**`, `disabled "merge when ready" on this PR due to: a merge conflict with the target branch`, `This pull request can not be added to the ... queue. Please try rebasing and resubmitting`, `removed this pull request due to downstack failures on PR #24450`, `removed this pull request due to **removal of a downstack PR #23278**`, `couldn't merge this PR because **it was not satisfying all requirements** (Failed CI (buildkite/test))`, and `couldn't merge this PR because **it failed for an unknown reason**`. A downstack failure or removal names the PR dropped first; fix that PR. A failed-CI drop names the check. An unknown reason needs the check evidence before a diagnosis.
 
 After a base move, `mergeable_state` can read `unknown` for minutes; one unknown read is not a verdict. `dirty` or `mergeable: false` is conflict evidence. The poll script reports `conflicted` on one dirty read or two false reads with no true between; null mergeability neither counts nor resets them.
 

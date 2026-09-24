@@ -79,8 +79,8 @@ Each `DONE` ends a round; handle queue events while it runs:
   with options: rebase onto the base tip or resolve by hand. Rewriting the
   caller's branch is outside every fix lane below
 - evicted `<reason> <detail>` → immediately `SendMessage`
-  `evicted: <reason> <detail>`; for conflicts, include the paths from the
-  same `git fetch` and `git merge-tree` commands. Then arm a fresh Monitor
+  `evicted: <reason> <detail>`; for conflicts, report per the `conflicts`
+  lane in `<queue_drop>`. Then arm a fresh Monitor
   on the **same state file** and keep watching for the caller's relabel.
   Repeated reads of the same eviction or conflicted head stay silent;
   continue watching for `QUEUED`, a new head, a landing, or the deadline
@@ -100,8 +100,18 @@ activity" comment logged a drop. The script checks for the squash on the
 base before reporting an eviction; a landing emits `DONE queue-merged`.
 Report the reason immediately, then act within the fix lanes:
 
-- `conflicts` → give the caller the conflicted paths and the rebase or hand
-  resolution options; the caller resolves and pushes
+- `conflicts` → the queue merges onto trunk, so the conflict is against
+  trunk even when GitHub reads the PR `clean`: a stacked PR's base
+  (`graphite-base/<n>`, or a parent that already squashed) is not what the
+  queue merges into. Read the head and base with
+  `gh pr view <pr> --json headRefOid,baseRefName` and trunk with
+  `gh repo view <repo> --json defaultBranchRef --jq .defaultBranchRef.name`,
+  then run `git fetch origin <trunk>` and
+  `git merge-tree --write-tree --name-only --no-messages origin/<trunk> <head>`
+  for the paths. The one report says the PR was dropped from the merge queue
+  for conflicts against `<trunk>` and needs a rebase onto `<trunk>`, and names
+  the head sha and base branch it read and the conflicted paths; the caller
+  rebases and pushes
 - `failed-ci` → triage like `checks-failed`, fix and push within the fix lanes
 - `downstack #N` → the named PR was dropped first; fix that one
 - `head-moved` → a push after labelling dequeued the PR; the caller relabels
@@ -209,8 +219,9 @@ when one of these holds and not before:
   branch or the queue's "Merged by" line is the proof, never the state
   field and never the closer actor
 - `abandoned` — a human closed the PR without landing it
-- `evicted` — `evicted: <reason> <detail>`, with conflicted paths when the
-  reason is conflicts; the caller decides when to relabel, and the watch
+- `evicted` — `evicted: <reason> <detail>`; for conflicts, the drop against
+  trunk, the rebase onto trunk it needs, the head and base read, and the
+  conflicted paths. The caller decides when to re-enqueue, and the watch
   continues
 
 A final send ends the run; an eviction send leaves the watch armed for the
