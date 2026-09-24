@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+printf '%s\n' "${args//$'\n'/ }" >>"$FAKE_GH_LOG"
+[ "${1:-}" = api ] || { echo "fake gh: only 'gh api' is served" >&2; exit 1; }
+shift
+path="" expr=""
+while [ $# -gt 0 ]; do
+  case $1 in
+  --paginate) shift ;;
+  --jq) expr=$2; shift 2 ;;
+  *) path=$1; shift ;;
+  esac
+done
+path=${path#repos/*/*/}
+path=${path%%\?*}
+pass=$(cat "$FAKE_PASS_FILE")
+for ((p = pass; p >= 0; p--)); do
+  fixture="$FAKE_GH_ROOT/$p/$path.json"
+  [ -f "$fixture" ] && break
+  fixture=""
+done
+[ -n "$fixture" ] || { echo "gh: Not Found (HTTP 404) $path" >&2; exit 1; }
+[ "$(cat "$fixture")" != '"FAIL"' ] || { echo "gh: HTTP 502 $path" >&2; exit 1; }
+if [ -n "$expr" ]; then jq -rc "$expr" "$fixture"; else cat "$fixture"; fi
