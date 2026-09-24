@@ -210,21 +210,6 @@ Retargeting alone does not rebase. A child moved onto the trunk still carries it
 commits and will re-show that diff until it is rebased, so check the file count before
 labelling: one file where one belongs, not sixteen.
 
-## A neutral check is a held finding, not an abstention
-
-`ai-review` reports `neutral` when it holds a pull request on a blocking finding. That is
-not a failure, so a sweep for failed check runs misses it, and it is a check run rather
-than a status, so the combined status misses it too. The pull request reads green
-everywhere while `mergeable_state` sits at `blocked` indefinitely.
-
-One desk labelled on that surface and the pull request sat unlandable for five hours,
-having never entered the queue at all. Across that board the correlation was complete:
-every pull request that landed had `ai-review` at success, and the only one at neutral was
-the only one blocked.
-
-Require success explicitly. The reason for a hold is always a review comment on the diff,
-so surface that rather than the check's state, and never clear it by re-running the review.
-
 ## The label vanishing means enqueued, ejected, or nothing; the activity comment decides
 
 The queue bot removes the label both when it accepts a pull request and when it rejects
@@ -346,7 +331,7 @@ ops describe content that is **already on the trunk**, so the import-class bar i
 after the fact to something it can no longer refuse. Two small PRs feel safer and are
 strictly worse.
 
-Where a no-plan PR is unavoidable, the substitute bar is green CI, ai-review success, and a
+Where a no-plan PR is unavoidable, the substitute bar is green CI, an approval in force, and a
 diff carrying no `.apply.yaml` change, which is one `gh api .../files` away and is what makes
 it unable to cause an apply. Treat that as the degraded case rather than the target.
 

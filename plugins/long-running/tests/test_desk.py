@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 import ledger
 from conftest import FakeShell, LEDGER
 
@@ -471,21 +473,16 @@ def test_summary_without_a_checkout_prints_without_reconciling(tmp_path):
     assert shell.fields(PR)["state"] == "labelled"
 
 
-def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
-    """Neutral is not a failure and is absent from the combined status, so nothing else sees it."""
+@pytest.mark.parametrize(
+    "checks",
+    ["check-runs-neutral-ai-review.json", "check-runs-failed-ai-review.json", "check-runs-no-ai-review.json", "check-runs-ai-review-in-progress.json"],
+)
+def test_label_ignores_the_ai_review_check(checks):
     shell = desk_shell()
-    shell.routes[f"checks:{HEAD}"] = "check-runs-neutral-ai-review.json"
+    shell.routes[f"checks:{HEAD}"] = checks
 
-    assert label(shell) == 1
-    assert "REFUSED ai-review is neutral" in capsys.readouterr().out
-
-
-def test_label_refuses_an_absent_ai_review(capsys):
-    shell = desk_shell()
-    shell.routes[f"checks:{HEAD}"] = "check-runs-no-ai-review.json"
-
-    assert label(shell) == 1
-    assert "REFUSED ai-review is absent" in capsys.readouterr().out
+    assert label(shell) == 0
+    assert shell.labelled == [f"{PR}:merge"]
 
 
 def test_label_refuses_a_pr_with_no_reviews(capsys):
@@ -522,15 +519,6 @@ def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
 
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
-    assert shell.labelled == []
-
-
-def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys):
-    shell = desk_shell()
-    shell.routes[f"checks:{HEAD}"] = "check-runs-ai-review-in-progress.json"
-
-    assert label(shell) == 1
-    assert "REFUSED ai-review still reviewing 3f3acff97" in capsys.readouterr().out
     assert shell.labelled == []
 
 

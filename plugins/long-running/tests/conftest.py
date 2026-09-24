@@ -116,10 +116,7 @@ class FakeShell(ledger.Shell):
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
             return fixture(self.routes.get(f"status:{parts[1]}", "status-success.json"))
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
-            checks = json.loads(fixture(self.routes.get(f"checks:{parts[1]}", "check-runs.json")))
-            if "check_name" in params:
-                checks["check_runs"] = [run for run in checks["check_runs"] if run["name"] == params["check_name"]]
-            return json.dumps(checks)
+            return fixture(self.routes.get(f"checks:{parts[1]}", "check-runs.json"))
         raise AssertionError(f"unexpected gh endpoint: {endpoint}")
 
     def _listed(self, number: str) -> dict:

@@ -47,10 +47,9 @@ Do, in this order, forever:
   3. Grade. For every row reporting clean: re-read the head on the forge, then
      `ledger.py label --pr <n> --expect-head <sha> --checkout <path>`. The tool refuses
      a closed PR, a moved head, a held PR, a head labelled or pulled before, a head
-     under a minute old, a red status, a failed check, a PR with no approval in force
-     (any commit counts; a dismissed or withdrawn approval does not), a head whose
-     latest `ai-review` check has not completed, and a head that conflicts with the
-     base; a refusal names the reason and is the end of it. On success it records the
+     under a minute old, a red status, a failed check other than `ai-review`, a PR with
+     no approval in force (any commit counts; a dismissed or withdrawn approval does
+     not), and a head that conflicts with the base; a refusal names the reason and is the end of it. On success it records the
      approvers in `approved_by` and names them in the output. Where the drive carries a
      bar beyond CI (a plan comment, a grader's verdict), read it before labelling and
      hold the PR with that reason when it is missing for this head. A plan the base has

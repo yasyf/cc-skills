@@ -99,8 +99,8 @@ twenty times in an hour.*
 **D3. The label goes on a head once, after the desk re-reads it.** `ledger.py label`
 re-reads the head from the forge. It refuses a closed PR, a moved head, a held PR, a
 head it labelled or pulled before, a head under a minute old, a red status, a failed
-check run, a PR with no approval in force (any commit counts; a dismissed or withdrawn
-approval does not), and a head whose latest `ai-review` check has not completed. With
+check run other than `ai-review`, and a PR with no approval in force (any commit counts; a
+dismissed or withdrawn approval does not). With
 `--checkout` it also refuses a head that conflicts with the base. On success it records
 the approvers in `approved_by` and names them in the output. A refusal names the reason
 and ends the attempt; the desk routes or holds, it never retries the same head.

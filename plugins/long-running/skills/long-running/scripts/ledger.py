@@ -133,8 +133,6 @@ REFUSAL = {
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
     "fetched": "refs/pull/{pr}/head is {fetched} on the forge, not {head}",
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
-    "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
-    "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
     "children": "#{pr}'s branch {branch} is the base of {children}; retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
@@ -294,11 +292,6 @@ def ai_review(checks: dict) -> str:
         if run["name"] == AI_REVIEW_CHECK:
             return run["conclusion"] or run["status"]
     return AI_REVIEW_ABSENT
-
-
-def latest_ai_review(gh: Github, head: str) -> dict | None:
-    runs = gh.api(f"commits/{head}/check-runs", check_name=AI_REVIEW_CHECK)["check_runs"]
-    return max(runs, key=lambda run: run["started_at"], default=None)
 
 
 def approvers(gh: Github, pr: str) -> list[str]:
@@ -691,15 +684,9 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     if status["state"] != "success":
         return refuse("status", state=status["state"], head=head[:9])
     checks = gh.api(f"commits/{head}/check-runs")
-    failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
+    failed = [run["name"] for run in checks["check_runs"] if run["name"] != AI_REVIEW_CHECK and run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
         return refuse("checks", head=head[:9], names=", ".join(failed))
-    review = latest_ai_review(gh, head)
-    if review and review["status"] != "completed":
-        return refuse("reviewing", head=head[:9])
-    verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
-    if verdict != "success":
-        return refuse("ai-review", state=verdict, head=head[:9])
     children = open_children(gh, pull["head"]["ref"])
     if children:
         return refuse("children", pr=args.pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=base)

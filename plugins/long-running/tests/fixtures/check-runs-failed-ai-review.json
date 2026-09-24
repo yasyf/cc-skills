@@ -1,0 +1,17 @@
+{
+  "total_count": 1,
+  "check_runs": [
+    {
+      "name": "Graphite / mergeability_check",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://app.graphite.com/github/pr/Forge-AI/monorepo/21052"
+    },
+    {
+      "name": "ai-review",
+      "started_at": "2026-09-16T07:50:00Z",
+      "status": "completed",
+      "conclusion": "failure"
+    }
+  ]
+}
