@@ -44,19 +44,24 @@ Do, in this order, forever:
      base branch. A PR enters the ledger only through a lane's report. Never list
      the repository's pull requests; a PR you cannot trace to a lane's report is not
      yours, and there is no "unknown" list.
-  3. Grade. For every row reporting clean: re-read the head on the forge, then
-     `ledger.py label --pr <n> --expect-head <sha> --checkout <path>`. The tool refuses
-     a closed PR, a moved head, a held PR, a head labelled or pulled before, a head
-     under a minute old, a red status, a failed check, a PR with no approval in force
-     (any commit counts; a dismissed or withdrawn approval does not), a head whose
-     latest `ai-review` check has not completed, and a head that conflicts with the
-     base; a refusal names the reason and is the end of it. On success it records the
-     approvers in `approved_by` and names them in the output. Where the drive carries a
-     bar beyond CI (a plan comment, a grader's verdict), read it before labelling and
-     hold the PR with that reason when it is missing for this head. A plan the base has
-     moved under is not such a reason: print the stale stacks and the movers, label
-     anyway, and let the landing grade the tree it applies. A rebase is asked for on a
-     merge conflict and for nothing else.
+  3. Grade stacks. For each clean stack, run
+     `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>`. The tool
+     walks base refs to the repo's default branch, re-reads every PR, and runs every
+     guard on each. It refuses a closed or held PR, a moved head (`--expect-head` at
+     the tip, `reported_head` downstack), a head labelled or pulled before, a head
+     under a minute old, a non-success commit status, a failed check, or a PR with
+     no approval in force (any commit counts; a dismissed or withdrawn approval
+     does not). Each PR needs `mergeable_state` of clean/behind/has_hooks, a completed,
+     successful latest `ai-review`, and no conflict with its base. An untracked
+     downstack PR, an orphaned base, or an open child outside the enqueued stack also
+     refuses the whole stack; nothing is labelled. When every PR passes, one label
+     on the tip enqueues the stack as one entry and every row records `label_head`,
+     `labelled_at`, `approved_by`, and `label_stack`. Where the drive carries a bar
+     beyond CI (a plan comment, a grader's verdict), read it for every PR before
+     labelling and hold the PR with that reason when it is missing for this head.
+     A plan the base has moved under is not such a reason: print the stale stacks
+     and the movers, label anyway, and let the landing grade the tree it applies.
+     A rebase is asked for on a merge conflict and for nothing else.
   4. Route. `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Send exactly the
@@ -77,7 +82,8 @@ Rules that are not the tool's to enforce:
     never re-label the same head.
   - A stacked PR whose parent is landing outside the queue is retargeted to the base
     branch first (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`); inside the
-    queue Graphite retargets it, and you read the child's base afterwards.
+    queue the whole stack goes as one entry, with one label on its tip. All its PRs
+    close together, so a parent's branch deletion cannot strand a child.
   - A closed PR still based on one of our branches keeps the stack graph and reds the
     queue with conflicts on a clean stack; retarget it to the base branch.
   - Write findings to cc-notes from here (`ccn note add`, `ccn log append`), never

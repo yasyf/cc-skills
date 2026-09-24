@@ -547,7 +547,7 @@ def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
 def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
     """The forge closes the child when the parent's branch is deleted, and reopen is refused."""
     shell = desk_shell()
-    shell.children = [{"number": 21720}]
+    shell.children["lightning/bake-policy"] = [{"number": 21720}]
 
     assert label(shell) == 1
     out = capsys.readouterr().out
@@ -589,3 +589,130 @@ def test_reconcile_reports_a_queue_ejection_on_a_row_that_still_reads_open(capsy
 
     assert "EJECTED by the queue at 2026-09-17T02:09:24Z" in capsys.readouterr().out
     assert shell.fields(PR)["ejected_at"] == "2026-09-17T02:09:24Z"
+
+
+STACK = ("24001", "24002", "24003")
+
+
+def stack_shell(tracked=STACK[:2]) -> FakeShell:
+    """dev <- 24001 <- 24002 <- 24003, each approved and green, the lower two reported by their lane."""
+    shell = FakeShell()
+    base = "dev"
+    for index, pr in enumerate(STACK):
+        head = f"{index + 1}" * 40
+        shell.pulls[pr] = {
+            "number": int(pr),
+            "state": "open",
+            "head": {"sha": head, "ref": f"stack/{pr}", "repo": {"full_name": REPO}},
+            "base": {"ref": base},
+            "mergeable_state": "clean",
+        }
+        base = f"stack/{pr}"
+        shell.commit_dates[head] = stamp(timedelta(minutes=-5))
+        shell.pull_heads[pr] = head
+        shell.routes[f"checks:{head}"] = "check-runs-green.json"
+        shell.reviews[pr] = [review("APPROVED", head)]
+        if pr in tracked:
+            shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {"lane": LANE, "reported_head": head, "reported_verdict": "clean"}})
+    return shell
+
+
+def label_stack(shell, pr=STACK[-1], *extra) -> int:
+    return run(shell, "label", "--repo", REPO, "--ledger", LEDGER, "--pr", pr, *extra)
+
+
+def test_a_clean_stack_is_enqueued_by_one_label_on_its_tip(capsys):
+    shell = stack_shell()
+
+    assert label_stack(shell) == 0
+
+    assert shell.labelled == ["24003:merge"]
+    assert "the queue takes #24001 <- #24002 <- #24003 as one entry" in capsys.readouterr().out
+    for index, pr in enumerate(STACK):
+        row = shell.fields(pr)
+        assert row["label_head"] == f"{index + 1}" * 40
+        assert row["label_stack"] == "24001,24002,24003"
+        assert row["approved_by"] == "yasyf"
+
+
+def test_one_red_pr_refuses_the_whole_stack(capsys):
+    shell = stack_shell()
+    shell.routes[f"status:{'2' * 40}"] = "status-failure.json"
+
+    assert label_stack(shell) == 1
+
+    out = capsys.readouterr().out
+    assert "REFUSED commit status failure on 222222222; only success is labelled (#24002)" in out
+    assert "the stack #24001 <- #24002 <- #24003 enqueues as one entry, so #24002 refuses all of it" in out
+    assert shell.labelled == []
+    assert all("label_head" not in shell.fields(pr) for pr in STACK[:2])
+
+
+def test_a_stack_dry_run_names_every_pr_it_would_enqueue(capsys):
+    shell = stack_shell()
+
+    assert label_stack(shell, STACK[-1], "--dry-run") == 0
+    assert capsys.readouterr().out.strip() == f"would label #24003 {'3' * 40}, enqueuing #24001 <- #24002 <- #24003"
+    assert shell.labelled == []
+
+
+def test_a_downstack_pr_no_lane_reported_refuses_the_stack(capsys):
+    shell = stack_shell(tracked=STACK[1:2])
+
+    assert label_stack(shell) == 1
+    assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_a_downstack_pr_whose_head_moved_since_its_report_refuses_the_stack(capsys):
+    shell = stack_shell()
+    shell.fields("24001")["reported_head"] = OLD_HEAD
+
+    assert label_stack(shell) == 1
+    assert "REFUSED head moved: expected 000000000, the forge has 111111111; grade the new head before labelling (#24001)" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_labelling_mid_stack_refuses_because_the_pr_above_would_be_closed(capsys):
+    shell = stack_shell()
+
+    assert label_stack(shell, "24002") == 1
+    out = capsys.readouterr().out
+    assert "#24002's branch stack/24002 is the base of #24003, which this stack does not enqueue" in out
+    assert shell.labelled == []
+
+
+def test_a_stack_whose_parent_closed_without_landing_is_refused(capsys):
+    shell = stack_shell()
+    shell.pulls["24001"]["state"] = "closed"
+
+    assert label_stack(shell) == 1
+    assert "#24002 is based on stack/24001, which is neither dev nor exactly one open pull request's branch (found none)" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_a_downstack_row_with_no_reported_head_is_untracked(capsys):
+    shell = stack_shell()
+    del shell.fields("24001")["reported_head"]
+
+    assert label_stack(shell) == 1
+    assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
+    shell = stack_shell()
+    shell.pulls["24004"] = dict(shell.pulls["24001"], number=24004, base={"ref": "dev"})
+
+    assert label_stack(shell) == 1
+    assert "found #24001, #24004" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_a_base_cycle_refuses_instead_of_walking_forever(capsys):
+    shell = stack_shell()
+    shell.pulls["24001"]["base"] = {"ref": "stack/24003"}
+
+    assert label_stack(shell) == 1
+    assert "#24003 is its own ancestor" in capsys.readouterr().out
+    assert shell.labelled == []
