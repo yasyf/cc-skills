@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from conftest import (
     MOVED_HEAD,
     PR,
@@ -245,3 +247,26 @@ def test_fresh_watch_does_not_replay_old_merge_activity(poll, tmp_path):
     )
     assert run.done == "DONE all-green"
     assert run.passes == 3
+
+
+PENDING = surface(pull(), runs=[check_run("build", status="in_progress", conclusion=None)])
+
+
+def test_window_elapsed_ends_the_round_and_the_next_round_keeps_started_at(poll):
+    env = {"PR_POLL_WINDOW": "1", "FAKE_SLEEP": "1.1"}
+    first = poll(PENDING, PENDING, PENDING, env=env)
+    assert first.done == "DONE window-elapsed"
+    assert first.state["started_at"] > 0
+    second = poll(PENDING, env={"PR_POLL_WINDOW": "600"})
+    assert second.done is None
+    assert second.state["started_at"] == first.state["started_at"]
+
+
+def test_deadline_counts_from_the_state_files_started_at(poll, tmp_path):
+    state = tmp_path / "state.json"
+    seeded = json.loads(state.read_text())
+    seeded["started_at"] = 1000
+    state.write_text(json.dumps(seeded))
+    run = poll(PENDING, env={"PR_POLL_DEADLINE": "10"})
+    assert run.done == "DONE deadline-still-open"
+    assert run.state["started_at"] == 1000

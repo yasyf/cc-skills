@@ -16,12 +16,17 @@ interim eviction reports and one final verdict. Your prompt carries
 ## Watching
 
 Foreground `sleep` is blocked in this harness, so the wait primitive is
-`Monitor` with `persistent: true` on the bundled poll script:
+`Monitor` on the bundled poll script, at the harness's 30-minute ceiling:
 
 ```
 Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <state-file>',
-        description: "CI checks and bot comments on <repo>#<pr>", persistent: true)
+        description: "CI checks and bot comments on <repo>#<pr>", timeout_ms: 1800000)
 ```
+
+The script is the watch. A hand-rolled `gh pr checks` or `bk build view`
+loop has no state file, no deadline, and no round boundary, so it dies with
+the Monitor's cap the first time CI takes longer than 30 minutes — and the
+caller then reads silence as "still running". Never substitute one.
 
 The script reads the PR, check runs, commit statuses, issue events, reviews,
 and comments through REST. `PR_POLL_INTERVAL` defaults to 120 seconds and
@@ -33,19 +38,24 @@ When the repo's queue label is not `merge`, prefix the Monitor command with
 It emits `CHECK <name> <bucket> <link>`, `REVIEW <author> <state> <id>`,
 `COMMENT <author> <id> <first-80>`, `QUEUED <actor> <label|comment-id>`,
 `UNQUEUED <actor>`, `DONE
-all-green|merged|queue-merged|closed|checks-failed|conflicted|deadline-still-open`,
+all-green|merged|queue-merged|closed|checks-failed|conflicted|deadline-still-open|window-elapsed`,
 and `DONE evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>`.
-`deadline-still-open` means the watch ran out of time with the PR still
-open, after `PR_POLL_DEADLINE` seconds (four hours by default). `QUEUED`
+`window-elapsed` means the script ended its own round after `PR_POLL_WINDOW`
+seconds (25 minutes, under the Monitor cap) with nothing decided: re-arm the
+same command on the same state file at once, silently — no report, no
+re-triage. The deadline counts from the state file's `started_at`, so
+`deadline-still-open` still arrives after `PR_POLL_DEADLINE` seconds (four
+hours by default) however many windows it took. `QUEUED`
 keeps the watch armed through green checks. `UNQUEUED` means a human removed
 the queue label; neither event ends the round.
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
-with a null `mergedAt`. The script exits after any `DONE`,
-which ends that watch — `persistent: true` only removes the timeout, so a
-monitor whose command exited stays stopped.
+with a null `mergedAt`. The script exits after any `DONE`, which ends that
+watch; a Monitor whose command exited stays stopped. If the harness's own
+expiry notice arrives instead of a `DONE` line, treat it as `window-elapsed`.
 
 Each `DONE` ends a round; handle queue events while it runs:
 
+- `window-elapsed` → re-arm on the same state file and keep watching
 - green → confirm every comment is answered and report `clean`. The script
   emits `all-green` only when `mergeable` is true and the PR is neither
   queued nor evicted pending relabel; never call it clean while an eviction
@@ -81,7 +91,7 @@ not a read. `.conflicted_head` suppresses another conflict report for the
 same head; `.queue.evicted_event` suppresses a second report of the same label
 removal, and a later removal after a relabel reports again.
 
-`TaskStop` the monitor before finishing — a persistent monitor outlives you
+`TaskStop` the monitor before finishing — a live monitor outlives you
 otherwise.
 
 <queue_drop>

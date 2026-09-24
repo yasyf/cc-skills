@@ -174,6 +174,7 @@ time, and where a human eye should look first.
   "pr": 123,
   "repo": "acme/widgets",
   "head_at_last_pass": "4f2a91c0e8b7d6a5c4f3e2d1b0a9f8e7d6c5b4a3",
+  "started_at": 1784995869,
   "watermarks": {
     "comments": "2026-07-26T04:11:09Z",
     "reviews": "2026-07-26T04:13:52Z",
@@ -198,6 +199,7 @@ time, and where a human eye should look first.
 ```
 
 - `schema` — state-file version 2.
+- `started_at` — epoch seconds of the first poll; `deadline-still-open` counts from here across `window-elapsed` rounds.
 - `head_at_last_pass` — the PR head at the last pass; a new head resets check buckets and false-read count.
 - `watermarks.comments` — ISO timestamp passed as `?since=` to issue and review comment endpoints.
 - `watermarks.reviews` — ISO timestamp used to filter reviews by `submitted_at`.
