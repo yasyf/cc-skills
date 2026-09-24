@@ -25,6 +25,7 @@ PENDING_DIRECTIVE = (
     "WHERE directives.agent_id = ? AND directives.delivered_at IS NULL AND subjects.scope = ?)"
 )
 SUBJECT_IN_SCOPE = "SELECT EXISTS(SELECT 1 FROM subjects WHERE scope = ?)"
+TEAMMATE = "in_process_teammate"
 
 
 def real_home() -> Path:
@@ -63,6 +64,17 @@ def directive_pending(evt: BaseHookEvent) -> bool:
 
 def subject_in_scope(evt: BaseHookEvent) -> bool:
     return plane_may_match(SUBJECT_IN_SCOPE, scope(evt))
+
+
+def in_process_teammate(evt: BaseHookEvent) -> bool:
+    agent_id, transcript = evt._raw.get("agent_id"), evt._raw.get("transcript_path")
+    if not agent_id or not transcript:
+        return False
+    meta = Path(transcript).with_suffix("") / "subagents" / f"agent-{agent_id}.meta.json"
+    try:
+        return json.loads(meta.read_text()).get("taskKind") == TEAMMATE
+    except (OSError, json.JSONDecodeError):
+        return False
 
 
 def runner_home() -> Path:

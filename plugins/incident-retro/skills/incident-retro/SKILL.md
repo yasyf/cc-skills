@@ -168,14 +168,17 @@ Then draft in reading order:
 8. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
 9. Write the plain twins and handles alongside their precise text. Write one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
 10. Prepare `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
-11. Run `prose --list` to inspect the field addresses, then `prose` to write them through Astra.
-12. Review refused fields and lint findings, and rerun affected addresses with `--field`. Keep `prose.lock.json` beside the record.
+11. Run `prose --list` to inspect the field addresses, then `prose --detach` to write them through Astra; a full run can outlast the Bash tool's 10-minute foreground limit.
+12. Run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Then review refused fields and lint findings, and rerun affected addresses with `--field`. Keep `prose.lock.json` beside the record.
+
+> Never background `prose` or wait on a `Monitor`: neither notification wakes an idle in-process teammate.
 
 Follow [reference/writing.md](reference/writing.md). Mark a required answer as not recorded when the sources do not provide it. Never invent connective events to make the story read more smoothly.
 
 ```bash
 $TOOL prose <dir> --list
-$TOOL prose <dir>
+$TOOL prose <dir> --detach
+$TOOL prose <dir> --await
 $TOOL prose <dir> --field C1.text --field C1.p
 $TOOL prose <dir> --field meta.title \
   --note "meta.title=lead with the disk filling up"

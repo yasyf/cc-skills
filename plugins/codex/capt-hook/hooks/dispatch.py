@@ -49,6 +49,10 @@ HANDROLLED_FORMAT = re.compile(
     r"|output format\s*:",
     re.IGNORECASE,
 )
+WRAPPERS = {"retro.py": "prose", "design.py": "plainify"}
+INTERPRETER = re.compile(r"python[0-9.]*|uv|uvx")
+ASSIGNMENT = re.compile(r"""(?:^|[;&|(\s])(?:export\s+)?([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|]*)""")
+EXPANSION = re.compile(r"\$\{?([A-Za-z_]\w*)\}?")
 HEREDOC_OPENER = re.compile(r"""<<[-~]?[ \t]*(?P<q>['"]?)(?P<word>[A-Za-z_][A-Za-z0-9_]*)(?P=q)""")
 
 
@@ -138,6 +142,26 @@ def is_background_amp(occ) -> bool:
     return re.search(r"(?<![>&])&(?![>&])", gap) is not None
 
 
+def expand_assignments(raw: str) -> str:
+    values = {name: value.strip("\"'") for name, value in ASSIGNMENT.findall(raw)}
+    return EXPANSION.sub(lambda m: values.get(m[1], m[0]), raw)
+
+
+def invokes_wrapper(argv: tuple[str, ...]) -> bool:
+    for i, token in enumerate(argv[:-1]):
+        if WRAPPERS.get(Path(token).name) == argv[i + 1]:
+            return i == 0 or INTERPRETER.fullmatch(normalize_executable(argv[0])) is not None
+    return False
+
+
+def wrapper_occurrences(cl):
+    if (expanded := safe_parse(expand_assignments(cl.raw))) is None:
+        return
+    for occ in walk_occurrences(expanded):
+        if invokes_wrapper(unwrapped_argv(occ.command)):
+            yield occ
+
+
 def codex_subcommand(args: tuple[str, ...]) -> str | None:
     tokens = iter(args)
     for token in tokens:
@@ -166,6 +190,19 @@ class CodexAskDetached(CustomCommandLineCondition):
             head_program(occ.command) == "codex-ask"
             and (is_background_amp(occ) or normalize_executable(occ.command.executable) in DETACH_WRAPPERS)
             for occ in walk_occurrences(cl)
+        )
+
+
+class CodexWrapperInvoked(CustomCommandLineCondition):
+    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
+        return any(True for _ in wrapper_occurrences(cl))
+
+
+class CodexWrapperDetached(CustomCommandLineCondition):
+    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
+        return any(
+            is_background_amp(occ) or normalize_executable(occ.command.executable) in DETACH_WRAPPERS
+            for occ in wrapper_occurrences(cl)
         )
 
 
@@ -255,6 +292,54 @@ hook(
         Input(command="codex-ask --await /tmp/x/lane && echo done"): Allow(),
         Input(command="grep codex-ask notes.md"): Allow(),
         Input(command="sleep 5 &"): Allow(),
+    },
+)
+
+RETRO = "/p/incident-retro/scripts/retro.py"
+DESIGN = "/p/design-doc/scripts/design.py"
+
+
+hook(
+    Event.PreToolUse,
+    only_if=[
+        Tool("Bash"),
+        CodexWrapperInvoked(),
+        Or(ToolInput(run_in_background="true"), CodexWrapperDetached()),
+    ],
+    message=(
+        "`retro.py prose` and `design.py plainify` call codex inside, so they run in the FOREGROUND "
+        "like codex-ask itself: background Bash completion never wakes an in-process subagent "
+        "(anthropics/claude-code#78782), and the finished run sits on disk. A prose run longer than "
+        "the Bash tool's 10 minutes starts with `retro.py prose <dir> --detach`, which returns at "
+        "once and prints an AWAIT: line; rerun that `retro.py prose <dir> --await` in the foreground "
+        "with timeout: 600000 until it reports the exit. `design.py plainify` runs in the foreground "
+        "with timeout: 600000."
+    ),
+    block=True,
+    tests={
+        Input(
+            command=f"R={RETRO}; D=/r/x; python3 $R prose $D --stale > log 2>&1; echo EXIT $?",
+            tool_input={
+                "command": f"R={RETRO}; D=/r/x; python3 $R prose $D --stale > log 2>&1; echo EXIT $?",
+                "run_in_background": True,
+            },
+        ): Block(pattern="--detach"),
+        Input(command=f'RETRO="python3 {RETRO}"; $RETRO prose /r/x &'): Block(),
+        Input(command=f"D=/r/x R={RETRO}; python3 ${{R}} prose $D &"): Block(),
+        Input(command=f"nohup python3 {RETRO} prose /r/x"): Block(),
+        Input(command=f"python3 {DESIGN} plainify /d/x &"): Block(),
+        Input(command=f"bash -c 'python3 {RETRO} prose /r/x &'"): Block(),
+        Input(command=f"{RETRO} prose /r/x --detach &"): Block(),
+        Input(command=f"python3 {RETRO} prose /r/x --detach"): Allow(),
+        Input(command=f"python3 {RETRO} prose /r/x --await"): Allow(),
+        Input(command=f"python3 {RETRO} prose /r/x --stale"): Allow(),
+        Input(
+            command=f"python3 {RETRO} check /r/x",
+            tool_input={"command": f"python3 {RETRO} check /r/x", "run_in_background": True},
+        ): Allow(),
+        Input(command=f"grep -n prose {RETRO} &"): Allow(),
+        Input(command=f"sed -n 1,40p {RETRO} prose &"): Allow(),
+        Input(command=f"python3 {DESIGN} render /d/x &"): Allow(),
     },
 )
 

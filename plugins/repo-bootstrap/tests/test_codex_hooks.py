@@ -355,3 +355,37 @@ def test_delivered_directive_is_not_pending(common, plane):
         "INSERT INTO directives(subject_id, agent_id, delivered_at) VALUES ('sub', 'a1', 1)",
     )
     assert common.directive_pending(plane_event(agent_id="a1")) is False
+
+
+@pytest.fixture
+def session(tmp_path: Path) -> Path:
+    transcript = tmp_path / "sess.jsonl"
+    transcript.write_text("{}\n")
+    lanes = tmp_path / "sess" / "subagents"
+    lanes.mkdir(parents=True)
+    (lanes / "agent-amate-1a2b.meta.json").write_text('{"name": "mate", "taskKind": "in_process_teammate"}')
+    (lanes / "agent-a266d86820f8d3efd.meta.json").write_text('{"agentType": "open-pr:pr-watcher"}')
+    (lanes / "agent-atorn.meta.json").write_text('{"taskKind": "in_proc')
+    return transcript
+
+
+def lane_event(session: Path, agent_id: str | None) -> types.SimpleNamespace:
+    return plane_event(transcript_path=str(session), agent_id=agent_id)
+
+
+def test_named_teammate_is_an_in_process_teammate(common, session):
+    assert common.in_process_teammate(lane_event(session, "amate-1a2b")) is True
+
+
+def test_plain_background_subagent_is_not_a_teammate(common, session):
+    assert common.in_process_teammate(lane_event(session, "a266d86820f8d3efd")) is False
+
+
+def test_missing_or_torn_meta_fails_open(common, session):
+    assert common.in_process_teammate(lane_event(session, "anever")) is False
+    assert common.in_process_teammate(lane_event(session, "atorn")) is False
+
+
+def test_main_thread_is_never_a_teammate(common, session):
+    assert common.in_process_teammate(lane_event(session, None)) is False
+    assert common.in_process_teammate(plane_event(agent_id="amate-1a2b")) is False
