@@ -1,0 +1,1 @@
+{"agentType": "general-purpose", "description": "PR poller", "model": "claude-opus-5-5[1m]", "name": "poller", "taskKind": "in_process_teammate", "teamName": "session-rot"}

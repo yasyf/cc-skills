@@ -1,0 +1,17 @@
+{
+  "name": "session-rot",
+  "members": [
+    {
+      "name": "team-lead",
+      "tmuxPaneId": "leader"
+    },
+    {
+      "name": "landing-desk",
+      "tmuxPaneId": "in-process"
+    },
+    {
+      "name": "sleepy",
+      "tmuxPaneId": "in-process"
+    }
+  ]
+}
