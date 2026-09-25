@@ -27,6 +27,7 @@ from captain_hook import (
 from captain_hook.conditions import skill_name_matches
 from captain_hook.util import reqenv
 
+from .compact_job import MAX_LIFETIME_SECONDS
 from .nudges import queue_nudge
 from .turns import latest_turn, threshold
 
@@ -37,7 +38,7 @@ ARCHIVE_HEADING = "## Archived plans (history only, never needed to restart)"
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 FIRE_FRACTION = 0.8
-COMPACT_RETRY_SECONDS = 30 * 60
+COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 
 
 @workflow_state("long_running_compaction")
@@ -67,19 +68,21 @@ def rewrite_nudge(*, used: int, limit: int, plan: Path, archive: Path | None) ->
 
 
 def archives_of(plan: Path) -> list[Path]:
-    return sorted(plan.parent.glob(f"{plan.stem}.*{ARCHIVE_SUFFIX}"), reverse=True)
+    return sorted(plan.parent.glob(f"{plan.stem}.[0-9][0-9][0-9][0-9]-*{ARCHIVE_SUFFIX}"), reverse=True)
 
 
 def link_archives(plan: Path) -> None:
     text = plan.read_text()
     if not (missing := [archive for archive in archives_of(plan) if str(archive) not in text]):
         return
-    bullets = "".join(f"- `{archive}`\n" for archive in missing)
-    if ARCHIVE_HEADING in text:
-        text = text.replace(f"{ARCHIVE_HEADING}\n", f"{ARCHIVE_HEADING}\n{bullets}", 1)
+    bullets = [f"- `{archive}`" for archive in missing]
+    lines = text.rstrip("\n").split("\n")
+    if ARCHIVE_HEADING in lines:
+        at = lines.index(ARCHIVE_HEADING) + 1
+        lines[at:at] = bullets
     else:
-        text = f"{text.rstrip()}\n\n{ARCHIVE_HEADING}\n{bullets}"
-    plan.write_text(text)
+        lines += ["", ARCHIVE_HEADING, *bullets]
+    plan.write_text("\n".join(lines) + "\n")
 
 
 @on(
@@ -132,7 +135,12 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
     if not path.match(".claude/plans/*.md") or path.name.endswith(ARCHIVE_SUFFIX):
         return None
     with CompactionState.mutate(evt) as state:
-        if state.phase == "archived" and state.plan_path and path == Path(state.plan_path).expanduser():
+        if (
+            state.phase == "archived"
+            and state.plan_path
+            and path == Path(state.plan_path).expanduser()
+            and not (state.archive_path and path.read_bytes() == Path(state.archive_path).read_bytes())
+        ):
             link_archives(path)
             state.phase = "rewritten"
         state.plan_path = str(path)
@@ -175,13 +183,16 @@ def archive_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         limit = threshold(root.model, state.model, evt.cwd)
         if root.tokens < FIRE_FRACTION * limit:
             return None
-        if state.plan_path:
-            plan = Path(state.plan_path).expanduser()
+        if state.plan_path and (plan := Path(state.plan_path).expanduser()).exists():
             archive = plan.with_name(f"{plan.stem}.{datetime.now(UTC):%Y-%m-%d-%H%M%S}{ARCHIVE_SUFFIX}")
             with plan.open("rb") as source, archive.open("xb") as target:
                 shutil.copyfileobj(source, target)
         else:
-            plan = Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
+            plan = (
+                Path(state.plan_path).expanduser()
+                if state.plan_path
+                else Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
+            )
             archive = None
         state.plan_path = str(plan)
         state.archive_path = str(archive) if archive else None
@@ -219,10 +230,7 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
         if model := evt._raw.get("model"):
             state.model = model
-        if evt.source == "compact" and state.phase in ("rewritten", "compacting"):
-            state.phase = "idle"
-            state.compacting_since = None
-        if not (evt.source == "compact" and state.active and state.plan_path):
+        if evt.source != "compact":
             return None
         pending = (
             f" It has not been rewritten since `{state.archive_path}` archived it; rewrite it as the current "
@@ -230,6 +238,10 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
             if state.phase == "archived" and state.archive_path
             else ""
         )
+        state.phase = "idle"
+        state.compacting_since = None
+        if not (state.active and state.plan_path):
+            return None
     return evt.context(
         f"Compacted long-running session. Read `{state.plan_path}` before anything else; it supersedes the summary. "
         "The long-running skill stays active — reload its rules (Skill `long-running`) if they are not in context."
@@ -237,9 +249,9 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
     )
 
 
-def send_compact(handle: str, plan: str) -> None:
+def send_compact(handle: str, plan: str, transcript: Path) -> None:
     subprocess.Popen(
-        [sys.executable, str(COMPACT_JOB), handle, f"/compact {compact_instructions(plan)}"],
+        [sys.executable, str(COMPACT_JOB), handle, f"/compact {compact_instructions(plan)}", str(transcript)],
         env=dict(reqenv.env_map()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -290,7 +302,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
                 f"Run: /compact {compact_instructions(state.plan_path)}"
             )
         state.compacting_since = time.time()
-        send_compact(handle, state.plan_path)
+        send_compact(handle, state.plan_path, evt.transcript_path)
     return None
 
 

@@ -169,6 +169,52 @@ def test_plan_write_appends_the_archive_section(home: Path, plan: Path) -> None:
     assert plan.read_text() == f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{archive}`\n"
 
 
+def test_plan_heading_on_the_last_line_still_gets_links(home: Path, plan: Path) -> None:
+    session = home / "session"
+    archive = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
+    archive.write_text("# old\n")
+    plan.write_text(f"# brook\n\n{handoff.ARCHIVE_HEADING}")
+    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived").save(bash(session))
+
+    handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
+
+    assert plan.read_text() == f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{archive}`\n"
+
+
+def test_plan_write_identical_to_its_archive_is_not_a_rewrite(home: Path, plan: Path) -> None:
+    session = home / "session"
+    archive = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
+    archive.write_text(plan.read_text())
+    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived", archive_path=str(archive)).save(
+        bash(session)
+    )
+
+    handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
+
+    assert (plan.read_text(), state(session).phase) == ("# brook\n", "archived")
+
+
+def test_archives_of_another_plan_are_not_linked(home: Path, plan: Path) -> None:
+    plan.with_name("brook.v2.2026-09-25-220650-pre-compact.md").write_text("# other\n")
+    own = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
+    own.write_text("# old\n")
+
+    assert handoff.archives_of(plan) == [own]
+
+
+def test_missing_plan_file_is_nudged_without_an_archive(home: Path) -> None:
+    session = home / "session"
+    missing = home / ".claude" / "plans" / "x.md"
+    handoff.CompactionState(active=True, plan_path=str(missing)).save(bash(session))
+
+    handoff.archive_at_threshold(bash(session))
+
+    saved = state(session)
+    assert (saved.phase, saved.plan_path, saved.archive_path) == ("archived", str(missing), None)
+    [nudge] = pending(session)
+    assert f"rewrite `{missing}` as the current restart state. " in nudge
+
+
 def test_plan_write_before_the_threshold_only_tracks_the_path(home: Path, plan: Path) -> None:
     session = home / "session"
     plan.with_name("brook.2026-09-25-220650-pre-compact.md").write_text("# old\n")
@@ -207,6 +253,7 @@ def test_stop_after_rewrite_spawns_one_compact_job_and_retries_after_30_minutes(
         "term-7",
         "/compact Long-running compaction handoff. `/p/brook.md` is the authoritative restart state; "
         "keep only in-flight details from the last turn that it lacks.",
+        str(FIXTURES / "usage-460k.jsonl"),
     ]
     assert kw["env"]["ORCA_USER_DATA_PATH"] == "/orca/data"
     assert kw["start_new_session"]
@@ -229,7 +276,7 @@ def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
 
 @pytest.mark.parametrize(
     ("phase", "kept"),
-    [("archived", "archived"), ("rewritten", "idle"), ("compacting", "idle"), ("idle", "idle")],
+    [("archived", "idle"), ("rewritten", "idle"), ("compacting", "idle"), ("idle", "idle")],
 )
 def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, kept: str) -> None:
     evt = SessionStartEvent(
@@ -281,3 +328,17 @@ EMPTY_BOX = [RULE, "❯", RULE, "  ⏵⏵ bypass permissions on · 1 shell"]
 )
 def test_input_empty_reads_the_rendered_prompt_box(terminal: dict, empty: bool) -> None:
     assert compact_job.input_empty(terminal) is empty
+
+
+def test_compact_job_stops_once_the_session_compacts(tmp_path: Path) -> None:
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text('{"type":"assistant"}\n')
+    offset = transcript.stat().st_size
+    assert not compact_job.compacted_since(transcript, offset)
+    with transcript.open("a") as file:
+        file.write('{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}\n')
+    assert compact_job.compacted_since(transcript, offset)
+
+
+def test_retry_outlives_the_previous_job() -> None:
+    assert handoff.COMPACT_RETRY_SECONDS > compact_job.MAX_LIFETIME_SECONDS
