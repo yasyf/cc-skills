@@ -142,7 +142,7 @@ Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
       prompt: "pr: <number>\nurl: <url>\nrepo: <owner/name>\nhead: <sha>\n"
               "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>\n"
               "poll: bash \"<abs plugin root>/scripts/pr-poll.sh\" <owner/name> <number> <cache>/pr/<number>.json\n"
-              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing.")
+              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, never run it from Bash or wrap it in a loop, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing. On DONE ready-to-merge, SendMessage main before anything else.")
 ```
 
 After spawning, verify that the poll script wrote its state file:
@@ -157,7 +157,28 @@ watch is unarmed. An agent spawn alone does not prove the script is running.
 
 One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller to re-enqueue by label or in Graphite's UI. Push any fix before re-enqueueing; the caller decides when to re-enqueue.
 
-After adding the queue label to a PR whose watcher already reported `clean`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
+### After a ready-to-merge report: `open-pr.on-ready`
+
+A `ready-to-merge` report means the PR is green, mergeable, and approved:
+every check passed, `mergeable` is true, and the PR is neither queued nor
+evicted on its current head. No reviewer's latest review is
+`CHANGES_REQUESTED`, and REST `mergeable_state` is not `blocked` (the state
+for a missing required approval).
+
+Read the user's `CLAUDE.md` for one of these exact lines:
+
+- `open-pr.on-ready: offer-open` (the default when no line is set): in that
+  same turn, ask the user through `AskUserQuestion` whether to open the PR
+  page. Run `gh pr view <number> --web` only on a yes.
+- `open-pr.on-ready: offer-merge`: in that same turn, ask
+  "merge #<number> now?" through `AskUserQuestion`. Add the repo's queue label
+  only on a yes.
+
+Never label or open on the report alone. Under the `long-running` skill,
+forward the report to the landing desk; it owns the decision regardless of
+the setting.
+
+After adding the queue label to a PR whose watcher already reported `ready-to-merge`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
 
 ```
 SendMessage(to: "pr-watch-<number>", message: "Queue label <label> added. Resume the queue watch on the same state file.")
