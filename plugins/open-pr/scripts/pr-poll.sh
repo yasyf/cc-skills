@@ -176,22 +176,21 @@ INTERVAL="${PR_POLL_INTERVAL:-$INTERVAL_MIN}"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$(dirname "$STATE_FILE")"
 
-LOCK="$STATE_FILE.lock"
-if ! ln -s "$$" "$LOCK" 2>/dev/null; then
-  holder=$(readlink "$LOCK" 2>/dev/null || true)
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-    echo "pr-poll.sh: pid $holder already polls $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
-    exit 3
-  fi
-  rm -f "$LOCK"
-  ln -s "$$" "$LOCK" 2>/dev/null || {
-    echo "pr-poll.sh: another poller took $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
-    exit 3
-  }
+exec 9>>"$STATE_FILE.lock"
+if command -v flock >/dev/null 2>&1; then
+  flock -n 9 && locked=0 || locked=$?
+else
+  perl -MFcntl=:flock -e 'open(my $fd, ">>&=", 9) or die "pr-poll.sh: fd 9: $!\n"; flock($fd, LOCK_EX | LOCK_NB) or exit 1' &&
+    locked=0 || locked=$?
 fi
-trap 'rm -f "$LOCK"' EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+case $locked in
+0) ;;
+1)
+  echo "pr-poll.sh: another poller holds $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
+  exit 3
+  ;;
+*) exit 1 ;;
+esac
 
 STATE='{}'
 empty_passes=0
@@ -527,5 +526,5 @@ while :; do
   if [ "$WINDOW" -gt 0 ] && [ $((now - STARTED)) -ge "$WINDOW" ]; then
     finish window-elapsed
   fi
-  sleep "$INTERVAL"
+  sleep "$INTERVAL" 9>&-
 done

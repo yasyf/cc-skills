@@ -23,7 +23,17 @@ def guard(command: str, agent_type: str | None) -> subprocess.CompletedProcess[s
     )
 
 
-@pytest.mark.parametrize("command", [POLL, f"while true; do {POLL}; sleep 30; done"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        POLL,
+        f"while true; do {POLL}; sleep 30; done",
+        f"PR_POLL_STACK=2 {POLL}",
+        f"timeout 600 {POLL}",
+        f"cd /tmp && {POLL}",
+        f"'{PLUGIN}/scripts/pr-poll.sh' acme/widgets 7 /tmp/cache/pr/7.json",
+    ],
+)
 def test_watcher_bash_poll_is_blocked(command: str):
     result = guard(command, "open-pr:pr-watcher")
     assert result.returncode == 2
@@ -34,6 +44,9 @@ def test_watcher_bash_poll_is_blocked(command: str):
     ("command", "agent_type"),
     [
         ("gh pr view 7 --json headRefOid", "open-pr:pr-watcher"),
+        (f"sed -n 1,40p {PLUGIN}/scripts/pr-poll.sh", "open-pr:pr-watcher"),
+        (f"bash -n {PLUGIN}/scripts/pr-poll.sh", "open-pr:pr-watcher"),
+        (f"grep -n DONE {PLUGIN}/scripts/pr-poll.sh", "open-pr:pr-watcher"),
         (POLL, None),
         (POLL, "general-purpose"),
     ],

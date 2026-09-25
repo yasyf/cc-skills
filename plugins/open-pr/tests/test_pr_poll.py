@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import fcntl
 import json
-import os
-import subprocess
 
 import pytest
 from conftest import (
@@ -535,19 +534,16 @@ def test_new_head_after_an_eviction_can_reach_ready_to_merge(poll):
 
 
 def test_second_poller_on_a_held_state_file_exits_without_polling(poll, tmp_path):
-    (tmp_path / "state.json.lock").symlink_to(str(os.getpid()))
-    run = poll(surface(pull()))
+    with (tmp_path / "state.json.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        run = poll(surface(pull()))
     assert run.returncode == 3
-    assert "already polls" in run.stderr
+    assert "another poller holds" in run.stderr
     assert run.lines == []
     assert run.gh_calls == []
 
 
-def test_lock_left_by_a_dead_poller_is_taken_over_and_released(poll, tmp_path):
-    dead = subprocess.Popen(["true"])
-    dead.wait()
-    lock = tmp_path / "state.json.lock"
-    lock.symlink_to(str(dead.pid))
+def test_lock_file_left_by_an_exited_poller_does_not_block(poll, tmp_path):
+    (tmp_path / "state.json.lock").touch()
     run = poll(surface(pull()))
     assert run.done == "DONE ready-to-merge"
-    assert not lock.is_symlink()
