@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR, and a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, and a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -26,7 +26,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The seven hard rules
+## The eight hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -47,6 +47,14 @@ watcher, never a Monitor per build, never a root-context poll. A lane that ends 
 waiting is a bug; lanes poll in foreground loops to a terminal state and report once.
 *Prevents both the per-landing watcher tax and the lane that parked at a confirm gate
 while its silence read as progress.*
+
+A lane never backgrounds a subagent or codex run and ends its turn. Run subagents and
+codex in the foreground (blocking), or poll the reply file in a foreground loop to a
+terminal state.
+
+*Prevents the `00:48Z` loss of the "Use ccx for" ask for `AGENTS.md` in monorepo audit
+note `ab649fa1`. The lane backgrounded a codex subagent and ended its turn;
+completion went to the root session and the lane never woke.*
 
 **R4. Never re-brief a lane, never answer a duplicate.** `SendMessage` to a finished
 agent resumes it carrying its whole original brief and it re-runs that brief.
@@ -92,6 +100,26 @@ branch. This applies to the root and the desk.
 *Prevents the root telling the owner "#25121 queued to merge" when it had already
 been on dev for 15 minutes.*
 
+**R8. Record every owner ask in the desk ledger.** The root runs
+`ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>"`
+in the turn the ask arrives, before or with the lane dispatch. Each new ask gets its
+own lane; never append it to a busy lane's brief, under R6.
+
+Every lane records each sub-dispatch as an ask row before dispatch with
+`ledger.py ask --ledger <id> --text "<sub-task>" --lane <lane> --accept "<the reply it must return>"`.
+When the reply lands and passes its acceptance check, the lane runs `ledger.py verify`.
+An orphaned sub-dispatch surfaces as `DROPPED` in the summary.
+
+Before claiming anything is assigned, in flight, or done, the root reads
+`ledger.py summary` or `ledger.py show --asks`, never its own plan table. R7 still
+applies to PR state; the root never reports it from the plan file. Once the acceptance
+check passes, the root runs `ledger.py verify --ledger <id> --ask <id> --text "<evidence>"`.
+A `DROPPED` line in a summary is dispatched in that turn.
+
+*Prevents "one post + one approval per release" slipping for hours in the busy
+release-fast lane's brief, invisible to every summary, while the root tracked PR
+state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
+
 ## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
@@ -102,8 +130,12 @@ and labels, and the root hears from it every 30 minutes.
 
 `scripts/ledger.py` is its one tool, over `gh api` REST only. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
-and the landing are fields on that row, and each lane message is a `msg/<seq>` row
-beside them. `reference/landing-desk-brief.md` is the desk's brief, ready to paste;
+and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
+asks are `ask/<seq>` rows beside the PR rows.
+
+The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
+a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
+`reference/landing-desk-brief.md` is the desk's brief, ready to paste;
 `reference/desk-contracts.md` holds the message shapes. It is R5 applied to PR state and
 R3 applied to the watching.
 
@@ -115,7 +147,7 @@ that the lane that opened the PR lands it, and there is no desk.
 
 *Prevents the root relaying a lane's 45-60 minute ETA for green priority PR #25145 while the owner queued it by hand.*
 
-**D2. Track and grade our lanes' PRs.** `ledger.py report`, `ledger.py register` with a lane's branch prefix, and an explicit `refresh --pr` are the only paths that open a row. A PR on a registered prefix or reported by a lane is tracked and graded without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
+**D2. Track and grade our lanes' PRs.** `ledger.py report`, `ledger.py register` with a lane's branch prefix, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. A PR on a registered prefix or reported by a lane is tracked and graded without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
@@ -217,6 +249,9 @@ Escalate early, do not improvise: scope surprise, an assumption the code refutes
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
+For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
+Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
+Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py verify` when its reply passes the acceptance check.
 Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
@@ -298,14 +333,16 @@ subscription is in overage.
 
 ### Desk cadence
 
-The desk owns the whole loop below. The ledger is created once, when the desk is
-spawned, and its id goes into the brief; everything after that is `ledger.py`.
+The desk owns the PR loop below; the root records asks and verifies their acceptance
+checks. The ledger is created once, when the desk is spawned, and its id goes into
+the brief; everything after that is `ledger.py`.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
+ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
 # on each report: record it and grade the current head; reports are not a gate
-ledger.py report  --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean
+ledger.py report  --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean --ask ask/000001
 ledger.py label   --repo "$REPO" --ledger "$LEDGER" --pr <tip> --expect-head <tip-sha> --checkout "$CHECKOUT"
 ledger.py ruling  --ledger "$LEDGER" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
 ledger.py enqueue --ledger "$LEDGER" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
@@ -326,6 +363,8 @@ ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours
 
 # every 30 minutes, and the only desk output the root reads
 ledger.py summary --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
+ledger.py show    --ledger "$LEDGER" --asks
+ledger.py verify  --ledger "$LEDGER" --ask ask/000001 --text "<evidence the acceptance check passed>"
 
 # each shard runs the batch for its lanes
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
@@ -466,6 +505,12 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
   the compaction-handoff hook do both.
 - Every new owner ask appended to one busy lane's queue; ten asks sat unstarted for
   hours behind its four open PRs until the owner asked.
+- An ask for "one post + one approval per release" appended to the busy release-fast lane's
+  brief, then dropped for hours; without a PR, the ask had no ledger row.
+- The root reporting PR state from its plan table while 148 of 405 PRs had no ledger
+  row, including every PR opened in the last three hours.
+- The desk grading with hand-rolled scripts and calling only `report`, `hold`, and
+  `lift`; its last `refresh` was 28 hours old and its last report row three hours old.
 - A desk running `label` only on its 20-minute pass, one report at a time; clean PRs
   waited and the owner enqueued one by hand.
 - Five ready PRs from one lane sat unmerged for hours because two heads moved after
@@ -476,6 +521,9 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
   queued it by hand.
 - A desk kept for the whole drive, re-reading hundreds of thousands of tokens of history
   on every report while its state already sat on the ledger.
+- A lane backgrounded a codex subagent and ended its turn; completion went to the
+  root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
+  at `00:48Z`.
 
 ## Checklist before every tool call
 
@@ -484,10 +532,11 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
 3. Does a lane already own this question? → scoped resume, do not look.
 4. Am I about to wait? → fold the wait into the lane that acts.
 5. Am I about to restate status? → send nothing.
-6. Did an owner ask just arrive? → dispatch its lane this turn; never queue it behind a busy lane.
+6. On each new owner ask, record it with `ledger.py ask` and dispatch its lane this turn; never queue it behind a busy lane.
 7. Am I about to report a milestone? → first dispatch every owner ask still unstarted.
-8. Am I about to state a PR's state? → check it first: `ccx vcs status` or the `(#N)` squash on a fetched base.
+8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched base; never report it from the plan file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
+10. Before saying something is assigned, read the summary's `DROPPED` lines first.
 
-Apply D3 to priority PRs before delegating. A call that survives all nine decides
+Apply D3 to priority PRs before delegating. A call that survives all ten decides
 something no lane can decide for you; everything else is a lane.

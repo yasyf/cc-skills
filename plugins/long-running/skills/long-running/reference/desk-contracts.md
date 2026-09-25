@@ -16,6 +16,9 @@ PR #<n> <head sha, full> <clean|red|conflicting|held>
 <what is next, one line, or "none">
 ```
 
+For an owner ask, append an optional fourth line, `ask <id>`. The desk records it
+with `--ask <id>` on `ledger.py report`.
+
 The desk records it as `ledger.py report --pr <n> --head <sha> --lane <name> --verdict
 <v> --text "<line 2>"`. The same
 PR, head, and verdict twice is one report: the second is dropped and never answered. A
@@ -41,6 +44,26 @@ A lane registers its unique branch prefix, ending in `/`, with the desk when spa
 `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`.
 Every open PR on that prefix is tracked from then on. Whenever the lane opens a PR,
 it sends the desk its number to record with the same command.
+
+## An owner ask is a row, recorded by the root
+
+The root runs `ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>"`
+in the turn the owner asks, before or with dispatch to a new lane. It opens an
+`ask/<seq>` row in the same ledger as the PRs, with `text`, `lane`, `accept`, and
+`asked_at`, and prints `ask/000001 <lane>: <text>`.
+
+The lane reports each PR with that ask id; the desk records `ledger.py report --ask <id>`.
+The ask's `prs` field records the link, so one PR can deliver several asks. An unknown
+ask id exits non-zero. Once the acceptance check passes, the root runs
+`ledger.py verify --ledger <id> --ask <id> --text "<evidence>"`.
+
+`ledger.py show --ledger <id> --asks` prints each ask with its linked PRs, `[no PR]`,
+or `[verified]`. An unverified ask with no linked PR reaches `DROPPED` 30 minutes
+after `asked_at`; the root dispatches it in the turn the summary names it.
+
+Lanes record their own sub-dispatches the same way, with `ledger.py ask` before
+dispatch and `ledger.py verify` when the reply passes its acceptance check. An orphaned
+sub-dispatch shows as `DROPPED` in the summary.
 
 ## RULING NEEDED, one line
 
@@ -69,13 +92,15 @@ stale and the real count at 148, with two of the three "open" rows closed by the
 earlier. A lane closing its own pull request never reaches the desk as an event, which is why a
 `held` row decays silently.
 
-## The desk to root summary, at most ten lines, every 30 minutes
+## The desk to root summary, every 30 minutes
 
 `ledger.py summary` prints it; the desk sends it unchanged. Line one is always the
 counts; the lines after it exist only when they carry something.
 
 ```
-desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm
+desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm | dropped N | unverified N
+DROPPED ask/<n> <lane>: <text>
+UNVERIFIED ask/<n> <lane>: <text>; check: <accept>
 stale #i 47m <lane>: <blocker>
 waiting: ungraded #a | refused #b | red #c | held #d
 merged: #a #b
@@ -85,6 +110,12 @@ RULING NEEDED: <question>; options: A / B / C
 held #f: <reason> until <stamp>[ EXPIRED]
 routed, awaiting a new head: #g #h
 ```
+
+`DROPPED` names an unverified ask with no linked PR at least 30 minutes after it was
+recorded. `UNVERIFIED` names an ask whose linked PRs have all landed but whose
+acceptance check remains unverified. Every ask line sits right after the counts,
+outside the ten-line cap on the desk lines; forward them all unchanged. The root
+dispatches each `DROPPED` ask and checks each `UNVERIFIED` ask before running `verify`.
 
 `ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
 `--repo` and `--checkout` and settles landings before printing. The `waiting:` line
@@ -99,12 +130,12 @@ each lane the messages they print.
 
 `merged/h` counts squash commits on the base branch inside the window, read from the
 git log by `ledger.py landed`. It never reads a PR's `merged` field, which the Graphite
-queue leaves false on every PR it lands. An eleventh line is replaced by a pointer at
-`ledger.py show`.
+queue leaves false on every PR it lands. The ten-line desk block ends with a pointer
+at `ledger.py show` when more desk lines remain; ask lines never count toward that cap.
 
 The p50 is the median minutes from each landed row's last report to its landing over
-the window, or `-` when nothing landed. One line per stale row goes right after the
-counts line because the ten-line cap truncates from the bottom. The blocker vocabulary
+the window, or `-` when nothing landed. One line per stale row follows the ask lines
+because the ten-line cap truncates desk lines from the bottom. The blocker vocabulary
 is exactly `held: <reason> until <stamp>`, `in the queue since <stamp>`,
 `in the queue, labelled outside the desk`, `routed: <job>`,
 `label refused: <reason>`, `head moved since the report`, or

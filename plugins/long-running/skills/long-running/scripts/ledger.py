@@ -2,7 +2,9 @@
 """The landing desk's ledger over cc-notes — one row per PR our lanes shipped, REST only.
 
     ledger.py init    --title TEXT
-    ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--text ...]
+    ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK
+    ledger.py verify  --ledger ID --ask ID --text EVIDENCE
+    ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
     ledger.py register --ledger ID --lane NAME --branch-prefix PREFIX [--pr N]...
     ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
     ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
@@ -17,12 +19,12 @@
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
-    ledger.py show    --ledger ID [--red] [--json]
+    ledger.py show    --ledger ID [--red | --asks] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
 branch under a lane's registered prefix, or because refresh was handed its number; the
 repository's PR list is never read and GraphQL is never called. Holds, routing, the label history, and the landing are fields on that row;
-lane messages are ``msg/<seq>`` rows in the same ledger. A landing is proven by the
+lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by the
 base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
 merged field and never by searching the base log for its number. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
@@ -61,6 +63,8 @@ STALE_MINUTES = 30
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 LANE_PREFIX = "lane/"
+ASK_PREFIX = "ask/"
+DROPPED_MINUTES = 30
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
 UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
 QUEUE_BOT = "graphite-app[bot]"
@@ -223,6 +227,9 @@ class Notes:
 
     def lanes(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.startswith(LANE_PREFIX)}
+
+    def asks(self) -> dict[str, dict[str, str]]:
+        return {key: fields for key, fields in self.rows().items() if key.startswith(ASK_PREFIX)}
 
     def sync(self, rows: list[dict]) -> None:
         self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(rows))
@@ -498,9 +505,9 @@ def priority(item: tuple[str, dict[str, str]]) -> tuple[int, str]:
     return KINDS.index(fields["kind"]), key
 
 
-def next_message_key(messages: dict[str, dict[str, str]]) -> str:
-    seq = max((int(key[len(MESSAGE_PREFIX):]) for key in messages), default=0) + 1
-    return f"{MESSAGE_PREFIX}{seq:06d}"
+def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
+    seq = max((int(key[len(prefix):]) for key in rows), default=0) + 1
+    return f"{prefix}{seq:06d}"
 
 
 def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> str | None:
@@ -518,7 +525,7 @@ def enqueue(notes: Notes, fields: dict[str, str]) -> str:
     if seen:
         print(f"duplicate of {seen}; nothing recorded, nothing to answer")
         return seen
-    key = next_message_key(messages)
+    key = next_key(MESSAGE_PREFIX, messages)
     notes.set_fields(key, dict(fields, at=utc_stamp(), state="pending"))
     print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
     return key
@@ -598,6 +605,31 @@ def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str)
     return None
 
 
+def linked_prs(fields: dict[str, str]) -> list[str]:
+    return [pr for pr in fields.get("prs", "").split(",") if pr]
+
+
+def ask_line(key: str, fields: dict[str, str]) -> str:
+    return f"{key} {fields['lane']}: {fields['text']}"
+
+
+def dropped_asks(asks: dict[str, dict[str, str]], moment: datetime) -> list[str]:
+    after = timedelta(minutes=DROPPED_MINUTES)
+    return [
+        key
+        for key, fields in sorted(asks.items())
+        if not linked_prs(fields) and not fields.get("verified_at") and moment - parse_iso(fields["asked_at"]) >= after
+    ]
+
+
+def unverified_asks(asks: dict[str, dict[str, str]], prs: dict[str, dict[str, str]]) -> list[str]:
+    return [
+        key
+        for key, fields in sorted(asks.items())
+        if linked_prs(fields) and not fields.get("verified_at") and all(prs.get(pr, {}).get("state") == LANDED for pr in linked_prs(fields))
+    ]
+
+
 def render_table(rows: dict[str, dict[str, str]]) -> str:
     records = []
     for key in sorted(rows, key=int, reverse=True):
@@ -615,6 +647,9 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
 def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta) -> list[str]:
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
+    asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
+    dropped = dropped_asks(asks, moment)
+    unverified = unverified_asks(asks, prs)
     landed = sorted((pr for pr, fields in prs.items() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff), key=int)
     stale = stale_lines(prs, moment, stale_after)
     open_rows = {pr: fields for pr, fields in prs.items() if is_open(fields)}
@@ -625,7 +660,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     rulings = [fields for fields in pending if fields["kind"] == "ruling"]
     p0s = [fields for fields in pending if fields["kind"] == "p0"]
     lines = [
-        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)} | stale {len(stale)} | p50 report→landed {report_to_landed([prs[pr] for pr in landed])}",
+        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)} | stale {len(stale)} | p50 report→landed {report_to_landed([prs[pr] for pr in landed])} | dropped {len(dropped)} | unverified {len(unverified)}",
         *stale,
         *waiting_line(prs),
     ]
@@ -640,7 +675,9 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
         lines.append("routed, awaiting a new head: " + " ".join(f"#{pr}" for pr in routed))
     if len(lines) > SUMMARY_LINES:
         lines = lines[: SUMMARY_LINES - 1] + [f"... {len(lines) - SUMMARY_LINES + 1} more lines in ledger show"]
-    return lines
+    asked = [f"DROPPED {ask_line(key, asks[key])}" for key in dropped]
+    asked += [f"UNVERIFIED {ask_line(key, asks[key])}; check: {asks[key]['accept']}" for key in unverified]
+    return [lines[0], *asked, *lines[1:]]
 
 
 def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
@@ -651,8 +688,31 @@ def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
+    if args.ask:
+        asks = notes.asks()
+        if args.ask not in asks:
+            raise SystemExit(f"no ask {args.ask} in {args.ledger}; record it with ledger.py ask first")
+        prs = linked_prs(asks[args.ask])
+        notes.set_fields(args.ask, {"prs": ",".join(prs if args.pr in prs else [*prs, args.pr])})
     enqueue(notes, {"kind": "report", "pr": args.pr, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
     notes.set_fields(args.pr, {"lane": args.lane, "reported_head": args.head, "reported_verdict": args.verdict, "reported_at": utc_stamp()})
+    return 0
+
+
+def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    key = next_key(ASK_PREFIX, notes.asks())
+    fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()}
+    notes.set_fields(key, fields)
+    print(ask_line(key, fields))
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    if args.ask not in notes.asks():
+        raise SystemExit(f"no ask {args.ask} in {args.ledger}")
+    notes.set_fields(args.ask, {"verified_at": utc_stamp(), "verified": args.text})
     return 0
 
 
@@ -1058,6 +1118,11 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
     if args.json:
         sys.stdout.write(shell.run(["ccn", "ledger", "show", args.ledger, "--json"]))
         return 0
+    if args.asks:
+        for key, fields in sorted(Notes(shell, args.ledger).asks().items()):
+            state = "verified" if fields.get("verified_at") else " ".join(f"#{pr}" for pr in linked_prs(fields)) or "no PR"
+            print(f"{ask_line(key, fields)} [{state}]")
+        return 0
     rows = Notes(shell, args.ledger).pr_rows()
     if args.red:
         rows = {key: fields for key, fields in rows.items() if needs_route(fields)}
@@ -1090,7 +1155,21 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--lane", required=True)
     report.add_argument("--verdict", required=True, choices=VERDICTS)
     report.add_argument("--text", default="")
+    report.add_argument("--ask", metavar="ID", help="link this PR to the owner ask it delivers")
     report.set_defaults(handler=cmd_report)
+
+    ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its lane and acceptance check")
+    add_ledger(ask)
+    ask.add_argument("--text", required=True)
+    ask.add_argument("--lane", required=True)
+    ask.add_argument("--accept", required=True, metavar="CHECK")
+    ask.set_defaults(handler=cmd_ask)
+
+    verify = subparsers.add_parser("verify", help="mark an ask's acceptance check met, with the evidence")
+    add_ledger(verify)
+    verify.add_argument("--ask", required=True, metavar="ID")
+    verify.add_argument("--text", required=True)
+    verify.set_defaults(handler=cmd_verify)
 
     register = subparsers.add_parser("register", help="track every open PR on a lane's branch prefix, with no per-head report")
     add_ledger(register)
@@ -1207,7 +1286,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     show = subparsers.add_parser("show", help="render the PR rows")
     add_ledger(show)
-    show.add_argument("--red", action="store_true")
+    view = show.add_mutually_exclusive_group()
+    view.add_argument("--red", action="store_true")
+    view.add_argument("--asks", action="store_true")
     show.add_argument("--json", action="store_true")
     show.set_defaults(handler=cmd_show)
 
