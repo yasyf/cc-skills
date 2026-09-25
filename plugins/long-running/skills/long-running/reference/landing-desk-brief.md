@@ -1,9 +1,9 @@
 # The landing-desk lane
 
-Spawn one `landing-desk` lane, model opus, before any lane that will open a PR. It is
-the message queue and the landing coordinator for the whole drive: lanes report to it,
-it grades and labels, and the root hears from it every 30 minutes. The brief below is
-ready to paste; fill the angle brackets.
+Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane
+that opens a PR. It is the message queue and the landing coordinator for the whole drive:
+lanes report to it, it grades and labels, and the root hears from it every 30 minutes.
+The brief below is ready to paste; fill the angle brackets.
 
 ## Root discipline
 
@@ -124,10 +124,10 @@ Do, in this order, forever:
      each pass and clear each blocker it names in that pass: label, route, hold,
      lift, or `RULING NEEDED`.
      Immediately, and only then: a `RULING NEEDED` line.
-  7. Shard. When `ledger.py show` holds more than 25 open rows, spawn one sub-lane
-     per set of lanes with this same brief plus `Shard: <lane,lane>`. Each sub-lane
-     passes `--shard <lane,lane>` to refresh, landed, route, `label --all-clean`, and
-     stale on the same 5-minute cadence. It never types messages in and never sends
+  7. Shard. When `ledger.py show` holds more than 25 open rows, spawn one
+     `long-running:lane` sub-lane per set of lanes with this same brief plus
+     `Shard: <lane,lane>`. Each sub-lane passes `--shard <lane,lane>` to refresh,
+     landed, route, `label --all-clean`, and stale on the same 5-minute cadence. It never types messages in and never sends
      the root a summary. A stack's rows go to the shard of its tip's lane. All shards
      share the ledger and its refresh lock. The main desk keeps the inbox, labels
      on each clean report, and alone sends the root the summary. When rows fall

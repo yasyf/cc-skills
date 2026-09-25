@@ -58,11 +58,17 @@ nothing runs twice (see Lane rotation). *Prevents lane collisions in a shared wo
 and the reply tax on notifications that carry no news.*
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
-them (`log_append`, `investigation_*`, `note_add`, `task_add`), never into the
-orchestrator's window. `TaskCreate`/`TaskUpdate` is the root's only state. Report to the
-user on milestones or when they must act, never per event. Once `long-running` is
-invoked, the session's compaction handoff runs on its own — see Compaction handoff
-below. *Prevents the forced mid-drive handoff with nothing written down to hand over.*
+them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so they
+write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`, and
+`ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
+`TaskCreate`/`TaskUpdate` is the root's only state. Report to the user on milestones or
+when they must act, never per event. Once `long-running` is invoked, the session's
+compaction handoff runs on its own, as Compaction handoff describes. *Prevents the
+forced mid-drive handoff with nothing written down to hand over.*
+
+Every lane receives the whole task list on every wake. The root deletes a completed task
+with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan, and at
+every compaction handoff at the latest.
 
 **R6. Put every owner request in flight the turn it arrives.** Start a new lane or an
 explicitly named parallel sub-lane; never append the request behind a busy lane's queue.
@@ -217,6 +223,15 @@ Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one r
   head to landing-desk in the same turn; the desk grades without waiting for it.
 ```
 
+Spawn every lane as one of this plugin's two lane types, with the routing table's
+`model`. The landing desk, its shards, sequencers, and pollers are `long-running:lane`.
+An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
+codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the `mcp__*` tools, and
+the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
+`lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
+lighter than `general-purpose`; `lane-ship` starts 5k lighter. A `lane` that turns out
+to need a skill is rotated or respawned as `lane-ship`, never worked around.
+
 One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
 is checked out at commit time.
@@ -273,6 +288,13 @@ Run it with `timeout: 570000`. Cover failure states in the `case`, not success a
 a broken build polls until the deadline. Anything needing an env token runs in the lane's
 Bash; a Monitor shell does not inherit the environment, so `BUILDKITE_API_TOKEN` and its
 kin are empty there. Prefer a CLI with a stored credential over an exported token.
+
+A nine-minute call outlasts the 5-minute prompt cache a subagent gets by default, so the
+lane's next request rewrites its whole context at 1.25× the input price instead of
+reading it at 0.1×. Lanes need the 1h cache. The `subagentPromptCacheTtl: "1h"` setting
+or `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` gives it to every subagent. Without either,
+the lane types' `experimental.cacheTtl: "1h"` gives it to lanes alone, except while a
+subscription is in overage.
 
 ### Desk cadence
 
@@ -343,11 +365,12 @@ The hook fires on the main-session `Stop`, never a subagent's, once used tokens 
 the guard that lets a plan rewrite through checks for exactly this sibling — and never
 `cat >` the plan to dodge that guard; write over it and let the archive carry the loss.
 
-It then blocks the turn with a directive: do not enter plan mode. Record any durable
-state still living only in this conversation in cc-notes first (ledger, rulings log,
-notes) — the archive is history, not a store. Then rewrite the plan with one `Write`,
-dropping everything unnecessary (finished work, superseded state, anything the
-archives already hold), using exactly this skeleton:
+It then blocks the turn with a directive that forbids plan mode. First record any
+durable state still living only in this conversation in the ledger, the rulings log, or
+a cc-notes note; the archive is history, not a store. Delete every completed task with
+`TaskUpdate` status `deleted`. Then rewrite the plan with one `Write` in exactly this
+skeleton, dropping finished work, superseded state, and anything the archives already
+hold:
 
 ```md
 # <title> (compacted <date>Z)
@@ -394,13 +417,15 @@ already sits on its ledger. A long-lived lane is therefore rotated, not kept: fl
 stopped, and respawned fresh under the same name.
 
 **Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
-At 150k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
+At 200k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
 live named lane on the main-session `Stop` and blocks the turn with each lane over the
-line and its count. A lane still live and over the line on later stops gets up to two
-one-line reminders; after that the hook lets the stop through and tells the user which
-lane it gave up on. A lane that leaves the live set counts as rotated. Every compaction
-handoff directive also lists the live lanes over the line. Rotate them before ending that
-turn, and record each new agent in `## Restart here`.
+line and its count.
+
+A lane still live and over the line on later stops gets up to two one-line reminders;
+after that the hook lets the stop through and tells the user which lane it gave up on. A
+lane that leaves the live set counts as rotated. Every compaction handoff directive also
+lists the live lanes over the line. Rotate them before ending that turn, and record each
+new agent in `## Restart here`.
 
 **Protocol.**
 
@@ -408,8 +433,9 @@ turn, and record each new agent in `## Restart here`.
    `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`
 2. On `flushed <ledger id>`, `TaskStop` it first. A spawn under a name a running lane
    still holds gets a different name.
-3. Then spawn a fresh lane with the `Agent` tool under the same name, with its original
-   spawn brief plus the ledger id. Messages addressed by name reach the newest agent.
+3. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
+   with its original spawn brief plus the ledger id; a lane that now needs a skill comes
+   back as `long-running:lane-ship`. Messages addressed by name reach the newest agent.
 
 Never `SendMessage` the stopped lane. That resumes the same transcript and reloads the
 whole history the rotation dropped. An `open-pr:pr-watcher` needs no flush, since
