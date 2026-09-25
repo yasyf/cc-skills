@@ -15,9 +15,8 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import unquote
 
-import pytest
-
 import ledger
+import pytest
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 MOVED_HEAD = "aa11bb22cc33dd44ee55ff6677889900aabbccdd"
@@ -35,7 +34,6 @@ class FakeShell(ledger.Shell):
     def __init__(self, rows=None, routes=None, pages=None):
         self.stores = {LEDGER: {"id": LEDGER, "title": "open PRs", "columns": [], "rows": deepcopy(list(rows or []))}}
         self.pulls: dict[str, dict] = {}
-        self.commit_dates: dict[str, str] = {}
         self.pull_heads: dict[str, str] = {}
         self.pr_files: dict[str, list[str]] = {}
         self.reviews: dict[str, list[dict]] = {}
@@ -114,13 +112,14 @@ class FakeShell(ledger.Shell):
         if parts[:1] == ["pulls"] and len(parts) == 1 and "head" in params:
             branch = params["head"].split(":", 1)[1]
             return json.dumps([pull for pull in self.pulls.values() if pull["head"]["ref"] == branch and pull["state"] == "open"])
+        if parts[:3] == ["git", "matching-refs", "heads"]:
+            prefix = "/".join(parts[3:])
+            return json.dumps([{"ref": f"refs/heads/{pull['head']['ref']}"} for pull in self.pulls.values() if pull["head"]["ref"].startswith(prefix)])
         if parts[:1] == ["pulls"] and parts[2:] == ["reviews"]:
             size, page = int(params["per_page"]), int(params["page"])
             return json.dumps(self.reviews.get(parts[1], [])[(page - 1) * size : page * size])
         if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
             return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
-        if parts[:1] == ["commits"] and len(parts) == 2:
-            return json.dumps({"sha": parts[1], "commit": {"committer": {"date": self.commit_dates[parts[1]]}}})
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
             return fixture(self.routes.get(f"status:{parts[1]}", "status-success.json"))
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
@@ -220,6 +219,9 @@ class FakeShell(ledger.Shell):
 
     def fields(self, key: str, ledger: str = LEDGER) -> dict:
         return self.row(key, ledger)["fields"]
+
+    def pr_keys(self, ledger: str = LEDGER) -> list[str]:
+        return [key for key in self.keys(ledger) if key.isdigit()]
 
     def keys(self, ledger: str = LEDGER) -> list[str]:
         return [row["key"] for row in self.stores[ledger]["rows"]]

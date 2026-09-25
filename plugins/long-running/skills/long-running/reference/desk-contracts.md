@@ -8,7 +8,7 @@ message into `ledger.py` as it arrives, so the shapes below are also the tool's 
 ## The lane report, three lines
 
 A lane sends this to `landing-desk`, and only to `landing-desk`, when it ships a PR,
-pushes a new head, or reaches a terminal state on one. Nothing else goes to the desk.
+pushes a new head, or reaches a terminal state on one. Registration goes separately.
 
 ```
 PR #<n> <head sha, full> <clean|red|conflicting|held>
@@ -17,23 +17,34 @@ PR #<n> <head sha, full> <clean|red|conflicting|held>
 ```
 
 The desk records it as `ledger.py report --pr <n> --head <sha> --lane <name> --verdict
-<v> --text "<line 2>"`, which is also the only way a PR row is opened by hand. The same
+<v> --text "<line 2>"`. The same
 PR, head, and verdict twice is one report: the second is dropped and never answered. A
-new head is a new report.
+new head is a new report. Reports open rows, carry the lane's text, and feed `stale`
+and the p50 report-to-landing figure. A report is not required to label; the current
+head takes the objective gates under D3. A lane's `red` or `conflicting` verdict
+does not overrule the forge; its `held` verdict holds only that head.
 
 Rules the report carries:
 
 - The head is the sha the lane pushed, in full. The desk re-reads the forge before it
   acts on it, so a stale sha is caught, but a short sha cannot be compared.
-- Handing a PR to the desk as `clean` is the label going on. From that line onward the
-  branch is not the lane's to amend; further work is a new branch off a fresh trunk.
+- Every push to a reported PR re-reports the new head in the same turn; the desk
+  grades and labels without waiting for it.
+- Every tracked head can enter the queue as soon as it passes D3. After the label
+  goes on, the branch is not the lane's to amend; further work is a new branch off
+  a fresh trunk.
 - A lane mid-rebase reports `conflicting` and pushes nothing labelled. It reports
   `clean` again only on the rebased head.
 - Prose goes to a cc-notes note the report names on line 2, never into the message.
 
+A lane registers its unique branch prefix, ending in `/`, with the desk when spawned using
+`ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`.
+Every open PR on that prefix is tracked from then on. Whenever the lane opens a PR,
+it sends the desk its number to record with the same command.
+
 ## RULING NEEDED, one line
 
-The only message that reaches the root outside the hourly summary. Sent by the desk,
+The only message that reaches the root outside the 30-minute summary. Sent by the desk,
 on its own behalf or relayed for a lane, when a decision needs the owner or the root.
 
 ```
@@ -47,8 +58,8 @@ question on the same PR are one ruling.
 ## Reconcile before reporting, over every row
 
 `ledger.py reconcile --repo --ledger --checkout` settles **every non-terminal row** against the
-trunk and the forge, and `ledger.py summary` runs it first whenever it is given `--repo` and
-`--checkout`. A row nobody has touched for an hour is exactly the one that has gone stale, so the
+trunk and the forge, and `ledger.py summary` requires `--repo` and `--checkout` and
+runs it first. A row nobody has touched for an hour is exactly the one that has gone stale, so the
 sweep's input is the whole board rather than the rows the desk just changed.
 
 A pass that walks only what the desk changed cannot find what the desk failed to do: it reports
@@ -58,13 +69,15 @@ stale and the real count at 148, with two of the three "open" rows closed by the
 earlier. A lane closing its own pull request never reaches the desk as an event, which is why a
 `held` row decays silently.
 
-## The desk to root summary, at most ten lines, once an hour
+## The desk to root summary, at most ten lines, every 30 minutes
 
 `ledger.py summary` prints it; the desk sends it unchanged. Line one is always the
 counts; the lines after it exist only when they carry something.
 
 ```
-desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N
+desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm
+stale #i 47m <lane>: <blocker>
+waiting: ungraded #a | refused #b | red #c | held #d
 merged: #a #b
 labelled: #c #d
 P0 #e <lane>: <text>
@@ -73,10 +86,95 @@ held #f: <reason> until <stamp>[ EXPIRED]
 routed, awaiting a new head: #g #h
 ```
 
+`ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
+`--repo` and `--checkout` and settles landings before printing. The `waiting:` line
+groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. Empty groups
+are omitted, and the line disappears when nothing waits.
+
+An `ungraded` row lacks a label and a grade recorded at its current head. A
+`refused` row has a label refusal at that head; `stale` and `show` give the reason. A `red` row has a CI failure or a `dirty` or
+`blocked` mergeable state. A `held` row has a desk hold or a lane `held` verdict on
+its current head. In the same pass, run `route` and `label --all-clean`, and send
+each lane the messages they print.
+
 `merged/h` counts squash commits on the base branch inside the window, read from the
 git log by `ledger.py landed`. It never reads a PR's `merged` field, which the Graphite
 queue leaves false on every PR it lands. An eleventh line is replaced by a pointer at
 `ledger.py show`.
+
+The p50 is the median minutes from each landed row's last report to its landing over
+the window, or `-` when nothing landed. One line per stale row goes right after the
+counts line because the ten-line cap truncates from the bottom. The blocker vocabulary
+is exactly `held: <reason> until <stamp>`, `in the queue since <stamp>`,
+`in the queue, labelled outside the desk`, `routed: <job>`,
+`label refused: <reason>`, `head moved since the report`, or
+`never graded: run label --all-clean`. The root checks and labels priority PRs
+under D3 in the same turn. The next refresh records that label as
+`in the queue, labelled outside the desk`; the desk does not treat it as a bypass.
+
+## Label on the report, and every clean stack in one batch
+
+One desk ran on a 20-minute pacer, put the label on one report at a time, and sent an
+hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
+
+**Label a clean report in the turn it arrives.** Each five-minute pass also runs
+`label --all-clean`. The batch considers every tracked open row whose current head
+has never carried the label and is not held. Reports are not required; a lane's
+`red` or `conflicting` verdict does not refuse a head the forge passes. It picks
+each stack's tip, a candidate whose branch is no other candidate's base, re-reads
+that tip immediately before grading it, and runs D3's guards on every PR below it.
+`label --pr` uses `--expect-head` to pin the tip you graded.
+
+The batch labels every passing tip and continues past each refused stack. On each
+row of a refused stack it records `label_refused`, `label_refused_head`, and
+`label_refused_at` so `stale` can name the blocker; a success clears them. Putting
+labels on many stacks in one pass lets the queue batch them into one merge; putting
+them on minutes apart forfeits that. *Prevents clean PRs waiting for the next pacer pass until
+the owner puts one in Graphite's queue by hand.*
+
+## A moved or unreported head is graded, not awaited
+
+One lane's five ready PRs sat unmerged for hours. Two heads moved after the lane
+reported them, three were never reported, and the desk waited silently for reports
+that never came.
+
+**Grade every tracked moved or unreported head under D12.** `label --all-clean`
+checks D3's objective gates, including approval, `ai-review`, CI, mergeability,
+conflicts, holds, label history, and the whole stack. Label every passing head
+without a re-report.
+
+For each refused head, send the lane `new head <sha9>: <blocker>` once per head and
+blocker. If the head moved since the refresh, the next pass grades the new head
+without a route. Red CI and conflicts go through `route`, without a duplicate
+message from the batch.
+
+*Prevents moved and never-reported heads waiting for hours on reports the desk
+does not need to grade them.*
+
+## State a PR's state only after reading it
+
+The root told the owner "#25121 queued to merge" when it had already been on dev
+for 15 minutes. It read the state from a message and memory.
+
+**Check before reporting, in the root and at the desk alike.** R7 requires
+`ccx vcs status` in the stack's worktree or the squash commit `(#N)` on a freshly
+fetched base branch. Never state a PR as merged, queued, or blocked from a message
+or memory.
+
+*Prevents the root telling the owner "#25121 queued to merge" when it had been on
+dev for 15 minutes.*
+
+## A shard owns its lanes' rows
+
+**Split the desk by lane above 25 active rows.** One desk's pass outgrows its cadence
+at that size. Shards split by lane, never by PR number, because one owner must grade
+a whole stack and its rows share the tip's lane. `--shard lane-a,lane-b` filters
+`refresh`, `landed`, `reconcile`, `route`, `label --all-clean`, `stale`, `summary`, and
+`inbox` to rows whose `lane` is in the set.
+
+All shards write the same ledger, and the refresh lock is per ledger. The main desk
+keeps typing messages in and sends the summary; a shard never messages the root.
+*Prevents a growing board stretching the desk's five-minute pass to 20 minutes.*
 
 ## Idle notices: record once, answer never
 
@@ -737,9 +835,9 @@ that does not match what the lane shipped. Compare all three of the local head,
 certification ends up naming a head that has stopped existing.
 
 The desk's exposure is a label. If the head moves after the label, the queue ejects
-the PR and the label is consumed, so the work has to be relabelled on a settled
-head. Ask a lane to tell you when it has stopped pushing before labelling a branch
-that is being restacked.
+the PR and the label is consumed. Grade the current head under D3 and pin the tip
+with `--expect-head` before adding the label; the batch re-reads each tip
+immediately before grading it.
 
 ## A child whose base branch is squashed away cannot be recovered
 
