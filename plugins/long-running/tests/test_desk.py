@@ -905,7 +905,7 @@ def test_summary_carries_stale_rows_under_the_counts_and_the_report_to_landed_me
 
     lines = summarize(shell, capsys)
 
-    assert lines[0].endswith("| merged/h 3 | labelled 0 | held 0 | rulings 0 | p0 0 | routed 0 | stale 1 | p50 report→landed 30m")
+    assert lines[0].endswith("| merged/h 3 | labelled 0 | held 0 | rulings 0 | p0 0 | routed 0 | stale 1 | p50 report→landed 30m | dropped 0 | unverified 0")
     assert lines[1] == f"stale #24030 40m {LANE}: never graded: run label --all-clean"
     assert lines[2] == "waiting: ungraded #24030"
     assert lines[3] == "merged: #24031 #24032 #24033"
@@ -914,7 +914,7 @@ def test_summary_carries_stale_rows_under_the_counts_and_the_report_to_landed_me
 def test_summary_with_no_landing_prints_no_median(capsys):
     shell = FakeShell(rows=[stale_row("24030", 5)])
 
-    assert summarize(shell, capsys, "--stale-minutes", "60")[0].endswith("| stale 0 | p50 report→landed -")
+    assert summarize(shell, capsys, "--stale-minutes", "60")[0].endswith("| stale 0 | p50 report→landed - | dropped 0 | unverified 0")
 
 
 def test_a_shard_sees_only_its_lanes_rows_and_messages(capsys):

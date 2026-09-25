@@ -14,6 +14,11 @@ If they pass, it adds the merge label itself in the same turn under D3. It never
 relays a lane's ETA for a green PR. The desk records the label on its next refresh
 as `in the queue, labelled outside the desk`.
 
+The root records every owner ask with `ledger.py ask` in the turn it arrives, before
+or with dispatch to its own lane. Before claiming work is assigned, it reads the
+summary's `DROPPED` lines and dispatches each one in that turn. Once an ask's acceptance
+check passes, it records the evidence with `ledger.py verify`.
+
 Other PR questions go to the desk as a scoped resume and come back as at most five
 lines. The root answers a `RULING NEEDED` line with a letter and nothing else, and
 it never replies to an idle notice. When the desk's 30-minute summary arrives the
@@ -34,6 +39,9 @@ Authority: read GitHub over REST (`gh api repos/<repo>/...`), never GraphQL; add
   record its label on refresh as "in the queue, labelled outside the desk", never
   as a bypass. Everything else stops for the root.
 
+Grade, land, and track only through `ledger.py`, never scripts of your own.
+  A gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
+
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
@@ -47,7 +55,8 @@ You may be a rotation respawn: the root stopped the last desk with `TaskStop` an
 
 Do, in this order, forever:
   1. Inbox. Each inbound message is typed in as it arrives: a 3-line report as
-     `ledger.py report`, a lane's registration as
+     `ledger.py report`, with `--ask <id>` when the report names an ask id;
+     a lane's registration as
      `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`,
      a question as `ledger.py ruling`, an idle notice as
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
@@ -62,7 +71,7 @@ Do, in this order, forever:
      `ledger.py refresh` over the rows the ledger already holds and every open PR
      on a registered lane's branches, then
      `ledger.py landed --checkout <path>` to settle closed rows by the squash on the
-     base branch. Rows enter through a lane's report, registration, or an explicit
+     base branch. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Discover registered branches through the forge's matching-refs
      call for the lane's unique prefix, then one scoped `pulls?head=` lookup per
      branch. Grade every tracked current head without waiting for a report.
@@ -109,7 +118,11 @@ Do, in this order, forever:
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` to the
      root, unchanged. Both `--repo` and `--checkout` are required; summary settles
-     landings first so it never reports a landed row as pending. Its `waiting:` line
+     landings first so it never reports a landed row as pending. `DROPPED` and
+     `UNVERIFIED` ask lines follow the counts, outside the ten-line cap; forward
+     every one unchanged. The root dispatches each `DROPPED` ask in that turn and
+     checks each `UNVERIFIED` ask's acceptance check, then records passing evidence
+     with `ledger.py verify`. Its `waiting:` line
      groups tracked open PRs as ungraded, refused, red, and held. Ungraded means
      the current head lacks a label and a grade; refused means a label attempt
      refused this head, with the reason in `stale` or `show`. Red means a CI failure
