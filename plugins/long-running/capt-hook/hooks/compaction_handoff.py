@@ -28,7 +28,8 @@ from captain_hook.conditions import skill_name_matches
 from captain_hook.util import reqenv
 
 SKILL_NAMES = ("long-running",)
-PLAN_ARG = re.compile(r"\S*\.claude/plans/[^\s/]+\.md")
+PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
+LEADING_FLOAT = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 ARCHIVE_SUFFIX = "-pre-compact.md"
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 
@@ -72,12 +73,19 @@ def configured_window(project: Path | None) -> int | None:
     return settings_window(project)
 
 
+def pct_override() -> float | None:
+    raw = reqenv.getenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") or ""
+    if (match := LEADING_FLOAT.match(raw)) and 0 < (pct := float(match[0])) <= 100:
+        return pct
+    return None
+
+
 def threshold(model: str | None, project: Path | None) -> int:
     cap = model_window(model)
     window = min(configured_window(project) or cap, cap)
     limit = window - OUTPUT_RESERVE - AUTOCOMPACT_BUFFER
-    if pct := reqenv.getenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"):
-        limit = min(int((window - OUTPUT_RESERVE) * float(pct) / 100), limit)
+    if pct := pct_override():
+        limit = min(int((window - OUTPUT_RESERVE) * pct / 100), limit)
     return limit
 
 
@@ -117,6 +125,7 @@ def directive(*, used: int, limit: int, archive: Path | None, plan: Path, archiv
 @on(
     Event.PostToolUse,
     only_if=[Tool("Skill")],
+    skip_if=[FromSubagent()],
     tests={
         Input(tool="Skill", tool_input={"skill": "long-running:long-running", "args": "~/.claude/plans/x.md"}): Allow(),
         Input(tool="Skill", tool_input={"skill": "codex"}): Allow(),
@@ -145,6 +154,7 @@ def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     only_if=[Tool("Write", "Edit")],
+    skip_if=[FromSubagent()],
     tests={
         Input(tool="Write", file="/home/u/.claude/plans/brook.md", content="# plan"): Allow(),
         Input(tool="Write", file="/home/u/.claude/plans/brook.2026-09-24-1630-pre-compact.md", content="# old"): Allow(),
@@ -194,7 +204,8 @@ def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | No
     if state.plan_path:
         plan = Path(state.plan_path).expanduser()
         archive = plan.with_name(f"{plan.stem}.{now:%Y-%m-%d-%H%M}{ARCHIVE_SUFFIX}")
-        shutil.copy2(plan, archive)
+        with plan.open("rb") as source, archive.open("xb") as target:
+            shutil.copyfileobj(source, target)
     else:
         plan = Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
         archive = None
@@ -322,6 +333,27 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             transcript=FIXTURES / "usage-460k.jsonl",
             session_id="0123456789abcdef",
             env={"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "99"},
+            cwd=str(FIXTURES / "project-600k"),
+            state=[CompactionState(active=True, model="claude-opus-5-5[1m]")],
+        ): Block(pattern=r"^Context is at 460,000 of the 567,000-token "),
+        Input(
+            transcript=FIXTURES / "usage-460k.jsonl",
+            session_id="0123456789abcdef",
+            env={"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "0"},
+            cwd=str(FIXTURES / "project-600k"),
+            state=[CompactionState(active=True, model="claude-opus-5-5[1m]")],
+        ): Block(pattern=r"^Context is at 460,000 of the 567,000-token "),
+        Input(
+            transcript=FIXTURES / "usage-460k.jsonl",
+            session_id="0123456789abcdef",
+            env={"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "150"},
+            cwd=str(FIXTURES / "project-600k"),
+            state=[CompactionState(active=True, model="claude-opus-5-5[1m]")],
+        ): Block(pattern=r"^Context is at 460,000 of the 567,000-token "),
+        Input(
+            transcript=FIXTURES / "usage-460k.jsonl",
+            session_id="0123456789abcdef",
+            env={"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "nan"},
             cwd=str(FIXTURES / "project-600k"),
             state=[CompactionState(active=True, model="claude-opus-5-5[1m]")],
         ): Block(pattern=r"^Context is at 460,000 of the 567,000-token "),
