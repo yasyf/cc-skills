@@ -78,7 +78,15 @@ Each `DONE` ends a round; handle queue events while it runs:
   PR as dropped. The queue closes the PRs it drops the same way, so the
   closer actor proves nothing; the landing itself is the verdict — the
   squash whose subject ends `(#<n>)` on the base branch, or the queue's own
-  "Merged by the Graphite merge queue" line in its merge-activity comment
+  "Merged by the Graphite merge queue" line in its merge-activity comment.
+  On `merged` or `queue-merged` with `lane: gt`, before the final report, run
+  `ccx vcs stack list` in the PR's working copy to find branches above the
+  landed one and the working copy holding each. For the first upstack branch
+  with a working copy, run `ccx vcs stack submit` in that copy; it drops the
+  landed parent and replays the children onto trunk. Report the branches
+  replayed/submitted, or any refusal verbatim. Never work around a refusal
+  with a raw rebase, push, `gh` base edit, or `gt restack`. With no upstack
+  branch, or a lane other than gt, report as before
 - the deadline → report `blocked` with the PR still open and what it waits on
 - checks failed → triage the reds against the lanes below, and after
   shipping a fix arm a fresh Monitor on the new head
@@ -86,7 +94,7 @@ Each `DONE` ends a round; handle queue events while it runs:
   `git merge-tree --write-tree --name-only --no-messages origin/<base> <head>`.
   The first line is the tree oid; the remaining lines name the conflicted
   paths. Immediately report `blocked: conflicts with <base> in <paths>`
-  with options: rebase onto the base tip or resolve by hand. Rewriting the
+  with recovery: the caller runs `ccx vcs stack submit`. Rewriting the
   caller's branch is outside every fix lane below
 - evicted `<reason> <detail>` → immediately `SendMessage`
   `evicted: <reason> <detail>`; for conflicts, follow the `conflicts` lane
@@ -115,7 +123,7 @@ emits `DONE queue-merged`.
 Report the reason immediately, then act within the fix lanes:
 
 - `conflicts`: report that the PR was dropped from the merge queue for
-  conflicts against `<trunk>` and needs a rebase onto `<trunk>`. The queue
+  conflicts against `<trunk>` and needs `ccx vcs stack submit`. The queue
   merges onto trunk; GitHub can read the PR `clean` against a stacked base
   (`graphite-base/<n>` or a parent that already squash-merged).
   Read the head and base with
@@ -124,7 +132,7 @@ Report the reason immediately, then act within the fix lanes:
   then run `git fetch origin <trunk>` and
   `git merge-tree --write-tree --name-only --no-messages origin/<trunk> <head>`
   for the paths. Include the head SHA, base branch, and conflicted paths in
-  that report. The caller rebases and pushes
+  that report. The caller runs `ccx vcs stack submit`
 - `failed-ci` → triage like `checks-failed`, fix and push within the fix lanes
 - `downstack #N` → the named PR was dropped first; fix that one
 - `head-moved`: a push after labeling dequeued the PR; the caller re-enqueues
@@ -231,13 +239,16 @@ when one of these holds and not before:
 - `unsafe` — a safety gate failed; name which, and the fix it blocked
 - `merged` — the PR landed, by button or by queue; the squash on the base
   branch or the queue's "Merged by" line is the proof, never the state
-  field and never the closer actor
+  field and never the closer actor. For `lane: gt`, finish the closure's
+  `ccx vcs stack list` / `ccx vcs stack submit` step before sending; name the
+  branches replayed/submitted or include the refusal verbatim. No upstack
+  branch or another lane leaves the report unchanged
 - `abandoned` — a human closed the PR without landing it
 - `evicted` — `evicted: <reason> <detail>`; for conflicts, state that the PR
-  was dropped from the merge queue for conflicts against trunk and needs a
-  rebase onto trunk. Name the trunk, head SHA, base branch, and conflicted
-  paths read in `<queue_drop>`. The caller decides when to re-enqueue, and
-  the watch continues
+  was dropped from the merge queue for conflicts against trunk and the
+  caller needs to run `ccx vcs stack submit`. Name the trunk, head SHA, base
+  branch, and conflicted paths read in `<queue_drop>`. The caller decides
+  when to re-enqueue, and the watch continues
 
 A final send ends the run; an eviction send leaves the watch armed for the
 caller. Transient friction — a flaky poll, a rate-limited `gh` call — stays
