@@ -84,20 +84,19 @@ def plugin_cache(tmp_path: Path, versions: dict[str, bool]) -> Path:
             (root / ".orphaned_at").write_text("1790178260989")
     runner = tmp_path / "binrun"
     runner.write_text(
-        '#!/bin/bash\necho "${BINRUN_PLUGIN_ROOT##*/} ${1##*/} '
-        '${BINRUN_SHIM_HOPPED-unset} ${*:2}"\n'
+        '#!/bin/bash\necho "${BINRUN_PLUGIN_ROOT##*/} ${1##*/} ${*:2}"\n'
     )
     runner.chmod(0o755)
     return cache
 
 
-def run_shim(tmp_path: Path, cache: Path, version: str, **env: str) -> str:
+def run_shim(tmp_path: Path, cache: Path, version: str) -> str:
     out = subprocess.run(
         [str(cache / version / "bin" / "tool"), "vcs", "pr status"],
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "/usr/bin:/bin", "BINRUN_BIN": str(tmp_path / "binrun"), **env},
+        env={"PATH": "/usr/bin:/bin", "BINRUN_BIN": str(tmp_path / "binrun")},
     )
     return out.stdout.strip()
 
@@ -109,22 +108,31 @@ def test_shim_hops_from_an_orphaned_dir_to_the_newest_live_sibling(tmp_path: Pat
     )
     (cache / "0.80.0").mkdir()
     (cache / "not-a-version").mkdir()
-    assert run_shim(tmp_path, cache, "0.61.0") == "0.64.1 tool.binrun unset vcs pr status"
+    assert run_shim(tmp_path, cache, "0.61.0") == "0.64.1 tool.binrun vcs pr status"
 
 
 def test_shim_stays_put_when_no_live_sibling_exists(tmp_path: Path):
     cache = plugin_cache(tmp_path, {"0.61.0": True, "0.70.0": True})
-    assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun unset vcs pr status"
+    assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun vcs pr status"
 
 
 def test_shim_ignores_newer_siblings_when_its_own_dir_is_live(tmp_path: Path):
     cache = plugin_cache(tmp_path, {"0.61.0": False, "0.64.1": False})
-    assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun unset vcs pr status"
+    assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun vcs pr status"
 
 
-def test_shim_hops_at_most_once(tmp_path: Path):
-    cache = plugin_cache(tmp_path, {"0.61.0": True, "0.64.1": False})
-    assert (
-        run_shim(tmp_path, cache, "0.61.0", BINRUN_SHIM_HOPPED="1")
-        == "0.61.0 tool.binrun unset vcs pr status"
+def test_shim_never_hops_down(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.61.0": False, "0.64.1": True})
+    assert run_shim(tmp_path, cache, "0.64.1") == "0.64.1 tool.binrun vcs pr status"
+
+
+def test_shim_stays_put_in_an_unversioned_dir(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"a1b2c3d": True, "0.64.1": False})
+    result = subprocess.run(
+        [str(cache / "a1b2c3d" / "bin" / "tool")],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": "/usr/bin:/bin", "BINRUN_BIN": str(tmp_path / "binrun")},
     )
+    assert (result.stdout.strip(), result.stderr) == ("a1b2c3d tool.binrun", "")

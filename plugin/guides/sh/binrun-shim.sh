@@ -32,6 +32,10 @@ RUNNER_SHA_linux_arm64="bb622f2c119ca9bd6f3c3f94e2658116c27b4e703c30005ea17da521
 case "$0" in */*) d=${0%/*} ;; *) d=. ;; esac
 ROOT="$(cd "$d/.." && pwd)"
 
+is_version() {
+  case "$1" in "" | *[!0-9.]* | .* | *. | *..*) return 1 ;; esac
+}
+
 version_gt() {
   va=$1 vb=$2
   while [ -n "$va$vb" ]; do
@@ -44,23 +48,19 @@ version_gt() {
 }
 
 # Sessions keep a replaced plugin's bin/ on PATH; hand off to the newest version
-# dir Claude Code has not marked .orphaned_at, one hop at most.
-if [ -z "${BINRUN_SHIM_HOPPED:-}" ] && [ -e "$ROOT/.orphaned_at" ]; then
-  newest=""
+# dir Claude Code has not marked .orphaned_at. Hops only go up, so they terminate.
+if [ -e "$ROOT/.orphaned_at" ] && is_version "${ROOT##*/}"; then
+  newest=$ROOT
   for sibling in "${ROOT%/*}"/*/; do
     sibling=${sibling%/}
-    version=${sibling##*/}
-    case "$version" in "" | *[!0-9.]* | .* | *. | *..*) continue ;; esac
+    is_version "${sibling##*/}" || continue
     [ ! -e "$sibling/.orphaned_at" ] && [ -x "$sibling/bin/{{binary}}" ] || continue
-    if [ -z "$newest" ] || version_gt "$version" "${newest##*/}"; then
+    if version_gt "${sibling##*/}" "${newest##*/}"; then
       newest=$sibling
     fi
   done
-  if [ -n "$newest" ]; then
-    BINRUN_SHIM_HOPPED=1 exec "$newest/bin/{{binary}}" "$@"
-  fi
+  [ "$newest" = "$ROOT" ] || exec "$newest/bin/{{binary}}" "$@"
 fi
-unset BINRUN_SHIM_HOPPED
 
 DESCRIPTOR="$ROOT/bin/{{binary}}.binrun"
 # binrun execs the cached artifact out of ~/.daemonkit/cache/<xx>/<digest>/, so the
