@@ -45,7 +45,7 @@ AUTOCOMPACT_BUFFER = 13_000
 FIRE_FRACTION = 0.8
 MAX_REMINDERS = 2
 GAVE_UP = MAX_REMINDERS + 1
-LANE_ROTATE_TOKENS = 150_000
+LANE_ROTATE_TOKENS = 200_000
 
 
 @workflow_state("long_running_compaction")
@@ -194,7 +194,8 @@ def directive(
         f"Context is at {used:,} of the {limit:,}-token auto-compaction threshold ({round(100 * used / limit)}%). "
         f"Compaction handoff — do not enter plan mode. {archived}"
         "Before rewriting, record any durable state still living only in this conversation in cc-notes "
-        f"(ledger, rulings log, notes). Then rewrite `{plan}` with one Write: dump all context needed on restart, "
+        "(ledger, rulings log, notes), then delete every completed task with TaskUpdate status `deleted`. "
+        f"Then rewrite `{plan}` with one Write: dump all context needed on restart, "
         "get rid of everything unnecessary (finished work, superseded state, anything the archives already hold). "
         f"Use exactly these sections: `# <title> (compacted {now}Z)`, `## Restart here (read first)`, "
         "`## Mandate (owner, verbatim)`, `## Standing constraints`, `## End state`, "
@@ -525,7 +526,8 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
         ): Block(
             pattern=r"^Context is at 460,000 of the 567,000-token auto-compaction threshold \(81%\)\. "
             r"Compaction handoff — do not enter plan mode\. The current plan is archived at "
-            r"`(\S+/)brook\.\d{4}-\d\d-\d\d-\d{4}-pre-compact\.md`\. .*rewrite `\1brook\.md` with one Write.*"
+            r"`(\S+/)brook\.\d{4}-\d\d-\d\d-\d{4}-pre-compact\.md`\. .*\(ledger, rulings log, notes\), then delete "
+            r"every completed task with TaskUpdate status `deleted`\. Then rewrite `\1brook\.md` with one Write.*"
             r"verbatim:\n- `\1brook\.\d{4}-\d\d-\d\d-\d{4}-pre-compact\.md`\nThen end your turn; the hook runs /compact\.$"
         ),
         Input(
@@ -564,24 +566,24 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             state=[CompactionState(active=True, plan_path=str(FIXTURES / "plans" / "same.md"), phase="compacting")],
         ): Allow(),
         Input(transcript=LANES / "calm.jsonl", state=[CompactionState(active=True)]): Block(
-            pattern=r"^Live lanes at or over the 150,000-token rotation line: `landing-desk` \(180,000\)\. Rotate each "
+            pattern=r"^Live lanes at or over the 200,000-token rotation line: `landing-desk` \(230,000\)\. Rotate each "
             r"before ending this turn .*SendMessage it `ROTATE: record anything not yet in the ledger or cc-notes, "
             r'reply "flushed <ledger id>", then stop\.`; on `flushed`, TaskStop it first, then spawn a fresh lane .*'
             r"Never SendMessage the stopped lane: that resumes the same transcript"
         ),
         Input(transcript=LANES / "calm.jsonl", background_tasks=[REVIEWER], state=[CompactionState(active=True)]): Block(
-            pattern=r"^Live lanes at or over the 150,000-token rotation line: "
-            r"`landing-desk` \(180,000\), `reviewer` \(170,000\)\. Rotate each "
+            pattern=r"^Live lanes at or over the 200,000-token rotation line: "
+            r"`landing-desk` \(230,000\), `reviewer` \(220,000\)\. Rotate each "
         ),
         Input(
             transcript=LANES / "calm.jsonl",
             state=[CompactionState(active=True, rotated={"alanding-desk-0a0a0a0a0a0a0a0a": 0})],
-        ): Block(pattern=r"^Live lanes at or over the 150,000-token rotation line: `landing-desk` \(180,000\)\. "),
+        ): Block(pattern=r"^Live lanes at or over the 200,000-token rotation line: `landing-desk` \(230,000\)\. "),
         Input(
             transcript=LANES / "calm.jsonl",
             state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": 0})],
         ): Block(
-            pattern=r"^Still unrotated: `landing-desk` \(180,000\)\. "
+            pattern=r"^Still unrotated: `landing-desk` \(230,000\)\. "
             r"Rotate per the Lane rotation protocol before ending this turn\.$"
         ),
         Input(
@@ -589,15 +591,15 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             background_tasks=[REVIEWER],
             state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": 1})],
         ): Block(
-            pattern=r"^Live lanes at or over the 150,000-token rotation line: `reviewer` \(170,000\)\. .* "
-            r"Still unrotated: `landing-desk` \(180,000\)\. Rotate per the Lane rotation protocol"
+            pattern=r"^Live lanes at or over the 200,000-token rotation line: `reviewer` \(220,000\)\. .* "
+            r"Still unrotated: `landing-desk` \(230,000\)\. Rotate per the Lane rotation protocol"
         ),
         Input(
             transcript=LANES / "calm.jsonl",
             state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": MAX_REMINDERS})],
         ): Allow(
-            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(180,000\) still live at or over "
-            r"the 150,000-token line after 2 reminders\."
+            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(230,000\) still live at or over "
+            r"the 200,000-token line after 2 reminders\."
         ),
         Input(
             transcript=LANES / "calm.jsonl",
@@ -609,8 +611,8 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
                 )
             ],
         ): Block(
-            pattern=r"^Still unrotated: `reviewer` \(170,000\)\.",
-            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(180,000\)",
+            pattern=r"^Still unrotated: `reviewer` \(220,000\)\.",
+            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(230,000\)",
         ),
         Input(
             transcript=LANES / "calm.jsonl",
@@ -624,7 +626,7 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             state=[CompactionState(active=True)],
         ): Block(
             pattern=r"(?s)^Context is at 460,000 of the 167,000-token .*verbatim:\n.*Live lanes at or over the "
-            r"150,000-token rotation line: `landing-desk` \(200,000\)\. Rotate each .*Record each new agent id in "
+            r"200,000-token rotation line: `landing-desk` \(200,000\)\. Rotate each .*Record each new agent id in "
             r"`## Restart here`\.\nThen end your turn; the hook runs /compact\.$"
         ),
         Input(
