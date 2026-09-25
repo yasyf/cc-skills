@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ledger
-from conftest import DIRTY_HEAD, FakeShell, GREEN_HEAD, LEDGER, MOVED_HEAD
+from conftest import DIRTY_HEAD, GREEN_HEAD, LEDGER, MOVED_HEAD, FakeShell
 
 ERROR = "Invariant violation: build-sand left sand untouched, so it stored nothing to fetch"
 

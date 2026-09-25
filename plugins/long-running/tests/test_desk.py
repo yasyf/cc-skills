@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import ledger
-from conftest import FakeShell, LEDGER
+import pytest
+from conftest import LEDGER, FakeShell
 
 PR = "21221"
 HEAD = "3f3acff97aa11bb22cc33dd44ee55ff667788990"
@@ -33,7 +34,6 @@ def desk_shell(**pull) -> FakeShell:
         "merged_at": None,
         **pull,
     }
-    shell.commit_dates[HEAD] = stamp(timedelta(minutes=-5))
     shell.pull_heads[PR] = HEAD
     shell.routes[f"checks:{HEAD}"] = "check-runs-green.json"
     shell.reviews[PR] = [review("APPROVED", HEAD)]
@@ -54,6 +54,17 @@ def label(shell, *extra) -> int:
 
 def hold(shell, pr=PR, *extra) -> int:
     return run(shell, "hold", "--ledger", LEDGER, "--pr", pr, "--reason", "owner applies first", *extra)
+
+
+def summarize(shell, capsys, *extra) -> list[str]:
+    """Run summary, which always reconciles first, and return its lines from the counts line on."""
+    for row in shell.store["rows"]:
+        if row["key"].isdigit() and row["fields"].get("state") not in ledger.TERMINAL_STATES:
+            shell.pulls.setdefault(row["key"], {"number": int(row["key"]), "state": "open", "head": {"sha": HEAD, "ref": f"b/{row['key']}"}, "base": {"ref": "dev"}})
+    capsys.readouterr()
+    assert run(shell, "summary", "--repo", REPO, "--ledger", LEDGER, "--checkout", "/nonexistent", *extra) == 0
+    lines = capsys.readouterr().out.splitlines()
+    return lines[next(index for index, line in enumerate(lines) if line.startswith("desk ")) :]
 
 
 def messages(shell) -> list[str]:
@@ -121,8 +132,7 @@ def test_hold_carries_reason_and_expiry_on_the_row_and_lift_clears_them(capsys):
     assert row["hold_since"]
     capsys.readouterr()
 
-    run(shell, "summary", "--ledger", LEDGER)
-    assert f"held #{PR}: owner applies first until 2020-01-01T00:00:00Z EXPIRED" in capsys.readouterr().out
+    assert f"held #{PR}: owner applies first until 2020-01-01T00:00:00Z EXPIRED" in summarize(shell, capsys)
 
     run(shell, "lift", "--ledger", LEDGER, "--pr", PR)
     assert shell.fields(PR)["hold_reason"] == ""
@@ -144,15 +154,6 @@ def test_label_re_reads_the_head_and_posts_the_label_once():
 
     assert label(shell) == 1
     assert shell.labelled == [f"{PR}:merge"]
-
-
-def test_label_refuses_a_head_younger_than_a_minute(capsys):
-    shell = desk_shell()
-    shell.commit_dates[HEAD] = stamp(timedelta(seconds=-20))
-
-    assert label(shell) == 1
-    assert "REFUSED head is 20s old" in capsys.readouterr().out
-    assert shell.labelled == []
 
 
 def test_label_refuses_a_conflicting_or_uncomputed_head(capsys):
@@ -293,11 +294,13 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
-    shell.base_squash = "abc1234def5 infra: something that carried it (#21221)"
+    shell.base_squash = f"{SQUASH} 2026-09-17T03:04:05+02:00"
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+    assert shell.fields(PR)["landed_at"] == "2026-09-17T01:04:05Z"
     assert "which has moved on its files since" in capsys.readouterr().out
 
 
@@ -377,8 +380,7 @@ def test_summary_counts_landings_in_the_window_and_fits_ten_lines(capsys):
         {"key": "msg/000003", "fields": {"kind": "ruling", "pr": "21203", "head": "-", "lane": LANE, "text": "old", "options": "A", "state": "acked"}},
     ]
 
-    run(shell, "summary", "--ledger", LEDGER)
-    lines = capsys.readouterr().out.splitlines()
+    lines = summarize(shell, capsys)
 
     assert len(lines) == 10
     assert lines[0].startswith("desk ")
@@ -398,11 +400,10 @@ def test_summary_never_counts_an_unlabelled_or_lifted_row_as_labelled_or_held(ca
     run(shell, "lift", "--ledger", LEDGER, "--pr", "20284")
     capsys.readouterr()
 
-    run(shell, "summary", "--ledger", LEDGER)
-    lines = capsys.readouterr().out.splitlines()
+    lines = summarize(shell, capsys)
 
     assert "| open 2 | merged/h 0 | labelled 0 | held 0 |" in lines[0]
-    assert len(lines) == 1
+    assert lines[1:] == [f"waiting: ungraded #{PR}"]
 
 
 def test_show_renders_pr_rows_only(capsys):
@@ -462,13 +463,11 @@ def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
     assert out.index(f"landed #{PR},") < out.index("desk 2"), "reconcile must run before the report prints"
 
 
-def test_summary_without_a_checkout_prints_without_reconciling(tmp_path):
-    shell = desk_shell(state="closed")
-    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
-
-    assert run(shell, "summary", "--ledger", LEDGER) == 0
-
-    assert shell.fields(PR)["state"] == "labelled"
+def test_summary_refuses_to_print_without_settling_landings_first():
+    with pytest.raises(SystemExit):
+        run(FakeShell(), "summary", "--ledger", LEDGER)
+    with pytest.raises(SystemExit):
+        run(FakeShell(), "summary", "--ledger", LEDGER, "--repo", REPO)
 
 
 def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
@@ -608,7 +607,6 @@ def stack_shell(tracked=STACK[:2]) -> FakeShell:
             "mergeable_state": "clean",
         }
         base = f"stack/{pr}"
-        shell.commit_dates[head] = stamp(timedelta(minutes=-5))
         shell.pull_heads[pr] = head
         shell.routes[f"checks:{head}"] = "check-runs-green.json"
         shell.reviews[pr] = [review("APPROVED", head)]
@@ -716,3 +714,496 @@ def test_a_base_cycle_refuses_instead_of_walking_forever(capsys):
     assert label_stack(shell) == 1
     assert "#24003 is its own ancestor" in capsys.readouterr().out
     assert shell.labelled == []
+
+
+def test_a_refused_stack_records_each_rows_blocker_and_a_label_clears_it(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"status:{'2' * 40}"] = "status-failure.json"
+
+    assert label_stack(shell) == 1
+
+    assert shell.fields("24002")["label_refused"] == "commit status failure on 222222222; only success is labelled"
+    assert shell.fields("24002")["label_refused_head"] == "2" * 40
+    assert shell.fields("24003")["label_refused"].startswith("the stack #24001 <- #24002 <- #24003 enqueues as one entry, so #24002")
+    del shell.routes[f"status:{'2' * 40}"]
+
+    assert label_stack(shell) == 0
+    assert all(shell.fields(pr)["label_refused"] == "" for pr in STACK)
+
+
+def test_a_refused_label_opens_no_row_for_an_unreported_pr(capsys):
+    shell = desk_shell(mergeable_state="dirty")
+
+    assert label(shell) == 1
+    assert PR not in shell.keys()
+
+
+def test_a_dry_run_refusal_records_nothing(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"status:{'2' * 40}"] = "status-failure.json"
+
+    assert label_stack(shell, STACK[-1], "--dry-run") == 1
+    assert all("label_refused" not in shell.fields(pr) for pr in STACK)
+
+
+def all_clean(shell, *extra) -> int:
+    return run(shell, "label", "--repo", REPO, "--ledger", LEDGER, "--all-clean", *extra)
+
+
+def lone_pr(shell: FakeShell, pr: str, head: str, lane: str = LANE, **fields) -> None:
+    shell.pulls[pr] = {
+        "number": int(pr),
+        "state": "open",
+        "head": {"sha": head, "ref": f"lone/{pr}", "repo": {"full_name": REPO}},
+        "base": {"ref": "dev"},
+        "mergeable_state": "clean",
+    }
+    shell.routes[f"checks:{head}"] = "check-runs-green.json"
+    shell.reviews[pr] = [review("APPROVED", head)]
+    shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {"lane": lane, "reported_head": head, "reported_verdict": "clean", **fields}})
+
+
+def test_all_clean_labels_every_clean_stack_tip_in_one_pass(capsys):
+    shell = stack_shell(tracked=STACK)
+    lone_pr(shell, "24010", "a" * 40)
+    lone_pr(shell, "24011", "b" * 40)
+
+    assert all_clean(shell) == 0
+
+    assert sorted(shell.labelled) == ["24003:merge", "24010:merge", "24011:merge"]
+    assert capsys.readouterr().out.splitlines()[-1] == "batch: labelled 3 of 3 stacks #24003 #24010 #24011"
+    assert shell.fields("24001")["label_stack"] == "24001,24002,24003"
+
+
+def test_all_clean_labels_the_rest_when_one_stack_refuses(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"status:{'2' * 40}"] = "status-failure.json"
+    lone_pr(shell, "24010", "a" * 40)
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == ["24010:merge"]
+    assert capsys.readouterr().out.splitlines()[-1] == "batch: labelled 1 of 2 stacks #24010 | refused #24003"
+    assert shell.fields("24002")["label_refused_head"] == "2" * 40
+
+
+def test_all_clean_skips_held_landed_and_already_labelled_rows(capsys):
+    shell = FakeShell()
+    lone_pr(shell, "24010", "a" * 40, hold_reason="owner applies first", hold_since="x", hold_until=stamp(timedelta(hours=1)))
+    lone_pr(shell, "24011", "b" * 40, reported_verdict="held")
+    lone_pr(shell, "24012", "c" * 40, state="landed")
+    lone_pr(shell, "24013", "d" * 40, label_head="d" * 40, labelled_at=stamp(timedelta(minutes=-3)))
+    lone_pr(shell, "24014", "e" * 40, label_head="e" * 40, label_pulled_at=stamp(timedelta(minutes=-3)), label_pull_reason="x")
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == []
+    assert capsys.readouterr().out.strip() == "batch: labelled 0 of 0 stacks"
+    assert not any(endpoint.startswith(f"repos/{REPO}/pulls/2401") for endpoint in shell.endpoints())
+
+
+def test_a_lanes_red_report_gates_nothing_when_the_forge_reads_green(capsys):
+    shell = FakeShell()
+    lone_pr(shell, "24015", "f" * 40, reported_verdict="red")
+
+    assert all_clean(shell) == 0
+    assert shell.labelled == ["24015:merge"]
+
+
+def test_all_clean_labels_nothing_in_a_stack_whose_tip_is_red_on_the_forge(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"status:{'3' * 40}"] = "status-failure.json"
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == []
+    assert "commit status failure on 333333333" in capsys.readouterr().out
+
+
+def test_all_clean_dry_run_names_each_stack_and_writes_nothing(capsys):
+    shell = stack_shell(tracked=STACK)
+    lone_pr(shell, "24010", "a" * 40)
+
+    assert all_clean(shell, "--dry-run") == 0
+
+    out = capsys.readouterr().out
+    assert f"would label #24003 {'3' * 40}, enqueuing #24001 <- #24002 <- #24003" in out
+    assert out.splitlines()[-1] == "batch: would label 2 of 2 stacks #24003 #24010"
+    assert shell.labelled == []
+
+
+def test_all_clean_with_a_shard_labels_only_that_shards_lanes(capsys):
+    shell = FakeShell()
+    lone_pr(shell, "24010", "a" * 40, lane="lane-a")
+    lone_pr(shell, "24011", "b" * 40, lane="lane-b")
+    lone_pr(shell, "24012", "c" * 40, lane="lane-c")
+
+    assert all_clean(shell, "--shard", "lane-a,lane-c") == 0
+
+    assert sorted(shell.labelled) == ["24010:merge", "24012:merge"]
+
+
+def test_label_requires_a_pr_or_all_clean():
+    with pytest.raises(SystemExit):
+        run(FakeShell(), "label", "--repo", REPO, "--ledger", LEDGER)
+    with pytest.raises(SystemExit):
+        run(FakeShell(), "label", "--repo", REPO, "--ledger", LEDGER, "--pr", PR, "--all-clean")
+
+
+def stale_row(pr: str, minutes: int, lane: str = LANE, head: str = HEAD, **fields) -> dict:
+    return {"key": pr, "fields": {"state": "open", "head": head, "lane": lane, "reported_head": HEAD, "reported_verdict": "clean", "reported_at": stamp(timedelta(minutes=-minutes)), **fields}}
+
+
+def test_stale_names_every_clean_row_past_the_threshold_with_its_blocker_oldest_first(capsys):
+    shell = FakeShell(
+        rows=[
+            stale_row("24020", 45, hold_reason="waits on #20314", hold_since="x", hold_until="2099-01-01T00:00:00Z"),
+            stale_row("24021", 50, labels="merge", label_head=HEAD, labelled_at="2026-09-24T10:00:00Z"),
+            stale_row("24022", 55, routed_head=HEAD, routed_job="fix: tsc"),
+            stale_row("24023", 60, label_refused="ai-review is neutral", label_refused_head=HEAD),
+            stale_row("24024", 65, head=OLD_HEAD),
+            stale_row("24025", 70),
+            stale_row("24026", 75, labels="merge"),
+            stale_row("24027", 10),
+            stale_row("24028", 90, reported_verdict="red"),
+            stale_row("24029", 90, state="landed"),
+        ]
+    )
+
+    run(shell, "stale", "--ledger", LEDGER)
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"stale #24026 75m {LANE}: in the queue, labelled outside the desk",
+        f"stale #24025 70m {LANE}: never graded: run label --all-clean",
+        f"stale #24024 65m {LANE}: head moved since the report",
+        f"stale #24023 60m {LANE}: label refused: ai-review is neutral",
+        f"stale #24022 55m {LANE}: routed: fix: tsc",
+        f"stale #24021 50m {LANE}: in the queue since 2026-09-24T10:00:00Z",
+        f"stale #24020 45m {LANE}: held: waits on #20314 until 2099-01-01T00:00:00Z",
+    ]
+
+
+def test_stale_honours_minutes_and_shard(capsys):
+    shell = FakeShell(rows=[stale_row("24020", 12, lane="lane-a"), stale_row("24021", 12, lane="lane-b")])
+
+    run(shell, "stale", "--ledger", LEDGER, "--minutes", "10", "--shard", "lane-b")
+    assert capsys.readouterr().out.splitlines() == ["stale #24021 12m lane-b: never graded: run label --all-clean"]
+
+    run(shell, "stale", "--ledger", LEDGER)
+    assert capsys.readouterr().out.strip() == "no clean row older than 30m"
+
+
+def test_summary_carries_stale_rows_under_the_counts_and_the_report_to_landed_median(capsys):
+    shell = FakeShell(
+        rows=[
+            stale_row("24030", 40),
+            {"key": "24031", "fields": {"state": "landed", "reported_at": stamp(timedelta(minutes=-50)), "landed_at": stamp(timedelta(minutes=-40))}},
+            {"key": "24032", "fields": {"state": "landed", "reported_at": stamp(timedelta(minutes=-50)), "landed_at": stamp(timedelta(minutes=-20))}},
+            {"key": "24033", "fields": {"state": "landed", "reported_at": stamp(timedelta(minutes=-55)), "landed_at": stamp(timedelta(minutes=-5))}},
+        ]
+    )
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| merged/h 3 | labelled 0 | held 0 | rulings 0 | p0 0 | routed 0 | stale 1 | p50 report→landed 30m")
+    assert lines[1] == f"stale #24030 40m {LANE}: never graded: run label --all-clean"
+    assert lines[2] == "waiting: ungraded #24030"
+    assert lines[3] == "merged: #24031 #24032 #24033"
+
+
+def test_summary_with_no_landing_prints_no_median(capsys):
+    shell = FakeShell(rows=[stale_row("24030", 5)])
+
+    assert summarize(shell, capsys, "--stale-minutes", "60")[0].endswith("| stale 0 | p50 report→landed -")
+
+
+def test_a_shard_sees_only_its_lanes_rows_and_messages(capsys):
+    shell = FakeShell(
+        rows=[
+            stale_row("24040", 40, lane="lane-a"),
+            stale_row("24041", 40, lane="lane-b"),
+            {"key": "msg/000001", "fields": {"kind": "p0", "pr": "24040", "head": HEAD, "lane": "lane-a", "text": "dev red", "state": "pending"}},
+            {"key": "msg/000002", "fields": {"kind": "p0", "pr": "24041", "head": HEAD, "lane": "lane-b", "text": "dev red", "state": "pending"}},
+        ]
+    )
+
+    lines = summarize(shell, capsys, "--shard", "lane-a")
+    assert "| open 1 |" in lines[0] and "| p0 1 |" in lines[0]
+    assert lines[1] == "stale #24040 40m lane-a: never graded: run label --all-clean"
+
+    run(shell, "inbox", "--ledger", LEDGER, "--shard", "lane-b")
+    assert capsys.readouterr().out.strip() == f"msg/000002 p0 #24041 {HEAD[:9]} lane-b: dev red"
+
+
+def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):
+    shell = desk_shell(user={"login": "yasyf"}, title="t", changed_files=1)
+    shell.stores[LEDGER]["rows"] += [
+        {"key": PR, "fields": {"lane": "lane-a", "reported_head": HEAD}},
+        {"key": "24050", "fields": {"lane": "lane-b", "reported_head": HEAD}},
+    ]
+
+    run(shell, "refresh", "--repo", REPO, "--ledger", LEDGER, "--lock", str(lock), "--shard", "lane-a")
+
+    assert f"repos/{REPO}/pulls/{PR}" in shell.endpoints()
+    assert f"repos/{REPO}/pulls/24050" not in shell.endpoints()
+
+
+class MovingShell(FakeShell):
+    """Moves one PR's head the moment another PR is labelled, as a lane pushing mid-batch would."""
+
+    def __init__(self, moves: str, to: str, after: str):
+        super().__init__()
+        self.moves, self.to, self.after = moves, to, after
+
+    def run(self, argv, stdin=None):
+        out = super().run(argv, stdin)
+        if argv[0] == "gh" and "POST" in argv and f"issues/{self.after}/labels" in argv[2]:
+            self.pulls[self.moves]["head"]["sha"] = self.to
+        return out
+
+
+def test_all_clean_rereads_each_tip_so_a_head_pushed_mid_batch_is_refused(capsys):
+    shell = MovingShell(moves="24011", to="c" * 40, after="24010")
+    lone_pr(shell, "24010", "a" * 40)
+    lone_pr(shell, "24011", "b" * 40)
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == ["24010:merge"]
+    assert "REFUSED head moved: expected bbbbbbbbb, the forge has ccccccccc" in capsys.readouterr().out
+    assert shell.fields("24011")["label_refused_head"] == "c" * 40
+
+
+def test_all_clean_ignores_a_closed_child_so_its_parent_is_the_tip(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.pulls["24003"]["state"] = "closed"
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == ["24002:merge"]
+
+
+def test_a_refusal_on_a_moved_head_reads_as_refused_in_stale(capsys):
+    shell = FakeShell()
+    lone_pr(shell, "24060", "a" * 40, reported_head=HEAD, reported_at=stamp(timedelta(minutes=-40)))
+
+    assert run(shell, "label", "--repo", REPO, "--ledger", LEDGER, "--pr", "24060", "--expect-head", HEAD) == 1
+    capsys.readouterr()
+    run(shell, "stale", "--ledger", LEDGER)
+
+    assert capsys.readouterr().out.strip() == (
+        f"stale #24060 40m {LANE}: label refused: head moved: expected {HEAD[:9]}, the forge has aaaaaaaaa; grade the new head before labelling"
+    )
+
+
+def lane_pull(shell: FakeShell, pr: str, head: str, branch: str, base: str = "dev") -> None:
+    shell.pulls[pr] = {
+        "number": int(pr),
+        "state": "open",
+        "head": {"sha": head, "ref": branch, "repo": {"full_name": REPO}},
+        "base": {"ref": base},
+        "mergeable_state": "clean",
+        "user": {"login": "yasyf"},
+        "title": f"pr {pr}",
+        "changed_files": 1,
+    }
+    shell.routes[f"checks:{head}"] = "check-runs-green.json"
+    shell.reviews[pr] = [review("APPROVED", head)]
+
+
+def refresh(shell, lock) -> int:
+    return run(shell, "refresh", "--repo", REPO, "--ledger", LEDGER, "--lock", str(lock))
+
+
+def test_register_records_the_lane_and_marks_its_prs_tracked(capsys):
+    shell = FakeShell()
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--pr", "24070")
+
+    assert shell.fields(f"lane/{LANE}")["branch_prefix"] == "lightning/"
+    assert shell.fields("24070") == {"lane": LANE, "registered": LANE}
+    assert capsys.readouterr().out.strip() == f"registered {LANE} on lightning/* #24070"
+
+
+def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "a" * 40, "lightning/one")
+    lane_pull(shell, "24072", "b" * 40, "lightning/two")
+    lane_pull(shell, "24073", "c" * 40, "someone-else/three")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+
+    assert refresh(shell, lock) == 0
+
+    assert sorted(shell.pr_keys()) == ["24071", "24072"]
+    assert shell.fields("24071")["registered"] == LANE
+    assert shell.fields("24071")["head"] == "a" * 40
+    assert f"repos/{REPO}/git/matching-refs/heads/lightning/" in shell.endpoints()
+    assert not [endpoint for endpoint in shell.endpoints() if endpoint.startswith(f"repos/{REPO}/pulls?") and "head=" not in endpoint and "base=" not in endpoint]
+
+
+def test_an_unreported_registered_head_is_labelled_once_its_gates_pass(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "a" * 40, "lightning/one")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == ["24071:merge"]
+
+
+def test_a_head_moved_since_the_report_is_regraded_and_labelled_without_a_re_report(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "b" * 40, "lightning/one")
+    shell.stores[LEDGER]["rows"].append({"key": "24071", "fields": {"lane": LANE, "reported_head": "a" * 40, "reported_verdict": "red", "reported_at": stamp(timedelta(hours=-1))}})
+    refresh(shell, lock)
+
+    assert all_clean(shell) == 0
+
+    assert shell.labelled == ["24071:merge"]
+    assert shell.fields("24071")["label_head"] == "b" * 40
+
+
+def test_a_moved_head_a_gate_refuses_routes_one_new_head_line_once(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "b" * 40, "lightning/one")
+    shell.reviews["24071"] = []
+    shell.stores[LEDGER]["rows"].append({"key": "24071", "fields": {"lane": LANE, "reported_head": "a" * 40, "reported_verdict": "clean", "reported_at": stamp(timedelta(hours=-1))}})
+    refresh(shell, lock)
+    capsys.readouterr()
+
+    all_clean(shell)
+    first = capsys.readouterr().out
+    all_clean(shell)
+    second = capsys.readouterr().out
+
+    assert shell.labelled == []
+    assert f"to {LANE}:\nDESK #24071 bbbbbbbbb: new head bbbbbbbbb: #24071 has no approval in force" in first
+    assert "already routed" in second
+    assert shell.fields("24071")["routed_head"] == "b" * 40
+
+
+def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24081", "c" * 40, "lightning/base")
+    lane_pull(shell, "24082", "d" * 40, "lightning/tip", base="lightning/base")
+    for pr, head in (("24081", "1" * 40), ("24082", "d" * 40)):
+        shell.stores[LEDGER]["rows"].append({"key": pr, "fields": {"lane": LANE, "reported_head": head, "reported_verdict": "clean", "reported_at": stamp(timedelta(hours=-1))}})
+    refresh(shell, lock)
+
+    assert all_clean(shell) == 0
+    assert shell.labelled == ["24082:merge"]
+    assert shell.fields("24081")["label_head"] == "c" * 40
+
+
+def test_a_head_is_labelled_as_soon_as_its_gates_pass(capsys):
+    shell = desk_shell()
+
+    assert label(shell, "--expect-head", HEAD) == 0
+    assert shell.labelled == [f"{PR}:merge"]
+    assert f"repos/{REPO}/commits/{HEAD}" not in shell.endpoints()
+
+
+def test_summary_lists_every_tracked_pr_without_a_labelable_head_by_reason(capsys):
+    reported = {"state": "open", "lane": LANE, "head": HEAD, "reported_head": HEAD, "reported_at": stamp(timedelta(minutes=-1))}
+    shell = FakeShell(
+        rows=[
+            {"key": "24090", "fields": {"state": "open", "lane": LANE, "registered": LANE, "head": HEAD}},
+            {"key": "24091", "fields": dict(reported, head=OLD_HEAD, reported_verdict="clean")},
+            {"key": "24092", "fields": dict(reported, reported_verdict="clean", label_refused="ai-review is neutral", label_refused_head=HEAD)},
+            {"key": "24093", "fields": dict(reported, reported_verdict="clean", label_refused="x", label_refused_head=OLD_HEAD)},
+            {"key": "24094", "fields": dict(reported, reported_verdict="clean", test_state="failure")},
+            {"key": "24095", "fields": dict(reported, reported_verdict="conflicting", mergeable_state="dirty")},
+            {"key": "24096", "fields": dict(reported, reported_verdict="held")},
+            {"key": "24097", "fields": dict(reported, reported_verdict="clean", hold_reason="x", hold_since="x", hold_until="2099-01-01T00:00:00Z")},
+            {"key": "24098", "fields": dict(reported, reported_verdict="clean", labels="merge")},
+            {"key": "24099", "fields": {"state": "open", "head": HEAD}},
+        ]
+    )
+
+    lines = summarize(shell, capsys)
+
+    assert "waiting: ungraded #24090 #24091 #24093 | refused #24092 | red #24094 #24095 | held #24096 #24097" in lines
+
+
+def test_summary_never_reports_a_landed_row_as_waiting(capsys):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"lane": LANE, "registered": LANE, "head": HEAD, "state": "open"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, stamp(timedelta(minutes=-5)))
+
+    lines = summarize(shell, capsys)
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert "merged: #21221" in lines
+    assert not [line for line in lines if line.startswith("waiting")]
+
+
+def test_register_refuses_a_prefix_that_is_not_a_whole_branch_namespace():
+    for prefix in ("lightning", "", "/"):
+        with pytest.raises(SystemExit):
+            run(FakeShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", prefix)
+
+
+def test_a_registered_row_before_its_first_refresh_is_neither_routed_nor_crashes(capsys):
+    shell = FakeShell()
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/", "--pr", "24071")
+
+    assert run(shell, "route", "--repo", REPO, "--ledger", LEDGER) == 0
+    assert run(shell, "show", "--ledger", LEDGER, "--red") == 0
+    assert "routed 0 rows" in capsys.readouterr().out
+
+
+def test_a_parent_shared_by_two_tips_is_routed_once_per_batch(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24101", "e" * 40, "lightning/base")
+    lane_pull(shell, "24102", "f" * 40, "lightning/left", base="lightning/base")
+    lane_pull(shell, "24103", "9" * 40, "lightning/right", base="lightning/base")
+    shell.reviews["24101"] = []
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+    capsys.readouterr()
+
+    all_clean(shell)
+
+    assert capsys.readouterr().out.count("DESK #24101") == 1
+    assert shell.labelled == []
+
+
+def test_a_red_head_the_route_sweep_owns_is_not_routed_again_by_the_batch(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "b" * 40, "lightning/one")
+    shell.routes[f"status:{'b' * 40}"] = "status-failure.json"
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+    capsys.readouterr()
+
+    all_clean(shell)
+
+    assert "DESK #24071" not in capsys.readouterr().out
+    assert shell.fields("24071")["test_state"] == "failure"
+
+
+def test_a_head_pushed_during_the_conflict_fetch_is_not_routed(capsys, lock, tmp_path):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "b" * 40, "lightning/one")
+    shell.pull_heads["24071"] = "c" * 40
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+    capsys.readouterr()
+
+    all_clean(shell, "--checkout", str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "refs/pull/24071/head is ccccccccc on the forge" in out
+    assert "DESK #24071" not in out
+
+
+def test_a_clean_report_a_gate_refused_is_waiting_as_refused(capsys):
+    shell = FakeShell(
+        rows=[
+            {"key": "24110", "fields": {"state": "open", "lane": LANE, "head": HEAD, "reported_head": HEAD, "reported_verdict": "clean", "reported_at": stamp(timedelta(minutes=-1)), "label_refused": "ai-review is neutral", "label_refused_head": HEAD}},
+        ]
+    )
+
+    assert summarize(shell, capsys)[1] == "waiting: refused #24110"

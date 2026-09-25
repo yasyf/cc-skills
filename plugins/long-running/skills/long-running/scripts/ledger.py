@@ -3,23 +3,25 @@
 
     ledger.py init    --title TEXT
     ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--text ...]
+    ledger.py register --ledger ID --lane NAME --branch-prefix PREFIX [--pr N]...
     ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
     ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
-    ledger.py inbox   --ledger ID [--take] [--all] [--json]
+    ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
     ledger.py ack     --ledger ID KEY...
-    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH]
+    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES]
     ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H)
     ledger.py lift    --ledger ID --pr N
-    ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--dry-run]
-    ledger.py label   --repo owner/name --ledger ID --pr TIP [--expect-head SHA] [--checkout DIR] [--dry-run]
+    ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--dry-run] [--shard LANES]
+    ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
-    ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]
-    ledger.py summary --ledger ID [--window-seconds N]
+    ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
+    ledger.py stale   --ledger ID [--minutes N] [--shard LANES]
+    ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--red] [--json]
 
-STDLIB ONLY. A PR row exists because one of our lanes reported it, or because refresh
-was handed its number; the repository's PR list is never read and GraphQL is never
-called. Holds, routing, the label history, and the landing are fields on that row;
+STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
+branch under a lane's registered prefix, or because refresh was handed its number; the
+repository's PR list is never read and GraphQL is never called. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows in the same ledger. A landing is proven by the
 base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
 merged field and never by searching the base log for its number. Buildkite
@@ -39,6 +41,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from statistics import median
 from urllib.parse import urlencode
 
 AI_REVIEW_CHECK = "ai-review"
@@ -50,13 +53,16 @@ ROUTE_STATES = ("dirty", "blocked")
 KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = ("clean", "red", "conflicting", "held")
 MERGE_LABEL = "merge"
-MIN_HEAD_AGE = timedelta(seconds=60)
 LABELLABLE_STATES = ("clean", "behind", "has_hooks")
 FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
 SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
+STALE_MINUTES = 30
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
+LANE_PREFIX = "lane/"
+WAITING_REASONS = ("ungraded", "refused", "red", "held")
+UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
 QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -127,7 +133,6 @@ REFUSAL = {
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
     "pulled": "{head} had its label pulled at {at} ({reason}); the same head is never re-queued",
     "mergeable": "mergeable_state {state}: only {allowed} may be labelled",
-    "young": "head is {age}s old; the forge has not graded it, retry after {min}s",
     "status": "commit status {state} on {head}; only success is labelled",
     "checks": "failed check runs on {head}: {names}",
     "conflict": "{head} conflicts with {base} on {paths}; route the rebase, never label",
@@ -160,9 +165,13 @@ class ForgeUnreachable(RuntimeError):
 class Refused(Exception):
     """One guard refused one pull request; the text names the reason."""
 
+    def __init__(self, text: str, kind: str = ""):
+        super().__init__(text)
+        self.kind = kind
+
 
 def refusal(kind: str, **values: object) -> Refused:
-    return Refused(REFUSAL[kind].format(**values))
+    return Refused(REFUSAL[kind].format(**values), kind)
 
 
 @dataclass
@@ -211,6 +220,9 @@ class Notes:
 
     def messages(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.startswith(MESSAGE_PREFIX)}
+
+    def lanes(self) -> dict[str, dict[str, str]]:
+        return {key: fields for key, fields in self.rows().items() if key.startswith(LANE_PREFIX)}
 
     def sync(self, rows: list[dict]) -> None:
         self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(rows))
@@ -343,7 +355,7 @@ def is_open(fields: dict[str, str]) -> bool:
 
 
 def needs_route(fields: dict[str, str]) -> bool:
-    return is_open(fields) and (fields["test_state"] == "failure" or fields["mergeable_state"] in ROUTE_STATES)
+    return is_open(fields) and (fields.get("test_state") == "failure" or fields.get("mergeable_state") in ROUTE_STATES)
 
 
 def is_held(fields: dict[str, str]) -> bool:
@@ -357,7 +369,78 @@ def carries_label(fields: dict[str, str]) -> bool:
 
 
 def current_head(fields: dict[str, str]) -> str:
-    return fields.get("head") or fields["reported_head"]
+    return fields.get("head") or fields.get("reported_head", "")
+
+
+def is_tracked(fields: dict[str, str]) -> bool:
+    return bool(fields.get("reported_head") or fields.get("registered"))
+
+
+def lane_held(fields: dict[str, str]) -> bool:
+    return fields.get("reported_verdict") == "held" and fields.get("reported_head") == current_head(fields)
+
+
+def waiting_reason(fields: dict[str, str]) -> str:
+    """Why a tracked open row has no labelable head, or "" when it has one or is already queued."""
+    if not is_open(fields) or not is_tracked(fields) or carries_label(fields):
+        return ""
+    if is_held(fields) or lane_held(fields):
+        return "held"
+    if needs_route(fields):
+        return "red"
+    return "refused" if fields.get("label_refused_head") == current_head(fields) else "ungraded"
+
+
+def waiting_line(rows: dict[str, dict[str, str]]) -> list[str]:
+    groups = {reason: [pr for pr in sorted(rows, key=int) if waiting_reason(rows[pr]) == reason] for reason in WAITING_REASONS}
+    parts = [f"{reason} " + " ".join(f"#{pr}" for pr in prs) for reason, prs in groups.items() if prs]
+    return ["waiting: " + " | ".join(parts)] if parts else []
+
+
+def shard_lanes(value: str) -> frozenset[str]:
+    return frozenset(lane.strip() for lane in value.split(",") if lane.strip())
+
+
+def sharded(rows: dict[str, dict[str, str]], shard: frozenset[str] | None) -> dict[str, dict[str, str]]:
+    """The rows a shard owns: those whose lane is in it, PR rows and messages alike."""
+    if shard is None:
+        return rows
+    return {key: fields for key, fields in rows.items() if fields.get("lane") in shard}
+
+
+def is_clean_reported(fields: dict[str, str]) -> bool:
+    return is_open(fields) and fields.get("reported_verdict") == "clean"
+
+
+def blocker(fields: dict[str, str]) -> str:
+    head = current_head(fields)
+    if is_held(fields):
+        return f"held: {fields['hold_reason']} until {fields['hold_until']}"
+    if carries_label(fields):
+        if fields.get("labelled_at") and fields.get("label_head") == head:
+            return f"in the queue since {fields['labelled_at']}"
+        return "in the queue, labelled outside the desk"
+    if fields.get("routed_head") == head:
+        return f"routed: {fields['routed_job']}"
+    if fields.get("label_refused_head") == head:
+        return f"label refused: {fields['label_refused']}"
+    if head != fields["reported_head"]:
+        return "head moved since the report"
+    return "never graded: run label --all-clean"
+
+
+def stale_lines(rows: dict[str, dict[str, str]], moment: datetime, after: timedelta) -> list[str]:
+    """Every open PR row reported clean at least `after` ago, oldest first, with what holds it."""
+    aged = sorted(
+        ((moment - parse_iso(fields["reported_at"]), pr, fields) for pr, fields in rows.items() if pr.isdigit() and is_clean_reported(fields)),
+        reverse=True,
+    )
+    return [f"stale #{pr} {int(age.total_seconds() // 60)}m {fields['lane']}: {blocker(fields)}" for age, pr, fields in aged if age >= after]
+
+
+def report_to_landed(landed: list[dict[str, str]]) -> str:
+    minutes = [(parse_iso(fields["landed_at"]) - parse_iso(fields["reported_at"])).total_seconds() / 60 for fields in landed if fields.get("reported_at")]
+    return f"{round(median(minutes))}m" if minutes else "-"
 
 
 def buildkite_targets(status: dict, checks: dict) -> list[re.Match]:
@@ -500,18 +583,18 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
     return sha, stamp(parse_iso(landed_at).astimezone(timezone.utc))
 
 
-def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> str | None:
+def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> Refused | None:
     git = ["git", "-C", str(checkout)]
     shell.run(git + ["fetch", "-q", "origin", f"refs/pull/{pr}/head"])
     fetched = shell.run(git + ["rev-parse", "FETCH_HEAD"]).strip()
     if fetched != head:
-        return REFUSAL["fetched"].format(pr=pr, fetched=fetched[:9], head=head[:9])
+        return refusal("fetched", pr=pr, fetched=fetched[:9], head=head[:9])
     shell.run(git + ["fetch", "-q", "origin", base])
     try:
         shell.run(git + ["merge-tree", "--write-tree", "FETCH_HEAD", head])
     except subprocess.CalledProcessError as failure:
         paths = sorted({line.split("\t")[-1] for line in failure.stdout.splitlines()[1:] if "\t" in line})
-        return REFUSAL["conflict"].format(head=head[:9], base=base, paths=", ".join(paths) or "unlisted paths")
+        return refusal("conflict", head=head[:9], base=base, paths=", ".join(paths) or "unlisted paths")
     return None
 
 
@@ -529,10 +612,11 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
     return "\n".join(out)
 
 
-def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta) -> list[str]:
+def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta) -> list[str]:
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
     landed = sorted((pr for pr, fields in prs.items() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff), key=int)
+    stale = stale_lines(prs, moment, stale_after)
     open_rows = {pr: fields for pr, fields in prs.items() if is_open(fields)}
     labelled = sorted((pr for pr, fields in open_rows.items() if carries_label(fields)), key=int)
     holds = {pr: fields for pr, fields in open_rows.items() if is_held(fields)}
@@ -541,7 +625,9 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     rulings = [fields for fields in pending if fields["kind"] == "ruling"]
     p0s = [fields for fields in pending if fields["kind"] == "p0"]
     lines = [
-        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)}"
+        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)} | stale {len(stale)} | p50 report→landed {report_to_landed([prs[pr] for pr in landed])}",
+        *stale,
+        *waiting_line(prs),
     ]
     if landed:
         lines.append("merged: " + " ".join(f"#{pr}" for pr in landed))
@@ -584,7 +670,7 @@ def cmd_ruling(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_inbox(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
-    messages = sorted(((key, fields) for key, fields in notes.messages().items() if args.all or fields["state"] == "pending"), key=priority)
+    messages = sorted(((key, fields) for key, fields in sharded(notes.messages(), args.shard).items() if args.all or fields["state"] == "pending"), key=priority)
     if args.json:
         print(json.dumps([dict(fields, key=key) for key, fields in messages]))
     else:
@@ -606,15 +692,42 @@ def cmd_ack(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def branch_prefix(value: str) -> str:
+    """A whole branch namespace: without the trailing slash, `lightning` would also claim `lightning-other/`."""
+    if not value.endswith("/") or value == "/":
+        raise argparse.ArgumentTypeError(f"{value!r} is not a branch namespace; end it in '/', as in 'lightning/'")
+    return value
+
+
+def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
+    for pr in args.pr:
+        notes.set_fields(pr, {"lane": args.lane, "registered": args.lane})
+    print(f"registered {args.lane} on {args.branch_prefix}*" + "".join(f" #{pr}" for pr in args.pr))
+    return 0
+
+
+def lane_prs(gh: Github, prefix: str) -> list[str]:
+    """Open pull requests on branches under one lane's prefix: one matching-refs call, one scoped lookup per branch."""
+    owner = gh.repo.split("/")[0]
+    branches = [ref["ref"].removeprefix("refs/heads/") for ref in gh.api(f"git/matching-refs/heads/{prefix}")]
+    return [str(pull["number"]) for branch in branches for pull in gh.api("pulls", head=f"{owner}:{branch}", state="open")]
+
+
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
-        known = notes.pr_rows()
+        known = sharded(notes.pr_rows(), args.shard)
         moment = utc_stamp()
         rows = []
-        for key in sorted(set(known) | set(args.pr), key=int):
+        try:
+            registered = {pr: lane["lane"] for lane in sharded(notes.lanes(), args.shard).values() for pr in lane_prs(gh, lane["branch_prefix"])}
+        except subprocess.CalledProcessError as failure:
+            raise ForgeUnreachable(f"registered branches: {failure.stderr.strip() or failure}") from failure
+        for key in sorted(set(known) | set(args.pr) | set(registered), key=int):
             try:
                 fields = grade(gh, key)
             except subprocess.CalledProcessError as failure:
@@ -622,6 +735,8 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
             fields["last_refresh"] = moment
             if key not in known:
                 fields["first_seen"] = moment
+            if key in registered:
+                fields |= {"lane": registered[key], "registered": registered[key]}
             if key in lanes:
                 fields["lane"] = lanes[key]
             rows.append({"key": key, "fields": fields})
@@ -667,6 +782,7 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
     if args.pr:
         route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run)
         return 0
+    rows = sharded(rows, args.shard)
     routed = sum(route_one(notes, gh, pr, rows[pr], None, None, args.dry_run) for pr in sorted(rows, key=int) if needs_route(rows[pr]))
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
     return 0
@@ -702,6 +818,8 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
         raise refusal("moved", expected=expected[:9], head=head[:9])
     if is_held(fields):
         raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
+    if lane_held(fields) and fields["reported_head"] == head:
+        raise refusal("held", pr=pr, reason="its lane reported this head held", until="the lane reports it again")
     if fields.get("label_head") == head and fields.get("label_pulled_at"):
         raise refusal("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
     if fields.get("label_head") == head and fields.get("labelled_at"):
@@ -711,10 +829,6 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
         raise refusal("unapproved", pr=pr)
     if pull["mergeable_state"] not in LABELLABLE_STATES:
         raise refusal("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
-    committed = parse_iso(gh.api(f"commits/{head}")["commit"]["committer"]["date"])
-    age = now() - committed
-    if age < MIN_HEAD_AGE:
-        raise refusal("young", age=int(age.total_seconds()), min=int(MIN_HEAD_AGE.total_seconds()))
     status = gh.api(f"commits/{head}/status")
     if status["state"] != "success":
         raise refusal("status", state=status["state"], head=head[:9])
@@ -734,49 +848,123 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
     if checkout:
         conflict = merge_conflicts(shell, checkout, pr, base, head)
         if conflict:
-            raise Refused(conflict)
+            raise conflict
     return approved
+
+
+def record_refusals(notes: Notes, rows: dict[str, dict[str, str]], refusals: dict[str, tuple[str, str]]) -> None:
+    """Write each tracked row's refusal and the head it was graded at, so `stale` can name the blocker."""
+    at = utc_stamp()
+    for pr, (head, reason) in refusals.items():
+        if pr in rows:
+            notes.set_fields(pr, {"head": head, "label_refused": reason, "label_refused_head": head, "label_refused_at": at})
+
+
+def label_stack(
+    shell: Shell, gh: Github, notes: Notes, rows: dict[str, dict[str, str]], trunk: str, tip: dict, expected: str | None, checkout: Path | None, dry_run: bool
+) -> dict[str, tuple[str, Refused]]:
+    """Guard every PR from the trunk up to `tip`, then label the tip once; returns each refusing PR's head and reason."""
+    number = str(tip["number"])
+    try:
+        stack = stack_to_trunk(gh, tip, trunk)
+    except Refused as refused:
+        print(f"REFUSED {refused}")
+        if not dry_run:
+            record_refusals(notes, rows, {number: (tip["head"]["sha"], str(refused))})
+        return {number: (tip["head"]["sha"], refused)}
+    numbers = [str(pull["number"]) for pull in stack]
+    approved: dict[str, list[str]] = {}
+    refused: dict[str, tuple[str, Refused]] = {}
+    for index, pull in enumerate(stack):
+        pr, head = numbers[index], pull["head"]["sha"]
+        fields = rows.get(pr, {})
+        above = numbers[index + 1] if index + 1 < len(stack) else None
+        try:
+            if pr != number and not is_tracked(fields):
+                raise refusal("untracked", pr=pr, tip=number)
+            approved[pr] = guard(shell, gh, pull, fields, expected if pr == number else current_head(fields), above, trunk, checkout)
+        except Refused as reason:
+            print(f"REFUSED {reason} (#{pr})")
+            refused[pr] = (head, reason)
+    chain = " <- ".join(f"#{pr}" for pr in numbers)
+    if refused:
+        whole = REFUSAL["stack"].format(stack=chain, refused=", ".join(f"#{pr}" for pr in refused))
+        print(f"REFUSED {whole}")
+        if not dry_run:
+            record_refusals(notes, rows, {pr: (pull["head"]["sha"], str(refused[pr][1]) if pr in refused else whole) for pull, pr in zip(stack, numbers, strict=True)})
+        return refused
+    head = stack[-1]["head"]["sha"]
+    if dry_run:
+        print(f"would label #{number} {head}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
+        return {}
+    gh.add_label(number, MERGE_LABEL)
+    labelled = utc_stamp()
+    print(f"labelled #{number} {head} at {labelled}; the queue takes {chain} as one entry")
+    for pull, pr in zip(stack, numbers, strict=True):
+        head, approved_by = pull["head"]["sha"], ",".join(approved[pr])
+        notes.set_fields(
+            pr,
+            {
+                "head": head,
+                "base": pull["base"]["ref"],
+                "label_head": head,
+                "labelled_at": labelled,
+                "label_stack": ",".join(numbers),
+                "approved_by": approved_by,
+                "label_pulled_at": "",
+                "label_pull_reason": "",
+                "label_refused": "",
+                "label_refused_head": "",
+                "label_refused_at": "",
+            },
+        )
+        print(f"#{pr} {head[:9]} approved by {approved_by}")
+    return {}
+
+
+def is_label_candidate(fields: dict[str, str]) -> bool:
+    """Tracked, open, unheld, and never labelled at its current head; a lane's report gates nothing."""
+    head = current_head(fields)
+    return bool(head) and is_tracked(fields) and is_open(fields) and not is_held(fields) and not lane_held(fields) and fields.get("label_head") != head
+
+
+def label_candidates(rows: dict[str, dict[str, str]]) -> list[str]:
+    return sorted((pr for pr, fields in rows.items() if is_label_candidate(fields)), key=int)
+
+
+def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], refused: dict[str, tuple[str, Refused]], dry_run: bool) -> None:
+    """Send each lane one line per refused head and blocker.
+
+    A push since the refresh is not a blocker, since the next pass grades the new head, and
+    red CI or a conflict is `route`'s to send.
+    """
+    for pr, (head, reason) in refused.items():
+        fields = rows.get(pr, {})
+        if not is_tracked(fields) or reason.kind in UNROUTED_REFUSALS or needs_route(fields):
+            continue
+        job = f"new head {head[:9]}: {reason}"
+        if route_one(notes, gh, pr, dict(fields, head=head), job, None, dry_run):
+            fields |= {"routed_head": head, "routed_job": job, "routed_lane": fields["lane"], "routed_at": utc_stamp()}
 
 
 def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     trunk = gh.default_branch()
-    try:
-        stack = stack_to_trunk(gh, gh.api(f"pulls/{args.pr}"), trunk)
-    except Refused as refused:
-        print(f"REFUSED {refused}")
-        return 1
-    numbers = [str(pull["number"]) for pull in stack]
     rows = notes.pr_rows()
-    approved: dict[str, list[str]] = {}
-    refused: list[str] = []
-    for index, pull in enumerate(stack):
-        pr = numbers[index]
-        above = numbers[index + 1] if index + 1 < len(stack) else None
-        try:
-            if pr != args.pr and not rows.get(pr, {}).get("reported_head"):
-                raise refusal("untracked", pr=pr, tip=args.pr)
-            expected = args.expect_head if pr == args.pr else rows[pr].get("reported_head")
-            approved[pr] = guard(shell, gh, pull, rows.get(pr, {}), expected, above, trunk, args.checkout)
-        except Refused as reason:
-            print(f"REFUSED {reason} (#{pr})")
-            refused.append(pr)
-    chain = " <- ".join(f"#{pr}" for pr in numbers)
-    if refused:
-        print(f"REFUSED {REFUSAL['stack'].format(stack=chain, refused=', '.join(f'#{pr}' for pr in refused))}")
-        return 1
-    tip = stack[-1]["head"]["sha"]
-    if args.dry_run:
-        print(f"would label #{args.pr} {tip}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
-        return 0
-    gh.add_label(args.pr, MERGE_LABEL)
-    labelled = utc_stamp()
-    print(f"labelled #{args.pr} {tip} at {labelled}; the queue takes {chain} as one entry")
-    for pull, pr in zip(stack, numbers, strict=True):
-        head, approved_by = pull["head"]["sha"], ",".join(approved[pr])
-        notes.set_fields(pr, {"head": head, "base": pull["base"]["ref"], "label_head": head, "labelled_at": labelled, "label_stack": ",".join(numbers), "approved_by": approved_by, "label_pulled_at": "", "label_pull_reason": ""})
-        print(f"#{pr} {head[:9]} approved by {approved_by}")
+    if not args.all_clean:
+        refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{args.pr}"), args.expect_head, args.checkout, args.dry_run)
+        return 1 if refused else 0
+    pulls = {pr: pull for pr in label_candidates(sharded(rows, args.shard)) if (pull := gh.api(f"pulls/{pr}"))["state"] == "open"}
+    bases = {pull["base"]["ref"] for pull in pulls.values()}
+    tips = [pr for pr, pull in pulls.items() if pull["head"]["ref"] not in bases]
+    passed, failed = [], []
+    for pr in tips:
+        refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{pr}"), current_head(rows[pr]), args.checkout, args.dry_run)
+        (failed if refused else passed).append(pr)
+        route_refused(notes, gh, rows, refused, args.dry_run)
+    verb = "would label" if args.dry_run else "labelled"
+    print(f"batch: {verb} {len(passed)} of {len(tips)} stacks" + "".join(f" #{pr}" for pr in passed) + (" | refused" + "".join(f" #{pr}" for pr in failed) if failed else ""))
     return 0
 
 
@@ -790,7 +978,7 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> str:
+def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[str, str] | None:
     """The squash the base log names for this PR, if there is one.
 
     Asked only when content cannot tell, which is whenever the base moved on one of the
@@ -804,8 +992,8 @@ def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> str:
     trunk answers, through its tree or through a commit it names.
     """
     git = ["git", "-C", str(checkout)]
-    log = shell.run(git + ["log", f"refs/desk/base/{base}", "--oneline", "-400", "--fixed-strings", f"--grep=(#{pr})"])
-    return log.split(" ", 1)[0] if log.strip() else ""
+    log = shell.run(git + ["log", f"refs/desk/base/{base}", "--format=%H %cI", "-400", "--fixed-strings", f"--grep=(#{pr})"]).split()
+    return (log[0], stamp(parse_iso(log[1]).astimezone(timezone.utc))) if log else None
 
 
 def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
@@ -825,8 +1013,9 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
             notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
             print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
         elif (squash := squash_on_base(shell, checkout, base, pr)):
-            notes.set_fields(pr, {"state": LANDED, "landed_sha": squash, "base": base})
-            print(f"landed #{pr} as {squash[:9]} on {base}, which has moved on its files since")
+            sha, landed_at = squash
+            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
+            print(f"landed #{pr} as {sha[:9]} on {base} at {landed_at}, which has moved on its files since")
         else:
             notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
             print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: a human closed it and its payload is absent, so the row stays until its lane answers")
@@ -837,7 +1026,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
 def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
-    rows = notes.pr_rows()
+    rows = sharded(notes.pr_rows(), args.shard)
     prs = [args.pr] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
     settle(shell, gh, notes, args.checkout, prs)
     return 0
@@ -845,7 +1034,7 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
-    rows = notes.pr_rows()
+    rows = sharded(notes.pr_rows(), args.shard)
     open_rows = [pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES]
     moved = settle(shell, Github(shell, args.repo), notes, args.checkout, sorted(open_rows, key=int))
     print(f"reconciled {len(open_rows)} non-terminal rows, {moved} moved")
@@ -853,9 +1042,15 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
-    if args.repo and args.checkout:
-        cmd_reconcile(args, shell)
-    print("\n".join(summary_lines(Notes(shell, args.ledger).rows(), now(), timedelta(seconds=args.window_seconds))))
+    cmd_reconcile(args, shell)
+    rows = sharded(Notes(shell, args.ledger).rows(), args.shard)
+    print("\n".join(summary_lines(rows, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes))))
+    return 0
+
+
+def cmd_stale(args: argparse.Namespace, shell: Shell) -> int:
+    lines = stale_lines(sharded(Notes(shell, args.ledger).pr_rows(), args.shard), now(), timedelta(minutes=args.minutes))
+    print("\n".join(lines) if lines else f"no clean row older than {args.minutes}m")
     return 0
 
 
@@ -876,6 +1071,10 @@ def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
     parser.add_argument("--ledger", required=True)
 
 
+def add_shard(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--shard", type=shard_lanes, metavar="LANE,LANE", help="only the rows and messages of these lanes")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ledger.py", description=__doc__.splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -892,6 +1091,13 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--verdict", required=True, choices=VERDICTS)
     report.add_argument("--text", default="")
     report.set_defaults(handler=cmd_report)
+
+    register = subparsers.add_parser("register", help="track every open PR on a lane's branch prefix, with no per-head report")
+    add_ledger(register)
+    register.add_argument("--lane", required=True)
+    register.add_argument("--branch-prefix", required=True, type=branch_prefix)
+    register.add_argument("--pr", action="append", default=[], metavar="N")
+    register.set_defaults(handler=cmd_register)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
     add_ledger(enqueue_cmd)
@@ -915,6 +1121,7 @@ def build_parser() -> argparse.ArgumentParser:
     inbox.add_argument("--take", action="store_true")
     inbox.add_argument("--all", action="store_true")
     inbox.add_argument("--json", action="store_true")
+    add_shard(inbox)
     inbox.set_defaults(handler=cmd_inbox)
 
     ack = subparsers.add_parser("ack", help="mark messages handled")
@@ -927,6 +1134,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--pr", action="append", default=[], metavar="N", help="admit this PR, reported by one of our lanes")
     refresh.add_argument("--lane", action="append", default=[], metavar="PR=NAME")
     refresh.add_argument("--lock", type=Path)
+    add_shard(refresh)
     refresh.set_defaults(handler=cmd_refresh)
 
     hold = subparsers.add_parser("hold", help="hold a PR with a reason and an expiry")
@@ -949,14 +1157,18 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--job", help="the failing job or blocker; read from the forge and Buildkite when omitted")
     route.add_argument("--lane")
     route.add_argument("--dry-run", action="store_true")
+    add_shard(route)
     route.set_defaults(handler=cmd_route)
 
     label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then label the tip once")
     add_ledger(label, repo=True)
-    label.add_argument("--pr", required=True)
+    target = label.add_mutually_exclusive_group(required=True)
+    target.add_argument("--pr")
+    target.add_argument("--all-clean", action="store_true", help="label every clean, unheld, never-labelled stack's tip in one batch")
     label.add_argument("--expect-head")
     label.add_argument("--checkout", type=Path)
     label.add_argument("--dry-run", action="store_true")
+    add_shard(label)
     label.set_defaults(handler=cmd_label)
 
     unlabel = subparsers.add_parser("unlabel", help="pull the merge label and record why")
@@ -969,19 +1181,29 @@ def build_parser() -> argparse.ArgumentParser:
     add_ledger(landed, repo=True)
     landed.add_argument("--checkout", type=Path, required=True)
     landed.add_argument("--pr")
+    add_shard(landed)
     landed.set_defaults(handler=cmd_landed)
 
     reconcile = subparsers.add_parser("reconcile", help="settle every non-terminal row against the trunk and the forge")
     add_ledger(reconcile, repo=True)
     reconcile.add_argument("--checkout", type=Path, required=True)
+    add_shard(reconcile)
     reconcile.set_defaults(handler=cmd_reconcile)
 
-    summary = subparsers.add_parser("summary", help="the hourly desk-to-root report, at most ten lines")
+    summary = subparsers.add_parser("summary", help="the desk-to-root report every 30 minutes, at most ten lines")
     add_ledger(summary)
-    summary.add_argument("--repo")
-    summary.add_argument("--checkout", type=Path)
+    summary.add_argument("--repo", required=True)
+    summary.add_argument("--checkout", type=Path, required=True)
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
+    summary.add_argument("--stale-minutes", type=int, default=STALE_MINUTES)
+    add_shard(summary)
     summary.set_defaults(handler=cmd_summary)
+
+    stale = subparsers.add_parser("stale", help="every open row reported clean at least --minutes ago, with its blocker")
+    add_ledger(stale)
+    stale.add_argument("--minutes", type=int, default=STALE_MINUTES)
+    add_shard(stale)
+    stale.set_defaults(handler=cmd_stale)
 
     show = subparsers.add_parser("show", help="render the PR rows")
     add_ledger(show)

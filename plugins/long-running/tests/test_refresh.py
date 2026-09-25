@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ledger
-from conftest import DIRTY_HEAD, FakeShell, LEDGER, LISTED_HEAD, MOVED_HEAD
+from conftest import DIRTY_HEAD, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell
 
 
 def refresh(shell, lock, lane=(), pr=()):

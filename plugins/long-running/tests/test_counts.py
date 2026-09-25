@@ -9,7 +9,7 @@ wrong count, because a wrong count invites a check and a zero closes the questio
 from __future__ import annotations
 
 import ledger
-from conftest import DIRTY_HEAD, FakeShell, GREEN_HEAD, LEDGER, MOVED_HEAD
+from conftest import DIRTY_HEAD, GREEN_HEAD, LEDGER, MOVED_HEAD, FakeShell
 
 ROWS = [
     {"key": "21052", "fields": {"head": MOVED_HEAD, "base": "dev", "test_state": "failure", "mergeable_state": "unknown"}},
