@@ -75,8 +75,7 @@ compaction handoff runs on its own, as Compaction handoff describes. *Prevents t
 forced mid-drive handoff with nothing written down to hand over.*
 
 Every lane receives the whole task list on every wake. The root deletes a completed task
-with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan, and at
-every compaction handoff at the latest.
+with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan.
 
 **R6. Put every owner request in flight the turn it arrives.** Start a new lane or an
 explicitly named parallel sub-lane; never append the request behind a busy lane's queue.
@@ -394,22 +393,25 @@ the rest of the session, compactions included. Nothing inside the session clears
 early.
 
 **Threshold.** The window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env, else the
-`autoCompactWindow` setting, else the model default (1M for `[1m]`, 200k otherwise).
+`autoCompactWindow` setting, capped by the model's own window, which is also the default
+when neither is set. The model is the one on the transcript's latest turn, so a mid-session
+`/model` switch counts. Its window is 1M tokens, except 200,000 for claude-3, haiku-4-5,
+sonnet-4.x, and opus-4-0 through opus-4-6, which reach 1M only with a `[1m]` suffix at
+session start.
 `threshold = window − 33k`. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it further.
 The hook fires on the main-session `Stop`, never a subagent's, once used tokens cross
-80% of that threshold.
+80% of that threshold, about 454,000 tokens for a 600,000-token window.
 
 **Archive, then rewrite.** The hook archives the plan itself, as
-`<stem>.<YYYY-MM-DD>-<HHMM>-pre-compact.md` in UTC beside it. Never archive by hand —
+`<stem>.<YYYY-MM-DD>-<HHMMSS>-pre-compact.md` in UTC beside it. Never archive by hand —
 the guard that lets a plan rewrite through checks for exactly this sibling — and never
 `cat >` the plan to dodge that guard; write over it and let the archive carry the loss.
 
-It then blocks the turn with a directive that forbids plan mode. First record any
+It then blocks the turn once with a directive that forbids plan mode. First record any
 durable state still living only in this conversation in the ledger, the rulings log, or
-a cc-notes note; the archive is history, not a store. Delete every completed task with
-`TaskUpdate` status `deleted`. Then rewrite the plan with one `Write` in exactly this
-skeleton, dropping finished work, superseded state, and anything the archives already
-hold:
+a cc-notes note; the archive is history, not a store. Then rewrite the plan with one
+`Write` in exactly this skeleton, dropping finished work, superseded state, and anything
+the archives already hold:
 
 ```md
 # <title> (compacted <date>Z)
@@ -440,7 +442,9 @@ mid-drive gotcha that matters to a fresh restart belongs there too, not buried i
 `Key notes`.
 
 Then end the turn. The hook types `/compact` through orca itself; outside orca it
-allows the stop and tells the user to run `/compact` by hand instead. After compaction,
+allows the stop and tells the user to run `/compact` by hand instead. A turn that ends
+without the rewrite gets one notice to the user, never a second block, and the hook
+stays quiet until the next compaction. After compaction,
 `SessionStart` points the fresh context at the rewritten plan — that plan supersedes
 the summary, read it first.
 
@@ -456,23 +460,30 @@ already sits on its ledger. A long-lived lane is therefore rotated, not kept: fl
 stopped, and respawned fresh under the same name.
 
 **Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
-At 200k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
-live named lane on the main-session `Stop` and blocks the turn with each lane over the
-line and its count.
+At 400,000 tokens it is due; `LONG_RUNNING_LANE_ROTATE_TOKENS` moves the line. Lanes
+share the session's `autoCompactWindow`, so with a 600,000-token window a lane's own lossy
+auto-compaction fires at 567,000. The line leaves room to rotate through the ledger
+first, and below it a wake on the 1h cache costs too little to repay the flush turn and a
+fresh brief.
+
+Once `long-running` is invoked, the same capt-hook pack checks the live named lanes on
+the main-session `Stop`, never blocks it, and hands the root an advisory with its next
+prompt or tool result. The compaction directive lists no lanes, and a handoff turn draws
+no nudge.
 
 A lane is live only while the `Stop` payload reports a running task for it, so a dead or
-stopped lane is never flagged. The hook blocks once per lane, then gives it 15 minutes to
-flush and stop. A lane still live and over the line after that draws one notice to the
-user, never another block. A lane that leaves the live set counts as rotated. Every
-compaction handoff directive also lists the live lanes over the line. Rotate them before
-ending that turn, and record each new agent in `## Restart here`.
+stopped lane is never named. A lane whose latest turn is over an hour older than the
+root's is skipped, since its cache is already cold and it costs nothing until it wakes.
+A nudge names at most three lanes, largest first, and comes at most every 15 minutes. A
+lane is named at most twice, 30 minutes apart. Rotate a named lane at its next natural
+pause; a nudge never asks for a stop.
 
 **Protocol.**
 
 1. Send the lane one message:
    `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`
-2. On `flushed <ledger id>`, `TaskStop` it first. A spawn under a name a running lane
-   still holds gets a different name.
+2. Only on `flushed <ledger id>`, `TaskStop` it. A spawn under a name a running lane
+   still holds gets a different name. Never stop a lane that has not flushed.
 3. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
    with its original spawn brief plus the ledger id; a lane that now needs a skill comes
    back as `long-running:lane-ship`. Messages addressed by name reach the newest agent.
@@ -480,7 +491,7 @@ ending that turn, and record each new agent in `## Restart here`.
 Never `SendMessage` the stopped lane. That resumes the same transcript and reloads the
 whole history the rotation dropped. An `open-pr:pr-watcher` needs no flush, since
 its state file is its ledger. `TaskStop` it and spawn a fresh one with the same inputs,
-which resumes from that file. A lane with nothing left to do is stopped, not respawned.
+which resumes from that file.
 
 ## Anti-patterns seen
 
@@ -525,6 +536,8 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
 - A lane backgrounded a codex subagent and ended its turn; completion went to the
   root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
   at `00:48Z`.
+- A rotation list treated as a stop list: a Stop-blocking list of 45 lanes led the root
+  to `TaskStop` about 30 of them in one burst, several mid-work.
 
 ## Checklist before every tool call
 

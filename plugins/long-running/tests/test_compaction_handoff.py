@@ -103,8 +103,9 @@ def test_slash_command_records_plan_path(tmp_path: Path, monkeypatch: pytest.Mon
 @pytest.mark.parametrize(
     ("phase", "kept"),
     [
-        ("rewriting", ("rewriting", "/p/brook.2026-09-24-1630-pre-compact.md", 1)),
-        ("compacting", ("idle", "/p/brook.2026-09-24-1630-pre-compact.md", 0)),
+        ("rewriting", ("rewriting", "/p/brook.2026-09-24-163000-pre-compact.md")),
+        ("compacting", ("idle", "/p/brook.2026-09-24-163000-pre-compact.md")),
+        ("declined", ("idle", "/p/brook.2026-09-24-163000-pre-compact.md")),
     ],
 )
 def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, kept: tuple) -> None:
@@ -114,23 +115,22 @@ def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, k
     handoff.CompactionState(
         active=True,
         plan_path="/p/brook.md",
-        archive_path="/p/brook.2026-09-24-1630-pre-compact.md",
+        archive_path="/p/brook.2026-09-24-163000-pre-compact.md",
         phase=phase,
-        reminders=1,
     ).save(evt)
 
     handoff.reground_after_compact(evt)
 
     saved = handoff.CompactionState.load(evt)
-    assert (saved.phase, saved.archive_path, saved.reminders) == kept
+    assert (saved.phase, saved.archive_path) == kept
 
 
 def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    frozen = datetime(2026, 9, 24, 16, 30, tzinfo=UTC)
-    monkeypatch.setattr(handoff, "datetime", type("Frozen", (), {"now": staticmethod(lambda tz: frozen)}))
+    frozen = datetime(2026, 9, 24, 16, 30, 5, tzinfo=UTC)
+    monkeypatch.setattr(handoff, "datetime", type("Frozen", (datetime,), {"now": staticmethod(lambda tz: frozen)}))
     plan = tmp_path / "brook.md"
     plan.write_text("# new\n")
-    archive = tmp_path / "brook.2026-09-24-1630-pre-compact.md"
+    archive = tmp_path / "brook.2026-09-24-163005-pre-compact.md"
     archive.write_text("# first snapshot\n")
     evt = stop_event(tmp_path / "session")
     handoff.CompactionState(active=True, model="claude-opus-5-5[1m]", plan_path=str(plan)).save(evt)
@@ -143,56 +143,126 @@ def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatc
     assert (saved.phase, saved.archive_path) == ("idle", None)
 
 
-def test_lane_is_blocked_once_then_warned_once_after_grace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unrewritten_plan_declines_once_and_never_refires_before_compaction(tmp_path: Path) -> None:
+    plan = tmp_path / "brook.md"
+    plan.write_text("# brook\n")
+    evt = stop_event(tmp_path / "session")
+    handoff.CompactionState(active=True, model="claude-opus-5-5[1m]", plan_path=str(plan)).save(evt)
+
+    assert handoff.compaction_handoff(evt).action == "block"
+    declined = handoff.compaction_handoff(evt)
+    assert (declined.action, declined.system_message.startswith("Long-running compaction handoff skipped")) == (
+        "allow",
+        True,
+    )
+    for _ in range(3):
+        assert handoff.compaction_handoff(evt) is None
+    assert len(list(tmp_path.glob("*-pre-compact.md"))) == 1
+    assert handoff.CompactionState.load(evt).phase == "declined"
+
+
+def calm_stop(session_dir: Path, *tasks: dict) -> StopEvent:
+    return stop_event(
+        session_dir, transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"), background_tasks=list(tasks)
+    )
+
+
+def deliver(session_dir: Path) -> str | None:
+    result = handoff.deliver_nudge(tool_event(session_dir, "Bash", {"command": "ls"}))
+    return result.message if result else None
+
+
+ALL_LANES = (handoff.DESK, handoff.REVIEWER, handoff.WATCHER, handoff.ARCHIVIST, handoff.SLEEPER)
+
+
+def test_rotation_nudges_top_lanes_once_and_never_blocks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     clock = [1_790_000_000.0]
     monkeypatch.setattr(handoff, "time", type("Clock", (), {"time": staticmethod(lambda: clock[0])}))
-    evt = stop_event(
-        tmp_path / "session",
-        transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"),
-        background_tasks=[handoff.DESK],
-    )
+    session = tmp_path / "session"
+    evt = calm_stop(session, *ALL_LANES)
     handoff.CompactionState(active=True, rotated={"gone": 0.0}, overdue=["gone"]).save(evt)
 
-    first = handoff.compaction_handoff(evt)
-    assert (first.action, first.message.startswith("Live lanes")) == ("block", True)
-    assert handoff.CompactionState.load(evt).rotated == {handoff.DESK_ID: clock[0]}
-    clock[0] += handoff.ROTATE_GRACE_SECONDS - 1
     assert handoff.compaction_handoff(evt) is None
-    clock[0] += 1
-    overdue = handoff.compaction_handoff(evt)
-    assert (overdue.action, overdue.system_message.startswith("Long-running lane rotation overdue")) == ("allow", True)
-    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session) == (
+        "Lane rotation (advisory): `archivist` (440,000), `landing-desk` (430,000), `reviewer` (420,000) passed the "
+        "400,000-token rotation line. When each reaches a natural pause, rotate it per the long-running skill's Lane "
+        "rotation protocol, starting with its ROTATE message; a lane that has not replied `flushed` keeps running. "
+        "The hook names at most 3 lanes per nudge and repeats a lane at most once, 30 minutes later."
+    )
+    assert deliver(session) is None
     saved = handoff.CompactionState.load(evt)
-    assert (saved.rotated, saved.overdue) == ({handoff.DESK_ID: 1_790_000_000.0}, [handoff.DESK_ID])
+    assert (sorted(saved.rotated), saved.overdue) == (
+        ["a0d0d0d0d0d0d0d0d", "aarchivist-0j0j0j0j0j0j0j0j", handoff.DESK_ID],
+        [],
+    )
+
+    clock[0] += handoff.NUDGE_INTERVAL_SECONDS - 1
+    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session) is None
+
+    clock[0] += 1
+    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session).startswith("Lane rotation (advisory): `pr-watch-9` (410,000) passed")
+
+    clock[0] += handoff.ROTATE_GRACE_SECONDS
+    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session).startswith(
+        "Lane rotation (advisory): `archivist` (440,000), `landing-desk` (430,000), `reviewer` (420,000) passed"
+    )
+
+    clock[0] += handoff.ROTATE_GRACE_SECONDS
+    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session).startswith("Lane rotation (advisory): `pr-watch-9` (410,000) passed")
+
+    clock[0] += handoff.ROTATE_GRACE_SECONDS
+    assert handoff.compaction_handoff(evt) is None
+    assert deliver(session) is None
+    assert sorted(handoff.CompactionState.load(evt).overdue) == sorted(handoff.CompactionState.load(evt).rotated)
 
 
-def test_dead_lanes_are_never_flagged(tmp_path: Path) -> None:
-    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
+def test_rotation_line_is_configurable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LONG_RUNNING_LANE_ROTATE_TOKENS", "435000")
+    session = tmp_path / "session"
+    evt = calm_stop(session, *ALL_LANES)
+    handoff.CompactionState(active=True).save(evt)
+
+    handoff.compaction_handoff(evt)
+
+    assert deliver(session).startswith(
+        "Lane rotation (advisory): `archivist` (440,000) passed the 435,000-token rotation line."
+    )
+
+
+def test_stopped_rotated_lane_is_pruned(tmp_path: Path) -> None:
+    session = tmp_path / "session"
+    handoff.CompactionState(active=True, rotated={handoff.DESK_ID: 0.0}, overdue=[handoff.DESK_ID]).save(
+        calm_stop(session)
+    )
+
+    assert handoff.compaction_handoff(calm_stop(session, handoff.REVIEWER)) is None
+
+    saved = handoff.CompactionState.load(calm_stop(session))
+    assert (list(saved.rotated), saved.overdue) == (["a0d0d0d0d0d0d0d0d"], [])
+
+
+def test_dead_and_dormant_lanes_are_never_named(tmp_path: Path) -> None:
+    session = tmp_path / "session"
+    evt = calm_stop(session, handoff.SLEEPER)
     handoff.CompactionState(active=True).save(evt)
 
     assert handoff.compaction_handoff(evt) is None
-    assert handoff.CompactionState.load(evt).rotated == {}
+    assert deliver(session) is None
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.rotated, saved.nudged_at) == ({}, 0.0)
 
 
-def test_scan_failure_leaves_no_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = tmp_path / "brook.md"
-    plan.write_text("# plan\n")
-    evt = stop_event(tmp_path / "session")
-    handoff.CompactionState(active=True, model="claude-opus-5-5[1m]", plan_path=str(plan)).save(evt)
+def test_handoff_stop_neither_scans_nor_lists_lanes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     def unreadable(evt: StopEvent) -> list:
         raise OSError("scan")
 
     monkeypatch.setattr(handoff, "live_lanes", unreadable)
-
-    with pytest.raises(OSError):
-        handoff.compaction_handoff(evt)
-
-    assert list(tmp_path.glob("*-pre-compact.md")) == []
-
-
-def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
     evt = stop_event(
         tmp_path / "session",
         transcript_path=str(FIXTURES / "lanes/projects/p/full.jsonl"),
@@ -200,6 +270,40 @@ def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypat
     )
     handoff.CompactionState(active=True).save(evt)
 
-    assert "`landing-desk` (200,000)" in handoff.compaction_handoff(evt).message
+    result = handoff.compaction_handoff(evt)
+
+    assert result.action == "block"
+    assert "landing-desk" not in result.message
     saved = handoff.CompactionState.load(evt)
-    assert (saved.phase, list(saved.rotated)) == ("rewriting", ["alanding-desk-1a1a1a1a1a1a1a1a"])
+    assert (saved.phase, saved.rotated, saved.nudge) == ("rewriting", {}, None)
+
+
+def test_reversed_lines_crosses_block_boundaries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(handoff, "TAIL_BLOCK", 7)
+    path = tmp_path / "t.jsonl"
+    lines = [b"first", b"", b"a much longer second line", b"3"]
+    path.write_bytes(b"\n".join(lines) + b"\n")
+
+    assert list(handoff.reversed_lines(path)) == [b"", *reversed(lines)]
+
+
+@pytest.mark.parametrize(
+    ("model", "hint", "window"),
+    [
+        ("claude-fable-5-1", None, 1_000_000),
+        ("claude-opus-5-5", "claude-fable-5-1", 1_000_000),
+        ("claude-opus-4-7", None, 1_000_000),
+        ("claude-sonnet-5", None, 1_000_000),
+        ("claude-opus-4-6", None, 200_000),
+        ("claude-opus-4-20250514", None, 200_000),
+        ("claude-opus-4-1-20250805", None, 200_000),
+        ("claude-sonnet-4-5-20250929", None, 200_000),
+        ("claude-haiku-4-5-20251001", None, 200_000),
+        ("claude-3-5-sonnet-20241022", None, 200_000),
+        ("claude-sonnet-4-6", "claude-sonnet-4-6[1m]", 1_000_000),
+        ("claude-sonnet-4-6", "claude-opus-5-5[1m]", 200_000),
+        ("gpt-5", None, 200_000),
+    ],
+)
+def test_model_window(model: str, hint: str | None, window: int) -> None:
+    assert handoff.model_window(model, hint) == window
