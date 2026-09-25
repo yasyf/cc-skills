@@ -460,11 +460,12 @@ At 200k it is due. Once `long-running` is invoked, the same capt-hook pack check
 live named lane on the main-session `Stop` and blocks the turn with each lane over the
 line and its count.
 
-A lane still live and over the line on later stops gets up to two one-line reminders;
-after that the hook lets the stop through and tells the user which lane it gave up on. A
-lane that leaves the live set counts as rotated. Every compaction handoff directive also
-lists the live lanes over the line. Rotate them before ending that turn, and record each
-new agent in `## Restart here`.
+A lane is live only while the `Stop` payload reports a running task for it, so a dead or
+stopped lane is never flagged. The hook blocks once per lane, then gives it 15 minutes to
+flush and stop. A lane still live and over the line after that draws one notice to the
+user, never another block. A lane that leaves the live set counts as rotated. Every
+compaction handoff directive also lists the live lanes over the line. Rotate them before
+ending that turn, and record each new agent in `## Restart here`.
 
 **Protocol.**
 

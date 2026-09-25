@@ -143,21 +143,35 @@ def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatc
     assert (saved.phase, saved.archive_path) == ("idle", None)
 
 
-def test_unrotated_lane_is_reminded_then_given_up(tmp_path: Path) -> None:
-    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
-    handoff.CompactionState(active=True, rotated={"gone": 1}).save(evt)
-    desk = "alanding-desk-0b0b0b0b0b0b0b0b"
+def test_lane_is_blocked_once_then_warned_once_after_grace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [1_790_000_000.0]
+    monkeypatch.setattr(handoff, "time", type("Clock", (), {"time": staticmethod(lambda: clock[0])}))
+    evt = stop_event(
+        tmp_path / "session",
+        transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"),
+        background_tasks=[handoff.DESK],
+    )
+    handoff.CompactionState(active=True, rotated={"gone": 0.0}, overdue=["gone"]).save(evt)
 
     first = handoff.compaction_handoff(evt)
     assert (first.action, first.message.startswith("Live lanes")) == ("block", True)
-    assert handoff.CompactionState.load(evt).rotated == {desk: 0}
-    for sent in range(1, handoff.MAX_REMINDERS + 1):
-        assert handoff.compaction_handoff(evt).message.startswith("Still unrotated: `landing-desk`")
-        assert handoff.CompactionState.load(evt).rotated == {desk: sent}
-    gave_up = handoff.compaction_handoff(evt)
-    assert (gave_up.action, gave_up.system_message.startswith("Long-running lane rotation gave up")) == ("allow", True)
+    assert handoff.CompactionState.load(evt).rotated == {handoff.DESK_ID: clock[0]}
+    clock[0] += handoff.ROTATE_GRACE_SECONDS - 1
     assert handoff.compaction_handoff(evt) is None
-    assert handoff.CompactionState.load(evt).rotated == {desk: handoff.GAVE_UP}
+    clock[0] += 1
+    overdue = handoff.compaction_handoff(evt)
+    assert (overdue.action, overdue.system_message.startswith("Long-running lane rotation overdue")) == ("allow", True)
+    assert handoff.compaction_handoff(evt) is None
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.rotated, saved.overdue) == ({handoff.DESK_ID: 1_790_000_000.0}, [handoff.DESK_ID])
+
+
+def test_dead_lanes_are_never_flagged(tmp_path: Path) -> None:
+    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
+    handoff.CompactionState(active=True).save(evt)
+
+    assert handoff.compaction_handoff(evt) is None
+    assert handoff.CompactionState.load(evt).rotated == {}
 
 
 def test_scan_failure_leaves_no_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,9 +193,13 @@ def test_scan_failure_leaves_no_archive(tmp_path: Path, monkeypatch: pytest.Monk
 
 def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/full.jsonl"))
+    evt = stop_event(
+        tmp_path / "session",
+        transcript_path=str(FIXTURES / "lanes/projects/p/full.jsonl"),
+        background_tasks=[handoff.DESK],
+    )
     handoff.CompactionState(active=True).save(evt)
 
     assert "`landing-desk` (200,000)" in handoff.compaction_handoff(evt).message
     saved = handoff.CompactionState.load(evt)
-    assert (saved.phase, saved.rotated) == ("rewriting", {"alanding-desk-1a1a1a1a1a1a1a1a": 0})
+    assert (saved.phase, list(saved.rotated)) == ("rewriting", ["alanding-desk-1a1a1a1a1a1a1a1a"])
