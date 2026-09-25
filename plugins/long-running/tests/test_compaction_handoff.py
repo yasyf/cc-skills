@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from captain_hook.app import _state
-from captain_hook.events import PostToolUseEvent, StopEvent
+from captain_hook.events import PostToolUseEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
 
 HOOK = Path(__file__).resolve().parents[1] / "capt-hook" / "hooks" / "compaction_handoff.py"
@@ -87,6 +87,44 @@ def test_quoted_plan_arg_records_bare_path(tmp_path: Path, monkeypatch: pytest.M
     assert handoff.CompactionState.load(stop_event(session_dir)).plan_path == str(tmp_path / ".claude/plans/x.md")
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    ["/long-running:long-running Continue the plan at ~/.claude/plans/x.md", "/long-running `~/.claude/plans/x.md`"],
+)
+def test_slash_command_records_plan_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prompt: str) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    session_dir = tmp_path / "session"
+    raw = {"session_id": "0123456789abcdef", "prompt": prompt}
+    handoff.activate_on_command(UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=session_dir)))
+    saved = handoff.CompactionState.load(stop_event(session_dir))
+    assert (saved.active, saved.plan_path) == (True, str(tmp_path / ".claude/plans/x.md"))
+
+
+@pytest.mark.parametrize(
+    ("phase", "kept"),
+    [
+        ("rewriting", ("rewriting", "/p/brook.2026-09-24-1630-pre-compact.md", 1)),
+        ("compacting", ("idle", "/p/brook.2026-09-24-1630-pre-compact.md", 0)),
+    ],
+)
+def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, kept: tuple) -> None:
+    evt = SessionStartEvent(
+        _raw={"session_id": "0123456789abcdef", "source": "compact"}, ctx=build_context(session_dir=tmp_path / "session")
+    )
+    handoff.CompactionState(
+        active=True,
+        plan_path="/p/brook.md",
+        archive_path="/p/brook.2026-09-24-1630-pre-compact.md",
+        phase=phase,
+        reminders=1,
+    ).save(evt)
+
+    handoff.reground_after_compact(evt)
+
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.phase, saved.archive_path, saved.reminders) == kept
+
+
 def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     frozen = datetime(2026, 9, 24, 16, 30, tzinfo=UTC)
     monkeypatch.setattr(handoff, "datetime", type("Frozen", (), {"now": staticmethod(lambda tz: frozen)}))
@@ -103,3 +141,47 @@ def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatc
     assert archive.read_text() == "# first snapshot\n"
     saved = handoff.CompactionState.load(evt)
     assert (saved.phase, saved.archive_path) == ("idle", None)
+
+
+def test_unrotated_lane_is_reminded_then_given_up(tmp_path: Path) -> None:
+    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
+    handoff.CompactionState(active=True, rotated={"gone": 1}).save(evt)
+    desk = "alanding-desk-0b0b0b0b0b0b0b0b"
+
+    first = handoff.compaction_handoff(evt)
+    assert (first.action, first.message.startswith("Live lanes")) == ("block", True)
+    assert handoff.CompactionState.load(evt).rotated == {desk: 0}
+    for sent in range(1, handoff.MAX_REMINDERS + 1):
+        assert handoff.compaction_handoff(evt).message.startswith("Still unrotated: `landing-desk`")
+        assert handoff.CompactionState.load(evt).rotated == {desk: sent}
+    gave_up = handoff.compaction_handoff(evt)
+    assert (gave_up.action, gave_up.system_message.startswith("Long-running lane rotation gave up")) == ("allow", True)
+    assert handoff.compaction_handoff(evt) is None
+    assert handoff.CompactionState.load(evt).rotated == {desk: handoff.GAVE_UP}
+
+
+def test_scan_failure_leaves_no_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = tmp_path / "brook.md"
+    plan.write_text("# plan\n")
+    evt = stop_event(tmp_path / "session")
+    handoff.CompactionState(active=True, model="claude-opus-5-5[1m]", plan_path=str(plan)).save(evt)
+
+    def unreadable(evt: StopEvent) -> list:
+        raise OSError("scan")
+
+    monkeypatch.setattr(handoff, "live_lanes", unreadable)
+
+    with pytest.raises(OSError):
+        handoff.compaction_handoff(evt)
+
+    assert list(tmp_path.glob("*-pre-compact.md")) == []
+
+
+def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/full.jsonl"))
+    handoff.CompactionState(active=True).save(evt)
+
+    assert "`landing-desk` (200,000)" in handoff.compaction_handoff(evt).message
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.phase, saved.rotated) == ("rewriting", {"alanding-desk-1a1a1a1a1a1a1a1a": 0})
