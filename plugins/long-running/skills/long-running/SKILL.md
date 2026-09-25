@@ -130,8 +130,12 @@ minutes after they started, and a lost stacked child counted as merged.*
 records the head, job, and lane it sent, so the same head and job are never routed twice
 and a moved head is routed again. Nothing is written to the pull request: a lane is
 addressed where it listens, and a comment on a PR reaches whoever happens to read it.
+Route to a lane only while it is live. A finished lane's name resumes its whole brief
+under R4 and collides with the lane now holding the worktree, so send a red on its PR
+to the root to dispatch a fresh fix lane.
 *Prevents the red PR that sat for hours because the pass that found it only recorded
-it, and the routing comment on someone else's PR.*
+it, and the routing comment on someone else's PR. Also prevents a red routed to a
+finished infra lane on #25188, which pushed from the worktree a fresh rebase lane held.*
 
 **D6. Every hold has a reason and an expiry, and every message is recorded once.**
 `ledger.py hold` takes both; a row parked without them is an untracked row wearing a
@@ -186,6 +190,10 @@ growing with the board until a five-minute cadence is a 20-minute one again.*
 **D13. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and `label --all-clean`, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
+
+**D14. A stack lands whole.** When the ledger holds several PRs in one stack, never label a lower PR as its tip while any PR above it is open. A red, conflicting, or held PR anywhere holds the whole stack. Route the blocker under D5 and label the tip once every PR passes on its final head. A stack whose root is ruled out by retargeting to the base branch or closing is still one stack. Retarget the next PR to the base branch and label the remaining tip, never each survivor alone.
+
+*Prevents landing the root alone in six stacked PRs, #25188 through #25199 in Forge-AI/monorepo on 2026-09-25, which would have rebased five children onto a moving base and re-run CI on each for nothing; the owner ruled "merge the whole stack at once but first fix the failing CI on it".*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
@@ -298,6 +306,7 @@ ledger.py label   --repo "$REPO" --ledger "$LEDGER" --all-clean --checkout "$CHE
 ledger.py stale   --ledger "$LEDGER"
 
 # for a stack the batch did not reach: pin the graded tip; route or hold each blocker
+# a stack lands whole: label its tip only, once every PR passes; never a lower PR alone
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr <tip> --expect-head <tip-sha> --checkout "$CHECKOUT"
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --pr 21221 --job "plan comment missing for this head"
 ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4

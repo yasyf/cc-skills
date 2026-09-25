@@ -39,6 +39,7 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   script: <plugin root>/skills/long-running/scripts/ledger.py
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
+  stack: <bottom -> top PR list, or "none">
 
 You may be a rotation respawn: the root stopped the last desk with `TaskStop` and
   spawned you fresh under its name. The ledger holds everything the last desk knew:
@@ -79,6 +80,11 @@ Do, in this order, forever:
      and conflicts go through `route`, without a duplicate message from the batch.
      For a stack the batch did not reach, run
      `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>`.
+     Never label a lower PR of a tracked stack as a tip. Leave the whole stack
+     unlabelled while any PR is red, conflicting, or held. Label the tip only when
+     every PR passes on its final head.
+     When the root is retargeted to the base branch or closed, retarget the next PR
+     to the base branch and label the remaining tip. Never label each survivor alone.
      `--expect-head` pins the tip you graded. In both forms, the tool walks base
      refs to the repo's default branch, re-reads every PR, and runs every guard on
      each. It refuses a closed PR, a desk hold or lane `held` verdict on that head,
@@ -100,8 +106,10 @@ Do, in this order, forever:
   4. Route. `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Send exactly the
-     text it prints, by SendMessage. Never comment on the PR. Never re-route the
-     same head and job.
+     text it prints, by SendMessage, only to a live lane. For a red on a PR whose lane
+     has finished, send the root `RULING NEEDED` naming the PR and blocker so it
+     dispatches a fresh fix lane. Never SendMessage a finished lane. Never comment
+     on the PR. Never re-route the same head and job.
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.
      Every hold has a reason and an expiry; an expired hold is a question for the
