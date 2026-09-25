@@ -5,6 +5,7 @@ import re
 import secrets
 import time
 import uuid
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -32,7 +33,6 @@ SENDER = "long-running"
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>" to team-lead, then stop.'
 )
-LIVE_TYPES = ("teammate", "subagent")
 DORMANT = timedelta(hours=1)
 PACE_SECONDS = 15 * 60
 PACE_LIMIT = 3
@@ -76,26 +76,35 @@ def spawned_at(transcript: Path) -> str | None:
 
 
 def live_lanes(evt: BaseHookEvent) -> list[Lane]:
-    running = {task.description for task in evt.background_tasks if task.type in LIVE_TYPES and task.status == "running"}
+    live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
+    teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
     newest: dict[str, tuple[str, Path, dict]] = {}
-    for meta_path in (evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json"):
+    for meta_path in sorted((evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json")):
         meta = json.loads(meta_path.read_text())
-        if (description := meta.get("description")) not in running:
+        if not (name := meta.get("name")):
             continue
         transcript = meta_path.with_name(meta_path.name.removesuffix(".meta.json") + ".jsonl")
-        if (started := spawned_at(transcript)) and (description not in newest or started > newest[description][0]):
-            newest[description] = (started, transcript, meta)
-    return [
-        Lane(
-            name=meta.get("name") or meta["description"],
-            agent_id=transcript.stem.removeprefix("agent-"),
-            team=meta.get("teamName"),
-            turn=turn,
-            line=rotation_line(turn.model, meta.get("model"), evt.cwd),
-        )
-        for _, transcript, meta in newest.values()
-        if (turn := latest_turn(transcript, sidechain=True))
-    ]
+        if not meta.get("teamName") and transcript.stem.removeprefix("agent-") not in live_subagents:
+            continue
+        if (started := spawned_at(transcript)) and (name not in newest or started > newest[name][0]):
+            newest[name] = (started, transcript, meta)
+    lanes = []
+    for name, (_, transcript, meta) in sorted(newest.items(), key=lambda item: item[1][0], reverse=True):
+        if meta.get("teamName"):
+            if not teammate_tasks[meta["description"]]:
+                continue
+            teammate_tasks[meta["description"]] -= 1
+        if turn := latest_turn(transcript, sidechain=True):
+            lanes.append(
+                Lane(
+                    name=name,
+                    agent_id=transcript.stem.removeprefix("agent-"),
+                    team=meta.get("teamName"),
+                    turn=turn,
+                    line=rotation_line(turn.model, meta.get("model"), evt.cwd),
+                )
+            )
+    return lanes
 
 
 def due(lane: Lane, state: RotationState, root: Turn, now: float) -> bool:

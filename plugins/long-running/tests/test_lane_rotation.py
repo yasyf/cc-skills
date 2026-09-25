@@ -66,7 +66,7 @@ class Tree:
         (subagents / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
         first = {"type": "user", "isSidechain": True, "timestamp": stamp(spawned), "message": {"content": "go"}}
         write_jsonl(subagents / f"agent-{agent_id}.jsonl", [first, assistant(ROOT_AT - behind, tokens, sidechain=True, model=model)])
-        return {"id": f"t-{name}", "type": "teammate" if team else "subagent", "status": "running", "description": meta["description"]}
+        return {"id": f"t-{name}" if team else agent_id, "type": "teammate" if team else "subagent", "status": "running", "description": meta["description"]}
 
     def inbox(self, name: str) -> list[dict]:
         path = self.claude / "teams" / TEAM / "inboxes" / f"{name}.json"
@@ -180,6 +180,14 @@ def test_respawned_lane_is_read_from_its_newest_transcript(tree: Tree, clock: li
     lane_rotation.rotate_lanes(stop(tree, [task]))
 
     assert tree.inbox("desk") == []
+
+
+def test_lanes_sharing_a_description_each_need_their_own_task(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("desk-a", 450_000, description="lane", spawned=ROOT_AT - timedelta(hours=2))
+    tree.lane("desk-b", 460_000, description="lane", spawned=ROOT_AT - timedelta(hours=1))
+
+    assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]))] == ["desk-b"]
+    assert sorted(lane.name for lane in lane_rotation.live_lanes(stop(tree, [task, task]))) == ["desk-a", "desk-b"]
 
 
 def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
