@@ -32,6 +32,7 @@ SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 LEADING_FLOAT = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 ARCHIVE_SUFFIX = "-pre-compact.md"
+SYNTHETIC_MODEL = "<synthetic>"
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 LANES = FIXTURES / "lanes" / "projects" / "p"
 REVIEWER = {"id": "a0d0d0d0d0d0d0d0d", "type": "subagent", "status": "running", "description": "lane"}
@@ -108,6 +109,7 @@ def used_tokens(transcript: Path, *, sidechain: bool = False) -> int:
         if (
             entry.get("type") == "assistant"
             and entry.get("isSidechain", False) == sidechain
+            and entry["message"].get("model") != SYNTHETIC_MODEL
             and (usage := entry["message"].get("usage"))
         ):
             return usage["input_tokens"] + usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"]
@@ -450,6 +452,11 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             session_id="0123456789abcdef",
             state=[CompactionState(active=True)],
         ): Block(pattern=r"^Context is at 170,000 of the 167,000-token .*rewrite `\S+/\.claude/plans/long-running-01234567\.md`"),
+        Input(
+            transcript=FIXTURES / "usage-170k-synthetic-tail.jsonl",
+            session_id="0123456789abcdef",
+            state=[CompactionState(active=True)],
+        ): Block(pattern=r"^Context is at 170,000 of the 167,000-token "),
         Input(
             transcript=FIXTURES / "usage-460k.jsonl",
             cwd=str(FIXTURES / "project-local"),
