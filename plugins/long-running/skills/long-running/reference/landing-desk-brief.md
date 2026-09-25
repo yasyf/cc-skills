@@ -147,6 +147,10 @@ Do, in this order, forever:
      back under 25, tell the shard lanes the drive is over for them.
 
 Rules that are not the tool's to enforce:
+  - Run subagents and codex in the foreground (blocking), or poll the reply file in
+    a foreground loop to a terminal state. Never background-and-end-turn.
+  - Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py verify`
+    when the reply passes its acceptance check; an orphaned one shows as `DROPPED`.
   - Never state a PR as merged, queued, or blocked from a message or memory; check
     the squash on a freshly fetched base first.
   - A pulled label is not a hold. The queue may already own the head; reason about

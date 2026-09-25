@@ -48,6 +48,14 @@ waiting is a bug; lanes poll in foreground loops to a terminal state and report 
 *Prevents both the per-landing watcher tax and the lane that parked at a confirm gate
 while its silence read as progress.*
 
+A lane never backgrounds a subagent or codex run and ends its turn. Run subagents and
+codex in the foreground (blocking), or poll the reply file in a foreground loop to a
+terminal state.
+
+*Prevents the `00:48Z` loss of the "Use ccx for" ask for `AGENTS.md` in monorepo audit
+note `ab649fa1`. The lane backgrounded a codex subagent and ended its turn;
+completion went to the root session and the lane never woke.*
+
 **R4. Never re-brief a lane, never answer a duplicate.** `SendMessage` to a finished
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
@@ -96,6 +104,11 @@ been on dev for 15 minutes.*
 `ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>"`
 in the turn the ask arrives, before or with the lane dispatch. Each new ask gets its
 own lane; never append it to a busy lane's brief, under R6.
+
+Every lane records each sub-dispatch as an ask row before dispatch with
+`ledger.py ask --ledger <id> --text "<sub-task>" --lane <lane> --accept "<the reply it must return>"`.
+When the reply lands and passes its acceptance check, the lane runs `ledger.py verify`.
+An orphaned sub-dispatch surfaces as `DROPPED` in the summary.
 
 Before claiming anything is assigned, in flight, or done, the root reads
 `ledger.py summary` or `ledger.py show --asks`, never its own plan table. R7 still
@@ -237,6 +250,8 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
+Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
+Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py verify` when its reply passes the acceptance check.
 Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
@@ -506,6 +521,9 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
   queued it by hand.
 - A desk kept for the whole drive, re-reading hundreds of thousands of tokens of history
   on every report while its state already sat on the ledger.
+- A lane backgrounded a codex subagent and ended its turn; completion went to the
+  root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
+  at `00:48Z`.
 
 ## Checklist before every tool call
 

@@ -61,6 +61,10 @@ ask id exits non-zero. Once the acceptance check passes, the root runs
 or `[verified]`. An unverified ask with no linked PR reaches `DROPPED` 30 minutes
 after `asked_at`; the root dispatches it in the turn the summary names it.
 
+Lanes record their own sub-dispatches the same way, with `ledger.py ask` before
+dispatch and `ledger.py verify` when the reply passes its acceptance check. An orphaned
+sub-dispatch shows as `DROPPED` in the summary.
+
 ## RULING NEEDED, one line
 
 The only message that reaches the root outside the 30-minute summary. Sent by the desk,
