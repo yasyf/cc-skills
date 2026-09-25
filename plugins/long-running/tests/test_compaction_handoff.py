@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from captain_hook.app import _state
-from captain_hook.events import PostToolUseEvent, StopEvent
+from captain_hook.events import PostToolUseEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
 
 HOOK = Path(__file__).resolve().parents[1] / "capt-hook" / "hooks" / "compaction_handoff.py"
@@ -85,6 +85,44 @@ def test_quoted_plan_arg_records_bare_path(tmp_path: Path, monkeypatch: pytest.M
     session_dir = tmp_path / "session"
     handoff.activate_on_skill(tool_event(session_dir, "Skill", {"skill": "long-running", "args": args}))
     assert handoff.CompactionState.load(stop_event(session_dir)).plan_path == str(tmp_path / ".claude/plans/x.md")
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["/long-running:long-running Continue the plan at ~/.claude/plans/x.md", "/long-running `~/.claude/plans/x.md`"],
+)
+def test_slash_command_records_plan_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prompt: str) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    session_dir = tmp_path / "session"
+    raw = {"session_id": "0123456789abcdef", "prompt": prompt}
+    handoff.activate_on_command(UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=session_dir)))
+    saved = handoff.CompactionState.load(stop_event(session_dir))
+    assert (saved.active, saved.plan_path) == (True, str(tmp_path / ".claude/plans/x.md"))
+
+
+@pytest.mark.parametrize(
+    ("phase", "kept"),
+    [
+        ("rewriting", ("rewriting", "/p/brook.2026-09-24-1630-pre-compact.md", 1)),
+        ("compacting", ("idle", "/p/brook.2026-09-24-1630-pre-compact.md", 0)),
+    ],
+)
+def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, kept: tuple) -> None:
+    evt = SessionStartEvent(
+        _raw={"session_id": "0123456789abcdef", "source": "compact"}, ctx=build_context(session_dir=tmp_path / "session")
+    )
+    handoff.CompactionState(
+        active=True,
+        plan_path="/p/brook.md",
+        archive_path="/p/brook.2026-09-24-1630-pre-compact.md",
+        phase=phase,
+        reminders=1,
+    ).save(evt)
+
+    handoff.reground_after_compact(evt)
+
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.phase, saved.archive_path, saved.reminders) == kept
 
 
 def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

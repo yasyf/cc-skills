@@ -132,23 +132,31 @@ def directive(*, used: int, limit: int, archive: Path | None, plan: Path, archiv
     },
 )
 def activate_on_skill(evt: BaseHookEvent) -> HookResult | None:
-    if not (call := evt.as_input(SkillCall)) or not skill_name_matches(call.skill, SKILL_NAMES):
-        return None
+    if (call := evt.as_input(SkillCall)) and skill_name_matches(call.skill, SKILL_NAMES):
+        activate(evt, call.args or "")
+    return None
+
+
+@on(
+    Event.UserPromptSubmit,
+    tests={
+        Input(prompt="/long-running drive the release"): Allow(),
+        Input(prompt="/long-running:long-running Continue the plan at ~/.claude/plans/x.md"): Allow(),
+        Input(prompt="drive /long-running later"): Allow(),
+    },
+)
+def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
+    if (prompt := evt.user_prompt or "").startswith("/long-running"):
+        activate(evt, prompt)
+    return None
+
+
+def activate(evt: BaseHookEvent, args: str) -> None:
     state = CompactionState.load(evt)
     state.active = True
-    if match := PLAN_ARG.search(call.args or ""):
+    if match := PLAN_ARG.search(args):
         state.plan_path = str(Path(match[0]).expanduser())
     state.save(evt)
-    return None
-
-
-@on(Event.UserPromptSubmit, tests={Input(prompt="/long-running drive the release"): Allow()})
-def activate_on_command(evt: BaseHookEvent) -> HookResult | None:
-    if (evt.user_prompt or "").startswith("/long-running"):
-        state = CompactionState.load(evt)
-        state.active = True
-        state.save(evt)
-    return None
 
 
 @on(
@@ -174,7 +182,27 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(
             source="compact", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="compacting")]
-        ): Warn(pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else"),
+        ): Warn(pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else.*context\.$"),
+        Input(
+            source="compact",
+            state=[
+                CompactionState(
+                    active=True,
+                    plan_path="/p/brook.md",
+                    archive_path="/p/brook.2026-09-24-1630-pre-compact.md",
+                    phase="rewriting",
+                    reminders=1,
+                )
+            ],
+        ): Warn(
+            pattern=r"^Compacted long-running session\. Read `/p/brook\.md` .*The compaction handoff directive is "
+            r"still pending: rewrite `/p/brook\.md` with one Write \(the previous plan is archived at "
+            r"`/p/brook\.2026-09-24-1630-pre-compact\.md`\), then end your turn; the hook runs /compact\.$"
+        ),
+        Input(
+            source="compact",
+            state=[CompactionState(active=True, plan_path="/p/long-running-01234567.md", phase="rewriting")],
+        ): Warn(pattern=r"still pending: rewrite `/p/long-running-01234567\.md` with one Write, then end your turn"),
         Input(source="compact", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
     },
@@ -183,7 +211,7 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
     state = CompactionState.load(evt)
     if model := evt._raw.get("model"):
         state.model = model
-    if evt.source == "compact" and state.active:
+    if evt.source == "compact" and state.phase == "compacting":
         state.phase = "idle"
         state.reminders = 0
     state.save(evt)
@@ -191,8 +219,17 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         return evt.context(
             f"Compacted long-running session. Read `{state.plan_path}` before anything else; it supersedes the summary. "
             "The long-running skill stays active — reload its rules (Skill `long-running`) if they are not in context."
+            + (pending_rewrite(state) if state.phase == "rewriting" else "")
         )
     return None
+
+
+def pending_rewrite(state: CompactionState) -> str:
+    archived = f" (the previous plan is archived at `{state.archive_path}`)" if state.archive_path else ""
+    return (
+        f" The compaction handoff directive is still pending: rewrite `{state.plan_path}` with one Write{archived}, "
+        "then end your turn; the hook runs /compact."
+    )
 
 
 def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | None:
