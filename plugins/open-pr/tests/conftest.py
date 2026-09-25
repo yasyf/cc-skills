@@ -80,12 +80,17 @@ def comment(comment_id: int, body: str, *, author: str = "yasyf", at: str = "202
     return {"id": comment_id, "user": {"login": author}, "created_at": at, "body": body}
 
 
+def review(review_id: int, state: str, *, author: str = "reviewer", at: str = "2026-09-24T00:15:00Z") -> dict:
+    return {"id": review_id, "user": {"login": author}, "state": state, "submitted_at": at}
+
+
 def surface(
     pr: dict,
     *,
     runs: list[dict] | None = None,
     events: list[dict] | None = None,
     comments: list[dict] | None = None,
+    reviews: list[dict] | None = None,
     commits: list[dict] | None = None,
 ) -> dict[str, object]:
     head = pr["head"]["sha"]
@@ -97,7 +102,7 @@ def surface(
         f"issues/{PR}/events": events or [],
         f"issues/{PR}/comments": comments or [],
         f"pulls/{PR}/comments": [],
-        f"pulls/{PR}/reviews": [],
+        f"pulls/{PR}/reviews": reviews or [],
         "commits": commits or [],
     }
 
@@ -108,6 +113,8 @@ class Run:
     passes: int
     state: dict
     gh_calls: list[str]
+    returncode: int
+    stderr: str
 
     @property
     def done(self) -> str | None:
@@ -155,6 +162,8 @@ def poll(tmp_path: Path):
             passes=int(pass_file.read_text()) + 1,
             state=json.loads(state_file.read_text()),
             gh_calls=log.read_text().splitlines(),
+            returncode=result.returncode,
+            stderr=result.stderr,
         )
 
     return run

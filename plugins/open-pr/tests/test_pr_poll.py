@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 
 import pytest
 from conftest import (
@@ -13,6 +15,7 @@ from conftest import (
     event,
     labeled,
     pull,
+    review,
     surface,
     unlabeled,
 )
@@ -26,9 +29,9 @@ GRAPHITE_WAITING = check_run(
 )
 
 
-def test_green_clean_pr_is_all_green(poll):
+def test_green_clean_pr_is_ready_to_merge(poll):
     run = poll(surface(pull()))
-    assert run.lines == ["CHECK build pass https://ci.example/build", "DONE all-green"]
+    assert run.lines == ["CHECK build pass https://ci.example/build", "DONE ready-to-merge"]
 
 
 def test_failed_check_is_checks_failed(poll):
@@ -56,10 +59,10 @@ def test_unknown_mergeable_is_not_a_read(poll):
     assert run.state["mergeable_false_reads"] == 0
 
 
-def test_unknown_mergeable_holds_all_green_until_computed(poll):
+def test_unknown_mergeable_holds_ready_to_merge_until_computed(poll):
     unknown = surface(pull(mergeable=None, mergeable_state="unknown"))
     run = poll(unknown, unknown, surface(pull()))
-    assert run.done == "DONE all-green"
+    assert run.done == "DONE ready-to-merge"
     assert run.passes == 3
 
 
@@ -163,14 +166,14 @@ def test_human_unlabel_is_unqueued_not_evicted(poll):
     queued = surface(pull(labels=("merge",)), events=[labeled(1)])
     removed = surface(pull(), events=[labeled(1), unlabeled(2, actor="yasyf")])
     run = poll(queued, removed)
-    assert run.lines[-2:] == ["UNQUEUED yasyf", "DONE all-green"]
+    assert run.lines[-2:] == ["UNQUEUED yasyf", "DONE ready-to-merge"]
 
 
 def test_unlabel_from_before_the_watch_started_is_ignored(poll, tmp_path):
     (tmp_path / "state.json").unlink()
     old = [labeled(1, at="2020-01-01T00:00:00Z"), unlabeled(2, at="2020-01-01T00:05:00Z")]
     run = poll(surface(pull(), events=old))
-    assert run.lines[-1] == "DONE all-green"
+    assert run.lines[-1] == "DONE ready-to-merge"
 
 
 def test_poll_uses_rest_only(poll):
@@ -248,7 +251,7 @@ def test_fresh_watch_does_not_replay_old_merge_activity(poll, tmp_path):
         surface(computing, comments=[comment(14, edited)]),
         surface(pull(), comments=[comment(14, edited)]),
     )
-    assert run.done == "DONE all-green"
+    assert run.done == "DONE ready-to-merge"
     assert run.passes == 3
 
 
@@ -356,7 +359,7 @@ def test_graphite_drop_bullet_is_classified(poll, bullet, done):
 def test_graphite_bookkeeping_bullet_is_neither_queued_nor_dropped(poll, bullet):
     run = poll(surface(pull(), comments=[merge_activity(22, bullet)]))
     assert not any(line.startswith("QUEUED ") for line in run.lines)
-    assert run.done == "DONE all-green"
+    assert run.done == "DONE ready-to-merge"
 
 
 def test_ui_dequeue_without_a_label_is_unqueued_not_evicted(poll):
@@ -366,7 +369,7 @@ def test_ui_dequeue_without_a_label_is_unqueued_not_evicted(poll):
         surface(pull(), comments=[merge_activity(5790504993, enqueued)]),
         surface(pull(), comments=[merge_activity(5790504993, enqueued, dequeued)]),
     )
-    assert run.lines[-3:] == ["QUEUED andrewmbenton 5790504993", "UNQUEUED andrewmbenton", "DONE all-green"]
+    assert run.lines[-3:] == ["QUEUED andrewmbenton 5790504993", "UNQUEUED andrewmbenton", "DONE ready-to-merge"]
     assert run.passes == 2
 
 
@@ -382,7 +385,7 @@ def test_ui_dequeue_consumes_the_bot_unlabel_that_follows_it(poll):
     run = poll(queued, racing, unlabelled)
     assert "UNQUEUED yasyf" in run.lines
     assert not any(line.startswith("DONE evicted") for line in run.lines)
-    assert run.done == "DONE all-green"
+    assert run.done == "DONE ready-to-merge"
     assert run.passes == 3
 
 
@@ -473,7 +476,7 @@ def test_fresh_watch_after_a_ui_dequeue_ignores_the_trailing_bot_unlabel(poll, t
     cleaned = surface(pull(), events=[labeled(1), unlabeled(2, at="2099-01-01T00:00:00Z")], comments=[activity])
     run = poll(lingering, cleaned)
     assert not any(line.startswith(("QUEUED ", "DONE evicted")) for line in run.lines)
-    assert run.done == "DONE all-green"
+    assert run.done == "DONE ready-to-merge"
 
 
 def test_first_pass_that_fails_before_reading_state_keeps_the_deadline(poll):
@@ -482,3 +485,69 @@ def test_first_pass_that_fails_before_reading_state_keeps_the_deadline(poll):
     run = poll(blind, PENDING, env={"PR_POLL_DEADLINE": "3600"})
     assert run.done is None
     assert run.passes == 2
+
+
+def test_green_pr_missing_its_required_approval_awaits_review_then_reports_ready(poll):
+    blocked = surface(pull(mergeable_state="blocked"))
+    approved = surface(pull(), reviews=[review(1, "APPROVED")])
+    run = poll(blocked, blocked, approved)
+    assert run.lines == [
+        "CHECK build pass https://ci.example/build",
+        "GREEN awaiting-review",
+        "REVIEW reviewer APPROVED 1",
+        "DONE ready-to-merge",
+    ]
+
+
+def test_outstanding_change_request_holds_ready_until_the_reviewer_approves(poll):
+    requested = surface(pull(), reviews=[review(1, "CHANGES_REQUESTED")])
+    approved = surface(pull(), reviews=[review(1, "CHANGES_REQUESTED"), review(2, "APPROVED", at="2026-09-24T00:30:00Z")])
+    run = poll(requested, approved)
+    assert run.lines[-3:] == ["GREEN awaiting-review", "REVIEW reviewer APPROVED 2", "DONE ready-to-merge"]
+
+
+def test_awaiting_review_prints_once_per_head(poll):
+    blocked = surface(pull(mergeable_state="blocked"))
+    moved = surface(pull(head=MOVED_HEAD, mergeable_state="blocked"))
+    run = poll(blocked, blocked, moved, moved)
+    assert [line for line in run.lines if line.startswith("GREEN ")] == ["GREEN awaiting-review"] * 2
+    assert run.done is None
+
+
+def test_failed_review_read_never_reports_ready(poll):
+    blind = surface(pull())
+    blind[f"pulls/{PR}/reviews"] = "FAIL"
+    run = poll(blind, blind)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
+def test_new_head_after_an_eviction_can_reach_ready_to_merge(poll):
+    queued = surface(pull(labels=("merge",)), events=[labeled(1)])
+    dropped = surface(pull(), events=[labeled(1), unlabeled(2)])
+    assert poll(queued, dropped).done.startswith("DONE evicted ")
+    assert poll(dropped, dropped).done is None
+
+    fixed = surface(pull(head=MOVED_HEAD), events=[labeled(1), unlabeled(2)])
+    run = poll(fixed)
+    assert run.done == "DONE ready-to-merge"
+    assert run.state["queue"]["evicted"] is None
+
+
+def test_second_poller_on_a_held_state_file_exits_without_polling(poll, tmp_path):
+    (tmp_path / "state.json.lock").symlink_to(str(os.getpid()))
+    run = poll(surface(pull()))
+    assert run.returncode == 3
+    assert "already polls" in run.stderr
+    assert run.lines == []
+    assert run.gh_calls == []
+
+
+def test_lock_left_by_a_dead_poller_is_taken_over_and_released(poll, tmp_path):
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    lock = tmp_path / "state.json.lock"
+    lock.symlink_to(str(dead.pid))
+    run = poll(surface(pull()))
+    assert run.done == "DONE ready-to-merge"
+    assert not lock.is_symlink()

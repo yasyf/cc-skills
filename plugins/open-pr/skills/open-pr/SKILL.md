@@ -142,7 +142,7 @@ Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
       prompt: "pr: <number>\nurl: <url>\nrepo: <owner/name>\nhead: <sha>\n"
               "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>\n"
               "poll: bash \"<abs plugin root>/scripts/pr-poll.sh\" <owner/name> <number> <cache>/pr/<number>.json\n"
-              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing.")
+              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, never run it from Bash or wrap it in a loop, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing. On DONE ready-to-merge, SendMessage main before anything else.")
 ```
 
 After spawning, verify that the poll script wrote its state file:
@@ -157,7 +157,9 @@ watch is unarmed. An agent spawn alone does not prove the script is running.
 
 One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller to re-enqueue by label or in Graphite's UI. Push any fix before re-enqueueing; the caller decides when to re-enqueue.
 
-After adding the queue label to a PR whose watcher already reported `clean`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
+A `ready-to-merge` report means checks are green, the PR is mergeable, and the approval it needs has landed. In that same turn, ask the user through `AskUserQuestion` whether to merge #<number> now, and add the queue label only on a yes. Never label on the report alone. Under the `long-running` skill the landing desk owns this decision: forward the report to it, and it asks or labels by its own rules.
+
+After adding the queue label to a PR whose watcher already reported `ready-to-merge`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
 
 ```
 SendMessage(to: "pr-watch-<number>", message: "Queue label <label> added. Resume the queue watch on the same state file.")

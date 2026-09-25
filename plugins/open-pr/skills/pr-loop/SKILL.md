@@ -58,7 +58,9 @@ Monitor(command: 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/pr-poll.sh" <repo> <pr> <s
 
 The script is the watch; a hand-rolled check loop has no state file, no
 deadline and no round boundary, and dies with the cap the first time CI
-outlasts it.
+outlasts it. Run it only as the Monitor's command, never from Bash and never
+wrapped in a loop; it exits 3 when another poller already holds the state
+file.
 
 One stdout line per event:
 
@@ -68,7 +70,8 @@ REVIEW   <author> <state> <id>
 COMMENT  <author> <id> <first-80>
 QUEUED   <actor> <label|comment-id>
 UNQUEUED <actor>
-DONE     all-green | merged | queue-merged | closed | checks-failed |
+GREEN    awaiting-review
+DONE     ready-to-merge | merged | queue-merged | closed | checks-failed |
          conflicted | deadline-still-open | window-elapsed
 DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 ```
@@ -100,8 +103,11 @@ monitor whose command exited stays stopped. Each `DONE` is therefore the
 end of a round, not the end of the loop.
 
 The states behind the tokens, by meaning: open (checks running or red),
-green (checks passed, `mergeable: true`, queue state read, neither queued nor
-evicted pending re-enqueue), queued for merge (still watched through green),
+awaiting review (checks passed but a reviewer's latest review requests
+changes or `mergeable_state` is `blocked` on a missing required approval;
+printed once per head and not a `DONE`), ready to merge (checks passed,
+`mergeable: true`, queue state read, neither queued nor evicted on the
+current head, approved or no approval required), queued for merge (still watched through green),
 evicted (a bot removed the queue label from an unresolved stint, or the latest
 queue entry is a drop bullet, regardless of the label or `mergeable_state`),
 merged, abandoned, and conflicted. A conflict needs one `mergeable_state: dirty`
@@ -128,8 +134,8 @@ Then **arm a fresh Monitor on the same state file** and keep watching for
 the caller to re-enqueue. `.queue.resolved_stint` records the `labeled`
 event id whose stint ended in an eviction report or `UNQUEUED`; a later bot
 unlabel of that stint stays silent, and a relabel starts a new stint.
-A recorded eviction prevents `all-green`; a recorded conflict stays silent
-on the same head. Re-enqueueing by label or in Graphite's UI clears the
+A recorded eviction prevents `ready-to-merge` until a new head is pushed; a
+recorded conflict stays silent on the same head. Re-enqueueing by label or in Graphite's UI clears the
 eviction and emits `QUEUED`. The watch still sees a new head, a landing, or
 the deadline.
 
@@ -138,8 +144,10 @@ re-enqueues. Triage `failed-ci` like `checks-failed`, fix the named PR for
 `downstack #N`, re-enqueue after `head-moved`, and report the text for
 `other` or `unknown`.
 
-Green, merged, abandoned, and the deadline end the loop: `TaskStop` the
-monitor and report. On a queue lane, merged versus abandoned comes from the
+Ready-to-merge, merged, abandoned, and the deadline end the loop: `TaskStop`
+the monitor and report. On `ready-to-merge`, ask the user through
+`AskUserQuestion` whether to merge #<pr> now, in that same turn, and add the
+queue label only on a yes; never label on the verdict alone. On a queue lane, merged versus abandoned comes from the
 landing on the base branch (see Attach), never the state field or the
 closer actor. On failed checks, triage the reds; ship or rebut what triage
 settles, then **arm a fresh Monitor** on the new head and keep going.
@@ -236,9 +244,10 @@ emitting a line per event, so it composes with a watching human, not with
 Monitor.
 
 <success_criteria>
-The loop ends with a report: the PR is green and quiet (checks passing,
-`mergeable: true`, neither queued nor evicted, every actionable comment
-answered); it merged or was abandoned, told apart by the landing on the
+The loop ends with a report: the PR is ready to merge (checks passing,
+`mergeable: true`, approved or no approval required, neither queued nor
+evicted, every actionable comment answered) and the user was asked whether to
+merge it; it merged or was abandoned, told apart by the landing on the
 base; or it is blocked by conflicts, exhausted attempts, a decision, or the
 deadline. Evictions report immediately and keep the watch armed for
 re-enqueue. Every shipped fix passed all four gates first and appears in the

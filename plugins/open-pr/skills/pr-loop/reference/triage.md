@@ -170,7 +170,7 @@ time, and where a human eye should look first.
 
 ```json
 {
-  "schema": 3,
+  "schema": 4,
   "pr": 123,
   "repo": "acme/widgets",
   "head_at_last_pass": "4f2a91c0e8b7d6a5c4f3e2d1b0a9f8e7d6c5b4a3",
@@ -185,6 +185,7 @@ time, and where a human eye should look first.
   "merge_state_seen": "clean",
   "mergeable_false_reads": 0,
   "conflicted_head": null,
+  "awaiting_review_head": null,
   "queue": { "queued": false, "head": null, "evicted": null, "resolved_stint": null },
   "attempts": { "test (3.12)": 1 },
   "applied": [
@@ -198,7 +199,7 @@ time, and where a human eye should look first.
 }
 ```
 
-- `schema` — state-file version 3.
+- `schema` — state-file version 4.
 - `started_at` — epoch seconds of the first poll; `deadline-still-open` counts from here across `window-elapsed` rounds.
 - `head_at_last_pass` — the PR head at the last pass; a new head resets check buckets and false-read count.
 - `watermarks.comments` — ISO timestamp passed as `?since=` to issue and review comment endpoints.
@@ -210,9 +211,10 @@ time, and where a human eye should look first.
 - `merge_state_seen` — the last REST `mergeable_state` value.
 - `mergeable_false_reads` — false reads since the last true or head change; null neither counts nor resets.
 - `conflicted_head` — head already reported conflicted, including conflict evictions; suppresses repeats on that head.
-- `queue.queued` — true when the PR entered the queue by label or a Graphite UI enqueue bullet; false after eviction or `UNQUEUED`. Null until the first queue-state read, which withholds `all-green`. A fresh state file or one missing this field reads the full Merge-activity log and starts queued if its latest queue entry is an enqueue.
-- `queue.head` — head recorded when the PR entered the queue.
-- `queue.evicted` — emitted eviction reason and detail; null until eviction, cleared by re-enqueueing with the label or in Graphite's UI.
+- `awaiting_review_head` — head already reported `GREEN awaiting-review`; suppresses repeats on that head.
+- `queue.queued` — true when the PR entered the queue by label or a Graphite UI enqueue bullet; false after eviction or `UNQUEUED`. Null until the first queue-state read, which withholds `ready-to-merge`. A fresh state file or one missing this field reads the full Merge-activity log and starts queued if its latest queue entry is an enqueue.
+- `queue.head` — head recorded when the PR entered the queue; cleared with an eviction when a new head arrives.
+- `queue.evicted` — emitted eviction reason and detail; null until eviction, cleared by re-enqueueing with the label or in Graphite's UI, or by a new head.
 - `queue.resolved_stint` — id of the `labeled` event whose queue stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that stint stays silent; a relabel starts a new stint and re-arms reporting.
 - `attempts` — per check, the count of shipped fixes while it stayed red.
   Increment after each ship targeting the check; clear the entry when the

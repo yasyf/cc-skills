@@ -9,7 +9,8 @@
 #   COMMENT  <author> <id> <first-80-chars-of-body>
 #   QUEUED   <actor> <label|comment-id>
 #   UNQUEUED <actor>
-#   DONE     all-green | merged | queue-merged | closed | checks-failed |
+#   GREEN    awaiting-review
+#   DONE     ready-to-merge | merged | queue-merged | closed | checks-failed |
 #            conflicted | deadline-still-open | window-elapsed
 #   DONE     evicted <conflicts|failed-ci|downstack|head-moved|other|unknown> <detail>
 #
@@ -27,9 +28,16 @@
 # off a stint no report has ended yet. Fires once per stint; re-enqueueing, by
 # label or in the UI, re-arms it.
 #
-# all-green needs every check passed, mergeable true, the queue state read, and
-# the PR neither queued nor evicted and waiting to re-enter: a queued PR is
-# watched until it lands or the queue drops it.
+# ready-to-merge needs every check passed, mergeable true, the queue state read,
+# the PR neither queued nor evicted and waiting to re-enter, and the review
+# requirement met: no reviewer's latest review requests changes and
+# mergeable_state is not blocked, which is how REST reports a required approval
+# still missing. A queued PR is watched until it lands or the queue drops it.
+# Green but not yet approved prints GREEN awaiting-review once per head and
+# keeps watching. An eviction holds only its own head: pushing a new head clears
+# it.
+#
+# One poller per state file: a second concurrent run exits 3 without polling.
 #
 # window-elapsed: the harness kills a Monitor after 30 minutes and announces it
 # with one expiry notice a background agent can miss, so the script ends its own
@@ -43,7 +51,7 @@
 # .watermarks to replay them.
 set -euo pipefail
 
-STATE_SCHEMA=3
+STATE_SCHEMA=4
 EMPTY_PASSES_BEFORE_GREEN=3
 MERGEABLE_FALSE_READS=2
 INTERVAL_MIN=120
@@ -123,8 +131,8 @@ usage() {
 usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
 
   Polls every PR_POLL_INTERVAL seconds over REST and prints one CHECK /
-  REVIEW / COMMENT / QUEUED / UNQUEUED line per new event, then DONE and
-  exit 0.
+  REVIEW / COMMENT / QUEUED / UNQUEUED / GREEN line per new event, then DONE
+  and exit 0. Exits 3 when another poller holds the state file.
 
   PR_POLL_INTERVAL defaults to 120 and is floored there. Each pass spends
   ~7 REST calls, and every watcher on a stack spends them against one shared
@@ -168,6 +176,23 @@ INTERVAL="${PR_POLL_INTERVAL:-$INTERVAL_MIN}"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$(dirname "$STATE_FILE")"
 
+LOCK="$STATE_FILE.lock"
+if ! ln -s "$$" "$LOCK" 2>/dev/null; then
+  holder=$(readlink "$LOCK" 2>/dev/null || true)
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    echo "pr-poll.sh: pid $holder already polls $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
+    exit 3
+  fi
+  rm -f "$LOCK"
+  ln -s "$$" "$LOCK" 2>/dev/null || {
+    echo "pr-poll.sh: another poller took $STATE_FILE; run one poller per state file, the watcher's Monitor" >&2
+    exit 3
+  }
+fi
+trap 'rm -f "$LOCK"' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 STATE='{}'
 empty_passes=0
 FRESH=1
@@ -177,7 +202,7 @@ normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" \
     --argjson started "$STARTED" '
     { head_at_last_pass: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
-      mergeable_false_reads: 0, conflicted_head: null,
+      mergeable_false_reads: 0, conflicted_head: null, awaiting_review_head: null,
       queue: { queued: null, head: null, evicted: null, resolved_stint: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
     | .schema = $schema | .pr = $pr | .repo = $repo
@@ -263,9 +288,19 @@ eviction_reason() {
   printf 'unknown label removed by %s\n' "$actor"
 }
 
+green() {
+  local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4
+  [ "$reviews_ok" = 1 ] || return 0
+  if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then finish ready-to-merge; fi
+  [ "$(state '.awaiting_review_head // ""')" != "$head" ] || return 0
+  emit "GREEN awaiting-review"
+  STATE=$(jq -c --arg h "$head" '.awaiting_review_head = $h' <<<"$STATE")
+  write_state
+}
+
 poll() {
   local view head prev base pr_state merged mergeable merge_state present
-  local checks checks_ok=1 events comments items seen wm_c wm_r next_c next_r queue
+  local checks checks_ok=1 events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
   local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
   local last_event last_bot last_actor stint
   local evicted="" conflicted=0 settled n_checks verdict closed_as
@@ -329,7 +364,9 @@ poll() {
 
   prev=$(state '.head_at_last_pass // ""')
   if [ "$head" != "$prev" ]; then
-    STATE=$(jq -c --arg h "$head" '.head_at_last_pass = $h | .checks_seen = {} | .mergeable_false_reads = 0' <<<"$STATE")
+    STATE=$(jq -c --arg h "$head" '
+      .head_at_last_pass = $h | .checks_seen = {} | .mergeable_false_reads = 0
+      | if .queue.evicted != null then .queue.evicted = null | .queue.head = null else . end' <<<"$STATE")
   fi
 
   if [ "$checks_ok" = 1 ]; then
@@ -345,11 +382,15 @@ poll() {
 
   wm_r=$(state '.watermarks.reviews')
   items=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
-    --jq '.[] | select(.submitted_at != null) | { id, author: .user.login, state, at: .submitted_at }' 2>/dev/null || true)
+    --jq '.[] | select(.submitted_at != null) | { id, author: .user.login, state, at: .submitted_at }' 2>/dev/null) ||
+    reviews_ok=0
   emit "$(jq -rs --arg wm "$wm_r" '
     map(select(.at > $wm)) | sort_by(.at) | .[] | "REVIEW \(.author) \(.state) \(.id)"
   ' <<<"$items")"
   next_r=$(jq -rs --arg wm "$wm_r" '[.[].at] + [$wm] | max' <<<"$items" 2>/dev/null) || next_r=$wm_r
+  changes_requested=$(jq -rs '
+    map(select(.state != "COMMENTED")) | group_by(.author)
+    | any(.[]; max_by(.at).state == "CHANGES_REQUESTED")' <<<"$items")
 
   emit "$(jq -rs --arg wm "$wm_c" '
     map(select(.at > $wm)) | sort_by(.at) | .[]
@@ -460,7 +501,7 @@ poll() {
     # A just-pushed head carries no registered checks for a few seconds, so an
     # empty rollup only counts as green once it holds across several passes.
     empty_passes=$((empty_passes + 1))
-    if [ "$empty_passes" -ge "$EMPTY_PASSES_BEFORE_GREEN" ] && [ "$settled" = 1 ]; then finish all-green; fi
+    if [ "$empty_passes" -ge "$EMPTY_PASSES_BEFORE_GREEN" ] && [ "$settled" = 1 ]; then green "$head" "$merge_state" "$reviews_ok" "$changes_requested"; fi
     return 0
   fi
   empty_passes=0
@@ -468,11 +509,11 @@ poll() {
   verdict=$(jq -r '
     if any(.[]; .bucket == "pending") then "pending"
     elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "checks-failed"
-    else "all-green" end
+    else "green" end
   ' <<<"$checks")
   case "$verdict" in
   checks-failed) finish checks-failed ;;
-  all-green) [ "$settled" = 0 ] || finish all-green ;;
+  green) [ "$settled" = 0 ] || green "$head" "$merge_state" "$reviews_ok" "$changes_requested" ;;
   esac
 }
 
