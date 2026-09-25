@@ -75,8 +75,7 @@ compaction handoff runs on its own, as Compaction handoff describes. *Prevents t
 forced mid-drive handoff with nothing written down to hand over.*
 
 Every lane receives the whole task list on every wake. The root deletes a completed task
-with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan, and at
-every compaction handoff at the latest.
+with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan.
 
 **R6. Put every owner request in flight the turn it arrives.** Start a new lane or an
 explicitly named parallel sub-lane; never append the request behind a busy lane's queue.
@@ -389,27 +388,37 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 ### Compaction handoff
 
 Once `long-running` is invoked — the Skill call itself, or a `/long-running` prompt —
-this plugin's capt-hook pack keeps the session's compaction handoff on autopilot for
-the rest of the session, compactions included. Nothing inside the session clears it
-early.
+this plugin's capt-hook pack runs the session's compaction handoff for the rest of the
+session, compactions included. Nothing inside the session clears it early. The hook
+never blocks a turn. It does the mechanical steps itself and sends the root one nudge.
 
-**Threshold.** The window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env, else the
-`autoCompactWindow` setting, else the model default (1M for `[1m]`, 200k otherwise).
-`threshold = window − 33k`. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it further.
-The hook fires on the main-session `Stop`, never a subagent's, once used tokens cross
-80% of that threshold.
+**Threshold.** The hook reads the live model at every check, from the transcript's
+newest non-synthetic assistant turn, never from the model the session started on. The
+window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env, else the `autoCompactWindow` setting,
+else the model default, and never more than the model's own window. That is 1M for a
+`[1m]` suffix and for the native-1M models: sonnet-5, opus-5 and 5-5, fable-5 and 5-1,
+and mythos-5 and 5-1. Every other model is 200k, including haiku-4-5, sonnet-4-x,
+opus-4-0 through 4-6, and every claude-3 model.
 
-**Archive, then rewrite.** The hook archives the plan itself, as
-`<stem>.<YYYY-MM-DD>-<HHMM>-pre-compact.md` in UTC beside it. Never archive by hand —
+`threshold = window − 33k`, and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it
+further. The check runs after each main-session tool call, never a subagent's, and fires
+once used tokens cross 80% of that threshold.
+
+**Archive and nudge.** At the threshold the hook archives the plan itself, as
+`<stem>.<YYYY-MM-DD>-<HHMMSS>-pre-compact.md` in UTC beside it. Never archive by hand —
 the guard that lets a plan rewrite through checks for exactly this sibling — and never
 `cat >` the plan to dodge that guard; write over it and let the archive carry the loss.
 
-It then blocks the turn with a directive that forbids plan mode. First record any
-durable state still living only in this conversation in the ledger, the rulings log, or
-a cc-notes note; the archive is history, not a store. Delete every completed task with
-`TaskUpdate` status `deleted`. Then rewrite the plan with one `Write` in exactly this
-skeleton, dropping finished work, superseded state, and anything the archives already
-hold:
+It then sends the root one nudge, as context on its next tool call or prompt. The nudge
+gives used tokens against the threshold, asks for the plan to be rewritten as the
+current restart state when convenient, and names the archive path. It is not repeated,
+and the turn is never held.
+
+**Rewrite the plan.** First record any durable state still living only in this
+conversation in the ledger, the rulings log, or a cc-notes note; the archive is history,
+not a store. Then rewrite the plan with one `Write`, dropping finished work, superseded
+state, and anything the archives already hold. The hook enforces no shape, but a plan
+that restarts cleanly usually carries these sections:
 
 ```md
 # <title> (compacted <date>Z)
@@ -428,9 +437,6 @@ hold:
 ## Key notes
 
 ## Done means
-
-## Archived plans (history only, never needed to restart)
-- <one line per archive, newest first>
 ```
 
 `Restart here` front-loads what a cold restart needs before anything else: the role
@@ -439,48 +445,67 @@ and its ledger id, and the rulings-log id. It carries no recap of finished work.
 mid-drive gotcha that matters to a fresh restart belongs there too, not buried in
 `Key notes`.
 
-Then end the turn. The hook types `/compact` through orca itself; outside orca it
-allows the stop and tells the user to run `/compact` by hand instead. After compaction,
-`SessionStart` points the fresh context at the rewritten plan — that plan supersedes
-the summary, read it first.
+**Links and `/compact`.** When the root next writes or edits the plan, the hook appends
+`## Archived plans (history only, never needed to restart)`, one link per
+`<stem>.*-pre-compact.md` sibling, newest first, unless the plan already has it. At the
+next main-session `Stop` after that rewrite, the hook starts a detached background job
+and lets the stop through. The job waits through orca for the terminal to go idle, reads
+the screen, and types `/compact` only when the draft is empty and the input line holds no
+typed text. It rechecks every 30 seconds and gives up silently after 30 minutes. With no
+orca terminal handle, the hook sends the owner one message to run `/compact` by hand,
+and blocks nothing.
 
-Auto-compaction can still fire mid-turn, ahead of the proactive 80% check, if one turn
-alone grows past 20% of the threshold. `PreCompact` and `SessionStart` re-ground on the
-plan either way, so nothing is lost, only unplanned.
+After compaction, `SessionStart` points the fresh context at the plan, which supersedes
+the summary; read it first. When the plan still awaits its rewrite, `SessionStart` says
+so. Claude Code's own auto-compaction can fire before the plan is rewritten.
+`PreCompact` and `SessionStart` re-ground on the plan either way, so nothing is lost,
+only unplanned.
 
 ### Lane rotation
 
 Every turn a lane takes re-reads its whole history. A desk at 400k tokens pays about
-400k per wake to type in a three-line report, while everything it needs to continue
-already sits on its ledger. A long-lived lane is therefore rotated, not kept: flushed,
-stopped, and respawned fresh under the same name.
+that many tokens again per wake to type in a three-line report, while everything it
+needs to continue already sits on its ledger. A long-lived lane is therefore rotated,
+not kept: flushed, stopped, and respawned fresh under the same name.
 
 **Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
-At 200k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
-live named lane on the main-session `Stop` and blocks the turn with each lane over the
-line and its count.
+A lane is due at 0.7 of its own compaction threshold, computed from its live model the
+way Compaction handoff describes. On a 600k window, that lands around 400k tokens.
+`LONG_RUNNING_LANE_ROTATE_TOKENS` sets the line outright. Once `long-running` is
+invoked, the same capt-hook pack checks the lanes on every main-session `Stop`, and
+never blocks it.
 
-A lane is live only while the `Stop` payload reports a running task for it, so a dead or
-stopped lane is never flagged. The hook blocks once per lane, then gives it 15 minutes to
-flush and stop. A lane still live and over the line after that draws one notice to the
-user, never another block. A lane that leaves the live set counts as rotated. Every
-compaction handoff directive also lists the live lanes over the line. Rotate them before
-ending that turn, and record each new agent in `## Restart here`.
+**Liveness.** A lane is live only while it appears as a running teammate or subagent in
+the `Stop` payload's `background_tasks`, matched by the `description` in its meta.
+Membership in a team config never counts, so a dead or stopped lane is never asked. A
+lane whose newest turn is more than an hour behind the root's is dormant: its cache is
+cold, it costs nothing until it wakes, and the hook skips it.
 
-**Protocol.**
+**Delivery.** The hook asks the lane itself, appending the request to the lane's
+teammate inbox, `~/.claude/teams/<team>/inboxes/<name>.json`, in Claude Code's own
+message format and under its lock:
 
-1. Send the lane one message:
-   `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`
-2. On `flushed <ledger id>`, `TaskStop` it first. A spawn under a name a running lane
-   still holds gets a different name.
-3. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
+`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>" to team-lead, then stop.`
+
+It asks at most three lanes per 15 minutes, highest token count first, and each lane at
+most twice, at least 30 minutes apart. A lane with no teammate inbox draws one root
+nudge instead, naming at most three lanes, to `SendMessage` them the same request.
+
+**Handoff.** When a lane's `flushed <ids>` reply reaches the root, the hook nudges once:
+stop that lane and respawn it from its handoff note at a natural pause.
+
+1. `TaskStop` the flushed lane first. A spawn under a name a running lane still holds
+   gets a different name.
+2. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
    with its original spawn brief plus the ledger id; a lane that now needs a skill comes
    back as `long-running:lane-ship`. Messages addressed by name reach the newest agent.
+   The next plan rewrite records the new agent in `## Restart here`.
 
-Never `SendMessage` the stopped lane. That resumes the same transcript and reloads the
-whole history the rotation dropped. An `open-pr:pr-watcher` needs no flush, since
-its state file is its ledger. `TaskStop` it and spawn a fresh one with the same inputs,
-which resumes from that file. A lane with nothing left to do is stopped, not respawned.
+The root stops only a lane that has replied `flushed`, one lane per reply, never a batch
+of lanes at once. Never `SendMessage` the stopped lane. That resumes the same transcript
+and reloads the whole history the rotation dropped. An `open-pr:pr-watcher` needs no
+flush, since its state file is its ledger. `TaskStop` it and spawn a fresh one with the
+same inputs, which resumes from that file.
 
 ## Anti-patterns seen
 
@@ -504,6 +529,9 @@ which resumes from that file. A lane with nothing left to do is stopped, not res
 - Stacks landed one PR at a time bottom-up, each waiting on a retarget and a fresh CI run.
 - Re-deriving the archive name or hand-typing the compaction prompt instead of letting
   the compaction-handoff hook do both.
+- A handoff that blocked the turn with every over-line lane: the root stopped about
+  thirty lanes in nine seconds, none of them flushed, and sent ROTATE to seventeen
+  more; the block returned seconds later, before any lane could flush.
 - Every new owner ask appended to one busy lane's queue; ten asks sat unstarted for
   hours behind its four open PRs until the owner asked.
 - An ask for "one post + one approval per release" appended to the busy release-fast lane's
