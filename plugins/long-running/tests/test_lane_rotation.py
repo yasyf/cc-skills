@@ -8,9 +8,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from captain_hook.events import StopEvent, UserPromptSubmitEvent
+from captain_hook.events import StopEvent
 from captain_hook.testing.helpers import build_context
-
 from hooks import lane_rotation, nudges, turns
 from hooks.compaction_handoff import CompactionState
 
@@ -58,6 +57,7 @@ class Tree:
         meta |= {"model": f"{model}[1m]"} if model.startswith("claude-opus") else {"model": model}
         if team:
             meta |= {"taskKind": "in_process_teammate", "teamName": team}
+        if team == TEAM:
             self.members.append(name)
             (self.claude / "teams" / team / "config.json").write_text(
                 json.dumps({"name": team, "members": [{"name": member} for member in self.members]})
@@ -98,9 +98,10 @@ def stop(tree: Tree, tasks: list[dict]) -> StopEvent:
     return evt
 
 
-def prompt(tree: Tree, text: str) -> UserPromptSubmitEvent:
-    raw = {"session_id": "0123456789abcdef", "prompt": text}
-    return UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=tree.claude / "session"))
+def deliver(tree: Tree, text: str, at: datetime) -> None:
+    with tree.root.open("a") as transcript:
+        transcript.write(json.dumps({"type": "user", "isSidechain": False, "timestamp": stamp(at), "message": {"role": "user", "content": text}}) + "\n")
+        transcript.write(json.dumps(assistant(at + timedelta(seconds=5), 300_000, sidechain=False)) + "\n")
 
 
 def pending(evt) -> list[str]:
@@ -202,9 +203,12 @@ def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
         '"idleReason":"available","result":"flushed b037decf"}\n</teammate-message>\n\n'
         '<teammate-message teammate_id="poller" color="red">\nflushed 74de6071\n</teammate-message>'
     )
+    deliver(tree, reply, ROOT_AT + timedelta(minutes=2))
+    deliver(tree, reply, ROOT_AT + timedelta(minutes=3))
 
     for _ in range(2):
-        assert lane_rotation.nudge_flushed(prompt(tree, reply)) is None
+        clock[0] += 60
+        assert lane_rotation.rotate_lanes(evt) is None
 
     assert pending(evt) == [
         "lane landing-desk flushed (b037decf, c2b3a6c): TaskStop it and respawn it from its handoff note "
@@ -215,15 +219,64 @@ def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
     assert len(tree.inbox("landing-desk")) == 1
 
 
-def test_unflushed_reply_queues_nothing(tree: Tree, clock: list[float]) -> None:
+def test_flushed_reply_before_the_ask_is_ignored(tree: Tree, clock: list[float]) -> None:
+    deliver(tree, '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT - timedelta(minutes=10))
     evt = stop(tree, [tree.lane("landing-desk", 450_000)])
+
+    lane_rotation.rotate_lanes(evt)
+    clock[0] += 60
     lane_rotation.rotate_lanes(evt)
 
-    lane_rotation.nudge_flushed(
-        prompt(tree, '<teammate-message teammate_id="landing-desk">\nstill working on #25751\n</teammate-message>')
-    )
-
     assert pending(evt) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["still working on #25751", "Flushed: b037decf", "flushed abc"],
+)
+def test_reply_parsing(body: str) -> None:
+    replies = lane_rotation.flushed_replies(f'<teammate-message teammate_id="desk">\n{body}\n</teammate-message>')
+    assert replies == ([("desk", ["b037decf"])] if body.startswith("Flushed") else [])
+
+
+def test_a_failed_append_keeps_the_asks_already_made(tree: Tree, clock: list[float]) -> None:
+    tasks = [tree.lane("desk", 460_000), tree.lane("orphan", 450_000, team="gone-team")]
+    evt = stop(tree, tasks)
+
+    with pytest.raises(FileNotFoundError):
+        lane_rotation.rotate_lanes(evt)
+    clock[0] += 60
+    with pytest.raises(FileNotFoundError):
+        lane_rotation.rotate_lanes(evt)
+
+    assert len(tree.inbox("desk")) == 1
+
+
+def test_empty_inbox_reads_as_no_messages(tmp_path: Path) -> None:
+    inbox = tmp_path / "inboxes" / "desk.json"
+    inbox.parent.mkdir()
+    inbox.write_text("")
+
+    assert lane_rotation.append_inbox(inbox, {"text": "ROTATE"})
+
+    assert json.loads(inbox.read_text()) == [{"text": "ROTATE"}]
+
+
+def test_fork_transcript_without_a_leading_timestamp_is_live(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("fork", 450_000)
+    [transcript] = (tree.root.with_suffix("") / "subagents").glob("agent-afork-*.jsonl")
+    transcript.write_text(json.dumps({"type": "fork-context-ref"}) + "\n" + transcript.read_text())
+
+    assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]))] == ["fork"]
+
+
+def test_half_written_last_line_is_skipped(tmp_path: Path) -> None:
+    transcript = tmp_path / "lane.jsonl"
+    write_jsonl(transcript, [assistant(ROOT_AT, 120_000, sidechain=True)])
+    with transcript.open("a") as partial:
+        partial.write('{"type": "assistant", "isSide')
+
+    assert turns.latest_turn(transcript, sidechain=True).tokens == 120_000
 
 
 @pytest.mark.parametrize(

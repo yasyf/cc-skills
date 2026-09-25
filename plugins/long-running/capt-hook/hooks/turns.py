@@ -45,12 +45,17 @@ def reversed_lines(path: Path) -> Iterator[bytes]:
         yield head
 
 
+def reversed_entries(path: Path) -> Iterator[dict]:
+    lines = reversed_lines(path)
+    next(lines)
+    for line in lines:
+        if line.strip():
+            yield json.loads(line)
+
+
 def latest_turn(transcript: Path, *, sidechain: bool = False) -> Turn | None:
     compacted: Turn | None = None
-    for line in reversed_lines(transcript):
-        if not line.strip():
-            continue
-        entry = json.loads(line)
+    for entry in reversed_entries(transcript):
         if entry.get("isSidechain", False) != sidechain:
             continue
         if compacted is None and entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
