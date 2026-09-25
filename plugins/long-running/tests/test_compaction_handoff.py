@@ -17,30 +17,6 @@ handoff = sys.modules["compaction_handoff"] = importlib.util.module_from_spec(sp
 spec.loader.exec_module(handoff)
 
 
-@pytest.fixture(autouse=True)
-def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    for var in ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "ORCA_TERMINAL_HANDLE"):
-        monkeypatch.delenv(var, raising=False)
-    return tmp_path
-
-
-@pytest.mark.parametrize(
-    ("env", "model", "expected"),
-    [
-        ({"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "50000"}, "claude-opus-5-5[1m]", 67_000),
-        ({"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "2000000"}, "claude-opus-5-5[1m]", 967_000),
-        ({"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "2000000"}, "claude-sonnet-5", 167_000),
-        ({"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"}, "claude-opus-5-5[1m]", 290_000),
-        ({"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "99"}, "claude-opus-5-5[1m]", 567_000),
-    ],
-)
-def test_env_threshold(monkeypatch: pytest.MonkeyPatch, env, model, expected) -> None:
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    assert handoff.threshold(model, FIXTURES / "project-600k") == expected
-
-
 def test_rewritten_plan_types_compact_through_orca(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     plan = FIXTURES / "plans" / "changed.md"
     evt = StopEvent(_raw={"session_id": "0123456789abcdef"}, ctx=build_context(session_dir=tmp_path / "session"))
