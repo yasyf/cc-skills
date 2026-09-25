@@ -747,7 +747,7 @@ func repoToplevelOf(path string) string {
 		if d == home || d == filepath.Dir(d) {
 			return ""
 		}
-		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil { //nolint:gosec // probes an ancestor of the caller's own scratch path for .git, by design
 			return d
 		}
 	}
