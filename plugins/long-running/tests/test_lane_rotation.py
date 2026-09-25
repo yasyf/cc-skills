@@ -16,6 +16,7 @@ from hooks.compaction_handoff import CompactionState
 ROOT_AT = datetime(2026, 9, 25, 21, 35, tzinfo=UTC)
 TEAM = "session-rot"
 DESK = "alanding-desk-1a1a1a1a1a1a1a1a"
+GOLDEN = Path(__file__).resolve().parents[1] / "capt-hook" / "hooks" / "tests" / "fixtures" / "rotation" / "golden"
 
 
 def stamp(at: datetime) -> str:
@@ -48,13 +49,14 @@ class Tree:
         behind: timedelta = timedelta(minutes=5),
         team: str | None = TEAM,
         model: str = "claude-opus-5-5",
+        hint: str | None = None,
         description: str | None = None,
         spawned: datetime = ROOT_AT - timedelta(hours=3),
     ) -> dict:
         agent_id = f"a{name}-{hashlib.sha1(f'{name}{spawned}'.encode()).hexdigest()[:16]}"
         subagents = self.root.with_suffix("") / "subagents"
         meta = {"agentType": "general-purpose", "description": description or f"{name} lane", "name": name}
-        meta |= {"model": f"{model}[1m]"} if model.startswith("claude-opus") else {"model": model}
+        meta |= {"model": hint or (f"{model}[1m]" if model.startswith("claude-opus") else model)}
         if team:
             meta |= {"taskKind": "in_process_teammate", "teamName": team}
         if team == TEAM:
@@ -185,9 +187,9 @@ def test_respawned_lane_is_read_from_its_newest_transcript(tree: Tree, clock: li
 
 def test_lanes_sharing_a_description_each_need_their_own_task(tree: Tree, clock: list[float]) -> None:
     task = tree.lane("desk-a", 450_000, description="lane", spawned=ROOT_AT - timedelta(hours=2))
-    tree.lane("desk-b", 460_000, description="lane", spawned=ROOT_AT - timedelta(hours=1))
+    tree.lane("desk-b", 460_000, description="lane", spawned=ROOT_AT - timedelta(hours=1), behind=timedelta(minutes=50))
 
-    assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]))] == ["desk-b"]
+    assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]))] == ["desk-a"]
     assert sorted(lane.name for lane in lane_rotation.live_lanes(stop(tree, [task, task]))) == ["desk-a", "desk-b"]
 
 
@@ -219,6 +221,34 @@ def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
     assert len(tree.inbox("landing-desk")) == 1
 
 
+def test_flushed_reply_behind_a_later_stamped_entry_is_found(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("landing-desk", 450_000)])
+    lane_rotation.rotate_lanes(evt)
+    with tree.root.open("a") as transcript:
+        transcript.write(json.dumps({"type": "pr-link", "timestamp": stamp(ROOT_AT + timedelta(minutes=5))}) + "\n")
+    deliver(tree, '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT + timedelta(minutes=4))
+
+    lane_rotation.rotate_lanes(evt)
+
+    assert len(pending(evt)) == 1
+
+
+def test_half_written_reply_is_read_on_the_next_stop(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("landing-desk", 450_000)])
+    lane_rotation.rotate_lanes(evt)
+    line = json.dumps({"type": "user", "timestamp": stamp(ROOT_AT), "message": {"content": '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>'}}) + "\n"
+    with tree.root.open("a") as transcript:
+        transcript.write(line[:40])
+
+    lane_rotation.rotate_lanes(evt)
+    assert pending(evt) == []
+
+    with tree.root.open("a") as transcript:
+        transcript.write(line[40:])
+    lane_rotation.rotate_lanes(evt)
+    assert len(pending(evt)) == 1
+
+
 def test_flushed_reply_before_the_ask_is_ignored(tree: Tree, clock: list[float]) -> None:
     deliver(tree, '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT - timedelta(minutes=10))
     evt = stop(tree, [tree.lane("landing-desk", 450_000)])
@@ -239,17 +269,31 @@ def test_reply_parsing(body: str) -> None:
     assert replies == ([("desk", ["b037decf"])] if body.startswith("Flushed") else [])
 
 
-def test_a_failed_append_keeps_the_asks_already_made(tree: Tree, clock: list[float]) -> None:
-    tasks = [tree.lane("desk", 460_000), tree.lane("orphan", 450_000, team="gone-team")]
+def test_a_failed_append_keeps_the_asks_already_made(
+    tree: Tree, clock: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tasks = [tree.lane("desk", 460_000), tree.lane("broken", 450_000)]
     evt = stop(tree, tasks)
+    append = lane_rotation.append_inbox
 
-    with pytest.raises(FileNotFoundError):
-        lane_rotation.rotate_lanes(evt)
-    clock[0] += 60
-    with pytest.raises(FileNotFoundError):
-        lane_rotation.rotate_lanes(evt)
+    def flaky(inbox: Path, message: dict) -> bool:
+        if inbox.stem == "broken":
+            raise OSError("disk")
+        return append(inbox, message)
+
+    monkeypatch.setattr(lane_rotation, "append_inbox", flaky)
+    for _ in range(2):
+        with pytest.raises(OSError):
+            lane_rotation.rotate_lanes(evt)
+        clock[0] += 60
 
     assert len(tree.inbox("desk")) == 1
+
+
+def test_a_missing_team_dir_is_created(tree: Tree, clock: list[float]) -> None:
+    lane_rotation.rotate_lanes(stop(tree, [tree.lane("orphan", 450_000, team="new-team")]))
+
+    assert len(json.loads((tree.claude / "teams" / "new-team" / "inboxes" / "orphan.json").read_text())) == 1
 
 
 def test_empty_inbox_reads_as_no_messages(tmp_path: Path) -> None:
@@ -280,19 +324,22 @@ def test_half_written_last_line_is_skipped(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "env", "line"),
+    ("model", "hint", "env", "line"),
     [
-        ("claude-opus-5-5", None, 396_900),
-        ("claude-haiku-4-5-20251001", None, 116_900),
-        ("claude-opus-5-5", "250000", 250_000),
+        ("claude-opus-5-5", None, None, 396_900),
+        ("claude-opus-5-5", "inherit", None, 396_900),
+        ("claude-haiku-4-5-20251001", None, None, 116_900),
+        ("claude-sonnet-4-6", "sonnet[1m]", None, 396_900),
+        ("claude-sonnet-4-6", "sonnet", None, 116_900),
+        ("claude-opus-5-5", None, "250000", 250_000),
     ],
 )
 def test_rotation_line_follows_the_lanes_compaction_threshold(
-    tree: Tree, monkeypatch: pytest.MonkeyPatch, model: str, env: str | None, line: int
+    tree: Tree, monkeypatch: pytest.MonkeyPatch, model: str, hint: str | None, env: str | None, line: int
 ) -> None:
     if env:
         monkeypatch.setenv("LONG_RUNNING_LANE_ROTATE_TOKENS", env)
-    evt = stop(tree, [tree.lane("desk", 450_000, model=model)])
+    evt = stop(tree, [tree.lane("desk", 450_000, model=model, hint=hint)])
 
     [lane] = lane_rotation.live_lanes(evt)
 
@@ -317,17 +364,14 @@ def test_compact_boundary_after_the_last_turn_reports_post_compact_tokens(tmp_pa
 
 
 def test_inbox_append_matches_claude_code_format(tmp_path: Path) -> None:
+    golden = (GOLDEN / "inbox.json").read_text()
     inbox = tmp_path / "inboxes" / "desk.json"
     inbox.parent.mkdir()
-    inbox.write_text(json.dumps([{"from": "team-lead", "text": "héllo", "timestamp": "t", "type": "message", "read": False}], indent=2))
+    inbox.write_text(golden)
 
     assert lane_rotation.append_inbox(inbox, {"from": "long-running", "text": "ROTATE"})
 
-    assert inbox.read_text() == json.dumps(
-        [{"from": "team-lead", "text": "héllo", "timestamp": "t", "type": "message", "read": False}, {"from": "long-running", "text": "ROTATE"}],
-        indent=2,
-        ensure_ascii=False,
-    )
+    assert inbox.read_text() == golden.removesuffix("\n]") + ',\n  {\n    "from": "long-running",\n    "text": "ROTATE"\n  }\n]'
     assert sorted(path.name for path in inbox.parent.iterdir()) == ["desk.json"]
 
 

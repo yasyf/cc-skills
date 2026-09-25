@@ -116,4 +116,5 @@ def threshold(model: str, hint: str | None, project: Path | None) -> int:
 def rotation_line(model: str, hint: str | None, project: Path | None) -> int:
     if tokens := reqenv.getenv("LONG_RUNNING_LANE_ROTATE_TOKENS"):
         return int(tokens)
-    return threshold(model, hint, project) * ROTATE_PERCENT // 100
+    one_m = model + ONE_M_SUFFIX if hint and hint.endswith(ONE_M_SUFFIX) else None
+    return threshold(model, one_m, project) * ROTATE_PERCENT // 100

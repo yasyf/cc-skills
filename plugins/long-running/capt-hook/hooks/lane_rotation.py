@@ -25,7 +25,7 @@ from captain_hook import (
 
 from .compaction_handoff import CompactionState
 from .nudges import queue_nudge
-from .turns import Turn, latest_turn, reversed_entries, rotation_line
+from .turns import Turn, latest_turn, rotation_line
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "rotation"
 ROOT = FIXTURES / "projects" / "p" / "root.jsonl"
@@ -56,7 +56,7 @@ class RotationState(WorkflowState):
     asks: dict[str, list[float]] = {}
     names: dict[str, str] = {}
     flushed: list[str] = []
-    scanned: str | None = None
+    scanned: int | None = None
 
 
 @dataclass(frozen=True)
@@ -88,13 +88,18 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
             continue
         if (started := spawned_at(transcript)) and (name not in newest or started > newest[name][0]):
             newest[name] = (started, transcript, meta)
+    active = sorted(
+        ((name, transcript, meta, latest_turn(transcript, sidechain=True)) for name, (_, transcript, meta) in newest.items()),
+        key=lambda lane: lane[3].at if lane[3] else datetime.fromisoformat(newest[lane[0]][0]),
+        reverse=True,
+    )
     lanes = []
-    for name, (_, transcript, meta) in sorted(newest.items(), key=lambda item: item[1][0], reverse=True):
+    for name, transcript, meta, turn in active:
         if meta.get("teamName"):
             if not teammate_tasks[meta["description"]]:
                 continue
             teammate_tasks[meta["description"]] -= 1
-        if turn := latest_turn(transcript, sidechain=True):
+        if turn:
             lanes.append(
                 Lane(
                     name=name,
@@ -153,7 +158,7 @@ def acquire(lock: Path) -> bool:
 
 
 def append_inbox(inbox: Path, message: dict) -> bool:
-    inbox.parent.mkdir(exist_ok=True)
+    inbox.parent.mkdir(parents=True, exist_ok=True)
     with suppress(FileExistsError), inbox.open("x") as fresh:
         fresh.write("[]")
     lock = inbox.with_name(f"{inbox.name}.lock")
@@ -185,38 +190,36 @@ def flushed_replies(text: str) -> list[tuple[str, list[str]]]:
     return replies
 
 
-def replies_since(transcript: Path, since: datetime) -> tuple[list[tuple[str, list[str]]], datetime | None]:
-    replies: list[tuple[str, list[str]]] = []
-    newest = None
-    for entry in reversed_entries(transcript):
-        if not (stamp := entry.get("timestamp")):
-            continue
-        if (at := datetime.fromisoformat(stamp)) <= since:
-            break
-        newest = newest or at
-        if entry.get("type") == "user" and isinstance(content := entry["message"]["content"], str):
-            replies = flushed_replies(content) + replies
-    return replies, newest
+def entries_after(transcript: Path, offset: int) -> tuple[list[dict], int]:
+    start = max(offset - 1, 0)
+    with transcript.open("rb") as file:
+        file.seek(start)
+        data = file.read()
+    if offset:
+        if not (cut := data.find(b"\n") + 1):
+            return [], offset
+        start, data = start + cut, data[cut:]
+    end = data.rfind(b"\n") + 1
+    return [json.loads(line) for line in data[:end].splitlines() if line.strip()], start + end
 
 
 def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
     pending = {agent_id: name for agent_id, name in state.names.items() if agent_id not in state.flushed}
     if not pending:
+        state.scanned = evt.transcript_path.stat().st_size
         return
-    since = datetime.fromtimestamp(min(state.asks[agent_id][0] for agent_id in pending), UTC)
-    if state.scanned:
-        since = max(since, datetime.fromisoformat(state.scanned))
-    replies, newest = replies_since(evt.transcript_path, since)
-    if newest:
-        state.scanned = newest.isoformat()
-    for name, ids in replies:
-        if asked := [agent_id for agent_id, lane in pending.items() if lane == name and agent_id not in state.flushed]:
-            state.flushed.extend(asked)
-            queue_nudge(
-                evt,
-                f"lane {name} flushed ({', '.join(ids)}): TaskStop it and respawn it from its handoff note "
-                "at a natural pause",
-            )
+    entries, state.scanned = entries_after(evt.transcript_path, state.scanned)
+    for entry in entries:
+        if entry.get("type") != "user" or not isinstance(content := entry["message"]["content"], str):
+            continue
+        for name, ids in flushed_replies(content):
+            if asked := [agent_id for agent_id, lane in pending.items() if lane == name and agent_id not in state.flushed]:
+                state.flushed.extend(asked)
+                queue_nudge(
+                    evt,
+                    f"lane {name} flushed ({', '.join(ids)}): TaskStop it and respawn it from its handoff note "
+                    "at a natural pause",
+                )
 
 
 @on(
@@ -238,7 +241,9 @@ def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
             state=[
                 CompactionState(active=True),
                 RotationState(
-                    asks={"alanding-desk-1a1a1a1a1a1a1a1a": [0.0]}, names={"alanding-desk-1a1a1a1a1a1a1a1a": "landing-desk"}
+                    asks={"alanding-desk-1a1a1a1a1a1a1a1a": [0.0]},
+                    names={"alanding-desk-1a1a1a1a1a1a1a1a": "landing-desk"},
+                    scanned=0,
                 ),
             ],
         ): Allow(),
