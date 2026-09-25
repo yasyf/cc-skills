@@ -96,16 +96,21 @@ graded, not labelled, and not counted; there is no "unknown" list. *Prevents rou
 comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did
 twenty times in an hour.*
 
-**D3. The label goes on a head once, after the desk re-reads it.** `ledger.py label`
-re-reads the head from the forge. It refuses a closed PR, a moved head, a held PR, a
-head it labelled or pulled before, a head under a minute old, a red status, a failed
-check run, a PR with no approval in force (any commit counts; a dismissed or withdrawn
-approval does not), and a head whose latest `ai-review` check has not completed. With
-`--checkout` it also refuses a head that conflicts with the base. On success it records
-the approvers in `approved_by` and names them in the output. A refusal names the reason
-and ends the attempt; the desk routes or holds, it never retries the same head.
-*Prevents the re-queue loop where an ejected head is relabelled unchanged and ejected
-again until someone notices.*
+**D3. The label goes on the stack's tip once, after every PR is re-read and passes.**
+`ledger.py label --pr <tip>` walks base refs to the repo's default branch and re-reads
+every PR. Each must be open, unheld, approved (any commit counts; a dismissed or
+withdrawn approval does not), and unchanged from `--expect-head` at the tip or its
+row's `reported_head` downstack. Each head must be at least a minute old, never
+labelled or pulled before, with successful commit status, no failed checks, and a
+completed, successful latest `ai-review`. Allowed `mergeable_state` values are `clean`,
+`behind`, and `has_hooks`; `--checkout` also checks each head for conflicts with its base.
+An untracked downstack PR, an orphaned base, or an open child outside the enqueued
+stack refuses the attempt. One red PR refuses the whole stack; nothing is labelled.
+When all pass, one `merge` label on the tip enqueues the whole stack as one entry.
+Every row records `label_head`, `labelled_at`, `approved_by`, and `label_stack`.
+A refusal names the reason; the desk routes or holds, it never retries the same head.
+*Prevents a green tip enqueueing a red parent, and the re-queue loop where an ejected
+head is relabelled unchanged and ejected again until someone notices.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py landed` fetches the
 base branch and settles a closed row by `git log` for a subject ending `(#n)`, never by
@@ -243,8 +248,8 @@ ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
 ledger.py landed  --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
 
-# per clean report: every guard, then one label; per blocker the forge cannot see: one route or hold
-ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr 21221 --expect-head <sha> --checkout "$CHECKOUT"
+# per clean stack: every guard on every PR, then one tip label; per blocker the forge cannot see: one route or hold
+ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr <tip> --expect-head <tip-sha> --checkout "$CHECKOUT"
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --pr 21221 --job "plan comment missing for this head"
 ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4
 
@@ -252,12 +257,13 @@ ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours
 ledger.py summary --ledger "$LEDGER"
 ```
 
-`label --dry-run` runs every guard and writes nothing; run it once on a repo before the
-first live label. `route` without `--pr` sweeps every red or conflicting row, reads the
-first failing line from the Buildkite log, prints the message to send each lane, and
-records it; `route --dry-run` prints and records nothing. `unlabel --reason` records why a
-label came off and blocks a re-label of that head; it does not stop a queue that already
-took the PR. A lane asking what it owns gets `ledger.py show --red`, never the raw table.
+`label --dry-run` runs every guard, prints the stack it would enqueue, and writes
+nothing; run it once on a repo before the first live label. `route` without `--pr`
+sweeps every red or conflicting row, reads the first failing line from the Buildkite
+log, prints the message to send each lane, and records it; `route --dry-run` prints
+and records nothing. `unlabel --reason` records why a label came off and blocks a
+re-label of that head; it does not stop a queue that already took the PR. A lane
+asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Handoff plan
 
@@ -299,6 +305,7 @@ At roughly half the window, write this and stop driving.
   engineers' PRs before anyone asked whose they were.
 - A head relabelled after every queue ejection: the same conflicting head was queued
   and dropped twelve times while its rebase sat unstarted.
+- Stacks landed one PR at a time bottom-up, each waiting on a retarget and a fresh CI run.
 
 ## Checklist before every tool call
 

@@ -13,6 +13,7 @@ import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -44,7 +45,8 @@ class FakeShell(ledger.Shell):
         self.shallow = False
         self.fetch_fails = ""
         self.base_squash = ""
-        self.children: list[dict] = []
+        self.children: dict[str, list[dict]] = {}
+        self.trunk = "dev"
         self.ejected: dict[str, tuple[str, str]] = {}
         self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
@@ -77,8 +79,10 @@ class FakeShell(ledger.Shell):
         if self.fail_gh and self.fail_gh in endpoint:
             raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr="gh: connection refused")
         path, _, query = endpoint.partition("?")
-        params = dict(pair.split("=", 1) for pair in query.split("&") if pair)
+        params = {name: unquote(value) for name, value in (pair.split("=", 1) for pair in query.split("&") if pair)}
         parts = path.split("/")[3:]
+        if not parts:
+            return json.dumps({"default_branch": self.trunk})
         if parts[:1] == ["pulls"] and len(parts) == 2:
             if parts[1] in self.pulls:
                 return json.dumps(self.pulls[parts[1]])
@@ -104,8 +108,12 @@ class FakeShell(ledger.Shell):
             if login:
                 events.append({"event": "closed", "created_at": "2026-09-17T00:00:00Z", "actor": {"login": login}})
             return json.dumps(events)
-        if parts[:1] == ["pulls"] and len(parts) == 1 and "base=" in endpoint:
-            return json.dumps(self.children)
+        if parts[:1] == ["pulls"] and len(parts) == 1 and "base" in params:
+            stacked = [pull for pull in self.pulls.values() if pull["base"]["ref"] == params["base"] and pull["state"] == "open"]
+            return json.dumps(stacked + self.children.get(params["base"], []))
+        if parts[:1] == ["pulls"] and len(parts) == 1 and "head" in params:
+            branch = params["head"].split(":", 1)[1]
+            return json.dumps([pull for pull in self.pulls.values() if pull["head"]["ref"] == branch and pull["state"] == "open"])
         if parts[:1] == ["pulls"] and parts[2:] == ["reviews"]:
             size, page = int(params["per_page"]), int(params["page"])
             return json.dumps(self.reviews.get(parts[1], [])[(page - 1) * size : page * size])

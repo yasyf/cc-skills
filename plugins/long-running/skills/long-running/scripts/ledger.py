@@ -11,7 +11,7 @@
     ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H)
     ledger.py lift    --ledger ID --pr N
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--dry-run]
-    ledger.py label   --repo owner/name --ledger ID --pr N [--expect-head SHA] [--checkout DIR] [--dry-run]
+    ledger.py label   --repo owner/name --ledger ID --pr TIP [--expect-head SHA] [--checkout DIR] [--dry-run]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]
     ledger.py summary --ledger ID [--window-seconds N]
@@ -135,7 +135,11 @@ REFUSAL = {
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
     "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
-    "children": "#{pr}'s branch {branch} is the base of {children}; retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "children": "#{pr}'s branch {branch} is the base of {children}, which this stack does not enqueue; label the stack's tip, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "orphaned": "#{pr} is based on {base}, which is neither {trunk} nor exactly one open pull request's branch (found {found}); retarget it to {trunk}",
+    "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
+    "untracked": "#{pr} is below #{tip} in the stack and no lane reported it; the label on #{tip} would enqueue it too",
+    "stack": "the stack {stack} enqueues as one entry, so {refused} refuses all of it; nothing was labelled",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
 }
@@ -151,6 +155,14 @@ class Shell:
 
 class ForgeUnreachable(RuntimeError):
     """The forge did not answer, so this pass has graded nothing worth writing."""
+
+
+class Refused(Exception):
+    """One guard refused one pull request; the text names the reason."""
+
+
+def refusal(kind: str, **values: object) -> Refused:
+    return Refused(REFUSAL[kind].format(**values))
 
 
 @dataclass
@@ -180,6 +192,9 @@ class Github:
 
     def remove_label(self, number: str, name: str) -> None:
         self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{number}/labels/{name}", "--method", "DELETE"])
+
+    def default_branch(self) -> str:
+        return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
 
 
 @dataclass
@@ -237,11 +252,6 @@ def locked(path: Path):
 
 def default_lock(ledger: str) -> Path:
     return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.lock"
-
-
-def refuse(kind: str, **values: object) -> int:
-    print(f"REFUSED {REFUSAL[kind].format(**values)}")
-    return 1
 
 
 def is_shallow(shell: Shell, checkout: Path) -> bool:
@@ -662,60 +672,111 @@ def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
-    gh = Github(shell, args.repo)
-    notes = Notes(shell, args.ledger)
-    pull = gh.api(f"pulls/{args.pr}")
+def stack_to_trunk(gh: Github, tip: dict, trunk: str) -> list[dict]:
+    """The open pull requests from the trunk up to the tip, bottom first.
+
+    The queue enqueues a labelled pull request together with everything below it, so the
+    label on the tip is a label on each of these. A base that is neither the trunk nor an
+    open pull request's branch is a parent that closed without landing, and the walk
+    refuses there rather than enqueue a child onto it.
+    """
+    owner = gh.repo.split("/")[0]
+    stack = [tip]
+    while (base := stack[0]["base"]["ref"]) != trunk:
+        parents = [pull for pull in gh.api("pulls", head=f"{owner}:{base}", state="open") if pull["head"]["repo"]["full_name"] == gh.repo]
+        if len(parents) != 1:
+            raise refusal("orphaned", pr=stack[0]["number"], base=base, trunk=trunk, found=", ".join(f"#{pull['number']}" for pull in parents) or "none")
+        if any(pull["number"] == parents[0]["number"] for pull in stack):
+            raise refusal("cycle", pr=parents[0]["number"], stack=" <- ".join(f"#{pull['number']}" for pull in stack))
+        stack.insert(0, gh.api(f"pulls/{parents[0]['number']}"))
+    return stack
+
+
+def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected: str | None, above: str | None, trunk: str, checkout: Path | None) -> list[str]:
+    """Every per-PR guard, in order; returns the approvers or raises the first refusal."""
+    pr = str(pull["number"])
     head, base = pull["head"]["sha"], pull["base"]["ref"]
     if pull["state"] != "open":
-        return refuse("closed", pr=args.pr, state=pull["state"], base=base)
-    if args.expect_head and args.expect_head != head:
-        return refuse("moved", expected=args.expect_head[:9], head=head[:9])
-    fields = notes.pr_rows().get(args.pr, {})
+        raise refusal("closed", pr=pr, state=pull["state"], base=base)
+    if expected and expected != head:
+        raise refusal("moved", expected=expected[:9], head=head[:9])
     if is_held(fields):
-        return refuse("held", pr=args.pr, reason=fields["hold_reason"], until=fields["hold_until"])
+        raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
     if fields.get("label_head") == head and fields.get("label_pulled_at"):
-        return refuse("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
+        raise refusal("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
     if fields.get("label_head") == head and fields.get("labelled_at"):
-        return refuse("labelled", head=head[:9], at=fields["labelled_at"])
-    approved = approvers(gh, args.pr)
+        raise refusal("labelled", head=head[:9], at=fields["labelled_at"])
+    approved = approvers(gh, pr)
     if not approved:
-        return refuse("unapproved", pr=args.pr)
+        raise refusal("unapproved", pr=pr)
     if pull["mergeable_state"] not in LABELLABLE_STATES:
-        return refuse("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
+        raise refusal("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
     committed = parse_iso(gh.api(f"commits/{head}")["commit"]["committer"]["date"])
     age = now() - committed
     if age < MIN_HEAD_AGE:
-        return refuse("young", age=int(age.total_seconds()), min=int(MIN_HEAD_AGE.total_seconds()))
+        raise refusal("young", age=int(age.total_seconds()), min=int(MIN_HEAD_AGE.total_seconds()))
     status = gh.api(f"commits/{head}/status")
     if status["state"] != "success":
-        return refuse("status", state=status["state"], head=head[:9])
+        raise refusal("status", state=status["state"], head=head[:9])
     checks = gh.api(f"commits/{head}/check-runs")
     failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
-        return refuse("checks", head=head[:9], names=", ".join(failed))
+        raise refusal("checks", head=head[:9], names=", ".join(failed))
     review = latest_ai_review(gh, head)
     if review and review["status"] != "completed":
-        return refuse("reviewing", head=head[:9])
+        raise refusal("reviewing", head=head[:9])
     verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
     if verdict != "success":
-        return refuse("ai-review", state=verdict, head=head[:9])
-    children = open_children(gh, pull["head"]["ref"])
+        raise refusal("ai-review", state=verdict, head=head[:9])
+    children = [child for child in open_children(gh, pull["head"]["ref"]) if child != above]
     if children:
-        return refuse("children", pr=args.pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=base)
-    if args.checkout:
-        conflict = merge_conflicts(shell, args.checkout, args.pr, base, head)
+        raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=trunk)
+    if checkout:
+        conflict = merge_conflicts(shell, checkout, pr, base, head)
         if conflict:
-            print(f"REFUSED {conflict}")
-            return 1
+            raise Refused(conflict)
+    return approved
+
+
+def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
+    gh = Github(shell, args.repo)
+    notes = Notes(shell, args.ledger)
+    trunk = gh.default_branch()
+    try:
+        stack = stack_to_trunk(gh, gh.api(f"pulls/{args.pr}"), trunk)
+    except Refused as refused:
+        print(f"REFUSED {refused}")
+        return 1
+    numbers = [str(pull["number"]) for pull in stack]
+    rows = notes.pr_rows()
+    approved: dict[str, list[str]] = {}
+    refused: list[str] = []
+    for index, pull in enumerate(stack):
+        pr = numbers[index]
+        above = numbers[index + 1] if index + 1 < len(stack) else None
+        try:
+            if pr != args.pr and not rows.get(pr, {}).get("reported_head"):
+                raise refusal("untracked", pr=pr, tip=args.pr)
+            expected = args.expect_head if pr == args.pr else rows[pr].get("reported_head")
+            approved[pr] = guard(shell, gh, pull, rows.get(pr, {}), expected, above, trunk, args.checkout)
+        except Refused as reason:
+            print(f"REFUSED {reason} (#{pr})")
+            refused.append(pr)
+    chain = " <- ".join(f"#{pr}" for pr in numbers)
+    if refused:
+        print(f"REFUSED {REFUSAL['stack'].format(stack=chain, refused=', '.join(f'#{pr}' for pr in refused))}")
+        return 1
+    tip = stack[-1]["head"]["sha"]
     if args.dry_run:
-        print(f"would label #{args.pr} {head}")
+        print(f"would label #{args.pr} {tip}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
         return 0
     gh.add_label(args.pr, MERGE_LABEL)
     labelled = utc_stamp()
-    approved_by = ",".join(approved)
-    notes.set_fields(args.pr, {"head": head, "base": base, "label_head": head, "labelled_at": labelled, "approved_by": approved_by, "label_pulled_at": "", "label_pull_reason": ""})
-    print(f"labelled #{args.pr} {head} at {labelled}, approved by {approved_by}")
+    print(f"labelled #{args.pr} {tip} at {labelled}; the queue takes {chain} as one entry")
+    for pull, pr in zip(stack, numbers, strict=True):
+        head, approved_by = pull["head"]["sha"], ",".join(approved[pr])
+        notes.set_fields(pr, {"head": head, "base": pull["base"]["ref"], "label_head": head, "labelled_at": labelled, "label_stack": ",".join(numbers), "approved_by": approved_by, "label_pulled_at": "", "label_pull_reason": ""})
+        print(f"#{pr} {head[:9]} approved by {approved_by}")
     return 0
 
 
@@ -890,7 +951,7 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--dry-run", action="store_true")
     route.set_defaults(handler=cmd_route)
 
-    label = subparsers.add_parser("label", help="re-read the head, run every guard, then add the merge label once")
+    label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then label the tip once")
     add_ledger(label, repo=True)
     label.add_argument("--pr", required=True)
     label.add_argument("--expect-head")

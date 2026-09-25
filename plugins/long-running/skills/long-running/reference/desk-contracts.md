@@ -186,10 +186,10 @@ parent's payload, where the parent merges as a no-op and its own page shows only
 the queue closed something. Neither source is sufficient alone, and the order matters,
 because the tree is cheap and certain when it agrees.
 
-## Retarget a child before labelling its parent, never after
+## Enqueue the whole stack before any parent branch is deleted
 
-When a parent lands, the queue deletes its branch and the forge closes every pull request
-based on it. Reopening is refused outright:
+When a parent lands without its child in the same queue entry, the queue deletes its
+branch and the forge closes the child. Reopening is refused outright:
 
 ```
 state cannot be changed. The <branch> branch has been deleted.
@@ -200,15 +200,16 @@ measured in seconds, and a poll does not win it: one desk watched at thirty-seco
 intervals, got `HTTP 422` on its retarget, and lost a pull request whose one-line fix was
 still absent from the trunk.
 
-**So the ordering is the fix, not the reaction.** A child's base moves to the trunk before
-its parent is ever labelled, at which point the parent's branch deletion touches nothing.
-The desk enforces this by refusing to label a pull request whose branch is still the base
-of an open one, naming the children in the refusal. Retargeting is cheap and reversible;
-a closed child is neither.
+**Enqueue the whole stack with one `merge` label on its tip.** Graphite
+[propagates that label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
+the stack as one entry. The desk re-reads every PR and runs every guard before adding the
+label; one refusal refuses the whole stack. The tool refuses to label a PR whose branch
+is the base of an open PR outside the enqueued stack, naming the children left exposed
+to branch deletion.
 
-Retargeting alone does not rebase. A child moved onto the trunk still carries its parent's
-commits and will re-show that diff until it is rebased, so check the file count before
-labelling: one file where one belongs, not sixteen.
+A parent landing outside that queue entry still requires the child to move off its branch
+first. Retargeting alone does not rebase: a child moved onto the trunk still carries its
+parent's commits until it is rebased, so check the file count before labelling.
 
 ## A neutral check is a held finding, not an abstention
 
@@ -742,14 +743,16 @@ that is being restacked.
 
 ## A child whose base branch is squashed away cannot be recovered
 
-When a parent lands, its branch is deleted, and GitHub auto-closes any PR based on
-it. `gh pr reopen` is refused outright — the child is dead, not stale. Retargeting
-is not available either, because there is no base to retarget from.
+When a parent lands without its child in the same queue entry, its branch is deleted,
+and GitHub auto-closes the child. `gh pr reopen` is refused outright — the child is
+dead, not stale. Retargeting is not available either, because there is no base to
+retarget from.
 
 The only move is a replacement PR: rebase the branch onto the trunk, where git drops
 the parent's commit as already-applied, and open a new one with `gt track --parent
-dev` so it has a real stack record. Retarget a child BEFORE its parent lands, or
-accept that it will need replacing.
+dev` so it has a real stack record. Prevent this by enqueueing the whole stack with
+one label on its tip. If the parent lands outside that queue entry, move the child
+off its branch before it lands.
 
 ## A docs-only diff can carry a live security defect
 
@@ -1151,7 +1154,7 @@ current tip is an observation and costs one field read, because the artifact alr
 records the sha it was planned on. Turning that observation into a gate is the
 remaining work, and it is the path intersection rather than the read.
 
-## Never label a stacked child and its base in the same pass
+## Enqueue a stack as one entry, never a PR at a time
 
 I labelled a parent and its child three minutes apart. The parent landed, which
 deleted its branch, and the forge auto-closed the child whose base that branch was.
@@ -1159,14 +1162,17 @@ Retarget refused, reopen refused. The child's work survived on its branch and th
 pull request did not — it needs a replacement number, which loses its review history
 and its CI record.
 
-The desk already had the rule that a held child dies when its base lands. What it did
-not have is that **labelling is what makes the base land**, so the desk is the agent
-of the deletion rather than a bystander to it.
+The desk already had the rule that a held child dies when its base lands separately.
+**Labelling is what makes the base land**, so the desk caused the deletion by
+enqueueing the parent on its own.
 
-The order is: land the base, wait for the lane to retarget the child to trunk, then
-grade and label the child. A child still based on another pull request's branch is not
-labellable however clean its plan reads, and the tell is one field — the base ref is
-not the trunk.
+Grade the whole stack, then label its tip once. Every PR must pass every guard; one
+red PR refuses the stack, and any open child outside the stack blocks the label.
+Graphite takes the stack as one entry: Forge-AI/monorepo #17257 and #17258 merged
+together through draft [#17578](https://github.com/Forge-AI/monorepo/pull/17578),
+`[Graphite MQ] Draft PR GROUP:spec_357e12 (PRs 17257, 17258)`.
+The trunk fast-forwarded to the draft head and both PRs closed together, so the child
+was not lost to its parent's branch deletion.
 
 The recoverable case is worth checking before declaring a loss: confirm the head
 branch still exists on the remote, that it merges cleanly into trunk, and whether it
