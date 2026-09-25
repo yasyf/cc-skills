@@ -1,2 +1,0 @@
-{"type": "user", "isSidechain": false, "uuid": "u1", "sessionId": "calm", "message": {"role": "user", "content": "continue"}, "timestamp": "2026-09-24T16:00:00.000Z", "parentUuid": null}
-{"type": "assistant", "isSidechain": false, "uuid": "a1", "sessionId": "calm", "message": {"role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 2, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 48998, "output_tokens": 50}}, "timestamp": "2026-09-24T16:00:30.000Z", "parentUuid": "u1"}
