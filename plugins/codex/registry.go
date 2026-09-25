@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -747,7 +748,7 @@ func repoToplevelOf(path string) string {
 		if d == home || d == filepath.Dir(d) {
 			return ""
 		}
-		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+		if _, err := fs.Lstat(os.DirFS(d), ".git"); err == nil {
 			return d
 		}
 	}
