@@ -141,3 +141,22 @@ def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatc
     assert archive.read_text() == "# first snapshot\n"
     saved = handoff.CompactionState.load(evt)
     assert (saved.phase, saved.archive_path) == ("idle", None)
+
+
+def test_rotation_fires_once_per_lane_transcript(tmp_path: Path) -> None:
+    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
+    handoff.CompactionState(active=True).save(evt)
+
+    assert handoff.compaction_handoff(evt).action == "block"
+    assert handoff.CompactionState.load(evt).rotated == ["alanding-desk-0b0b0b0b0b0b0b0b"]
+    assert handoff.compaction_handoff(evt) is None
+
+
+def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/full.jsonl"))
+    handoff.CompactionState(active=True).save(evt)
+
+    assert "`landing-desk` (200,000)" in handoff.compaction_handoff(evt).message
+    saved = handoff.CompactionState.load(evt)
+    assert (saved.phase, saved.rotated) == ("rewriting", ["alanding-desk-1a1a1a1a1a1a1a1a"])

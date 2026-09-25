@@ -52,8 +52,10 @@ while its silence read as progress.*
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
 original never sees the message. Reply to nothing you have already acted on, and expect
-2-3 duplicate idle-notifications per real report. *Prevents lane collisions in a shared
-worktree and the reply tax on notifications that carry no news.*
+2-3 duplicate idle-notifications per real report. A rotation respawn is not a re-brief:
+the old lane is flushed and stopped first, and the fresh one resumes from the ledger, so
+nothing runs twice (see Lane rotation). *Prevents lane collisions in a shared worktree
+and the reply tax on notifications that carry no news.*
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
 them (`log_append`, `investigation_*`, `note_add`, `task_add`), never into the
@@ -192,6 +194,7 @@ exits non-zero and writes nothing. The records live on `refs/cc-notes/*` and sur
 compaction, a session restart, and a handoff. A fresh `landing-desk` lane spawned with the
 ledger id reads the inbox, the holds, the routes, the label history, and the landings
 exactly as the last one left them. None of that goes into session memory or the plan file.
+That is what makes the desk cheap to rotate; see Lane rotation.
 
 ## Mechanics
 
@@ -383,6 +386,34 @@ Auto-compaction can still fire mid-turn, ahead of the proactive 80% check, if on
 alone grows past 20% of the threshold. `PreCompact` and `SessionStart` re-ground on the
 plan either way, so nothing is lost, only unplanned.
 
+### Lane rotation
+
+Every turn a lane takes re-reads its whole history. A desk at 400k tokens pays about
+400k per wake to type in a three-line report, while everything it needs to continue
+already sits on its ledger. A long-lived lane is therefore rotated, not kept: flushed,
+stopped, and respawned fresh under the same name.
+
+**Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
+At 150k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
+live named lane on the main-session `Stop` and blocks the turn with each lane over the
+line and its count, once per lane transcript. Every compaction handoff directive also
+lists the live lanes over the line. Rotate them before ending that turn, and record each
+new agent in `## Restart here`.
+
+**Protocol.**
+
+1. Send the lane one message:
+   `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`
+2. On `flushed <ledger id>`, `TaskStop` it first. A spawn under a name a running lane
+   still holds gets a different name.
+3. Then spawn a fresh lane with the `Agent` tool under the same name, with its original
+   spawn brief plus the ledger id. Messages addressed by name reach the newest agent.
+
+Never `SendMessage` the stopped lane. That resumes the same transcript and reloads the
+whole history the rotation dropped. An `open-pr:pr-watcher` needs no flush, since
+its state file is its ledger. `TaskStop` it and spawn a fresh one with the same inputs,
+which resumes from that file. A lane with nothing left to do is stopped, not respawned.
+
 ## Anti-patterns seen
 
 - Reading build and cloud logs in the root window while an assigned lane owned the question.
@@ -415,6 +446,8 @@ plan either way, so nothing is lost, only unplanned.
   15 minutes.
 - The root relayed a lane's 45-60 minute ETA for green priority PR #25145 and the owner
   queued it by hand.
+- A desk kept for the whole drive, re-reading hundreds of thousands of tokens of history
+  on every report while its state already sat on the ledger.
 
 ## Checklist before every tool call
 

@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -32,6 +33,8 @@ PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 LEADING_FLOAT = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 ARCHIVE_SUFFIX = "-pre-compact.md"
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
+LANES = FIXTURES / "lanes" / "projects" / "p"
+REVIEWER = {"id": "a0d0d0d0d0d0d0d0d", "type": "subagent", "status": "running", "description": "lane"}
 
 WINDOW_FLOOR = 100_000
 WINDOW_CEILING = 1_000_000
@@ -40,6 +43,7 @@ OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
 FIRE_FRACTION = 0.8
 MAX_REMINDERS = 2
+LANE_ROTATE_TOKENS = 150_000
 
 
 @workflow_state("long_running_compaction")
@@ -50,6 +54,14 @@ class CompactionState(WorkflowState):
     phase: Literal["idle", "rewriting", "compacting"] = "idle"
     archive_path: str | None = None
     reminders: int = 0
+    rotated: list[str] = []
+
+
+@dataclass(frozen=True)
+class Lane:
+    name: str
+    agent_id: str
+    tokens: int
 
 
 def model_window(model: str | None) -> int:
@@ -89,12 +101,67 @@ def threshold(model: str | None, project: Path | None) -> int:
     return limit
 
 
-def used_tokens(transcript: Path) -> int:
+def used_tokens(transcript: Path, *, sidechain: bool = False) -> int:
     for line in reversed(transcript.read_text().splitlines()):
         entry = json.loads(line)
-        if entry.get("type") == "assistant" and not entry.get("isSidechain") and (usage := entry["message"].get("usage")):
+        if (
+            entry.get("type") == "assistant"
+            and entry.get("isSidechain", False) == sidechain
+            and (usage := entry["message"].get("usage"))
+        ):
             return usage["input_tokens"] + usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"]
     return 0
+
+
+def spawned_at(transcript: Path) -> str:
+    with transcript.open() as lines:
+        return json.loads(next(lines))["timestamp"]
+
+
+def team_members(config_dir: Path, team: str) -> set[str]:
+    config = config_dir / "teams" / team / "config.json"
+    return {member["name"] for member in json.loads(config.read_text())["members"]} if config.is_file() else set()
+
+
+def live_lanes(evt: BaseHookEvent) -> list[Lane]:
+    transcript = evt.transcript_path
+    live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
+    newest: dict[str, tuple[str, str, Path]] = {}
+    for meta_path in sorted((transcript.with_suffix("") / "subagents").glob("agent-*.meta.json")):
+        meta = json.loads(meta_path.read_text())
+        if not (name := meta.get("name")):
+            continue
+        agent_id = meta_path.name.removeprefix("agent-").removesuffix(".meta.json")
+        if meta.get("taskKind") == "in_process_teammate":
+            if name not in team_members(transcript.parents[2], meta["teamName"]):
+                continue
+        elif agent_id not in live_subagents:
+            continue
+        lane_transcript = meta_path.with_name(f"agent-{agent_id}.jsonl")
+        started = spawned_at(lane_transcript)
+        if name not in newest or started > newest[name][0]:
+            newest[name] = (started, agent_id, lane_transcript)
+    return [
+        Lane(name, agent_id, used_tokens(path, sidechain=True))
+        for name, (_, agent_id, path) in sorted(newest.items())
+    ]
+
+
+def lanes_due(evt: BaseHookEvent) -> list[Lane]:
+    return [lane for lane in live_lanes(evt) if lane.tokens >= LANE_ROTATE_TOKENS]
+
+
+def rotation_protocol(lanes: list[Lane]) -> str:
+    listed = ", ".join(f"`{lane.name}` ({lane.tokens:,})" for lane in lanes)
+    return (
+        f"Live lanes at or over the {LANE_ROTATE_TOKENS:,}-token rotation line: {listed}. "
+        "Rotate each before ending this turn (long-running skill, Lane rotation): SendMessage it "
+        '`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`; '
+        "on `flushed`, TaskStop it first, then spawn a fresh lane with the Agent tool under the same name, with its "
+        "original spawn brief plus the ledger id. Never SendMessage the stopped lane: that resumes the same transcript "
+        "and reloads its whole history. A pr-watcher needs no flush: TaskStop it and respawn it with the same inputs. "
+        "A lane with nothing left to do is TaskStopped, not respawned."
+    )
 
 
 def compact_instructions(plan: str) -> str:
@@ -104,8 +171,11 @@ def compact_instructions(plan: str) -> str:
     )
 
 
-def directive(*, used: int, limit: int, archive: Path | None, plan: Path, archives: list[Path], now: str) -> str:
+def directive(
+    *, used: int, limit: int, archive: Path | None, plan: Path, archives: list[Path], lanes: list[Lane], now: str
+) -> str:
     archived = f"The current plan is archived at `{archive}`. " if archive else ""
+    rotation = f"{rotation_protocol(lanes)} Record each new agent id in `## Restart here`.\n" if lanes else ""
     bullets = "\n".join(f"- `{path}`" for path in archives)
     return (
         f"Context is at {used:,} of the {limit:,}-token auto-compaction threshold ({round(100 * used / limit)}%). "
@@ -118,7 +188,7 @@ def directive(*, used: int, limit: int, archive: Path | None, plan: Path, archiv
         f"`## Owner decisions (never re-ask)`, `## State at {now}Z`, `## Live lanes`, `## Owed follow-ups`, "
         "`## Owner actions pending`, `## Key notes`, `## Done means`, "
         f"`## Archived plans (history only, never needed to restart)` with these bullets verbatim:\n{bullets}\n"
-        "Then end your turn; the hook runs /compact."
+        f"{rotation}Then end your turn; the hook runs /compact."
     )
 
 
@@ -247,14 +317,32 @@ def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | No
         plan = Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
         archive = None
     archives = sorted(plan.parent.glob(f"{plan.stem}.*{ARCHIVE_SUFFIX}"), reverse=True)
+    lanes = lanes_due(evt)
+    state.rotated += [lane.agent_id for lane in lanes if lane.agent_id not in state.rotated]
     state.plan_path = str(plan)
     state.archive_path = str(archive) if archive else None
     state.phase = "rewriting"
     state.reminders = 0
     state.save(evt)
     return evt.block(
-        directive(used=used, limit=limit, archive=archive, plan=plan, archives=archives, now=f"{now:%Y-%m-%d %H:%M}")
+        directive(
+            used=used,
+            limit=limit,
+            archive=archive,
+            plan=plan,
+            archives=archives,
+            lanes=lanes,
+            now=f"{now:%Y-%m-%d %H:%M}",
+        )
     )
+
+
+def rotate_lanes(evt: BaseHookEvent, state: CompactionState) -> HookResult | None:
+    if not (lanes := [lane for lane in lanes_due(evt) if lane.agent_id not in state.rotated]):
+        return None
+    state.rotated += [lane.agent_id for lane in lanes]
+    state.save(evt)
+    return evt.block(rotation_protocol(lanes))
 
 
 def plan_rewritten(state: CompactionState) -> bool:
@@ -440,6 +528,50 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
             transcript=FIXTURES / "usage-460k.jsonl",
             state=[CompactionState(active=True, plan_path=str(FIXTURES / "plans" / "same.md"), phase="compacting")],
         ): Allow(),
+        Input(transcript=LANES / "calm.jsonl", state=[CompactionState(active=True)]): Block(
+            pattern=r"^Live lanes at or over the 150,000-token rotation line: `landing-desk` \(180,000\)\. Rotate each "
+            r"before ending this turn .*SendMessage it `ROTATE: record anything not yet in the ledger or cc-notes, "
+            r'reply "flushed <ledger id>", then stop\.`; on `flushed`, TaskStop it first, then spawn a fresh lane .*'
+            r"Never SendMessage the stopped lane: that resumes the same transcript"
+        ),
+        Input(transcript=LANES / "calm.jsonl", background_tasks=[REVIEWER], state=[CompactionState(active=True)]): Block(
+            pattern=r"^Live lanes at or over the 150,000-token rotation line: "
+            r"`landing-desk` \(180,000\), `reviewer` \(170,000\)\. Rotate each "
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[CompactionState(active=True, rotated=["alanding-desk-0a0a0a0a0a0a0a0a"])],
+        ): Block(pattern=r"^Live lanes at or over the 150,000-token rotation line: `landing-desk` \(180,000\)\. "),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[CompactionState(active=True, rotated=["alanding-desk-0b0b0b0b0b0b0b0b"])],
+        ): Allow(),
+        Input(transcript=LANES / "calm.jsonl", background_tasks=[REVIEWER]): Allow(),
+        Input(transcript=LANES / "calm.jsonl", agent_id="a1b2c3", state=[CompactionState(active=True)]): Allow(),
+        Input(
+            transcript=LANES / "full.jsonl",
+            session_id="0123456789abcdef",
+            state=[CompactionState(active=True)],
+        ): Block(
+            pattern=r"(?s)^Context is at 460,000 of the 167,000-token .*verbatim:\n.*Live lanes at or over the "
+            r"150,000-token rotation line: `landing-desk` \(200,000\)\. Rotate each .*Record each new agent id in "
+            r"`## Restart here`\.\nThen end your turn; the hook runs /compact\.$"
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[
+                CompactionState(
+                    active=True,
+                    plan_path=str(FIXTURES / "plans" / "same.md"),
+                    archive_path=str(FIXTURES / "plans" / "same.2026-09-24-1630-pre-compact.md"),
+                    phase="rewriting",
+                )
+            ],
+        ): Block(pattern=r"^Compaction handoff pending: rewrite `\S+/same\.md`"),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[CompactionState(active=True, plan_path=str(FIXTURES / "plans" / "same.md"), phase="compacting")],
+        ): Allow(),
     },
 )
 def compaction_handoff(evt: BaseHookEvent) -> HookResult | None:
@@ -448,7 +580,7 @@ def compaction_handoff(evt: BaseHookEvent) -> HookResult | None:
         return None
     match state.phase:
         case "idle":
-            return begin_handoff(evt, state)
+            return begin_handoff(evt, state) or rotate_lanes(evt, state)
         case "rewriting":
             return finish_handoff(evt, state)
         case "compacting":

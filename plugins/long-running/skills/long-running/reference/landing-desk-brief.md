@@ -40,6 +40,11 @@ Verified facts, do not re-derive:
   script: <plugin root>/skills/long-running/scripts/ledger.py
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
 
+You may be a rotation respawn: the root stopped the last desk with `TaskStop` and
+  spawned you fresh under its name. The ledger holds everything the last desk knew:
+  its inbox, holds, routes, labels, and landings. Start at step 1 from the ledger as it
+  stands; never ask the root what happened before you.
+
 Do, in this order, forever:
   1. Inbox. Each inbound message is typed in as it arrives: a 3-line report as
      `ledger.py report`, a lane's registration as
@@ -152,6 +157,11 @@ Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`,
 Finish: never. If the root tells you the drive is over,
   `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` once more,
   `ccn ledger archive <ledger id>`, and stop.
+Rotate: on a `ROTATE` message from the root, type every message you have not yet
+  recorded into the ledger (`ledger.py report`, `register`, `ruling`, `enqueue`), write
+  any finding still only in your context to cc-notes, reply `flushed <ledger id>`, and
+  stop. The root stops you with `TaskStop` and spawns a fresh desk under your name,
+  which takes over from the ledger.
 ```
 
 ## Scoped resume

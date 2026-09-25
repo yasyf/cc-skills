@@ -1,0 +1,17 @@
+{
+  "name": "session-calm",
+  "members": [
+    {
+      "agentId": "team-lead@session-calm",
+      "name": "team-lead"
+    },
+    {
+      "agentId": "landing-desk@session-calm",
+      "name": "landing-desk"
+    },
+    {
+      "agentId": "scout@session-calm",
+      "name": "scout"
+    }
+  ]
+}
