@@ -28,13 +28,15 @@
 # off a stint no report has ended yet. Fires once per stint; re-enqueueing, by
 # label or in the UI, re-arms it.
 #
-# ready-to-merge needs every check passed, mergeable true, the queue state read,
+# ready-to-merge needs every check passed, mergeable true, queue state read,
 # the PR neither queued nor evicted and waiting to re-enter, and the review
 # requirement met: no reviewer's latest review requests changes and
-# mergeable_state is not blocked, which is how REST reports a required approval
-# still missing. A queued PR is watched until it lands or the queue drops it.
+# mergeable_state is not blocked. The blocked state means a required approval
+# is still missing: it is REST's stand-in for GraphQL reviewDecision, which
+# this REST-only script cannot read. A queued PR is watched until it lands or
+# the queue drops it.
 # Green but not yet approved prints GREEN awaiting-review once per head and
-# keeps watching. An eviction holds only its own head: pushing a new head clears
+# keeps watching. An eviction holds only its head: pushing a new head clears
 # it.
 #
 # One poller per state file: a second concurrent run exits 3 without polling.

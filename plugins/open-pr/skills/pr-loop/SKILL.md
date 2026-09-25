@@ -145,9 +145,10 @@ re-enqueues. Triage `failed-ci` like `checks-failed`, fix the named PR for
 `other` or `unknown`.
 
 Ready-to-merge, merged, abandoned, and the deadline end the loop: `TaskStop`
-the monitor and report. On `ready-to-merge`, ask the user through
-`AskUserQuestion` whether to merge #<pr> now, in that same turn, and add the
-queue label only on a yes; never label on the verdict alone. On a queue lane, merged versus abandoned comes from the
+the monitor and report. On `ready-to-merge`, follow the `open-pr.on-ready`
+setting defined in the [open-pr skill](../open-pr/SKILL.md#after-a-ready-to-merge-report-open-pron-ready)
+(`offer-open` by default, `offer-merge` when set), ask through `AskUserQuestion`
+in that same turn, and never label or open on the verdict alone. On a queue lane, merged versus abandoned comes from the
 landing on the base branch (see Attach), never the state field or the
 closer actor. On failed checks, triage the reds; ship or rebut what triage
 settles, then **arm a fresh Monitor** on the new head and keep going.
@@ -244,10 +245,12 @@ emitting a line per event, so it composes with a watching human, not with
 Monitor.
 
 <success_criteria>
-The loop ends with a report: the PR is ready to merge (checks passing,
-`mergeable: true`, approved or no approval required, neither queued nor
-evicted, every actionable comment answered) and the user was asked whether to
-merge it; it merged or was abandoned, told apart by the landing on the
+The loop ends with a report. On `ready-to-merge`, checks pass,
+`mergeable` is true, approval is satisfied or not required, the PR is neither
+queued nor evicted, and every actionable comment is answered. The caller
+asks the user in that same turn through `AskUserQuestion` whether to open
+the PR page or merge it according to `open-pr.on-ready`. Otherwise, it
+merged or was abandoned, told apart by the landing on the
 base; or it is blocked by conflicts, exhausted attempts, a decision, or the
 deadline. Evictions report immediately and keep the watch armed for
 re-enqueue. Every shipped fix passed all four gates first and appears in the

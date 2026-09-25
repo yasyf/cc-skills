@@ -74,14 +74,14 @@ expiry notice arrives instead of a `DONE` line, treat it as `window-elapsed`.
 Each `DONE` ends a round; handle queue events while it runs:
 
 - `window-elapsed` → re-arm on the same state file and keep watching
-- `ready-to-merge` → your first action, before any other tool call, is the
-  `ready-to-merge` SendMessage under `<reporting>`: no comment sweep, no CI
+- On `ready-to-merge`, use `SendMessage` to send the report under
+  `<reporting>` before any other tool call: no comment sweep, no CI
   diagnosis, no re-read of the PR first. The script emits it only when every
   check passed, `mergeable` is true, queue state has been read, the PR is
   neither queued nor evicted on its current head, no reviewer's latest review
   requests changes, and `mergeable_state` is not `blocked` (a required
-  approval still missing)
-- `GREEN awaiting-review` → checks are green but approval is missing or a
+  approval still missing).
+- `GREEN awaiting-review` means checks are green but approval is missing or a
   reviewer requested changes. It is not a `DONE`: send nothing and keep the
   Monitor running; `ready-to-merge` follows when the approval lands. Triage a
   `REVIEW <author> CHANGES_REQUESTED` line as a review round
@@ -245,8 +245,8 @@ when one of these holds and not before:
   green, `mergeable: true`, approved or no approval required, neither queued
   nor evicted. Send it the moment the line arrives, as the first thing you
   do; name the PR, URL, and head SHA, and list any comment still unanswered
-  rather than answering it first. The caller asks the user whether to merge;
-  never add the queue label yourself
+  rather than answering it first. The caller decides what to offer the user;
+  never add the queue label or open anything yourself
 - `blocked` — a judgment call blocks progress; findings plus 2-4 concrete
   options, per the delegation contract: return early, the caller decides
 - `unsafe` — a safety gate failed; name which, and the fix it blocked

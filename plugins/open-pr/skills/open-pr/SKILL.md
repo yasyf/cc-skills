@@ -157,7 +157,26 @@ watch is unarmed. An agent spawn alone does not prove the script is running.
 
 One watcher per PR — a second on the same PR would push over the first. Every report except `evicted` ends the watch; `SendMessage` by name resumes it for the next round. An `evicted: <reason> <detail>` message arrives mid-run and the watcher keeps watching for the caller to re-enqueue by label or in Graphite's UI. Push any fix before re-enqueueing; the caller decides when to re-enqueue.
 
-A `ready-to-merge` report means checks are green, the PR is mergeable, and the approval it needs has landed. In that same turn, ask the user through `AskUserQuestion` whether to merge #<number> now, and add the queue label only on a yes. Never label on the report alone. Under the `long-running` skill the landing desk owns this decision: forward the report to it, and it asks or labels by its own rules.
+### After a ready-to-merge report: `open-pr.on-ready`
+
+A `ready-to-merge` report means the PR is green, mergeable, and approved:
+every check passed, `mergeable` is true, and the PR is neither queued nor
+evicted on its current head. No reviewer's latest review is
+`CHANGES_REQUESTED`, and REST `mergeable_state` is not `blocked` (the state
+for a missing required approval).
+
+Read the user's `CLAUDE.md` for one of these exact lines:
+
+- `open-pr.on-ready: offer-open` (the default when no line is set): in that
+  same turn, ask the user through `AskUserQuestion` whether to open the PR
+  page. Run `gh pr view <number> --web` only on a yes.
+- `open-pr.on-ready: offer-merge`: in that same turn, ask
+  "merge #<number> now?" through `AskUserQuestion`. Add the repo's queue label
+  only on a yes.
+
+Never label or open on the report alone. Under the `long-running` skill,
+forward the report to the landing desk; it owns the decision regardless of
+the setting.
 
 After adding the queue label to a PR whose watcher already reported `ready-to-merge`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
 
