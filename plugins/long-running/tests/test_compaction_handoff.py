@@ -143,13 +143,38 @@ def test_archive_collision_raises_before_state_change(tmp_path: Path, monkeypatc
     assert (saved.phase, saved.archive_path) == ("idle", None)
 
 
-def test_rotation_fires_once_per_lane_transcript(tmp_path: Path) -> None:
+def test_unrotated_lane_is_reminded_then_given_up(tmp_path: Path) -> None:
     evt = stop_event(tmp_path / "session", transcript_path=str(FIXTURES / "lanes/projects/p/calm.jsonl"))
-    handoff.CompactionState(active=True).save(evt)
+    handoff.CompactionState(active=True, rotated={"gone": 1}).save(evt)
+    desk = "alanding-desk-0b0b0b0b0b0b0b0b"
 
-    assert handoff.compaction_handoff(evt).action == "block"
-    assert handoff.CompactionState.load(evt).rotated == ["alanding-desk-0b0b0b0b0b0b0b0b"]
+    first = handoff.compaction_handoff(evt)
+    assert (first.action, first.message.startswith("Live lanes")) == ("block", True)
+    assert handoff.CompactionState.load(evt).rotated == {desk: 0}
+    for sent in range(1, handoff.MAX_REMINDERS + 1):
+        assert handoff.compaction_handoff(evt).message.startswith("Still unrotated: `landing-desk`")
+        assert handoff.CompactionState.load(evt).rotated == {desk: sent}
+    gave_up = handoff.compaction_handoff(evt)
+    assert (gave_up.action, gave_up.system_message.startswith("Long-running lane rotation gave up")) == ("allow", True)
     assert handoff.compaction_handoff(evt) is None
+    assert handoff.CompactionState.load(evt).rotated == {desk: handoff.GAVE_UP}
+
+
+def test_scan_failure_leaves_no_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = tmp_path / "brook.md"
+    plan.write_text("# plan\n")
+    evt = stop_event(tmp_path / "session")
+    handoff.CompactionState(active=True, model="claude-opus-5-5[1m]", plan_path=str(plan)).save(evt)
+
+    def unreadable(evt: StopEvent) -> list:
+        raise OSError("scan")
+
+    monkeypatch.setattr(handoff, "live_lanes", unreadable)
+
+    with pytest.raises(OSError):
+        handoff.compaction_handoff(evt)
+
+    assert list(tmp_path.glob("*-pre-compact.md")) == []
 
 
 def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,4 +184,4 @@ def test_compaction_handoff_marks_listed_lanes_rotated(tmp_path: Path, monkeypat
 
     assert "`landing-desk` (200,000)" in handoff.compaction_handoff(evt).message
     saved = handoff.CompactionState.load(evt)
-    assert (saved.phase, saved.rotated) == ("rewriting", ["alanding-desk-1a1a1a1a1a1a1a1a"])
+    assert (saved.phase, saved.rotated) == ("rewriting", {"alanding-desk-1a1a1a1a1a1a1a1a": 0})

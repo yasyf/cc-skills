@@ -12,6 +12,14 @@
     {
       "agentId": "scout@session-calm",
       "name": "scout"
+    },
+    {
+      "agentId": "ghost@session-calm",
+      "name": "ghost"
+    },
+    {
+      "agentId": "blank@session-calm",
+      "name": "blank"
     }
   ]
 }

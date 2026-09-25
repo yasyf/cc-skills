@@ -396,9 +396,11 @@ stopped, and respawned fresh under the same name.
 **Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
 At 150k it is due. Once `long-running` is invoked, the same capt-hook pack checks every
 live named lane on the main-session `Stop` and blocks the turn with each lane over the
-line and its count, once per lane transcript. Every compaction handoff directive also
-lists the live lanes over the line. Rotate them before ending that turn, and record each
-new agent in `## Restart here`.
+line and its count. A lane still live and over the line on later stops gets up to two
+one-line reminders; after that the hook lets the stop through and tells the user which
+lane it gave up on. A lane that leaves the live set counts as rotated. Every compaction
+handoff directive also lists the live lanes over the line. Rotate them before ending that
+turn, and record each new agent in `## Restart here`.
 
 **Protocol.**
 

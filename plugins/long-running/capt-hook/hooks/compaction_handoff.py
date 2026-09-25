@@ -43,6 +43,7 @@ OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
 FIRE_FRACTION = 0.8
 MAX_REMINDERS = 2
+GAVE_UP = MAX_REMINDERS + 1
 LANE_ROTATE_TOKENS = 150_000
 
 
@@ -54,7 +55,7 @@ class CompactionState(WorkflowState):
     phase: Literal["idle", "rewriting", "compacting"] = "idle"
     archive_path: str | None = None
     reminders: int = 0
-    rotated: list[str] = []
+    rotated: dict[str, int] = {}
 
 
 @dataclass(frozen=True)
@@ -113,9 +114,12 @@ def used_tokens(transcript: Path, *, sidechain: bool = False) -> int:
     return 0
 
 
-def spawned_at(transcript: Path) -> str:
+def spawned_at(transcript: Path) -> str | None:
+    if not transcript.is_file():
+        return None
     with transcript.open() as lines:
-        return json.loads(next(lines))["timestamp"]
+        first = next(lines, None)
+    return json.loads(first)["timestamp"] if first else None
 
 
 def team_members(config_dir: Path, team: str) -> set[str]:
@@ -132,13 +136,14 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
         if not (name := meta.get("name")):
             continue
         agent_id = meta_path.name.removeprefix("agent-").removesuffix(".meta.json")
-        if meta.get("taskKind") == "in_process_teammate":
-            if name not in team_members(transcript.parents[2], meta["teamName"]):
+        if team := meta.get("teamName"):
+            if name not in team_members(transcript.parents[2], team):
                 continue
         elif agent_id not in live_subagents:
             continue
         lane_transcript = meta_path.with_name(f"agent-{agent_id}.jsonl")
-        started = spawned_at(lane_transcript)
+        if not (started := spawned_at(lane_transcript)):
+            continue
         if name not in newest or started > newest[name][0]:
             newest[name] = (started, agent_id, lane_transcript)
     return [
@@ -147,14 +152,20 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     ]
 
 
-def lanes_due(evt: BaseHookEvent) -> list[Lane]:
-    return [lane for lane in live_lanes(evt) if lane.tokens >= LANE_ROTATE_TOKENS]
+def scan_lanes(evt: BaseHookEvent, state: CompactionState) -> list[Lane]:
+    lanes = live_lanes(evt)
+    live = {lane.agent_id for lane in lanes}
+    state.rotated = {agent_id: sent for agent_id, sent in state.rotated.items() if agent_id in live}
+    return [lane for lane in lanes if lane.tokens >= LANE_ROTATE_TOKENS]
+
+
+def listed(lanes: list[Lane]) -> str:
+    return ", ".join(f"`{lane.name}` ({lane.tokens:,})" for lane in lanes)
 
 
 def rotation_protocol(lanes: list[Lane]) -> str:
-    listed = ", ".join(f"`{lane.name}` ({lane.tokens:,})" for lane in lanes)
     return (
-        f"Live lanes at or over the {LANE_ROTATE_TOKENS:,}-token rotation line: {listed}. "
+        f"Live lanes at or over the {LANE_ROTATE_TOKENS:,}-token rotation line: {listed(lanes)}. "
         "Rotate each before ending this turn (long-running skill, Lane rotation): SendMessage it "
         '`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>", then stop.`; '
         "on `flushed`, TaskStop it first, then spawn a fresh lane with the Agent tool under the same name, with its "
@@ -302,7 +313,7 @@ def pending_rewrite(state: CompactionState) -> str:
     )
 
 
-def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | None:
+def begin_handoff(evt: BaseHookEvent, state: CompactionState, lanes: list[Lane]) -> HookResult | None:
     used = used_tokens(evt.transcript_path)
     limit = threshold(state.model, evt.cwd)
     if used < FIRE_FRACTION * limit:
@@ -317,8 +328,8 @@ def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | No
         plan = Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
         archive = None
     archives = sorted(plan.parent.glob(f"{plan.stem}.*{ARCHIVE_SUFFIX}"), reverse=True)
-    lanes = lanes_due(evt)
-    state.rotated += [lane.agent_id for lane in lanes if lane.agent_id not in state.rotated]
+    for lane in lanes:
+        state.rotated.setdefault(lane.agent_id, 0)
     state.plan_path = str(plan)
     state.archive_path = str(archive) if archive else None
     state.phase = "rewriting"
@@ -337,12 +348,29 @@ def begin_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | No
     )
 
 
-def rotate_lanes(evt: BaseHookEvent, state: CompactionState) -> HookResult | None:
-    if not (lanes := [lane for lane in lanes_due(evt) if lane.agent_id not in state.rotated]):
-        return None
-    state.rotated += [lane.agent_id for lane in lanes]
+def rotate_lanes(evt: BaseHookEvent, state: CompactionState, lanes: list[Lane]) -> HookResult | None:
+    fresh = [lane for lane in lanes if lane.agent_id not in state.rotated]
+    stuck = [lane for lane in lanes if state.rotated.get(lane.agent_id, GAVE_UP) < MAX_REMINDERS]
+    abandoned = [lane for lane in lanes if state.rotated.get(lane.agent_id) == MAX_REMINDERS]
+    for lane in fresh:
+        state.rotated[lane.agent_id] = 0
+    for lane in stuck:
+        state.rotated[lane.agent_id] += 1
+    for lane in abandoned:
+        state.rotated[lane.agent_id] = GAVE_UP
     state.save(evt)
-    return evt.block(rotation_protocol(lanes))
+    gave_up = (
+        f"Long-running lane rotation gave up: {listed(abandoned)} still live at or over the "
+        f"{LANE_ROTATE_TOKENS:,}-token line after {MAX_REMINDERS} reminders. Rotate or stop it by hand."
+        if abandoned
+        else None
+    )
+    reasons = [rotation_protocol(fresh)] if fresh else []
+    if stuck:
+        reasons.append(f"Still unrotated: {listed(stuck)}. Rotate per the Lane rotation protocol before ending this turn.")
+    if reasons:
+        return evt.block(" ".join(reasons), system_message=gave_up)
+    return evt.allow(system_message=gave_up) if gave_up else None
 
 
 def plan_rewritten(state: CompactionState) -> bool:
@@ -540,11 +568,46 @@ def finish_handoff(evt: BaseHookEvent, state: CompactionState) -> HookResult | N
         ),
         Input(
             transcript=LANES / "calm.jsonl",
-            state=[CompactionState(active=True, rotated=["alanding-desk-0a0a0a0a0a0a0a0a"])],
+            state=[CompactionState(active=True, rotated={"alanding-desk-0a0a0a0a0a0a0a0a": 0})],
         ): Block(pattern=r"^Live lanes at or over the 150,000-token rotation line: `landing-desk` \(180,000\)\. "),
         Input(
             transcript=LANES / "calm.jsonl",
-            state=[CompactionState(active=True, rotated=["alanding-desk-0b0b0b0b0b0b0b0b"])],
+            state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": 0})],
+        ): Block(
+            pattern=r"^Still unrotated: `landing-desk` \(180,000\)\. "
+            r"Rotate per the Lane rotation protocol before ending this turn\.$"
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            background_tasks=[REVIEWER],
+            state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": 1})],
+        ): Block(
+            pattern=r"^Live lanes at or over the 150,000-token rotation line: `reviewer` \(170,000\)\. .* "
+            r"Still unrotated: `landing-desk` \(180,000\)\. Rotate per the Lane rotation protocol"
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": MAX_REMINDERS})],
+        ): Allow(
+            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(180,000\) still live at or over "
+            r"the 150,000-token line after 2 reminders\."
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            background_tasks=[REVIEWER],
+            state=[
+                CompactionState(
+                    active=True,
+                    rotated={"alanding-desk-0b0b0b0b0b0b0b0b": MAX_REMINDERS, "a0d0d0d0d0d0d0d0d": 0},
+                )
+            ],
+        ): Block(
+            pattern=r"^Still unrotated: `reviewer` \(170,000\)\.",
+            system_message=r"^Long-running lane rotation gave up: `landing-desk` \(180,000\)",
+        ),
+        Input(
+            transcript=LANES / "calm.jsonl",
+            state=[CompactionState(active=True, rotated={"alanding-desk-0b0b0b0b0b0b0b0b": GAVE_UP, "gone": 0})],
         ): Allow(),
         Input(transcript=LANES / "calm.jsonl", background_tasks=[REVIEWER]): Allow(),
         Input(transcript=LANES / "calm.jsonl", agent_id="a1b2c3", state=[CompactionState(active=True)]): Allow(),
@@ -580,7 +643,8 @@ def compaction_handoff(evt: BaseHookEvent) -> HookResult | None:
         return None
     match state.phase:
         case "idle":
-            return begin_handoff(evt, state) or rotate_lanes(evt, state)
+            lanes = scan_lanes(evt, state)
+            return begin_handoff(evt, state, lanes) or rotate_lanes(evt, state, lanes)
         case "rewriting":
             return finish_handoff(evt, state)
         case "compacting":
