@@ -425,7 +425,21 @@ Each PR passes this gate before it gets the label:
    check as `unstable`, not blocked, so mergeability alone lets a red PR through.
 7. Every required approver approved its current head sha.
 
+A listed PR brings in its stack, which is every open PR below it down to the trunk,
+walked through `pulls?head=`, and every open PR stacked above it, walked through
+`pulls?base=`. The gate runs bottom-up over each stack. A PR the queue already holds,
+or one already carrying the label, prints `SKIP queued` or `SKIP labelled` and passes
+the gate for the PRs above it. The first PR to fail stops the walk, and every PR above
+it prints `NOT-READY <sha> downstack #N` without reading its checks.
+
+Only the highest PR that
+passes the gate, with every PR below it passing too, gets the label. Graphite copies
+a label down the stack and queues it as one batch, so the PRs below it print
+`SKIP covered-by #<top>`. At a fork, each branch's highest passing PR is labelled.
+The rest of the stack stays on the list and follows as another batch once it passes.
+
 The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
+`LABEL_WATCH_DRY_RUN=1` prints `LABELLED <sha> dry-run` and adds no label.
 
 ```sh
 export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo
@@ -439,8 +453,9 @@ default to the checkout's origin, its `origin/HEAD`, `merge`, and 240 seconds. R
 `watch` in the background. Add a PR by appending its number to the list file. Each sweep
 reads Graphite once for the whole list and GitHub only for PRs that are not queued. The
 checks and reviews reads run only after the earlier gates pass. `watch` deletes `LABELLED` and
-`SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, prints a line
-only when a PR's result changes, and exits when the list is empty.
+`SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, appends the
+stack PRs it found still waiting on the gate, prints a line only when a PR's result
+changes, and exits when the list is empty.
 
 The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin/<trunk>`,
 so a shared clone's other fetches cannot hold its ref lock. A fetch that still fails after
@@ -448,8 +463,8 @@ three tries prints `API-FAIL trunk-fetch` for every PR that sweep and labels not
 
 The queued PRs are the ones `ccx vcs pr status` reads `queued` on the list, and in
 `watch` every PR the watch saw queued or labelled, until it closes. A PR labelled earlier
-in a sweep is a conflict base for the rest of that sweep. The downstack walks base
-branches through `pulls?head=`, and only for a stacked head while a queued PR exists.
+in a sweep is a conflict base for the rest of that sweep. A queued PR in a head's own
+downstack is not a conflict base for it.
 *Prevents #25907 being evicted for conflicting with #25890, which the queue already held
 ahead of it.*
 

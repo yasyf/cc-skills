@@ -7,20 +7,28 @@ usage: label-watch.sh once <pr>...
        label-watch.sh watch <list-file>
 
 Adds the queue label to each pull request that passes the gate and prints one
-line per pull request:
+line per pull request. A listed pull request brings in its stack: every open PR
+below it down to the trunk and every open PR stacked above it. The gate covers a
+PR and its whole downstack, and only the highest PR that passes it gets the
+label, so Graphite queues the green prefix of the stack as one batch.
 
   <pr> SKIP <queue>               Graphite reads it queued or landed
+  <pr> SKIP labelled              it already carries the queue label
+  <pr> SKIP covered-by #<top>     the label on #<top> queues it too
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with, or shares no history with, the fresh trunk
   <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
-                                  yet, or conflicts-with #<queued pr> <files>
+                                  yet, conflicts-with #<queued pr> <files>, or
+                                  downstack #<pr> when a PR below it fails the gate
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
-  <pr> LABELLED <sha>             the queue label went on
+  <pr> LABELLED <sha>             the queue label went on; dry-run follows it
+                                  when LABEL_WATCH_DRY_RUN is set
 
 watch re-gates every number in <list-file>, one per line, each interval until
 the file is empty. It deletes LABELLED and SKIP entries from the file, keeps
-the rest, and prints a timestamped line only when a result changes. The PRs it
-saw queued or labelled stay conflict bases on every sweep until they close.
+the rest, appends every other PR of their stacks, and prints a timestamped line
+only when a result changes. The PRs it saw queued or labelled stay conflict
+bases on every sweep until they close.
 
   LABEL_WATCH_APPROVERS  comma-separated logins that must approve the head sha
   LABEL_WATCH_REQUIRED   comma-separated checks that must have reported on the head sha
@@ -29,6 +37,7 @@ saw queued or labelled stay conflict bases on every sweep until they close.
   LABEL_WATCH_CHECKOUT   local clone for the conflict check, default $PWD
   LABEL_WATCH_LABEL      queue label, default merge
   LABEL_WATCH_INTERVAL   seconds between watch sweeps, default 240
+  LABEL_WATCH_DRY_RUN    set to print LABELLED without adding the label
 EOF
   exit 2
 }
@@ -44,50 +53,131 @@ TRUNK=${LABEL_WATCH_TRUNK:-$(git -C "$CHECKOUT" symbolic-ref --short refs/remote
 LABEL=${LABEL_WATCH_LABEL:-merge}
 INTERVAL=${LABEL_WATCH_INTERVAL:-240}
 REQUIRED=${LABEL_WATCH_REQUIRED:-}
+DRY_RUN=${LABEL_WATCH_DRY_RUN:-}
+OWNER=${REPO%%/*}
 TRUNK_REF=refs/label-watch/$TRUNK
+PULL='"\(.head.sha) \(.base.ref) \(.mergeable) \(.mergeable_state) \(.head.ref) \([.labels[].name] | join(","))"'
+PR='"\(.number) \(.head.sha) \(.head.ref) \(.base.ref) \([.labels[].name] | join(","))"'
 QUEUED=
 TRACKED=
+NODES=
+BRANCHES=
 
 onto_trunk() {
   git -C "$CHECKOUT" -c user.name=label-watch -c user.email=label-watch@localhost \
     commit-tree "$1" -p "$TRUNK_REF" -p "$2" -m "trunk with #$3"
 }
 
+add() {
+  eval "seen=\${ref_$1-}"
+  [ -z "$seen" ] || return 0
+  NODES="$NODES $1"
+  BRANCHES=$(printf '%s\n%s %s' "$BRANCHES" "$3" "$1")
+  eval "sha_$1=\$2 ref_$1=\$3 labels_$1=\$4 kids_$1="
+}
+
+link() {
+  eval "linked=\${parent_$1+x}"
+  [ -z "$linked" ] || return 0
+  eval "parent_$1=\$2 kids_$2=\"\$kids_$2 \$1\""
+}
+
 downstack() {
-  branch=$1
+  child=$1
+  branch=$2
   while [ "$branch" != "$TRUNK" ]; do
-    parent=$(gh api "repos/$REPO/pulls?state=open&head=${REPO%%/*}:$branch" --jq '.[:1][] | "\(.number) \(.base.ref)"') || return 1
-    [ -n "$parent" ] || return 0
-    echo "${parent%% *}"
-    branch=${parent#* }
+    eval "linked=\${parent_$child+x}"
+    [ -z "$linked" ] || return 0
+    known=$(printf '%s\n' "$BRANCHES" | awk -v b="$branch" '$1 == b { print $2; exit }')
+    if [ -n "$known" ]; then
+      link "$child" "$known"
+      return 0
+    fi
+    below=$(gh api "repos/$REPO/pulls?state=open&head=$OWNER:$branch" --jq ".[:1][] | $PR") || return 1
+    [ -n "$below" ] || break
+    read -r known psha pref branch plabels <<EOF
+$below
+EOF
+    add "$known" "$psha" "$pref" "$plabels"
+    link "$child" "$known"
+    child=$known
   done
+  eval "parent_$child="
+}
+
+upstack() {
+  todo=$1
+  while set -- $todo; [ $# -gt 0 ]; do
+    up=$1
+    shift
+    todo=$*
+    eval "walked=\${up_$up-} branch=\$ref_$up"
+    [ -z "$walked" ] || continue
+    eval "up_$up=1"
+    above=$(gh api "repos/$REPO/pulls?state=open&base=$branch&per_page=100" --jq ".[] | $PR") || return 1
+    while read -r kid ksha kref _ klabels; do
+      [ -n "$kid" ] || continue
+      add "$kid" "$ksha" "$kref" "$klabels"
+      link "$kid" "$up"
+      todo="$todo $kid"
+    done <<EOF
+$above
+EOF
+  done
+}
+
+expand() {
+  eval "seen=\${ref_$1-}"
+  if [ -z "$seen" ]; then
+    pull=$(gh api "repos/$REPO/pulls/$1" --jq "$PULL") || return 1
+    read -r sha base mergeable state ref labels <<EOF
+$pull
+EOF
+    eval "pull_$1=\$pull"
+    add "$1" "$sha" "$ref" "$labels"
+    downstack "$1" "$base" || return 2
+  fi
+  upstack "$1" || return 2
+}
+
+ancestors() {
+  a=$1
+  while eval "a=\$parent_$a"; [ -n "$a" ]; do printf '%s ' "$a"; done
+}
+
+record() {
+  while read -r v q; do
+    [ -z "$v" ] || eval "queue_$v=\$q"
+  done <<EOF
+$(printf '%s' "$1" | jq -r '.[] | "\(.number) \(.queue)"')
+EOF
 }
 
 gate() {
   n=$1
-  queue=$2
-  if [ "$queue" != "not queued" ]; then
-    echo "$n SKIP $queue"
-    return
+  below=$2
+  eval "pull=\${pull_$n-}"
+  if [ -z "$pull" ]; then
+    pull=$(gh api "repos/$REPO/pulls/$n" --jq "$PULL") || {
+      echo "$n API-FAIL pull"
+      return 1
+    }
   fi
-
-  pull=$(gh api "repos/$REPO/pulls/$n" --jq '"\(.head.sha) \(.base.ref) \(.mergeable) \(.mergeable_state) \(any(.labels[]; .name == "hold"))"') || {
-    echo "$n API-FAIL pull"
-    return
-  }
-  read -r sha base mergeable state held <<EOF
+  read -r sha base mergeable state ref labels <<EOF
 $pull
 EOF
-  if [ "$held" = true ]; then
-    echo "$n HELD"
-    return
-  fi
+  case ",$labels," in
+    *,hold,*)
+      echo "$n HELD"
+      return 1
+      ;;
+  esac
   short=$(printf %.10s "$sha")
 
   git -C "$CHECKOUT" cat-file -e "$sha^{commit}" 2>/dev/null \
     || git -C "$CHECKOUT" fetch -q --no-prune --no-write-fetch-head origin "$sha" 2>/dev/null || {
     echo "$n API-FAIL head-fetch"
-    return
+    return 1
   }
   rc=0
   merge=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$TRUNK_REF" "$sha" 2>/dev/null) || rc=$?
@@ -95,19 +185,15 @@ EOF
     0) ;;
     1)
       echo "$n CONFLICT $short $(printf '%s\n' "$merge" | sed 1d | paste -sd ' ' -)"
-      return
+      return 1
       ;;
     *)
       echo "$n CONFLICT $short no merge base with the trunk"
-      return
+      return 1
       ;;
   esac
 
   if [ -n "$QUEUED" ]; then
-    below=$(downstack "$base") || {
-      echo "$n API-FAIL downstack"
-      return
-    }
     while read -r q onto; do
       case " $n $below " in *" $q "*) continue ;; esac
       rc=0
@@ -116,7 +202,7 @@ EOF
         0) ;;
         1)
           echo "$n NOT-READY $short conflicts-with #$q $(printf '%s\n' "$ahead" | sed 1d | paste -sd ' ' -)"
-          return
+          return 1
           ;;
         *) continue ;;
       esac
@@ -128,22 +214,22 @@ EOF
   case $base in
     graphite-base/*)
       echo "$n NOT-READY $short base $base"
-      return
+      return 1
       ;;
   esac
   if [ "$mergeable" != true ]; then
     echo "$n NOT-READY $short mergeable $mergeable"
-    return
+    return 1
   fi
   if [ "$base" = "$TRUNK" ] && [ "$state" != clean ]; then
     echo "$n NOT-READY $short $state"
-    return
+    return 1
   fi
 
   statuses=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | "\(.state) \(.context)"') \
     && runs=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(if .status == "completed" then .conclusion else "pending" end) \(.name)"') || {
     echo "$n API-FAIL checks"
-    return
+    return 1
   }
   checks=$(printf '%s\n%s\n' "$statuses" "$runs" | awk '
     $0 == "" { next }
@@ -154,7 +240,7 @@ EOF
     END { if (red) print "red " red; else if (wait) print "pending " wait }')
   if [ -n "$checks" ]; then
     echo "$n NOT-READY $short $checks"
-    return
+    return 1
   fi
   absent=$(printf '%s\n%s\n' "$statuses" "$runs" | awk -v need="$REQUIRED" '
     BEGIN { n = split(need, want, ",") }
@@ -162,27 +248,102 @@ EOF
     END { for (i = 1; i <= n; i++) if (want[i] != "" && !(want[i] in seen)) out = out (out ? "," : "") want[i]; print out }')
   if [ -n "$absent" ]; then
     echo "$n NOT-READY $short no-run $absent"
-    return
+    return 1
   fi
 
   reviews=$(gh api "repos/$REPO/pulls/$n/reviews?per_page=100") || {
     echo "$n API-FAIL reviews"
-    return
+    return 1
   }
   missing=$(printf '%s' "$reviews" | jq -r --arg sha "$sha" --arg need "$APPROVERS" '
     [.[] | select(.commit_id == $sha and .state == "APPROVED") | .user.login] as $have
     | [$need | split(",")[] | select(IN($have[]) | not)] | join(",")')
   if [ -n "$missing" ]; then
     echo "$n NOT-READY $short awaiting $missing"
-    return
+    return 1
   fi
+  echo "$sha $merge"
+}
 
-  gh api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$LABEL" --silent || {
-    echo "$n API-FAIL label"
-    return
-  }
-  echo "$n LABELLED $short"
-  QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$n" "$(onto_trunk "$merge" "$sha" "$n")" | sed '/^$/d')
+climb() {
+  eval "climbed_$1=1"
+  order=
+  downward=
+  todo=$1
+  while set -- $todo; [ $# -gt 0 ]; do
+    v=$1
+    shift
+    todo=$*
+    order="$order $v"
+    downward="$v $downward"
+    eval "p=\$parent_$v q=\$queue_$v labels=\$labels_$v todo=\"\$todo \$kids_$v\""
+    pv=
+    [ -z "$p" ] || eval "pv=\$verdict_$p pb=\$blocker_$p"
+    blocker=
+    if [ "$pv" = stop ]; then
+      eval "sha=\$sha_$v"
+      verdict=stop blocker=$pb line="$v NOT-READY $(printf %.10s "$sha") downstack #$pb"
+    elif [ "$q" != "not queued" ]; then
+      verdict=through line="$v SKIP $q"
+    elif case ",$labels," in *",$LABEL,"*) true ;; *) false ;; esac; then
+      verdict=through line="$v SKIP labelled"
+    elif line=$(gate "$v" "$(ancestors "$v")"); then
+      verdict=pass
+      sleep 1
+    else
+      verdict=stop blocker=$v
+      sleep 1
+    fi
+    eval "verdict_$v=\$verdict blocker_$v=\$blocker line_$v=\$line"
+  done
+
+  targets=
+  for v in $downward; do
+    eval "verdict=\$verdict_$v kids=\$kids_$v"
+    higher=
+    for k in $kids; do
+      eval "kv=\$verdict_$k kh=\$higher_$k"
+      [ "$kv" != pass ] && [ -z "$kh" ] || higher=1
+    done
+    eval "higher_$v=\$higher"
+    [ "$verdict" != pass ] || [ -n "$higher" ] || targets="$v $targets"
+  done
+
+  for t in $targets; do
+    eval "set -- \$line_$t"
+    short=$(printf %.10s "$1")
+    if [ -n "$DRY_RUN" ]; then
+      eval "line_$t=\"\$t LABELLED \$short dry-run\""
+    elif gh api -X POST "repos/$REPO/issues/$t/labels" -f "labels[]=$LABEL" --silent; then
+      eval "line_$t=\"\$t LABELLED \$short\""
+    else
+      eval "line_$t=\"\$t API-FAIL label\""
+      continue
+    fi
+    QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$t" "$(onto_trunk "$2" "$1" "$t")" | sed '/^$/d')
+    for a in $(ancestors "$t"); do
+      eval "av=\$verdict_$a covered=\${cover_$a-}"
+      [ "$av" != pass ] || [ -n "$covered" ] || eval "cover_$a=\$t"
+    done
+  done
+
+  for v in $order; do
+    eval "verdict=\$verdict_$v"
+    case " $targets " in
+      *" $v "*) ;;
+      *)
+        if [ "$verdict" = pass ]; then
+          eval "covered=\${cover_$v-}"
+          if [ -n "$covered" ]; then
+            eval "line_$v=\"\$v SKIP covered-by #\$covered\""
+          else
+            eval "line_$v=\"\$v API-FAIL label\""
+          fi
+        fi
+        ;;
+    esac
+  done
+  for v in $order; do eval "printf '%s\n' \"\$line_$v\""; done
 }
 
 fetch_trunk() {
@@ -215,6 +376,32 @@ sweep() {
     for n; do echo "$n API-FAIL queue"; done
     return
   fi
+  record "$queues"
+  for e; do
+    eval "q=\$queue_$e"
+    [ "$q" = "not queued" ] || continue
+    rc=0
+    expand "$e" || rc=$?
+    case $rc in
+      1) eval "line_$e=\"\$e API-FAIL pull\"" ;;
+      2)
+        for n; do echo "$n API-FAIL stack"; done
+        return
+        ;;
+    esac
+  done
+  extra=
+  for v in $NODES; do
+    case " $* $tracked " in *" $v "*) ;; *) extra="$extra $v" ;; esac
+  done
+  if [ -n "$extra" ]; then
+    if ! more=$(ccx vcs pr status --json -R "$REPO" $extra); then
+      for n; do echo "$n API-FAIL queue"; done
+      return
+    fi
+    record "$more"
+    queues=$(printf '%s\n%s' "$queues" "$more" | jq -s add)
+  fi
   enqueued=$(printf '%s' "$queues" | jq -r '.[] | select(.queue == "queued") | "\(.number) \(.enqueued)"')
   missing=$(printf '%s\n' "$enqueued" | while read -r q sha; do
     [ -z "$sha" ] || git -C "$CHECKOUT" cat-file -e "$sha^{commit}" 2>/dev/null || echo "$sha"
@@ -228,16 +415,22 @@ sweep() {
     tree=$(git -C "$CHECKOUT" merge-tree --write-tree --no-messages "$TRUNK_REF" "$sha") || continue
     echo "$q $(onto_trunk "$tree" "$sha" "$q")"
   done)
-  printf '%s' "$queues" | jq -r --arg tracked "$tracked" '.[]
-    | if (.number | tostring | IN($tracked | split(" ")[])) then
-        if .state == "OPEN" then "\(.number) TRACKED" else empty end
-      else "\(.number) \(.queue)" end' | while read -r n queue; do
-    if [ "$queue" = TRACKED ]; then
-      echo "$n TRACKED"
+  for e; do
+    eval "seen=\${ref_$e-}"
+    if [ -z "$seen" ]; then
+      eval "line=\${line_$e-\"\$e SKIP \$queue_$e\"}"
+      echo "$line"
       continue
     fi
-    gate "$n" "$queue"
-    sleep 1
+    root=$e
+    while eval "up=\$parent_$root"; [ -n "$up" ]; do root=$up; done
+    eval "climbed=\${climbed_$root-}"
+    [ -n "$climbed" ] || climb "$root"
+  done
+  printf '%s' "$queues" | jq -r --arg tracked "$tracked" '.[]
+    | select(.state == "OPEN" and (.number | tostring | IN($tracked | split(" ")[]))) | .number' | while read -r n; do
+    eval "seen=\${ref_$n-}"
+    [ -n "$seen" ] || echo "$n TRACKED"
   done
 }
 
@@ -252,7 +445,7 @@ watch() {
       n=${line%% *}
       rest=${line#* }
       case $rest in
-        TRACKED | LABELLED* | "SKIP queued") TRACKED="$TRACKED $n" ;;
+        TRACKED | LABELLED* | "SKIP queued" | "SKIP labelled") TRACKED="$TRACKED $n" ;;
       esac
       [ "$rest" != TRACKED ] || continue
       eval "last=\${last_$n-}"
@@ -260,6 +453,7 @@ watch() {
       eval "last_$n=\$line"
       case ${rest%% *} in
         LABELLED | SKIP) awk -v n="$n" '$1 != n' "$list" >"$list.tmp" && mv "$list.tmp" "$list" ;;
+        *) grep -qx "$n" "$list" || echo "$n" >>"$list" ;;
       esac
     done <<EOF
 $results
