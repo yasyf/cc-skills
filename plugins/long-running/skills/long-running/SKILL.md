@@ -406,7 +406,11 @@ Each PR passes this gate before it gets the label:
    Otherwise, it prints `CONFLICT` with the files.
 4. It is mergeable, its base is not `graphite-base/*`, and its state is `clean` when
    its base is the trunk.
-5. Every required approver approved its current head sha.
+5. Every commit status and check run on its head sha passed or was skipped, apart from
+   Graphite's own `mergeability_check`. A red one prints `NOT-READY <sha> red <names>`,
+   an unfinished one `NOT-READY <sha> pending <names>`. GitHub reads a red optional
+   check as `unstable`, not blocked, so mergeability alone lets a red PR through.
+6. Every required approver approved its current head sha.
 
 The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
 
@@ -421,7 +425,7 @@ label-watch.sh watch "$LIST"
 default to the checkout's origin, its `origin/HEAD`, `merge`, and 240 seconds. Run
 `watch` in the background. Add a PR by appending its number to the list file. Each sweep
 reads Graphite once for the whole list and GitHub only for PRs that are not queued. The
-reviews read runs only after every other gate passes. `watch` deletes `LABELLED` and
+checks and reviews reads run only after the earlier gates pass. `watch` deletes `LABELLED` and
 `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, prints a line
 only when a PR's result changes, and exits when the list is empty.
 
@@ -429,8 +433,8 @@ The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin
 so a shared clone's other fetches cannot hold its ref lock. A fetch that still fails after
 three tries prints `API-FAIL trunk-fetch` for every PR that sweep and labels nothing.
 
-A `CONFLICT` line goes to the lane that owns the PR, to rebase. Never answer it with a
-label. The PR stays on the list, and the watch labels the rebased head once it passes.
+A `CONFLICT` or `red` line goes to the lane that owns the PR, to rebase or fix. Never
+answer it with a label, and never re-queue an evicted PR before its lane pushes a fixed head. The PR stays on the list, and the watch labels the rebased head once it passes.
 
 A PR sent back for rework gets the `hold` label and leaves the list in the same turn.
 Taking the label off does not dequeue it, and neither does converting it to a draft.
