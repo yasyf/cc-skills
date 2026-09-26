@@ -98,7 +98,7 @@ class Forge:
             "LABEL_WATCH_INTERVAL": "7",
         }
 
-    def pull(self, n: int, sha: str, *, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS):
+    def pull(self, n: int, sha: str, *, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS, statuses=(), runs=()):
         self.queues[str(n)] = "not queued"
         pull = {
             "head": {"sha": sha},
@@ -110,6 +110,12 @@ class Forge:
         reviews = [{"commit_id": sha, "state": "APPROVED", "user": {"login": login}} for login in approvers.split(",") if login]
         (self.state / f"repos_o_r_pulls_{n}.json").write_text(json.dumps(pull))
         (self.state / f"repos_o_r_pulls_{n}_reviews.json").write_text(json.dumps(reviews))
+        (self.state / f"repos_o_r_commits_{sha}_status.json").write_text(
+            json.dumps({"statuses": [{"context": context, "state": state} for context, state in statuses]})
+        )
+        (self.state / f"repos_o_r_commits_{sha}_check-runs.json").write_text(
+            json.dumps({"check_runs": [{"name": name, "status": status, "conclusion": conclusion} for name, status, conclusion in runs]})
+        )
 
     def run(self, *args: str) -> list[str]:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
@@ -180,6 +186,36 @@ def test_once_refuses_a_head_that_is_not_ready(forge, kwargs, reason):
 
 def test_once_allows_a_stacked_head_that_is_mergeable_but_not_clean(forge):
     forge.pull(1, forge.clean, base="parent", state="blocked")
+
+    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
+
+
+def test_a_red_status_on_a_mergeable_unstable_head_never_labels(forge):
+    forge.pull(1, forge.clean, base="parent", state="unstable", statuses=[("buildkite/test", "failure"), ("ci-timing", "success")])
+
+    assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} red buildkite/test"]
+    assert not any(call.startswith("POST") for call in forge.calls)
+
+
+def test_a_failed_check_run_outranks_a_pending_one(forge):
+    forge.pull(1, forge.clean, runs=[("lint", "in_progress", None), ("unit tests", "completed", "cancelled")])
+
+    assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} red unit tests"]
+
+
+def test_a_pending_check_waits(forge):
+    forge.pull(1, forge.clean, statuses=[("buildkite/test", "pending")])
+
+    assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} pending buildkite/test"]
+
+
+def test_graphite_mergeability_and_skipped_runs_do_not_block(forge):
+    forge.pull(
+        1,
+        forge.clean,
+        statuses=[("buildkite/test", "success")],
+        runs=[("Graphite / mergeability_check", "in_progress", None), ("docs", "completed", "skipped")],
+    )
 
     assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
 

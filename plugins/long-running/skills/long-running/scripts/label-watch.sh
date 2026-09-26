@@ -12,7 +12,7 @@ line per pull request:
   <pr> SKIP <queue>               Graphite reads it queued or landed
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with the fresh trunk
-  <pr> NOT-READY <sha> <reason>   base, mergeability, or approval not there yet
+  <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there yet
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
   <pr> LABELLED <sha>             the queue label went on
 
@@ -91,6 +91,23 @@ EOF
   fi
   if [ "$base" = "$TRUNK" ] && [ "$state" != clean ]; then
     echo "$n NOT-READY $short $state"
+    return
+  fi
+
+  statuses=$(gh api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | "\(.state) \(.context)"') \
+    && runs=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(if .status == "completed" then .conclusion else "pending" end) \(.name)"') || {
+    echo "$n API-FAIL checks"
+    return
+  }
+  checks=$(printf '%s\n%s\n' "$statuses" "$runs" | awk '
+    $0 == "" { next }
+    { state = $1; sub(/^[^ ]+ /, "") }
+    /^Graphite/ { next }
+    state ~ /^(failure|error|cancelled|timed_out|action_required|startup_failure|stale)$/ { red = red (red ? "," : "") $0; next }
+    state == "pending" { wait = wait (wait ? "," : "") $0 }
+    END { if (red) print "red " red; else if (wait) print "pending " wait }')
+  if [ -n "$checks" ]; then
+    echo "$n NOT-READY $short $checks"
     return
   fi
 
