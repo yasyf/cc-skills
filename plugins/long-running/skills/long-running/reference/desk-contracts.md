@@ -52,18 +52,33 @@ in the turn the owner asks, before or with dispatch to a new lane. It opens an
 `ask/<seq>` row in the same ledger as the PRs, with `text`, `lane`, `accept`, and
 `asked_at`, and prints `ask/000001 <lane>: <text>`.
 
-The lane reports each PR with that ask id; the desk records `ledger.py report --ask <id>`.
-The ask's `prs` field records the link, so one PR can deliver several asks. An unknown
-ask id exits non-zero. Once the acceptance check passes, the root runs
-`ledger.py verify --ledger <id> --ask <id> --text "<evidence>"`.
+An ask has one status: `LIVE`, `LANDED-NOT-LIVE`, `IN-PR`, `LOST`, `dropped`, or
+`answered`. The last two are terminal. Only `LIVE` counts as done. Before then, the
+root says "in #N, not live yet: `<blocker>`", never that the ask is handled or done.
 
-`ledger.py show --ledger <id> --asks` prints each ask with its linked PRs, `[no PR]`,
-or `[verified]`. An unverified ask with no linked PR reaches `DROPPED` 30 minutes
-after `asked_at`; the root dispatches it in the turn the summary names it.
+The lane reports each PR with that ask id; the desk records `ledger.py report --ask
+<id>`. The ask's `prs` field records the link. A PR carrying an `IN-PR` ask takes no
+second ask: `report --ask` refuses a distinct ask. The new ask goes on a stacked
+follow-up PR. An unknown ask id exits non-zero.
+
+Once every linked PR has landed, the ask reads `LANDED-NOT-LIVE` until `ledger.py live
+--ledger <id> --at <ISO>` records the pipeline that ships our lanes' PRs running at or
+after the latest of those landings, at which point it reads `LIVE`. Short of any linked
+PR, the ask reads `IN-PR` while one of them is still open, and `LOST` once `asked_at` is
+30 minutes old with none open and none landed — no lane or PR carries it. Two terminal
+verbs close an ask outside that lifecycle: `ledger.py drop --ledger <id> --ask <id>
+--reason "<why>"` when the owner withdraws it, and `ledger.py answer --ledger <id> --ask
+<id> --text "<reply>"` when it was a question rather than shipped work.
+
+`ledger.py show --ledger <id> --asks` prints each ask with its computed state, or
+`[pending]` while it is too fresh to grade. A periodic sweep — the landing desk's
+30-minute summary, or a standalone script where one fits — reclassifies every
+non-terminal ask from the forge and the release/deploy record, and escalates every
+`LOST` ask and every `IN-PR` ask older than 60 minutes to the root.
 
 Lanes record their own sub-dispatches the same way, with `ledger.py ask` before
-dispatch and `ledger.py verify` when the reply passes its acceptance check. An orphaned
-sub-dispatch shows as `DROPPED` in the summary.
+dispatch and `ledger.py answer` when the reply lands. An orphaned sub-dispatch shows as
+`LOST` in the summary.
 
 ## RULING NEEDED, one line
 
@@ -98,9 +113,10 @@ earlier. A lane closing its own pull request never reaches the desk as an event,
 counts; the lines after it exist only when they carry something.
 
 ```
-desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm | dropped N | unverified N
-DROPPED ask/<n> <lane>: <text>
-UNVERIFIED ask/<n> <lane>: <text>; check: <accept>
+desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm | lost N | landed-not-live N
+LOST ask/<n> <lane>: <text>
+LANDED-NOT-LIVE ask/<n> <lane>: <text>
+IN-PR 61m ask/<n> <lane>: <text>: #<pr> <blocker>
 stale #i 47m <lane>: <blocker>
 waiting: ungraded #a | refused #b | red #c | held #d
 merged: #a #b
@@ -111,11 +127,14 @@ held #f: <reason> until <stamp>[ EXPIRED]
 routed, awaiting a new head: #g #h
 ```
 
-`DROPPED` names an unverified ask with no linked PR at least 30 minutes after it was
-recorded. `UNVERIFIED` names an ask whose linked PRs have all landed but whose
-acceptance check remains unverified. Every ask line sits right after the counts,
-outside the ten-line cap on the desk lines; forward them all unchanged. The root
-dispatches each `DROPPED` ask and checks each `UNVERIFIED` ask before running `verify`.
+`LOST` names an ask with no linked PR, none of them ever opened, at least 30 minutes
+after it was recorded. `LANDED-NOT-LIVE` names an ask whose linked PRs have all landed
+but whose shipping pipeline has not run since. `IN-PR` names an ask carried
+by an open PR older than 60 minutes, with that PR's blocker. Every ask
+line sits right after the counts, outside the ten-line cap on the desk lines; forward
+them all unchanged. The root dispatches each `LOST` ask in that turn. For each
+`LANDED-NOT-LIVE` or `IN-PR` ask, it checks whether it can advance the pipeline or PR
+before the next sweep.
 
 `ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
 `--repo` and `--checkout` and settles landings before printing. The `waiting:` line
