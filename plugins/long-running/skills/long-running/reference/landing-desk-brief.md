@@ -15,9 +15,13 @@ relays a lane's ETA for a green PR. The desk records the label on its next refre
 as `in the queue, labelled outside the desk`.
 
 The root records every owner ask with `ledger.py ask` in the turn it arrives, before
-or with dispatch to its own lane. Before claiming work is assigned, it reads the
-summary's `DROPPED` lines and dispatches each one in that turn. Once an ask's acceptance
-check passes, it records the evidence with `ledger.py verify`.
+or with dispatch to its own lane. An ask is done only at `LIVE`. Before then, the root
+says "in #N, not live yet: `<blocker>`", never that the ask is handled. Before claiming
+work is assigned, it reads the summary's `LOST` lines and dispatches each one in that
+turn. It advances each `LANDED-NOT-LIVE` or `IN-PR` ask the summary escalates.
+It closes asks outside that lifecycle with `ledger.py drop` when the owner withdraws
+them, or `ledger.py answer` for questions rather than shipped work. When the pipeline
+that ships our lanes' PRs runs, the root records it with `ledger.py live`.
 
 Other PR questions go to the desk as a scoped resume and come back as at most five
 lines. The root answers a `RULING NEEDED` line with a letter and nothing else, and
@@ -118,11 +122,14 @@ Do, in this order, forever:
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` to the
      root, unchanged. Both `--repo` and `--checkout` are required; summary settles
-     landings first so it never reports a landed row as pending. `DROPPED` and
-     `UNVERIFIED` ask lines follow the counts, outside the ten-line cap; forward
-     every one unchanged. The root dispatches each `DROPPED` ask in that turn and
-     checks each `UNVERIFIED` ask's acceptance check, then records passing evidence
-     with `ledger.py verify`. Its `waiting:` line
+     landings first so it never reports a landed row as pending. This sweep
+     reclassifies every ask from the forge and the release/deploy record.
+     `LOST`, `LANDED-NOT-LIVE`, and `IN-PR` past 60 minutes
+     follow the counts, outside the ten-line cap; forward every one unchanged. The
+     root dispatches each `LOST` ask in that turn and advances each escalated
+     `LANDED-NOT-LIVE` or `IN-PR` ask. Once the shipping pipeline runs, the root
+     records it with `ledger.py live` so a delivered ask reads `LIVE`. Its
+     `waiting:` line
      groups tracked open PRs as ungraded, refused, red, and held. Ungraded means
      the current head lacks a label and a grade; refused means a label attempt
      refused this head, with the reason in `stale` or `show`. Red means a CI failure
@@ -149,8 +156,8 @@ Do, in this order, forever:
 Rules that are not the tool's to enforce:
   - Run subagents and codex in the foreground (blocking), or poll the reply file in
     a foreground loop to a terminal state. Never background-and-end-turn.
-  - Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py verify`
-    when the reply passes its acceptance check; an orphaned one shows as `DROPPED`.
+  - Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer`
+    when the reply lands; an orphaned one shows as `LOST`.
   - Never state a PR as merged, queued, or blocked from a message or memory; check
     the squash on a freshly fetched base first.
   - A pulled label is not a hold. The queue may already own the head; reason about

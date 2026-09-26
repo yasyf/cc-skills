@@ -102,18 +102,24 @@ been on dev for 15 minutes.*
 **R8. Record every owner ask in the desk ledger.** The root runs
 `ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>"`
 in the turn the ask arrives, before or with the lane dispatch. Each new ask gets its
-own lane; never append it to a busy lane's brief, under R6.
+own lane; never append it to a busy lane's brief, under R6. A PR carrying an
+`IN-PR` ask takes no second ask: `report --ask` refuses it. The new ask goes on a
+stacked follow-up PR.
 
 Every lane records each sub-dispatch as an ask row before dispatch with
 `ledger.py ask --ledger <id> --text "<sub-task>" --lane <lane> --accept "<the reply it must return>"`.
-When the reply lands and passes its acceptance check, the lane runs `ledger.py verify`.
-An orphaned sub-dispatch surfaces as `DROPPED` in the summary.
+When the reply lands, the lane runs `ledger.py answer`. An orphaned sub-dispatch
+surfaces as `LOST` in the summary.
 
 Before claiming anything is assigned, in flight, or done, the root reads
 `ledger.py summary` or `ledger.py show --asks`, never its own plan table. R7 still
-applies to PR state; the root never reports it from the plan file. Once the acceptance
-check passes, the root runs `ledger.py verify --ledger <id> --ask <id> --text "<evidence>"`.
-A `DROPPED` line in a summary is dispatched in that turn.
+applies to PR state; the root never reports it from the plan file. An ask is done only
+at `LIVE`. Once every linked PR has landed, the root records the shipping pipeline's
+next run with `ledger.py live --ledger <id> --at <ISO>`. A delivered ask then moves
+from `LANDED-NOT-LIVE` to `LIVE`. Before `LIVE`, the root says
+"in #N, not live yet: `<blocker>`", never that the ask is done. The root dispatches
+each `LOST` ask in that turn. It runs `ledger.py drop` when the owner withdraws an ask
+and `ledger.py answer` when the ask is a question rather than shipped work.
 
 *Prevents "one post + one approval per release" slipping for hours in the busy
 release-fast lane's brief, invisible to every summary, while the root tracked PR
@@ -251,7 +257,7 @@ Worktree: <absolute path, exclusive to this lane>.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
-Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py verify` when its reply passes the acceptance check.
+Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
@@ -364,7 +370,9 @@ ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours
 # every 30 minutes, and the only desk output the root reads
 ledger.py summary --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py show    --ledger "$LEDGER" --asks
-ledger.py verify  --ledger "$LEDGER" --ask ask/000001 --text "<evidence the acceptance check passed>"
+ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 37 deployed"
+ledger.py drop    --ledger "$LEDGER" --ask ask/000002 --reason "owner withdrew it"
+ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
 # each shard runs the batch for its lanes
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
@@ -609,7 +617,8 @@ same inputs, which resumes from that file.
 7. Am I about to report a milestone? → first dispatch every owner ask still unstarted.
 8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched base; never report it from the plan file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
-10. Before saying something is assigned, read the summary's `DROPPED` lines first.
+10. Before saying something is assigned, read the summary's `LOST` lines first.
+    Never call an ask done before `LIVE`.
 
 Apply D3 to priority PRs before delegating. A call that survives all ten decides
 something no lane can decide for you; everything else is a lane.

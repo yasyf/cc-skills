@@ -3,7 +3,9 @@
 
     ledger.py init    --title TEXT
     ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK
-    ledger.py verify  --ledger ID --ask ID --text EVIDENCE
+    ledger.py drop    --ledger ID --ask ID --reason ...
+    ledger.py answer  --ledger ID --ask ID --text ...
+    ledger.py live    --ledger ID --at ISO [--text ...]
     ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
     ledger.py register --ledger ID --lane NAME --branch-prefix PREFIX [--pr N]...
     ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
@@ -29,6 +31,14 @@ base branch's tree in ``--checkout`` holding the PR's own files, never by the PR
 merged field and never by searching the base log for its number. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
+
+An owner ask's status is exactly one of LIVE, LANDED-NOT-LIVE, IN-PR, or LOST, plus the
+terminal ``dropped`` and ``answered``. LIVE needs every linked PR landed and a
+``ledger.py live`` timestamp at or after the latest of those landings; short of that a
+delivered ask reads LANDED-NOT-LIVE. An open linked PR reads IN-PR; no PR at all reads
+LOST once ``asked_at`` is 30 minutes old. ``report --ask`` refuses a second, still-IN-PR
+ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
+on a stacked follow-up PR instead.
 """
 
 from __future__ import annotations
@@ -64,7 +74,15 @@ NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
-DROPPED_MINUTES = 30
+LIVE_KEY = "live"
+LOST_MINUTES = 30
+ESCALATE_MINUTES = 60
+ASK_LIVE = "LIVE"
+ASK_LANDED_NOT_LIVE = "LANDED-NOT-LIVE"
+ASK_IN_PR = "IN-PR"
+ASK_LOST = "LOST"
+ASK_DROPPED = "dropped"
+ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
 UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
 QUEUE_BOT = "graphite-app[bot]"
@@ -613,21 +631,47 @@ def ask_line(key: str, fields: dict[str, str]) -> str:
     return f"{key} {fields['lane']}: {fields['text']}"
 
 
-def dropped_asks(asks: dict[str, dict[str, str]], moment: datetime) -> list[str]:
-    after = timedelta(minutes=DROPPED_MINUTES)
-    return [
-        key
-        for key, fields in sorted(asks.items())
-        if not linked_prs(fields) and not fields.get("verified_at") and moment - parse_iso(fields["asked_at"]) >= after
-    ]
+def age_minutes(since: str, moment: datetime) -> int:
+    return int((moment - parse_iso(since)).total_seconds() // 60)
 
 
-def unverified_asks(asks: dict[str, dict[str, str]], prs: dict[str, dict[str, str]]) -> list[str]:
-    return [
-        key
-        for key, fields in sorted(asks.items())
-        if linked_prs(fields) and not fields.get("verified_at") and all(prs.get(pr, {}).get("state") == LANDED for pr in linked_prs(fields))
-    ]
+def live_since(rows: dict[str, dict[str, str]]) -> str:
+    return rows.get(LIVE_KEY, {}).get("at", "")
+
+
+def ask_delivered(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> bool:
+    linked = linked_prs(fields)
+    return bool(linked) and all(prs.get(pr, {}).get("state") == LANDED for pr in linked)
+
+
+def ask_landed_at(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> str:
+    return max((prs[pr]["landed_at"] for pr in linked_prs(fields) if prs.get(pr, {}).get("state") == LANDED), default="")
+
+
+def ask_open_pr(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> str:
+    return next((pr for pr in linked_prs(fields) if is_open(prs.get(pr, {}))), "")
+
+
+def ask_state(fields: dict[str, str], prs: dict[str, dict[str, str]], moment: datetime, live: str) -> str:
+    """LIVE, LANDED-NOT-LIVE, IN-PR, LOST, dropped, or answered; "" while too fresh to grade."""
+    if fields.get("dropped_at"):
+        return ASK_DROPPED
+    if fields.get("answered_at"):
+        return ASK_ANSWERED
+    if ask_delivered(fields, prs):
+        landed = ask_landed_at(fields, prs)
+        return ASK_LIVE if live and live >= landed else ASK_LANDED_NOT_LIVE
+    if ask_open_pr(fields, prs):
+        return ASK_IN_PR
+    return ASK_LOST if age_minutes(fields["asked_at"], moment) >= LOST_MINUTES else ""
+
+
+def frozen_by(asks: dict[str, dict[str, str]], prs: dict[str, dict[str, str]], pr: str, ask: str, moment: datetime, live: str) -> str | None:
+    """The other ask already IN-PR on this PR, if one holds it; a fresh ask goes on a follow-up PR instead."""
+    return next(
+        (key for key, fields in asks.items() if key != ask and pr in linked_prs(fields) and ask_state(fields, prs, moment, live) == ASK_IN_PR),
+        None,
+    )
 
 
 def render_table(rows: dict[str, dict[str, str]]) -> str:
@@ -648,8 +692,11 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
     asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
-    dropped = dropped_asks(asks, moment)
-    unverified = unverified_asks(asks, prs)
+    live = live_since(rows)
+    states = {key: ask_state(fields, prs, moment, live) for key, fields in asks.items()}
+    lost = sorted(key for key, state in states.items() if state == ASK_LOST)
+    landed_not_live = sorted(key for key, state in states.items() if state == ASK_LANDED_NOT_LIVE)
+    stuck = sorted(key for key, state in states.items() if state == ASK_IN_PR and age_minutes(asks[key]["asked_at"], moment) >= ESCALATE_MINUTES)
     landed = sorted((pr for pr, fields in prs.items() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff), key=int)
     stale = stale_lines(prs, moment, stale_after)
     open_rows = {pr: fields for pr, fields in prs.items() if is_open(fields)}
@@ -660,7 +707,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     rulings = [fields for fields in pending if fields["kind"] == "ruling"]
     p0s = [fields for fields in pending if fields["kind"] == "p0"]
     lines = [
-        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)} | stale {len(stale)} | p50 report→landed {report_to_landed([prs[pr] for pr in landed])} | dropped {len(dropped)} | unverified {len(unverified)}",
+        f"desk {stamp(moment)} | open {len(open_rows)} | merged/h {len(landed)} | labelled {len(labelled)} | held {len(holds)} | rulings {len(rulings)} | p0 {len(p0s)} | routed {len(routed)} | stale {len(stale)} | p50 report→landed {report_to_landed([prs[pr] for pr in landed])} | lost {len(lost)} | landed-not-live {len(landed_not_live)}",
         *stale,
         *waiting_line(prs),
     ]
@@ -675,8 +722,12 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
         lines.append("routed, awaiting a new head: " + " ".join(f"#{pr}" for pr in routed))
     if len(lines) > SUMMARY_LINES:
         lines = lines[: SUMMARY_LINES - 1] + [f"... {len(lines) - SUMMARY_LINES + 1} more lines in ledger show"]
-    asked = [f"DROPPED {ask_line(key, asks[key])}" for key in dropped]
-    asked += [f"UNVERIFIED {ask_line(key, asks[key])}; check: {asks[key]['accept']}" for key in unverified]
+    asked = [f"LOST {ask_line(key, asks[key])}" for key in lost]
+    asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}" for key in landed_not_live]
+    asked += [
+        f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: #{(pr := ask_open_pr(asks[key], prs))} {blocker(prs[pr])}"
+        for key in stuck
+    ]
     return [lines[0], *asked, *lines[1:]]
 
 
@@ -692,6 +743,9 @@ def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
         asks = notes.asks()
         if args.ask not in asks:
             raise SystemExit(f"no ask {args.ask} in {args.ledger}; record it with ledger.py ask first")
+        held_by = frozen_by(asks, notes.pr_rows(), args.pr, args.ask, now(), live_since(notes.rows()))
+        if held_by:
+            raise SystemExit(f"#{args.pr} already carries {held_by}, still IN-PR; open a stacked follow-up PR for {args.ask}")
         prs = linked_prs(asks[args.ask])
         notes.set_fields(args.ask, {"prs": ",".join(prs if args.pr in prs else [*prs, args.pr])})
     enqueue(notes, {"kind": "report", "pr": args.pr, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
@@ -708,11 +762,27 @@ def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def cmd_verify(args: argparse.Namespace, shell: Shell) -> int:
+def cmd_drop(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     if args.ask not in notes.asks():
         raise SystemExit(f"no ask {args.ask} in {args.ledger}")
-    notes.set_fields(args.ask, {"verified_at": utc_stamp(), "verified": args.text})
+    notes.set_fields(args.ask, {"dropped_at": utc_stamp(), "dropped_reason": args.reason})
+    print(f"dropped {args.ask}: {args.reason}")
+    return 0
+
+
+def cmd_answer(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    if args.ask not in notes.asks():
+        raise SystemExit(f"no ask {args.ask} in {args.ledger}")
+    notes.set_fields(args.ask, {"answered_at": utc_stamp(), "answer": args.text})
+    print(f"answered {args.ask}: {args.text}")
+    return 0
+
+
+def cmd_live(args: argparse.Namespace, shell: Shell) -> int:
+    Notes(shell, args.ledger).set_fields(LIVE_KEY, {"at": args.at, "text": args.text})
+    print(f"live at {args.at}" + (f": {args.text}" if args.text else ""))
     return 0
 
 
@@ -1119,9 +1189,13 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
         sys.stdout.write(shell.run(["ccn", "ledger", "show", args.ledger, "--json"]))
         return 0
     if args.asks:
-        for key, fields in sorted(Notes(shell, args.ledger).asks().items()):
-            state = "verified" if fields.get("verified_at") else " ".join(f"#{pr}" for pr in linked_prs(fields)) or "no PR"
-            print(f"{ask_line(key, fields)} [{state}]")
+        rows = Notes(shell, args.ledger).rows()
+        prs = {key: fields for key, fields in rows.items() if key.isdigit()}
+        live = live_since(rows)
+        moment = now()
+        asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
+        for key, fields in sorted(asks.items()):
+            print(f"{ask_line(key, fields)} [{ask_state(fields, prs, moment, live) or 'pending'}]")
         return 0
     rows = Notes(shell, args.ledger).pr_rows()
     if args.red:
@@ -1165,11 +1239,23 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--accept", required=True, metavar="CHECK")
     ask.set_defaults(handler=cmd_ask)
 
-    verify = subparsers.add_parser("verify", help="mark an ask's acceptance check met, with the evidence")
-    add_ledger(verify)
-    verify.add_argument("--ask", required=True, metavar="ID")
-    verify.add_argument("--text", required=True)
-    verify.set_defaults(handler=cmd_verify)
+    drop = subparsers.add_parser("drop", help="terminal: the owner withdrew this ask")
+    add_ledger(drop)
+    drop.add_argument("--ask", required=True, metavar="ID")
+    drop.add_argument("--reason", required=True)
+    drop.set_defaults(handler=cmd_drop)
+
+    answer = subparsers.add_parser("answer", help="terminal: this ask was a question, now answered")
+    add_ledger(answer)
+    answer.add_argument("--ask", required=True, metavar="ID")
+    answer.add_argument("--text", required=True)
+    answer.set_defaults(handler=cmd_answer)
+
+    live = subparsers.add_parser("live", help="record when the pipeline that ships our lanes' PRs last ran, so a delivered ask can grade LIVE")
+    add_ledger(live)
+    live.add_argument("--at", required=True, metavar="ISO")
+    live.add_argument("--text", default="")
+    live.set_defaults(handler=cmd_live)
 
     register = subparsers.add_parser("register", help="track every open PR on a lane's branch prefix, with no per-head report")
     add_ledger(register)
