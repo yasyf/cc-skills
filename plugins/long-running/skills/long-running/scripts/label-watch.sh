@@ -11,7 +11,7 @@ line per pull request:
 
   <pr> SKIP <queue>               Graphite reads it queued or landed
   <pr> HELD                       it carries the hold label
-  <pr> CONFLICT <sha> <files>     its head conflicts with the fresh trunk
+  <pr> CONFLICT <sha> <files>     its head conflicts with, or shares no history with, the fresh trunk
   <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
                                   yet, or conflicts-with #<queued pr> <files>
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
@@ -88,14 +88,17 @@ EOF
     return
   }
   rc=0
-  merge=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$TRUNK_REF" "$sha") || rc=$?
+  merge=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$TRUNK_REF" "$sha" 2>/dev/null) || rc=$?
   case $rc in
     0) ;;
     1)
       echo "$n CONFLICT $short $(printf '%s\n' "$merge" | sed 1d | paste -sd ' ' -)"
       return
       ;;
-    *) exit "$rc" ;;
+    *)
+      echo "$n CONFLICT $short no merge base with the trunk"
+      return
+      ;;
   esac
 
   if [ -n "$QUEUED" ]; then
@@ -106,14 +109,14 @@ EOF
     while read -r q onto; do
       case " $n $below " in *" $q "*) continue ;; esac
       rc=0
-      ahead=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$onto" "$sha") || rc=$?
+      ahead=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$onto" "$sha" 2>/dev/null) || rc=$?
       case $rc in
         0) ;;
         1)
           echo "$n NOT-READY $short conflicts-with #$q $(printf '%s\n' "$ahead" | sed 1d | paste -sd ' ' -)"
           return
           ;;
-        *) exit "$rc" ;;
+        *) continue ;;
       esac
     done <<EOF
 $QUEUED

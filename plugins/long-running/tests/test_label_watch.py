@@ -91,6 +91,10 @@ class Forge:
         git(self.checkout, "checkout", "-qb", "conflict")
         self.conflict = commit(self.checkout, "a.txt", "theirs")
         git(self.checkout, "checkout", "-q", "dev")
+        git(self.checkout, "checkout", "-q", "--orphan", "unrelated")
+        git(self.checkout, "rm", "-rqf", ".")
+        self.unrelated = commit(self.checkout, "d.txt", "unrelated")
+        git(self.checkout, "checkout", "-q", "dev")
         git(self.checkout, "checkout", "-qb", "queued")
         self.queued = commit(self.checkout, "c.txt", "queued")
         git(self.checkout, "checkout", "-q", "dev")
@@ -98,7 +102,7 @@ class Forge:
         self.behind_queued = commit(self.checkout, "c.txt", "behind")
         git(self.checkout, "checkout", "-q", "dev")
         commit(self.checkout, "a.txt", "ours")
-        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "queued", "behind-queued")
+        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "unrelated", "queued", "behind-queued")
         git(self.checkout, "remote", "set-head", "origin", "dev")
 
         self.queues: dict[str, str] = {}
@@ -179,6 +183,16 @@ def test_once_leaves_a_held_pr_alone(forge):
 
     assert forge.run("once", "1") == ["1 HELD"]
     assert forge.calls == ["GET repos/o/r/pulls/1"]
+
+
+def test_a_head_with_no_shared_history_is_a_conflict_and_the_sweep_goes_on(forge):
+    forge.pull(1, forge.unrelated)
+    forge.pull(2, forge.clean)
+
+    assert forge.run("once", "1", "2") == [
+        f"1 CONFLICT {forge.unrelated[:10]} no merge base with the trunk",
+        f"2 LABELLED {forge.clean[:10]}",
+    ]
 
 
 def test_once_names_the_conflicting_files_and_never_labels(forge):
