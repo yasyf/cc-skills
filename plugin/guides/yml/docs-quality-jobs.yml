@@ -17,23 +17,3 @@
         timeout-minutes: 2
         env:
           GITHUB_TOKEN: ${{ github.token }}
-
-  docs-quality-links:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v8.2.0
-        with:
-          python-version: "3.13"
-          cache-dependency-glob: uv.lock
-
-      - run: uv sync --group docs
-
-      - name: "Docs quality: link check"
-        run: uv run --group docs great-docs check-links
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          GITHUB_TOKEN: ${{ github.token }}

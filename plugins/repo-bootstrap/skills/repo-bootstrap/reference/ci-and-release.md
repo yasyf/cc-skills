@@ -82,8 +82,8 @@ permissions `pages: write` + `id-token: write`, environment `github-pages` with
 
 Repos with long source quality checks can replace `docs-build-tail` with
 `docs-build-fast-tail` and add `docs-quality-jobs` before `docs-publish` in the
-fragment layout. API lint and link checking then run alongside the site build.
-The SEO audit stays after the build because it reads `_site`.
+fragment layout. API lint runs alongside the site build. Link checking and
+the SEO audit stay after the build because they read generated files.
 
 ## release-pypi.yml
 

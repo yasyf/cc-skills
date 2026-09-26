@@ -9,6 +9,13 @@
           path: great-docs/_site
           include-hidden-files: true
 
+      - name: "Docs quality: link check"
+        run: uv run --group docs great-docs check-links
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: "Docs quality: SEO audit"
         run: uv run --group docs great-docs seo
         continue-on-error: true
