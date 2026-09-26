@@ -140,7 +140,8 @@ R3 applied to the watching.
 
 Spawn it first, before any lane that will open a PR, whenever three or more lanes
 will ship through one merge queue or the drive will outlive one context window. Below
-that the lane that opened the PR lands it, and there is no desk.
+that the lane that opened the PR lands it, or the root lists it for the label watch
+under Mechanics, and there is no desk.
 
 **D1. Address reports to the desk and act on priority PRs.** A lane's last action on a PR is the three-line report of PR, full head sha, and verdict, sent to `landing-desk`. The root receives only `RULING NEEDED` lines and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3.
 
@@ -384,6 +385,45 @@ log, prints the message to send each lane, and records it; `route --dry-run` pri
 and records nothing. `unlabel --reason` records why a label came off and blocks a
 re-label of that head; it does not stop a queue that already took the PR. A lane
 asking what it owns gets `ledger.py show --red`, never the raw table.
+
+### Label watch
+
+`scripts/label-watch.sh` labels the PRs the root holds outside a ledger, which are
+priority PRs under D1 and every PR on a drive too small for a desk. The desk keeps to `ledger.py`.
+Each PR passes this gate before it gets the label:
+
+1. `ccx vcs pr status` reads it `not queued`. A queued or landed PR prints `SKIP`.
+2. It has no `hold` label.
+3. Its head merges cleanly into the freshly fetched trunk under `git merge-tree`.
+   Otherwise, it prints `CONFLICT` with the files.
+4. It is mergeable, its base is not `graphite-base/*`, and its state is `clean` when
+   its base is the trunk.
+5. Every required approver approved its current head sha.
+
+The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
+
+```sh
+export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo
+label-watch.sh once 25742
+printf "%s\n" 25763 25780 >> "$LIST"
+label-watch.sh watch "$LIST"
+```
+
+`LABEL_WATCH_REPO`, `LABEL_WATCH_TRUNK`, `LABEL_WATCH_LABEL`, and `LABEL_WATCH_INTERVAL`
+default to the checkout's origin, its `origin/HEAD`, `merge`, and 240 seconds. Run
+`watch` in the background. Add a PR by appending its number to the list file. Each sweep
+reads Graphite once for the whole list and GitHub only for PRs that are not queued. The
+reviews read runs only after every other gate passes. `watch` deletes `LABELLED` and
+`SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, prints a line
+only when a PR's result changes, and exits when the list is empty.
+
+A `CONFLICT` line goes to the lane that owns the PR, to rebase. Never answer it with a
+label. The PR stays on the list, and the watch labels the rebased head once it passes.
+
+A PR sent back for rework gets the `hold` label and leaves the list in the same turn.
+Taking the label off does not dequeue it, and neither does converting it to a draft.
+*Prevents a reworked PR landing anyway, as one did after Graphite had enqueued it,
+through a removed label and a conversion to draft.*
 
 ### Compaction handoff
 
