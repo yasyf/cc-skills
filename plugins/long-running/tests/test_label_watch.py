@@ -36,8 +36,16 @@ sys.stdout.write(body)
 
 CCX = """#!/usr/bin/env python3
 import json, os, sys
-queues = json.load(open(os.path.join(os.environ["FAKE_STATE"], "queues.json")))
-print(json.dumps([{"number": int(n), "queue": queues[n]} for n in sys.argv[7:]]))
+state = os.environ["FAKE_STATE"]
+queues = json.load(open(os.path.join(state, "queues.json")))
+enqueued = json.load(open(os.path.join(state, "enqueued.json")))
+with open(os.path.join(state, "ccx-calls"), "a") as calls:
+    calls.write(" ".join(sys.argv[7:]) + "\\n")
+print(json.dumps([
+    {"number": int(n), "queue": queues[n], "state": "MERGED" if queues[n] == "landed" else "OPEN"}
+    | ({"enqueued": enqueued[n]} if n in enqueued else {})
+    for n in sys.argv[7:]
+]))
 """
 
 SLEEP = """#!/bin/sh
@@ -83,11 +91,18 @@ class Forge:
         git(self.checkout, "checkout", "-qb", "conflict")
         self.conflict = commit(self.checkout, "a.txt", "theirs")
         git(self.checkout, "checkout", "-q", "dev")
+        git(self.checkout, "checkout", "-qb", "queued")
+        self.queued = commit(self.checkout, "c.txt", "queued")
+        git(self.checkout, "checkout", "-q", "dev")
+        git(self.checkout, "checkout", "-qb", "behind-queued")
+        self.behind_queued = commit(self.checkout, "c.txt", "behind")
+        git(self.checkout, "checkout", "-q", "dev")
         commit(self.checkout, "a.txt", "ours")
-        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict")
+        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "queued", "behind-queued")
         git(self.checkout, "remote", "set-head", "origin", "dev")
 
         self.queues: dict[str, str] = {}
+        self.enqueued: dict[str, str] = {}
         self.env = {
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -119,6 +134,7 @@ class Forge:
 
     def run(self, *args: str) -> list[str]:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
+        (self.state / "enqueued.json").write_text(json.dumps(self.enqueued))
         result = subprocess.run([str(SCRIPT), *args], env=self.env, check=True, capture_output=True, text=True)
         return result.stdout.splitlines()
 
@@ -127,6 +143,10 @@ class Forge:
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.touch()
         return lock
+
+    def enqueue(self, n: int, sha: str):
+        self.queues[str(n)] = "queued"
+        self.enqueued[str(n)] = sha
 
     @property
     def calls(self) -> list[str]:
@@ -148,7 +168,7 @@ def test_once_labels_a_clean_approved_head_through_rest(forge):
 
 def test_once_skips_a_queued_pr_without_reading_github(forge):
     forge.pull(1, forge.clean)
-    forge.queues["1"] = "queued"
+    forge.enqueue(1, forge.clean)
 
     assert forge.run("once", "1") == ["1 SKIP queued"]
     assert forge.calls == []
@@ -279,3 +299,56 @@ def test_a_pruning_fetch_config_keeps_the_private_trunk_ref(forge):
     subprocess.run(["git", "config", "fetch.pruneTags", "true"], cwd=forge.checkout, check=True)
 
     assert forge.run("once", "2") == forge.run("once", "2") == [f"2 CONFLICT {forge.conflict[:10]} a.txt"]
+
+
+def test_a_head_that_conflicts_with_a_queued_pr_waits_for_it(forge):
+    forge.enqueue(1, forge.queued)
+    forge.pull(2, forge.behind_queued)
+
+    assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt"]
+    assert "POST repos/o/r/issues/2/labels" not in forge.calls
+
+
+def test_a_queued_pr_in_the_heads_own_downstack_is_not_a_conflict(forge):
+    forge.enqueue(1, forge.queued)
+    forge.pull(2, forge.behind_queued, base="queued")
+    (forge.state / "repos_o_r_pulls.json").write_text(json.dumps([{"number": 1, "base": {"ref": "dev"}}]))
+
+    assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 LABELLED {forge.behind_queued[:10]}"]
+    assert "GET repos/o/r/pulls?state=open&head=o:queued" in forge.calls
+
+
+def test_a_head_labelled_earlier_in_the_sweep_is_a_conflict_base(forge):
+    forge.pull(1, forge.queued)
+    forge.pull(2, forge.behind_queued)
+
+    assert forge.run("once", "1", "2") == [
+        f"1 LABELLED {forge.queued[:10]}",
+        f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt",
+    ]
+
+
+def test_watch_keeps_a_queued_pr_as_a_conflict_base_after_it_leaves_the_list(forge):
+    forge.enqueue(1, forge.queued)
+    forge.pull(2, forge.behind_queued)
+    listing = forge.state / "list"
+    listing.write_text("1\n2\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
+
+    assert lines == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt"]
+    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2 1"]
+    assert "POST repos/o/r/issues/2/labels" not in forge.calls
+
+
+def test_a_landed_pr_stops_being_tracked(forge):
+    forge.enqueue(1, forge.queued)
+    forge.pull(2, forge.clean)
+    listing = forge.state / "list"
+    listing.write_text("1\n2\n")
+    forge.queues["1"] = "landed"
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
+
+    assert lines == ["1 SKIP landed", f"2 LABELLED {forge.clean[:10]}"]
+    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2"]

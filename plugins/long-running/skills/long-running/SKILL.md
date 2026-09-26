@@ -413,13 +413,17 @@ Each PR passes this gate before it gets the label:
 2. It has no `hold` label.
 3. Its head merges cleanly into the freshly fetched trunk under `git merge-tree`.
    Otherwise, it prints `CONFLICT` with the files.
-4. It is mergeable, its base is not `graphite-base/*`, and its state is `clean` when
+4. Its head also merges cleanly into the trunk merged with each queued PR's admitted
+   commit, apart from PRs in its own downstack. A conflict prints
+   `NOT-READY <sha> conflicts-with #N <files>`, and the PR waits on the list until #N
+   lands, when the trunk check takes over.
+5. It is mergeable, its base is not `graphite-base/*`, and its state is `clean` when
    its base is the trunk.
-5. Every commit status and check run on its head sha passed or was skipped, apart from
+6. Every commit status and check run on its head sha passed or was skipped, apart from
    Graphite's own `mergeability_check`. A red one prints `NOT-READY <sha> red <names>`,
    an unfinished one `NOT-READY <sha> pending <names>`. GitHub reads a red optional
    check as `unstable`, not blocked, so mergeability alone lets a red PR through.
-6. Every required approver approved its current head sha.
+7. Every required approver approved its current head sha.
 
 The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
 
@@ -441,6 +445,13 @@ only when a PR's result changes, and exits when the list is empty.
 The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin/<trunk>`,
 so a shared clone's other fetches cannot hold its ref lock. A fetch that still fails after
 three tries prints `API-FAIL trunk-fetch` for every PR that sweep and labels nothing.
+
+The queued PRs are the ones `ccx vcs pr status` reads `queued` on the list, and in
+`watch` every PR the watch saw queued or labelled, until it closes. A PR labelled earlier
+in a sweep is a conflict base for the rest of that sweep. The downstack walks base
+branches through `pulls?head=`, and only for a stacked head while a queued PR exists.
+*Prevents #25907 being evicted for conflicting with #25890, which the queue already held
+ahead of it.*
 
 A `CONFLICT` or `red` line goes to the lane that owns the PR, to rebase or fix. Never
 answer it with a label, and never re-queue an evicted PR before its lane pushes a fixed head. The PR stays on the list, and the watch labels the rebased head once it passes.

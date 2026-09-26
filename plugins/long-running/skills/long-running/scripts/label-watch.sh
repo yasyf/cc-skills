@@ -12,13 +12,15 @@ line per pull request:
   <pr> SKIP <queue>               Graphite reads it queued or landed
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with the fresh trunk
-  <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there yet
+  <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
+                                  yet, or conflicts-with #<queued pr> <files>
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
   <pr> LABELLED <sha>             the queue label went on
 
 watch re-gates every number in <list-file>, one per line, each interval until
 the file is empty. It deletes LABELLED and SKIP entries from the file, keeps
-the rest, and prints a timestamped line only when a result changes.
+the rest, and prints a timestamped line only when a result changes. The PRs it
+saw queued or labelled stay conflict bases on every sweep until they close.
 
   LABEL_WATCH_APPROVERS  comma-separated logins that must approve the head sha
   LABEL_WATCH_REPO       owner/name, default the checkout's origin
@@ -41,6 +43,23 @@ TRUNK=${LABEL_WATCH_TRUNK:-$(git -C "$CHECKOUT" symbolic-ref --short refs/remote
 LABEL=${LABEL_WATCH_LABEL:-merge}
 INTERVAL=${LABEL_WATCH_INTERVAL:-240}
 TRUNK_REF=refs/label-watch/$TRUNK
+QUEUED=
+TRACKED=
+
+onto_trunk() {
+  git -C "$CHECKOUT" -c user.name=label-watch -c user.email=label-watch@localhost \
+    commit-tree "$1" -p "$TRUNK_REF" -p "$2" -m "trunk with #$3"
+}
+
+downstack() {
+  branch=$1
+  while [ "$branch" != "$TRUNK" ]; do
+    parent=$(gh api "repos/$REPO/pulls?state=open&head=${REPO%%/*}:$branch" --jq '.[:1][] | "\(.number) \(.base.ref)"') || return 1
+    [ -n "$parent" ] || return 0
+    echo "${parent%% *}"
+    branch=${parent#* }
+  done
+}
 
 gate() {
   n=$1
@@ -78,6 +97,28 @@ EOF
       ;;
     *) exit "$rc" ;;
   esac
+
+  if [ -n "$QUEUED" ]; then
+    below=$(downstack "$base") || {
+      echo "$n API-FAIL downstack"
+      return
+    }
+    while read -r q onto; do
+      case " $n $below " in *" $q "*) continue ;; esac
+      rc=0
+      ahead=$(git -C "$CHECKOUT" merge-tree --write-tree --name-only --no-messages "$onto" "$sha") || rc=$?
+      case $rc in
+        0) ;;
+        1)
+          echo "$n NOT-READY $short conflicts-with #$q $(printf '%s\n' "$ahead" | sed 1d | paste -sd ' ' -)"
+          return
+          ;;
+        *) exit "$rc" ;;
+      esac
+    done <<EOF
+$QUEUED
+EOF
+  fi
 
   case $base in
     graphite-base/*)
@@ -128,6 +169,7 @@ EOF
     return
   }
   echo "$n LABELLED $short"
+  QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$n" "$(onto_trunk "$merge" "$sha" "$n")" | sed '/^$/d')
 }
 
 fetch_trunk() {
@@ -152,11 +194,35 @@ sweep() {
     for n; do echo "$n API-FAIL trunk-fetch"; done
     return
   fi
-  if ! queues=$(ccx vcs pr status --json -R "$REPO" "$@"); then
+  tracked=
+  for t in $TRACKED; do
+    case " $* " in *" $t "*) ;; *) tracked="$tracked $t" ;; esac
+  done
+  if ! queues=$(ccx vcs pr status --json -R "$REPO" "$@" $tracked); then
     for n; do echo "$n API-FAIL queue"; done
     return
   fi
-  printf '%s' "$queues" | jq -r '.[] | "\(.number) \(.queue)"' | while read -r n queue; do
+  enqueued=$(printf '%s' "$queues" | jq -r '.[] | select(.queue == "queued") | "\(.number) \(.enqueued)"')
+  missing=$(printf '%s\n' "$enqueued" | while read -r q sha; do
+    [ -z "$sha" ] || git -C "$CHECKOUT" cat-file -e "$sha^{commit}" 2>/dev/null || echo "$sha"
+  done)
+  if [ -n "$missing" ] && ! git -C "$CHECKOUT" fetch -q --no-prune --no-write-fetch-head origin $missing 2>/dev/null; then
+    for n; do echo "$n API-FAIL queued-fetch"; done
+    return
+  fi
+  QUEUED=$(printf '%s\n' "$enqueued" | while read -r q sha; do
+    [ -n "$sha" ] || continue
+    tree=$(git -C "$CHECKOUT" merge-tree --write-tree --no-messages "$TRUNK_REF" "$sha") || continue
+    echo "$q $(onto_trunk "$tree" "$sha" "$q")"
+  done)
+  printf '%s' "$queues" | jq -r --arg tracked "$tracked" '.[]
+    | if (.number | tostring | IN($tracked | split(" ")[])) then
+        if .state == "OPEN" then "\(.number) TRACKED" else empty end
+      else "\(.number) \(.queue)" end' | while read -r n queue; do
+    if [ "$queue" = TRACKED ]; then
+      echo "$n TRACKED"
+      continue
+    fi
     gate "$n" "$queue"
     sleep 1
   done
@@ -168,9 +234,14 @@ watch() {
     set -- $(cat "$list")
     [ $# -gt 0 ] || break
     results=$(sweep "$@")
+    TRACKED=
     while read -r line; do
       n=${line%% *}
       rest=${line#* }
+      case $rest in
+        TRACKED | LABELLED* | "SKIP queued") TRACKED="$TRACKED $n" ;;
+      esac
+      [ "$rest" != TRACKED ] || continue
       eval "last=\${last_$n-}"
       [ "$line" = "$last" ] || echo "$(date -u +%H:%M) $line"
       eval "last_$n=\$line"
