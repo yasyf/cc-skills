@@ -1,0 +1,1 @@
+{"agentType": "general-purpose", "description": "Sleepy lane", "model": "claude-opus-5-5[1m]", "name": "sleepy", "taskKind": "in_process_teammate", "teamName": "session-rot"}

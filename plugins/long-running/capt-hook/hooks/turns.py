@@ -4,7 +4,7 @@ import json
 import os
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +22,7 @@ DEFAULT_WINDOW = 200_000
 OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
 TAIL_BLOCK = 1 << 16
+ROTATE_PERCENT = 70
 
 
 @dataclass(frozen=True)
@@ -44,17 +45,28 @@ def reversed_lines(path: Path) -> Iterator[bytes]:
         yield head
 
 
+def reversed_entries(path: Path) -> Iterator[dict]:
+    lines = reversed_lines(path)
+    next(lines)
+    for line in lines:
+        if line.strip():
+            yield json.loads(line)
+
+
 def latest_turn(transcript: Path, *, sidechain: bool = False) -> Turn | None:
-    for line in reversed_lines(transcript):
-        if not line.strip():
+    compacted: Turn | None = None
+    for entry in reversed_entries(transcript):
+        if entry.get("isSidechain", False) != sidechain:
             continue
-        entry = json.loads(line)
-        if (
+        if compacted is None and entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
+            compacted = Turn("", entry["compactMetadata"]["postTokens"], datetime.fromisoformat(entry["timestamp"]))
+        elif (
             entry.get("type") == "assistant"
-            and entry.get("isSidechain", False) == sidechain
             and (model := entry["message"].get("model")) != SYNTHETIC_MODEL
             and (usage := entry["message"].get("usage"))
         ):
+            if compacted:
+                return replace(compacted, model=model)
             tokens = usage["input_tokens"] + usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"]
             return Turn(model, tokens, datetime.fromisoformat(entry["timestamp"]))
     return None
@@ -99,3 +111,10 @@ def threshold(model: str, hint: str | None, project: Path | None) -> int:
     if pct := pct_override():
         limit = min(int((window - OUTPUT_RESERVE) * pct / 100), limit)
     return limit
+
+
+def rotation_line(model: str, hint: str | None, project: Path | None) -> int:
+    if tokens := reqenv.getenv("LONG_RUNNING_LANE_ROTATE_TOKENS"):
+        return int(tokens)
+    one_m = model + ONE_M_SUFFIX if hint and hint.endswith(ONE_M_SUFFIX) else None
+    return threshold(model, one_m, project) * ROTATE_PERCENT // 100
