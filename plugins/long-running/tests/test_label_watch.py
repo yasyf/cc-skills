@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,7 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/labe
 APPROVERS = "forge-pr-reviewer[bot],poetic-svc"
 
 GH = """#!/usr/bin/env python3
-import os, subprocess, sys
+import os, re, subprocess, sys
 state = os.environ["FAKE_STATE"]
 args, method, jq, endpoint = sys.argv[2:], "GET", None, None
 while args:
@@ -28,7 +29,11 @@ with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(f"{method} {endpoint}\\n")
 if method == "POST":
     sys.exit(0)
-body = open(os.path.join(state, endpoint.split("?")[0].replace("/", "_") + ".json")).read()
+path = endpoint.split("?")[0]
+names = [endpoint] if path.endswith("/pulls") else [endpoint, path]
+files = [os.path.join(state, re.sub("[/?&=:]", "_", name) + ".json") for name in names]
+found = [f for f in files if os.path.exists(f)]
+body = open(found[0]).read() if found or not path.endswith("/pulls") else "[]"
 if jq:
     body = subprocess.run(["jq", "-r", jq], input=body, capture_output=True, text=True, check=True).stdout
 sys.stdout.write(body)
@@ -52,12 +57,17 @@ SLEEP = """#!/bin/sh
 [ "$1" = 7 ] || exit 0
 [ ! -f "$FAKE_STATE/unlock" ] || rm -f "$(cat "$FAKE_STATE/unlock")"
 echo x >> "$FAKE_STATE/sweeps"
+cp "$FAKE_STATE/list" "$FAKE_STATE/list.$(wc -l < "$FAKE_STATE/sweeps" | tr -d ' ')"
 [ "$(wc -l < "$FAKE_STATE/sweeps")" -lt 2 ] || : > "$FAKE_STATE/list"
 """
 
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def listing(endpoint: str) -> str:
+    return re.sub("[/?&=:]", "_", endpoint) + ".json"
 
 
 def commit(repo: Path, name: str, text: str) -> str:
@@ -91,17 +101,25 @@ class Forge:
         git(self.checkout, "checkout", "-qb", "conflict")
         self.conflict = commit(self.checkout, "a.txt", "theirs")
         git(self.checkout, "checkout", "-q", "dev")
+        git(self.checkout, "checkout", "-q", "--orphan", "unrelated")
+        git(self.checkout, "rm", "-rqf", ".")
+        self.unrelated = commit(self.checkout, "d.txt", "unrelated")
+        git(self.checkout, "checkout", "-q", "dev")
         git(self.checkout, "checkout", "-qb", "queued")
         self.queued = commit(self.checkout, "c.txt", "queued")
         git(self.checkout, "checkout", "-q", "dev")
         git(self.checkout, "checkout", "-qb", "behind-queued")
         self.behind_queued = commit(self.checkout, "c.txt", "behind")
         git(self.checkout, "checkout", "-q", "dev")
+        git(self.checkout, "checkout", "-qb", "stacked")
+        self.stacked = [commit(self.checkout, f"s{i}.txt", "stacked") for i in range(1, 4)]
+        git(self.checkout, "checkout", "-q", "dev")
         commit(self.checkout, "a.txt", "ours")
-        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "queued", "behind-queued")
+        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "unrelated", "queued", "behind-queued", "stacked")
         git(self.checkout, "remote", "set-head", "origin", "dev")
 
         self.queues: dict[str, str] = {}
+        self.pulls: dict[int, dict] = {}
         self.enqueued: dict[str, str] = {}
         self.env = {
             **os.environ,
@@ -113,15 +131,17 @@ class Forge:
             "LABEL_WATCH_INTERVAL": "7",
         }
 
-    def pull(self, n: int, sha: str, *, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS, statuses=(), runs=()):
+    def pull(self, n: int, sha: str, *, ref=None, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS, statuses=(), runs=()):
         self.queues[str(n)] = "not queued"
         pull = {
-            "head": {"sha": sha},
+            "number": n,
+            "head": {"sha": sha, "ref": ref or f"pr{n}"},
             "base": {"ref": base},
             "mergeable": mergeable,
             "mergeable_state": state,
             "labels": [{"name": label} for label in labels],
         }
+        self.pulls[n] = pull
         reviews = [{"commit_id": sha, "state": "APPROVED", "user": {"login": login}} for login in approvers.split(",") if login]
         (self.state / f"repos_o_r_pulls_{n}.json").write_text(json.dumps(pull))
         (self.state / f"repos_o_r_pulls_{n}_reviews.json").write_text(json.dumps(reviews))
@@ -135,6 +155,11 @@ class Forge:
     def run(self, *args: str) -> list[str]:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
         (self.state / "enqueued.json").write_text(json.dumps(self.enqueued))
+        for pull in self.pulls.values():
+            ref = pull["head"]["ref"]
+            (self.state / listing(f"repos/o/r/pulls?state=open&head=o:{ref}")).write_text(json.dumps([pull]))
+            above = [p for p in self.pulls.values() if p["base"]["ref"] == ref]
+            (self.state / listing(f"repos/o/r/pulls?state=open&base={ref}&per_page=100")).write_text(json.dumps(above))
         result = subprocess.run([str(SCRIPT), *args], env=self.env, check=True, capture_output=True, text=True)
         return result.stdout.splitlines()
 
@@ -178,7 +203,17 @@ def test_once_leaves_a_held_pr_alone(forge):
     forge.pull(1, forge.clean, labels=["hold"])
 
     assert forge.run("once", "1") == ["1 HELD"]
-    assert forge.calls == ["GET repos/o/r/pulls/1"]
+    assert forge.calls == ["GET repos/o/r/pulls/1", "GET repos/o/r/pulls?state=open&base=pr1&per_page=100"]
+
+
+def test_a_head_with_no_shared_history_is_a_conflict_and_the_sweep_goes_on(forge):
+    forge.pull(1, forge.unrelated)
+    forge.pull(2, forge.clean)
+
+    assert forge.run("once", "1", "2") == [
+        f"1 CONFLICT {forge.unrelated[:10]} no merge base with the trunk",
+        f"2 LABELLED {forge.clean[:10]}",
+    ]
 
 
 def test_once_names_the_conflicting_files_and_never_labels(forge):
@@ -310,9 +345,9 @@ def test_a_head_that_conflicts_with_a_queued_pr_waits_for_it(forge):
 
 
 def test_a_queued_pr_in_the_heads_own_downstack_is_not_a_conflict(forge):
+    forge.pull(1, forge.queued, ref="queued")
     forge.enqueue(1, forge.queued)
     forge.pull(2, forge.behind_queued, base="queued")
-    (forge.state / "repos_o_r_pulls.json").write_text(json.dumps([{"number": 1, "base": {"ref": "dev"}}]))
 
     assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 LABELLED {forge.behind_queued[:10]}"]
     assert "GET repos/o/r/pulls?state=open&head=o:queued" in forge.calls
@@ -352,3 +387,126 @@ def test_a_landed_pr_stops_being_tracked(forge):
 
     assert lines == ["1 SKIP landed", f"2 LABELLED {forge.clean[:10]}"]
     assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2"]
+
+
+def stack(forge, **kwargs):
+    for i, sha in enumerate(forge.stacked, start=1):
+        forge.pull(i, sha, base=f"pr{i - 1}" if i > 1 else "dev", state="blocked" if i > 1 else "clean", **kwargs.get(str(i), {}))
+
+
+def posts(forge) -> list[str]:
+    return [call for call in forge.calls if call.startswith("POST")]
+
+
+def test_the_highest_green_pr_of_a_stack_takes_the_label_for_its_downstack(forge):
+    stack(forge, **{"3": {"approvers": "poetic-svc"}})
+
+    assert forge.run("once", "1") == [
+        "1 SKIP covered-by #2",
+        f"2 LABELLED {forge.stacked[1][:10]}",
+        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
+    ]
+    assert posts(forge) == ["POST repos/o/r/issues/2/labels"]
+
+
+def test_a_listed_mid_stack_pr_labels_the_top_when_the_whole_stack_is_green(forge):
+    stack(forge)
+
+    assert forge.run("once", "2") == [
+        "1 SKIP covered-by #3",
+        "2 SKIP covered-by #3",
+        f"3 LABELLED {forge.stacked[2][:10]}",
+    ]
+    assert posts(forge) == ["POST repos/o/r/issues/3/labels"]
+
+
+def test_a_red_downstack_pr_blocks_the_stack_above_it_without_reading_their_checks(forge):
+    stack(forge, **{"1": {"statuses": [("buildkite/test", "failure")]}})
+
+    assert forge.run("once", "3") == [
+        f"1 NOT-READY {forge.stacked[0][:10]} red buildkite/test",
+        f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
+    ]
+    assert posts(forge) == []
+    assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
+
+
+def test_a_labelled_downstack_pr_passes_the_label_through(forge):
+    stack(forge, **{"1": {"labels": ["merge"], "statuses": [("buildkite/test", "pending")]}})
+
+    assert forge.run("once", "2") == ["1 SKIP labelled", "2 SKIP covered-by #3", f"3 LABELLED {forge.stacked[2][:10]}"]
+    assert posts(forge) == ["POST repos/o/r/issues/3/labels"]
+
+
+def test_each_green_fork_top_takes_the_label(forge):
+    forge.pull(1, forge.clean)
+    forge.pull(2, forge.clean, base="pr1", state="blocked")
+    forge.pull(3, forge.clean, base="pr1", state="blocked")
+
+    assert forge.run("once", "1") == [
+        "1 SKIP covered-by #2",
+        f"2 LABELLED {forge.clean[:10]}",
+        f"3 LABELLED {forge.clean[:10]}",
+    ]
+
+
+def test_dry_run_prints_the_label_without_adding_it(forge):
+    stack(forge)
+    forge.env["LABEL_WATCH_DRY_RUN"] = "1"
+
+    assert forge.run("once", "1") == [
+        "1 SKIP covered-by #3",
+        "2 SKIP covered-by #3",
+        f"3 LABELLED {forge.stacked[2][:10]} dry-run",
+    ]
+    assert posts(forge) == []
+
+
+def test_watch_keeps_the_rest_of_the_stack_on_the_list(forge):
+    stack(forge, **{"3": {"approvers": "poetic-svc"}})
+    list_file = forge.state / "list"
+    list_file.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        "1 SKIP covered-by #2",
+        f"2 LABELLED {forge.stacked[1][:10]}",
+        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
+    ]
+    assert (forge.state / "list.1").read_text() == "3\n"
+
+
+def test_a_held_pr_is_never_labelled_and_blocks_the_stack_above_it(forge):
+    stack(forge)
+    hold = forge.state / "hold"
+    hold.write_text("2\n")
+    forge.env["LABEL_WATCH_HOLD"] = str(hold)
+
+    assert forge.run("once", "1") == [
+        f"1 LABELLED {forge.stacked[0][:10]}",
+        f"2 NOT-READY {forge.stacked[1][:10]} held",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #2",
+    ]
+    assert posts(forge) == ["POST repos/o/r/issues/1/labels"]
+    assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
+
+
+def test_watch_never_appends_a_held_pr(forge):
+    stack(forge)
+    hold = forge.state / "hold"
+    hold.write_text("1\n")
+    forge.env["LABEL_WATCH_HOLD"] = str(hold)
+    list_file = forge.state / "list"
+    list_file.write_text("3\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        f"1 NOT-READY {forge.stacked[0][:10]} held",
+        f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
+    ]
+    assert posts(forge) == []
+    assert "1" not in (forge.state / "list.1").read_text().split()
