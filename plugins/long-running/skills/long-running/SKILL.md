@@ -417,6 +417,10 @@ reviews read runs only after every other gate passes. `watch` deletes `LABELLED`
 `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, prints a line
 only when a PR's result changes, and exits when the list is empty.
 
+The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin/<trunk>`,
+so a shared clone's other fetches cannot hold its ref lock. A fetch that still fails after
+three tries prints `API-FAIL trunk-fetch` for every PR that sweep and labels nothing.
+
 A `CONFLICT` line goes to the lane that owns the PR, to rebase. Never answer it with a
 label. The PR stays on the list, and the watch labels the rebased head once it passes.
 
