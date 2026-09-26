@@ -80,6 +80,11 @@ is a cc-guides rendered artifact: a repo-local preamble piece plus the shared
 permissions `pages: write` + `id-token: write`, environment `github-pages` with
 `url: ${{ steps.deployment.outputs.page_url }}`. Single step: `actions/deploy-pages@v5`.
 
+Repos with long source quality checks can replace `docs-build-tail` with
+`docs-build-fast-tail` and add `docs-quality-jobs` before `docs-publish` in the
+fragment layout. API lint and link checking then run alongside the site build.
+The SEO audit stays after the build because it reads `_site`.
+
 ## release-pypi.yml
 
 The repo's `release-pypi.yml` is a **caller**: it delegates the build to the fleet's shared
