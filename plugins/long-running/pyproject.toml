@@ -12,4 +12,4 @@ dev = ["capt-hook>=12.56.0", "pytest>=8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["skills/long-running/scripts"]
+pythonpath = ["skills/long-running/scripts", "capt-hook"]
