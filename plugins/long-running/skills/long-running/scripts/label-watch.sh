@@ -12,7 +12,7 @@ line per pull request:
   <pr> SKIP <queue>               Graphite reads it queued or landed
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with the fresh trunk
-  <pr> NOT-READY <sha> <reason>   base, mergeability, or approval not there yet
+  <pr> NOT-READY <sha> <reason>   base, mergeability, CI, or approval not there yet
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
   <pr> LABELLED <sha>             the queue label went on
 
@@ -91,6 +91,22 @@ EOF
   fi
   if [ "$base" = "$TRUNK" ] && [ "$state" != clean ]; then
     echo "$n NOT-READY $short $state"
+    return
+  fi
+
+  statuses=$(gh api --paginate "repos/$REPO/commits/$sha/status?per_page=100" \
+    --jq '.statuses[] | select(.state != "success") | "\(.context)=\(.state)"') || {
+    echo "$n API-FAIL statuses"
+    return
+  }
+  runs=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" \
+    --jq '.check_runs[] | select(.name != "Graphite / mergeability_check" and (.conclusion | IN("success", "skipped") | not)) | "\(.name)=\(.conclusion // .status)"') || {
+    echo "$n API-FAIL check-runs"
+    return
+  }
+  unpassed=$(printf '%s\n%s\n' "$statuses" "$runs" | sed '/^$/d' | paste -sd , -)
+  if [ -n "$unpassed" ]; then
+    echo "$n NOT-READY $short ci $unpassed"
     return
   fi
 

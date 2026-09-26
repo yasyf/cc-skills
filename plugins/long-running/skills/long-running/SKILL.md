@@ -406,7 +406,10 @@ Each PR passes this gate before it gets the label:
    Otherwise, it prints `CONFLICT` with the files.
 4. It is mergeable, its base is not `graphite-base/*`, and its state is `clean` when
    its base is the trunk.
-5. Every required approver approved its current head sha.
+5. Every commit status and check run on its head passed. Skipped runs and Graphite's
+   `mergeability_check` do not count. A red or pending one prints `NOT-READY` with its
+   name, since a stacked PR with red CI reads `mergeable` and `unstable`, not `blocked`.
+6. Every required approver approved its current head sha.
 
 The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
 

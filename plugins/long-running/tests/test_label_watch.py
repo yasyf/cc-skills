@@ -22,7 +22,7 @@ while args:
         jq = args.pop(0)
     elif arg == "-f":
         args.pop(0)
-    elif arg != "--silent":
+    elif arg not in ("--silent", "--paginate"):
         endpoint = arg
 with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(f"{method} {endpoint}\\n")
@@ -46,6 +46,14 @@ SLEEP = """#!/bin/sh
 echo x >> "$FAKE_STATE/sweeps"
 [ "$(wc -l < "$FAKE_STATE/sweeps")" -lt 2 ] || : > "$FAKE_STATE/list"
 """
+
+GREEN_STATUSES = (("buildkite/test", "success"),)
+GREEN_RUNS = (
+    ("ai-review", "completed", "success"),
+    ("request", "completed", "skipped"),
+    ("Graphite / mergeability_check", "in_progress", None),
+)
+
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -98,7 +106,19 @@ class Forge:
             "LABEL_WATCH_INTERVAL": "7",
         }
 
-    def pull(self, n: int, sha: str, *, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS):
+    def pull(
+        self,
+        n: int,
+        sha: str,
+        *,
+        base="dev",
+        mergeable=True,
+        state="clean",
+        labels=(),
+        approvers=APPROVERS,
+        statuses=GREEN_STATUSES,
+        runs=GREEN_RUNS,
+    ):
         self.queues[str(n)] = "not queued"
         pull = {
             "head": {"sha": sha},
@@ -110,6 +130,12 @@ class Forge:
         reviews = [{"commit_id": sha, "state": "APPROVED", "user": {"login": login}} for login in approvers.split(",") if login]
         (self.state / f"repos_o_r_pulls_{n}.json").write_text(json.dumps(pull))
         (self.state / f"repos_o_r_pulls_{n}_reviews.json").write_text(json.dumps(reviews))
+        (self.state / f"repos_o_r_commits_{sha}_status.json").write_text(
+            json.dumps({"statuses": [{"context": context, "state": state} for context, state in statuses]})
+        )
+        (self.state / f"repos_o_r_commits_{sha}_check-runs.json").write_text(
+            json.dumps({"check_runs": [{"name": name, "status": status, "conclusion": conclusion} for name, status, conclusion in runs]})
+        )
 
     def run(self, *args: str) -> list[str]:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
@@ -169,6 +195,16 @@ def test_once_names_the_conflicting_files_and_never_labels(forge):
         ({"mergeable": None}, "mergeable null"),
         ({"state": "blocked"}, "blocked"),
         ({"approvers": "forge-pr-reviewer[bot]"}, "awaiting poetic-svc"),
+        ({"statuses": (("buildkite/test", "failure"),)}, "ci buildkite/test=failure"),
+        ({"statuses": (("buildkite/test", "pending"),)}, "ci buildkite/test=pending"),
+        (
+            {"runs": (*GREEN_RUNS, ("ci-timing", "completed", "failure"), ("CodeQL", "in_progress", None))},
+            "ci ci-timing=failure,CodeQL=in_progress",
+        ),
+        (
+            {"statuses": (("buildkite/test", "failure"),), "runs": (("ai-review", "completed", "neutral"),)},
+            "ci buildkite/test=failure,ai-review=neutral",
+        ),
     ],
 )
 def test_once_refuses_a_head_that_is_not_ready(forge, kwargs, reason):
@@ -243,3 +279,10 @@ def test_a_pruning_fetch_config_keeps_the_private_trunk_ref(forge):
     subprocess.run(["git", "config", "fetch.pruneTags", "true"], cwd=forge.checkout, check=True)
 
     assert forge.run("once", "2") == forge.run("once", "2") == [f"2 CONFLICT {forge.conflict[:10]} a.txt"]
+
+
+def test_a_stacked_head_with_red_ci_is_not_ready(forge):
+    forge.pull(1, forge.clean, base="parent", state="unstable", statuses=(("buildkite/test", "failure"),))
+
+    assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} ci buildkite/test=failure"]
+    assert "POST repos/o/r/issues/1/labels" not in forge.calls
