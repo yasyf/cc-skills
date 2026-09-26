@@ -23,6 +23,7 @@ the rest, and prints a timestamped line only when a result changes. The PRs it
 saw queued or labelled stay conflict bases on every sweep until they close.
 
   LABEL_WATCH_APPROVERS  comma-separated logins that must approve the head sha
+  LABEL_WATCH_REQUIRED   comma-separated checks that must have reported on the head sha
   LABEL_WATCH_REPO       owner/name, default the checkout's origin
   LABEL_WATCH_TRUNK      default the checkout's origin/HEAD
   LABEL_WATCH_CHECKOUT   local clone for the conflict check, default $PWD
@@ -42,6 +43,7 @@ REPO=${LABEL_WATCH_REPO:-$(git -C "$CHECKOUT" remote get-url origin | sed -E 's#
 TRUNK=${LABEL_WATCH_TRUNK:-$(git -C "$CHECKOUT" symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')}
 LABEL=${LABEL_WATCH_LABEL:-merge}
 INTERVAL=${LABEL_WATCH_INTERVAL:-240}
+REQUIRED=${LABEL_WATCH_REQUIRED:-}
 TRUNK_REF=refs/label-watch/$TRUNK
 QUEUED=
 TRACKED=
@@ -152,6 +154,14 @@ EOF
     END { if (red) print "red " red; else if (wait) print "pending " wait }')
   if [ -n "$checks" ]; then
     echo "$n NOT-READY $short $checks"
+    return
+  fi
+  absent=$(printf '%s\n%s\n' "$statuses" "$runs" | awk -v need="$REQUIRED" '
+    BEGIN { n = split(need, want, ",") }
+    $0 != "" { sub(/^[^ ]+ /, ""); seen[$0] = 1 }
+    END { for (i = 1; i <= n; i++) if (want[i] != "" && !(want[i] in seen)) out = out (out ? "," : "") want[i]; print out }')
+  if [ -n "$absent" ]; then
+    echo "$n NOT-READY $short no-run $absent"
     return
   fi
 
