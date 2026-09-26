@@ -440,6 +440,9 @@ The rest of the stack stays on the list and follows as another batch once it pas
 
 The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
 `LABEL_WATCH_DRY_RUN=1` prints `LABELLED <sha> dry-run` and adds no label.
+`LABEL_WATCH_HOLD=<file>` names PRs, one per line, that fail the gate as
+`NOT-READY <sha> held`. The watch re-reads the file every sweep, never labels or
+appends a held PR, and labels nothing above it.
 
 ```sh
 export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo

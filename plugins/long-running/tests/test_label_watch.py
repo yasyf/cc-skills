@@ -476,3 +476,37 @@ def test_watch_keeps_the_rest_of_the_stack_on_the_list(forge):
         f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
     ]
     assert (forge.state / "list.1").read_text() == "3\n"
+
+
+def test_a_held_pr_is_never_labelled_and_blocks_the_stack_above_it(forge):
+    stack(forge)
+    hold = forge.state / "hold"
+    hold.write_text("2\n")
+    forge.env["LABEL_WATCH_HOLD"] = str(hold)
+
+    assert forge.run("once", "1") == [
+        f"1 LABELLED {forge.stacked[0][:10]}",
+        f"2 NOT-READY {forge.stacked[1][:10]} held",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #2",
+    ]
+    assert posts(forge) == ["POST repos/o/r/issues/1/labels"]
+    assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
+
+
+def test_watch_never_appends_a_held_pr(forge):
+    stack(forge)
+    hold = forge.state / "hold"
+    hold.write_text("1\n")
+    forge.env["LABEL_WATCH_HOLD"] = str(hold)
+    list_file = forge.state / "list"
+    list_file.write_text("3\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        f"1 NOT-READY {forge.stacked[0][:10]} held",
+        f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
+    ]
+    assert posts(forge) == []
+    assert "1" not in (forge.state / "list.1").read_text().split()

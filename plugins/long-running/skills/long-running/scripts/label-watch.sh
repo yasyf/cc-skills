@@ -18,15 +18,16 @@ label, so Graphite queues the green prefix of the stack as one batch.
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with, or shares no history with, the fresh trunk
   <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
-                                  yet, conflicts-with #<queued pr> <files>, or
-                                  downstack #<pr> when a PR below it fails the gate
+                                  yet, conflicts-with #<queued pr> <files>,
+                                  downstack #<pr> when a PR below it fails the gate,
+                                  or held when LABEL_WATCH_HOLD lists it
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
   <pr> LABELLED <sha>             the queue label went on; dry-run follows it
                                   when LABEL_WATCH_DRY_RUN is set
 
 watch re-gates every number in <list-file>, one per line, each interval until
 the file is empty. It deletes LABELLED and SKIP entries from the file, keeps
-the rest, appends every other PR of their stacks, and prints a timestamped line
+the rest, appends every other unheld PR of their stacks, and prints a timestamped line
 only when a result changes. The PRs it saw queued or labelled stay conflict
 bases on every sweep until they close.
 
@@ -38,6 +39,7 @@ bases on every sweep until they close.
   LABEL_WATCH_LABEL      queue label, default merge
   LABEL_WATCH_INTERVAL   seconds between watch sweeps, default 240
   LABEL_WATCH_DRY_RUN    set to print LABELLED without adding the label
+  LABEL_WATCH_HOLD       file of PR numbers, one per line, never labelled, re-read each sweep
 EOF
   exit 2
 }
@@ -54,6 +56,8 @@ LABEL=${LABEL_WATCH_LABEL:-merge}
 INTERVAL=${LABEL_WATCH_INTERVAL:-240}
 REQUIRED=${LABEL_WATCH_REQUIRED:-}
 DRY_RUN=${LABEL_WATCH_DRY_RUN:-}
+HOLD=${LABEL_WATCH_HOLD:-}
+HELD=
 OWNER=${REPO%%/*}
 TRUNK_REF=refs/label-watch/$TRUNK
 PULL='"\(.head.sha) \(.base.ref) \(.mergeable) \(.mergeable_state) \(.head.ref) \([.labels[].name] | join(","))"'
@@ -280,9 +284,11 @@ climb() {
     pv=
     [ -z "$p" ] || eval "pv=\$verdict_$p pb=\$blocker_$p"
     blocker=
+    eval "sha=\$sha_$v"
     if [ "$pv" = stop ]; then
-      eval "sha=\$sha_$v"
       verdict=stop blocker=$pb line="$v NOT-READY $(printf %.10s "$sha") downstack #$pb"
+    elif case " $HELD " in *" $v "*) true ;; *) false ;; esac; then
+      verdict=stop blocker=$v line="$v NOT-READY $(printf %.10s "$sha") held"
     elif [ "$q" != "not queued" ]; then
       verdict=through line="$v SKIP $q"
     elif case ",$labels," in *",$LABEL,"*) true ;; *) false ;; esac; then
@@ -377,6 +383,7 @@ sweep() {
     return
   fi
   record "$queues"
+  [ -z "$HOLD" ] || HELD=$(tr -s ' \n' ' ' <"$HOLD")
   for e; do
     eval "q=\$queue_$e"
     [ "$q" = "not queued" ] || continue
@@ -453,7 +460,7 @@ watch() {
       eval "last_$n=\$line"
       case ${rest%% *} in
         LABELLED | SKIP) awk -v n="$n" '$1 != n' "$list" >"$list.tmp" && mv "$list.tmp" "$list" ;;
-        *) grep -qx "$n" "$list" || echo "$n" >>"$list" ;;
+        *) case $rest in *" held") ;; *) grep -qx "$n" "$list" || echo "$n" >>"$list" ;; esac ;;
       esac
     done <<EOF
 $results
