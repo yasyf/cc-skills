@@ -41,7 +41,8 @@ print(json.dumps([{"number": int(n), "queue": queues[n]} for n in sys.argv[7:]])
 """
 
 SLEEP = """#!/bin/sh
-[ "$1" = 1 ] && exit 0
+[ "$1" = 7 ] || exit 0
+[ ! -f "$FAKE_STATE/unlock" ] || rm -f "$(cat "$FAKE_STATE/unlock")"
 echo x >> "$FAKE_STATE/sweeps"
 [ "$(wc -l < "$FAKE_STATE/sweeps")" -lt 2 ] || : > "$FAKE_STATE/list"
 """
@@ -114,6 +115,12 @@ class Forge:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
         result = subprocess.run([str(SCRIPT), *args], env=self.env, check=True, capture_output=True, text=True)
         return result.stdout.splitlines()
+
+    def lock(self, ref: str) -> Path:
+        lock = self.checkout / ".git" / f"{ref}.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.touch()
+        return lock
 
     @property
     def calls(self) -> list[str]:
@@ -201,3 +208,38 @@ def test_watch_drops_settled_entries_and_prints_only_changes(forge):
         "3 SKIP landed",
     ]
     assert (forge.state / "sweeps").read_text().count("x") == 2
+
+
+def test_a_held_lock_on_the_remote_tracking_trunk_does_not_block_the_gate(forge):
+    forge.pull(1, forge.clean)
+    forge.lock("refs/remotes/origin/dev")
+
+    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
+
+
+def test_a_failed_trunk_fetch_labels_nothing(forge):
+    forge.pull(1, forge.clean)
+    forge.lock("refs/label-watch/dev")
+
+    assert forge.run("once", "1") == ["1 API-FAIL trunk-fetch"]
+    assert forge.calls == []
+
+
+def test_watch_survives_a_failed_trunk_fetch(forge):
+    forge.pull(1, forge.clean)
+    (forge.state / "unlock").write_text(str(forge.lock("refs/label-watch/dev")))
+    listing = forge.state / "list"
+    listing.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
+
+    assert lines == ["1 API-FAIL trunk-fetch", f"1 LABELLED {forge.clean[:10]}"]
+    assert listing.read_text() == ""
+
+
+def test_a_pruning_fetch_config_keeps_the_private_trunk_ref(forge):
+    forge.pull(2, forge.conflict)
+    subprocess.run(["git", "config", "fetch.prune", "true"], cwd=forge.checkout, check=True)
+    subprocess.run(["git", "config", "fetch.pruneTags", "true"], cwd=forge.checkout, check=True)
+
+    assert forge.run("once", "2") == forge.run("once", "2") == [f"2 CONFLICT {forge.conflict[:10]} a.txt"]
