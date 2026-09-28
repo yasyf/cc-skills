@@ -26,7 +26,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The eight hard rules
+## The nine hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -124,6 +124,32 @@ and `ledger.py answer` when the ask is a question rather than shipped work.
 *Prevents "one post + one approval per release" slipping for hours in the busy
 release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
+
+**R9. The root fixes a P0 itself, inline, on a 10-minute clock.** A P0 is anything
+that stops a release or a deploy someone else started, or that the owner calls
+urgent. It is the one exception to R1 and R2: the root does the fix in its own
+context, now, and never hands it to a lane, least of all one already busy. The
+root may still spawn a parallel helper for an independent part, such as the
+structural PR.
+
+At dispatch, the root writes down what fixed looks like and a deadline 10 minutes
+out. At the deadline, unfixed means the root asks the owner with
+`AskUserQuestion` and keeps working. Anything only a human can do, such as an
+object only its creator can edit, a login, or an approval, goes to the owner in
+the same turn it is found, never through a `RULING NEEDED` round trip.
+
+A message to a running lane is read only when that lane's turn ends. A lane in a
+foreground CI wait or a long loop is deaf until then. So an urgent order never
+goes by `SendMessage` to a running lane: the root acts inline, or stops the lane
+with `TaskStop` and does the work.
+
+*Prevents the 2026-09-28 prod observability outage (cc-notes d999b65). A deleted
+Datadog role broke every release's plan at 20:14Z. The root handed the fix to a
+busy sweep lane with no deadline. That lane stayed in one turn from 20:28 to
+21:26Z, so it never saw the owner's 20:31 and 20:39 orders or the root's 21:14
+URGENT. Six creator-locked monitors went to the root as a ruling instead of the
+owner as a question. Two of a teammate's releases failed before the root worked
+the fix inline at 21:32Z.*
 
 ## The landing desk and its ledger
 
@@ -713,6 +739,11 @@ same inputs, which resumes from that file.
 - A lane backgrounded a codex subagent and ended its turn; completion went to the
   root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
   at `00:48Z`.
+- A release-blocking Datadog breakage handed to a busy lane with no deadline; the
+  lane sat in a foreground CI wait while the owner's two "asap" orders queued unread
+  for 55 minutes, and two releases failed first.
+- A hand apply approved from its op list alone: the source PR said to confirm the
+  preview cleared the field before the delete, and nobody read that line.
 
 ## Checklist before every tool call
 
@@ -727,6 +758,8 @@ same inputs, which resumes from that file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
 10. Before saying something is assigned, read the summary's `LOST` lines first.
     Never call an ask done before `LIVE`.
+11. Is this a P0? → fix it inline now with a 10-minute deadline, and put anything
+    only a human can do to the owner this turn.
 
-Apply D3 to priority PRs before delegating. A call that survives all ten decides
+Apply D3 to priority PRs before delegating. A call that survives all eleven decides
 something no lane can decide for you; everything else is a lane.
