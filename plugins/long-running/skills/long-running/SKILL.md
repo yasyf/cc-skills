@@ -452,24 +452,23 @@ label-watch.sh watch "$LIST"
 ```
 
 `LABEL_WATCH_REPO`, `LABEL_WATCH_TRUNK`, `LABEL_WATCH_LABEL`, and `LABEL_WATCH_INTERVAL`
-default to the checkout's origin, its `origin/HEAD`, `merge`, and 240 seconds. Run
-`watch` in the background. Add a PR by appending its number to the list file. Each sweep
-reads Graphite once for the whole list and GitHub only for PRs that are not queued. The
-checks and reviews reads run only after the earlier gates pass. `watch` deletes `LABELLED` and
-`SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, appends the
+default to the checkout's origin, its `origin/HEAD`, `merge`, and 300 seconds. Run
+`watch` in the background.
+
+Add a PR by appending its number to the list file; a number listed twice is read
+once. Each sweep reads Graphite once for the whole list and GitHub only for PRs that
+are not queued. A PR whose squash, a subject ending `(#N)`, is on the fetched trunk
+prints `SKIP landed` without any read, and a closed PR prints `SKIP closed` and leaves
+the list. The checks and reviews reads run only after the earlier gates pass. `watch`
+deletes `LABELLED` and `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, appends the
 stack PRs it found still waiting on the gate, and prints a line only when a PR's result
 changes. It exits once the list is empty and every PR it saw queued or labelled has
 closed.
 
-Each sweep also reads the REST timeline of every open PR the watch saw queued or
-labelled, one call per PR. A `graphite-app[bot]` removal of the queue label, or a
-"Merge activity" line saying the queue couldn't merge it, after the PR's latest label
-is an eviction. It prints `EVICTED <sha> <reason> <time>` once per eviction, with the
-reason from the Merge activity line, then runs the PR through the gate that sweep, so
-a conflicting head prints `CONFLICT` with its files. An evicted PR is not a conflict
-base even when Graphite still reads it queued. A timeline longer than one page is read
-from the last page its `Link` header names, one more call, since an eviction is always
-among the latest events.
+`ccx vcs pr status` reads an eviction from the queue's Merge activity comment. The watch
+prints `EVICTED <sha> <reason> <time>` once per eviction for a listed PR or one it saw
+queued or labelled. The PR then goes through the gate that sweep, so a conflicting head
+prints `CONFLICT` with its files, and it returns to the list.
 *Prevents #26918 printing only its stale `NOT-READY conflicts-with` line while the queue
 had already dropped it for merge conflicts.*
 
