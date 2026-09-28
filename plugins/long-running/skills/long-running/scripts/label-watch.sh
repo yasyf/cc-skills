@@ -24,12 +24,15 @@ label, so Graphite queues the green prefix of the stack as one batch.
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
   <pr> LABELLED <sha>             the queue label went on; dry-run follows it
                                   when LABEL_WATCH_DRY_RUN is set
+  <pr> EVICTED <sha> <reason> <time>
+                                  Graphite dropped it from the queue after its latest label
 
 watch re-gates every number in <list-file>, one per line, each interval until
-the file is empty. It deletes LABELLED and SKIP entries from the file, keeps
+the file is empty and every PR it saw queued or labelled has closed. It deletes LABELLED and SKIP entries from the file, keeps
 the rest, appends every other unheld PR of their stacks, and prints a timestamped line
 only when a result changes. The PRs it saw queued or labelled stay conflict
-bases on every sweep until they close.
+bases on every sweep until they close. Each sweep reads the timeline of every one
+still open; an eviction prints EVICTED once and puts the PR back through the gate.
 
   LABEL_WATCH_APPROVERS  comma-separated logins that must approve the head sha
   LABEL_WATCH_REQUIRED   comma-separated checks that must have reported on the head sha
@@ -155,6 +158,27 @@ record() {
   done <<EOF
 $(printf '%s' "$1" | jq -r '.[] | "\(.number) \(.queue)"')
 EOF
+}
+
+eviction() {
+  timeline=$(gh api "repos/$REPO/issues/$1/timeline?per_page=100") || return 1
+  printf '%s' "$timeline" | jq -r --arg label "$LABEL" '
+    if length == 100 then "full" else
+      ([.[] | select(.event == "labeled" and .label.name == $label) | .created_at | fromdateiso8601] | max // 0) as $since
+      | ([.[] | select(.event == "committed") | .sha] | last) as $head
+      | [
+          (.[] | select(.event == "unlabeled" and .label.name == $label and .actor.login == "graphite-app[bot]")
+            | {at: (.created_at | fromdateiso8601)} | select(.at >= $since)),
+          (.[] | select(.event == "commented" and (.body | startswith("### Merge activity")))
+            | .updated_at[:4] as $year
+            | .body | splits("\r?\n")
+            | capture("^\\* \\*\\*(?<when>.+) UTC\\*\\*: .*couldn.t merge this PR(?: because (?<why>.+?))?\\.?$")
+            | {at: ("\(.when) \($year)" | strptime("%b %d, %I:%M %p %Y") | mktime), why: ((.why // "it could not merge") | gsub("\\*"; ""))}
+            | select(.at >= $since - $since % 60))
+        ]
+      | select(length > 0)
+      | "\($head) \(min_by(.at).at | todate) \(map(.why // empty) | first // "graphite-app[bot] removed the \($label) label")"
+    end'
 }
 
 gate() {
@@ -383,6 +407,24 @@ sweep() {
     return
   fi
   record "$queues"
+  evicted=
+  for t in $(printf '%s' "$queues" | jq -r --arg tracked "$TRACKED" '.[]
+    | select(.state == "OPEN" and (.number | tostring | IN($tracked | split(" ")[]))) | .number'); do
+    if ! found=$(eviction "$t"); then
+      echo "$t API-FAIL timeline"
+    elif [ "$found" = full ]; then
+      echo "$t API-FAIL timeline-full"
+    elif [ -n "$found" ]; then
+      read -r head at why <<EOF
+$found
+EOF
+      echo "$t EVICTED $(printf %.10s "$head") $why $at"
+      eval "queue_$t='not queued'"
+      evicted="$evicted $t"
+      case " $* " in *" $t "*) ;; *) set -- "$@" "$t" ;; esac
+    fi
+    sleep 1
+  done
   [ -z "$HOLD" ] || HELD=$(tr -s ' \n' ' ' <"$HOLD")
   for e; do
     eval "q=\$queue_$e"
@@ -409,7 +451,8 @@ sweep() {
     record "$more"
     queues=$(printf '%s\n%s' "$queues" "$more" | jq -s add)
   fi
-  enqueued=$(printf '%s' "$queues" | jq -r '.[] | select(.queue == "queued") | "\(.number) \(.enqueued)"')
+  enqueued=$(printf '%s' "$queues" | jq -r --arg evicted "$evicted" '.[]
+    | select(.queue == "queued" and (.number | tostring | IN($evicted | split(" ")[]) | not)) | "\(.number) \(.enqueued)"')
   missing=$(printf '%s\n' "$enqueued" | while read -r q sha; do
     [ -z "$sha" ] || git -C "$CHECKOUT" cat-file -e "$sha^{commit}" 2>/dev/null || echo "$sha"
   done)
@@ -443,18 +486,33 @@ sweep() {
 
 watch() {
   list=$1
-  while [ -s "$list" ]; do
+  while [ -s "$list" ] || [ -n "$TRACKED" ]; do
     set -- $(cat "$list")
-    [ $# -gt 0 ] || break
+    [ $# -gt 0 ] || [ -n "$TRACKED" ] || break
     results=$(sweep "$@")
     TRACKED=
     while read -r line; do
+      [ -n "$line" ] || continue
       n=${line%% *}
       rest=${line#* }
       case $rest in
-        TRACKED | LABELLED* | "SKIP queued" | "SKIP labelled") TRACKED="$TRACKED $n" ;;
+        TRACKED | LABELLED* | "SKIP queued" | "SKIP labelled" | EVICTED* | "API-FAIL timeline"*) TRACKED="$TRACKED $n" ;;
       esac
       [ "$rest" != TRACKED ] || continue
+      case $rest in
+        EVICTED*)
+          key="$(printf '%s' "$rest" | cut -d' ' -f2) ${rest##* }"
+          grep -qx "$n" "$list" || echo "$n" >>"$list"
+          ;;
+        "API-FAIL timeline"*) key=$rest ;;
+        *) key= ;;
+      esac
+      if [ -n "$key" ]; then
+        eval "seen=\${timeline_$n-}"
+        [ "$key" = "$seen" ] || echo "$(date -u +%H:%M) $line"
+        eval "timeline_$n=\$key"
+        continue
+      fi
       eval "last=\${last_$n-}"
       [ "$line" = "$last" ] || echo "$(date -u +%H:%M) $line"
       eval "last_$n=\$line"
@@ -465,7 +523,7 @@ watch() {
     done <<EOF
 $results
 EOF
-    [ ! -s "$list" ] || sleep "$INTERVAL"
+    [ ! -s "$list" ] && [ -z "$TRACKED" ] || sleep "$INTERVAL"
   done
 }
 

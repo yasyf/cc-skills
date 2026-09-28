@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/label-watch.sh"
+EVICTED_26918 = Path(__file__).resolve().parent / "fixtures/timeline-26918-evicted.json"
 APPROVERS = "forge-pr-reviewer[bot],poetic-svc"
 
 GH = """#!/usr/bin/env python3
@@ -43,6 +44,8 @@ CCX = """#!/usr/bin/env python3
 import json, os, sys
 state = os.environ["FAKE_STATE"]
 queues = json.load(open(os.path.join(state, "queues.json")))
+if os.path.exists(os.path.join(state, "drained")):
+    queues = {n: "landed" for n in queues}
 enqueued = json.load(open(os.path.join(state, "enqueued.json")))
 with open(os.path.join(state, "ccx-calls"), "a") as calls:
     calls.write(" ".join(sys.argv[7:]) + "\\n")
@@ -58,7 +61,8 @@ SLEEP = """#!/bin/sh
 [ ! -f "$FAKE_STATE/unlock" ] || rm -f "$(cat "$FAKE_STATE/unlock")"
 echo x >> "$FAKE_STATE/sweeps"
 cp "$FAKE_STATE/list" "$FAKE_STATE/list.$(wc -l < "$FAKE_STATE/sweeps" | tr -d ' ')"
-[ "$(wc -l < "$FAKE_STATE/sweeps")" -lt 2 ] || : > "$FAKE_STATE/list"
+[ ! -d "$FAKE_STATE/next" ] || { cp "$FAKE_STATE"/next/* "$FAKE_STATE"; rm -r "$FAKE_STATE/next"; }
+[ "$(wc -l < "$FAKE_STATE/sweeps")" -lt "${FAKE_SWEEPS:-2}" ] || { : > "$FAKE_STATE/list"; touch "$FAKE_STATE/drained"; }
 """
 
 
@@ -121,6 +125,7 @@ class Forge:
         self.queues: dict[str, str] = {}
         self.pulls: dict[int, dict] = {}
         self.enqueued: dict[str, str] = {}
+        self.timelines: dict[int, list] = {}
         self.env = {
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -155,6 +160,8 @@ class Forge:
     def run(self, *args: str) -> list[str]:
         (self.state / "queues.json").write_text(json.dumps(self.queues))
         (self.state / "enqueued.json").write_text(json.dumps(self.enqueued))
+        for n in self.queues:
+            (self.state / f"repos_o_r_issues_{n}_timeline.json").write_text(json.dumps(self.timelines.get(int(n), [])))
         for pull in self.pulls.values():
             ref = pull["head"]["ref"]
             (self.state / listing(f"repos/o/r/pulls?state=open&head=o:{ref}")).write_text(json.dumps([pull]))
@@ -372,7 +379,7 @@ def test_watch_keeps_a_queued_pr_as_a_conflict_base_after_it_leaves_the_list(for
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
 
     assert lines == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt"]
-    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2 1"]
+    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2 1", "1"]
     assert "POST repos/o/r/issues/2/labels" not in forge.calls
 
 
@@ -386,7 +393,7 @@ def test_a_landed_pr_stops_being_tracked(forge):
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
 
     assert lines == ["1 SKIP landed", f"2 LABELLED {forge.clean[:10]}"]
-    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2"]
+    assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2", "2"]
 
 
 def stack(forge, **kwargs):
@@ -510,3 +517,81 @@ def test_watch_never_appends_a_held_pr(forge):
     ]
     assert posts(forge) == []
     assert "1" not in (forge.state / "list.1").read_text().split()
+
+
+def evicted_next(forge, n: int, sha: str, timeline: list):
+    nxt = forge.state / "next"
+    nxt.mkdir()
+    pull = forge.pulls[n] | {"mergeable": False, "mergeable_state": "dirty", "labels": []}
+    (nxt / f"repos_o_r_pulls_{n}.json").write_text(json.dumps(pull))
+    (nxt / f"repos_o_r_issues_{n}_timeline.json").write_text(json.dumps(timeline))
+
+
+def timeline_26918(sha: str) -> list:
+    return json.loads(EVICTED_26918.read_text().replace("HEAD_SHA", sha))
+
+
+def test_watch_reports_a_graphite_eviction_once_and_gates_the_pr_again(forge):
+    forge.pull(1, forge.conflict, labels=["merge"])
+    forge.enqueue(1, forge.conflict)
+    evicted_next(forge, 1, forge.conflict, timeline_26918(forge.conflict))
+    forge.env["FAKE_SWEEPS"] = "3"
+    list_file = forge.state / "list"
+    list_file.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        "1 SKIP queued",
+        f"1 EVICTED {forge.conflict[:10]} it had merge conflicts 2026-09-28T15:29:56Z",
+        f"1 CONFLICT {forge.conflict[:10]} a.txt",
+    ]
+    assert forge.calls.count("GET repos/o/r/issues/1/timeline?per_page=100") == 2
+    assert not posts(forge)
+
+
+def test_an_evicted_pr_is_no_conflict_base_even_when_graphite_still_reads_it_queued(forge):
+    forge.pull(1, forge.queued, labels=["merge"])
+    forge.enqueue(1, forge.queued)
+    forge.pull(2, forge.behind_queued, approvers="")
+    evicted_next(forge, 1, forge.queued, timeline_26918(forge.queued))
+    list_file = forge.state / "list"
+    list_file.write_text("1\n2\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        "1 SKIP queued",
+        f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt",
+        f"1 EVICTED {forge.queued[:10]} it had merge conflicts 2026-09-28T15:29:56Z",
+        f"2 NOT-READY {forge.behind_queued[:10]} awaiting {APPROVERS}",
+        f"1 NOT-READY {forge.queued[:10]} mergeable false",
+    ]
+
+
+def test_a_label_after_the_eviction_means_the_pr_is_queued_again(forge):
+    timeline = timeline_26918(forge.conflict)
+    timeline.append({"event": "labeled", "created_at": "2026-09-28T16:00:00Z", "actor": {"login": "yasyf"}, "label": {"name": "merge"}})
+    forge.pull(1, forge.conflict, labels=["merge"])
+    forge.enqueue(1, forge.conflict)
+    evicted_next(forge, 1, forge.conflict, timeline)
+    list_file = forge.state / "list"
+    list_file.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == ["1 SKIP queued"]
+    assert "GET repos/o/r/issues/1/timeline?per_page=100" in forge.calls
+
+
+def test_a_merge_activity_line_alone_is_an_eviction(forge):
+    timeline = [event for event in timeline_26918(forge.conflict) if event["event"] != "unlabeled"]
+    forge.pull(1, forge.conflict, labels=["merge"])
+    forge.enqueue(1, forge.conflict)
+    evicted_next(forge, 1, forge.conflict, timeline)
+    list_file = forge.state / "list"
+    list_file.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines[1] == f"1 EVICTED {forge.conflict[:10]} it had merge conflicts 2026-09-28T15:32:00Z"
