@@ -467,8 +467,9 @@ labelled, one call per PR. A `graphite-app[bot]` removal of the queue label, or 
 is an eviction. It prints `EVICTED <sha> <reason> <time>` once per eviction, with the
 reason from the Merge activity line, then runs the PR through the gate that sweep, so
 a conflicting head prints `CONFLICT` with its files. An evicted PR is not a conflict
-base even when Graphite still reads it queued. A timeline with 100 or more entries
-prints `API-FAIL timeline-full`, because the eviction may sit on a later page.
+base even when Graphite still reads it queued. A timeline longer than one page is read
+from the last page its `Link` header names, one more call, since an eviction is always
+among the latest events.
 *Prevents #26918 printing only its stale `NOT-READY conflicts-with` line while the queue
 had already dropped it for merge conflicts.*
 

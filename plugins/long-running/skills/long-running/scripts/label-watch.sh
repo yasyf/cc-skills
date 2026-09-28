@@ -136,7 +136,8 @@ EOF
 expand() {
   eval "seen=\${ref_$1-}"
   if [ -z "$seen" ]; then
-    pull=$(gh api "repos/$REPO/pulls/$1" --jq "$PULL") || return 1
+    eval "pull=\${pull_$1-}"
+    [ -n "$pull" ] || pull=$(gh api "repos/$REPO/pulls/$1" --jq "$PULL") || return 1
     read -r sha base mergeable state ref labels <<EOF
 $pull
 EOF
@@ -161,24 +162,28 @@ EOF
 }
 
 eviction() {
-  timeline=$(gh api "repos/$REPO/issues/$1/timeline?per_page=100") || return 1
+  response=$(gh api -i "repos/$REPO/issues/$1/timeline?per_page=100") || return 1
+  response=$(printf '%s\n' "$response" | tr -d '\r')
+  last=$(printf '%s\n' "$response" | sed -n '/^$/q; s/^[Ll]ink: .*<https:\/\/api\.github\.com\/\([^>]*\)>; rel="last".*/\1/p')
+  if [ -n "$last" ]; then
+    timeline=$(gh api "$last") || return 1
+  else
+    timeline=$(printf '%s\n' "$response" | sed '1,/^$/d')
+  fi
   printf '%s' "$timeline" | jq -r --arg label "$LABEL" '
-    if length == 100 then "full" else
-      ([.[] | select(.event == "labeled" and .label.name == $label) | .created_at | fromdateiso8601] | max // 0) as $since
-      | ([.[] | select(.event == "committed") | .sha] | last) as $head
-      | [
-          (.[] | select(.event == "unlabeled" and .label.name == $label and .actor.login == "graphite-app[bot]")
-            | {at: (.created_at | fromdateiso8601)} | select(.at >= $since)),
-          (.[] | select(.event == "commented" and (.body | startswith("### Merge activity")))
-            | .updated_at[:4] as $year
-            | .body | splits("\r?\n")
-            | capture("^\\* \\*\\*(?<when>.+) UTC\\*\\*: .*couldn.t merge this PR(?: because (?<why>.+?))?\\.?$")
-            | {at: ("\(.when) \($year)" | strptime("%b %d, %I:%M %p %Y") | mktime), why: ((.why // "it could not merge") | gsub("\\*"; ""))}
-            | select(.at >= $since - $since % 60))
-        ]
-      | select(length > 0)
-      | "\($head) \(min_by(.at).at | todate) \(map(.why // empty) | first // "graphite-app[bot] removed the \($label) label")"
-    end'
+    ([.[] | select(.event == "labeled" and .label.name == $label) | .created_at | fromdateiso8601] | max // 0) as $since
+    | [
+        (.[] | select(.event == "unlabeled" and .label.name == $label and .actor.login == "graphite-app[bot]")
+          | {at: (.created_at | fromdateiso8601)} | select(.at >= $since)),
+        (.[] | select(.event == "commented" and (.body | startswith("### Merge activity")))
+          | .updated_at[:4] as $year
+          | .body | splits("\r?\n")
+          | capture("^\\* \\*\\*(?<when>.+) UTC\\*\\*: .*couldn.t merge this PR(?: because (?<why>.+?))?\\.?$")
+          | {at: ("\(.when) \($year)" | strptime("%b %d, %I:%M %p %Y") | mktime), why: ((.why // "it could not merge") | gsub("\\*"; ""))}
+          | select(.at >= $since - $since % 60))
+      ]
+    | select(length > 0)
+    | "\(min_by(.at).at | todate) \(map(.why // empty) | first // "graphite-app[bot] removed the \($label) label")"'
 }
 
 gate() {
@@ -412,13 +417,16 @@ sweep() {
     | select(.state == "OPEN" and (.number | tostring | IN($tracked | split(" ")[]))) | .number'); do
     if ! found=$(eviction "$t"); then
       echo "$t API-FAIL timeline"
-    elif [ "$found" = full ]; then
-      echo "$t API-FAIL timeline-full"
     elif [ -n "$found" ]; then
-      read -r head at why <<EOF
+      if ! pull=$(gh api "repos/$REPO/pulls/$t" --jq "$PULL"); then
+        echo "$t API-FAIL timeline pull"
+        continue
+      fi
+      eval "pull_$t=\$pull"
+      read -r at why <<EOF
 $found
 EOF
-      echo "$t EVICTED $(printf %.10s "$head") $why $at"
+      echo "$t EVICTED $(printf %.10s "$pull") $why $at"
       eval "queue_$t='not queued'"
       evicted="$evicted $t"
       case " $* " in *" $t "*) ;; *) set -- "$@" "$t" ;; esac

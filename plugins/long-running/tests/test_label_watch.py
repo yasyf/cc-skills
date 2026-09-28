@@ -15,10 +15,12 @@ APPROVERS = "forge-pr-reviewer[bot],poetic-svc"
 GH = """#!/usr/bin/env python3
 import os, re, subprocess, sys
 state = os.environ["FAKE_STATE"]
-args, method, jq, endpoint = sys.argv[2:], "GET", None, None
+args, method, jq, endpoint, include = sys.argv[2:], "GET", None, None, False
 while args:
     arg = args.pop(0)
-    if arg == "-X":
+    if arg == "-i":
+        include = True
+    elif arg == "-X":
         method = args.pop(0)
     elif arg == "--jq":
         jq = args.pop(0)
@@ -37,6 +39,10 @@ found = [f for f in files if os.path.exists(f)]
 body = open(found[0]).read() if found or not path.endswith("/pulls") else "[]"
 if jq:
     body = subprocess.run(["jq", "-r", jq], input=body, capture_output=True, text=True, check=True).stdout
+if include:
+    link = found[0][: -len(".json")] + ".link"
+    headers = f"Link: {open(link).read()}\\r\\n" if os.path.exists(link) else ""
+    body = f"HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n{headers}\\r\\n{body}"
 sys.stdout.write(body)
 """
 
@@ -595,3 +601,27 @@ def test_a_merge_activity_line_alone_is_an_eviction(forge):
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
 
     assert lines[1] == f"1 EVICTED {forge.conflict[:10]} it had merge conflicts 2026-09-28T15:32:00Z"
+
+
+def test_a_timeline_past_one_page_is_read_from_its_last_page(forge):
+    first = [{"event": "commented", "created_at": "2026-09-28T10:00:00Z", "actor": {"login": "poetic-svc"}, "updated_at": "2026-09-28T10:00:00Z", "body": "<!-- ci-timing -->"}] * 100
+    forge.pull(1, forge.conflict, labels=["merge"])
+    forge.enqueue(1, forge.conflict)
+    evicted_next(forge, 1, forge.conflict, first)
+    nxt = forge.state / "next"
+    last = "repos/o/r/issues/1/timeline?per_page=100&page=3"
+    (nxt / "repos_o_r_issues_1_timeline.link").write_text(
+        f'<https://api.github.com/repositories/9/issues/1/timeline?per_page=100&page=2>; rel="next", <https://api.github.com/{last}>; rel="last"'
+    )
+    (nxt / listing(last)).write_text(json.dumps(timeline_26918(forge.conflict)[-3:]))
+    list_file = forge.state / "list"
+    list_file.write_text("1\n")
+
+    lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
+
+    assert lines == [
+        "1 SKIP queued",
+        f"1 EVICTED {forge.conflict[:10]} it had merge conflicts 2026-09-28T15:29:56Z",
+        f"1 CONFLICT {forge.conflict[:10]} a.txt",
+    ]
+    assert forge.calls.count(f"GET {last}") == 1
