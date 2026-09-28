@@ -39,6 +39,14 @@ Rules the report carries:
 - A lane mid-rebase reports `conflicting` and pushes nothing labelled. It reports
   `clean` again only on the rebased head.
 - Prose goes to a cc-notes note the report names on line 2, never into the message.
+- Before pushing to a PR it has already reported, the lane checks `ccx vcs pr status <n>`.
+  A `queued` PR ignores the push. The queue lands the head it snapshotted at enqueue,
+  and anything pushed after that never ships. The lane ships the delta as a new PR
+  stacked on it instead.
+- Before sending a new head, the lane reads the push back:
+  `git ls-remote origin refs/heads/<branch>` against the local HEAD. Another process
+  can detach a shared worktree mid-session, and a push from a detached HEAD
+  updates nothing while `git push` still prints `Everything up-to-date`.
 
 A lane registers its unique branch prefix, ending in `/`, with the desk when spawned using
 `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`.
