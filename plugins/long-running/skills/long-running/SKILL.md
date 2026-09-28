@@ -149,9 +149,9 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. Address reports to the desk and act on priority PRs.** A lane's last action on a PR is the three-line report of PR, full head sha, and verdict, sent to `landing-desk`. The root receives only `RULING NEEDED` lines and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3.
+**D1. Address reports to the desk and act on priority PRs.** A lane's last action on a PR is the three-line report of PR, full head sha, and verdict, sent to `landing-desk`. The root receives only `RULING NEEDED` lines and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope after they approved it, the root gets a fresh approval naming the new head before labelling.
 
-*Prevents the root relaying a lane's 45-60 minute ETA for green priority PR #25145 while the owner queued it by hand.*
+*Prevents the root relaying a lane's 45-60 minute ETA for green priority PR #25145 while the owner queued it by hand. Also prevents labelling a PR on a stale approval after two more fixes landed on it past the head the owner actually saw.*
 
 **D2. Track and grade our lanes' PRs.** `ledger.py report`, `ledger.py register` with a lane's branch prefix, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. A PR on a registered prefix or reported by a lane is tracked and graded without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
 
@@ -238,6 +238,10 @@ growing with the board until a five-minute cadence is a 20-minute one again.*
 **D14. A stack lands whole.** When the ledger holds several PRs in one stack, never label a lower PR as its tip while any PR above it is open. A red, conflicting, or held PR anywhere holds the whole stack. Route the blocker under D5 and label the tip once every PR passes on its final head. A stack whose root is ruled out by retargeting to the base branch or closing is still one stack. Retarget the next PR to the base branch and label the remaining tip, never each survivor alone.
 
 *Prevents landing the root alone in six stacked PRs, #25188 through #25199 in Forge-AI/monorepo on 2026-09-25, which would have rebased five children onto a moving base and re-run CI on each for nothing; the owner ruled "merge the whole stack at once but first fix the failing CI on it".*
+
+**D15. An owner-visible change needs its render approved before the label.** A PR that changes something the owner sees rendered, such as a UI, message, or generated document, holds under D6. Use the reason "render not approved" until the owner has approved that exact render at the head being labelled, unless the owner has granted ship-then-fix for that lane. A re-render at a new head needs a fresh approval; the old one covered a different head.
+
+*Prevents a redesigned modal or a rewritten Slack card landing and reaching users before the owner had seen how it actually rendered.*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
@@ -345,6 +349,28 @@ or `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` gives it to every subagent. Withou
 the lane types' `experimental.cacheTtl: "1h"` gives it to lanes alone, except while a
 subscription is in overage.
 
+### Shared API budgets
+
+The GitHub REST and GraphQL limits and the Buildkite REST limit are each one budget
+for the whole org, shared by every lane, the desk, and every watcher at once. A lane that
+reads right up to its own rate-limit header can still starve the desk and every
+release watch running beside it.
+
+Read a job's log once and keep it on disk; never loop a log read over a build's plan
+shards, and never scan more than the handful of shards a failure actually names. A
+scan that reads more than a few hundred logs is a decision, not a background job:
+size it and send the count to the root before running it. Prefer an artifact or an
+annotation over scraping a log at all.
+
+One poller owns each PR or build, under R3. Resuming it after a wake is not the same
+as starting a second one, and restarting a poller from scratch resets whatever
+backoff it was holding. A 429 or 403 mid-poll gets a fixed wait and a retry, never
+an immediate one and never a fresh loop.
+
+*Prevents a per-shard log loop emptying the Buildkite budget mid-release, and a bulk
+scan across thousands of logs failing two releases' own pipeline syncs on the same
+shared limit.*
+
 ### Desk cadence
 
 The desk owns the PR loop below; the root records asks and verifies their acceptance
@@ -425,6 +451,11 @@ Each PR passes this gate before it gets the label:
    check as `unstable`, not blocked, so mergeability alone lets a red PR through.
 7. Every required approver approved its current head sha.
 
+No label bypasses a gate. An override or skip-checks label put on a PR to clear a red
+the diff did not cause is banned. When an untouched shard reds falsely, trigger one
+rebuild so it re-grades on a fresh build. If it reds again, report the shard, its
+time, and its p99 to the root instead of labelling around it.
+
 A listed PR brings in its stack, which is every open PR below it down to the trunk,
 walked through `pulls?head=`, and every open PR stacked above it, walked through
 `pulls?base=`. The gate runs bottom-up over each stack. A PR the queue already holds,
@@ -491,6 +522,25 @@ Taking the label off does not dequeue it, and neither does converting it to a dr
 *Prevents a reworked PR landing anyway, as one did after Graphite had enqueued it,
 through a removed label and a conversion to draft.*
 
+### Stalled-red sweep
+
+`watch` only reprints a line when a PR's result changes. A head stuck `CONFLICT`,
+`NOT-READY`, or `EVICTED` for hours goes silent again the moment it was first seen;
+a drive too small for a desk most needs that state surfaced.
+`scripts/red-sweep.sh` reads the same list file `label-watch.sh` watches and re-alerts,
+once per head, on any entry still stuck past `RED_SWEEP_AGE_MINUTES` (default 20):
+
+```
+STALLED-RED #<n> <sha> <status>/<mergeable_state> head <age>m old: <title>
+```
+
+Run it beside `label-watch.sh watch`, pointed at the same list file, as its own
+background sweep; it never edits the list, so `label-watch.sh` still owns removing
+an entry once it lands or gets skipped.
+
+*Prevents a PR read `CONFLICT` sitting unmentioned again for hours until an owner
+asked whether anything else was stuck the same way.*
+
 ### Compaction handoff
 
 Once `long-running` is invoked — the Skill call itself, or a `/long-running` prompt —
@@ -523,7 +573,11 @@ and the turn is never held.
 **Rewrite the plan.** First record any durable state still living only in this
 conversation in the ledger, the rulings log, or a cc-notes note; the archive is history,
 not a store. Then rewrite the plan with one `Write`, dropping finished work, superseded
-state, and anything the archives already hold. The hook enforces no shape, but a plan
+state, and anything the archives already hold. Drop an item only once it is landed
+and live, or an owner ruling cancelled it, named by that ruling; everything else
+carries forward, even at one line. Diff the fresh write against the `*-pre-compact.md`
+sibling the hook just archived and account for every item the diff removes before
+saving. The hook enforces no shape, but a plan
 that restarts cleanly usually carries these sections:
 
 ```md
