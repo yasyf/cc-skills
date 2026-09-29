@@ -23,6 +23,11 @@ It closes asks outside that lifecycle with `ledger.py drop` when the owner withd
 them, or `ledger.py answer` for questions rather than shipped work. When the pipeline
 that ships our lanes' PRs runs, the root records it with `ledger.py live`.
 
+Beside the desk's summary the root reads `bus.py summary --bus <id>`: every open ask
+and blocker between lanes with its age, and the latest decisions. An ask older than
+its lane's cadence is dispatched under R6; a blocker on a finished lane's PR gets a
+fresh fix lane. A lane's head or contract is read from `bus.py state`, never asked.
+
 Other PR questions go to the desk as a scoped resume and come back as at most five
 lines. The root answers a `RULING NEEDED` line with a letter and nothing else, and
 it never replies to an idle notice. When the desk's 30-minute summary arrives the
@@ -49,7 +54,8 @@ Grade, land, and track only through `ledger.py`, never scripts of your own.
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
-  script: <plugin root>/skills/long-running/scripts/ledger.py
+  bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
+  scripts: <plugin root>/skills/long-running/scripts/ledger.py and bus.py
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -118,11 +124,14 @@ Do, in this order, forever:
      A rebase is asked for on a merge conflict and for nothing else.
   4. Route. `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
-     "<blocker>"` routes one PR for a reason the forge cannot see. Send exactly the
-     text it prints, by SendMessage, only to a live lane. For a red on a PR whose lane
-     has finished, send the root `RULING NEEDED` naming the PR and blocker so it
-     dispatches a fresh fix lane. Never SendMessage a finished lane. Never comment
-     on the PR. Never re-route the same head and job.
+     "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
+     prints to the bus first, `bus.py post --bus <bus> --from landing-desk --kind blocker
+     --topic <pr> --to <lane> --text "<the line>"`, then send exactly that text by
+     SendMessage, only to a live lane. For a red on a PR whose lane has finished, send
+     the root `RULING NEEDED` naming the PR and blocker so it dispatches a fresh fix
+     lane; the blocker stays open on the bus until that lane withdraws it or a new head
+     is posted. Never SendMessage a finished lane. Never comment on the PR. Never
+     re-route the same head and job.
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.
      Every hold has a reason and an expiry; an expired hold is a question for the

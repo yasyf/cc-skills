@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, and a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root, and a lane bus over one cc-notes log carries every decision, head, contract, blocker, and ask between lanes so each reads state from its cursor instead of a stale message. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -252,6 +252,60 @@ ledger id reads the inbox, the holds, the routes, the label history, and the lan
 exactly as the last one left them. None of that goes into session memory or the plan file.
 That is what makes the desk cheap to rotate; see Lane rotation.
 
+## The lane bus
+
+`SendMessage` is fire-and-forget into an inbox. A message lands while its reader is
+idle or mid-poll, and when the reader finally acts it acts on the state the message
+described: one lane waited on an OK another lane had already given, and one waited on
+a verdict its author had already withdrawn. `scripts/bus.py` is the shared record
+between lanes: one cc-notes log per drive, one entry per post, each lane reading from
+its own cursor. It is R5 applied to what lanes tell each other.
+`reference/bus-contracts.md` holds the entry kinds and the delivery rule.
+
+The root creates it once with `bus.py init --title "bus: <drive>"` and puts the id in
+every brief beside the ledger id. The records live on `refs/cc-notes/*` beside the
+ledger and survive compaction, rotation, and a session restart.
+
+**B1. Post the state, message the pointer.** A decision another lane could build on, a
+head after every push, a contract whenever a lane exposes something another lane
+consumes, a blocker, and an ask each go on the bus with `bus.py post`, addressed with
+`--to` when a named lane must act. The `SendMessage` that wakes that lane carries the
+entry number and nothing else. *Prevents a lane acting on the body of a stale message
+when the log already holds the newer entry.*
+
+**B2. Read at every wake and before every decision or report.** A lane's first tool
+call on any wake is `bus.py read --lane <name>` with its brief's subscription, and it
+reads again before it decides, reports, or asks. A read that shows `[ANSWERED #n]` or
+`[WITHDRAWN #n]` on an entry ends any wait on it. A message is never acted on before
+the read. *Prevents the wait on an answer already given and the act on a verdict
+already retracted.*
+
+**B3. Watch while running.** A lane arms one Monitor on `bus.py watch --lane <name>`
+with the same subscription, at the maximum timeout, and re-arms it when it expires. It
+prints an entry only when one is delivered, so a running lane hears a blocker or an
+answer within the interval instead of at its next wake. This is the one Monitor a
+lane keeps; R3 still forbids one per build. *Prevents the idle lane that never saw its
+CI red until the owner did.*
+
+**B4. Withdraw, never overwrite.** A retracted verdict, a moved head, or a changed
+interface is a `withdraw --re <entry>` from its poster, then a new entry. Every read of
+the old entry shows the withdrawal, so a lane that already acted learns it and a lane
+that has not yet acted never does. *Prevents two lanes carrying two versions of one
+verdict.*
+
+**B5. Read `state` before asking, and `summary` instead of the log.** `bus.py state`
+is the live head and contract per lane and topic; a question it answers is never sent
+to a lane. The root reads `bus.py summary` beside the desk's summary: counts, every open
+ask and blocker with its age, the latest decisions, at most ten lines. An open ask
+past its lane's cadence is the root's to dispatch under R6. Two contracts on one topic
+from two lanes are a collision to rule on before either ships. *Prevents the root
+relaying by hand what any lane could read, and the contradiction found after both
+sides landed.*
+
+The desk posts each `route` line as `blocker --topic <pr> --to <lane>` in the pass
+that prints it, so a red reaches an idle lane at its next wake whatever became of the
+message.
+
 ## Mechanics
 
 ### Lane brief
@@ -268,6 +322,16 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
+Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <drive checkout>.
+  Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
+  First call on every wake, and before every decision, report, or ask:
+    `bus.py read --bus <id> --lane <name> <subscription>`; a message is acted on only after it.
+  While running: one Monitor on `bus.py watch --bus <id> --lane <name> <subscription>`,
+    timeout 1800000, re-armed on expiry.
+  Post a `head` after every push, a `contract` for anything another lane consumes, a
+    `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
+    that acts; `withdraw --re` before you change or retract any of them. A SendMessage
+    carries the entry number, never the body.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one report,
@@ -428,6 +492,47 @@ log, prints the message to send each lane, and records it; `route --dry-run` pri
 and records nothing. `unlabel --reason` records why a label came off and blocks a
 re-label of that head; it does not stop a queue that already took the PR. A lane
 asking what it owns gets `ledger.py show --red`, never the raw table.
+
+### Lane bus
+
+The root creates the bus once and puts its id in every brief; everything after that is
+`bus.py`, run with `--repo <drive checkout>` from any worktree.
+
+```sh
+BUS=$(bus.py init --title "bus: $DRIVE")
+
+# a lane, on every wake and before every decision, report, or ask
+bus.py read  --bus "$BUS" --lane pr-plans --topic 27510 --topic iam-contract --kind decision
+
+# a lane, while running: one Monitor, timeout 1800000, re-armed on expiry; prints only deliveries
+bus.py watch --bus "$BUS" --lane pr-plans --topic 27510 --topic iam-contract --kind decision
+
+# publish state instead of answering questions about it
+bus.py post --bus "$BUS" --from pr-plans --kind head     --topic 27510        --text <full sha>
+bus.py post --bus "$BUS" --from iam-structural --kind contract --topic iam-contract --text "grants derive from row kinds; no hand IAM"
+bus.py post --bus "$BUS" --from iam-structural --kind decision --topic iam-contract --text "IAM wave lands before the pre-hold" --to pr-plans
+
+# ask, answer, block, withdraw; the printed #seq is what the SendMessage carries
+bus.py post --bus "$BUS" --from pr-plans --kind ask      --topic 27510 --text "clear to label before the IAM wave?" --to iam-structural
+bus.py post --bus "$BUS" --from iam-structural --kind answer --re 7 --text "yes, land it"
+bus.py post --bus "$BUS" --from landing-desk --kind blocker  --topic 27510 --text "DESK #27510 3f3acff97: plan job red" --to pr-plans
+bus.py post --bus "$BUS" --from artifact-contract --kind withdraw --re 4 --text "verdict retracted; contract changed"
+
+# read state, never ask for it; the root reads summary, never the log
+bus.py state   --bus "$BUS" [--lane iam-structural] [--topic 27510]
+bus.py summary --bus "$BUS"
+bus.py read    --bus "$BUS" --lane root --all --peek   # the whole log, when a thread must be read
+```
+
+A `head` is the full 40-hex sha. A reply inherits its target's topic; an `answer` goes
+to the asker and a `withdraw` to the target's addressees unless `--to` says otherwise.
+Only the poster withdraws an entry, once. The cursor is
+`~/.cache/ccn-bus/<bus>/<lane>.cursor`, so a rotated lane resumes where the last one
+stopped; `--peek` leaves it, `--since` and `--all` re-read. `read` prints
+`nothing new since #n` when nothing reached the lane; `watch` prints nothing then, and
+`bus unreachable: ...` once when cc-notes stops answering. Every post holds a lock keyed
+on the bus and retries a contended ref, because `ccn log append` refuses rather than
+queues a concurrent write.
 
 ### Label watch
 
@@ -713,6 +818,11 @@ same inputs, which resumes from that file.
 - A lane backgrounded a codex subagent and ended its turn; completion went to the
   root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
   at `00:48Z`.
+- A lane waiting on an OK that had already reached its inbox mid-poll, and another
+  waiting on a verdict its author had withdrawn an hour earlier; both acted on the
+  message, and neither read a record.
+- Idle lanes that never saw their CI reds, and a root relaying every lane's heads and
+  contracts by hand while a fable lane hunted two lanes' contradicting models.
 
 ## Checklist before every tool call
 
@@ -727,6 +837,7 @@ same inputs, which resumes from that file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
 10. Before saying something is assigned, read the summary's `LOST` lines first.
     Never call an ask done before `LIVE`.
+11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
 
-Apply D3 to priority PRs before delegating. A call that survives all ten decides
+Apply D3 to priority PRs before delegating. A call that survives all eleven decides
 something no lane can decide for you; everything else is a lane.
