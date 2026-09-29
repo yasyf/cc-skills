@@ -307,7 +307,8 @@ def test_summary_counts_and_names_every_open_ask_and_blocker_and_the_latest_deci
     assert [line.split("): ")[1] for line in lines[1:]] == ["still open", "CI red on 27520"]
 
 
-def test_summary_lists_decisions_newest_first_inside_the_window_and_caps_at_ten_lines(shell, capsys):
+def test_summary_lists_decisions_newest_first_inside_the_window_and_caps_at_ten_lines(shell, capsys, monkeypatch):
+    monkeypatch.setattr(bus, "now", lambda: datetime(2026, 9, 29, 20, 30, tzinfo=timezone.utc))
     for index in range(12):
         post(shell, "decision", f"decision {index}", OTHER, "iam-contract")
     capsys.readouterr()

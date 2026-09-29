@@ -196,7 +196,7 @@ One lane's five ready PRs sat unmerged for hours. Two heads moved after the lane
 reported them, three were never reported, and the desk waited silently for reports
 that never came.
 
-**Grade every tracked moved or unreported head under D12.** `label --all-clean`
+**Grade every tracked moved or unreported head under D14.** `label --all-clean`
 checks D3's objective gates, including approval, `ai-review`, CI, mergeability,
 conflicts, holds, label history, and the whole stack. Label every passing head
 without a re-report.

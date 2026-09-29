@@ -127,15 +127,23 @@ Do, in this order, forever:
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
      prints to the bus first, `bus.py post --bus <bus> --from landing-desk --kind blocker
      --topic <pr> --to <lane> --text "<the line>"`, then send exactly that text by
-     SendMessage, only to a live lane. For a red on a PR whose lane has finished, send
-     the root `RULING NEEDED` naming the PR and blocker so it dispatches a fresh fix
-     lane; the blocker stays open on the bus until that lane withdraws it or a new head
-     is posted. Never SendMessage a finished lane. Never comment on the PR. Never
-     re-route the same head and job.
+     SendMessage, only to a live lane. When a lane finishes or sends
+     `HANDOFF #N <sha> <state>`, record it with `ledger.py gone --lane <name>`;
+     `route` never addresses it again. Sweep with `route --train merge-train --paths
+     <hot-set globs> --fallback red-desk`: every hot-set conflict and a gone lane's
+     hot-set rows go to the train, a gone lane's other rows to the standing red
+     desk, and a live lane keeps its own reds. The blocker stays open on the bus
+     until the lane it went to withdraws it or a new head is posted. A step red on
+     the trunk's latest build is held as `dev-red:<step>` for six hours, and `route`
+     skips it until the hold expires. Never SendMessage a finished lane. Never
+     comment on the PR. Never re-route the same head and job.
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.
      Every hold has a reason and an expiry; an expired hold is a question for the
-     root.
+     root. `hold` refuses a PR with green PRs stacked on it: reparent them onto the
+     trunk first, or pass `--stack` to hold the whole stack. `ledger.py stale` also
+     names every open PR opened 60 or more hours ago; ask the root once per PR to
+     land it through the next train or close it as superseded, gone by 72 hours.
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` to the
      root, unchanged. Both `--repo` and `--checkout` are required; summary settles

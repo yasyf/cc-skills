@@ -26,7 +26,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The eight hard rules
+## The twelve hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -125,6 +125,32 @@ and `ledger.py answer` when the ask is a question rather than shipped work.
 release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
+**R10. Landed is the only progress.** Status to the owner is landed, queued, or the
+exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
+status. PRs sitting more than 24 hours on merge conflicts are combined into trains
+under D7 and D8 and land as one batch. A red gets a structural fix with a test, never
+a retry; a timing red gets one rebuild, then a report.
+
+*Prevents the owner hearing "open" on 09-29 while stacks of real work sat on merge
+conflicts for more than a day: "just saying something is open is not acceptable".*
+
+**R11. Hands off deploys.** The root and its lanes never start, approve, override,
+watch, or re-cut a release or deploy unless the owner asked for it in that turn. An
+option the root described earlier is not permission, and no script re-cuts on its
+own. No cut goes out while a known fix for the last failure is still open: land the
+fix first.
+
+*Prevents cuts 377, 378, 388, 390, 396, and 413 each failing on the next open bug on
+09-29, and the root override-approving 413 unasked: "no one asked you to do anything
+with the deploy just focus on your work".*
+
+**R12. Route every red at once.** Every `STALLED-RED` line goes to its owning lane in
+the same turn with a 15-minute deadline, and a red with no live owner gets a new lane
+at once; see Stalled-red sweep. Idle lanes never see CI.
+
+*Prevents seven PRs sitting red for 30 to 100 minutes on 09-29 while their owners
+sat idle.*
+
 ## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
@@ -175,8 +201,8 @@ records the head, job, and lane it sent, so the same head and job are never rout
 and a moved head is routed again. Nothing is written to the pull request: a lane is
 addressed where it listens, and a comment on a PR reaches whoever happens to read it.
 Route to a lane only while it is live. A finished lane's name resumes its whole brief
-under R4 and collides with the lane now holding the worktree, so send a red on its PR
-to the root to dispatch a fresh fix lane.
+under R4 and collides with the lane now holding the worktree, so record it with
+`ledger.py gone` and route its reds under D8.
 *Prevents the red PR that sat for hours because the pass that found it only recorded
 it, and the routing comment on someone else's PR. Also prevents a red routed to a
 finished infra lane on #25188, which pushed from the worktree a fresh rebase lane held.*
@@ -188,7 +214,23 @@ message with the same kind, PR, and head, so a duplicate idle notice is neither 
 twice nor answered. *Prevents the hold nobody can lift and the reply tax on notifications
 carrying no news.*
 
-**D7. A stale plan is information, never a refusal.** A pull request's plan is computed
+**D7. The hot set lands by train.** A `merge-train` lane, spawned with the desk,
+owns every reported PR whose files hit the hot set. Every two hours it fetches
+trunk, orders the ready cars oldest first, rebases them into one stack of at
+most six with `ccx vcs stack rebase --linearize`, resolves each conflict once in
+the conflict workspace, and labels the highest green prefix; a red car is fixed
+forward or ejected with `--parent`, never waited on. A hot-set row is routed to
+the train, not to its lane. *Prevents the shelf rot where fourteen of fifteen
+conflicting PRs never reached the queue.*
+
+**D8. A red or conflicting row whose lane is gone is routed within thirty
+minutes** to the train (hot set) or the standing `red-desk` lane, and a step red
+on trunk's latest build is held as `dev-red:<step>` with a six-hour expiry
+instead of routed. `ledger.py hold` refuses a PR that has green children unless
+`--stack` holds them all. *Prevents the 38 of 80 open PRs untouched for twelve
+hours and the foreign reds lanes diagnose as their own.*
+
+**D9. A stale plan is information, never a refusal.** A pull request's plan is computed
 at its head. When the base moves under a stack that plan reached, the desk prints the
 stacks and the movers in the grade and labels anyway. The landing plans the tree it
 actually applies and refuses its own op classes there, so the gate that matters sits
@@ -198,11 +240,11 @@ merge conflict and for nothing else. *Prevents the bounce where a green PR is re
 because an unrelated stack moved and then spends half an hour in a rebase and a CI
 re-run that change nothing about what the landing does.*
 
-**D8. Label on the report, and label every clean stack in one batch.** When a lane reports `clean`, run `ledger.py label` for its stack's tip in the same turn the report goes into the ledger. Every pass also runs `ledger.py label --all-clean` over every tracked open row whose current head has never carried the label and is not held. The batch groups candidates into stacks, re-reads each tip immediately before grading it, and labels each passing tip. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused stack does not stop the rest; its refusal is recorded on each of its rows and routed under D12.
+**D10. Label on the report, and label every clean stack in one batch.** When a lane reports `clean`, run `ledger.py label` for its stack's tip in the same turn the report goes into the ledger. Every pass also runs `ledger.py label --all-clean` over every tracked open row whose current head has never carried the label and is not held. The batch groups candidates into stacks, re-reads each tip immediately before grading it, and labels each passing tip. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused stack does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
 
 *Prevents clean PRs waiting for a 20-minute pass that labels one report at a time, until the owner enqueues one in Graphite by hand.*
 
-**D9. Name every clean row older than 30 minutes with its blocker.** `ledger.py stale`
+**D11. Name every clean row older than 30 minutes with its blocker.** `ledger.py stale`
 lists every open row whose latest report is `clean` and at least 30 minutes old, with
 one blocker each. The blocker is held, in the queue, routed, label refused, head moved
 since the report, or never graded. The summary carries the same lines and the median
@@ -212,7 +254,7 @@ Clear each stale row's blocker in the pass that sees it with a label, route, hol
 lift, or `RULING NEEDED`. *Prevents a clean row aging silently while the counts line
 reads healthy.*
 
-**D10. Shard the desk above 25 active rows.** Spawn parallel sub-lanes named
+**D12. Shard the desk above 25 active rows.** Spawn parallel sub-lanes named
 `landing-desk-<shard>`, each owning a named set of lanes' rows in the same ledger with
 `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane. Each
 shard runs `refresh`, `landed`, `route`, `label --all-clean`, and `stale` on its own
@@ -223,23 +265,23 @@ Lanes keep reporting to `landing-desk`; the main desk types every message in, la
 on each clean report, and alone sends the root the summary. *Prevents one desk's pass
 growing with the board until a five-minute cadence is a 20-minute one again.*
 
-**D11. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh discovers its open PRs through `GET repos/<repo>/git/matching-refs/heads/<prefix>`, then one scoped `pulls?head=<owner>:<branch>&state=open` lookup per branch. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
+**D13. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh discovers its open PRs through `GET repos/<repo>/git/matching-refs/heads/<prefix>`, then one scoped `pulls?head=<owner>:<branch>&state=open` lookup per branch. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
 *Prevents three PRs a lane never reported sitting unmerged for hours.*
 
-**D12. Grade a moved or unreported head like any other.** Every tracked current head takes D3's gates without a report. For each refused head, send `new head <sha9>: <blocker>` to its lane once per head and blocker. A head that moved since the refresh is graded on the next pass, without a route; red CI and conflicts go through `route` and get no duplicate message from the batch.
+**D14. Grade a moved or unreported head like any other.** Every tracked current head takes D3's gates without a report. For each refused head, send `new head <sha9>: <blocker>` to its lane once per head and blocker. A head that moved since the refresh is graded on the next pass, without a route; red CI and conflicts go through `route` and get no duplicate message from the batch.
 
 *Prevents two heads that moved after their reports being ignored for hours.*
 
-**D13. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and `label --all-clean`, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
+**D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and `label --all-clean`, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
-**D14. A stack lands whole.** When the ledger holds several PRs in one stack, never label a lower PR as its tip while any PR above it is open. A red, conflicting, or held PR anywhere holds the whole stack. Route the blocker under D5 and label the tip once every PR passes on its final head. A stack whose root is ruled out by retargeting to the base branch or closing is still one stack. Retarget the next PR to the base branch and label the remaining tip, never each survivor alone.
+**D16. A stack lands whole.** When the ledger holds several PRs in one stack, never label a lower PR as its tip while any PR above it is open. A red, conflicting, or held PR anywhere holds the whole stack. Route the blocker under D5 and label the tip once every PR passes on its final head. A stack whose root is ruled out by retargeting to the base branch or closing is still one stack. Retarget the next PR to the base branch and label the remaining tip, never each survivor alone.
 
 *Prevents landing the root alone in six stacked PRs, #25188 through #25199 in Forge-AI/monorepo on 2026-09-25, which would have rebased five children onto a moving base and re-run CI on each for nothing; the owner ruled "merge the whole stack at once but first fix the failing CI on it".*
 
-**D15. An owner-visible change needs its render approved before the label.** A PR that changes something the owner sees rendered, such as a UI, message, or generated document, holds under D6. Use the reason "render not approved" until the owner has approved that exact render at the head being labelled, unless the owner has granted ship-then-fix for that lane. A re-render at a new head needs a fresh approval; the old one covered a different head.
+**D17. An owner-visible change needs its render approved before the label.** A PR that changes something the owner sees rendered, such as a UI, message, or generated document, holds under D6. Use the reason "render not approved" until the owner has approved that exact render at the head being labelled, unless the owner has granted ship-then-fix for that lane. A re-render at a new head needs a fresh approval; the old one covered a different head.
 
 *Prevents a redesigned modal or a rewritten Slack card landing and reaching users before the owner had seen how it actually rendered.*
 
@@ -383,6 +425,49 @@ Finish: one report - landed sha, dependent step result, or the blocking state.
 The orchestrator learns the merge landed and the next step ran from that one message.
 It never polls the queue itself.
 
+### Merge train lane
+
+The lane D7 names. It owns the rows whose files hit the hot set, the handful of files
+that nearly every open PR touches. It turns them into one linear stack at a time
+instead of leaving each PR to rebase against the others alone.
+`reference/merge-train-brief.md` is its brief, ready to paste; it is a
+`long-running:lane-ship` lane with its own worktree and a log per train.
+
+```sh
+ledger.py train --repo "$REPO" --ledger "$LEDGER" --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts'
+```
+
+`train` prints at most six cars. Green cars come before conflicting but approved
+ones, then fewest file overlaps with the other cars, then oldest. It also prints the
+rows past the cap as the next train, the hot rows that are not ready, and the
+`ccx vcs stack rebase --linearize` line for the cars. It leaves out held rows and
+rows the queue already holds, and writes nothing. The globs are `fnmatch` globs, so `*` also crosses `/`.
+
+Run one train per hot set, never one for the whole repo: a train is serial, and one
+red car evicts every car above it.
+
+### Semantic-collisions lane
+
+Parallel lanes collide in meaning long before they collide in text: one lane builds on
+a mechanism another lane is deleting, and both PRs go green. A standing
+`semantic-collisions` lane, a `long-running:lane` on fable, holds the bird's-eye view
+of every open PR and worktree and resolves those collisions before either side lands.
+`reference/semantic-collisions-brief.md` is its brief, ready to paste.
+
+- It keeps a map file, one row per collision: the lanes, the PRs, the contradiction,
+  the verdict, and who was told. Head snapshots beside it let each sweep re-read only
+  the heads that moved.
+- Per collision it messages the owning lanes directly with a 20-minute deadline. Only
+  a collision no settled ruling decides goes to the root, as `RULING NEEDED`.
+- The root pings it on every 30-minute tick, since an in-process teammate cannot
+  schedule itself.
+- An owner ruling that retires a mechanism triggers a full sweep of every open PR and
+  worktree, with one verdict per PR: builds on it, mentions it, or carries the same
+  guard under another name.
+
+*Prevents lanes building on the release ledger and the skew check on 09-29 while
+other lanes were deleting both.*
+
 ### Polling loop
 
 Lanes poll in the foreground. The Bash tool caps `timeout` at 600000 ms, so a call
@@ -465,6 +550,12 @@ ledger.py stale   --ledger "$LEDGER"
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr <tip> --expect-head <tip-sha> --checkout "$CHECKOUT"
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --pr 21221 --job "plan comment missing for this head"
 ledger.py hold  --ledger "$LEDGER" --pr 20284 --reason "waits on #20314" --hours 4
+ledger.py hold  --ledger "$LEDGER" --pr 20290 --reason "argo cutover waits on the owner" --hours 12 --stack
+ledger.py hold  --ledger "$LEDGER" --pr 21052 --reason "dev-red:infra-plan-observability" --hours 6
+
+# hot-set conflicts and a gone lane's hot-set rows go to the train, its other rows to the red desk
+ledger.py gone  --ledger "$LEDGER" --lane lightning-eh
+ledger.py route --repo "$REPO" --ledger "$LEDGER" --train merge-train --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts' --fallback red-desk
 
 # every 30 minutes, and the only desk output the root reads
 ledger.py summary --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
@@ -486,10 +577,20 @@ grading it. `--expect-head` pins the graded tip for a single-stack call.
 Reports open rows, carry the lane's text, and feed `stale` and p50 report-to-landing
 minutes; the desk grades without waiting for them.
 
-`stale --minutes N` sets the report-age threshold, which defaults to 30 minutes. `route` without `--pr`
+`stale --minutes N` sets the report-age threshold, which defaults to 30 minutes.
+`stale` also names every open PR opened at least `--hours` ago, 60 by default, as
+`aged #N <h>h <lane>: <state>`; land it or close it before the reviewer's three-day
+full re-review applies. `route` without `--pr`
 sweeps every red or conflicting row, reads the first failing line from the Buildkite
 log, prints the message to send each lane, and records it; `route --dry-run` prints
-and records nothing. `unlabel --reason` records why a label came off and blocks a
+and records nothing. With `--train <lane> --paths <globs>`, a conflicting row whose
+files match goes to the train, and so does any matching row whose lane is gone; a
+red row whose lane is live stays with it for the code fix. No route addresses a lane
+`gone` names: `--fallback` sends its other rows to a live lane, `--pr` needs `--lane`,
+and a route recorded to it is sent again. A row held `dev-red:<step>` is skipped
+until its hold expires. `hold`
+refuses a PR with green rows stacked on it in the ledger unless `--stack` holds them
+too. `unlabel --reason` records why a label came off and blocks a
 re-label of that head; it does not stop a queue that already took the PR. A lane
 asking what it owns gets `ledger.py show --red`, never the raw table.
 
@@ -639,12 +740,26 @@ once per head, on any entry still stuck past `RED_SWEEP_AGE_MINUTES` (default 20
 STALLED-RED #<n> <sha> <status>/<mergeable_state> head <age>m old: <title>
 ```
 
+A red head whose every failing status is a Buildkite build, with each failed step
+also failed on the trunk's latest finished build of that pipeline, prints
+`DEV-RED #<n> <sha> <step>,<step>` instead, once
+per head while the trunk stays red. That red is the trunk's: hold it as
+`dev-red:<step>` rather than route it. Once the trunk's step passes, a head still red
+prints `STALLED-RED`. `RED_SWEEP_TRUNK` names the trunk, by default the checkout's
+`origin/HEAD`.
+
 Run it beside `label-watch.sh watch`, pointed at the same list file, as its own
 background sweep; it never edits the list, so `label-watch.sh` still owns removing
 an entry once it lands or gets skipped.
 
+Classify first: a `DEV-RED` line is held, never routed. Every `STALLED-RED` line then
+goes to the lane that owns the PR by SendMessage in the same turn, with a 15-minute
+deadline, because an idle lane never sees CI. A red whose owner is gone gets a new
+lane at once, or goes to the train or red desk under D8.
+
 *Prevents a PR read `CONFLICT` sitting unmentioned again for hours until an owner
-asked whether anything else was stuck the same way.*
+asked whether anything else was stuck the same way. Also prevents seven reds sitting
+30 to 100 minutes with idle owners.*
 
 ### Compaction handoff
 
@@ -823,6 +938,14 @@ same inputs, which resumes from that file.
   message, and neither read a record.
 - Idle lanes that never saw their CI reds, and a root relaying every lane's heads and
   contracts by hand while a fable lane hunted two lanes' contradicting models.
+- Status reported as "open" or "in CI" while stacks of real work sat on merge
+  conflicts for more than a day.
+- Six release cuts in one evening, each failing on the next bug whose fix was still
+  open, and a root that override-approved one nobody asked it to touch.
+- `STALLED-RED` lines printed and never sent: seven reds sat 30 to 100 minutes while
+  their owning lanes were idle.
+- Lanes building on the release ledger and the skew check while other lanes deleted
+  both, with no lane holding the map of who depended on what.
 
 ## Checklist before every tool call
 

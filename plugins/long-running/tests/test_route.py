@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import ledger
+import pytest
 from conftest import DIRTY_HEAD, GREEN_HEAD, LEDGER, MOVED_HEAD, FakeShell
 
 ERROR = "Invariant violation: build-sand left sand untouched, so it stored nothing to fetch"
@@ -196,3 +199,97 @@ def test_route_never_calls_graphql(red_routes):
     route(shell)
 
     assert not [argv for argv in shell.calls if "graphql" in " ".join(argv)]
+
+
+GONE_DIRTY = {"key": "20962", "fields": dict(DIRTY["fields"], lane="finished-lane", head="cd" * 20)}
+
+
+def gone(shell, lane):
+    assert ledger.main(["gone", "--ledger", LEDGER, "--lane", lane], shell) == 0
+
+
+def test_a_gone_lanes_row_is_never_routed_to_it(capsys):
+    shell = FakeShell(rows=[DIRTY, GONE_DIRTY])
+    gone(shell, "finished-lane")
+    printed = route(shell, capsys)
+
+    assert "to finished-lane:" not in printed
+    assert "#20962 finished-lane is gone and no --fallback covers it; not routed" in printed
+    assert "to p2-edge-rows:" in printed
+    assert "routed_head" not in shell.fields("20962")
+
+
+def test_fallback_takes_a_gone_lanes_rows_and_leaves_live_lanes_their_own(capsys):
+    shell = FakeShell(rows=[DIRTY, GONE_DIRTY])
+    gone(shell, "finished-lane")
+    printed = route(shell, capsys, "--fallback", "red-desk")
+
+    assert "to red-desk:\nDESK #20962" in printed
+    assert "to p2-edge-rows:\nDESK #20961" in printed
+    assert shell.fields("20962")["routed_lane"] == "red-desk"
+
+
+def test_the_train_takes_a_gone_lanes_hot_set_rows_and_the_fallback_the_rest(capsys, red_routes):
+    cold = {"key": "20963", "fields": dict(GONE_DIRTY["fields"], head="ef" * 20)}
+    red = {"key": "21052", "fields": dict(RED["fields"], lane="finished-lane")}
+    shell = FakeShell(rows=[GONE_DIRTY, cold, red], routes=red_routes)
+    shell.pr_files |= {"20962": ["infra/ci/src/pipelines/release/index.ts"], "20963": ["api/src/entities/Team.ts"], "21052": ["infra/engine.ts"]}
+    gone(shell, "finished-lane")
+
+    printed = route(shell, capsys, "--train", "merge-train", "--paths", "infra/ci/src/pipelines/release/**", "infra/engine.ts", "--fallback", "red-desk")
+
+    assert "to merge-train:\nDESK #20962" in printed
+    assert "to merge-train:\nDESK #21052" in printed
+    assert "to red-desk:\nDESK #20963" in printed
+
+
+def test_the_train_takes_a_live_lanes_hot_set_conflict_and_leaves_it_its_red(capsys, red_routes):
+    hot_dirty = {"key": "20962", "fields": dict(DIRTY["fields"], head="cd" * 20)}
+    shell = FakeShell(rows=[hot_dirty, RED], routes=red_routes)
+    shell.pr_files |= {"20962": ["infra/engine.ts"], "21052": ["infra/engine.ts"]}
+
+    printed = route(shell, capsys, "--train", "merge-train", "--paths", "infra/engine.ts")
+
+    assert "to merge-train:\nDESK #20962" in printed
+    assert "to accounts:\nDESK #21052" in printed
+
+
+def test_train_and_paths_go_together():
+    with pytest.raises(SystemExit, match="--train and --paths go together"):
+        route(FakeShell(rows=[DIRTY]), None, "--train", "merge-train")
+
+
+def test_a_route_recorded_to_a_lane_now_gone_is_sent_again(capsys):
+    shell = FakeShell(rows=[GONE_DIRTY])
+    route(shell, capsys)
+    assert shell.fields("20962")["routed_lane"] == "finished-lane"
+
+    gone(shell, "finished-lane")
+    printed = route(shell, capsys, "--fallback", "red-desk")
+
+    assert "to red-desk:\nDESK #20962" in printed
+    assert shell.fields("20962")["routed_lane"] == "red-desk"
+
+
+def test_an_explicit_route_to_a_gone_lane_needs_a_live_one_named():
+    shell = FakeShell(rows=[GONE_DIRTY])
+    gone(shell, "finished-lane")
+
+    with pytest.raises(SystemExit, match="lane finished-lane is gone; name a live one with --lane"):
+        route(shell, None, "--pr", "20962", "--job", "rebase onto dev")
+    route(shell, None, "--pr", "20962", "--job", "rebase onto dev", "--lane", "red-desk")
+    assert shell.fields("20962")["routed_lane"] == "red-desk"
+
+
+def test_a_dev_red_hold_is_not_routed_until_it_expires(capsys, red_routes):
+    until = (datetime.now(timezone.utc) + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    held = {"key": "21052", "fields": dict(RED["fields"], hold_reason="dev-red:infra-plan-observability", hold_since="x", hold_until=until)}
+    shell = FakeShell(rows=[held], routes=red_routes)
+    printed = route(shell, capsys)
+
+    assert "#21052 dev-red:infra-plan-observability until" in printed
+    assert "to accounts:" not in printed
+
+    shell.fields("21052")["hold_until"] = "2020-01-01T00:00:00Z"
+    printed = route(shell, capsys)
+    assert "to accounts:" in printed

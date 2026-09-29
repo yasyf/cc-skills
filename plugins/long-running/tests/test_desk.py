@@ -890,7 +890,7 @@ def test_stale_honours_minutes_and_shard(capsys):
     assert capsys.readouterr().out.splitlines() == ["stale #24021 12m lane-b: never graded: run label --all-clean"]
 
     run(shell, "stale", "--ledger", LEDGER)
-    assert capsys.readouterr().out.strip() == "no clean row older than 30m"
+    assert capsys.readouterr().out.strip() == "no clean row older than 30m and no PR older than 60h"
 
 
 def test_summary_carries_stale_rows_under_the_counts_and_the_report_to_landed_median(capsys):
@@ -936,7 +936,7 @@ def test_a_shard_sees_only_its_lanes_rows_and_messages(capsys):
 
 
 def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):
-    shell = desk_shell(user={"login": "yasyf"}, title="t", changed_files=1)
+    shell = desk_shell(user={"login": "yasyf"}, title="t", changed_files=1, created_at="2026-09-24T08:00:00Z")
     shell.stores[LEDGER]["rows"] += [
         {"key": PR, "fields": {"lane": "lane-a", "reported_head": HEAD}},
         {"key": "24050", "fields": {"lane": "lane-b", "reported_head": HEAD}},
@@ -1006,6 +1006,7 @@ def lane_pull(shell: FakeShell, pr: str, head: str, branch: str, base: str = "de
         "user": {"login": "yasyf"},
         "title": f"pr {pr}",
         "changed_files": 1,
+        "created_at": "2026-09-24T08:00:00Z",
     }
     shell.routes[f"checks:{head}"] = "check-runs-green.json"
     shell.reviews[pr] = [review("APPROVED", head)]
@@ -1081,6 +1082,23 @@ def test_a_moved_head_a_gate_refuses_routes_one_new_head_line_once(capsys, lock)
     assert f"to {LANE}:\nDESK #24071 bbbbbbbbb: new head bbbbbbbbb: #24071 has no approval in force" in first
     assert "already routed" in second
     assert shell.fields("24071")["routed_head"] == "b" * 40
+
+
+def test_a_refusal_on_a_gone_lanes_head_is_never_sent_to_it(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24071", "b" * 40, "lightning/one")
+    shell.reviews["24071"] = []
+    shell.stores[LEDGER]["rows"].append({"key": "24071", "fields": {"lane": LANE, "reported_head": "a" * 40, "reported_verdict": "clean", "reported_at": stamp(timedelta(hours=-1))}})
+    refresh(shell, lock)
+    run(shell, "gone", "--ledger", LEDGER, "--lane", LANE)
+    capsys.readouterr()
+
+    all_clean(shell)
+
+    printed = capsys.readouterr().out
+    assert f"#24071 {LANE} is gone; its refusal goes to the root, not the lane" in printed
+    assert f"to {LANE}:" not in printed
+    assert "routed_head" not in shell.fields("24071")
 
 
 def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsys, lock):
@@ -1207,3 +1225,61 @@ def test_a_clean_report_a_gate_refused_is_waiting_as_refused(capsys):
     )
 
     assert summarize(shell, capsys)[1] == "waiting: refused #24110"
+
+def stacked(pr: str, base: str, test_state: str = "success") -> dict:
+    return {"key": pr, "fields": {"state": "open", "branch": f"s/{pr}", "base": base, "test_state": test_state, "lane": LANE}}
+
+
+def test_hold_refuses_a_pr_with_green_prs_stacked_on_it():
+    shell = FakeShell(rows=[stacked("24100", "dev"), stacked("24101", "s/24100", "pending"), stacked("24102", "s/24101")])
+
+    with pytest.raises(SystemExit, match=r"#24100 has green PRs stacked on it \(#24102\).*--parent <child>=<trunk>"):
+        hold(shell, "24100", "--hours", "4")
+
+    assert "hold_until" not in shell.fields("24100")
+
+
+def test_hold_stack_holds_every_pr_stacked_above_with_the_same_reason_and_expiry(capsys):
+    shell = FakeShell(rows=[stacked("24100", "dev"), stacked("24101", "s/24100"), stacked("24102", "s/24101"), stacked("24103", "dev")])
+
+    assert hold(shell, "24100", "--hours", "4", "--stack") == 0
+
+    held = [line.split()[1] for line in capsys.readouterr().out.splitlines()]
+    assert held == ["#24100", "#24101", "#24102"]
+    assert len({shell.fields(pr)["hold_until"] for pr in ("24100", "24101", "24102")}) == 1
+    assert shell.fields("24102")["hold_reason"] == "owner applies first"
+    assert "hold_until" not in shell.fields("24103")
+
+
+def test_hold_on_the_top_of_a_stack_or_under_red_work_needs_no_stack_flag():
+    shell = FakeShell(rows=[stacked("24100", "dev"), stacked("24101", "s/24100", "failure"), {"key": "24102", "fields": dict(stacked("24102", "s/24100")["fields"], state="landed")}])
+
+    assert hold(shell, "24101", "--hours", "4") == 0
+    assert hold(shell, "24100", "--hours", "4") == 0
+
+
+def aged_row(pr: str, hours: int, **fields) -> dict:
+    return {"key": pr, "fields": {"state": "open", "head": HEAD, "lane": LANE, "registered": LANE, "created_at": stamp(timedelta(hours=-hours)), **fields}}
+
+
+def test_stale_names_every_pr_opened_60_hours_ago_oldest_first(capsys):
+    shell = FakeShell(
+        rows=[
+            aged_row("24200", 61),
+            aged_row("24201", 90, test_state="failure"),
+            aged_row("24202", 70, labels="merge"),
+            aged_row("24203", 59),
+            aged_row("24204", 100, state="landed"),
+        ]
+    )
+
+    run(shell, "stale", "--ledger", LEDGER)
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"aged #24201 90h {LANE}: red",
+        f"aged #24202 70h {LANE}: in the queue",
+        f"aged #24200 61h {LANE}: ungraded",
+    ]
+
+    run(shell, "stale", "--ledger", LEDGER, "--hours", "80")
+    assert capsys.readouterr().out.splitlines() == [f"aged #24201 90h {LANE}: red"]

@@ -119,7 +119,8 @@ class FakeShell(ledger.Shell):
             size, page = int(params["per_page"]), int(params["page"])
             return json.dumps(self.reviews.get(parts[1], [])[(page - 1) * size : page * size])
         if parts[:1] == ["pulls"] and parts[2:] == ["files"]:
-            return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])])
+            size, page = int(params["per_page"]), int(params.get("page", 1))
+            return json.dumps([{"filename": name} for name in self.pr_files.get(parts[1], [])][(page - 1) * size : page * size])
         if parts[:1] == ["commits"] and parts[2:] == ["status"]:
             return fixture(self.routes.get(f"status:{parts[1]}", "status-success.json"))
         if parts[:1] == ["commits"] and parts[2:] == ["check-runs"]:
