@@ -26,7 +26,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The eight hard rules
+## The twelve hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -124,6 +124,32 @@ and `ledger.py answer` when the ask is a question rather than shipped work.
 *Prevents "one post + one approval per release" slipping for hours in the busy
 release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
+
+**R10. Landed is the only progress.** Status to the owner is landed, queued, or the
+exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
+status. PRs sitting more than 24 hours on merge conflicts are combined into trains
+under D7 and D8 and land as one batch. A red gets a structural fix with a test, never
+a retry; a timing red gets one rebuild, then a report.
+
+*Prevents the owner hearing "open" on 09-29 while stacks of real work sat on merge
+conflicts for more than a day: "just saying something is open is not acceptable".*
+
+**R11. Hands off deploys.** The root and its lanes never start, approve, override,
+watch, or re-cut a release or deploy unless the owner asked for it in that turn. An
+option the root described earlier is not permission, and no script re-cuts on its
+own. No cut goes out while a known fix for the last failure is still open: land the
+fix first.
+
+*Prevents cuts 377, 378, 388, 390, 396, and 413 each failing on the next open bug on
+09-29, and the root override-approving 413 unasked: "no one asked you to do anything
+with the deploy just focus on your work".*
+
+**R12. Route every red at once.** Every `STALLED-RED` line goes to its owning lane in
+the same turn with a 15-minute deadline, and a red with no live owner gets a new lane
+at once; see Stalled-red sweep. Idle lanes never see CI.
+
+*Prevents seven PRs sitting red for 30 to 100 minutes on 09-29 while their owners
+sat idle.*
 
 ## The landing desk and its ledger
 
@@ -420,6 +446,28 @@ rows the queue already holds, and writes nothing. The globs are `fnmatch` globs,
 Run one train per hot set, never one for the whole repo: a train is serial, and one
 red car evicts every car above it.
 
+### Semantic-collisions lane
+
+Parallel lanes collide in meaning long before they collide in text: one lane builds on
+a mechanism another lane is deleting, and both PRs go green. A standing
+`semantic-collisions` lane, a `long-running:lane` on fable, holds the bird's-eye view
+of every open PR and worktree and resolves those collisions before either side lands.
+`reference/semantic-collisions-brief.md` is its brief, ready to paste.
+
+- It keeps a map file, one row per collision: the lanes, the PRs, the contradiction,
+  the verdict, and who was told. Head snapshots beside it let each sweep re-read only
+  the heads that moved.
+- Per collision it messages the owning lanes directly with a 20-minute deadline. Only
+  a collision no settled ruling decides goes to the root, as `RULING NEEDED`.
+- The root pings it on every 30-minute tick, since an in-process teammate cannot
+  schedule itself.
+- An owner ruling that retires a mechanism triggers a full sweep of every open PR and
+  worktree, with one verdict per PR: builds on it, mentions it, or carries the same
+  guard under another name.
+
+*Prevents lanes building on the release ledger and the skew check on 09-29 while
+other lanes were deleting both.*
+
 ### Polling loop
 
 Lanes poll in the foreground. The Bash tool caps `timeout` at 600000 ms, so a call
@@ -692,8 +740,9 @@ once per head, on any entry still stuck past `RED_SWEEP_AGE_MINUTES` (default 20
 STALLED-RED #<n> <sha> <status>/<mergeable_state> head <age>m old: <title>
 ```
 
-A red head whose failed Buildkite steps all failed on the trunk's latest finished
-build of the same pipeline prints `DEV-RED #<n> <sha> <step>,<step>` instead, once
+A red head whose every failing status is a Buildkite build, with each failed step
+also failed on the trunk's latest finished build of that pipeline, prints
+`DEV-RED #<n> <sha> <step>,<step>` instead, once
 per head while the trunk stays red. That red is the trunk's: hold it as
 `dev-red:<step>` rather than route it. Once the trunk's step passes, a head still red
 prints `STALLED-RED`. `RED_SWEEP_TRUNK` names the trunk, by default the checkout's
@@ -703,8 +752,14 @@ Run it beside `label-watch.sh watch`, pointed at the same list file, as its own
 background sweep; it never edits the list, so `label-watch.sh` still owns removing
 an entry once it lands or gets skipped.
 
+Classify first: a `DEV-RED` line is held, never routed. Every `STALLED-RED` line then
+goes to the lane that owns the PR by SendMessage in the same turn, with a 15-minute
+deadline, because an idle lane never sees CI. A red whose owner is gone gets a new
+lane at once, or goes to the train or red desk under D8.
+
 *Prevents a PR read `CONFLICT` sitting unmentioned again for hours until an owner
-asked whether anything else was stuck the same way.*
+asked whether anything else was stuck the same way. Also prevents seven reds sitting
+30 to 100 minutes with idle owners.*
 
 ### Compaction handoff
 
@@ -883,6 +938,14 @@ same inputs, which resumes from that file.
   message, and neither read a record.
 - Idle lanes that never saw their CI reds, and a root relaying every lane's heads and
   contracts by hand while a fable lane hunted two lanes' contradicting models.
+- Status reported as "open" or "in CI" while stacks of real work sat on merge
+  conflicts for more than a day.
+- Six release cuts in one evening, each failing on the next bug whose fix was still
+  open, and a root that override-approved one nobody asked it to touch.
+- `STALLED-RED` lines printed and never sent: seven reds sat 30 to 100 minutes while
+  their owning lanes were idle.
+- Lanes building on the release ledger and the skew check while other lanes deleted
+  both, with no lane holding the map of who depended on what.
 
 ## Checklist before every tool call
 
