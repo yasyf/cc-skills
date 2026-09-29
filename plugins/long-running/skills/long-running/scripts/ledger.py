@@ -13,13 +13,15 @@
     ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
     ledger.py ack     --ledger ID KEY...
     ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES]
-    ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H)
+    ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID --pr N
-    ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--dry-run] [--shard LANES]
+    ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
+    ledger.py gone    --ledger ID --lane NAME
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
-    ledger.py stale   --ledger ID [--minutes N] [--shard LANES]
+    ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
+    ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--red | --asks] [--json]
 
@@ -52,6 +54,7 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from fnmatch import fnmatch
 from pathlib import Path
 from statistics import median
 from urllib.parse import urlencode
@@ -74,6 +77,11 @@ NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+GONE_PREFIX = "gone/"
+DEV_RED_PREFIX = "dev-red:"
+AGED_HOURS = 60
+TRAIN_CARS = 6
+TRAIN_TIERS = ("green", "dirty")
 LIVE_KEY = "live"
 LOST_MINUTES = 30
 ESCALATE_MINUTES = 60
@@ -367,6 +375,7 @@ def grade(gh: Github, number: str) -> dict[str, str]:
         "branch": pull["head"]["ref"],
         "author": pull["user"]["login"],
         "title": pull["title"],
+        "created_at": pull["created_at"],
         "test_state": status["state"],
         "mergeable_state": pull["mergeable_state"],
         "labels": ",".join(label["name"] for label in labels),
@@ -403,6 +412,30 @@ def is_tracked(fields: dict[str, str]) -> bool:
 
 def lane_held(fields: dict[str, str]) -> bool:
     return fields.get("reported_verdict") == "held" and fields.get("reported_head") == current_head(fields)
+
+
+def dev_red_held(fields: dict[str, str], moment: datetime) -> bool:
+    return fields.get("hold_reason", "").startswith(DEV_RED_PREFIX) and parse_iso(fields["hold_until"]) > moment
+
+
+def stacked_above(rows: dict[str, dict[str, str]], pr: str) -> list[str]:
+    """Every open row stacked on this one, nearest first, walked through the ledger's base and branch fields."""
+    above: list[str] = []
+    frontier = [pr]
+    while frontier:
+        branch = rows.get(frontier.pop(0), {}).get("branch")
+        children = sorted((key for key, fields in rows.items() if branch and fields.get("base") == branch and is_open(fields) and key not in above), key=int)
+        above += children
+        frontier += children
+    return above
+
+
+def touches(files: list[str], globs: list[str]) -> bool:
+    return any(fnmatch(name, glob) for name in files for glob in globs)
+
+
+def pr_files(gh: Github, pr: str) -> list[str]:
+    return [row["filename"] for row in gh.paged(f"pulls/{pr}/files")]
 
 
 def waiting_reason(fields: dict[str, str]) -> str:
@@ -461,6 +494,16 @@ def stale_lines(rows: dict[str, dict[str, str]], moment: datetime, after: timede
         reverse=True,
     )
     return [f"stale #{pr} {int(age.total_seconds() // 60)}m {fields['lane']}: {blocker(fields)}" for age, pr, fields in aged if age >= after]
+
+
+def aged_lines(rows: dict[str, dict[str, str]], moment: datetime, after: timedelta) -> list[str]:
+    """Every open PR row opened at least `after` ago, oldest first, with what holds it: each is landed or closed by 72 hours."""
+    aged = sorted(((moment - parse_iso(fields["created_at"]), pr, fields) for pr, fields in rows.items() if is_open(fields) and fields.get("created_at")), reverse=True)
+    return [
+        f"aged #{pr} {int(age.total_seconds() // 3600)}h {fields.get('lane', '-')}: {'in the queue' if carries_label(fields) else waiting_reason(fields) or 'untracked'}"
+        for age, pr, fields in aged
+        if age >= after
+    ]
 
 
 def report_to_landed(landed: list[dict[str, str]]) -> str:
@@ -876,10 +919,20 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_hold(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    rows = notes.pr_rows()
+    above = stacked_above(rows, args.pr)
+    green = [pr for pr in above if rows[pr].get("test_state") == "success"]
+    if green and not args.stack:
+        raise SystemExit(
+            f"#{args.pr} has green PRs stacked on it ({', '.join(f'#{pr}' for pr in green)}), and a hold under green work blocks them for its whole life; "
+            "reparent them onto the trunk with `ccx vcs stack rebase --parent <child>=<trunk>`, or hold the whole stack with --stack"
+        )
     since = now()
     until = parse_iso(args.until) if args.until else since + timedelta(hours=args.hours)
-    Notes(shell, args.ledger).set_fields(args.pr, {"hold_reason": args.reason, "hold_since": stamp(since), "hold_until": stamp(until)})
-    print(f"held #{args.pr} until {stamp(until)}: {args.reason}")
+    for pr in [args.pr, *above] if args.stack else [args.pr]:
+        notes.set_fields(pr, {"hold_reason": args.reason, "hold_since": stamp(since), "hold_until": stamp(until)})
+        print(f"held #{pr} until {stamp(until)}: {args.reason}")
     return 0
 
 
@@ -889,13 +942,13 @@ def cmd_lift(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool) -> bool:
+def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: str | None, lane: str | None, dry_run: bool, gone: frozenset[str] = frozenset()) -> bool:
     head = current_head(fields)
     lane = lane or fields["lane"]
     verdict = ""
     if not job:
         verdict, job = route_verdict(notes.shell, gh, fields)
-    if fields.get("routed_head") == head and fields.get("routed_job") == job:
+    if fields.get("routed_head") == head and fields.get("routed_job") == job and fields.get("routed_lane") not in gone:
         print(f"#{pr} {head[:9]} already routed to {fields['routed_lane']} at {fields['routed_at']}; nothing to send")
         return False
     print(route_message(pr, head, lane, job, verdict))
@@ -905,16 +958,89 @@ def route_one(notes: Notes, gh: Github, pr: str, fields: dict[str, str], job: st
     return True
 
 
+def gone_lanes(rows: dict[str, dict[str, str]]) -> frozenset[str]:
+    return frozenset(fields["lane"] for key, fields in rows.items() if key.startswith(GONE_PREFIX))
+
+
+def sweep_lane(gh: Github, pr: str, fields: dict[str, str], gone: frozenset[str], train: str | None, paths: list[str], fallback: str | None) -> str | None:
+    """The train for a hot-set conflict or a hot-set row whose lane is gone, else the row's own lane while live, else the fallback."""
+    owner_gone = fields["lane"] in gone
+    if train and (owner_gone or fields.get("mergeable_state") == "dirty") and touches(pr_files(gh, pr), paths):
+        return train
+    return fallback if owner_gone else fields["lane"]
+
+
 def cmd_route(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     gh = Github(shell, args.repo)
+    if bool(args.train) != bool(args.paths):
+        raise SystemExit("--train and --paths go together: the train takes the rows whose files match its paths")
     rows = notes.pr_rows()
+    gone = gone_lanes(notes.rows())
     if args.pr:
-        route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run)
+        if not args.lane and rows[args.pr]["lane"] in gone:
+            raise SystemExit(f"#{args.pr}'s lane {rows[args.pr]['lane']} is gone; name a live one with --lane")
+        route_one(notes, gh, args.pr, rows[args.pr], args.job, args.lane, args.dry_run, gone)
         return 0
-    rows = sharded(rows, args.shard)
-    routed = sum(route_one(notes, gh, pr, rows[pr], None, None, args.dry_run) for pr in sorted(rows, key=int) if needs_route(rows[pr]))
+    moment = now()
+    routed = 0
+    for pr, fields in sorted(sharded(rows, args.shard).items(), key=lambda item: int(item[0])):
+        if not needs_route(fields):
+            continue
+        if dev_red_held(fields, moment):
+            print(f"#{pr} {fields['hold_reason']} until {fields['hold_until']}: red on the trunk too, not routed")
+            continue
+        lane = sweep_lane(gh, pr, fields, gone, args.train, args.paths, args.fallback)
+        if lane is None:
+            print(f"#{pr} {fields['lane']} is gone and no --fallback covers it; not routed")
+            continue
+        routed += route_one(notes, gh, pr, fields, None, lane, args.dry_run, gone)
     print(f"routed {routed} rows" if not args.dry_run else "dry run, nothing written")
+    return 0
+
+
+def cmd_gone(args: argparse.Namespace, shell: Shell) -> int:
+    Notes(shell, args.ledger).set_fields(f"{GONE_PREFIX}{args.lane}", {"lane": args.lane, "gone_at": utc_stamp()})
+    print(f"{args.lane} is gone; route --fallback sends its red and conflicting rows to a live lane")
+    return 0
+
+
+def train_tier(gh: Github, pr: str, fields: dict[str, str]) -> str:
+    """`green`, `dirty` for a conflicting head someone approved, or "" for a row that is no car."""
+    if fields.get("mergeable_state") == "dirty":
+        return "dirty" if approvers(gh, pr) else ""
+    if fields.get("test_state") == "success" and fields.get("mergeable_state") in LABELLABLE_STATES:
+        return "green"
+    return ""
+
+
+def is_train_candidate(fields: dict[str, str]) -> bool:
+    """Tracked, open, unheld, and not in the queue: a push to a queued PR is silently left out of what lands."""
+    return is_tracked(fields) and is_open(fields) and not is_held(fields) and not lane_held(fields) and not carries_label(fields)
+
+
+def cmd_train(args: argparse.Namespace, shell: Shell) -> int:
+    gh = Github(shell, args.repo)
+    rows = {pr: fields for pr, fields in sharded(Notes(shell, args.ledger).pr_rows(), args.shard).items() if is_train_candidate(fields)}
+    files = {pr: pr_files(gh, pr) for pr in sorted(rows, key=int)}
+    hot = [pr for pr in files if touches(files[pr], args.paths)]
+    tiers = {pr: train_tier(gh, pr, rows[pr]) for pr in hot}
+    ready = [pr for pr in hot if tiers[pr]]
+    overlaps = {pr: sum(1 for other in ready if other != pr and set(files[pr]) & set(files[other])) for pr in ready}
+    ordered = sorted(ready, key=lambda pr: (TRAIN_TIERS.index(tiers[pr]), overlaps[pr], int(pr)))
+    cars, later = ordered[: args.cars], ordered[args.cars :]
+    if not cars:
+        print(f"no ready row touches {' '.join(args.paths)}")
+    for index, pr in enumerate(cars, 1):
+        fields = rows[pr]
+        print(f"car {index} #{pr} {current_head(fields)[:9]} {tiers[pr]} overlaps {overlaps[pr]} {fields['lane']} {fields['branch']}")
+    if later:
+        print("next train: " + " ".join(f"#{pr}" for pr in later))
+    unready = [pr for pr in hot if not tiers[pr]]
+    if unready:
+        print("not ready: " + " | ".join(f"#{pr} {rows[pr].get('test_state', '-')}/{rows[pr].get('mergeable_state', '-')}" for pr in unready))
+    if cars:
+        print("ccx vcs stack rebase --linearize " + ",".join(rows[pr]["branch"] for pr in cars))
     return 0
 
 
@@ -1062,7 +1188,7 @@ def label_candidates(rows: dict[str, dict[str, str]]) -> list[str]:
     return sorted((pr for pr, fields in rows.items() if is_label_candidate(fields)), key=int)
 
 
-def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], refused: dict[str, tuple[str, Refused]], dry_run: bool) -> None:
+def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], refused: dict[str, tuple[str, Refused]], dry_run: bool, gone: frozenset[str]) -> None:
     """Send each lane one line per refused head and blocker.
 
     A push since the refresh is not a blocker, since the next pass grades the new head, and
@@ -1071,6 +1197,9 @@ def route_refused(notes: Notes, gh: Github, rows: dict[str, dict[str, str]], ref
     for pr, (head, reason) in refused.items():
         fields = rows.get(pr, {})
         if not is_tracked(fields) or reason.kind in UNROUTED_REFUSALS or needs_route(fields):
+            continue
+        if fields["lane"] in gone:
+            print(f"#{pr} {fields['lane']} is gone; its refusal goes to the root, not the lane")
             continue
         job = f"new head {head[:9]}: {reason}"
         if route_one(notes, gh, pr, dict(fields, head=head), job, None, dry_run):
@@ -1085,6 +1214,7 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     if not args.all_clean:
         refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{args.pr}"), args.expect_head, args.checkout, args.dry_run)
         return 1 if refused else 0
+    gone = gone_lanes(notes.rows())
     pulls = {pr: pull for pr in label_candidates(sharded(rows, args.shard)) if (pull := gh.api(f"pulls/{pr}"))["state"] == "open"}
     bases = {pull["base"]["ref"] for pull in pulls.values()}
     tips = [pr for pr, pull in pulls.items() if pull["head"]["ref"] not in bases]
@@ -1092,7 +1222,7 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     for pr in tips:
         refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{pr}"), current_head(rows[pr]), args.checkout, args.dry_run)
         (failed if refused else passed).append(pr)
-        route_refused(notes, gh, rows, refused, args.dry_run)
+        route_refused(notes, gh, rows, refused, args.dry_run, gone)
     verb = "would label" if args.dry_run else "labelled"
     print(f"batch: {verb} {len(passed)} of {len(tips)} stacks" + "".join(f" #{pr}" for pr in passed) + (" | refused" + "".join(f" #{pr}" for pr in failed) if failed else ""))
     return 0
@@ -1179,8 +1309,10 @@ def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_stale(args: argparse.Namespace, shell: Shell) -> int:
-    lines = stale_lines(sharded(Notes(shell, args.ledger).pr_rows(), args.shard), now(), timedelta(minutes=args.minutes))
-    print("\n".join(lines) if lines else f"no clean row older than {args.minutes}m")
+    rows = sharded(Notes(shell, args.ledger).pr_rows(), args.shard)
+    moment = now()
+    lines = stale_lines(rows, moment, timedelta(minutes=args.minutes)) + aged_lines(rows, moment, timedelta(hours=args.hours))
+    print("\n".join(lines) if lines else f"no clean row older than {args.minutes}m and no PR older than {args.hours}h")
     return 0
 
 
@@ -1309,6 +1441,7 @@ def build_parser() -> argparse.ArgumentParser:
     expiry = hold.add_mutually_exclusive_group(required=True)
     expiry.add_argument("--until")
     expiry.add_argument("--hours", type=float)
+    hold.add_argument("--stack", action="store_true", help="hold every open row stacked on this PR too; required when any of them is green")
     hold.set_defaults(handler=cmd_hold)
 
     lift = subparsers.add_parser("lift", help="lift a hold")
@@ -1321,9 +1454,24 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--pr")
     route.add_argument("--job", help="the failing job or blocker; read from the forge and Buildkite when omitted")
     route.add_argument("--lane")
+    route.add_argument("--train", metavar="LANE", help="route a swept conflict, or a swept row whose lane is gone, to this train when its files match --paths")
+    route.add_argument("--paths", nargs="+", default=[], metavar="GLOB", help="the train's hot set as fnmatch globs; * also crosses /")
+    route.add_argument("--fallback", metavar="LANE", help="route any other swept row whose lane is gone to this live lane")
     route.add_argument("--dry-run", action="store_true")
     add_shard(route)
     route.set_defaults(handler=cmd_route)
+
+    gone = subparsers.add_parser("gone", help="record that a lane has finished, so route never addresses it again")
+    add_ledger(gone)
+    gone.add_argument("--lane", required=True)
+    gone.set_defaults(handler=cmd_gone)
+
+    train = subparsers.add_parser("train", help="print the ordered car list of ready rows whose files touch the hot set")
+    add_ledger(train, repo=True)
+    train.add_argument("--paths", nargs="+", required=True, metavar="GLOB", help="fnmatch globs naming the hot set; * also crosses /")
+    train.add_argument("--cars", type=int, default=TRAIN_CARS)
+    add_shard(train)
+    train.set_defaults(handler=cmd_train)
 
     label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then label the tip once")
     add_ledger(label, repo=True)
@@ -1367,6 +1515,7 @@ def build_parser() -> argparse.ArgumentParser:
     stale = subparsers.add_parser("stale", help="every open row reported clean at least --minutes ago, with its blocker")
     add_ledger(stale)
     stale.add_argument("--minutes", type=int, default=STALE_MINUTES)
+    stale.add_argument("--hours", type=int, default=AGED_HOURS, help="also name every open PR opened at least this long ago")
     add_shard(stale)
     stale.set_defaults(handler=cmd_stale)
 
