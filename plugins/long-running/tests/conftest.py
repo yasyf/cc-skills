@@ -74,6 +74,8 @@ class FakeShell(ledger.Shell):
             return self._ccn(argv, stdin)
         if argv[0] == "git":
             return self._git(argv)
+        if argv[0] == "ccx" and argv[1:4] == ["vcs", "pr", "state"]:
+            return self._pr_state(argv)
         if argv[0] == "ccx":
             self.ccx_calls.append(list(argv))
             watched = argv[4 : argv.index("--repo")]
@@ -144,6 +146,51 @@ class FakeShell(ledger.Shell):
                 checks["check_runs"] = [run for run in checks["check_runs"] if run["name"] == params["check_name"]]
             return json.dumps(checks)
         raise AssertionError(f"unexpected gh endpoint: {endpoint}")
+
+    def _pr_state(self, argv):
+        """Answer ``ccx vcs pr state`` in its JSON shape, off the same REST tables ``_gh`` serves."""
+        repo = argv[argv.index("--repo") + 1]
+        prefixes = [argv[index + 1] for index, value in enumerate(argv) if value == "--lane-prefix"]
+        lanes = {
+            prefix: [pull["number"] for pull in self.pulls.values() if pull["head"]["ref"].startswith(prefix) and pull["state"] == "open"]
+            for prefix in prefixes
+        }
+        numbers = [value for value in argv[4:] if value.isdigit()] + [str(n) for prs in lanes.values() for n in prs]
+        return json.dumps({"repo": repo, "trunk": self.trunk, "lanes": lanes, "prs": {n: self._record(repo, n) for n in numbers}})
+
+    def _record(self, repo: str, number: str) -> dict:
+        def read(path):
+            return json.loads(self._gh(["gh", "api", f"repos/{repo}/{path}"], None))
+
+        pull = read(f"pulls/{number}")
+        head = pull["head"]["sha"]
+        checks = read(f"commits/{head}/check-runs")["check_runs"]
+        return {
+            "number": int(number),
+            "state": pull["state"].upper(),
+            "title": pull["title"],
+            "author": pull["user"]["login"],
+            "createdAt": pull["created_at"],
+            "baseRefName": pull["base"]["ref"],
+            "headRefName": pull["head"]["ref"],
+            "headRefOid": head,
+            "mergeStateStatus": pull["mergeable_state"].upper(),
+            "changedFiles": pull["changed_files"],
+            "labels": [label["name"] for label in read(f"issues/{number}/labels")],
+            "status": read(f"commits/{head}/status")["state"].upper(),
+            "rollup": {
+                "state": "SUCCESS",
+                "contexts": {
+                    "nodes": [
+                        {"__typename": "CheckRun", "name": run["name"], "conclusion": (run.get("conclusion") or "").upper(), "status": run["status"].upper()}
+                        for run in reversed(checks)
+                    ]
+                },
+            },
+        }
+
+    def state_calls(self) -> list[list[str]]:
+        return [argv for argv in self.calls if argv[:4] == ["ccx", "vcs", "pr", "state"]]
 
     def _listed(self, number: str) -> dict:
         for name in self.pages.values():

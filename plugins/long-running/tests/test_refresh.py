@@ -31,10 +31,8 @@ def test_moved_head_is_graded_and_recorded_not_the_listed_head(lock, red_routes)
 
     fields = shell.fields("21052")
     assert fields["head"] == MOVED_HEAD
+    assert fields["head"] != LISTED_HEAD
     assert fields["test_state"] == "failure"
-    endpoints = shell.endpoints()
-    assert f"repos/Forge-AI/monorepo/commits/{MOVED_HEAD}/status" in endpoints
-    assert f"repos/Forge-AI/monorepo/commits/{LISTED_HEAD}/status" not in endpoints
 
 
 def test_row_carries_the_whole_graded_schema(lock, red_routes):
@@ -140,8 +138,50 @@ def test_dirty_pr_is_recorded_as_dirty(lock, red_routes):
     assert shell.fields("20961")["head"] == DIRTY_HEAD
 
 
-def test_refresh_never_calls_graphql(lock, red_routes):
-    shell = FakeShell(routes=red_routes)
-    refresh(shell, lock, pr=["21052", "20961", "20970"])
+def test_refresh_reads_every_row_in_one_shared_cache_call_and_no_gh(lock, red_routes):
+    held = {"key": "20961", "fields": {"head": "stale"}}
+    shell = FakeShell(rows=[held], routes=red_routes)
+    refresh(shell, lock, pr=["21052", "20970"])
 
-    assert not [argv for argv in shell.calls if "graphql" in " ".join(argv)]
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", "Forge-AI/monorepo", "20961", "20970", "21052"]]
+    assert not [argv for argv in shell.calls if argv[0] == "gh"]
+
+
+def test_grade_reads_a_ccx_record():
+    record = {
+        "number": 190,
+        "state": "MERGED",
+        "title": "vcs: pr watch",
+        "author": "yasyf",
+        "createdAt": "2026-09-30T06:18:16Z",
+        "baseRefName": "main",
+        "headRefName": "yasyf/pr-watch",
+        "headRefOid": "50f993302e17013bff91d0e53764c7c17f9387c4",
+        "mergeStateStatus": "UNKNOWN",
+        "changedFiles": 5,
+        "rollup": {
+            "state": "SUCCESS",
+            "contexts": {
+                "nodes": [
+                    {"__typename": "CheckRun", "name": "ai-review", "conclusion": "FAILURE", "status": "COMPLETED"},
+                    {"__typename": "StatusContext", "context": "buildkite/tests", "state": "SUCCESS"},
+                    {"__typename": "CheckRun", "name": "ai-review", "status": "IN_PROGRESS"},
+                ]
+            },
+        },
+    }
+
+    assert ledger.grade(record) == {
+        "state": "closed",
+        "head": "50f993302e17013bff91d0e53764c7c17f9387c4",
+        "base": "main",
+        "branch": "yasyf/pr-watch",
+        "author": "yasyf",
+        "title": "vcs: pr watch",
+        "created_at": "2026-09-30T06:18:16Z",
+        "test_state": "pending",
+        "mergeable_state": "unknown",
+        "labels": "",
+        "ai_review": "in_progress",
+        "changed_files": "5",
+    }

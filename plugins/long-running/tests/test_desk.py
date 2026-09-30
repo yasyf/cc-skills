@@ -1186,8 +1186,9 @@ def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):
 
     run(shell, "refresh", "--repo", REPO, "--ledger", LEDGER, "--lock", str(lock), "--shard", "lane-a")
 
-    assert f"repos/{REPO}/pulls/{PR}" in shell.endpoints()
-    assert f"repos/{REPO}/pulls/24050" not in shell.endpoints()
+    [state] = shell.state_calls()
+    assert PR in state
+    assert "24050" not in state
 
 
 class MovingShell(FakeShell):
@@ -1280,8 +1281,7 @@ def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lo
     assert sorted(shell.pr_keys()) == ["24071", "24072"]
     assert shell.fields("24071")["registered"] == LANE
     assert shell.fields("24071")["head"] == "a" * 40
-    assert f"repos/{REPO}/git/matching-refs/heads/lightning/" in shell.endpoints()
-    assert not [endpoint for endpoint in shell.endpoints() if endpoint.startswith(f"repos/{REPO}/pulls?") and "head=" not in endpoint and "base=" not in endpoint]
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"]]
 
 
 def test_an_unreported_registered_head_is_labelled_once_its_gates_pass(capsys, lock):
