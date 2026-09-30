@@ -6,30 +6,34 @@ usage() {
 usage: label-watch.sh once <pr>...
        label-watch.sh watch <list-file>
 
-Adds the queue label to each pull request that passes the gate and prints one
+Enqueues each stack whose every pull request passes the gate and prints one
 line per pull request. A listed pull request brings in its stack: every open PR
-below it down to the trunk and every open PR stacked above it. The gate covers a
-PR and its whole downstack, and only the highest PR that passes it gets the
-label, so Graphite queues the green prefix of the stack as one batch.
+below it down to the trunk and every open PR stacked above it. A stack goes into
+the Graphite merge queue whole, through the API call gt merge makes, and only
+when every PR in it passes; a green lower part never goes in alone, and a stack
+that forks never goes in.
 
   <pr> SKIP <queue>               Graphite reads it queued or landed, the trunk carries
                                   its squash, or it closed
   <pr> SKIP labelled              it already carries the queue label
-  <pr> SKIP covered-by #<top>     the label on #<top> queues it too
+  <pr> SKIP covered-by #<top>     enqueueing #<top>, or the label on it, queues it too
   <pr> HELD                       it carries the hold label
   <pr> CONFLICT <sha> <files>     its head conflicts with, or shares no history with, the fresh trunk
   <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
                                   yet, conflicts-with #<queued pr> <files>,
-                                  downstack #<pr> when a PR below it fails the gate,
+                                  downstack #<pr> when a PR below it fails the gate or
+                                  is queued, upstack #<pr> when a PR above it fails,
+                                  fork at #<pr> when two PRs stack on one,
                                   or held when LABEL_WATCH_HOLD lists it
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
-  <pr> LABELLED <sha>             the queue label went on; dry-run follows it
-                                  when LABEL_WATCH_DRY_RUN is set
+  <pr> ENQUEUED <sha>             the top PR; Graphite took it and its whole
+                                  downstack; dry-run follows it when
+                                  LABEL_WATCH_DRY_RUN is set
   <pr> EVICTED <sha> <reason> <time>
                                   the queue dropped it; the gate runs on it again
 
 watch re-gates every number in <list-file>, one per line, each interval until
-the file is empty and every PR it saw queued or labelled has closed. It deletes LABELLED and SKIP entries from the file, keeps
+the file is empty and every PR it saw queued or enqueued has closed. It deletes ENQUEUED and SKIP entries from the file, keeps
 the rest, appends every other unheld PR of their stacks, and prints a timestamped line
 only when a result changes. The PRs it saw queued or labelled stay conflict
 bases on every sweep until they close. One ccx vcs pr status call per sweep
@@ -41,10 +45,12 @@ through the gate. A PR whose squash is on the trunk costs no read at all.
   LABEL_WATCH_REPO       owner/name, default the checkout's origin
   LABEL_WATCH_TRUNK      default the checkout's origin/HEAD
   LABEL_WATCH_CHECKOUT   local clone for the conflict check, default $PWD
-  LABEL_WATCH_LABEL      queue label, default merge
+  LABEL_WATCH_LABEL      queue label a PR may already carry, default merge
+  LABEL_WATCH_GRAPHITE_API   default https://api.graphite.com/v1
+  LABEL_WATCH_GRAPHITE_AUTH  gt's token file, default ~/.config/graphite/auth
   LABEL_WATCH_INTERVAL   seconds between watch sweeps, default 300
-  LABEL_WATCH_DRY_RUN    set to print LABELLED without adding the label
-  LABEL_WATCH_HOLD       file of PR numbers, one per line, never labelled, re-read each sweep
+  LABEL_WATCH_DRY_RUN    set to print ENQUEUED without enqueueing
+  LABEL_WATCH_HOLD       file of PR numbers, one per line, never enqueued, re-read each sweep
 EOF
   exit 2
 }
@@ -61,6 +67,8 @@ LABEL=${LABEL_WATCH_LABEL:-merge}
 INTERVAL=${LABEL_WATCH_INTERVAL:-300}
 REQUIRED=${LABEL_WATCH_REQUIRED:-}
 DRY_RUN=${LABEL_WATCH_DRY_RUN:-}
+GRAPHITE_API=${LABEL_WATCH_GRAPHITE_API:-https://api.graphite.com/v1}
+GRAPHITE_AUTH=${LABEL_WATCH_GRAPHITE_AUTH:-$HOME/.config/graphite/auth}
 HOLD=${LABEL_WATCH_HOLD:-}
 HELD=
 OWNER=${REPO%%/*}
@@ -75,6 +83,13 @@ BRANCHES=
 onto_trunk() {
   git -C "$CHECKOUT" -c user.name=label-watch -c user.email=label-watch@localhost \
     commit-tree "$1" -p "$TRUNK_REF" -p "$2" -m "trunk with #$3"
+}
+
+enqueue() {
+  body=$(printf '%s\n' "$@" | jq -cs --arg owner "$OWNER" --arg name "${REPO#*/}" --arg trunk "$TRUNK" \
+    '{repoOwner: $owner, repoName: $name, trunkBranchName: $trunk, prNumbers: .}')
+  jq -r '"header = \"Authorization: token \(.authToken)\""' "$GRAPHITE_AUTH" \
+    | curl -fsS -K - -X POST -H 'Content-Type: application/json' -d "$body" "$GRAPHITE_API/graphite/merge" >/dev/null
 }
 
 add() {
@@ -282,25 +297,23 @@ EOF
 climb() {
   eval "climbed_$1=1"
   order=
-  downward=
   todo=$1
   while set -- $todo; [ $# -gt 0 ]; do
     v=$1
     shift
     todo=$*
     order="$order $v"
-    downward="$v $downward"
     eval "p=\$parent_$v q=\$queue_$v labels=\$labels_$v todo=\"\$todo \$kids_$v\""
     pv=
     [ -z "$p" ] || eval "pv=\$verdict_$p pb=\$blocker_$p"
     blocker=
     eval "sha=\$sha_$v"
-    if [ "$pv" = stop ]; then
+    if [ "$pv" = stop ] || [ "$pv" = wait ]; then
       verdict=stop blocker=$pb line="$v NOT-READY $(printf %.10s "$sha") downstack #$pb"
     elif case " $HELD " in *" $v "*) true ;; *) false ;; esac; then
       verdict=stop blocker=$v line="$v NOT-READY $(printf %.10s "$sha") held"
     elif [ "$q" != "not queued" ]; then
-      verdict=through line="$v SKIP $q"
+      verdict=wait blocker=$v line="$v SKIP $q"
     elif case ",$labels," in *",$LABEL,"*) true ;; *) false ;; esac; then
       verdict=through line="$v SKIP labelled"
     elif line=$(gate "$v" "$(ancestors "$v")"); then
@@ -313,50 +326,54 @@ climb() {
     eval "verdict_$v=\$verdict blocker_$v=\$blocker line_$v=\$line"
   done
 
-  targets=
-  for v in $downward; do
-    eval "verdict=\$verdict_$v kids=\$kids_$v"
-    higher=
-    for k in $kids; do
-      eval "kv=\$verdict_$k kh=\$higher_$k"
-      [ "$kv" != pass ] && [ -z "$kh" ] || higher=1
-    done
-    eval "higher_$v=\$higher"
-    [ "$verdict" != pass ] || [ -n "$higher" ] || targets="$v $targets"
+  why=
+  tip=
+  for v in $order; do
+    eval "set -- \$kids_$v"
+    if [ $# -gt 1 ]; then
+      why="fork at #$v"
+      break
+    fi
+    [ $# -gt 0 ] || tip=$v
   done
+  if [ -z "$why" ]; then
+    for v in $order; do
+      eval "verdict=\$verdict_$v"
+      case $verdict in
+        pass | through) ;;
+        *)
+          why="upstack #$v"
+          break
+          ;;
+      esac
+    done
+  fi
 
-  for t in $targets; do
-    eval "set -- \$line_$t"
+  eval "tv=\${verdict_$tip-}"
+  if [ -z "$why" ] && [ "$tv" = pass ]; then
+    eval "set -- \$line_$tip"
     short=$(printf %.10s "$1")
     if [ -n "$DRY_RUN" ]; then
-      eval "line_$t=\"\$t LABELLED \$short dry-run\""
-    elif gh api -X POST "repos/$REPO/issues/$t/labels" -f "labels[]=$LABEL" --silent; then
-      eval "line_$t=\"\$t LABELLED \$short\""
+      eval "line_$tip=\"\$tip ENQUEUED \$short dry-run\""
+    elif enqueue $order; then
+      eval "line_$tip=\"\$tip ENQUEUED \$short\""
+      QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$tip" "$(onto_trunk "$2" "$1" "$tip")" | sed '/^$/d')
     else
-      eval "line_$t=\"\$t API-FAIL label\""
-      continue
+      eval "line_$tip=\"\$tip API-FAIL enqueue\""
+      why="API-FAIL enqueue"
     fi
-    QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$t" "$(onto_trunk "$2" "$1" "$t")" | sed '/^$/d')
-    for a in $(ancestors "$t"); do
-      eval "av=\$verdict_$a covered=\${cover_$a-}"
-      [ "$av" != pass ] || [ -n "$covered" ] || eval "cover_$a=\$t"
-    done
-  done
+  fi
 
   for v in $order; do
-    eval "verdict=\$verdict_$v"
-    case " $targets " in
-      *" $v "*) ;;
-      *)
-        if [ "$verdict" = pass ]; then
-          eval "covered=\${cover_$v-}"
-          if [ -n "$covered" ]; then
-            eval "line_$v=\"\$v SKIP covered-by #\$covered\""
-          else
-            eval "line_$v=\"\$v API-FAIL label\""
-          fi
-        fi
-        ;;
+    eval "verdict=\$verdict_$v sha=\$sha_$v"
+    [ "$verdict" = pass ] || continue
+    if [ "$v" = "$tip" ]; then
+      case $why in '' | API-FAIL*) continue ;; esac
+    fi
+    case $why in
+      '') eval "line_$v=\"\$v SKIP covered-by #\$tip\"" ;;
+      API-FAIL*) eval "line_$v=\"\$v \$why\"" ;;
+      *) eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") \$why\"" ;;
     esac
   done
   for v in $order; do eval "printf '%s\n' \"\$line_$v\""; done
@@ -485,7 +502,7 @@ watch() {
       n=${line%% *}
       rest=${line#* }
       case $rest in
-        TRACKED | LABELLED* | "SKIP queued" | "SKIP labelled") TRACKED="$TRACKED $n" ;;
+        TRACKED | ENQUEUED* | "SKIP queued" | "SKIP labelled") TRACKED="$TRACKED $n" ;;
       esac
       [ "$rest" != TRACKED ] || continue
       case $rest in
@@ -501,7 +518,7 @@ watch() {
       [ "$line" = "$last" ] || echo "$(date -u +%H:%M) $line"
       eval "last_$n=\$line"
       case ${rest%% *} in
-        LABELLED | SKIP) awk -v n="$n" '$1 != n' "$list" >"$list.tmp" && mv "$list.tmp" "$list" ;;
+        ENQUEUED | SKIP) awk -v n="$n" '$1 != n' "$list" >"$list.tmp" && mv "$list.tmp" "$list" ;;
         *) case $rest in *" held") ;; *) grep -qx "$n" "$list" || echo "$n" >>"$list" ;; esac ;;
       esac
     done <<EOF

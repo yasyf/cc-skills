@@ -62,6 +62,17 @@ def report(n):
 print(json.dumps([report(n) for n in sys.argv[7:]]))
 """
 
+CURL = """#!/usr/bin/env python3
+import json, os, sys
+state = os.environ["FAKE_STATE"]
+args = sys.argv[1:]
+config = sys.stdin.read()
+body = json.loads(args[args.index("-d") + 1])
+with open(os.path.join(state, "graphite-calls"), "a") as calls:
+    calls.write(json.dumps({"url": args[-1], "auth": config.strip(), "body": body}) + "\\n")
+sys.exit(int(os.environ.get("FAKE_CURL_EXIT", "0")))
+"""
+
 SLEEP = """#!/bin/sh
 [ "$1" = 7 ] || exit 0
 [ ! -f "$FAKE_STATE/unlock" ] || rm -f "$(cat "$FAKE_STATE/unlock")"
@@ -93,7 +104,7 @@ class Forge:
         self.state.mkdir()
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for name, body in {"gh": GH, "ccx": CCX, "sleep": SLEEP}.items():
+        for name, body in {"gh": GH, "ccx": CCX, "curl": CURL, "sleep": SLEEP}.items():
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
 
@@ -140,7 +151,10 @@ class Forge:
             "LABEL_WATCH_CHECKOUT": str(self.checkout),
             "LABEL_WATCH_APPROVERS": APPROVERS,
             "LABEL_WATCH_INTERVAL": "7",
+            "LABEL_WATCH_GRAPHITE_API": "https://graphite.test/v1",
+            "LABEL_WATCH_GRAPHITE_AUTH": str(root / "auth"),
         }
+        (root / "auth").write_text(json.dumps({"authToken": "tok"}))
 
     def pull(self, n: int, sha: str, *, ref=None, base="dev", mergeable=True, state="clean", labels=(), approvers=APPROVERS, statuses=(), runs=()):
         self.queues[str(n)] = "not queued"
@@ -190,17 +204,40 @@ class Forge:
         path = self.state / "calls"
         return path.read_text().splitlines() if path.exists() else []
 
+    @property
+    def graphite(self) -> list[dict]:
+        path = self.state / "graphite-calls"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    @property
+    def enqueues(self) -> list[list[int]]:
+        return [call["body"]["prNumbers"] for call in self.graphite]
+
 
 @pytest.fixture
 def forge(tmp_path):
     return Forge(tmp_path)
 
 
-def test_once_labels_a_clean_approved_head_through_rest(forge):
+def test_once_enqueues_a_clean_approved_head_through_the_graphite_api(forge):
     forge.pull(1, forge.clean)
 
-    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
-    assert forge.calls[-1] == "POST repos/o/r/issues/1/labels"
+    assert forge.run("once", "1") == [f"1 ENQUEUED {forge.clean[:10]}"]
+    assert forge.graphite == [
+        {
+            "url": "https://graphite.test/v1/graphite/merge",
+            "auth": 'header = "Authorization: token tok"',
+            "body": {"repoOwner": "o", "repoName": "r", "trunkBranchName": "dev", "prNumbers": [1]},
+        }
+    ]
+    assert not any(call.startswith("POST") for call in forge.calls)
+
+
+def test_a_failed_enqueue_is_an_api_failure(forge):
+    forge.pull(1, forge.clean)
+    forge.env["FAKE_CURL_EXIT"] = "22"
+
+    assert forge.run("once", "1") == ["1 API-FAIL enqueue"]
 
 
 def test_once_skips_a_queued_pr_without_reading_github(forge):
@@ -224,7 +261,7 @@ def test_a_head_with_no_shared_history_is_a_conflict_and_the_sweep_goes_on(forge
 
     assert forge.run("once", "1", "2") == [
         f"1 CONFLICT {forge.unrelated[:10]} no merge base with the trunk",
-        f"2 LABELLED {forge.clean[:10]}",
+        f"2 ENQUEUED {forge.clean[:10]}",
     ]
 
 
@@ -232,7 +269,7 @@ def test_once_names_the_conflicting_files_and_never_labels(forge):
     forge.pull(1, forge.conflict)
 
     assert forge.run("once", "1") == [f"1 CONFLICT {forge.conflict[:10]} a.txt"]
-    assert "POST repos/o/r/issues/1/labels" not in forge.calls
+    assert forge.enqueues == []
 
 
 @pytest.mark.parametrize(
@@ -248,20 +285,20 @@ def test_once_refuses_a_head_that_is_not_ready(forge, kwargs, reason):
     forge.pull(1, forge.clean, **kwargs)
 
     assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} {reason}"]
-    assert "POST repos/o/r/issues/1/labels" not in forge.calls
+    assert forge.enqueues == []
 
 
 def test_once_allows_a_stacked_head_that_is_mergeable_but_not_clean(forge):
     forge.pull(1, forge.clean, base="parent", state="blocked")
 
-    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
+    assert forge.run("once", "1") == [f"1 ENQUEUED {forge.clean[:10]}"]
 
 
 def test_a_red_status_on_a_mergeable_unstable_head_never_labels(forge):
     forge.pull(1, forge.clean, base="parent", state="unstable", statuses=[("buildkite/test", "failure"), ("ci-timing", "success")])
 
     assert forge.run("once", "1") == [f"1 NOT-READY {forge.clean[:10]} red buildkite/test"]
-    assert not any(call.startswith("POST") for call in forge.calls)
+    assert forge.enqueues == []
 
 
 def test_a_failed_check_run_outranks_a_pending_one(forge):
@@ -284,7 +321,7 @@ def test_graphite_mergeability_and_skipped_runs_do_not_block(forge):
         runs=[("Graphite / mergeability_check", "in_progress", None), ("docs", "completed", "skipped")],
     )
 
-    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
+    assert forge.run("once", "1") == [f"1 ENQUEUED {forge.clean[:10]}"]
 
 
 def test_approval_on_an_older_head_does_not_count(forge):
@@ -306,7 +343,7 @@ def test_watch_drops_settled_entries_and_prints_only_changes(forge):
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
 
     assert lines == [
-        f"1 LABELLED {forge.clean[:10]}",
+        f"1 ENQUEUED {forge.clean[:10]}",
         f"2 CONFLICT {forge.conflict[:10]} a.txt",
         "3 SKIP landed",
     ]
@@ -317,7 +354,7 @@ def test_a_held_lock_on_the_remote_tracking_trunk_does_not_block_the_gate(forge)
     forge.pull(1, forge.clean)
     forge.lock("refs/remotes/origin/dev")
 
-    assert forge.run("once", "1") == [f"1 LABELLED {forge.clean[:10]}"]
+    assert forge.run("once", "1") == [f"1 ENQUEUED {forge.clean[:10]}"]
 
 
 def test_a_failed_trunk_fetch_labels_nothing(forge):
@@ -336,7 +373,7 @@ def test_watch_survives_a_failed_trunk_fetch(forge):
 
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
 
-    assert lines == ["1 API-FAIL trunk-fetch", f"1 LABELLED {forge.clean[:10]}"]
+    assert lines == ["1 API-FAIL trunk-fetch", f"1 ENQUEUED {forge.clean[:10]}"]
     assert listing.read_text() == ""
 
 
@@ -353,24 +390,25 @@ def test_a_head_that_conflicts_with_a_queued_pr_waits_for_it(forge):
     forge.pull(2, forge.behind_queued)
 
     assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt"]
-    assert "POST repos/o/r/issues/2/labels" not in forge.calls
+    assert forge.enqueues == []
 
 
-def test_a_queued_pr_in_the_heads_own_downstack_is_not_a_conflict(forge):
+def test_a_pr_stacked_on_a_queued_pr_waits_for_it_to_land(forge):
     forge.pull(1, forge.queued, ref="queued")
     forge.enqueue(1, forge.queued)
     forge.pull(2, forge.behind_queued, base="queued")
 
-    assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 LABELLED {forge.behind_queued[:10]}"]
+    assert forge.run("once", "1", "2") == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} downstack #1"]
     assert "GET repos/o/r/pulls?state=open&head=o:queued" in forge.calls
+    assert forge.enqueues == []
 
 
-def test_a_head_labelled_earlier_in_the_sweep_is_a_conflict_base(forge):
+def test_a_head_enqueued_earlier_in_the_sweep_is_a_conflict_base(forge):
     forge.pull(1, forge.queued)
     forge.pull(2, forge.behind_queued)
 
     assert forge.run("once", "1", "2") == [
-        f"1 LABELLED {forge.queued[:10]}",
+        f"1 ENQUEUED {forge.queued[:10]}",
         f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt",
     ]
 
@@ -385,7 +423,7 @@ def test_watch_keeps_a_queued_pr_as_a_conflict_base_after_it_leaves_the_list(for
 
     assert lines == ["1 SKIP queued", f"2 NOT-READY {forge.behind_queued[:10]} conflicts-with #1 c.txt"]
     assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2 1", "1"]
-    assert "POST repos/o/r/issues/2/labels" not in forge.calls
+    assert forge.enqueues == []
 
 
 def test_a_landed_pr_stops_being_tracked(forge):
@@ -397,7 +435,7 @@ def test_a_landed_pr_stops_being_tracked(forge):
 
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(listing))]
 
-    assert lines == ["1 SKIP landed", f"2 LABELLED {forge.clean[:10]}"]
+    assert lines == ["1 SKIP landed", f"2 ENQUEUED {forge.clean[:10]}"]
     assert (forge.state / "ccx-calls").read_text().splitlines() == ["1 2", "2", "2"]
 
 
@@ -406,30 +444,26 @@ def stack(forge, **kwargs):
         forge.pull(i, sha, base=f"pr{i - 1}" if i > 1 else "dev", state="blocked" if i > 1 else "clean", **kwargs.get(str(i), {}))
 
 
-def posts(forge) -> list[str]:
-    return [call for call in forge.calls if call.startswith("POST")]
-
-
-def test_the_highest_green_pr_of_a_stack_takes_the_label_for_its_downstack(forge):
+def test_a_green_lower_part_of_a_stack_never_goes_in_alone(forge):
     stack(forge, **{"3": {"approvers": "poetic-svc"}})
 
     assert forge.run("once", "1") == [
-        "1 SKIP covered-by #2",
-        f"2 LABELLED {forge.stacked[1][:10]}",
+        f"1 NOT-READY {forge.stacked[0][:10]} upstack #3",
+        f"2 NOT-READY {forge.stacked[1][:10]} upstack #3",
         f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
     ]
-    assert posts(forge) == ["POST repos/o/r/issues/2/labels"]
+    assert forge.enqueues == []
 
 
-def test_a_listed_mid_stack_pr_labels_the_top_when_the_whole_stack_is_green(forge):
+def test_a_listed_mid_stack_pr_enqueues_the_whole_stack_when_it_is_green(forge):
     stack(forge)
 
     assert forge.run("once", "2") == [
         "1 SKIP covered-by #3",
         "2 SKIP covered-by #3",
-        f"3 LABELLED {forge.stacked[2][:10]}",
+        f"3 ENQUEUED {forge.stacked[2][:10]}",
     ]
-    assert posts(forge) == ["POST repos/o/r/issues/3/labels"]
+    assert forge.enqueues == [[1, 2, 3]]
 
 
 def test_a_red_downstack_pr_blocks_the_stack_above_it_without_reading_their_checks(forge):
@@ -440,39 +474,52 @@ def test_a_red_downstack_pr_blocks_the_stack_above_it_without_reading_their_chec
         f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
         f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
     ]
-    assert posts(forge) == []
+    assert forge.enqueues == []
     assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
 
 
 def test_a_labelled_downstack_pr_passes_the_label_through(forge):
     stack(forge, **{"1": {"labels": ["merge"], "statuses": [("buildkite/test", "pending")]}})
 
-    assert forge.run("once", "2") == ["1 SKIP labelled", "2 SKIP covered-by #3", f"3 LABELLED {forge.stacked[2][:10]}"]
-    assert posts(forge) == ["POST repos/o/r/issues/3/labels"]
+    assert forge.run("once", "2") == ["1 SKIP labelled", "2 SKIP covered-by #3", f"3 ENQUEUED {forge.stacked[2][:10]}"]
+    assert forge.enqueues == [[1, 2, 3]]
 
 
-def test_each_green_fork_top_takes_the_label(forge):
+def test_a_forked_stack_never_goes_in(forge):
     forge.pull(1, forge.clean)
     forge.pull(2, forge.clean, base="pr1", state="blocked")
     forge.pull(3, forge.clean, base="pr1", state="blocked")
 
     assert forge.run("once", "1") == [
-        "1 SKIP covered-by #2",
-        f"2 LABELLED {forge.clean[:10]}",
-        f"3 LABELLED {forge.clean[:10]}",
+        f"1 NOT-READY {forge.clean[:10]} fork at #1",
+        f"2 NOT-READY {forge.clean[:10]} fork at #1",
+        f"3 NOT-READY {forge.clean[:10]} fork at #1",
     ]
+    assert forge.enqueues == []
 
 
-def test_dry_run_prints_the_label_without_adding_it(forge):
+def test_a_queued_downstack_pr_holds_the_stack_above_it(forge):
+    stack(forge)
+    forge.enqueue(1, forge.stacked[0])
+
+    assert forge.run("once", "3") == [
+        "1 SKIP queued",
+        f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
+    ]
+    assert forge.enqueues == []
+
+
+def test_dry_run_prints_the_enqueue_without_making_it(forge):
     stack(forge)
     forge.env["LABEL_WATCH_DRY_RUN"] = "1"
 
     assert forge.run("once", "1") == [
         "1 SKIP covered-by #3",
         "2 SKIP covered-by #3",
-        f"3 LABELLED {forge.stacked[2][:10]} dry-run",
+        f"3 ENQUEUED {forge.stacked[2][:10]} dry-run",
     ]
-    assert posts(forge) == []
+    assert forge.enqueues == []
 
 
 def test_watch_keeps_the_rest_of_the_stack_on_the_list(forge):
@@ -483,25 +530,25 @@ def test_watch_keeps_the_rest_of_the_stack_on_the_list(forge):
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
 
     assert lines == [
-        "1 SKIP covered-by #2",
-        f"2 LABELLED {forge.stacked[1][:10]}",
+        f"1 NOT-READY {forge.stacked[0][:10]} upstack #3",
+        f"2 NOT-READY {forge.stacked[1][:10]} upstack #3",
         f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
     ]
-    assert (forge.state / "list.1").read_text() == "3\n"
+    assert (forge.state / "list.1").read_text() == "1\n2\n3\n"
 
 
-def test_a_held_pr_is_never_labelled_and_blocks_the_stack_above_it(forge):
+def test_a_held_pr_holds_its_whole_stack(forge):
     stack(forge)
     hold = forge.state / "hold"
     hold.write_text("2\n")
     forge.env["LABEL_WATCH_HOLD"] = str(hold)
 
     assert forge.run("once", "1") == [
-        f"1 LABELLED {forge.stacked[0][:10]}",
+        f"1 NOT-READY {forge.stacked[0][:10]} upstack #2",
         f"2 NOT-READY {forge.stacked[1][:10]} held",
         f"3 NOT-READY {forge.stacked[2][:10]} downstack #2",
     ]
-    assert posts(forge) == ["POST repos/o/r/issues/1/labels"]
+    assert forge.enqueues == []
     assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
 
 
@@ -520,7 +567,7 @@ def test_watch_never_appends_a_held_pr(forge):
         f"2 NOT-READY {forge.stacked[1][:10]} downstack #1",
         f"3 NOT-READY {forge.stacked[2][:10]} downstack #1",
     ]
-    assert posts(forge) == []
+    assert forge.enqueues == []
     assert "1" not in (forge.state / "list.1").read_text().split()
 
 
@@ -563,7 +610,7 @@ EOF
     ]
     assert forge.calls.count("GET repos/o/r/pulls/1") == 2
     assert not any("timeline" in call for call in forge.calls)
-    assert not posts(forge)
+    assert not forge.enqueues
 
 
 def test_a_pr_whose_squash_is_on_the_trunk_costs_no_read(forge):
@@ -586,7 +633,7 @@ def test_watch_drops_a_tracked_pr_once_its_squash_reaches_the_trunk(forge):
 
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
 
-    assert lines == [f"1 LABELLED {forge.clean[:10]}"]
+    assert lines == [f"1 ENQUEUED {forge.clean[:10]}"]
     assert (forge.state / "ccx-calls").read_text().splitlines() == ["1"]
     assert (forge.state / "sweeps").read_text().count("x") == 1
 
