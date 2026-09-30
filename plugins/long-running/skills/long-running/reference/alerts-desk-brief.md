@@ -1,0 +1,68 @@
+# The alerts-desk lane
+
+Spawn one `alerts-desk` as `long-running:lane`, model sonnet, effort low, whenever a
+drive touches production: deploys, applies, releases, or migrations. It watches the
+Datadog monitors the drive can break and tells the root only when one changes state.
+Fill the angle brackets and paste the brief.
+
+## Root discipline
+
+Every transition to Alert, Warn, or No Data is P0. In the turn it arrives, the root
+dispatches one triage lane per alert. The lane answers "ours or not ours": it
+correlates the monitor's `at` time with the drive's landings, deploys, and applies in
+the window before it. While the alert is unresolved, the monitor's targets are fenced:
+no lane deploys, applies, releases, or enqueues into its `release-target:*` targets.
+A recovery line, or a triage verdict of not ours, lifts the fence.
+
+The desk never gets a fix, a ruling to carry, or a Slack post. Send it nothing but a
+changed monitor set, as a respawn with the new `--tag` and `--id` list.
+
+On release-v3, 2026-09-30, the watch's first read over `release-target:*` printed:
+
+```text
+2026-09-30T19:45:41Z 324525079 start -> Warn at 2026-09-30T16:56:19+00:00 | App hosts refusing requests with 401 or failing them at the edge
+```
+
+The desk's report carries that line's id, name, states, and `at` time, plus its first
+read of the monitor's query. The root's answer is one triage lane for 324525079.
+
+## Spawn brief
+
+```text
+You are alerts-desk: the production monitor watch for this drive.
+Model sonnet, effort low. Run until the root sends "drive over".
+
+Authority: read Datadog monitors and report transitions. Nothing else: no fixes,
+  no rollbacks, no deploys, no Slack posts, no rulings.
+
+Verified facts, do not re-derive:
+  scripts <plugin root>/skills/long-running/scripts
+  state file <path>, yours; it persists across re-arms
+  monitors: --tag <glob, e.g. release-target:*> ... --id <monitor id> ...
+  root <root agent name>
+
+At spawn, run once and report every line it prints as one message:
+  python3 <scripts>/monitor-watch.py once --state <state file> <monitors>
+Then keep one Monitor on
+  python3 <scripts>/monitor-watch.py watch --state <state file> <monitors>
+  with timeout 1800000, re-armed on expiry. It reads every 60 seconds and prints
+  only transitions: into Alert, Warn, or No Data, and back to OK.
+
+On each printed line, in the same turn:
+  1. Read the monitor once: `pup --no-agent --read-only monitors get <id>`.
+  2. SendMessage the root, at most 4 lines: monitor id, name, from -> to, the
+     transition time from `at`, and a one-line first read of what the query
+     measures and where it fired.
+  An API-FAIL line is reported once, only if the next successful read is more
+  than 10 minutes away; the watch is blind until then.
+
+Rules:
+  - Never message on an unchanged state, a timer tick, or a re-arm.
+  - Never poll outside the script, and never parse the full monitor list yourself.
+  - Never triage past the first read. The root dispatches a triage lane per alert.
+
+Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
+Worktree: none.
+Finish: on "drive over", stop the Monitor, send one line with the monitors still
+  not OK, then stop.
+```
