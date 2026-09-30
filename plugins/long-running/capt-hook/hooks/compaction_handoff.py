@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -33,8 +34,9 @@ from .turns import latest_turn, threshold
 
 SKILL_NAMES = ("long-running",)
 PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
-ARCHIVE_SUFFIX = "-pre-compact.md"
-ARCHIVE_HEADING = "## Archived plans (history only, never needed to restart)"
+POINTER_PREFIX = "- **Progress (read first after any compaction):**"
+SLUG = re.compile(r"progress:([\w.-]+)")
+DOC_SECTIONS = "how the drive runs; owner asks and state; lanes and binding rulings; landed; waiting on the owner; root's next actions"
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 FIRE_FRACTION = 0.8
@@ -46,43 +48,105 @@ class CompactionState(WorkflowState):
     active: bool = False
     model: str | None = None
     plan_path: str | None = None
-    phase: Literal["idle", "archived", "rewritten", "compacting"] = "idle"
-    archive_path: str | None = None
+    phase: Literal["idle", "due", "written", "compacting"] = "idle"
+    store: Literal["ccn", "folder"] = "ccn"
+    slug: str | None = None
+    due_since: float | None = None
     compacting_since: float | None = None
 
 
-def compact_instructions(plan: str) -> str:
+def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["ccn", "-R", cwd, *args], capture_output=True, text=True)
+
+
+def has_cc_notes(cwd: str) -> bool:
+    return shutil.which("ccn") is not None and ccn(cwd, "doc", "list", "--limit", "1", "--json").returncode == 0
+
+
+def slug_of(plan: Path) -> str:
+    text = plan.read_text() if plan.exists() else ""
+    pointer = next((line for line in text.splitlines() if line.startswith(POINTER_PREFIX)), "")
+    return match[1] if (match := SLUG.search(pointer)) else plan.stem
+
+
+def progress_folder(plan: Path) -> Path:
+    return plan.with_name(f"{plan.stem}-progress")
+
+
+def resume_steps(state: CompactionState) -> str:
+    plan = Path(state.plan_path or "")
+    if state.store == "folder":
+        return f"then the newest file in `{progress_folder(plan)}/`"
+    return f"then the progress doc: `ccn doc list --label progress:{state.slug}`, then `ccn doc show <id>`"
+
+
+def compact_instructions(state: CompactionState) -> str:
     return (
-        f"Long-running compaction handoff. `{plan}` is the authoritative restart state; "
-        "keep only in-flight details from the last turn that it lacks."
+        f"Long-running compaction handoff. `{state.plan_path}` and its progress record are the authoritative "
+        f"restart state: read the plan, {resume_steps(state)}. Keep only in-flight details from the last turn "
+        "that they lack."
     )
 
 
-def rewrite_nudge(*, used: int, limit: int, plan: Path, archive: Path | None) -> str:
-    archived = f"; the previous version is archived at `{archive}`" if archive else ""
+def handoff_nudge(*, used: int, limit: int, state: CompactionState) -> str:
+    plan = Path(state.plan_path or "")
+    now = f"{datetime.now(UTC):%Y-%m-%dT%H%MZ}"
+    if state.store == "folder":
+        write = f"write the drive's whole execution state to a new file `{progress_folder(plan)}/{now}.md`"
+    else:
+        write = (
+            f'write the drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress {now}" '
+            f'--label progress:{state.slug} --when "Resuming or compacting the <drive> drive: read before anything '
+            f'else, after the plan" --body -`'
+        )
     return (
         f"Context is at {used:,} of the {limit:,}-token auto-compaction threshold ({round(100 * used / limit)}%). "
-        f"When convenient, rewrite `{plan}` as the current restart state{archived}. "
-        "The hook links the archives into it and runs /compact once the input line is empty."
+        f"When convenient, {write}, with sections: {DOC_SECTIONS}. Never rewrite `{plan}`. "
+        "The hook supersedes the previous progress record, points the plan's one progress line at the new one, "
+        "and runs /compact once the input line is empty."
     )
 
 
-def archives_of(plan: Path) -> list[Path]:
-    return sorted(plan.parent.glob(f"{plan.stem}.[0-9][0-9][0-9][0-9]-*{ARCHIVE_SUFFIX}"), reverse=True)
-
-
-def link_archives(plan: Path) -> None:
-    text = plan.read_text()
-    if not (missing := [archive for archive in archives_of(plan) if str(archive) not in text]):
-        return
-    bullets = [f"- `{archive}`" for archive in missing]
-    lines = text.rstrip("\n").split("\n")
-    if ARCHIVE_HEADING in lines:
-        at = lines.index(ARCHIVE_HEADING) + 1
-        lines[at:at] = bullets
+def point_plan(plan: Path, line: str) -> None:
+    lines = plan.read_text().rstrip("\n").split("\n") if plan.exists() else []
+    at = next((i for i, text in enumerate(lines) if text.startswith(POINTER_PREFIX)), None)
+    if at is None:
+        lines += ["", line]
     else:
-        lines += ["", ARCHIVE_HEADING, *bullets]
+        lines[at] = line
+    plan.parent.mkdir(parents=True, exist_ok=True)
     plan.write_text("\n".join(lines) + "\n")
+
+
+def record_doc(state: CompactionState, cwd: str) -> bool:
+    listed = ccn(cwd, "doc", "list", "--label", f"progress:{state.slug}", "--json")
+    docs = sorted(json.loads(listed.stdout or "[]"), key=lambda doc: doc["updated_at"], reverse=True)
+    if not docs or datetime.fromisoformat(docs[0]["updated_at"]).timestamp() < int(state.due_since or 0):
+        return False
+    newest, *older = docs
+    for doc in older:
+        ccn(cwd, "doc", "supersede", doc["id"], "--by", newest["id"])
+    point_plan(
+        Path(state.plan_path or ""),
+        f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
+        f"(`ccn doc list --label progress:{state.slug}`, now `{newest['id'][:8]}`; `ccn doc show <id>`). Each "
+        "handoff adds a new doc and supersedes the previous one, so history is the supersede chain; only this "
+        "line's id changes.",
+    )
+    return True
+
+
+def record_file(state: CompactionState) -> bool:
+    plan = Path(state.plan_path or "")
+    files = sorted(progress_folder(plan).glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not files or files[0].stat().st_mtime < int(state.due_since or 0):
+        return False
+    point_plan(
+        plan,
+        f"{POINTER_PREFIX} the latest execution state is the newest file in `{progress_folder(plan)}/`, "
+        f"now `{files[0].name}`; only this line's name changes.",
+    )
+    return True
 
 
 @on(
@@ -127,22 +191,13 @@ def activate(evt: BaseHookEvent, args: str) -> None:
     skip_if=[FromSubagent()],
     tests={
         Input(tool="Write", file="/home/u/.claude/plans/brook.md", content="# plan"): Allow(),
-        Input(tool="Write", file="/home/u/.claude/plans/brook.2026-09-24-163000-pre-compact.md", content="# old"): Allow(),
     },
 )
 def track_plan(evt: BaseHookEvent) -> HookResult | None:
     path = evt.file.path
-    if not path.match(".claude/plans/*.md") or path.name.endswith(ARCHIVE_SUFFIX):
+    if not path.match(".claude/plans/*.md"):
         return None
     with CompactionState.mutate(evt) as state:
-        if (
-            state.phase == "archived"
-            and state.plan_path
-            and path == Path(state.plan_path).expanduser()
-            and not (state.archive_path and path.read_bytes() == Path(state.archive_path).read_bytes())
-        ):
-            link_archives(path)
-            state.phase = "rewritten"
         state.plan_path = str(path)
     return None
 
@@ -176,28 +231,24 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
         ): Allow(),
     },
 )
-def archive_at_threshold(evt: BaseHookEvent) -> HookResult | None:
+def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
         if not state.active or state.phase != "idle" or not (root := latest_turn(evt.transcript_path)):
             return None
         limit = threshold(root.model, state.model, evt.cwd)
         if root.tokens < FIRE_FRACTION * limit:
             return None
-        if state.plan_path and (plan := Path(state.plan_path).expanduser()).exists():
-            archive = plan.with_name(f"{plan.stem}.{datetime.now(UTC):%Y-%m-%d-%H%M%S}{ARCHIVE_SUFFIX}")
-            with plan.open("rb") as source, archive.open("xb") as target:
-                shutil.copyfileobj(source, target)
-        else:
-            plan = (
-                Path(state.plan_path).expanduser()
-                if state.plan_path
-                else Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
-            )
-            archive = None
+        plan = (
+            Path(state.plan_path).expanduser()
+            if state.plan_path
+            else Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
+        )
         state.plan_path = str(plan)
-        state.archive_path = str(archive) if archive else None
-        state.phase = "archived"
-        queue_nudge(evt, rewrite_nudge(used=root.tokens, limit=limit, plan=plan, archive=archive))
+        state.slug = slug_of(plan)
+        state.store = "ccn" if has_cc_notes(evt.cwd) else "folder"
+        state.due_since = time.time()
+        state.phase = "due"
+        queue_nudge(evt, handoff_nudge(used=root.tokens, limit=limit, state=state))
     return None
 
 
@@ -205,22 +256,18 @@ def archive_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     Event.SessionStart,
     tests={
         Input(
-            source="compact", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="compacting")]
-        ): Warn(pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else.*context\.$"),
+            source="compact",
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
+        ): Warn(
+            pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else, then the progress "
+            r"doc: `ccn doc list --label progress:brook`, then `ccn doc show <id>`; .*context\.$"
+        ),
         Input(
             source="compact",
-            state=[
-                CompactionState(
-                    active=True,
-                    plan_path="/p/brook.md",
-                    archive_path="/p/brook.2026-09-24-163000-pre-compact.md",
-                    phase="archived",
-                )
-            ],
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="due")],
         ): Warn(
-            pattern=r"^Compacted long-running session\. Read `/p/brook\.md` .* It has not been rewritten since "
-            r"`/p/brook\.2026-09-24-163000-pre-compact\.md` archived it; rewrite it as the current restart state "
-            r"when convenient\.$"
+            pattern=r"^Compacted long-running session\. .* The progress record was not written before compaction; "
+            r"write it when convenient\.$"
         ),
         Input(source="compact", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
@@ -233,9 +280,8 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         if evt.source != "compact":
             return None
         pending = (
-            f" It has not been rewritten since `{state.archive_path}` archived it; rewrite it as the current "
-            "restart state when convenient."
-            if state.phase == "archived" and state.archive_path
+            " The progress record was not written before compaction; write it when convenient."
+            if state.phase == "due"
             else ""
         )
         state.phase = "idle"
@@ -243,15 +289,16 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
     return evt.context(
-        f"Compacted long-running session. Read `{state.plan_path}` before anything else; it supersedes the summary. "
+        f"Compacted long-running session. Read `{state.plan_path}` before anything else, {resume_steps(state)}; "
+        "they supersede the summary. "
         "The long-running skill stays active — reload its rules (Skill `long-running`) if they are not in context."
         + pending
     )
 
 
-def send_compact(handle: str, plan: str, transcript: Path) -> None:
+def send_compact(handle: str, instructions: str, transcript: Path) -> None:
     subprocess.Popen(
-        [sys.executable, str(COMPACT_JOB), handle, f"/compact {compact_instructions(plan)}", str(transcript)],
+        [sys.executable, str(COMPACT_JOB), handle, f"/compact {instructions}", str(transcript)],
         env=dict(reqenv.env_map()),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -260,8 +307,10 @@ def send_compact(handle: str, plan: str, transcript: Path) -> None:
     )
 
 
-def compact_due(state: CompactionState) -> bool:
-    if state.phase == "rewritten":
+def compact_due(state: CompactionState, cwd: str) -> bool:
+    if state.phase == "due" and (record_file(state) if state.store == "folder" else record_doc(state, cwd)):
+        state.phase = "written"
+    if state.phase == "written":
         return True
     return (
         state.phase == "compacting"
@@ -275,43 +324,43 @@ def compact_due(state: CompactionState) -> bool:
     skip_if=[FromSubagent()],
     tests={
         Input(transcript=FIXTURES / "usage-800k.jsonl", state=[CompactionState(active=True)]): Allow(),
-        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", phase="archived")]): Allow(),
-        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", phase="rewritten")]): Allow(
-            system_message=r"^Long-running plan `/p/brook\.md` is rewritten for compaction, but "
+        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written")]): Allow(
+            system_message=r"^Long-running progress for `/p/brook\.md` is recorded for compaction, but "
             r"ORCA_TERMINAL_HANDLE is unset so the hook cannot type it\. Run: /compact Long-running compaction "
-            r"handoff\. `/p/brook\.md` is the authoritative restart state; .*$"
+            r"handoff\. `/p/brook\.md` and its progress record are the authoritative restart state: .*$"
         ),
         Input(
             state=[CompactionState(active=True, plan_path="/p/brook.md", phase="compacting", compacting_since=None)]
         ): Allow(),
         Input(
-            agent_id="a1b2c3", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="rewritten")]
+            agent_id="a1b2c3", state=[CompactionState(active=True, plan_path="/p/brook.md", phase="written")]
         ): Allow(),
     },
 )
 def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if not state.active or not state.plan_path or not compact_due(state):
+        if not state.active or not state.plan_path or not compact_due(state, evt.cwd):
             return None
         state.phase = "compacting"
         if not (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
             state.compacting_since = None
             return evt.allow(
-                system_message=f"Long-running plan `{state.plan_path}` is rewritten for compaction, but "
+                system_message=f"Long-running progress for `{state.plan_path}` is recorded for compaction, but "
                 "ORCA_TERMINAL_HANDLE is unset so the hook cannot type it. "
-                f"Run: /compact {compact_instructions(state.plan_path)}"
+                f"Run: /compact {compact_instructions(state)}"
             )
         state.compacting_since = time.time()
-        send_compact(handle, state.plan_path, evt.transcript_path)
+        send_compact(handle, compact_instructions(state), evt.transcript_path)
     return None
 
 
 @on(
     Event.PreCompact,
     tests={
-        Input(state=[CompactionState(active=True, plan_path="/p/brook.md")]): Warn(
-            pattern=r"^Long-running compaction handoff\. `/p/brook\.md` is the authoritative restart state; "
-            r"keep only in-flight details from the last turn that it lacks\.$"
+        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]): Warn(
+            pattern=r"^Long-running compaction handoff\. `/p/brook\.md` and its progress record are the "
+            r"authoritative restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
+            r"`ccn doc show <id>`\. Keep only in-flight details from the last turn that they lack\.$"
         ),
         Input(state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
     },
@@ -319,5 +368,5 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
     state = CompactionState.load(evt)
     if state.active and state.plan_path:
-        return evt.context(compact_instructions(state.plan_path))
+        return evt.context(compact_instructions(state))
     return None
