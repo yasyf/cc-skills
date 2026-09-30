@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The fourteen hard rules
+## The fifteen hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -197,6 +197,17 @@ next drive.
 
 *Prevents the release-v3 R137 and R138 rulings of 2026-09-30 living only in the
 drive's inbox files until this skill change.*
+
+**R15. CI is the verifier, never the box.** A lane never runs a whole-package build or
+suite locally: no `buck2 build`, `cargo build`, `yarn tsc:*`, `bun test`, jest, or
+`go test ./...`. It pushes and reads CI. The only local runs are the one failing test
+that reproduces a red CI step, or a single artifact the brief names. Those run one at a
+time with parallelism capped at `-j 8` or the tool's equivalent. Before any local run,
+a lane reads the 1-minute load; above the core count, it finishes its current command
+and starts no build.
+
+*Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
+2026-09-30, until the 12:35Z mass kill.*
 
 ## The landing desk and its ledger
 
@@ -485,6 +496,12 @@ worker parked five minutes or more.
 
 *Prevents lanes sitting for hours on an AskUserQuestion only their own terminal showed (release v3, 2026-09-30).*
 
+**O14. Launch nothing while the box is saturated.** Before every launch or relaunch,
+read the 1-minute load. While it exceeds the core count, start no new worker; hold the
+launch until it falls. This is a standing rule, not a per-drive ruling.
+
+*Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
+
 ## The priority desk
 
 `reference/priority-desk-brief.md` is the brief, ready to paste.
@@ -638,6 +655,11 @@ Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <driv
     carries the entry number, never the body.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
+Verify through CI: never run a whole-package build or suite locally (buck2/cargo build,
+  `yarn tsc:*`, `bun test`, jest, `go test ./...`). Run locally only the one failing test
+  that reproduces a red CI step, or a single artifact this brief names, one at a time with
+  `-j 8` or the tool's equivalent. With the 1-minute load above the core count, finish
+  the current command and start no build.
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
@@ -1239,6 +1261,8 @@ same inputs, which resumes from that file.
   briefs already settled (release v3, 2026-09-30).
 - Sending rulings by `SendMessage` to a looping desk: 26 sat undelivered for over an
   hour instead of reaching an inbox file read every minute (2026-09-30).
+- Lanes running local rust builds and full suites in parallel, pushing the box to load 103
+  until the 12:35Z mass kill (release-v3, 2026-09-30).
 - Reading build and cloud logs in the root window while an assigned lane owned the question.
 - The root reading PRs and diffs itself to answer questions until the owner said "stop
   polluting your main context by reading PRs etc" (release-v3, 2026-09-30).

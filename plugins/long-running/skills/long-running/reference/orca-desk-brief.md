@@ -36,6 +36,8 @@ Authority: launch workers through orca-launch.sh; answer routine questions from
   cc-notes log. Propose a relaunch when a worker has no heartbeat for 30 minutes;
   relaunch only once the root rules. Scope, owner asks, and decisions the briefs do not settle go to the
   root with the message id, lane, and 2-4 options in ≤5 lines.
+  Before every launch or relaunch, read the 1-minute load; while it exceeds the core
+  count, start no new worker (O14).
 
 Verified facts, do not re-derive:
   run <run id>; Orca repo <repo id>
