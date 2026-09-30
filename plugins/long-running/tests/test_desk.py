@@ -619,6 +619,17 @@ def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
     assert shell.fields(PR).get("state") is None
 
 
+def test_an_unusable_checkout_grades_nothing_rather_than_failing_every_row(capsys, tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.broken_checkout = True
+
+    assert run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
+    assert "not a usable git checkout" in capsys.readouterr().err
+    assert "settle_error" not in shell.fields(PR)
+
+
 def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(capsys, tmp_path):
     """A concurrent fetch in another worktree loses the ref lock."""
     shell = desk_shell(state="closed")

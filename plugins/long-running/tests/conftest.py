@@ -41,6 +41,7 @@ class FakeShell(ledger.Shell):
         self.diffed_head = ""
         self.closed_by: dict[str, str] = {}
         self.shallow = False
+        self.broken_checkout = False
         self.fetch_fails = ""
         self.deleted_refs: set[str] = set()
         self.base_squash = ""
@@ -185,6 +186,8 @@ class FakeShell(ledger.Shell):
                 raise subprocess.CalledProcessError(128, argv, stderr=f"fatal: couldn't find remote ref {ref}")
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
             return ""
+        if verb == "rev-parse" and "--is-shallow-repository" in argv and self.broken_checkout:
+            raise subprocess.CalledProcessError(128, argv, stderr="fatal: not a git repository")
         if verb == "rev-parse" and "--is-shallow-repository" in argv:
             return ("true" if self.shallow else "false") + "\n"
         if verb == "rev-parse":

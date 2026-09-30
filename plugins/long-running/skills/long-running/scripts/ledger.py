@@ -181,6 +181,7 @@ REFUSAL = {
     "enqueue": "stack-enqueue refused #{pr} (stack tip #{tip}): {detail}",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
+    "checkout": "{checkout} is not a usable git checkout, so this pass has graded nothing: {detail}",
 }
 
 
@@ -304,7 +305,10 @@ def default_lock(ledger: str) -> Path:
 
 
 def is_shallow(shell: Shell, checkout: Path) -> bool:
-    return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+    try:
+        return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+    except subprocess.CalledProcessError as error:
+        raise ForgeUnreachable(REFUSAL["checkout"].format(checkout=checkout, detail=(error.stderr or "").strip())) from error
 
 
 def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
