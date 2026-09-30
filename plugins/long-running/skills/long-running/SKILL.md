@@ -583,10 +583,12 @@ names the cursor as `cursor R<n>`.
 **I3. Read the inbox before reporting a wait on the root.** Check for the answer
 before saying an item is waiting on the root.
 
-**I4. Resume a desk whose cursor stays stale for more than one iteration.** If its
-reports show a cursor behind the last line the root appended for that long, the
-root wakes it with `SendMessage` telling it to read from its cursor.
-The desk continues in place with the same identity.
+**I4. Never `SendMessage` a running desk.** When its reported cursor stays behind
+the root's last line for more than one iteration, the root appends one inbox line
+naming the unread range and records the stall in its progress record. The desk
+reads that line at the top of its next iteration (I2). Resume only a desk that
+has already reported and ended its loop, through Scoped resume, in place with the
+same identity.
 
 *Prevents the 26 rulings left unread in a looping desk on 2026-09-30.*
 

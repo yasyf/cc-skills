@@ -18,11 +18,16 @@ Orca skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote wo
 - Never create the machine with the provider CLI or recipe helper and register an
   SSH host by hand; Orca then never suspends or destroys it.
 - Verify the workspace from Orca's own listings through the skill's verify step
-  before starting work there. Delete it through the skill when done.
-- Remote workspaces are on the owner's tailnet: reach a worker over SSH at
-  `<resource>.<tailnet>.ts.net` from any tailnet device when the Mac-side forwarder
-  is down. The node is per-workspace, ephemeral, and revoked on destroy; never
-  bake or reuse it.
+  before starting work there. Leave a finished lane's workspace running, like its
+  terminal (R195). Delete a workspace through the skill only on the user's explicit
+  authorization for that workspace, and only after proving no protected session
+  or terminal remains on it. A completed task is not that authorization.
+- Treat tailnet access as pending. It depends on the helper's tailnet enrollment
+  (not yet shipped) and the owner's one-time setup: an OAuth client, workspace tag,
+  and SSH policy that admits only the owner as exact workspace OS users. Once the
+  repository skill's preflight and verify steps report the workspace's enrollment,
+  reach it only at the DNS name verify reports, from an owner-permitted device.
+  Never assume enrollment, reachability, or revocation on destroy without that check.
 
 Orca launches `claude` with the default agent arguments in the user's settings, including
 `--permission-mode plan`. A worker needs a terminal created with an explicit
