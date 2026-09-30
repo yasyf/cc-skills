@@ -305,6 +305,58 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     assert "which has moved on its files since" in capsys.readouterr().out
 
 
+def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the_trunk(capsys, tmp_path):
+    parent = "yasyf/eh-v2/dns-into-box"
+    shell = desk_shell(state="closed", base={"ref": parent})
+    shell.deleted_refs.add(f"refs/heads/{parent}")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "base": parent}})
+    shell.pr_files[PR] = ["infra/rows/escape-hatch/dns.ts"]
+    shell.base_squash = f"{SQUASH} 2026-09-30T05:10:00+00:00"
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+    assert shell.fields(PR)["base"] == "dev"
+    assert not [argv for argv in shell.calls if argv[0] == "git" and any(parent in arg for arg in argv)]
+    assert f"landed #{PR} as {SQUASH[:9]} on dev" in capsys.readouterr().out
+
+
+def test_one_row_the_forge_cannot_answer_is_recorded_and_the_pass_settles_the_rest(capsys, tmp_path):
+    broken = "21220"
+    shell = desk_shell(state="closed")
+    shell.pulls[broken] = {**shell.pulls[PR], "number": int(broken)}
+    shell.pull_heads[broken] = HEAD
+    shell.deleted_refs.add(f"refs/pull/{broken}/head")
+    shell.stores[LEDGER]["rows"] += [
+        {"key": broken, "fields": {"head": HEAD, "lane": LANE}},
+        {"key": PR, "fields": {"head": HEAD, "lane": LANE}},
+    ]
+    shell.pr_files[broken] = shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+
+    assert shell.fields(broken).get("state") is None
+    assert "couldn't find remote ref" in shell.fields(broken)["settle_error"]
+    assert shell.fields(broken)["settle_failed_at"]
+    assert shell.fields(PR)["state"] == "landed"
+    assert f"#{broken} NOT SETTLED" in capsys.readouterr().out
+
+
+def test_a_settled_row_clears_its_earlier_failure(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "settle_error": "x", "settle_failed_at": "y"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert shell.fields(PR)["settle_error"] == ""
+    assert shell.fields(PR)["settle_failed_at"] == ""
+
+
 def test_the_queues_bot_closing_a_stacked_child_is_not_a_landing(tmp_path):
     """Deleting a parent's branch closes its child through the same bot, landing nothing."""
     shell = desk_shell(state="closed")

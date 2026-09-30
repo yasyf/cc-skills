@@ -82,7 +82,8 @@ Do, in this order, forever:
      `ledger.py refresh` over the rows the ledger already holds and every open PR
      on a registered lane's branches, then
      `ledger.py landed --checkout <path>` to settle closed rows by the squash on the
-     base branch. PR rows enter through a lane's report, registration, or an explicit
+     trunk, never the PR's own base, which the queue deletes when a stack lands; a row
+     the forge cannot answer records `settle_error` and the pass settles the rest. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Discover registered branches through the forge's matching-refs
      call for the lane's unique prefix, then one scoped `pulls?head=` lookup per
      branch. Grade every tracked current head without waiting for a report.
