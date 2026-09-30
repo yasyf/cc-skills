@@ -196,8 +196,9 @@ Lanes enqueue their own stacks under D1; the desk enqueues any ready stack they 
 unqueued. The root owns the holds file and checks and enqueues priority PRs under D3.
 It receives P0 lines immediately and a summary every 30 minutes.
 
-`scripts/ledger.py` is its one tool, using `gh api` REST for reconciliation and
-`ccx vcs pr watch` for transitions. Its one store is a cc-notes
+`scripts/ledger.py` is its one tool. It uses `ccx vcs pr state` for refreshes and
+`ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
+which polls each repository at most once every 30 seconds. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
 and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
 asks are `ask/<seq>` rows beside the PR rows.
@@ -335,7 +336,7 @@ Lanes keep reporting to `landing-desk`; the main desk types every message in, la
 on each clean report, and alone sends the root the summary. *Prevents one desk's pass
 growing with the board until its pass takes 20 minutes.*
 
-**D13. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh discovers its open PRs through `GET repos/<repo>/git/matching-refs/heads/<prefix>`, then one scoped `pulls?head=<owner>:<branch>&state=open` lookup per branch. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
+**D13. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
 *Prevents three PRs a lane never reported sitting unmerged for hours.*
 
