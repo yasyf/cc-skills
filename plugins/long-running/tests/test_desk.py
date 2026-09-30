@@ -140,6 +140,18 @@ def test_a_new_verdict_at_the_same_head_supersedes_the_pending_report(capsys):
     assert capsys.readouterr().out.splitlines() == [f"msg/000002 report #{PR} {HEAD[:9]} {LANE}: clean ci"]
 
 
+def test_a_verdict_reverted_at_the_same_head_is_recorded_again(capsys):
+    shell = desk_shell()
+    argv = ["report", "--ledger", LEDGER, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
+    for verdict in ("red", "clean", "red"):
+        run(shell, *argv, "--verdict", verdict)
+    capsys.readouterr()
+
+    run(shell, "inbox", "--ledger", LEDGER)
+    assert capsys.readouterr().out.splitlines() == [f"msg/000003 report #{PR} {HEAD[:9]} {LANE}: red ci"]
+    assert shell.fields(PR)["reported_verdict"] == "red"
+
+
 def test_label_with_a_checkout_grades_named_refs_so_concurrent_desks_never_share_fetch_head(tmp_path):
     shell = desk_shell()
 

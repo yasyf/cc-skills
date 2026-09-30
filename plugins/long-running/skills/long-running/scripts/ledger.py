@@ -619,13 +619,18 @@ def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
     return f"{prefix}{seq:06d}"
 
 
+def same_report(existing: dict[str, str], fields: dict[str, str]) -> bool:
+    return (existing.get("kind"), existing.get("pr"), existing.get("head")) == ("report", fields["pr"], fields["head"])
+
+
 def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> str | None:
+    if fields["kind"] == "report":
+        latest = max((key for key, existing in messages.items() if same_report(existing, fields)), default=None)
+        return latest if latest and messages[latest]["text"] == fields["text"] else None
     if fields["kind"] == "ruling":
         identity = ("kind", "pr", "text")
     elif "event" in fields:
         identity = ("kind", "pr", "head", "event")
-    elif fields["kind"] == "report":
-        identity = ("kind", "pr", "head", "text")
     else:
         identity = ("kind", "pr", "head")
     wanted = tuple(fields[name] for name in identity)
@@ -645,7 +650,7 @@ def enqueue(notes: Notes, fields: dict[str, str]) -> str:
     notes.set_fields(key, dict(fields, at=utc_stamp(), state="pending"))
     if fields["kind"] == "report":
         for earlier, existing in messages.items():
-            if existing["state"] == "pending" and (existing["kind"], existing["pr"], existing["head"]) == ("report", fields["pr"], fields["head"]):
+            if existing["state"] == "pending" and same_report(existing, fields):
                 notes.set_fields(earlier, {"state": "acked", "acked_at": utc_stamp(), "superseded_by": key})
     print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
     return key
