@@ -119,9 +119,10 @@ def test_45_lanes_over_the_line_get_three_inbox_asks_highest_first(tree: Tree, c
     assert asked == ["lane-42", "lane-43", "lane-44"]
     [message] = tree.inbox("lane-44")
     assert list(message) == ["from", "text", "summary", "timestamp", "msgV", "msg_id", "type", "read"]
-    assert (message["from"], message["text"], message["msgV"], message["type"], message["read"]) == (
+    assert (message["from"], message["text"], message["summary"], message["msgV"], message["type"], message["read"]) == (
         "long-running",
-        lane_rotation.ROTATE,
+        'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.',
+        "ROTATE: flush and keep working",
         1,
         "message",
         False,
@@ -213,8 +214,7 @@ def test_flushed_reply_queues_one_nudge(tree: Tree, clock: list[float]) -> None:
         assert lane_rotation.rotate_lanes(evt) is None
 
     assert pending(evt) == [
-        "lane landing-desk flushed (b037decf, c2b3a6c): TaskStop it and respawn it from its handoff note "
-        "at a natural pause"
+        "lane landing-desk flushed (b037decf, c2b3a6c) and keeps running in place; nothing to do"
     ]
     clock[0] += 2 * lane_rotation.ASK_GAP_SECONDS
     lane_rotation.rotate_lanes(evt)

@@ -76,9 +76,9 @@ completion went to the root session and the lane never woke.*
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
 original never sees the message. Reply to nothing you have already acted on, and expect
-2-3 duplicate idle-notifications per real report. A rotation respawn is not a re-brief:
-the old lane is flushed and stopped first, and the fresh one resumes from the ledger, so
-nothing runs twice (see Lane rotation). *Prevents lane collisions in a shared worktree
+2-3 duplicate idle-notifications per real report. Rotation flushes the lane in place;
+it keeps working and resumes from its ledger and cursor after its own compaction
+(see Lane rotation). *Prevents lane collisions in a shared worktree
 and the reply tax on notifications that carry no news.*
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
@@ -400,10 +400,10 @@ half an hour away; the lane had stopped watching, and the owner found it first.*
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
 the routing, the label history, and the landing. A refresh that cannot reach the forge
 exits non-zero and writes nothing. The records live on `refs/cc-notes/*` and survive
-compaction, a session restart, and a handoff. A fresh `landing-desk` lane spawned with the
-ledger id reads the inbox, the holds, the routes, the label history, and the landings
-exactly as the last one left them. None of that goes into session memory or the plan file.
-That is what makes the desk cheap to rotate; see Lane rotation.
+compaction, a session restart, and a handoff. After compaction, the same `landing-desk`
+reads its inbox, holds, routes, label history, and landings from the ledger and resumes
+from its cursor. None of that goes into session memory or the plan file.
+See Lane rotation.
 
 ## The orca-desk
 
@@ -465,9 +465,9 @@ is unfinished work.
 
 **O8. Check liveness hourly.** Run `orca orchestration task-list --run <run>` and
 `orca orchestration worker-show --dispatch <id>` for each active worker. A worker
-with no heartbeat for 30 minutes goes to the root as a relaunch proposal. Relaunch
-only on its ruling, by running `scripts/orca-launch.sh` again with the same lane
-and receipt directory; it retries the recorded dispatch.
+with no heartbeat for 30 minutes goes to the root with its current dispatch and
+terminal state. A stale heartbeat never authorizes a relaunch. Resume the existing
+session in place; a separate successor must never stop it or duplicate its active work.
 
 **O9. Never re-brief.** Edit the lane's brief file, then send its pointer to the
 current dispatch with `send --type dispatch`. Never paste the whole brief into a
@@ -557,15 +557,17 @@ The priority desk enqueues any of their stacks that is green, approved, and unhe
 as soon as it sees it, using D3's parallel calls. It routes ejections, conflicts,
 and reds to the owning lane at once.
 
-**P4. Replace a stalled lane at the PR deadline.** Pushed heads with no PR after
-10 minutes get a fresh `<lane>-submit` lane, sonnet xhigh, in its own worktree.
-It does PR mechanics only and submits those exact heads as one linear stack.
-An unbuilt owed item with no PR after 15 minutes gets an implementation lane.
-Launch in that iteration; never wait on the stalled lane.
+**P4. Dispatch unclaimed work at the PR deadline.** For pushed heads with no PR after
+10 minutes, check the owning lane's active work before dispatching `<lane>-submit`,
+sonnet xhigh, in its own worktree. It does PR mechanics only and submits those exact
+heads as one linear stack. For an unbuilt owed item with no PR after 15 minutes,
+dispatch a separate implementation lane only when no live lane is working on it.
+Keep the original session; never duplicate its active work.
 
-**P5. Report the owed list every 15 minutes and stop when it is done.** Send the
+**P5. Report the owed list every 15 minutes and idle when it is done.** Send the
 root each item as landed, queued, PR + blocker, or no PR + the lane launched for it.
-Include `cursor R<n>`. When every item is landed or proven, report once and stop.
+Include `cursor R<n>`. When every item is landed or proven, report once and keep the
+session open and idle.
 
 ## Desk inboxes
 
@@ -583,8 +585,8 @@ before saying an item is waiting on the root.
 
 **I4. Resume a desk whose cursor stays stale for more than one iteration.** If its
 reports show a cursor behind the last line the root appended for that long, the
-root runs `TaskStop`, then `SendMessage` telling it to read from its cursor.
-This resumes the same transcript.
+root wakes it with `SendMessage` telling it to read from its cursor.
+The desk continues in place with the same identity.
 
 *Prevents the 26 rulings left unread in a looping desk on 2026-09-30.*
 
@@ -707,8 +709,11 @@ Spawn every lane as one of this plugin's two lane types, with the routing table'
 codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the `mcp__*` tools, and
 the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
 `lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
-lighter than `general-purpose`; `lane-ship` starts 5k lighter. A `lane` that turns out
-to need a skill is rotated or respawned as `lane-ship`, never worked around.
+lighter than `general-purpose`; `lane-ship` starts 5k lighter.
+
+If a `lane` needs a skill, give that operation to a separately named `lane-ship`
+with a scoped brief.
+Keep the original lane running; the new lane must not duplicate its active work.
 
 A lane that runs as an Orca worker is a separate session the Agent tool cannot message.
 The orca-desk launches it through `scripts/orca-launch.sh` using
@@ -717,6 +722,9 @@ a shared contract and lane section concatenated into one file, with a ≤300-cha
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
 never as a claude worker calling the codex skill; the codex skill is for inline lanes,
 and `codex-ask` for one-off questions.
+When a lane needs its own machine for tests or builds off the owner's Mac, or the
+running platform, it creates a remote Orca workspace through the repository's Orca
+skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote workspaces").
 
 One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
@@ -1004,8 +1012,8 @@ bus.py read    --bus "$BUS" --lane root --all --peek   # the whole log, when a t
 A `head` is the full 40-hex sha. A reply inherits its target's topic; an `answer` goes
 to the asker and a `withdraw` to the target's addressees unless `--to` says otherwise.
 Only the poster withdraws an entry, once. The cursor is
-`~/.cache/ccn-bus/<bus>/<lane>.cursor`, so a rotated lane resumes where the last one
-stopped; `--peek` leaves it, `--since` and `--all` re-read. `read` prints
+`~/.cache/ccn-bus/<bus>/<lane>.cursor`, so a compacted lane resumes where it left off;
+`--peek` leaves it, `--since` and `--all` re-read. `read` prints
 `nothing new since #n` when nothing reached the lane; `watch` prints nothing then, and
 `bus unreachable: ...` once when cc-notes stops answering. Every post holds a lock keyed
 on the bus and retries a contended ref, because `ccn log append` refuses rather than
@@ -1246,8 +1254,9 @@ active; reload `long-running` if its rules are no longer in context.
 
 Every turn a lane takes re-reads its whole history. A desk at 400k tokens pays about
 that many tokens again per wake to type in a three-line report, while everything it
-needs to continue already sits on its ledger. A long-lived lane is therefore rotated,
-not kept: flushed, stopped, and respawned fresh under the same name.
+needs to continue already sits on its ledger. Rotation flushes a long-lived lane in
+place. Claude Code's own compaction shrinks its context; the same lane resumes from
+its ledger and cursor with its identity intact.
 
 **Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
 A lane is due at 0.7 of its own compaction threshold, computed from its live model the
@@ -1266,27 +1275,22 @@ cold, it costs nothing until it wakes, and the hook skips it.
 teammate inbox, `~/.claude/teams/<team>/inboxes/<name>.json`, in Claude Code's own
 message format and under its lock:
 
-`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>" to team-lead, then stop.`
+`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.`
 
 It asks at most three lanes per 15 minutes, highest token count first, and each lane at
 most twice, at least 30 minutes apart. A lane with no teammate inbox draws one root
 nudge instead, naming at most three lanes, to `SendMessage` them the same request.
 
-**Handoff.** When a lane's `flushed <ids>` reply reaches the root, the hook nudges once:
-stop that lane and respawn it from its handoff note at a natural pause.
+**Handoff.** A `flushed <ids>` reply confirms the lane recorded its state and keeps
+working. The hook nudges the root once: the lane keeps running in place, nothing to do.
+After its own compaction, the lane reads its ledger and saved cursor and continues.
+Never `TaskStop` or respawn a flushed lane, and never spawn a second agent under a
+live lane's name. A separate successor must never stop the old session or
+duplicate its active work. An `open-pr:pr-watcher` resumes from its state file after
+its own compaction.
 
-1. `TaskStop` the flushed lane first. A spawn under a name a running lane still holds
-   gets a different name.
-2. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
-   with its original spawn brief plus the ledger id; a lane that now needs a skill comes
-   back as `long-running:lane-ship`. Messages addressed by name reach the newest agent.
-   The next progress doc records the new agent under `## Lanes and binding rulings`.
-
-The root stops only a lane that has replied `flushed`, one lane per reply, never a batch
-of lanes at once. Never `SendMessage` the stopped lane. That resumes the same transcript
-and reloads the whole history the rotation dropped. An `open-pr:pr-watcher` needs no
-flush, since its state file is its ledger. `TaskStop` it and spawn a fresh one with the
-same inputs, which resumes from that file.
+*Prevents stopping and respawning lanes from ending live sessions during the
+release-v3 drive (2026-09-30).*
 
 ## Anti-patterns seen
 

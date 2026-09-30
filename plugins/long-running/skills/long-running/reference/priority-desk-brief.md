@@ -84,11 +84,13 @@ Do, in this order, every iteration:
        Relaunch a dead lane in this iteration.
      - For pushed heads with no PR, tell the lane to submit those exact heads
        as one linear stack in this turn and report the numbers. If it has not
-       opened them within 10 minutes, launch <lane>-submit, sonnet xhigh, in
-       its own worktree. It does PR mechanics only and submits those heads.
+       opened them within 10 minutes, check the lane's active work before launching
+       <lane>-submit, sonnet xhigh, in its own worktree. It does PR mechanics only
+       and submits those heads; never duplicate an active submission.
      - Give a named item a 15-minute PR deadline. If it is still unbuilt with
-       no PR at that deadline, launch an implementation lane in its own worktree.
-       Never wait on the stalled lane. Report the new lane against its owed item.
+       no PR at that deadline, launch a separate implementation lane in its own
+       worktree only when no live lane is working on it. Keep the original session.
+       Report the new lane against its owed item.
   3. Every 15 minutes, report the owed list to the root. Mark each item as
      landed, queued, PR + blocker, or no PR + the lane launched for it.
      Include `cursor R<n>`. Do not wait for this report to route a blocker.
@@ -106,5 +108,6 @@ Do NOT touch: another desk's lanes; worker files or branches; the holds file;
   production; merge labels by hand.
 Worktree: none. The checkout is for reads and fetching the base branch.
 Finish: when every owed item is landed or proven, send the complete owed list
-  with the squash or proof for each item and your cursor, then stop.
+  with the squash or proof for each item and your cursor, then keep the session
+  open and idle.
 ```

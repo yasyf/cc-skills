@@ -7,6 +7,19 @@ the desk. Its spawn brief is [orca-desk-brief.md](orca-desk-brief.md).
 
 ## Launching
 
+When a lane needs its own machine for tests or builds off the owner's Mac, or the
+running platform, it creates its own remote Orca workspace through the repository's
+Orca skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote workspaces").
+
+- Use the skill's `orca computer` flow through the desktop New Workspace composer:
+  `Run on` -> a per-workspace environment recipe. Orca owns sleep, wake, and delete.
+- Default to Sprites over SSH (`sprites-agents-ssh`) for agents and tests. Use
+  Namespace stack over SSH (`namespace-stack-ssh`) only for the running platform.
+- Never create the machine with the provider CLI or recipe helper and register an
+  SSH host by hand; Orca then never suspends or destroys it.
+- Verify the workspace from Orca's own listings through the skill's verify step
+  before starting work there. Delete it through the skill when done.
+
 Orca launches `claude` with the default agent arguments in the user's settings, including
 `--permission-mode plan`. A worker needs a terminal created with an explicit
 command. Keep the interactive default in plan mode. The explicit command also
@@ -164,14 +177,17 @@ and the screen must show bypass permissions on. A failed launch prints
 The receipt is `<receipt dir>/<lane>.json`; `<lane>.terminal` holds the handle that
 `orca-check.sh` maps back to the lane, and `<lane>.worktree` the path Orca created.
 A failed `worker-start` that returned a task and dispatch still writes the receipt,
-so the next launch retries that dispatch instead of opening a second task. The
-brief path is made absolute before it goes into the pointer. For a relaunch approved by the root, run the
-same command with the same lane and receipt directory. The script reads
+so a permitted retry addresses that dispatch instead of opening a second task. The
+brief path is made absolute before it goes into the pointer.
+
+Retry a failed dispatch only after confirming its session has ended, with the
+root's ruling; run the same command with the same lane and receipt directory.
+The script reads
 `result.taskId` and `result.dispatchId` from the recorded receipt and passes
 `--task <taskId> --retry-of <dispatchId>` instead of creating a new task from `--spec`.
-It creates a new terminal and keeps the worktree. A follow-up alone is not a
-relaunch: edit the brief file, then send its pointer with `send --type dispatch`
-to the current dispatch.
+It creates a new terminal and keeps the worktree. Never stop the old session or
+duplicate its active work. A follow-up alone is not a relaunch: edit the brief file,
+then send its pointer with `send --type dispatch` to the current dispatch.
 
 Worktree creation gets four attempts; terminal creation gets three, separated by
 `ORCA_LAUNCH_RETRY_SECONDS`. The script waits `ORCA_LAUNCH_BOOT_SECONDS` for startup
