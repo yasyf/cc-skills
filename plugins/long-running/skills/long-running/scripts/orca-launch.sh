@@ -12,8 +12,11 @@ earlier launch exists, and prints one line:
 
 Anything else is a failure, printed as one line naming the step, exit 1.
 
-The worktree is created once, as a child of the coordinator's worktree. The
-terminal runs claude in bypass-permissions mode with the model and effort on its
+The worktree is created once, as a child of the coordinator's worktree, named
+<prefix><lane>-base. Orca names its branch yasyf/<name> and rewrites '/' in a
+name to '-', so a worktree named <prefix><lane> gets branch yasyf/<prefix><lane>,
+and git then refuses every branch under the lane's yasyf/<prefix><lane>/ prefix.
+The terminal runs claude in bypass-permissions mode with the model and effort on its
 command line, since Orca's default agent args start claude in plan mode and
 worker-start refuses --model and --effort beside --terminal. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
@@ -44,12 +47,13 @@ RUN=${ORCA_LAUNCH_RUN:?ORCA_LAUNCH_RUN is required}
 REPO=${ORCA_LAUNCH_REPO:?ORCA_LAUNCH_REPO is required}
 PARENT=${ORCA_LAUNCH_PARENT:-$PWD}
 NAME=${ORCA_LAUNCH_PREFIX:-}$LANE
+WORKTREE_NAME=$NAME-base
 ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
 STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
 RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-8}
 RECEIPT=$STATE/$LANE.json
-WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$NAME")
+WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
 fail() {
   echo "$LANE failed $*"
@@ -84,7 +88,7 @@ attempt=0
 until [ -d "$WT" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 4 ] || fail "worktree create: $(head -c 300 "$STATE/$LANE.worktree.json")"
-  if orca worktree create --name "$NAME" --repo "id:$REPO" --base-branch "$BASE" \
+  if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
     --parent-worktree "path:$PARENT" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1; then
     WT=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json")
   else
