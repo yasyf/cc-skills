@@ -76,9 +76,14 @@ Landing desk (records over cc-notes refs, shared by every checkout):
 - On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   The desk grades and enqueues whole stacks once approved and green; you never enqueue.
+- After opening or enqueueing a PR, run
+  `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
+  (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
+  `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree.
+  `red <check>` means fix it. Your watch ends only when your PRs land.
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
-- Watch your own PR to green, fix or accept each reviewer-bot finding with the risk
+- Fix or accept each reviewer-bot finding with the risk
   named, and run one finder pass over your diff before you call a PR done.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an

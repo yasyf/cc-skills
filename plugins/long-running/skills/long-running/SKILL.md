@@ -100,8 +100,8 @@ owner asked.*
 
 **R7. Check a PR's state before reporting it.** Never state that a PR is merged, queued,
 or blocked from a message or from memory. Before reporting it, run `ccx vcs status` in
-the stack's worktree, or check for the squash commit `(#N)` on a freshly fetched base
-branch. This applies to the root and the desk.
+the stack's worktree, or check for the squash commit `(#N)` on a freshly fetched
+trunk. This applies to the root and the desk.
 
 *Prevents the root telling the owner "#25121 queued to merge" when it had already
 been on dev for 15 minutes.*
@@ -174,9 +174,10 @@ On a drive where many lanes open PRs, the root is the wrong place for their repo
 Each report is a message in the root's window, and each landing is a wait. The desk is
 one long-lived lane, `landing-desk`, that takes those reports and owns routine labels;
 the root checks and labels priority PRs under D3. Lanes report to the desk, it grades
-and labels, and the root hears from it every 30 minutes.
+and labels, and the root receives P0 lines immediately and a summary every 30 minutes.
 
-`scripts/ledger.py` is its one tool, over `gh api` REST only. Its one store is a cc-notes
+`scripts/ledger.py` is its one tool, using `gh api` REST for reconciliation and
+`ccx vcs pr watch` for transitions. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
 and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
 asks are `ask/<seq>` rows beside the PR rows.
@@ -192,7 +193,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. Address reports to the desk and act on priority PRs.** A lane's last action on a PR is the three-line report of PR, full head sha, and verdict, sent to `landing-desk`. The root receives only `RULING NEEDED` lines and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope after they approved it, the root gets a fresh approval naming the new head before labelling.
+**D1. Address reports to the desk and act on priority PRs.** A lane sends the three-line report of PR, full head sha, and verdict to `landing-desk`. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope after they approved it, the root gets a fresh approval naming the new head before labelling.
 
 *Prevents the root relaying a lane's 45-60 minute ETA for green priority PR #25145 while the owner queued it by hand. Also prevents labelling a PR on a stale approval after two more fixes landed on it past the head the owner actually saw.*
 
@@ -205,11 +206,13 @@ under Mechanics, and there is no desk.
 *Prevents a green tip enqueueing a red parent, an ejected head entering the queue again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py landed` fetches the
-base branch and settles a closed row by `git log` for a subject ending `(#n)`, never by
+trunk (the repo's default branch) and settles a closed row by tree equality, then
+`git log` for a subject ending `(#n)`. The queue deletes a stacked PR's base when
+the stack lands, so the tool never fetches that base. It never settles a row by
 the PR's `merged` field, which a squash-merging queue leaves false on every PR it lands.
-A closed row with no squash becomes `closed-without-squash`, a name that cannot be read
+A closed row with neither match becomes `closed-without-squash`, a name that cannot be read
 as success, because a child auto-closed by its base's deletion looks exactly like a
-landing until the log is read. *Prevents lanes waiting hours on a PR that landed
+landing until the trunk is checked. *Prevents lanes waiting hours on a PR that landed
 minutes after they started, and a lost stacked child counted as merged.*
 
 **D5. Route every red or conflicting row in the pass that finds it, once per head.**
@@ -301,6 +304,22 @@ growing with the board until a five-minute cadence is a 20-minute one again.*
 **D17. An owner-visible change needs its render approved before the label.** A PR that changes something the owner sees rendered, such as a UI, message, or generated document, holds under D6. Use the reason "render not approved" until the owner has approved that exact render at the head being labelled, unless the owner has granted ship-then-fix for that lane. A re-render at a new head needs a fresh approval; the old one covered a different head.
 
 *Prevents a redesigned modal or a rewritten Slack card landing and reaching users before the owner had seen how it actually rendered.*
+
+**D18. A queued PR is watched until its squash is on the base; an ejection is a P0 the pass it happens.**
+The desk arms `ledger.py watch` under Monitor when it spawns and re-arms it on every
+expiry. Forward every `P0` line to the root the moment it prints; the root treats it
+like a `RULING NEEDED` line and acts in the same turn. The 5-minute refresh stays as
+the reconciliation pass; the watch detects transitions.
+
+Every lane that enqueues or reports a PR runs
+`ccx vcs pr watch --lane-prefix <prefix> --until landed` under
+Monitor, re-armed on expiry, or in a foreground loop instead of ad-hoc polling.
+`ejected` or `conflicting` means rebase now. The lane watches until its PRs land.
+
+*Prevents the #27949 incident in Forge-AI/monorepo on 2026-09-30: priority #1 was
+green, approved, and queued at 05:29Z, then ejected on a merge conflict at 05:34Z
+after a nine-PR stack landed on `dev`. The desk's pass was minutes away and its summary
+half an hour away; the lane had stopped watching, and the owner found it first.*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
@@ -665,7 +684,6 @@ ledger.py hold  --ledger "$LEDGER" --pr 21052 --reason "dev-red:infra-plan-obser
 ledger.py gone  --ledger "$LEDGER" --lane lightning-eh
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --train merge-train --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts' --fallback red-desk
 
-# every 30 minutes, and the only desk output the root reads
 ledger.py summary --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py show    --ledger "$LEDGER" --asks
 ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 37 deployed"
@@ -674,6 +692,14 @@ ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
 # each shard runs the batch for its lanes
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
+```
+
+At spawn, arm the watch under Monitor at its maximum timeout and re-arm on every
+expiry. Pass each priority PR the root names with `--priority`; forward every `P0`
+line immediately. The five-minute batch reconciles the ledger.
+
+```sh
+ledger.py watch --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT" [--priority <n>]...
 ```
 
 `label --dry-run` runs every guard, prints the stack it would enqueue, and writes
@@ -1094,7 +1120,7 @@ same inputs, which resumes from that file.
 5. Am I about to restate status? → send nothing.
 6. On each new owner ask, record it with `ledger.py ask` and dispatch its lane this turn; never queue it behind a busy lane.
 7. Am I about to report a milestone? → first dispatch every owner ask still unstarted.
-8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched base; never report it from the plan file.
+8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched trunk; never report it from the plan file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
 10. Before saying something is assigned, read the summary's `LOST` lines first.
     Never call an ask done before `LIVE`.

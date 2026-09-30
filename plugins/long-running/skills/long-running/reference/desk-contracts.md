@@ -90,8 +90,8 @@ dispatch and `ledger.py answer` when the reply lands. An orphaned sub-dispatch s
 
 ## RULING NEEDED, one line
 
-The only message that reaches the root outside the 30-minute summary. Sent by the desk,
-on its own behalf or relayed for a lane, when a decision needs the owner or the root.
+Sent by the desk, on its own behalf or relayed for a lane, when a decision needs
+the owner or the root. Like a P0 watch line, it reaches the root immediately.
 
 ```
 RULING NEEDED: <the question, one line>; options: A <..> / B <..> / C <..>
@@ -155,10 +155,21 @@ An `ungraded` row lacks a label and a grade recorded at its current head. A
 its current head. In the same pass, run `route` and `label --all-clean`, and send
 each lane the messages they print.
 
-`merged/h` counts squash commits on the base branch inside the window, read from the
-git log by `ledger.py landed`. It never reads a PR's `merged` field, which the Graphite
+`merged/h` counts squash commits on the trunk (the repo's default branch) inside the
+window, read from the git log by `ledger.py landed`. That command fetches the trunk
+and settles closed rows by tree equality, then a squash subject ending `(#n)`.
+It never fetches the PR's own base, which the queue deletes when a stack lands.
+It never reads a PR's `merged` field, which the Graphite
 queue leaves false on every PR it lands. The ten-line desk block ends with a pointer
 at `ledger.py show` when more desk lines remain; ask lines never count toward that cap.
+
+`ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
+re-reads non-terminal PR rows each pass, records transitions, and settles landings
+and closures through `landed`. It writes a P0 inbox message and prints
+`P0 #<n> <event> <lane>` for every ejection, and for `conflicting` or `red` on a
+priority row, a row the desk labelled/enqueued, or a row the watch saw queued.
+Arm it under Monitor at spawn, re-arm on expiry, and forward each P0 line to the
+root immediately for action that turn. The five-minute pass reconciles the ledger.
 
 The p50 is the median minutes from each landed row's last report to its landing over
 the window, or `-` when nothing landed. One line per stale row follows the ask lines
@@ -216,7 +227,7 @@ for 15 minutes. It read the state from a message and memory.
 
 **Check before reporting, in the root and at the desk alike.** R7 requires
 `ccx vcs status` in the stack's worktree or the squash commit `(#N)` on a freshly
-fetched base branch. Never state a PR as merged, queued, or blocked from a message
+fetched trunk. Never state a PR as merged, queued, or blocked from a message
 or memory.
 
 *Prevents the root telling the owner "#25121 queued to merge" when it had been on

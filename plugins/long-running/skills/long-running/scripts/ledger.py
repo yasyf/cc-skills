@@ -20,6 +20,7 @@
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
+    ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
@@ -27,7 +28,7 @@
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
 branch under a lane's registered prefix, or because refresh was handed its number; the
-repository's PR list is never read and GraphQL is never called. Holds, routing, the label history, and the landing are fields on that row;
+repository's PR list is never read and this script calls no GraphQL itself; ``watch`` subscribes through ``ccx vcs pr watch``. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by the
 base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
 merged field and never by searching the base log for its number. Buildkite
@@ -49,9 +50,11 @@ import argparse
 import fcntl
 import json
 import re
+import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
+import time
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
@@ -78,6 +81,8 @@ WINDOW_SECONDS = 3600
 STALE_MINUTES = 30
 NO_PR = "-"
 MESSAGE_PREFIX = "msg/"
+CCN_READ_ATTEMPTS = 4
+CCN_READ_BACKOFF_SECONDS = 0.5
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
 GONE_PREFIX = "gone/"
@@ -100,6 +105,7 @@ QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
+WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -185,12 +191,28 @@ REFUSAL = {
 }
 
 
+def is_ccn_read(argv: list[str]) -> bool:
+    return argv[:3] == ["ccn", "ledger", "show"]
+
+
 class Shell:
-    """The single subprocess boundary: `gh`, `bk`, `git`, and `ccn` all pass through here."""
+    """The single subprocess boundary: `gh`, `bk`, `git`, `ccx`, and `ccn` all pass through here.
+
+    A `ccn ledger show` exits non-zero while another desk is writing the same ledger, so
+    reads retry with a short backoff; writes never do, because a retried write can land twice.
+    """
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
-        proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, check=True)
-        return proc.stdout
+        for attempt in range(CCN_READ_ATTEMPTS - 1 if is_ccn_read(argv) else 0):
+            try:
+                return self.once(argv, stdin)
+            except subprocess.CalledProcessError:
+                time.sleep(CCN_READ_BACKOFF_SECONDS * 2**attempt)
+        return self.once(argv, stdin)
+
+    @staticmethod
+    def once(argv: list[str], stdin: str | None) -> str:
+        return subprocess.run(argv, input=stdin, capture_output=True, text=True, check=True).stdout
 
 
 class ForgeUnreachable(RuntimeError):
@@ -580,7 +602,12 @@ def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
 
 
 def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> str | None:
-    identity = ("kind", "pr", "text") if fields["kind"] == "ruling" else ("kind", "pr", "head")
+    if fields["kind"] == "ruling":
+        identity = ("kind", "pr", "text")
+    elif "event" in fields:
+        identity = ("kind", "pr", "head", "event")
+    else:
+        identity = ("kind", "pr", "head")
     wanted = tuple(fields[name] for name in identity)
     for key, existing in messages.items():
         if tuple(existing.get(name, "") for name in identity) == wanted:
@@ -1345,6 +1372,95 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def watch_state(ledger: str) -> Path:
+    return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.watch.json"
+
+
+def watch_line(event: dict) -> str:
+    detail = event.get("detail", "")
+    if event["event"] == "ejected" and detail:
+        return f"ejected ({detail})"
+    return f"{event['event']} {detail}".strip()
+
+
+def is_watch_p0(event: dict, fields: dict[str, str], priority: frozenset[str]) -> bool:
+    """An ejection always is: the PR was in the queue, so someone meant it to land."""
+    if event["event"] == "ejected":
+        return True
+    return event["event"] in WATCH_P0_EVENTS and (str(event["pr"]) in priority or carries_label(fields) or fields.get("watch_queued") == "true")
+
+
+def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str]) -> None:
+    rows = notes.pr_rows()
+    watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
+    if not watched:
+        return
+    pending = state.with_name(state.name + ".pending")
+    if state.exists():
+        shutil.copyfile(state, pending)
+    else:
+        pending.unlink(missing_ok=True)
+    argv = [ccx, "vcs", "pr", "watch", *watched, "--repo", gh.repo, "--once", "--json", "--until", "never", "--state", str(pending)]
+    events = []
+    for line in shell.run(argv).splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            print(f"ccx: {line}", file=sys.stderr)
+    settled: list[str] = []
+    recorded: dict[str, dict[str, str]] = {}
+    for event in events:
+        if "pr" not in event:
+            print(watch_line(event), flush=True)
+            continue
+        pr = str(event["pr"])
+        fields = rows[pr]
+        line = watch_line(event)
+        changes = recorded.setdefault(pr, {})
+        changes.update(watch_event=line, watch_at=event["at"])
+        if event["event"] == "queued":
+            changes["watch_queued"] = "true"
+        elif event["event"] in ("ejected", LANDED, CLOSED_WITHOUT_SQUASH):
+            changes["watch_queued"] = ""
+        if event["event"] == "ejected":
+            changes["ejected_at"] = event["at"]
+        if is_watch_p0(event, fields, priority):
+            lane = fields.get("lane", "?")
+            with redirect_stdout(sys.stderr):
+                enqueue(notes, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"#{pr} {line}: rebase or fix now"})
+            print(f"P0 #{pr} {line} {lane}", flush=True)
+        else:
+            print(f"#{pr} {line}", file=sys.stderr)
+        fields.update(changes)
+        if event["event"] in (LANDED, CLOSED_WITHOUT_SQUASH):
+            settled.append(pr)
+    for pr, changes in recorded.items():
+        notes.set_fields(pr, changes)
+    if settled:
+        with redirect_stdout(sys.stderr):
+            settle(shell, gh, notes, checkout, settled)
+    if pending.exists():
+        pending.replace(state)
+
+
+def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    gh = Github(shell, args.repo)
+    priority = frozenset(args.priority or ())
+    state = args.state or watch_state(args.ledger)
+    while True:
+        try:
+            watch_pass(shell, notes, gh, args.checkout, args.ccx, state, priority)
+        except (subprocess.CalledProcessError, ForgeUnreachable) as failure:
+            detail = failure.stderr.strip() if isinstance(failure, subprocess.CalledProcessError) and failure.stderr else str(failure)
+            print(f"watch pass failed, retrying next pass: {detail}", file=sys.stderr)
+            if args.once:
+                return 1
+        if args.once:
+            return 0
+        time.sleep(args.interval)
+
+
 def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     rows = sharded(notes.pr_rows(), args.shard)
@@ -1543,12 +1659,26 @@ def build_parser() -> argparse.ArgumentParser:
     unlabel.add_argument("--reason", required=True)
     unlabel.set_defaults(handler=cmd_unlabel)
 
-    landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the base branch")
+    landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the trunk")
     add_ledger(landed, repo=True)
     landed.add_argument("--checkout", type=Path, required=True)
     landed.add_argument("--pr")
     add_shard(landed)
     landed.set_defaults(handler=cmd_landed)
+
+    watch = subparsers.add_parser(
+        "watch",
+        help="subscribe to every non-terminal row through ccx vcs pr watch: record each transition on its row, "
+        "and print a P0 line (with a p0 inbox message) for an ejection, or a conflict or red on a priority, labelled, or queued row",
+    )
+    add_ledger(watch, repo=True)
+    watch.add_argument("--checkout", type=Path, required=True)
+    watch.add_argument("--priority", action="append", metavar="N", help="a PR whose conflict or red is always a P0; repeatable")
+    watch.add_argument("--interval", type=float, default=60, help="seconds between passes")
+    watch.add_argument("--once", action="store_true", help="one pass, then exit")
+    watch.add_argument("--state", type=Path, help="ccx snapshot file (default ~/.cache/ccn-ledger/<ledger>.watch.json)")
+    watch.add_argument("--ccx", default="ccx", help="the ccx binary")
+    watch.set_defaults(handler=cmd_watch)
 
     reconcile = subparsers.add_parser("reconcile", help="settle every non-terminal row against the trunk and the forge")
     add_ledger(reconcile, repo=True)
