@@ -58,7 +58,17 @@ Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
 `capacity reached`, they send `--type question` or `--type escalation` and keep
 working on everything that does not depend on the answer. The desk treats either
-message like an ask. Finish with `send --type worker_done --outcome succeeded|failed`
+message like an ask.
+
+**R56. Reply to the original question id.** A worker blocked on
+`orca orchestration ask` wakes only on
+`orca orchestration reply --id <its question message id>`. A plain
+`send --type dispatch` can sit unread in a background wait. Desks must reply to the
+original question id and may add a send for context.
+
+*Prevents a worker staying blocked after the desk sent its ruling as a dispatch.*
+
+Finish with `send --type worker_done --outcome succeeded|failed`
 and the preamble's `--task-id <taskId>` and `--dispatch-id <dispatchId>`.
 
 Orca workers are separate sessions. They run `ledger.py register/report` themselves

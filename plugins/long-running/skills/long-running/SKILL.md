@@ -71,11 +71,14 @@ and the reply tax on notifications that carry no news.*
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
 them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so they
-write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`, and
-`ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
-`TaskCreate`/`TaskUpdate` is the root's only state. Report to the user on milestones or
-when they must act, never per event. Once `long-running` is invoked, the session's
-compaction handoff runs on its own, as Compaction handoff describes. *Prevents the
+write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`,
+`ccn doc add`, and `ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
+
+The root tracks active tasks with `TaskCreate`/`TaskUpdate`. Report to the user on
+milestones or when they must act, never per event. Once `long-running` is invoked,
+the compaction hook nudges the root to write a new progress doc, then handles
+superseding, the plan pointer, and `/compact`, as Compaction handoff describes.
+The plan stays the drive's mandate and decisions. *Prevents the
 forced mid-drive handoff with nothing written down to hand over.*
 
 Every lane receives the whole task list on every wake. The root deletes a completed task
@@ -347,7 +350,9 @@ id, lane, and 2-4 options, in ≤5 lines.
 *Prevents the root answering scope questions the lane briefs already settled (release v3, 2026-09-30).*
 
 **O5. Relay the root's ruling to the current dispatch.** Answer a question with
-`orca orchestration reply --id <msg id> --body "<ruling>"`; send other guidance with
+`orca orchestration reply --id <question message id> --body "<ruling>"`;
+only a reply to that original id wakes an `orca orchestration ask` wait (R56).
+Send other guidance with
 `orca orchestration send --to dispatch:<current dispatch> --type dispatch --subject "<subject>" --body "<ruling>"`.
 Read the current dispatch before sending; a prior receipt is not a live address.
 
@@ -890,66 +895,82 @@ opus-4-0 through 4-6, and every claude-3 model.
 further. The check runs after each main-session tool call, never a subagent's, and fires
 once used tokens cross 80% of that threshold.
 
-**Archive and nudge.** At the threshold the hook archives the plan itself, as
-`<stem>.<YYYY-MM-DD>-<HHMMSS>-pre-compact.md` in UTC beside it. Never archive by hand —
-the guard that lets a plan rewrite through checks for exactly this sibling — and never
-`cat >` the plan to dodge that guard; write over it and let the archive carry the loss.
+**Nudge.** At 80% of the threshold, the hook sends the root one nudge, as context
+on its next tool call or prompt. It gives used tokens against the threshold and asks
+for the drive's whole execution state in a new progress doc when convenient. The
+slug comes from `progress:<slug>` in the plan's existing progress pointer line, or
+from the plan's file stem if that line has no slug. The nudge is not repeated, and
+the turn is never held.
 
-It then sends the root one nudge, as context on its next tool call or prompt. The nudge
-gives used tokens against the threshold, asks for the plan to be rewritten as the
-current restart state when convenient, and names the archive path. It is not repeated,
-and the turn is never held.
+**Write the progress doc.** Create a new cc-notes doc for each handoff:
 
-**Rewrite the plan.** First record any durable state still living only in this
-conversation in the ledger, the rulings log, or a cc-notes note; the archive is history,
-not a store. Then rewrite the plan with one `Write`, dropping finished work, superseded
-state, and anything the archives already hold. Drop an item only once it is landed
-and live, or an owner ruling cancelled it, named by that ruling; everything else
-carries forward, even at one line. Diff the fresh write against the `*-pre-compact.md`
-sibling the hook just archived and account for every item the diff removes before
-saving. The hook enforces no shape, but a plan
-that restarts cleanly usually carries these sections:
-
-```md
-# <title> (compacted <date>Z)
-
-## Restart here (read first)
-<role, the lane-contract path, the landing-desk agent + its ledger id, the rulings-log id>
-
-## Mandate (owner, verbatim)
-## Standing constraints
-## End state
-## Owner decisions (never re-ask)
-## State at <date>Z
-## Live lanes
-## Owed follow-ups
-## Owner actions pending
-## Key notes
-
-## Done means
+```sh
+ccn doc add "<drive>: progress <UTC>" --label progress:<slug> --when "Resuming or compacting the <drive> drive: read before anything else, after the plan" --body -
 ```
 
-`Restart here` front-loads what a cold restart needs before anything else: the role
-this session is playing, where the lane contract lives, which agent is the landing desk
-and its ledger id, and the rulings-log id. It carries no recap of finished work. A
-mid-drive gotcha that matters to a fresh restart belongs there too, not buried in
-`Key notes`.
+Use the nudge's UTC timestamp (`YYYY-MM-DDTHHMMZ`) and pass the body on stdin.
+The progress doc is living guidance with a `when` trigger and supersede edges.
+Never rewrite the plan; it remains the stable mandate and decisions document.
+Carry the whole execution state into the new doc, with every owner ask and
+obligation accounted for under these sections:
 
-**Links and `/compact`.** When the root next writes or edits the plan, the hook appends
-`## Archived plans (history only, never needed to restart)`, one link per
-`<stem>.*-pre-compact.md` sibling, newest first, unless the plan already has it. At the
-next main-session `Stop` after that rewrite, the hook starts a detached background job
-and lets the stop through. The job waits through orca for the terminal to go idle, reads
-the screen, and types `/compact` only when the draft is empty and the input line holds no
-typed text. It rechecks every 30 seconds and gives up silently after 30 minutes. With no
-orca terminal handle, the hook sends the owner one message to run `/compact` by hand,
-and blocks nothing.
+```md
+# <drive>: progress <UTC>
 
-After compaction, `SessionStart` points the fresh context at the plan, which supersedes
-the summary; read it first. When the plan still awaits its rewrite, `SessionStart` says
-so. Claude Code's own auto-compaction can fire before the plan is rewritten.
-`PreCompact` and `SessionStart` re-ground on the plan either way, so nothing is lost,
-only unplanned.
+## How the drive runs
+<root role, lane contracts, desks, ledger and rulings-log ids>
+
+## Owner asks and state
+<every ask, its current state, evidence, and next gate>
+
+## Lanes and binding rulings
+<current agents, dispatches, briefs, ownership, and rulings still in force>
+
+## Landed
+<completed work and evidence>
+
+## Waiting on the owner
+<unresolved decisions and the options already presented>
+
+## Root's next actions
+<ordered actions, dependencies, and owed follow-ups>
+```
+
+Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the same
+record as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
+use a progress doc; a note, a log, or a loose file does not replace it.
+
+**Supersede and point.** At the next main-session `Stop` after a doc under the label
+has an update timestamp newer than the nudge, the hook selects the newest doc and
+runs `ccn doc supersede OLD --by NEW` for every other active doc under that label.
+Exactly one doc stays active; history is the supersede chain.
+
+The hook adds one pointer line to the plan the first time. It starts with
+`- **Progress (read first after any compaction):**` and names the label and current
+doc id. Later handoffs change only that line's id. The handoff never restructures
+the plan. Let the hook do the superseding and pointer edit.
+
+For the file fallback, the hook waits for a file newer than the nudge and points the
+same line at the newest file in the folder; later handoffs change only its filename.
+In the release-v3 example, the plan's last line names
+`progress:release-v3` and doc `d473abdd`.
+
+**`/compact`.** Once the progress record and pointer are ready, the hook starts a
+detached background job at that main-session `Stop` and lets the stop through. The
+job waits through orca for the terminal to go idle, reads the screen, and types
+`/compact` only when the draft is empty and the input line holds no typed text. It
+rechecks every 30 seconds and gives up silently after 30 minutes. With
+`ORCA_TERMINAL_HANDLE` unset, the hook sends the owner one message to run `/compact`
+by hand and blocks nothing.
+
+**Resume.** After compaction, `SessionStart` says to read the plan before anything
+else, then `ccn doc list --label progress:<slug>` and `ccn doc show <id>`. With the
+file fallback, read the newest file in the progress folder after the plan. The plan
+and progress record supersede the summary. `PreCompact` carries the same read order
+and keeps only in-flight details from the last turn that those records lack.
+Claude Code's own auto-compaction can fire before the progress record is written;
+`SessionStart` says so and asks the root to write it when convenient. The skill stays
+active; reload `long-running` if its rules are no longer in context.
 
 ### Lane rotation
 
@@ -989,7 +1010,7 @@ stop that lane and respawn it from its handoff note at a natural pause.
 2. Then spawn a fresh lane of the same type with the `Agent` tool under the same name,
    with its original spawn brief plus the ledger id; a lane that now needs a skill comes
    back as `long-running:lane-ship`. Messages addressed by name reach the newest agent.
-   The next plan rewrite records the new agent in `## Restart here`.
+   The next progress doc records the new agent under `## Lanes and binding rulings`.
 
 The root stops only a lane that has replied `flushed`, one lane per reply, never a batch
 of lanes at once. Never `SendMessage` the stopped lane. That resumes the same transcript
@@ -1021,8 +1042,9 @@ same inputs, which resumes from that file.
 - A head relabelled after every queue ejection: the same conflicting head was queued
   and dropped twelve times while its rebase sat unstarted.
 - Stacks landed one PR at a time bottom-up, each waiting on a retarget and a fresh CI run.
-- Re-deriving the archive name or hand-typing the compaction prompt instead of letting
-  the compaction-handoff hook do both.
+- Hand-rolling the supersede chain or plan pointer instead of letting the
+  compaction-handoff hook do both.
+- Rewriting the plan at each handoff and losing items that still need action.
 - A handoff that blocked the turn with every over-line lane: the root stopped about
   thirty lanes in nine seconds, none of them flushed, and sent ROTATE to seventeen
   more; the block returned seconds later, before any lane could flush.
