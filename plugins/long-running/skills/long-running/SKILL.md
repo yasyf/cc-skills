@@ -699,8 +699,14 @@ expiry. Pass each priority PR the root names with `--priority`; forward every `P
 line immediately. The five-minute batch reconciles the ledger.
 
 ```sh
-ledger.py watch --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT" [--priority <n>]...
+ledger.py watch --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT" [--priority <n>]... [--shard <lane>,<lane>]
 ```
+
+`--shard` watches only those lanes' rows and keeps its own snapshot,
+`~/.cache/ccn-ledger/<ledger>.<lanes>.watch.json`, so watchers on different shards never
+share one. A PR that had no entry in the snapshot when a pass first saw it and already
+landed or closed emits nothing and settles nothing; `landed` settles it. A standing
+`conflicting`, `red`, or `ejected` still emits once.
 
 `label --dry-run` runs every guard, prints the stack it would enqueue, and writes
 nothing; run it once on a repo before the first live label. `label --all-clean` supports

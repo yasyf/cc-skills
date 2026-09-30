@@ -755,6 +755,12 @@ def test_only_an_unfinished_mergeability_check_settles_a_non_bottom_unstable_pr(
     assert ledger.stack_gate_pending({"mergeable_state": "unstable", "base": {"ref": "stack/1"}}, "dev", checks) is pending
 
 
+@pytest.mark.parametrize("prefix", ["3", "3f3acf", "3F3ACFF97", "not-a-sha"])
+def test_expect_head_rejects_a_prefix_too_short_or_not_hex_to_pin_a_head(prefix):
+    with pytest.raises(SystemExit):
+        label(desk_shell(), "--expect-head", prefix)
+
+
 def test_label_accepts_a_short_expect_head_and_refuses_a_short_head_that_moved(capsys):
     shell = desk_shell()
     assert label(shell, "--expect-head", HEAD[:9]) == 0

@@ -20,7 +20,7 @@
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
-    ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once]
+    ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
@@ -1126,7 +1126,7 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
     if not approved:
         raise refusal("unapproved", pr=pr)
     status = gh.api(f"commits/{head}/status")
-    checks = gh.api(f"commits/{head}/check-runs")
+    checks = gh.api(f"commits/{head}/check-runs", per_page=PAGE_SIZE)
     if pull["mergeable_state"] not in LABELLABLE_STATES and not stack_gate_pending(pull, trunk, checks):
         raise refusal("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
     if status["state"] != "success":
@@ -1379,8 +1379,13 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def watch_state(ledger: str) -> Path:
-    return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.watch.json"
+def watch_state(ledger: str, shard: frozenset[str] | None) -> Path:
+    name = ledger if shard is None else f"{ledger}.{'+'.join(sorted(shard))}"
+    return Path.home() / ".cache" / "ccn-ledger" / f"{name}.watch.json"
+
+
+def snapshot_prs(state: Path) -> frozenset[str]:
+    return frozenset(json.loads(state.read_text())["prs"]) if state.exists() else frozenset()
 
 
 def watch_line(event: dict) -> str:
@@ -1397,11 +1402,12 @@ def is_watch_p0(event: dict, fields: dict[str, str], priority: frozenset[str]) -
     return event["event"] in WATCH_P0_EVENTS and (str(event["pr"]) in priority or carries_label(fields) or fields.get("watch_queued") == "true")
 
 
-def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str]) -> None:
-    rows = notes.pr_rows()
+def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str], shard: frozenset[str] | None) -> None:
+    rows = sharded(notes.pr_rows(), shard)
     watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
     if not watched:
         return
+    armed = snapshot_prs(state)
     pending = state.with_name(state.name + ".pending")
     if state.exists():
         shutil.copyfile(state, pending)
@@ -1421,6 +1427,8 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
             print(watch_line(event), flush=True)
             continue
         pr = str(event["pr"])
+        if event["event"] in (LANDED, CLOSED_WITHOUT_SQUASH) and pr not in armed:
+            continue
         fields = rows[pr]
         line = watch_line(event)
         changes = recorded.setdefault(pr, {})
@@ -1454,10 +1462,10 @@ def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     gh = Github(shell, args.repo)
     priority = frozenset(args.priority or ())
-    state = args.state or watch_state(args.ledger)
+    state = args.state or watch_state(args.ledger, args.shard)
     while True:
         try:
-            watch_pass(shell, notes, gh, args.checkout, args.ccx, state, priority)
+            watch_pass(shell, notes, gh, args.checkout, args.ccx, state, priority, args.shard)
         except (subprocess.CalledProcessError, ForgeUnreachable) as failure:
             detail = failure.stderr.strip() if isinstance(failure, subprocess.CalledProcessError) and failure.stderr else str(failure)
             print(f"watch pass failed, retrying next pass: {detail}", file=sys.stderr)
@@ -1516,6 +1524,12 @@ def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
     if repo:
         parser.add_argument("--repo", required=True)
     parser.add_argument("--ledger", required=True)
+
+
+def head_prefix(value: str) -> str:
+    if not re.fullmatch(r"[0-9a-f]{7,40}", value):
+        raise argparse.ArgumentTypeError("a 7 to 40 character lowercase hex prefix of the head sha")
+    return value
 
 
 def add_shard(parser: argparse.ArgumentParser) -> None:
@@ -1654,7 +1668,7 @@ def build_parser() -> argparse.ArgumentParser:
     target = label.add_mutually_exclusive_group(required=True)
     target.add_argument("--pr")
     target.add_argument("--all-clean", action="store_true", help="label every clean, unheld, never-labelled stack's tip in one batch")
-    label.add_argument("--expect-head")
+    label.add_argument("--expect-head", type=head_prefix)
     label.add_argument("--checkout", type=Path, help="clone for the conflict check; a copy of .agents/skills/submit-pr/scripts/stack-enqueue in it replaces the label")
     label.add_argument("--dry-run", action="store_true")
     add_shard(label)
@@ -1683,7 +1697,8 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--priority", action="append", metavar="N", help="a PR whose conflict or red is always a P0; repeatable")
     watch.add_argument("--interval", type=float, default=60, help="seconds between passes")
     watch.add_argument("--once", action="store_true", help="one pass, then exit")
-    watch.add_argument("--state", type=Path, help="ccx snapshot file (default ~/.cache/ccn-ledger/<ledger>.watch.json)")
+    watch.add_argument("--state", type=Path, help="ccx snapshot file (default ~/.cache/ccn-ledger/<ledger>[.<lanes>].watch.json)")
+    add_shard(watch)
     watch.add_argument("--ccx", default="ccx", help="the ccx binary")
     watch.set_defaults(handler=cmd_watch)
 
