@@ -96,7 +96,12 @@ def test_each_pass_rereads_the_rows_so_new_prs_join_and_settled_ones_leave(tmp_p
     assert {"--once", "--json"} <= set(first)
 
 
+def arm(tmp_path, *prs: str) -> None:
+    (tmp_path / "watch.json").write_text(json.dumps({"prs": {pr: {"state": "OPEN"} for pr in prs}}))
+
+
 def test_a_landing_settles_the_row_in_the_same_pass(tmp_path):
+    arm(tmp_path, PR)
     shell = row_shell()
     shell.pulls[PR] = {"number": int(PR), "state": "closed", "head": {"sha": HEAD, "ref": "yasyf/v3-phase0/deploy"}, "base": {"ref": "yasyf/v3-phase0/base"}}
     shell.pull_heads[PR] = HEAD
@@ -183,7 +188,7 @@ def test_the_snapshot_advances_only_after_the_ledger_took_every_transition(tmp_p
 
     shell.fail_ccn_writes = False
     assert watch(shell, tmp_path) == 0
-    assert json.loads(state.read_text()) == {"call": 2}
+    assert json.loads(state.read_text())["call"] == 2
     assert len(p0s(shell)) == 1
 
 
@@ -210,3 +215,41 @@ def test_a_stray_line_from_ccx_is_reported_and_the_events_still_land(capsys, tmp
     captured = capsys.readouterr()
     assert "ccx: warning: something" in captured.err
     assert f"P0 #{PR} ejected {LANE}" in captured.out
+
+
+def test_arming_drops_a_landing_or_close_that_predates_the_snapshot_and_keeps_standing_conditions(capsys, tmp_path):
+    shell = row_shell(label_head=HEAD, labelled_at="2026-09-30T05:28:00Z")
+    shell.stores[LEDGER]["rows"].append({"key": "28008", "fields": {"head": HEAD, "lane": LANE, "state": "open"}})
+    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n" + event("closed-without-squash", pr="28008") + "\n" + event("conflicting") + "\n"
+
+    assert watch(shell, tmp_path) == 0
+
+    assert capsys.readouterr().out == f"P0 #{PR} conflicting {LANE}\n"
+    assert shell.fields(PR)["watch_event"] == "conflicting"
+    assert shell.fields(PR)["state"] == "open"
+    assert "watch_event" not in shell.fields("28008")
+    assert shell.fields("28008")["state"] == "open"
+    assert set(json.loads((tmp_path / "watch.json").read_text())["prs"]) == {PR, "28008"}
+
+
+def test_a_shard_watches_only_its_lanes_and_keeps_its_own_snapshot(tmp_path):
+    shell = row_shell()
+    shell.stores[LEDGER]["rows"].append({"key": "28008", "fields": {"head": HEAD, "lane": "phase0-rebase", "state": "open"}})
+
+    watch(shell, tmp_path, "--shard", LANE)
+
+    assert shell.ccx_calls[0][4:6] == [PR, "--repo"]
+    home = ledger.Path.home() / ".cache" / "ccn-ledger"
+    assert ledger.watch_state(LEDGER, None) == home / f"{LEDGER}.watch.json"
+    assert ledger.watch_state(LEDGER, frozenset({"b", "a"})) == home / f"{LEDGER}.a+b.watch.json"
+
+
+@pytest.mark.parametrize("snapshot", [{}, {"prs": None}])
+def test_a_snapshot_without_prs_arms_like_an_absent_one(capsys, tmp_path, snapshot):
+    (tmp_path / "watch.json").write_text(json.dumps(snapshot))
+    shell = row_shell()
+    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n"
+
+    assert watch(shell, tmp_path) == 0
+
+    assert shell.fields(PR)["state"] == "open"

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import ledger
 import pytest
-from conftest import LEDGER, FakeShell
+from conftest import FIXTURES, LEDGER, FakeShell
 
 PR = "21221"
 HEAD = "3f3acff97aa11bb22cc33dd44ee55ff667788990"
@@ -695,6 +696,78 @@ def test_a_clean_stack_is_enqueued_by_one_label_on_its_tip(capsys):
         assert row["label_head"] == f"{index + 1}" * 40
         assert row["label_stack"] == "24001,24002,24003"
         assert row["approved_by"] == "yasyf"
+
+
+STACK_GATE_PENDING = "check-runs-stack-mergeability-in-progress.json"
+
+
+def settling_stack(**routes) -> FakeShell:
+    shell = stack_shell()
+    for index, pr in enumerate(STACK[1:], 1):
+        shell.pulls[pr]["mergeable_state"] = "unstable"
+        shell.routes[f"checks:{str(index + 1) * 40}"] = STACK_GATE_PENDING
+    shell.routes.update(routes)
+    return shell
+
+
+def test_a_stack_whose_upper_prs_wait_only_on_graphites_mergeability_check_is_labelled(capsys):
+    shell = settling_stack()
+
+    assert label_stack(shell) == 0
+
+    assert shell.labelled == ["24003:merge"]
+    assert "the queue takes #24001 <- #24002 <- #24003 as one entry" in capsys.readouterr().out
+
+
+def test_the_bottom_pr_reading_unstable_is_still_refused(capsys):
+    shell = settling_stack()
+    shell.pulls["24001"]["mergeable_state"] = "unstable"
+    shell.routes[f"checks:{'1' * 40}"] = STACK_GATE_PENDING
+
+    assert label_stack(shell) == 1
+
+    assert "REFUSED mergeable_state unstable" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+def test_a_stack_pr_reading_unstable_on_a_red_status_is_refused_for_the_status(capsys):
+    shell = settling_stack(**{f"status:{'2' * 40}": "status-failure.json"})
+
+    assert label_stack(shell) == 1
+
+    assert f"REFUSED commit status failure on {'2' * 9}; only success is labelled (#24002)" in capsys.readouterr().out
+    assert shell.labelled == []
+
+
+@pytest.mark.parametrize(
+    ("mutate", "pending"),
+    [
+        (lambda runs: runs.append({"name": "buildkite/test", "status": "in_progress", "conclusion": None}), False),
+        (lambda runs: runs.append({"name": "buildkite/test", "status": "completed", "conclusion": "skipped"}), True),
+        (lambda runs: [run.update(status="in_progress", conclusion=None) for run in runs if run["name"] == "ai-review"], True),
+        (lambda runs: [run.update(status="completed", conclusion="success") for run in runs if run["name"] == ledger.STACK_MERGEABILITY_CHECK], False),
+    ],
+)
+def test_only_an_unfinished_mergeability_check_settles_a_non_bottom_unstable_pr(mutate, pending):
+    checks = json.loads((FIXTURES / STACK_GATE_PENDING).read_text())
+    mutate(checks["check_runs"])
+
+    assert ledger.stack_gate_pending({"mergeable_state": "unstable", "base": {"ref": "stack/1"}}, "dev", checks) is pending
+
+
+@pytest.mark.parametrize("prefix", ["3", "3f3acf", "3F3ACFF97", "not-a-sha"])
+def test_expect_head_rejects_a_prefix_too_short_or_not_hex_to_pin_a_head(prefix):
+    with pytest.raises(SystemExit):
+        label(desk_shell(), "--expect-head", prefix)
+
+
+def test_label_accepts_a_short_expect_head_and_refuses_a_short_head_that_moved(capsys):
+    shell = desk_shell()
+    assert label(shell, "--expect-head", HEAD[:9]) == 0
+
+    shell = desk_shell()
+    assert label(shell, "--expect-head", OLD_HEAD[:9]) == 1
+    assert f"REFUSED head moved: expected {OLD_HEAD[:9]}, the forge has {HEAD[:9]}" in capsys.readouterr().out
 
 
 def checkout_with_stack_enqueue(tmp_path):

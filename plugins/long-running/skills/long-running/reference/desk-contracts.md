@@ -163,11 +163,12 @@ It never reads a PR's `merged` field, which the Graphite
 queue leaves false on every PR it lands. The ten-line desk block ends with a pointer
 at `ledger.py show` when more desk lines remain; ask lines never count toward that cap.
 
-`ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
+`ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... [--shard <lane>,<lane>]`
 re-reads non-terminal PR rows each pass, records transitions, and settles landings
 and closures through `landed`. It writes a P0 inbox message and prints
 `P0 #<n> <event> <lane>` for every ejection, and for `conflicting` or `red` on a
 priority row, a row the desk labelled/enqueued, or a row the watch saw queued.
+A PR already landed or closed when the snapshot first saw it emits nothing.
 Arm it under Monitor at spawn, re-arm on expiry, and forward each P0 line to the
 root immediately for action that turn. The five-minute pass reconciles the ledger.
 

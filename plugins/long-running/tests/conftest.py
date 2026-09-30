@@ -76,7 +76,8 @@ class FakeShell(ledger.Shell):
             return self._git(argv)
         if argv[0] == "ccx":
             self.ccx_calls.append(list(argv))
-            Path(argv[argv.index("--state") + 1]).write_text(json.dumps({"call": len(self.ccx_calls)}))
+            watched = argv[4 : argv.index("--repo")]
+            Path(argv[argv.index("--state") + 1]).write_text(json.dumps({"call": len(self.ccx_calls), "prs": {pr: {} for pr in watched}}))
             return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
