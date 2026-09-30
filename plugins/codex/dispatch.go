@@ -337,7 +337,7 @@ func pluginRoots() []string {
 	if root := os.Getenv("BINRUN_PLUGIN_ROOT"); root != "" {
 		roots = append(roots, root)
 	}
-	if exe, err := os.Executable(); err == nil {
+	if exe, err := invocationPath(); err == nil {
 		roots = append(roots, filepath.Dir(filepath.Dir(exe)))
 	}
 	return append(roots, filepath.Dir(filepath.Dir(selfPath)))

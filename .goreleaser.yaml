@@ -2,7 +2,7 @@ version: 2
 
 project_name: codex-ask
 
-# Pure Go (CGO_ENABLED=0), darwin-only; Developer ID signing and notarization are required.
+# Pure Go (CGO_ENABLED=0): darwin binaries are Developer ID signed and notarized; linux amd64 ships unsigned.
 builds:
   - id: codex-ask
     # dir = go build's working dir (the nested module); main is relative to it.
@@ -25,6 +25,20 @@ builds:
       post:
         - cmd: sh -c 'test -n "${MACOS_CODESIGN_SCRIPT:-}" && test -n "${MACOS_SIGN_IDENTITY:-}" && test -n "${MACOS_NOTARY_KEY_FILE:-}" && test -n "${MACOS_NOTARY_KEY_ID:-}" && test -n "${MACOS_NOTARY_ISSUER:-}" || { echo "macos signing and notarization state is required" >&2; exit 1; }; bash "$MACOS_CODESIGN_SCRIPT" "$1" "$2"' -- "{{ .Path }}" "{{ .Target }}"
           output: true
+  - id: codex-ask-linux
+    dir: plugins/codex
+    main: .
+    binary: codex-ask
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.appVersion={{.Version}}
 
 archives:
   - id: codex-ask
@@ -33,9 +47,14 @@ archives:
     # Versioned so the binrun descriptor's per-platform asset names are unique
     # across releases (render-descriptor.sh + descriptor/codex-ask.binrun.tmpl).
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  # Its own archive so the cask, which reads the codex-ask archive only, never picks up linux.
+  - id: codex-ask-linux
+    ids: [codex-ask-linux]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   # Bare per-arch binaries for the plugin's install-binary.sh; the cask keeps the tar.gz.
   - id: binary
-    ids: [codex-ask]
+    ids: [codex-ask, codex-ask-linux]
     formats: [binary]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 

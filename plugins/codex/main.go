@@ -90,7 +90,7 @@ func main() {
 }
 
 func initSelf() {
-	exe, err := os.Executable()
+	exe, err := invocationPath()
 	if err != nil {
 		return
 	}

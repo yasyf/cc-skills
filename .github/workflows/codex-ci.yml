@@ -3,12 +3,14 @@ name: codex CI
 on:
   push:
     paths:
+      - ".github/workflows/codex-ci.yml"
       - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
       - "plugins/repo-bootstrap/tests/test_codex_hooks.py"
   pull_request:
     paths:
+      - ".github/workflows/codex-ci.yml"
       - ".goreleaser.yaml"
       - "plugins/codex/**"
       - "plugins/repo-bootstrap/tests/test_scaffold.py"
@@ -25,8 +27,8 @@ permissions:
 
 jobs:
   codex-ask:
-    # Goldens shell `/bin/ps -o lstart=` and assert the setsid detach path (macOS
-    # process semantics); codex-ask ships darwin-only. Runs where the binary lives.
+    # Goldens shell `/bin/ps -o lstart=` and assert the setsid detach path with
+    # macOS process semantics.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -65,3 +67,71 @@ jobs:
         with:
           version: latest
           working-directory: plugins/codex
+
+  # The linux amd64 release binary under daemonkit's foreground supervisor and
+  # same-user trust, in place of the signed LaunchAgent.
+  codex-ask-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: plugins/codex/go.mod
+      - name: build, vet, test (race)
+        run: cd plugins/codex && go build -o /dev/null ./ && go vet ./... && go test -race ./...
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: plugins/codex
+      - name: release build (goreleaser)
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: build --snapshot --clean --id codex-ask-linux
+      - name: Smoke a dispatch round trip through the supervised daemon
+        run: |
+          bin="$PWD/dist/codex-ask-linux_linux_amd64_v1/codex-ask"
+          stub="$RUNNER_TEMP/stub"
+          mkdir -p "$stub"
+          cat > "$stub/codex" <<'EOF'
+          #!/bin/sh
+          [ "$1" = mcp ] && { printf '[]'; exit 0; }
+          out=""; prev=""
+          for a in "$@"; do [ "$prev" = "-o" ] && out=$a; prev=$a; done
+          cat > /dev/null
+          echo pong > "$out"
+          EOF
+          chmod +x "$stub/codex"
+          export PATH="$stub:$PATH" CLAUDE_CODE_SESSION_ID=ci-smoke
+          cd "$RUNNER_TEMP"
+
+          if "$bin" direct --agent ci-owner ping > refusal.txt 2>&1; then exit 1; fi
+          grep 'no supervisor is running' refusal.txt
+
+          "$bin" supervise &
+          supervisor=$!
+          for _ in $(seq 100); do
+            [ -S "$HOME/.daemonkit/a/com.yasyf.codex-ask/sv.sock" ] && break
+            sleep 0.1
+          done
+
+          out="$("$bin" --dispatch --owner ci-owner ping)"
+          reply="$(sed -n 's/^REPLY_FILE: //p' <<<"$out")"
+          log="$(sed -n 's/^LOG_FILE: //p' <<<"$out")"
+          sdir="$(dirname "$reply")"
+          "$bin" --await "$sdir"
+          grep -qx pong "$reply"
+          worker="$(cat "$sdir/pid")"
+          for _ in $(seq 400); do
+            kill -0 "$worker" 2>/dev/null || break
+            sleep 0.1
+          done
+          if kill -0 "$worker" 2>/dev/null; then echo "worker $worker still running" >&2; exit 1; fi
+          if grep 'owner wake failed' "$log"; then exit 1; fi
+
+          "$bin" direct --agent ci-owner ping
+          "$bin" stop
+          kill -TERM "$supervisor"
+          wait "$supervisor"

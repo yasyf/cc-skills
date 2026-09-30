@@ -69,7 +69,7 @@ The table below is the full catalog; the `SKILL.md` inside each plugin dir carri
 | Plugin | What you get |
 |---|---|
 | [slop-cop](plugins/slop-cop) | Catches LLM prose tells in any file, from filler intensifiers to negation pivots. A `SessionStart` hook fetches the prebuilt binary. |
-| [codex](plugins/codex) | A second opinion from OpenAI's Codex CLI when you're stuck, plus image generation via its `$imagegen` skill. Needs `codex` on `PATH`. |
+| [codex](plugins/codex) | A second opinion from OpenAI's Codex CLI when you're stuck, plus image generation via its `$imagegen` skill. Needs `codex` on `PATH`. On Linux amd64, owner wakes need `codex-ask supervise` running in the foreground; any process of the same user can reach its daemon, so run it only on a single-user machine. |
 | [repo-bootstrap](plugins/repo-bootstrap) | A new repo with agent docs, guard hooks, brand images, and opinionated Python, Go, or Swift layers, scaffolded in one pass. |
 | [llm-prompts](plugins/llm-prompts) | Research-backed prompt-writing guidance, refreshed with current per-provider model behaviors. |
 | [writing-docs](plugins/writing-docs) | Diataxis modes, a technical-builder voice, and the README skeleton this file follows. |
