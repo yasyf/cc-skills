@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -300,6 +301,7 @@ func consumerRoot() *cobra.Command {
 		cmd.ChannelCmd(d),
 		directCmd(d),
 	)
+	r.AddCommand(platformCmds()...)
 	return r
 }
 
@@ -317,7 +319,10 @@ var consumerSubcommands = map[string]bool{
 	"direct":       true,
 }
 
-func isConsumerSubcommand(name string) bool { return consumerSubcommands[name] }
+func isConsumerSubcommand(name string) bool {
+	return consumerSubcommands[name] ||
+		slices.ContainsFunc(platformCmds(), func(c *cobra.Command) bool { return c.Name() == name })
+}
 
 // runConsumer executes the cc-interact subcommand tree, exiting non-zero on error
 // like main's other modes.
