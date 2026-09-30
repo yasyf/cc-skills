@@ -24,10 +24,11 @@ them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
 
-Follow [Desk inboxes](../SKILL.md#desk-inboxes). If reports show a cursor more
-than one iteration behind the root's last line, the root runs `TaskStop`, then
-`SendMessage` telling the desk to read from its cursor. This resumes the same
-transcript. Traffic from a priority desk's lanes goes to that desk's inbox.
+Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
+running desk. If reports show a cursor more than one iteration behind the root's
+last line, the root appends one inbox line naming the unread range and records the
+stall in its progress record; the desk reads it at the top of its next iteration.
+Traffic from a priority desk's lanes goes to that desk's inbox.
 
 The root records every owner ask with `ledger.py ask` in the turn it arrives, before
 or with dispatch to its own lane. An ask is done only at `LIVE`. Before then, the root
@@ -81,10 +82,9 @@ Verified facts, do not re-derive:
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
-You may be a rotation respawn: the root stopped the last desk with `TaskStop` and
-  spawned you fresh under its name. The ledger holds everything the last desk knew:
-  its inbox, holds, routes, labels, and landings. Start at step 0 from the saved cursor
-  and the ledger as it stands; never ask the root what happened before you.
+After your own compaction, resume in place. The ledger holds your inbox, holds,
+  routes, labels, and landings. Start at step 0 from your saved cursor and the ledger
+  as it stands; never ask the root to reconstruct your state.
 
 At spawn:
   - Arm `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
@@ -283,8 +283,8 @@ Finish: never. If the root tells you the drive is over,
 Rotate: on a `ROTATE` message from the root, type every message you have not yet
   recorded into the ledger (`ledger.py report`, `register`, `ruling`, `enqueue`), write
   any finding still only in your context to cc-notes, reply `flushed <ledger id>`, and
-  stop. The root stops you with `TaskStop` and spawns a fresh desk under your name,
-  which takes over from the ledger.
+  keep working. After your own compaction, resume in place from the ledger and your
+  saved cursor.
 ```
 
 ## Scoped resume

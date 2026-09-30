@@ -14,8 +14,11 @@ the window before it. While the alert is unresolved, the monitor's targets are f
 no lane deploys, applies, releases, or enqueues into its `release-target:*` targets.
 A recovery line, or a triage verdict of not ours, lifts the fence.
 
-The desk never gets a fix, a ruling to carry, or a Slack post. Send it nothing but a
-changed monitor set, as a respawn with the new `--tag` and `--id` list.
+The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
+monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
+the root rewrites that file. The desk reads it at its next Monitor re-arm, keeping
+its state file, identity, and session. Never respawn or message the running desk
+for a changed set.
 
 On release-v3, 2026-09-30, the watch's first read over `release-target:*` printed:
 
@@ -38,15 +41,18 @@ Authority: read Datadog monitors and report transitions. Nothing else: no fixes,
 Verified facts, do not re-derive:
   scripts <plugin root>/skills/long-running/scripts
   state file <path>, yours; it persists across re-arms
-  monitors: --tag <glob, e.g. release-target:*> ... --id <monitor id> ...
+  monitors file <path>, root-owned; one --tag <glob> or --id <monitor id> per line
   root <root agent name>
 
 At spawn, run once and report every line it prints as one message:
-  python3 <scripts>/monitor-watch.py once --state <state file> <monitors>
+  python3 <scripts>/monitor-watch.py once --state <state file> \
+    $(cat <monitors file>)
 Then keep one Monitor on
-  python3 <scripts>/monitor-watch.py watch --state <state file> <monitors>
-  with timeout 1800000, re-armed on expiry. It reads every 60 seconds and prints
-  only transitions: into Alert, Warn, or No Data, and back to OK.
+  python3 <scripts>/monitor-watch.py watch --state <state file> \
+    $(cat <monitors file>)
+  with timeout 1800000, re-armed on expiry. Re-read the monitors file at every
+  re-arm. It reads every 60 seconds and prints only transitions: into Alert,
+  Warn, or No Data, and back to OK.
 
 On each printed line, in the same turn:
   1. Read the monitor once: `pup --no-agent --read-only monitors get <id>`.

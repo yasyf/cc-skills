@@ -31,7 +31,7 @@ FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "rotation"
 ROOT = FIXTURES / "projects" / "p" / "root.jsonl"
 SENDER = "long-running"
 ROTATE = (
-    'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ledger id>" to team-lead, then stop.'
+    'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
 DORMANT = timedelta(hours=1)
 PACE_SECONDS = 15 * 60
@@ -132,7 +132,7 @@ def rotate_message() -> dict:
     return {
         "from": SENDER,
         "text": ROTATE,
-        "summary": "ROTATE: flush and stop",
+        "summary": "ROTATE: flush and keep working",
         "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "msgV": 1,
         "msg_id": str(uuid.uuid4()),
@@ -217,8 +217,7 @@ def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
                 state.flushed.extend(asked)
                 queue_nudge(
                     evt,
-                    f"lane {name} flushed ({', '.join(ids)}): TaskStop it and respawn it from its handoff note "
-                    "at a natural pause",
+                    f"lane {name} flushed ({', '.join(ids)}) and keeps running in place; nothing to do",
                 )
 
 

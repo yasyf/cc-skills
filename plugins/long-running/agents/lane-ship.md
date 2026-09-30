@@ -15,4 +15,5 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Your last action is one `SendMessage` to the name your brief gives. Bare final text is
   never delivered.
 - On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
-  `flushed <ledger id>`, and stop.
+  `flushed <ids>`, and keep working. Your own compaction resumes you from the ledger
+  and your cursor; nothing stops or respawns you.

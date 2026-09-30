@@ -38,8 +38,8 @@ Your own posts never come back to you. An entry addressed to someone else never 
 you, however you filter; read it with `--all` and no `--lane` filter when a foreign
 thread matters, or read `state` and `summary`, which are unfiltered.
 
-The cursor is `~/.cache/ccn-bus/<bus>/<lane>.cursor`. A respawned or compacted lane
-under the same name continues from it; nothing is re-delivered and nothing is lost.
+The cursor is `~/.cache/ccn-bus/<bus>/<lane>.cursor`. After compaction, the same lane
+continues from it; nothing is re-delivered and nothing is lost.
 `--peek` reads without moving it; `--since <seq>` and `--all` re-read from a point.
 
 `bus.py watch` is the same read in a loop, for a Monitor: it prints each newly

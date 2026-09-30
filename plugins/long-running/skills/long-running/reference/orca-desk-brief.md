@@ -18,8 +18,9 @@ printf '%s\n' 'R<n> <msg id> <lane>: <ruling>' >> '<inbox file>'
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The desk reads from its saved cursor
 at the top of every iteration, advances it every iteration, and names `cursor R<n>`
 in every report. Every inbox wait is at most 60 seconds. If reports show a cursor
-more than one iteration behind the root's last line, the root runs `TaskStop`, then
-`SendMessage` telling it to read from its cursor. This resumes the same transcript.
+more than one iteration behind the root's last line, the root appends one inbox
+line naming the unread range and records the stall in its progress record; it never
+`SendMessage`s the running desk.
 Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
@@ -34,8 +35,9 @@ Authority: launch claude workers through orca-launch.sh and codex workers with
   `worker-start --agent codex` (O15); answer routine questions from
   their brief files; answer or escalate every prompt a worker is parked on; relay
   root rulings; acknowledge delivered batches; record every ruling in the drive's
-  cc-notes log. Propose a relaunch when a worker has no heartbeat for 30 minutes;
-  relaunch only once the root rules. Scope, owner asks, and decisions the briefs do not settle go to the
+  cc-notes log. Report a worker with no heartbeat for 30 minutes with its current
+  dispatch and terminal state; resume its existing session in place.
+  Scope, owner asks, and decisions the briefs do not settle go to the
   root with the message id, lane, and 2-4 options in ≤5 lines.
   Before every launch or relaunch, read the 1-minute load; while it exceeds the core
   count, start no new worker (O14).
@@ -56,7 +58,7 @@ Verified facts, do not re-derive:
 Run from the coordinator terminal. A worker terminal cannot consume the run's
   mailbox: it must check --terminal <its handle>, or --run fails consumer_fenced.
 
-Set these once, preserving them after rotation:
+Set these once, preserving them after compaction:
   SCRIPTS='<plugin root>/skills/long-running/scripts'
   SPEC_DIR='<spec dir>'
   INBOX='<inbox file>'
@@ -75,10 +77,10 @@ Set these once, preserving them after rotation:
   export ORCA_CHECK_TIMEOUT_MS=60000 ORCA_CHECK_RETRY_SECONDS=30
 
 On first spawn, `touch "$INBOX"` without truncating it. Start a new cursor at 0
-  only when no cursor exists. On rotation, read the saved cursor, launch receipts,
+  only when no cursor exists. After compaction, read the saved cursor, launch receipts,
   and log: unresolved questions, the last processed delivery awaiting --ack,
   relayed rulings, prompt answers, and the last liveness sweep. Never ask the root
-  to reconstruct them, and never relaunch the roster because you were rotated.
+  to reconstruct them, and never relaunch the roster because you compacted.
 
 Do, in this order, forever:
   1. Root inbox, at the TOP of every iteration before any other work.
@@ -103,7 +105,7 @@ Do, in this order, forever:
      stale entry, save that R number with
        printf '%s\n' '<n>' > "$INBOX.cursor"
      Never advance past an unfinished line. A saved log entry proves a ruling
-     already relayed if a rotation happened before its cursor write.
+     already relayed if compaction happened before its cursor write.
      Advance the cursor every iteration and include `cursor R<n>` in every report.
      Never report an item as waiting on the root before checking this inbox for
      the answer.
@@ -132,8 +134,10 @@ Do, in this order, forever:
      The script starts the custom claude command in bypass-permissions mode and
      checks the screen for `bypass permissions on`. Anything other than ready
      is a failed launch, never an active lane. Keep each receipt in the named
-     directory. A root-approved relaunch uses the same command and directory;
+     directory. Retry a failed dispatch only after confirming its session has
+     ended, with the root's ruling. Use the same command and directory;
      the script retries the recorded task and dispatch with --task/--retry-of.
+     Never stop the old session or duplicate its active work.
      Working workers have no cap. The one throttle is load: before each launch
      read `uptime`, and while the 1-minute load average is above the core count
      (`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
@@ -141,8 +145,9 @@ Do, in this order, forever:
        orca orchestration task-list --run "$ORCA_LAUNCH_RUN"
      and, for each active dispatch,
        orca orchestration worker-show --dispatch '<dispatch id>'
-     A worker with no heartbeat for 30 minutes gets a relaunch proposal to the
-     root, with the lane, dispatch, last heartbeat, and 2-4 options in ≤5 lines.
+     A worker with no heartbeat for 30 minutes gets a report to the root with the
+     lane, dispatch, terminal state, last heartbeat, and 2-4 options in ≤5 lines.
+     A stale heartbeat never authorizes a relaunch; keep the session in place.
      Record the sweep in the log. Read output when needed with
        orca orchestration worker-read --dispatch '<dispatch id>'
   5. One blocking check. With no processed delivery awaiting acknowledgement:
@@ -210,6 +215,6 @@ Finish: never while the drive runs. When the root ends it, record every pending
   question, ruling, and delivery, send one ≤5-line outcome report
   with the log and ledger ids, and stop.
 Rotate: flush the same state and the cursor, reply `flushed <cc-notes log id>` to
-  the root, and stop. The root TaskStops you and spawns a fresh orca-desk with
-  this brief. The new desk resumes from the files and log, never a re-brief.
+  the root, and keep working. After your own compaction, resume in place from the
+  files and log with the same identity.
 ```
