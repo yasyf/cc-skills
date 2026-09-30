@@ -332,10 +332,11 @@ that only the trunk answers, through its tree or through a commit it names:
 git log origin/<trunk> --oneline -400 --fixed-strings --grep="(#<n>)"
 ```
 
-One more trap sits under this. If the pull request's base branch has been deleted,
-`origin/<base>` does not resolve, git diffs nothing, and an empty diff reads as a
-landing. Verify the base ref exists before believing an empty result, or a stacked child
-whose parent landed will read as landed itself while its payload is still missing.
+One more trap sits under this. The queue deletes a stacked pull request's base branch
+when the stack lands, so `origin/<base>` stops resolving: git diffs nothing and an empty
+diff reads as a landing, and a fetch of the missing ref aborted every desk pass on
+2026-09-30 over seven escape-hatch rows. Settle against the trunk, never the pull
+request's own base; every stack lands there.
 
 Content still answers the one thing the forge cannot see: a stacked child carrying its
 parent's payload, where the parent merges as a no-op and its own page shows only that

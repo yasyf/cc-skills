@@ -181,6 +181,7 @@ REFUSAL = {
     "enqueue": "stack-enqueue refused #{pr} (stack tip #{tip}): {detail}",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
+    "checkout": "{checkout} is not a usable git checkout, so this pass has graded nothing: {detail}",
 }
 
 
@@ -304,7 +305,10 @@ def default_lock(ledger: str) -> Path:
 
 
 def is_shallow(shell: Shell, checkout: Path) -> bool:
-    return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+    try:
+        return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
+    except subprocess.CalledProcessError as error:
+        raise ForgeUnreachable(REFUSAL["checkout"].format(checkout=checkout, detail=(error.stderr or "").strip())) from error
 
 
 def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
@@ -645,7 +649,7 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
         return None
     tip = f"refs/desk/base/{base}"
     fetch(shell, checkout, f"+refs/heads/{base}:{tip}")
-    fetch(shell, checkout, f"+refs/pull/{pr}/head:refs/desk/pr{pr}")
+    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
     if shell.run(git + ["diff", "--numstat", tip, head, "--"] + files).strip():
         return None
     delivered = shell.run(git + ["log", tip, "-1", "--format=%H %cI", "--"] + files).split()
@@ -1292,30 +1296,43 @@ def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[st
     return (log[0], stamp(parse_iso(log[1]).astimezone(timezone.utc))) if log else None
 
 
+def settle_row(shell: Shell, gh: Github, notes: Notes, checkout: Path, trunk: str, pr: str) -> bool:
+    """Settle one closed row against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone."""
+    pull = gh.api(f"pulls/{pr}")
+    if pull["state"] == "open":
+        ejected = queue_ejected(gh, pr)
+        if ejected:
+            notes.set_fields(pr, {"ejected_at": ejected})
+            print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
+        return False
+    cleared = {"settle_error": "", "settle_failed_at": ""}
+    delivered = landed_on_base(shell, gh, checkout, trunk, pr, pull["head"]["sha"])
+    if delivered:
+        sha, landed_at = delivered
+        notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared})
+        print(f"landed #{pr}, payload delivered by {sha[:9]} on {trunk} at {landed_at}")
+    elif (squash := squash_on_base(shell, checkout, trunk, pr)):
+        sha, landed_at = squash
+        notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared})
+        print(f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since")
+    else:
+        notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": pull["base"]["ref"], **cleared})
+        print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: a human closed it and its payload is absent, so the row stays until its lane answers")
+    return True
+
+
 def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
+    if not prs:
+        return 0
+    trunk = gh.default_branch()
     moved = 0
     for pr in prs:
-        pull = gh.api(f"pulls/{pr}")
-        if pull["state"] == "open":
-            ejected = queue_ejected(gh, pr)
-            if ejected:
-                notes.set_fields(pr, {"ejected_at": ejected})
-                print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
-            continue
-        base = pull["base"]["ref"]
-        delivered = landed_on_base(shell, gh, checkout, base, pr, pull["head"]["sha"])
-        if delivered:
-            sha, landed_at = delivered
-            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
-            print(f"landed #{pr}, payload delivered by {sha[:9]} on {base} at {landed_at}")
-        elif (squash := squash_on_base(shell, checkout, base, pr)):
-            sha, landed_at = squash
-            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": base})
-            print(f"landed #{pr} as {sha[:9]} on {base} at {landed_at}, which has moved on its files since")
-        else:
-            notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": base})
-            print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {base}: a human closed it and its payload is absent, so the row stays until its lane answers")
-        moved += 1
+        try:
+            moved += settle_row(shell, gh, notes, checkout, trunk, pr)
+        except subprocess.CalledProcessError as failure:
+            reason = (failure.stderr or str(failure)).strip()
+            notes.set_fields(pr, {"settle_error": reason, "settle_failed_at": utc_stamp()})
+            print(f"#{pr} NOT SETTLED, recorded on its row and the pass continues: {reason}")
     return moved
 
 
