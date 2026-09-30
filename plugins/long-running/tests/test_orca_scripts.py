@@ -125,6 +125,22 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
 
 
+def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    result = orca.launch("lane-a", "codex", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
+    assert orca.calls("terminal create") == []
+    assert orca.calls("terminal read") == []
+    [start] = orca.calls("orchestration worker-start")
+    assert flag(start, "--agent") == "codex"
+    assert flag(start, "--model") == "gpt-6-astra"
+    assert flag(start, "--effort") == "xhigh"
+    assert "--terminal" not in start
+    assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
+
+
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     orca.healthy()
     orca.worktree.mkdir()
