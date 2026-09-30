@@ -50,6 +50,7 @@ import argparse
 import fcntl
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -601,7 +602,12 @@ def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
 
 
 def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> str | None:
-    identity = ("kind", "pr", "text") if fields["kind"] == "ruling" else ("kind", "pr", "head")
+    if fields["kind"] == "ruling":
+        identity = ("kind", "pr", "text")
+    elif "event" in fields:
+        identity = ("kind", "pr", "head", "event")
+    else:
+        identity = ("kind", "pr", "head")
     wanted = tuple(fields[name] for name in identity)
     for key, existing in messages.items():
         if tuple(existing.get(name, "") for name in identity) == wanted:
@@ -1389,8 +1395,18 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
     watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
     if not watched:
         return
-    argv = [ccx, "vcs", "pr", "watch", *watched, "--repo", gh.repo, "--once", "--json", "--until", "never", "--state", str(state)]
-    events = [json.loads(line) for line in shell.run(argv).splitlines() if line.strip()]
+    pending = state.with_name(state.name + ".pending")
+    if state.exists():
+        shutil.copyfile(state, pending)
+    else:
+        pending.unlink(missing_ok=True)
+    argv = [ccx, "vcs", "pr", "watch", *watched, "--repo", gh.repo, "--once", "--json", "--until", "never", "--state", str(pending)]
+    events = []
+    for line in shell.run(argv).splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            print(f"ccx: {line}", file=sys.stderr)
     settled: list[str] = []
     recorded: dict[str, dict[str, str]] = {}
     for event in events:
@@ -1411,7 +1427,7 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
         if is_watch_p0(event, fields, priority):
             lane = fields.get("lane", "?")
             with redirect_stdout(sys.stderr):
-                enqueue(notes, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "text": f"#{pr} {line}: rebase or fix now"})
+                enqueue(notes, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"#{pr} {line}: rebase or fix now"})
             print(f"P0 #{pr} {line} {lane}", flush=True)
         else:
             print(f"#{pr} {line}", file=sys.stderr)
@@ -1423,6 +1439,8 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
     if settled:
         with redirect_stdout(sys.stderr):
             settle(shell, gh, notes, checkout, settled)
+    if pending.exists():
+        pending.replace(state)
 
 
 def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:

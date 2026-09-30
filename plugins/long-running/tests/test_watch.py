@@ -44,9 +44,10 @@ def test_an_ejection_the_pass_it_happens_is_a_p0_on_the_inbox_and_a_line(capsys,
 
     out = capsys.readouterr().out.splitlines()
     assert out == [f"P0 #{PR} ejected (it had merge conflicts) {LANE}", f"P0 #{PR} conflicting {LANE}"]
-    [message] = p0s(shell)
-    assert message["pr"] == PR and message["head"] == HEAD and message["lane"] == LANE and message["state"] == "pending"
-    assert "ejected (it had merge conflicts)" in message["text"]
+    ejected, conflicting = p0s(shell)
+    assert ejected["pr"] == PR and ejected["head"] == HEAD and ejected["lane"] == LANE and ejected["state"] == "pending"
+    assert "ejected (it had merge conflicts)" in ejected["text"]
+    assert conflicting["event"] == "conflicting"
     row = shell.fields(PR)
     assert row["ejected_at"] == "2026-09-30T05:34:49Z"
     assert row["watch_event"] == "conflicting"
@@ -91,7 +92,7 @@ def test_each_pass_rereads_the_rows_so_new_prs_join_and_settled_ones_leave(tmp_p
     first, second = shell.ccx_calls
     assert first[:5] == ["ccx", "vcs", "pr", "watch", PR] and "27001" not in first
     assert second[4:6] == [PR, "28008"]
-    assert first[first.index("--state") + 1] == str(tmp_path / "watch.json")
+    assert first[first.index("--state") + 1] == str(tmp_path / "watch.json.pending")
     assert {"--once", "--json"} <= set(first)
 
 
@@ -169,3 +170,43 @@ def test_a_ccn_read_that_keeps_failing_raises_and_a_write_is_never_retried(monke
     with pytest.raises(subprocess.CalledProcessError):
         ledger.Shell().run(["ccn", "ledger", "row", "set", LEDGER, "--key", PR, "--field", "a=b"])
     assert len(calls) == 1
+
+
+def test_the_snapshot_advances_only_after_the_ledger_took_every_transition(tmp_path):
+    shell = row_shell(label_head=HEAD, labelled_at="2026-09-30T05:28:00Z")
+    shell.ccx_out = event("ejected", detail="it had merge conflicts") + "\n"
+    state = tmp_path / "watch.json"
+    shell.fail_ccn_writes = True
+
+    assert watch(shell, tmp_path) == 1
+    assert not state.exists()
+
+    shell.fail_ccn_writes = False
+    assert watch(shell, tmp_path) == 0
+    assert json.loads(state.read_text()) == {"call": 2}
+    assert len(p0s(shell)) == 1
+
+
+def test_an_acked_red_does_not_swallow_a_later_ejection_on_the_same_head(capsys, tmp_path):
+    shell = row_shell()
+    shell.ccx_out = event("red", detail="buildkite/tests") + "\n"
+    watch(shell, tmp_path, "--priority", PR)
+    for row in shell.store["rows"]:
+        if row["key"].startswith("msg/"):
+            row["fields"]["state"] = "acked"
+
+    shell.ccx_out = event("ejected") + "\n"
+    watch(shell, tmp_path)
+
+    assert [m["event"] for m in p0s(shell)] == ["red buildkite/tests", "ejected"]
+
+
+def test_a_stray_line_from_ccx_is_reported_and_the_events_still_land(capsys, tmp_path):
+    shell = row_shell()
+    shell.ccx_out = "warning: something\n" + event("ejected") + "\n"
+
+    assert watch(shell, tmp_path) == 0
+
+    captured = capsys.readouterr()
+    assert "ccx: warning: something" in captured.err
+    assert f"P0 #{PR} ejected {LANE}" in captured.out

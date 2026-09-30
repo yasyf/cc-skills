@@ -57,6 +57,7 @@ class FakeShell(ledger.Shell):
         self.stack_enqueue_out = ""
         self.fetched = ""
         self.ccx_out = ""
+        self.fail_ccn_writes = False
         self.ccx_calls: list[list[str]] = []
         self.routes = dict(routes or {})
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
@@ -75,6 +76,7 @@ class FakeShell(ledger.Shell):
             return self._git(argv)
         if argv[0] == "ccx":
             self.ccx_calls.append(list(argv))
+            Path(argv[argv.index("--state") + 1]).write_text(json.dumps({"call": len(self.ccx_calls)}))
             return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
@@ -157,6 +159,8 @@ class FakeShell(ledger.Shell):
         raise AssertionError(f"unexpected bk call: {argv}")
 
     def _ccn(self, argv, stdin):
+        if self.fail_ccn_writes and argv[1:4] == ["ledger", "row", "set"]:
+            raise subprocess.CalledProcessError(1, argv, stderr="ledger busy")
         if argv[1:3] == ["ledger", "add"]:
             ledger = f"{len(self.stores) + 1:040x}"
             self.stores[ledger] = {"id": ledger, "title": argv[3], "columns": [], "rows": []}
