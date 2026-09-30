@@ -15,11 +15,12 @@ the file:
 printf '%s\n' 'R<n> <msg id> <lane>: <ruling>' >> '<inbox file>'
 ```
 
-`SendMessage` to a looping desk is not delivered mid-turn. The desk reads the file
-from its saved cursor before every wait, and every inbox wait is at most 60 seconds.
-This rule applies to the landing-desk too. To reach a looping desk once without its
-inbox file, `TaskStop` it, then `SendMessage`; that resumes the same transcript.
-A rotation instead stops the flushed desk and spawns a fresh one.
+Follow [Desk inboxes](../SKILL.md#desk-inboxes). The desk reads from its saved cursor
+at the top of every iteration, advances it every iteration, and names `cursor R<n>`
+in every report. Every inbox wait is at most 60 seconds. If reports show a cursor
+more than one iteration behind the root's last line, the root runs `TaskStop`, then
+`SendMessage` telling it to read from its cursor. This resumes the same transcript.
+Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
 
@@ -42,6 +43,7 @@ Verified facts, do not re-derive:
   spec directory <spec dir>; one complete brief at <spec dir>/<lane>.full.md
   receipt directory <receipt dir>
   root inbox <inbox file>; cursor <inbox file>.cursor
+  priority desks <owned lanes and inbox paths, or "none">
   cc-notes log <cc-notes log id>; landing-desk ledger <ledger id>
   scripts <plugin root>/skills/long-running/scripts
   lane roster <lane, model, effort, brief file; one per line>
@@ -76,9 +78,12 @@ On first spawn, `touch "$INBOX"` without truncating it. Start a new cursor at 0
   to reconstruct them, and never relaunch the roster because you were rotated.
 
 Do, in this order, forever:
-  1. Root inbox. Read "$INBOX.cursor" as the last completed R number, then read
+  1. Root inbox, at the TOP of every iteration before any other work.
+     Read "$INBOX.cursor" as the last completed R number, then read
      every later line of "$INBOX", in order. The root appends exactly one line
-     per number: R<n> <msg id> <lane>: <ruling>. Check that each ruling still
+     per number: R<n> <msg id> <lane>: <ruling>. If it belongs to a priority desk's
+     lane, append it to that desk's inbox and record it as forwarded. Stop handling
+     that lane, including its questions and relaunches. For your lanes, check that each ruling still
      addresses the lane's current dispatch before relaying it. Reply to a current
      question with
        orca orchestration reply --id "<msg id>" --body "<ruling>"
@@ -94,6 +99,9 @@ Do, in this order, forever:
        printf '%s\n' '<n>' > "$INBOX.cursor"
      Never advance past an unfinished line. A saved log entry proves a ruling
      already relayed if a rotation happened before its cursor write.
+     Advance the cursor every iteration and include `cursor R<n>` in every report.
+     Never report an item as waiting on the root before checking this inbox for
+     the answer.
   2. Launch any newly assigned lane once through the script. Its full brief is
      the shared contract followed by its lane section:
        cat "$SPEC_DIR/common.md" "$SPEC_DIR/<lane>.md" > "$SPEC_DIR/<lane>.full.md"
@@ -124,7 +132,9 @@ Do, in this order, forever:
        delivery <delivery id> heartbeats=<n>
      The printed delivery id is result.deliveryId. A message id acknowledges
      nothing, and an unacknowledged batch replays. Process the whole batch,
-     including messages outside the wake types. On timeout, go to step 1.
+     including messages outside the wake types. Forward a priority desk's lanes'
+     messages to its inbox; do not handle them in steps 5 or 6.
+     On timeout, go to step 1.
      The script retries a lost connection once, after 30 seconds. If it
      prints connection-lost or error <code>: <message>, record the failure and
      return to step 1 before another check. Never restart Orca.

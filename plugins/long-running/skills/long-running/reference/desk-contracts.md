@@ -7,7 +7,7 @@ message into `ledger.py` as it arrives, so the shapes below are also the tool's 
 
 ## The lane report, three lines
 
-A lane sends this to `landing-desk`, and only to `landing-desk`, when it ships a PR,
+A lane sends this to its landing or priority desk when it ships a PR,
 pushes a new head, or reaches a terminal state on one. Registration goes separately.
 
 ```
@@ -152,7 +152,7 @@ are omitted, and the line disappears when nothing waits.
 An `ungraded` row lacks a label and a grade recorded at its current head. A
 `refused` row has a label refusal at that head; `stale` and `show` give the reason. A `red` row has a CI failure or a `dirty` or
 `blocked` mergeable state. A `held` row has a desk hold or a lane `held` verdict on
-its current head. In the same pass, run `route` and `label --all-clean`, and send
+its current head. In the same pass, run `route` and D3's parallel enqueues, and send
 each lane the messages they print.
 
 `merged/h` counts squash commits on the trunk (the repo's default branch) inside the
@@ -170,7 +170,10 @@ and closures through `landed`. It writes a P0 inbox message and prints
 priority row, a row the desk labelled/enqueued, or a row the watch saw queued.
 A PR already landed or closed when the snapshot first saw it emits nothing.
 Arm it under Monitor at spawn, re-arm on expiry, and forward each P0 line to the
-root immediately for action that turn. The five-minute pass reconciles the ledger.
+root immediately for action that turn. The three-minute pass reconciles the ledger.
+
+Stagger desks and shards by a minute at `:00`, `:01`, and `:02`. Read every PR number in
+the pass with one `ccx vcs pr status` call and the Buildkite build list.
 
 The p50 is the median minutes from each landed row's last report to its landing over
 the window, or `-` when nothing landed. One line per stale row follows the ask lines
@@ -182,18 +185,22 @@ is exactly `held: <reason> until <stamp>`, `in the queue since <stamp>`,
 under D3 in the same turn. The next refresh records that label as
 `in the queue, labelled outside the desk`; the desk does not treat it as a bypass.
 
-## Label on the report, and every clean stack in one batch
+## Self-enqueue, and reconcile every ready stack in parallel
 
 One desk ran on a 20-minute pacer, put the label on one report at a time, and sent an
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
-**Label a clean report in the turn it arrives.** Each five-minute pass also runs
-`label --all-clean`. The batch considers every tracked open row whose current head
-has never carried the label and is not held. Reports are not required; a lane's
-`red` or `conflicting` verdict does not refuse a head the forge passes. It picks
-each stack's tip, a candidate whose branch is no other candidate's base, re-reads
-that tip immediately before grading it, and runs D3's guards on every PR below it.
-`label --pr` uses `--expect-head` to pin the tip you graded.
+**Lanes self-enqueue under D1; the desk reconciles every three minutes.** Read the
+root's holds file before every enqueue. A clean report's ready, unheld, unqueued
+stack enqueues in the turn it arrives. Each pass starts one
+`label --pr <tip> --expect-head <sha> --checkout <path>` per ready stack together
+in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
+Never enqueue one stack per pass.
+
+`label --all-clean` walks stacks one at a time and is the fallback sweep. Reports
+are not required; a lane's `red` or `conflicting` verdict does not refuse a head
+the forge passes. Each call re-reads its pinned tip before grading it and runs
+D3's guards on every PR below it. `--expect-head` pins the tip you graded.
 
 The batch labels every passing tip and continues past each refused stack. On each
 row of a refused stack it records `label_refused`, `label_refused_head`, and
@@ -236,15 +243,15 @@ dev for 15 minutes.*
 
 ## A shard owns its lanes' rows
 
-**Split the desk by lane above 25 active rows.** One desk's pass outgrows its cadence
-at that size. Shards split by lane, never by PR number, because one owner must grade
+**Split at 15 lanes or 25 active rows, whichever comes first.** Split early.
+Shards split by lane, never by PR number, because one owner must grade
 a whole stack and its rows share the tip's lane. `--shard lane-a,lane-b` filters
 `refresh`, `landed`, `reconcile`, `route`, `label --all-clean`, `stale`, `summary`, and
 `inbox` to rows whose `lane` is in the set.
 
 All shards write the same ledger, and the refresh lock is per ledger. The main desk
 keeps typing messages in and sends the summary; a shard never messages the root.
-*Prevents a growing board stretching the desk's five-minute pass to 20 minutes.*
+*Prevents a growing board stretching the desk's pass to 20 minutes.*
 
 ## Idle notices: record once, answer never
 
