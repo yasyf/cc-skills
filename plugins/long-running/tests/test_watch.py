@@ -241,7 +241,10 @@ def test_a_shard_watches_only_its_lanes_and_keeps_its_own_snapshot(tmp_path):
     assert shell.ccx_calls[0][4:6] == [PR, "--repo"]
     home = ledger.Path.home() / ".cache" / "ccn-ledger"
     assert ledger.watch_state(LEDGER, None) == home / f"{LEDGER}.watch.json"
-    assert ledger.watch_state(LEDGER, frozenset({"b", "a"})) == home / f"{LEDGER}.a+b.watch.json"
+    sharded = ledger.watch_state(LEDGER, frozenset({"b", "a"}))
+    assert sharded == ledger.watch_state(LEDGER, frozenset({"a", "b"})) != ledger.watch_state(LEDGER, frozenset({"a"}))
+    assert sharded.parent == home and sharded.name.startswith(f"{LEDGER}.") and sharded.name.endswith(".watch.json")
+    assert len(ledger.watch_state(LEDGER, frozenset(f"lane-{n:03}" for n in range(200))).name) < 255
 
 
 @pytest.mark.parametrize("snapshot", [{}, {"prs": None}])
