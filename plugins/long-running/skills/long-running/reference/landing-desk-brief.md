@@ -65,6 +65,10 @@ You may be a rotation respawn: the root stopped the last desk with `TaskStop` an
   stands; never ask the root what happened before you.
 
 Do, in this order, forever:
+  0. Root inbox file <path>: read every line after your saved cursor, act on
+     each ruling, then save the cursor. The root appends rulings there, because a
+     SendMessage to a looping desk is not delivered mid-turn. No wait in this
+     loop runs longer than 60 seconds before you read the file again.
   1. Inbox. Each inbound message is typed in as it arrives: a 3-line report as
      `ledger.py report`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
