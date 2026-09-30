@@ -22,7 +22,7 @@ notifications it answered, and status it restated per event.
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
 The standing subagents are `landing-desk`; `orca-desk` when any lane runs
-through Orca; an alerts/production watcher when the drive touches production; and one
+through Orca; `alerts-desk` when the drive touches production; and one
 priority desk per owner-named #1-priority outcome while that outcome is open.
 The root spawns a subagent for every task with a body, including its own routine work.
 
@@ -516,6 +516,22 @@ Orca does not yet detect a ready codex agent. On 2026-09-30 both `--agent codex`
 (dispatch `ctx_4aa6ac245439`) left codex idle at its prompt until `worker-start`
 failed at `agent_readiness` with `timeout`; the spec never arrived. Until Orca fixes
 that, the desk reports each failed codex launch to the root, which rules on the lane.
+
+## The alerts desk
+
+Production monitor traffic belongs to one long-lived `long-running:lane`, `alerts-desk`,
+model sonnet, effort low. Spawn it beside the landing-desk whenever the drive deploys,
+applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and the
+dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
+
+**A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
+`monitor-watch.py watch` over the drive's monitors, by tag glob such as
+`release-target:*` and by named id. It messages the root only on a move into Alert,
+Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
+one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
+and posts nothing to Slack. Each alert is P0 for the root: one triage lane per alert,
+ours or not ours, and the monitor's targets stay fenced from deploys, applies, and
+enqueues until it recovers or triage clears it.
 
 ## The priority desk
 
