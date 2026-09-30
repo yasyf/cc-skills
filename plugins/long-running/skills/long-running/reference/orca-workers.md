@@ -56,6 +56,20 @@ Use these model ids; the script also accepts the aliases in the first column.
 
 Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 
+A lane the routing table sends to codex launches on Orca's codex agent, never as a
+claude worker calling the codex skill. Create its worktree with the same
+`orca worktree create` command, then:
+
+```sh
+orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<prefix><lane>" \
+  --worktree "path:<wt>" --agent codex --model gpt-6-astra --effort xhigh --timeout-ms 600000 --json
+```
+
+`--agent` makes Orca create the terminal, and Orca's `agentDefaultArgs.codex` carries
+`--dangerously-bypass-approvals-and-sandbox`, so there is no custom command and no
+screen check. Count the launch once `.result.state` reads `ready`, and keep the result
+as the lane's receipt for a `--retry-of` relaunch.
+
 `send --type` accepts only
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
 Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
