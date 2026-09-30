@@ -56,6 +56,8 @@ class FakeShell(ledger.Shell):
         self.stack_enqueue_exit = 0
         self.stack_enqueue_out = ""
         self.fetched = ""
+        self.ccx_out = ""
+        self.ccx_calls: list[list[str]] = []
         self.routes = dict(routes or {})
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
         self.fail_gh: str | None = None
@@ -71,6 +73,9 @@ class FakeShell(ledger.Shell):
             return self._ccn(argv, stdin)
         if argv[0] == "git":
             return self._git(argv)
+        if argv[0] == "ccx":
+            self.ccx_calls.append(list(argv))
+            return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
         raise AssertionError(f"unexpected command: {argv}")
