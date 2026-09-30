@@ -760,6 +760,11 @@ as starting a second one, and restarting a poller from scratch resets whatever
 backoff it was holding. A 429 or 403 mid-poll gets a fixed wait and a retry, never
 an immediate one and never a fresh loop.
 
+Read GitHub PR state only through `ccx vcs pr watch`, `ccx vcs pr status`, and
+`ccx vcs pr state`, called by `ledger.py refresh` and `ledger.py watch`; they share
+one machine-wide poll per repository at most every 30 seconds and one rate-limit
+backoff probing every two minutes, so never hand-roll `gh` PR loops.
+
 *Prevents a per-shard log loop emptying the Buildkite budget mid-release, and a bulk
 scan across thousands of logs failing two releases' own pipeline syncs on the same
 shared limit.*
