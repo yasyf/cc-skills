@@ -24,9 +24,10 @@ Orca skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote wo
   or terminal remains on it. A completed task is not that authorization.
 - Treat tailnet access as pending. It depends on the helper's tailnet enrollment
   (not yet shipped) and the owner's one-time setup: an OAuth client, workspace tag,
-  and SSH policy that admits only the owner as exact workspace OS users. Once the
-  repository skill's preflight and verify steps report the workspace's enrollment,
-  reach it only at the DNS name verify reports, from an owner-permitted device.
+  and SSH policy that admits only the owner as exact workspace OS users. After the
+  repository skill's verify step passes, run its in-workspace Tailnet check
+  (`tailscale status`, `.Self.DNSName`); only once it prints the node's DNS name,
+  reach the workspace at that name, from an owner-permitted device.
   Never assume enrollment, reachability, or revocation on destroy without that check.
 
 Orca launches `claude` with the default agent arguments in the user's settings, including

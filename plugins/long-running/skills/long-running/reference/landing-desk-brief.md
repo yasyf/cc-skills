@@ -24,9 +24,10 @@ them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
 
-Follow [Desk inboxes](../SKILL.md#desk-inboxes). If reports show a cursor more
-than one iteration behind the root's last line, the root wakes the desk with
-`SendMessage` telling it to read from its cursor. The desk continues in place.
+Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
+running desk. If reports show a cursor more than one iteration behind the root's
+last line, the root appends one inbox line naming the unread range and records the
+stall in its progress record; the desk reads it at the top of its next iteration.
 Traffic from a priority desk's lanes goes to that desk's inbox.
 
 The root records every owner ask with `ledger.py ask` in the turn it arrives, before

@@ -18,8 +18,9 @@ printf '%s\n' 'R<n> <msg id> <lane>: <ruling>' >> '<inbox file>'
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The desk reads from its saved cursor
 at the top of every iteration, advances it every iteration, and names `cursor R<n>`
 in every report. Every inbox wait is at most 60 seconds. If reports show a cursor
-more than one iteration behind the root's last line, the root wakes it with
-`SendMessage` telling it to read from its cursor. The desk continues in place.
+more than one iteration behind the root's last line, the root appends one inbox
+line naming the unread range and records the stall in its progress record; it never
+`SendMessage`s the running desk.
 Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
