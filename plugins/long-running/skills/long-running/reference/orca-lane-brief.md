@@ -40,8 +40,8 @@ You are one worker in <drive>. Read <plan path> in full before anything else; <o
 plan or source of truth> is the source of truth behind it.
 
 Authority: everything inside your Ownership below, without asking. Anything that
-changes the plan, touches production (<apply, deploy, Slack write, state move, merge
-label>) or is listed under Escalate stops for the coordinator: use the preamble's
+changes the plan, touches production (<apply, deploy, Slack write, state move>) or
+is listed under Escalate stops for the coordinator: use the preamble's
 `orca orchestration ask` with the question and 2-4 options. If it returns
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
@@ -62,24 +62,31 @@ Worktree and VCS:
   command>. Load <the repo's submit skill> before opening a PR. <title and body format>.
   A PR without a body, or left as a draft, is forbidden.
 - <the repo's forbidden commands, verbatim>
-- Commit and push every coherent checkpoint. Finished work is an open, non-draft PR
-  with a body, in the same turn.
+- Commit and push every coherent checkpoint. Open a non-draft PR with a body for
+  finished changes in the same turn. Drive it through landing under D1.
 - When your stack depends on another lane's unlanded branch, stack on top of it and
   say so in the PR body; never copy their diff.
 
 Landing desk (records over cc-notes refs, shared by every checkout):
 - Ledger `<id>`; script `<plugin root>/skills/long-running/scripts/ledger.py`; repo
   `<owner/name>`; base `<base>`.
+- Holds file `<path>`, root-owned; read it before every enqueue.
 - You are a separate session. Run register/report yourself; never SendMessage a subagent.
 - On spawn: `python3 <ledger.py> register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
 - On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
-  The desk grades and enqueues whole stacks once approved and green; you never enqueue.
+- The moment every PR in your stack is green and approved, read the holds file.
+  If none is listed, run `python3 <ledger.py> label --repo <owner/name> --ledger <id>
+  --pr <tip> --expect-head <sha> --checkout <worktree>` at once. It uses the repo's
+  enqueue script when present and records the enqueue. Never end a turn with a
+  ready, unheld stack unenqueued. If a not-ready open child blocks enqueue, close
+  it, keep its branch, enqueue, and reopen it after the stack lands. No ruling needed.
 - After opening or enqueueing a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
   (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
-  `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree.
+  `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
+  then re-enqueue at once when the gates pass and the holds file permits it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
@@ -89,7 +96,8 @@ Landing desk (records over cc-notes refs, shared by every checkout):
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
 
-Finish: drive to a terminal state, then send the preamble's `worker_done` with
+Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
+Drive to a terminal state, then send the preamble's `worker_done` with
 `--outcome succeeded|failed`, `--task-id <taskId>`, and `--dispatch-id <dispatchId>`
 from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,

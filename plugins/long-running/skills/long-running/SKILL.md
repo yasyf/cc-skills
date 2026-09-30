@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, a landing-desk lane owns the message queue and merges, an orca-desk owns worker launches and inbox traffic, and a lane bus over one cc-notes log carries every decision, head, contract, blocker, and ask between lanes so each reads state from its cursor instead of a stale message. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger records every PR and owner ask, lanes self-enqueue their stacks against a root-owned holds list, a landing-desk reconciles landings, an orca-desk owns worker traffic, each owner-named number-one outcome gets a priority desk, and a lane bus carries decisions, heads, contracts, blockers, and asks from each lane's cursor. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -21,8 +21,9 @@ notifications it answered, and status it restated per event.
 
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
-A drive has three standing subagents: `landing-desk`; `orca-desk` when any lane runs
-through Orca; and an alerts/production watcher when the drive touches production.
+The standing subagents are `landing-desk`; `orca-desk` when any lane runs
+through Orca; an alerts/production watcher when the drive touches production; and one
+priority desk per owner-named #1-priority outcome while that outcome is open.
 The root spawns a subagent for every task with a body, including its own routine work.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
@@ -30,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The twelve hard rules
+## The fourteen hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -168,13 +169,32 @@ at once; see Stalled-red sweep. Idle lanes never see CI.
 *Prevents seven PRs sitting red for 30 to 100 minutes on 09-29 while their owners
 sat idle.*
 
+**R13. Dispatch every owed item in the same turn, and read priority PRs directly.**
+When several owed items have no PR, the root dispatches all of them in one turn,
+one lane each. Never dispatch one per turn or wait behind a desk. The root reads
+priority PR state itself in one batched `ccx vcs pr status <n1> <n2> ...` call.
+
+*Prevents the owed Phase 0 items sitting as pushed branches with no PR while the
+root waited on desk relays during release-v3 on 2026-09-30.*
+
+**R14. A process fix is a PR the turn it is adopted.** Every tooling or process
+change the root makes mid-drive goes to a lane that PRs it into the skill or tool
+in that same turn. That lane drives it through merge, release, and installation.
+This includes a new desk, a new landing model, and a new rule relayed to lanes.
+A change that lives only in scratch inbox files or a desk's brief is lost at the
+next drive.
+
+*Prevents the release-v3 R137 and R138 rulings of 2026-09-30 living only in the
+drive's inbox files until this skill change.*
+
 ## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
 Each report is a message in the root's window, and each landing is a wait. The desk is
-one long-lived lane, `landing-desk`, that takes those reports and owns routine labels;
-the root checks and labels priority PRs under D3. Lanes report to the desk, it grades
-and labels, and the root receives P0 lines immediately and a summary every 30 minutes.
+one long-lived lane, `landing-desk`, that takes those reports and reconciles landings.
+Lanes enqueue their own stacks under D1; the desk enqueues any ready stack they leave
+unqueued. The root owns the holds file and checks and enqueues priority PRs under D3.
+It receives P0 lines immediately and a summary every 30 minutes.
 
 `scripts/ledger.py` is its one tool, using `gh api` REST for reconciliation and
 `ccx vcs pr watch` for transitions. Its one store is a cc-notes
@@ -193,15 +213,29 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. Address reports to the desk and act on priority PRs.** A lane sends the three-line report of PR, full head sha, and verdict to `landing-desk`. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. Never relay a lane's ETA for a green PR. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and adds the merge label itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope after they approved it, the root gets a fresh approval naming the new head before labelling.
+**D1. Lanes enqueue their own stacks; the root owns holds and priority PRs.** The moment every PR in its stack is green and approved, the owning lane reads the root's holds file. If none of its PRs is listed, it runs `ledger.py label --repo <repo> --ledger <id> --pr <tip> --expect-head <tip-sha> --checkout <its worktree>` at once. This uses the repo's enqueue script, such as `stack-enqueue`, when the checkout carries it, and records the enqueue on the ledger.
 
-*Prevents the root relaying a lane's 45-60 minute ETA for green priority PR #25145 while the owner queued it by hand. Also prevents labelling a PR on a stale approval after two more fixes landed on it past the head the owner actually saw.*
+The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases and re-enqueues at once. It is not finished until its squash `(#N)` is on the base branch, and never ends a turn with a green, approved, unheld PR unenqueued. If an open child is not ready and blocks the enqueue, the lane closes it, keeps its branch, enqueues the stack, and reopens the child after landing. No ruling is needed.
+
+Only the root appends or edits the holds file. Each line names a held PR set and its reason. Everything not on it is the owning lane's to enqueue. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
+
+Lanes send the desk the three-line report of PR, full head sha, and verdict. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
+
+*Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once.*
 
 **D2. Track and grade our lanes' PRs.** `ledger.py report`, `ledger.py register` with a lane's branch prefix, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. A PR on a registered prefix or reported by a lane is tracked and graded without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
-**D3. Label the stack's tip as soon as every PR passes.** `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base. Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check, and `--expect-head` takes any prefix of the tip's sha. An untracked downstack PR, an orphaned base, or an open child outside the stack refuses the whole attempt. `--expect-head` pins the tip you graded; the batch re-reads each tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting. When all pass, the tip goes into the queue with its whole downstack as one entry: through `.agents/skills/submit-pr/scripts/stack-enqueue <tip>` when the `--checkout` carries it, which is the monorepo's rule, and otherwise by one `merge` label on the tip. Every row records `label_head`, `labelled_at`, `approved_by`, and `label_stack` either way. `stack-enqueue` applies its own gate first; when it names a blocker, the whole stack is refused with its per-PR lines, and `--dry-run` gates through `stack-enqueue --check` and enqueues nothing. A queue that drops part of the stack after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment. For a priority PR under D1, the root checks the gates itself with `ccx vcs status --refresh` or REST reads of approval, CI, and mergeability, then adds the merge label in the same turn. The desk records that label on its next refresh as `in the queue, labelled outside the desk`; it does not treat it as a bypass.
+**D3. Enqueue every ready stack in parallel after every PR passes.** `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
+
+Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR, an orphaned base, or an open child outside the stack refuses the whole attempt. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
+
+When all pass, the tip goes into the queue with its whole downstack as one entry through `.agents/skills/submit-pr/scripts/stack-enqueue <tip>` when the `--checkout` carries it, which is the monorepo's rule, and otherwise by one `merge` label on the tip. Every row records `label_head`, `labelled_at`, `approved_by`, and `label_stack` either way. `stack-enqueue` applies its own gate first; when it names a blocker, the whole stack is refused with its per-PR lines, and `--dry-run` gates through `stack-enqueue --check` and enqueues nothing. A queue that drops part of the stack after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment.
+
+The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues every open tracked stack that is green, approved, absent from the holds file, and not yet queued. It starts one `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` per ready stack together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass. `label --all-clean` walks stacks one at a time, so it is the fallback sweep.
+
+For priority PRs, the root reads their gates itself in one batched `ccx vcs pr status <n1> <n2> ...` call and enqueues in the same turn. Priority approval covers only the named head under D1. The desk records an outside label on its next refresh as `in the queue, labelled outside the desk`; it does not treat it as a bypass.
 
 *Prevents a green tip enqueueing a red parent, an ejected head entering the queue again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
 
@@ -243,11 +277,15 @@ red car is fixed forward or ejected with `--parent`, never waited on. A hot-set 
 the train, not to its lane. *Prevents the shelf rot where fourteen of fifteen
 conflicting PRs never reached the queue.*
 
-**D8. A red or conflicting row whose lane is gone is routed within thirty
-minutes** to the train (hot set) or the standing `red-desk` lane, and a step red
-on trunk's latest build is held as `dev-red:<step>` with a six-hour expiry
-instead of routed. `ledger.py hold` refuses a PR that has green children unless
-`--stack` holds them all. *Prevents the 38 of 80 open PRs untouched for twelve
+**D8. Route ejections, conflicts, and reds in the pass that sees them.** The owning
+lane handles its own ejection from its watch. The desk routes an ejection or conflict
+to the lane at once when the watch or a pass shows it. A row whose lane is gone goes
+to the train (hot set) or the standing `red-desk` in that same pass. A step red on
+trunk's latest build is held as `dev-red:<step>` with a six-hour expiry instead of
+routed. `ledger.py hold` refuses a PR that has green children unless `--stack` holds
+them all.
+
+*Prevents the 38 of 80 open PRs untouched for twelve
 hours and the foreign reds lanes diagnose as their own.*
 
 **D9. A stale plan is information, never a refusal.** A pull request's plan is computed
@@ -260,7 +298,9 @@ merge conflict and for nothing else. *Prevents the bounce where a green PR is re
 because an unrelated stack moved and then spends half an hour in a rebase and a CI
 re-run that change nothing about what the landing does.*
 
-**D10. Label on the report, and label every clean stack in one batch.** When a lane reports `clean`, run `ledger.py label` for its stack's tip in the same turn the report goes into the ledger. Every pass also runs `ledger.py label --all-clean` over every tracked open row whose current head has never carried the label and is not held. The batch groups candidates into stacks, re-reads each tip immediately before grading it, and labels each passing tip. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused stack does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
+**D10. Enqueue on the report, and reconcile every three minutes.** When a lane reports `clean`, enqueue its stack's tip in the same turn if it is ready, unheld, and unqueued. Every three-minute pass reads every PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build list, never one REST call per PR. Desks and shards stagger their reads by a minute at `:00`, `:01`, and `:02`.
+
+Enqueue all ready stacks together under D3. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused stack does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
 
 *Prevents clean PRs waiting for a 20-minute pass that labels one report at a time, until the owner enqueues one in Graphite by hand.*
 
@@ -274,16 +314,20 @@ Clear each stale row's blocker in the pass that sees it with a label, route, hol
 lift, or `RULING NEEDED`. *Prevents a clean row aging silently while the counts line
 reads healthy.*
 
-**D12. Shard the desk above 25 active rows.** Spawn parallel sub-lanes named
+**D12. Shard at 15 lanes or 25 active rows, whichever comes first.** Split early.
+Spawn parallel sub-lanes named
 `landing-desk-<shard>`, each owning a named set of lanes' rows in the same ledger with
 `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane. Each
-shard runs `refresh`, `landed`, `route`, `label --all-clean`, and `stale` on its own
-rows every five minutes. The refresh lock is keyed on the ledger, so shards never
-race a sync.
+shard runs `refresh`, `landed`, `route`, D3's parallel enqueues, and `stale` on its own
+rows every three minutes.
+
+Stagger desks and shards by a minute at `:00`, `:01`, and `:02`.
+Read all PR numbers in the pass with one `ccx vcs pr status` call and the Buildkite
+build list. The refresh lock is keyed on the ledger, so shards never race a sync.
 
 Lanes keep reporting to `landing-desk`; the main desk types every message in, labels
 on each clean report, and alone sends the root the summary. *Prevents one desk's pass
-growing with the board until a five-minute cadence is a 20-minute one again.*
+growing with the board until its pass takes 20 minutes.*
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh discovers its open PRs through `GET repos/<repo>/git/matching-refs/heads/<prefix>`, then one scoped `pulls?head=<owner>:<branch>&state=open` lookup per branch. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
@@ -293,7 +337,7 @@ growing with the board until a five-minute cadence is a 20-minute one again.*
 
 *Prevents two heads that moved after their reports being ignored for hours.*
 
-**D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and `label --all-clean`, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
+**D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and D3's parallel enqueues, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
@@ -308,8 +352,10 @@ growing with the board until a five-minute cadence is a 20-minute one again.*
 **D18. A queued PR is watched until its squash is on the base; an ejection is a P0 the pass it happens.**
 The desk arms `ledger.py watch` under Monitor when it spawns and re-arms it on every
 expiry. Forward every `P0` line to the root the moment it prints; the root treats it
-like a `RULING NEEDED` line and acts in the same turn. The 5-minute refresh stays as
-the reconciliation pass; the watch detects transitions.
+like a `RULING NEEDED` line and acts in the same turn. The 3-minute refresh is the
+reconciliation pass; the watch detects transitions. Stagger desks and shards by a
+minute at `:00`, `:01`, and `:02`. Each pass reads every PR number in one batched
+`ccx vcs pr status` call and the Buildkite build list.
 
 Every lane that enqueues or reports a PR runs
 `ccx vcs pr watch --lane-prefix <prefix> --until landed` under
@@ -332,7 +378,8 @@ That is what makes the desk cheap to rotate; see Lane rotation.
 
 ## The orca-desk
 
-Orca worker traffic belongs to one long-lived `long-running:lane`, `orca-desk`.
+Orca worker traffic outside a priority desk's lanes belongs to one long-lived
+`long-running:lane`, `orca-desk`.
 It creates worktrees and terminals, checks receipts, reads the worker inbox, and
 answers what the briefs already settle. The root holds decisions, owner asks, and
 rulings. It receives only ≤5-line ruling requests and `worker_done` outcomes that
@@ -402,18 +449,69 @@ returns `capacity reached`. The worker sends `--type question` or
 `--type escalation` instead and keeps working on everything that does not depend
 on the answer. The desk applies the same brief check and ruling path to those messages.
 
-**O12. Read the root's file before every wait.** Root-to-desk traffic goes through an
-append-only inbox file. The root appends one numbered line per ruling:
-`R<n> <msg id> <lane>: <ruling>`. Read from a saved cursor at the top of every loop
-iteration; advance it only after relaying and recording the ruling. Every inbox wait
-is at most 60 seconds; `orca-check.sh` defaults `ORCA_CHECK_TIMEOUT_MS` to `60000`.
-
-`SendMessage` to a looping desk subagent is not delivered mid-turn. To reach one
-once without its inbox file, `TaskStop` it, then `SendMessage`; that resumes its
-transcript. This resumes the same desk and is not a fresh rotation. The file, cursor,
-and 60-second wait rule apply to the landing-desk too.
+**O12. Follow Desk inboxes before every wait.** Every inbox wait is at most
+60 seconds; `orca-check.sh` defaults `ORCA_CHECK_TIMEOUT_MS` to `60000`.
+The same wait limit applies to the landing-desk.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
+
+## The priority desk
+
+`reference/priority-desk-brief.md` is the brief, ready to paste.
+
+**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open,
+the root spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own
+append-only inbox file. Every other desk forwards traffic from those lanes to
+that inbox and stops handling them.
+
+*Prevents the shared desk queue that release-v3 ruling R138 split on 2026-09-30.*
+
+**P2. Open with the owner's owed list and the start state.** List one numbered item per
+PR or proof in the owner's definition of done. State what is on the base branch,
+queued, open as a PR, and pushed with no PR. Name the lanes that owe each item.
+
+*Prevents the owed Phase 0 items sitting as pushed branches with no PR during
+release-v3 on 2026-09-30.*
+
+**P3. Drive every owned lane in the same iteration.** Act on all owed items in
+parallel, one dispatch per lane per iteration. Lanes self-enqueue under D1.
+The priority desk enqueues any of their stacks that is green, approved, and unheld
+as soon as it sees it, using D3's parallel calls. It routes ejections, conflicts,
+and reds to the owning lane at once.
+
+**P4. Replace a stalled lane at the PR deadline.** Pushed heads with no PR after
+10 minutes get a fresh `<lane>-submit` lane, sonnet xhigh, in its own worktree.
+It does PR mechanics only and submits those exact heads as one linear stack.
+An unbuilt owed item with no PR after 15 minutes gets an implementation lane.
+Launch in that iteration; never wait on the stalled lane.
+
+**P5. Report the owed list every 15 minutes and stop when it is done.** Send the
+root each item as landed, queued, PR + blocker, or no PR + the lane launched for it.
+Include `cursor R<n>`. When every item is landed or proven, report once and stop.
+
+## Desk inboxes
+
+These rules apply to the landing desk, orca-desk, priority desks, and shards.
+
+**I1. Give every desk one append-only inbox file.** The root appends numbered lines
+`R<n> ...`. It never rewrites or truncates the file.
+
+**I2. Read from the saved cursor at the top of every iteration.** Read before any
+other work, act on each line, and advance the cursor every iteration. Every report
+names the cursor as `cursor R<n>`.
+
+**I3. Read the inbox before reporting a wait on the root.** Check for the answer
+before saying an item is waiting on the root.
+
+**I4. Resume a desk whose cursor stays stale for more than one iteration.** If its
+reports show a cursor behind the last line the root appended for that long, the
+root runs `TaskStop`, then `SendMessage` telling it to read from its cursor.
+This resumes the same transcript.
+
+*Prevents the 26 rulings left unread in a looping desk on 2026-09-30.*
+
+**I5. Keep about 15 lanes per desk.** Split early into a second desk or a priority
+desk.
 
 ## The lane bus
 
@@ -483,6 +581,12 @@ Escalate early, do not improvise: scope surprise, an assumption the code refutes
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
+Holds file: <path>, root-owned; read it before every enqueue.
+Self-enqueue: green + approved + unheld means run
+  `ledger.py label --repo <repo> --ledger <id> --pr <tip> --expect-head <sha> --checkout <worktree>`
+  at once. Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and
+  re-enqueue. Close a not-ready blocking child, keep its branch, enqueue, and reopen
+  it after the stack lands. Never end a turn with a ready, unheld stack unenqueued.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
 Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <drive checkout>.
@@ -497,7 +601,8 @@ Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <driv
     carries the entry number, never the body.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
-Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one report,
+Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
+  Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
   head to landing-desk in the same turn; the desk grades without waiting for it.
@@ -649,9 +754,12 @@ shared limit.*
 
 ### Desk cadence
 
-The desk owns the PR loop below; the root records asks and verifies their acceptance
-checks. The ledger is created once, when the desk is spawned, and its id goes into
-the brief; everything after that is `ledger.py`.
+Lanes self-enqueue under D1. The desk runs the reconciliation loop below; the root
+records asks and verifies their acceptance checks. Create the ledger once at spawn
+and put its id in every brief. Each pass reads all PR numbers in one
+`ccx vcs pr status <n1> <n2> ...` call and the Buildkite build list, never one REST
+call per PR. Run every three minutes, with desks and shards staggered by a minute at
+`:00`, `:01`, and `:02`. Read the root's holds file before each enqueue.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
@@ -665,11 +773,14 @@ ledger.py enqueue --ledger "$LEDGER" --kind idle --pr 21221 --head <sha> --lane 
 ledger.py inbox   --ledger "$LEDGER" --take
 ledger.py register --ledger "$LEDGER" --lane lightning-eh --branch-prefix lightning/ --pr 21221
 
-# every 5 minutes: refresh, then grade every tracked current head, reported or not
+# every 3 minutes, staggered :00/:01/:02: reconcile every tracked current head
 ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
 ledger.py landed  --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
-ledger.py label   --repo "$REPO" --ledger "$LEDGER" --all-clean --checkout "$CHECKOUT"
+ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr <tip-a> --expect-head <sha-a> --checkout "$CHECKOUT" > <output-a> 2>&1 &
+ledger.py label --repo "$REPO" --ledger "$LEDGER" --pr <tip-b> --expect-head <sha-b> --checkout "$CHECKOUT" > <output-b> 2>&1 &
+wait
+cat <output-a> <output-b>
 ledger.py stale   --ledger "$LEDGER"
 
 # for a stack the batch did not reach: pin the graded tip; route or hold each blocker
@@ -690,13 +801,13 @@ ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 3
 ledger.py drop    --ledger "$LEDGER" --ask ask/000002 --reason "owner withdrew it"
 ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
-# each shard runs the batch for its lanes
+# fallback sweep over one shard's lanes
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
 ```
 
 At spawn, arm the watch under Monitor at its maximum timeout and re-arm on every
 expiry. Pass each priority PR the root names with `--priority`; forward every `P0`
-line immediately. The five-minute batch reconciles the ledger.
+line immediately. The three-minute batch reconciles the ledger.
 
 ```sh
 ledger.py watch --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT" [--priority <n>]... [--shard <lane>,<lane>]
@@ -709,8 +820,14 @@ landed or closed emits nothing and settles nothing; `landed` settles it. A stand
 `conflicting`, `red`, or `ejected` still emits once.
 
 `label --dry-run` runs every guard, prints the stack it would enqueue, and writes
-nothing; run it once on a repo before the first live label. `label --all-clean` supports
-`--dry-run` and prints each stack to enqueue. It considers every tracked open row whose
+nothing; run it once on a repo before the first live label.
+
+The parallel example starts one call per ready stack in the same Bash call and collects each output
+after `wait`; include every ready stack in the pass. Each shard does the same for
+its lanes.
+
+`label --all-clean` is the fallback sweep because it enqueues stacks one at a time.
+It supports `--dry-run` and prints each stack to enqueue. It considers every tracked open row whose
 current head has never carried the label and is not held, and re-reads each tip before
 grading it. `--expect-head` pins the graded tip for a single-stack call.
 
@@ -1054,6 +1171,12 @@ same inputs, which resumes from that file.
 
 ## Anti-patterns seen
 
+- A desk enqueueing one stack per pass while other green, approved stacks waited,
+  until the owner said the desk was too slow (2026-09-30).
+- The root waiting on desk relays for priority PRs and owed items with no PR instead
+  of dispatching them all and reading their state itself (2026-09-30).
+- A desk-model change that lived only in the drive's scratch inbox files during
+  release-v3, R137/R138, on 2026-09-30.
 - The root relaunching 33 Orca lanes inline and answering scope questions their
   briefs already settled (release v3, 2026-09-30).
 - Sending rulings by `SendMessage` to a looping desk: 26 sat undelivered for over an
@@ -1128,10 +1251,10 @@ same inputs, which resumes from that file.
 7. Am I about to report a milestone? → first dispatch every owner ask still unstarted.
 8. Before stating a PR's state, check `ccx vcs status` or the `(#N)` squash on a fetched trunk; never report it from the plan file.
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
-10. Before saying something is assigned, read the summary's `LOST` lines first.
-    Never call an ask done before `LIVE`.
+10. Before saying something is assigned, read the summary's `LOST` lines first. Never call an ask done before `LIVE`.
 11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
+13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 
-Apply D3 to priority PRs before delegating. A call that survives all twelve decides
+Apply D3 to priority PRs before delegating. A call that survives all thirteen decides
 something no lane can decide for you; everything else is a lane.
