@@ -62,6 +62,7 @@ class FakeShell(ledger.Shell):
         self.routes = dict(routes or {})
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
         self.fail_gh: str | None = None
+        self.orca: dict[tuple[str, ...], dict] = {}
         self.calls: list[list[str]] = []
 
     def run(self, argv, stdin=None):
@@ -81,6 +82,8 @@ class FakeShell(ledger.Shell):
             return self.ccx_out
         if argv[0].endswith("stack-enqueue"):
             return self._stack_enqueue(argv)
+        if argv[0] == "orca":
+            return json.dumps({"ok": True, "result": self.orca[tuple(argv[1:-1])]})
         raise AssertionError(f"unexpected command: {argv}")
 
     @property
@@ -256,6 +259,11 @@ class FakeShell(ledger.Shell):
 
     def endpoints(self) -> list[str]:
         return [argv[2] for argv in self.calls if argv[0] == "gh"]
+
+
+@pytest.fixture(autouse=True)
+def outside_orca(monkeypatch) -> None:
+    monkeypatch.delenv(ledger.ORCA_TERMINAL, raising=False)
 
 
 @pytest.fixture

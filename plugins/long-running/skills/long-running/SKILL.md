@@ -439,9 +439,13 @@ Send other guidance with
 `orca orchestration send --to dispatch:<current dispatch> --type dispatch --subject "<subject>" --body "<ruling>"`.
 Read the current dispatch before sending; a prior receipt is not a live address.
 
-**O6. Release settled dispatches.** Once a dispatch has settled as succeeded or
-failed, run `orca orchestration worker-release --dispatch <id>`. Forward only
-outcomes that need the root to act.
+**O6. Never end a session.** A settled dispatch keeps its terminal open and idle.
+Claude and Codex sessions, Orca, terminal hosts, and PTY daemons are never stopped,
+signalled, released, or closed; working workers have no cap, and the only launch
+throttle is a 1-minute load average above the core count. Forward only outcomes
+that need the root to act.
+
+*Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
 
 **O7. Record every relayed ruling.** Append the message id, lane, dispatch, and ruling
 to the drive's cc-notes log with `ccn log append`. A sent reply without its log entry
@@ -471,6 +475,15 @@ on the answer. The desk applies the same brief check and ruling path to those me
 The same wait limit applies to the landing-desk.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
+
+**O13. A lane stuck on a prompt is a desk bug.** Every worker's launch command
+disallows `AskUserQuestion`, `EnterPlanMode`, and `ExitPlanMode`. Every pass, the desk
+reads `observation.agentWait` from `orca orchestration worker-show` for each
+in-progress dispatch, and answers or escalates any prompt it names in that pass.
+`ledger.py summary`, run inside an Orca terminal, prints `WAITING-ON-PROMPT` for any
+worker parked five minutes or more.
+
+*Prevents lanes sitting for hours on an AskUserQuestion only their own terminal showed (release v3, 2026-09-30).*
 
 ## The priority desk
 
@@ -596,6 +609,8 @@ Do:
   2. <step>
 Escalate early, do not improvise: scope surprise, an assumption the code refutes,
   an auth or approval gate, or two failed approaches. Return findings + 2-4 options.
+AskUserQuestion is unavailable; on a decision, take the brief's default, log it with
+  `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Holds file: <path>, root-owned; rebuild a fresh numeric held file before every

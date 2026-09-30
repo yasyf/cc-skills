@@ -9,7 +9,10 @@ the desk. Its spawn brief is [orca-desk-brief.md](orca-desk-brief.md).
 
 Orca launches `claude` with the default agent arguments in the user's settings, including
 `--permission-mode plan`. A worker needs a terminal created with an explicit
-command. Keep the interactive default in plan mode. Carry every other default
+command. Keep the interactive default in plan mode. The explicit command also
+disallows `AskUserQuestion`, `EnterPlanMode`, and `ExitPlanMode`: a worker's prompt
+reaches only its own terminal, which no one watches, so the launch script puts
+the flag on every command it builds. Carry every other default
 argument into `ORCA_LAUNCH_CLAUDE_ARGS`; `--channels plugin:cc-review@cc-review` below
 stands for those arguments, not a fixed channel requirement.
 
@@ -20,7 +23,7 @@ these commands:
 orca worktree create --name "<lane>" --repo "id:<repo id>" --base-branch "origin/<base>" \
   --parent-worktree "path:<coordinator worktree>" --setup run --json
 orca terminal create --worktree "path:<wt>" --json \
-  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --channels plugin:cc-review@cc-review --model <id> --effort <level>"
+  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --channels plugin:cc-review@cc-review --model <id> --effort <level>"
 orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --json
 ```
@@ -82,6 +85,18 @@ orca orchestration worker-read --dispatch "<id>"
 A check from a worker terminal must name `--terminal <its handle>`. A `--run` check
 from a non-coordinator terminal fails `consumer_fenced`. The desk consumes the run's
 inbox from the coordinator terminal; workers consume their own terminal inboxes.
+
+**R195. Sessions are protected.** Claude and Codex sessions, Orca, terminal hosts,
+PTY daemons, and their supervisors are never stopped, signalled, suspended,
+restarted, released, or closed, singly or in bulk, for cleanup, load, or a finished
+lane. A finished lane's terminal stays open and idle. Remove a worktree only when
+it is clean, fully pushed, and no terminal in `orca terminal list` is attached to it.
+
+*Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
+
+**R210. Load is the only launch throttle.** Working workers have no cap. Before each
+launch, read `uptime`; while the 1-minute load average is above the core count
+(`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
 
 The runtime drops connections under load. Retry after 30 seconds; never restart
 Orca to recover a connection. Handles belong to one runtime. After a restart,
