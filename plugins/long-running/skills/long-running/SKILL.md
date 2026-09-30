@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, a landing-desk lane with its own desk tool is the message queue and merge coordinator between the lanes and the root, and a lane bus over one cc-notes log carries every decision, head, contract, blocker, and ask between lanes so each reads state from its cursor instead of a stale message. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger grades, routes, and holds every open PR and records every owner ask, a landing-desk lane owns the message queue and merges, an orca-desk owns worker launches and inbox traffic, and a lane bus over one cc-notes log carries every decision, head, contract, blocker, and ask between lanes so each reads state from its cursor instead of a stale message. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -20,6 +20,10 @@ notifications it answered, and status it restated per event.
 - Any bring-up, migration, sweep, or audit whose units are many and independent.
 
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
+
+A drive has three standing subagents: `landing-desk`; `orca-desk` when any lane runs
+through Orca; and an alerts/production watcher when the drive touches production.
+The root spawns a subagent for every task with a body, including its own routine work.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
 from §Parallelize Independent Work, lane behavior from §Delegation, per-lane model and
@@ -128,10 +132,12 @@ state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 **R9. Orca changes nothing about R1-R2.** Running workers through Orca does not license
 the root to do lifecycle, inbox, script, or retry work inline. Worktree and terminal
 creation, relaunch sweeps, the `check --wait`/ack loop, routine replies from a lane's own
-brief, and any helper script belong to a dedicated `long-running:lane` subagent (an
-orca-desk beside the landing-desk) that forwards only rulings, in five lines or fewer. The
-root holds decisions, owner asks, and rulings. *Prevents the root spending its window
-relaunching 33 lanes and answering scope questions the briefs already settled.*
+brief, and any helper script belong to a dedicated `long-running:lane` subagent, the
+orca-desk, spawned beside the landing-desk before the first Orca worker. The root holds
+decisions, owner asks, and rulings; it hears from the orca-desk only as ≤5-line ruling
+requests and `worker_done` outcomes that need action.
+
+*Prevents the root spending its window relaunching 33 lanes and answering scope questions the briefs already settled (release v3, 2026-09-30).*
 
 **R10. Landed is the only progress.** Status to the owner is landed, queued, or the
 exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
@@ -302,6 +308,89 @@ ledger id reads the inbox, the holds, the routes, the label history, and the lan
 exactly as the last one left them. None of that goes into session memory or the plan file.
 That is what makes the desk cheap to rotate; see Lane rotation.
 
+## The orca-desk
+
+Orca worker traffic belongs to one long-lived `long-running:lane`, `orca-desk`.
+It creates worktrees and terminals, checks receipts, reads the worker inbox, and
+answers what the briefs already settle. The root holds decisions, owner asks, and
+rulings. It receives only ≤5-line ruling requests and `worker_done` outcomes that
+need action.
+
+Spawn it beside the landing-desk before the first Orca worker, whenever a drive runs
+Orca workers. `scripts/orca-launch.sh` owns launches and relaunches;
+`scripts/orca-check.sh` owns each blocking inbox check.
+`reference/orca-desk-brief.md` is the desk's brief, ready to paste;
+`reference/orca-workers.md` holds the launch recipe and script interfaces.
+
+**O1. Launch every worker through `scripts/orca-launch.sh`.** Worktree and terminal
+creation, relaunch sweeps, retries, and helper scripts stay in the desk. The root
+dispatches the lane's brief and rules on exceptions.
+
+*Prevents the root relaunching 33 lanes inline (release v3, 2026-09-30).*
+
+**O2. Count only a `ready` receipt.** Every launch must print
+`<lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>`.
+The terminal must run the custom `claude` command in bypass-permissions mode; the
+script checks its screen for `bypass permissions on` before printing that line.
+Anything else is a failed launch.
+
+**O3. Keep one foreground check loop and acknowledge deliveries.** Run
+`scripts/orca-check.sh`: one blocking `check --wait --types worker_done,escalation,question`.
+Process the whole batch, then pass the printed `delivery <id>` as `--ack <id>` on
+the next call. That id is `result.deliveryId`. A message id acknowledges nothing;
+an unacknowledged batch replays.
+
+**O4. Answer from the brief, escalate the rest.** Answer routine questions from the
+lane's brief file. Forward anything it does not settle to the root with the message
+id, lane, and 2-4 options, in ≤5 lines.
+
+*Prevents the root answering scope questions the lane briefs already settled (release v3, 2026-09-30).*
+
+**O5. Relay the root's ruling to the current dispatch.** Answer a question with
+`orca orchestration reply --id <msg id> --body "<ruling>"`; send other guidance with
+`orca orchestration send --to dispatch:<current dispatch> --type dispatch --subject "<subject>" --body "<ruling>"`.
+Read the current dispatch before sending; a prior receipt is not a live address.
+
+**O6. Release settled dispatches.** Once a dispatch has settled as succeeded or
+failed, run `orca orchestration worker-release --dispatch <id>`. Forward only
+outcomes that need the root to act.
+
+**O7. Record every relayed ruling.** Append the message id, lane, dispatch, and ruling
+to the drive's cc-notes log with `ccn log append`. A sent reply without its log entry
+is unfinished work.
+
+**O8. Check liveness hourly.** Run `orca orchestration task-list --run <run>` and
+`orca orchestration worker-show --dispatch <id>` for each active worker. A worker
+with no heartbeat for 30 minutes goes to the root as a relaunch proposal. Relaunch
+only on its ruling, by running `scripts/orca-launch.sh` again with the same lane
+and receipt directory; it retries the recorded dispatch.
+
+**O9. Never re-brief.** Edit the lane's brief file, then send its pointer to the
+current dispatch with `send --type dispatch`. Never paste the whole brief into a
+message or start a second lane to carry a follow-up.
+
+**O10. Acknowledge stale questions without answering.** For a question from a stopped
+or superseded dispatch, record it as stale and acknowledge its delivery. Never
+answer it or send its answer to the replacement worker.
+
+**O11. Treat a capacity fallback like an ask.** Under load, `orchestration ask`
+returns `capacity reached`. The worker sends `--type question` or
+`--type escalation` instead and keeps working on everything that does not depend
+on the answer. The desk applies the same brief check and ruling path to those messages.
+
+**O12. Read the root's file before every wait.** Root-to-desk traffic goes through an
+append-only inbox file. The root appends one numbered line per ruling:
+`R<n> <msg id> <lane>: <ruling>`. Read from a saved cursor at the top of every loop
+iteration; advance it only after relaying and recording the ruling. Every inbox wait
+is at most 60 seconds; `orca-check.sh` defaults `ORCA_CHECK_TIMEOUT_MS` to `60000`.
+
+`SendMessage` to a looping desk subagent is not delivered mid-turn. To reach one
+once without its inbox file, `TaskStop` it, then `SendMessage`; that resumes its
+transcript. This resumes the same desk and is not a fresh rotation. The file, cursor,
+and 60-second wait rule apply to the landing-desk too.
+
+*Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
+
 ## The lane bus
 
 `SendMessage` is fire-and-forget into an inbox. A message lands while its reader is
@@ -391,18 +480,19 @@ Finish: drive to a terminal state, then SendMessage <orchestrator> exactly one r
 ```
 
 Spawn every lane as one of this plugin's two lane types, with the routing table's
-`model`. The landing desk, its shards, sequencers, and pollers are `long-running:lane`.
-An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
+`model`. The standing subagents, the desk's shards, sequencers, and pollers are
+`long-running:lane`. An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
 codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the `mcp__*` tools, and
 the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
 `lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
 lighter than `general-purpose`; `lane-ship` starts 5k lighter. A `lane` that turns out
 to need a skill is rotated or respawned as `lane-ship`, never worked around.
 
-A lane that runs as an Orca worker, started with `orca orchestration worker-start`, is a
-separate session the Agent tool cannot message. Its brief is
-`reference/orca-lane-brief.md`, ready to paste: a shared contract file and one file per
-lane, with a short pointer as the `--spec`.
+A lane that runs as an Orca worker is a separate session the Agent tool cannot message.
+The orca-desk launches it through `scripts/orca-launch.sh` using
+`reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
+a shared contract and lane section concatenated into one file, with a ≤300-character
+pointer as the `--spec`.
 
 One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
@@ -909,6 +999,10 @@ same inputs, which resumes from that file.
 
 ## Anti-patterns seen
 
+- The root relaunching 33 Orca lanes inline and answering scope questions their
+  briefs already settled (release v3, 2026-09-30).
+- Sending rulings by `SendMessage` to a looping desk: 26 sat undelivered for over an
+  hour instead of reaching an inbox file read every minute (2026-09-30).
 - Reading build and cloud logs in the root window while an assigned lane owned the question.
 - One Bash watcher per build or PR landing, each returning JSON parsed in the root window.
 - Replying to every lane idle-notification, duplicates included.
@@ -981,7 +1075,7 @@ same inputs, which resumes from that file.
 10. Before saying something is assigned, read the summary's `LOST` lines first.
     Never call an ask done before `LIVE`.
 11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
-12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk lane does it and forwards only rulings.
+12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 
 Apply D3 to priority PRs before delegating. A call that survives all twelve decides
 something no lane can decide for you; everything else is a lane.

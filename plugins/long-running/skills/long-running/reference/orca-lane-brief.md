@@ -2,7 +2,7 @@
 
 The lane brief in `SKILL.md` assumes an Agent-tool subagent the root can reach with
 `SendMessage`. A lane started with `orca orchestration worker-start` runs in a separate
-session. It reports through Orca instead of `SendMessage`. The desk hears from it
+session. It reports through Orca instead of `SendMessage`. The landing desk hears from it
 through `ledger.py`, never a message. The brief lives in files on disk; a short
 `--spec` points to them. Paste the templates below and fill the angle brackets.
 
@@ -11,47 +11,25 @@ through `ledger.py`, never a message. The brief lives in files on disk; a short
 `worker-start --spec` pastes its text into the worker's terminal. Orca truncates the
 spec near 3 KB. The full text stays in `dispatch-show --task`, but the worker sees only
 the pasted text. A long brief arrives without its Finish section. Store the briefs
-outside every repo, in one shared file and one file per lane. Pass a spec that points
-only to those files.
+outside every repo, in one shared contract file and one file per lane. Concatenate
+them into `<spec dir>/<lane>.full.md` before launch:
 
+```sh
+cat "<spec dir>/common.md" "<spec dir>/<lane>.md" > "<spec dir>/<lane>.full.md"
 ```
-Read <drive scratch>/specs/common.md, then <drive scratch>/specs/<lane>.md, in full
-before anything else, and carry them out. Those two files are your brief; this text is
-only the pointer.
+
+Pass that full brief to `orca-launch.sh`. It generates this pointer spec, at most
+300 characters including the lane, brief path, and worktree path:
+
+```text
+Lane <lane>: read <brief> in full first and execute it exactly; Orca truncates specs. Worktree <wt>, bypass-permissions mode; the brief's Escalate rules hold.
 ```
 
 The Orca preamble above the task carries the worker's handle, dispatch capability,
 and exact `send`, `ask`, and `check` commands. The brief tells the worker to copy these
 commands verbatim. It never restates them.
 
-## Launching
-
-`worker-start --agent claude` starts `claude` with your default arguments for new agent
-tabs. Find them in Orca settings under agent default args. If those arguments include
-`--permission-mode plan`, the worker cannot edit until someone leaves plan mode. Start
-the terminal with the command the lane needs. Carry over every other default argument
-from the settings, then attach the worker to it.
-
-```sh
-orca worktree create --name <lane> --repo id:<repo-id> --base-branch origin/<base> --parent-worktree <coordinator-worktree> --setup run --json
-orca terminal create --worktree path:<worktree> --json \
-  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --model <model-id> --effort <level>"
-orca orchestration worker-start --run <run> --worktree path:<worktree> --terminal <handle> --json \
-  --spec "<the pointer above>"
-```
-
-`--parent-worktree` nests the lane's worktree under the coordinator's. `<handle>` is
-`result.handle` from `terminal create`. `--model` and `--effort` cannot combine with
-`--terminal`, so pass them on the `claude` command. If a custom command is unavailable,
-start with `--agent claude --model <id> --effort <level>`. Send shift-tab to the terminal
-before the worker opens a plan for review.
-
-Under R9, a dedicated `long-running:lane` (the orca-desk) runs this whole section for the
-root and forwards only rulings. It waits with `orca orchestration check --wait --types
-worker_done,escalation,question --timeout-ms 900000` and answers a `question` with
-`reply`. Once a lane's `worker_done` settles, it releases the lane with `worker-release`.
-Orca handles belong to one runtime, so after an Orca restart, it lists the workers again
-and continues with the replacements.
+Launch through the orca-desk using [Orca workers: launch recipe](orca-workers.md).
 
 ## `common.md`: the contract every lane shares
 
@@ -63,8 +41,11 @@ plan or source of truth> is the source of truth behind it.
 
 Authority: everything inside your Ownership below, without asking. Anything that
 changes the plan, touches production (<apply, deploy, Slack write, state move, merge
-label>) or is listed under Escalate stops for the coordinator: run the preamble's
-`orca orchestration ask --question "<text>" --options "<a,b,c>"` and block on it.
+label>) or is listed under Escalate stops for the coordinator: use the preamble's
+`orca orchestration ask` with the question and 2-4 options. If it returns
+"capacity reached", use the preamble's `send --type question` or `--type escalation`
+instead. Keep working on everything that does not depend on the answer; the
+orca-desk treats those messages exactly like an ask.
 Never end a turn waiting and never park. Never AskUserQuestion: it opens a prompt only
 this terminal sees.
 
@@ -89,6 +70,7 @@ Worktree and VCS:
 Landing desk (records over cc-notes refs, shared by every checkout):
 - Ledger `<id>`; script `<plugin root>/skills/long-running/scripts/ledger.py`; repo
   `<owner/name>`; base `<base>`.
+- You are a separate session. Run register/report yourself; never SendMessage a subagent.
 - On spawn: `python3 <ledger.py> register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
 - On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head
@@ -103,7 +85,8 @@ Escalate early, never improvise: scope surprise, an assumption the code refutes,
 auth or approval gate, or two failed approaches. Ask with 2-4 options.
 
 Finish: drive to a terminal state, then send the preamble's `worker_done` with
-`--outcome succeeded|failed`. The three-sentence body names what changed, what was
+`--outcome succeeded|failed`, `--task-id <taskId>`, and `--dispatch-id <dispatchId>`
+from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,
 go in the report file its `--report-path` names.
 
@@ -131,4 +114,5 @@ long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Fi
 - Each lane's Ownership excludes every other lane's files. If two lanes edit a shared
   file, the second is a stacked child of the first.
 - Every command in `common.md` runs as written from a lane's worktree.
-- The pointer spec is under 1 KB.
+- `<spec dir>/<lane>.full.md` contains the shared contract followed by the lane section.
+- The generated pointer spec is at most 300 characters.
