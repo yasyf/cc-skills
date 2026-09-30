@@ -9,8 +9,13 @@ The brief below is ready to paste; fill the angle brackets.
 ## Root discipline
 
 The root owns rulings, dispatch, the holds file, and one summary to the owner.
-Only the root edits the holds file, one line per held PR set with its reason.
-Lanes self-enqueue under D1 after reading it. The desk mirrors its entries with
+Only the root edits the holds file. Each line names held PRs as `#<n>` and whole
+held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is
+held, so a reason names another PR without the `#`.
+
+Lanes self-enqueue under D1 with a fresh numeric held file at each call. They never enqueue above a held PR or any
+PR of a held lane; they report `held` on the tip, name the held PR, and leave
+release to the root. The desk mirrors the holds file's entries with
 `ledger.py hold` and lifts them when the root removes them.
 
 For priority PRs flagged by the owner or blocking a release or a user, the root checks gates itself
@@ -53,7 +58,7 @@ Model opus. You run for the whole drive and never end a turn waiting.
 Authority: reconcile landings; lanes enqueue their own stacks under D1. Read
   GitHub through `ledger.py` and `ccx vcs pr status`, with the Buildkite build list
   for CI and `ccx vcs pr watch` for transitions; add and
-  pull the `merge` label through `ledger.py label` / `ledger.py unlabel` only; hold
+  pull the `merge` label through step 3's enqueue path / `ledger.py unlabel`; hold
   PRs with a reason and an expiry; route red and conflicting heads to their lanes;
   spawn shard sub-lanes named `landing-desk-<shard>` at 15 lanes or 25 active rows,
   whichever comes first; split earlier rather than later. Send
@@ -63,8 +68,9 @@ Authority: reconcile landings; lanes enqueue their own stacks under D1. Read
   record its label on refresh as "in the queue, labelled outside the desk", never
   as a bypass. Everything else stops for the root.
 
-Grade, land, and track only through `ledger.py`, never scripts of your own.
-  A gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
+Track through `ledger.py`; enqueue through the repo's script under step 3 when
+  present, and through `ledger.py label` otherwise. Never use scripts of your own.
+  Other gaps in `ledger.py` are a `RULING NEEDED`.
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
@@ -98,8 +104,11 @@ Do, in this order, forever:
      The root appends rulings there, because a SendMessage to a looping desk is
      not delivered mid-turn. No wait in this
      loop runs longer than 60 seconds before you read the file again.
-     Read the holds file and mirror each held PR set with `ledger.py hold`, its
-     stated reason, and an expiry under D6. Lift it when the root removes the line.
+     Read the holds file's #<n> and lane:<name> entries. For each held lane, read
+     every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
+     PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
+     them when the root removes the line. Rebuild this set at every enqueue call;
+     the mirrored ledger can lag the holds file.
      Never edit the holds file. Forward a priority desk's lane traffic to its inbox
      and stop handling those lanes.
   1. Inbox. Each inbound message is typed in as it arrives: a 3-line report as
@@ -110,9 +119,8 @@ Do, in this order, forever:
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. `ledger.py inbox --take` is your work
      list, P0 first, then rulings, reports, idles. After typing in a `clean` report,
-     if its stack is ready, unheld, and unqueued, run
-     `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` for
-     its tip in the same turn. Start all such stacks together under step 3.
+     if its stack is ready, unheld, and unqueued, enqueue its tip in the same
+     turn through step 3's path. Start all such stacks together.
      The reported PR is the tip when it has no open child. Never defer a clean
      report to the next pass. Reports open rows,
      carry the lane's text, and feed stale and p50; they are not required to label.
@@ -131,13 +139,23 @@ Do, in this order, forever:
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
   3. Grade stacks. Every pass enqueues ALL tracked open stacks that are green,
-     approved, absent from the holds file, and not yet queued. Start one
-     `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` per ready
-     stack together in one Bash call. Background each call with `&`, capture each
-     call's output, then `wait` and collect all outputs. Never enqueue one stack
-     per pass. `label --all-clean` walks stacks one at a time; use it only as the
-     fallback sweep. Each call re-reads its tip before grading and records refusals
-     on its rows. A lane report is not a gate. For each refused head, send the lane the tool's
+     approved, unheld, and not yet queued. Where the checkout carries an enqueue
+     script, call it directly: one `stack-enqueue --hold <held file> <tip>` per
+     ready stack together in one Bash call. Before each call, re-read the root's
+     holds file and write a fresh digits-only file with
+     `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`.
+     Append every open PR number whose ledger row's lane is named as lane:<name>
+     in the holds file, from `ledger.py show --ledger <id> --json`. Shards read
+     held rows across the whole ledger. Never cache this held set. Background
+     each call with `&`, capture its output, then `wait` and collect all outputs.
+     Report each enqueue with `ledger.py report`; refresh records it as labelled
+     outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the repo
+     has no script, use `ledger.py label --pr <tip> --expect-head <tip-sha>
+     --checkout <path>` and the holds mirrored into the ledger. Never enqueue
+     one stack per pass. `label --all-clean` walks stacks one at a time; use it
+     only as the fallback sweep where the repo has no enqueue script.
+     A `held` refusal is not a red and is not routed; it waits for the root.
+     A lane report is not a gate. For each other refused head, send the lane the tool's
      `new head <sha9>: <blocker>` line once per head and blocker. If the head moved
      since the refresh, the next pass grades the new head without a route; red CI
      and conflicts go through `route`, without a duplicate message from the batch.
@@ -146,7 +164,7 @@ Do, in this order, forever:
      every PR passes on its final head.
      When the root is retargeted to the base branch or closed, retarget the next PR
      to the base branch and label the remaining tip. Never label each survivor alone.
-     `--expect-head` pins the tip you graded. In both forms, the tool walks base
+     In the ledger path, `--expect-head` pins the tip you graded. The tool walks base
      refs to the repo's default branch, re-reads every PR, and runs every guard on
      each. It refuses a closed PR, a desk hold or lane `held` verdict on that head,
      a head that moved since the refresh in the batch or differs from
@@ -160,8 +178,7 @@ Do, in this order, forever:
      with its base. An untracked downstack PR, an
      orphaned base, or an open child outside the enqueued stack also refuses the
      whole stack; nothing is labelled. When every PR passes, the tip enqueues the stack
-     as one entry, through `.agents/skills/submit-pr/scripts/stack-enqueue <tip>` when
-     the `--checkout` carries it and otherwise by one label on the tip, and every row
+     as one entry by one label on the tip, and every row
      records `label_head`,
      `labelled_at`, `approved_by`, and `label_stack`. Where the drive carries a bar
      beyond CI (a plan comment, a grader's verdict), read it for every PR before

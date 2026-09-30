@@ -70,18 +70,28 @@ Worktree and VCS:
 Landing desk (records over cc-notes refs, shared by every checkout):
 - Ledger `<id>`; script `<plugin root>/skills/long-running/scripts/ledger.py`; repo
   `<owner/name>`; base `<base>`.
-- Holds file `<path>`, root-owned; read it before every enqueue.
+- Holds file `<path>`, root-owned; #<n> names a held PR, lane:<name> a held lane,
+  followed by the reason. Only the root edits it.
 - You are a separate session. Run register/report yourself; never SendMessage a subagent.
 - On spawn: `python3 <ledger.py> register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
 - On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
-- The moment every PR in your stack is green and approved, read the holds file.
-  If none is listed, run `python3 <ledger.py> label --repo <owner/name> --ledger <id>
-  --pr <tip> --expect-head <sha> --checkout <worktree>` at once. It uses the repo's
-  enqueue script when present and records the enqueue. Never end a turn with a
-  ready, unheld stack unenqueued. If a not-ready open child blocks enqueue, close
-  it, keep its branch, enqueue, and reopen it after the stack lands. No ruling needed.
+- The moment every PR in your stack is green and approved, re-read the holds file.
+  Before each enqueue, write a fresh digits-only file with
+  `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
+  PR of a held lane from `python3 <ledger.py> show --ledger <id> --json` under D3.
+  Never cache the held set or self-enqueue above a held PR or any PR of a held
+  lane. Report `held` on your tip with the held PR named and leave release to
+  the root. Where the checkout carries an enqueue script, call it directly as
+  `stack-enqueue --hold <held file> <tip>`, then report the enqueue with
+  `python3 <ledger.py> report`; refresh records it as labelled outside the desk.
+  `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
+  `python3 <ledger.py> label --repo <owner/name> --ledger <id> --pr <tip>
+  --expect-head <sha> --checkout <worktree>`; mirrored ledger holds are the guard.
+  Never end a turn with a ready, unheld stack unenqueued. If a not-ready open child
+  blocks enqueue, close it, keep its branch, enqueue, and reopen it after the stack
+  lands. No ruling needed.
 - After opening or enqueueing a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
   (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or

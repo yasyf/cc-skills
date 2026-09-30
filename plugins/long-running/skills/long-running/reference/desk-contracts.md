@@ -191,13 +191,20 @@ One desk ran on a 20-minute pacer, put the label on one report at a time, and se
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
 **Lanes self-enqueue under D1; the desk reconciles every three minutes.** Read the
-root's holds file before every enqueue. A clean report's ready, unheld, unqueued
+root's holds file and rebuild a fresh numeric held file at every enqueue under
+D1/D3, including all open PR rows of held lanes from
+`ledger.py show --ledger <id> --json`. A clean report's ready, unheld, unqueued
 stack enqueues in the turn it arrives. Each pass starts one
-`label --pr <tip> --expect-head <sha> --checkout <path>` per ready stack together
+`stack-enqueue --hold <held file> <tip>` per ready stack together
 in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
-Never enqueue one stack per pass.
+Report enqueues with `ledger.py report`; where the repo has no script, use
+`ledger.py label --pr <tip> --expect-head <sha> --checkout <path>` with mirrored
+ledger holds as the guard. Priority desks and shards use the whole ledger's held
+set under D3 and leave `held` refusals unrouted for the root. Never enqueue one
+stack per pass.
 
-`label --all-clean` walks stacks one at a time and is the fallback sweep. Reports
+`label --all-clean` walks stacks one at a time and is the fallback sweep where
+the repo has no enqueue script. In this ledger path, reports
 are not required; a lane's `red` or `conflicting` verdict does not refuse a head
 the forge passes. Each call re-reads its pinned tip before grading it and runs
 D3's guards on every PR below it. `--expect-head` pins the tip you graded.
