@@ -114,8 +114,10 @@ Do, in this order, forever:
      `mergeable_state` of clean/behind/has_hooks, a completed, successful latest
      `ai-review`, and no conflict with its base. An untracked downstack PR, an
      orphaned base, or an open child outside the enqueued stack also refuses the
-     whole stack; nothing is labelled. When every PR passes, one label on the tip
-     enqueues the stack as one entry and every row records `label_head`,
+     whole stack; nothing is labelled. When every PR passes, the tip enqueues the stack
+     as one entry, through `.agents/skills/submit-pr/scripts/stack-enqueue <tip>` when
+     the `--checkout` carries it and otherwise by one label on the tip, and every row
+     records `label_head`,
      `labelled_at`, `approved_by`, and `label_stack`. Where the drive carries a bar
      beyond CI (a plan comment, a grader's verdict), read it for every PR before
      labelling and hold the PR with that reason when it is missing for this head.
