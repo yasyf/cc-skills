@@ -59,14 +59,26 @@ Do, in this order, every iteration:
      `(#N)` squash on the freshly fetched base branch under R7.
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
      - Enqueue every ready, unqueued stack as soon as you see it. Lanes also
-       self-enqueue under D1. Read the root's holds file before every enqueue.
-       Mirror its entries with `ledger.py hold`, their reasons, and expiries
-       under D6; lift them when the root removes them. For every green, approved,
-       unheld stack, start
-       `ledger.py label --repo <repo> --ledger <id> --pr <tip> --expect-head <sha> --checkout <path>`
-       in one Bash call, each backgrounded with `&`, then `wait` and collect
-       each output. Never enqueue one stack per iteration. `label --all-clean`
-       walks stacks one at a time and is only the fallback sweep.
+       self-enqueue under D1; never above a held PR or any PR of a held lane.
+       They report `held` on the tip, name the held PR, and leave release to the root.
+       Before every enqueue, re-read the root's holds file. Each line names held
+       PRs as #<n> and whole lanes as lane:<name>, then the reason. Build a fresh
+       digits-only file with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`.
+       Append every open PR number whose row's lane matches a lane:<name> entry,
+       from `ledger.py show --ledger <id> --json` across the whole ledger, even
+       for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
+       the reasons, and expiries under D6; lift holds when the root removes them.
+       Where the checkout carries an enqueue script, call it directly: one
+       `stack-enqueue --hold <held file> <tip>` per ready stack in one Bash call,
+       each backgrounded with `&`, then `wait` and collect each output. Report
+       each enqueue with `ledger.py report`; refresh records it as labelled
+       outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
+       repo has no script, use `ledger.py label --repo <repo> --ledger <id>
+       --pr <tip> --expect-head <sha> --checkout <path>`; mirrored ledger holds
+       are the guard. A `held` refusal is not a red and is not routed; it waits
+       for the root. Never enqueue one stack per iteration. `label --all-clean`
+       walks stacks one at a time and is the fallback only where the repo has
+       no enqueue script.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
        fixes the blocker, and re-enqueues when the gates and holds file permit.
        Relaunch a dead lane in this iteration.
