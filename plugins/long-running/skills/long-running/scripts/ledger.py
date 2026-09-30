@@ -397,6 +397,8 @@ def approvers(gh: Github, pr: str) -> list[str]:
 
 def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[str]) -> dict:
     """One read of ccx's machine-wide pull request cache, which every desk and watcher on the machine shares."""
+    if not prs and not prefixes:
+        return {"lanes": {}, "prs": {}}
     argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
     for prefix in prefixes:
         argv += ["--lane-prefix", prefix]

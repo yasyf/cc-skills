@@ -185,3 +185,11 @@ def test_grade_reads_a_ccx_record():
         "ai_review": "in_progress",
         "changed_files": "5",
     }
+
+
+def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):
+    shell = FakeShell()
+    refresh(shell, lock)
+
+    assert shell.state_calls() == []
+    assert shell.pr_keys() == []
