@@ -48,8 +48,8 @@ ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
 STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
 RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-8}
-WT=$ROOT/$NAME
 RECEIPT=$STATE/$LANE.json
+WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$NAME")
 
 fail() {
   echo "$LANE failed $*"
@@ -68,10 +68,14 @@ case $EFFORT in
   *) usage ;;
 esac
 [ -r "$BRIEF" ] || fail "brief $BRIEF unreadable"
+BRIEF=$(cd "$(dirname "$BRIEF")" && pwd)/$(basename "$BRIEF")
 
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
 COMMAND="claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
-SPEC="Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
+spec() {
+  printf '%s' "Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
+}
+SPEC=$(spec)
 [ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the brief path"
 
 mkdir -p "$STATE"
@@ -87,6 +91,9 @@ until [ -d "$WT" ]; do
     sleep "$RETRY"
   fi
 done
+printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
+SPEC=$(spec)
+[ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the brief path"
 
 attempt=0 TERMINAL=''
 until [ -n "$TERMINAL" ]; do
@@ -103,13 +110,16 @@ if [ -s "$RECEIPT" ]; then
 else
   set -- --spec "$SPEC" --task-title "$NAME"
 fi
+STARTED=0
 orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" --terminal "$TERMINAL" \
-  --timeout-ms 600000 --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" ||
-  fail "worker-start terminal=$TERMINAL: $(head -c 300 "$STATE/$LANE.worker.err")"
-READY=$(jq -r '.result.state' "$RECEIPT.new")
+  --timeout-ms 600000 --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
+if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
+  mv "$RECEIPT.new" "$RECEIPT"
+  printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
+fi
+[ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL: $(head -c 300 "$STATE/$LANE.worker.err")"
+READY=$(jq -r '.result.state' "$RECEIPT")
 [ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL"
-mv "$RECEIPT.new" "$RECEIPT"
-printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
 
 attempt=0
 until orca terminal read --terminal "$TERMINAL" --screen --json |

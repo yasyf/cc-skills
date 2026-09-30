@@ -114,7 +114,10 @@ and the screen must show bypass permissions on. A failed launch prints
 `<lane> failed <step and reason>` and exits 1; invalid usage exits 2.
 
 The receipt is `<receipt dir>/<lane>.json`; `<lane>.terminal` holds the handle that
-`orca-check.sh` maps back to the lane. For a relaunch approved by the root, run the
+`orca-check.sh` maps back to the lane, and `<lane>.worktree` the path Orca created.
+A failed `worker-start` that returned a task and dispatch still writes the receipt,
+so the next launch retries that dispatch instead of opening a second task. The
+brief path is made absolute before it goes into the pointer. For a relaunch approved by the root, run the
 same command with the same lane and receipt directory. The script reads
 `result.taskId` and `result.dispatchId` from the recorded receipt and passes
 `--task <taskId> --retry-of <dispatchId>` instead of creating a new task from `--spec`.
@@ -169,8 +172,9 @@ pass through to `orca orchestration check`. Use `--run <id>` for the desk and
 | `ORCA_CHECK_STATE` | Launch receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
 | `ORCA_CHECK_RETRY_SECONDS` | Wait before a connection retry; default `30`. |
 
-A lost connection retries three times, then prints `connection-lost` and exits 1.
-An Orca error response prints `error <code>: <message>` and exits 1 without retrying.
+A lost connection or a `runtime_unavailable` error retries once, then prints
+`connection-lost` and exits 1, so the desk is back at its inbox file within the
+minute. Any other Orca error response prints `error <code>: <message>` and exits 1 without retrying.
 On either failure, return to the inbox-file step before the next check; never restart
 Orca. Read the append-only inbox with its saved cursor at the top of every iteration,
 including after `timeout`; [orca-desk-brief.md](orca-desk-brief.md) gives the loop.

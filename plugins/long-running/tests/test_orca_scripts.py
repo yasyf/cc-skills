@@ -167,7 +167,6 @@ def test_launch_fails_when_the_receipt_is_not_ready(orca):
     result = orca.launch()
     assert result.returncode == 1
     assert result.stdout.startswith("lane-a failed worker-start state=failed")
-    assert not (orca.receipts / "lane-a.json").exists()
 
 
 def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
@@ -176,6 +175,40 @@ def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
     assert result.returncode == 1
     assert "shift-tab" in result.stdout
     assert len(orca.calls("terminal read")) == 5
+
+
+def test_a_failed_start_keeps_its_dispatch_for_the_relaunch(orca):
+    orca.healthy(state="failed")
+    assert orca.launch().returncode == 1
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    first, second = orca.calls("orchestration worker-start")
+    assert "--spec" in first
+    assert flag(second, "--task") == "task_a"
+    assert flag(second, "--retry-of") == "ctx_a"
+
+
+def test_relaunch_reuses_the_worktree_orca_created(orca):
+    elsewhere = orca.root / "elsewhere" / "lane-a"
+    orca.healthy()
+    orca.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(elsewhere)}}}, "mkdir": str(elsewhere)})
+    first = orca.launch()
+    assert first.stdout.strip().endswith(f"worktree={elsewhere}")
+    assert f"Worktree {elsewhere}," in flag(orca.calls("orchestration worker-start")[0], "--spec")
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    assert len(orca.calls("worktree create")) == 1
+    assert flag(orca.calls("terminal create")[1], "--worktree") == f"path:{elsewhere}"
+
+
+def test_launch_points_at_the_absolute_brief(orca):
+    orca.healthy()
+    result = subprocess.run(
+        [str(SCRIPTS / "orca-launch.sh"), "lane-a", "opus", "high", "specs/lane-a.full.md"],
+        env=orca.env, capture_output=True, text=True, cwd=orca.root,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"read {orca.brief.resolve()} in full" in flag(orca.calls("orchestration worker-start")[0], "--spec")
 
 
 def test_launch_rejects_an_unknown_effort(orca):
@@ -231,24 +264,34 @@ def test_check_prints_timeout_for_an_empty_wait(orca):
     assert result.stdout.strip() == "timeout"
 
 
-def test_check_retries_a_lost_connection(orca):
+def test_check_retries_a_lost_connection_once(orca):
     orca.reply(
         "orchestration check",
-        {"rc": 1, "out": ""},
         {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "messages": [], "connectionLost": True}}},
         {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "messages": [], "timedOut": True}}},
     )
     result = orca.run("orca-check.sh")
     assert result.stdout.strip() == "timeout"
-    assert orca.sleeps() == ["30", "30"]
+    assert orca.sleeps() == ["30"]
 
 
-def test_check_gives_up_after_three_retries(orca):
+def test_check_retries_an_unavailable_runtime(orca):
+    orca.reply(
+        "orchestration check",
+        {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "socket closed"}}},
+        {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "messages": [], "timedOut": True}}},
+    )
+    result = orca.run("orca-check.sh")
+    assert result.stdout.strip() == "timeout"
+    assert orca.sleeps() == ["30"]
+
+
+def test_check_returns_to_the_caller_after_one_retry(orca):
     orca.reply("orchestration check", {"rc": 1, "out": ""})
     result = orca.run("orca-check.sh")
     assert result.returncode == 1
     assert result.stdout.strip() == "connection-lost"
-    assert len(orca.calls("orchestration check")) == 4
+    assert len(orca.calls("orchestration check")) == 2
 
 
 def test_check_reports_an_orca_error_without_retrying(orca):

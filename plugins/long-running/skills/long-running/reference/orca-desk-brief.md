@@ -123,7 +123,7 @@ Do, in this order, forever:
      The printed delivery id is result.deliveryId. A message id acknowledges
      nothing, and an unacknowledged batch replays. Process the whole batch,
      including messages outside the wake types. On timeout, go to step 1.
-     The script retries lost connections after 30 seconds, three times. If it
+     The script retries a lost connection once, after 30 seconds. If it
      prints connection-lost or error <code>: <message>, record the failure and
      return to step 1 before another check. Never restart Orca.
   5. Questions and escalations. Check the sender's dispatch against the current

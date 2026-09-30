@@ -19,8 +19,10 @@ the unread messages without waiting or marking them read. Arguments after --
 go to `orca orchestration check`, such as --terminal <handle> or --run <id>.
 
 <lane> is the lane whose orca-launch.sh receipt names the sender's terminal,
-else the sender's handle. A lost connection retries after
-ORCA_CHECK_RETRY_SECONDS, three times, then prints `connection-lost`, exit 1.
+else the sender's handle. A lost connection, or a runtime_unavailable error,
+retries once after ORCA_CHECK_RETRY_SECONDS, then prints `connection-lost`, exit
+1, so the caller reads its inbox file again. Any other Orca error prints
+`error <code>: <message>`, exit 1.
 
   ORCA_CHECK_TIMEOUT_MS     longest wait, default 60000, so the caller reads its inbox file every minute
   ORCA_CHECK_STATE          orca-launch.sh receipt directory, default ~/.claude/scratch/orca-launch/<run>
@@ -51,12 +53,12 @@ attempt=0
 while :; do
   attempt=$((attempt + 1))
   OUT=$(orca orchestration check "$@" --json 2>/dev/null) || true
-  if printf '%s' "$OUT" | jq -e '.ok == false and .error.code != null' >/dev/null 2>&1; then
+  if printf '%s' "$OUT" | jq -e '.ok == false and .error.code != "runtime_unavailable"' >/dev/null 2>&1; then
     printf '%s' "$OUT" | jq -r '"error \(.error.code): \(.error.message)"'
     exit 1
   fi
   printf '%s' "$OUT" | jq -e '.ok and (.result.connectionLost | not)' >/dev/null 2>&1 && break
-  [ "$attempt" -lt 4 ] || { echo connection-lost; exit 1; }
+  [ "$attempt" -lt 2 ] || { echo connection-lost; exit 1; }
   sleep "$RETRY"
 done
 
