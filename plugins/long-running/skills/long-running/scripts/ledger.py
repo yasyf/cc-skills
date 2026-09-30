@@ -64,6 +64,7 @@ from urllib.parse import urlencode
 
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
+STACK_MERGEABILITY_CHECK = "Graphite / mergeability_check"
 APPROVED = "APPROVED"
 REVIEW_DECISIONS = (APPROVED, "CHANGES_REQUESTED", "DISMISSED")
 PAGE_SIZE = 100
@@ -1099,13 +1100,19 @@ def stack_to_trunk(gh: Github, tip: dict, trunk: str) -> list[dict]:
     return stack
 
 
+def stack_gate_pending(pull: dict, trunk: str, checks: dict) -> bool:
+    """A non-bottom PR reads `unstable` while Graphite's mergeability check waits on the PR below it, and nothing else is unfinished."""
+    unfinished = [run["name"] for run in checks["check_runs"] if run["status"] != "completed" and run["name"] != AI_REVIEW_CHECK]
+    return pull["mergeable_state"] == "unstable" and pull["base"]["ref"] != trunk and unfinished == [STACK_MERGEABILITY_CHECK]
+
+
 def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected: str | None, above: str | None, trunk: str, checkout: Path | None) -> list[str]:
     """Every per-PR guard, in order; returns the approvers or raises the first refusal."""
     pr = str(pull["number"])
     head, base = pull["head"]["sha"], pull["base"]["ref"]
     if pull["state"] != "open":
         raise refusal("closed", pr=pr, state=pull["state"], base=base)
-    if expected and expected != head:
+    if expected and not head.startswith(expected):
         raise refusal("moved", expected=expected[:9], head=head[:9])
     if is_held(fields):
         raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
@@ -1118,12 +1125,12 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
     approved = approvers(gh, pr)
     if not approved:
         raise refusal("unapproved", pr=pr)
-    if pull["mergeable_state"] not in LABELLABLE_STATES:
-        raise refusal("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
     status = gh.api(f"commits/{head}/status")
+    checks = gh.api(f"commits/{head}/check-runs")
+    if pull["mergeable_state"] not in LABELLABLE_STATES and not stack_gate_pending(pull, trunk, checks):
+        raise refusal("mergeable", state=pull["mergeable_state"], allowed="/".join(LABELLABLE_STATES))
     if status["state"] != "success":
         raise refusal("status", state=status["state"], head=head[:9])
-    checks = gh.api(f"commits/{head}/check-runs")
     failed = [run["name"] for run in checks["check_runs"] if run["conclusion"] in FAILED_CONCLUSIONS]
     if failed:
         raise refusal("checks", head=head[:9], names=", ".join(failed))
