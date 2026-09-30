@@ -218,8 +218,8 @@ carrying no news.*
 owns every reported PR whose files hit the hot set. Every two hours it fetches
 trunk, orders the ready cars oldest first, rebases them into one stack of at
 most six with `ccx vcs stack rebase --linearize`, resolves each conflict once in
-the conflict workspace, and labels the highest green prefix; a red car is fixed
-forward or ejected with `--parent`, never waited on. A hot-set row is routed to
+the conflict workspace, and enqueues the whole train once every car is green; a
+red car is fixed forward or ejected with `--parent`, never waited on. A hot-set row is routed to
 the train, not to its lane. *Prevents the shelf rot where fourteen of fifteen
 conflicting PRs never reached the queue.*
 
@@ -637,9 +637,9 @@ queues a concurrent write.
 
 ### Label watch
 
-`scripts/label-watch.sh` labels the PRs the root holds outside a ledger, which are
+`scripts/label-watch.sh` enqueues the stacks the root holds outside a ledger, which are
 priority PRs under D1 and every PR on a drive too small for a desk. The desk keeps to `ledger.py`.
-Each PR passes this gate before it gets the label:
+Each PR passes this gate before its stack goes into the queue:
 
 1. `ccx vcs pr status` reads it `not queued`. A queued or landed PR prints `SKIP`.
 2. It has no `hold` label.
@@ -664,22 +664,30 @@ time, and its p99 to the root instead of labelling around it.
 
 A listed PR brings in its stack, which is every open PR below it down to the trunk,
 walked through `pulls?head=`, and every open PR stacked above it, walked through
-`pulls?base=`. The gate runs bottom-up over each stack. A PR the queue already holds,
-or one already carrying the label, prints `SKIP queued` or `SKIP labelled` and passes
-the gate for the PRs above it. The first PR to fail stops the walk, and every PR above
-it prints `NOT-READY <sha> downstack #N` without reading its checks.
+`pulls?base=`. The gate runs bottom-up over each stack. A PR already carrying the label
+prints `SKIP labelled` and passes the gate for the PRs above it. A PR the queue already
+holds prints `SKIP queued`, and every PR above it waits as `NOT-READY <sha> downstack #N`
+until it lands. The first PR to fail stops the walk, and every PR above it prints
+`NOT-READY <sha> downstack #N` without reading its checks.
 
-Only the highest PR that
-passes the gate, with every PR below it passing too, gets the label. Graphite copies
-a label down the stack and queues it as one batch, so the PRs below it print
-`SKIP covered-by #<top>`. At a fork, each branch's highest passing PR is labelled.
-The rest of the stack stays on the list and follows as another batch once it passes.
+A stack goes into the queue whole or not at all. When every PR in it passes, one
+`POST /v1/graphite/merge`, the call `gt merge` makes, sends the stack's PR numbers
+bottom first. Graphite queues them as one batch. The top PR prints `ENQUEUED <sha>`
+and the PRs below it `SKIP covered-by #<top>`. While a PR above fails, the passing PRs
+below it print `NOT-READY <sha> upstack #N` and stay on the list; a green lower part
+never goes in alone. A stack that forks never goes in: every passing PR prints
+`NOT-READY <sha> fork at #N` until the stack is linearized.
+*Prevents #27616 and #27617 landing without #27520 above them, which then sat on a stale
+`graphite-base` branch in conflict with nobody acting.*
 
-The label goes on through REST `POST issues/<n>/labels`; `gh pr edit` is GraphQL.
-`LABEL_WATCH_DRY_RUN=1` prints `LABELLED <sha> dry-run` and adds no label.
+The call reads gt's token from `LABEL_WATCH_GRAPHITE_AUTH`, default
+`~/.config/graphite/auth`, and hands it to curl on stdin, never on the command line.
+A REST label can go unseen by Graphite; the API call is answered. A failed call prints
+`API-FAIL enqueue`.
+`LABEL_WATCH_DRY_RUN=1` prints `ENQUEUED <sha> dry-run` and enqueues nothing.
 `LABEL_WATCH_HOLD=<file>` names PRs, one per line, that fail the gate as
-`NOT-READY <sha> held`. The watch re-reads the file every sweep, never labels or
-appends a held PR, and labels nothing above it.
+`NOT-READY <sha> held`. The watch re-reads the file every sweep, never enqueues or
+appends a held PR, and holds its whole stack.
 
 ```sh
 export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo
@@ -697,31 +705,30 @@ once. Each sweep reads Graphite once for the whole list and GitHub only for PRs 
 are not queued. A PR whose squash, a subject ending `(#N)`, is on the fetched trunk
 prints `SKIP landed` without any read, and a closed PR prints `SKIP closed` and leaves
 the list. The checks and reviews reads run only after the earlier gates pass. `watch`
-deletes `LABELLED` and `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, appends the
+deletes `ENQUEUED` and `SKIP` entries, keeps `CONFLICT`, `HELD`, `NOT-READY`, and `API-FAIL` ones, appends the
 stack PRs it found still waiting on the gate, and prints a line only when a PR's result
-changes. It exits once the list is empty and every PR it saw queued or labelled has
+changes. It exits once the list is empty and every PR it saw queued or enqueued has
 closed.
 
 `ccx vcs pr status` reads an eviction from the queue's Merge activity comment. The watch
 prints `EVICTED <sha> <reason> <time>` once per eviction for a listed PR or one it saw
-queued or labelled. The PR then goes through the gate that sweep, so a conflicting head
+queued or enqueued. The PR then goes through the gate that sweep, so a conflicting head
 prints `CONFLICT` with its files, and it returns to the list.
 *Prevents #26918 printing only its stale `NOT-READY conflicts-with` line while the queue
 had already dropped it for merge conflicts.*
 
 The trunk is fetched into `refs/label-watch/<trunk>`, never `refs/remotes/origin/<trunk>`,
 so a shared clone's other fetches cannot hold its ref lock. A fetch that still fails after
-three tries prints `API-FAIL trunk-fetch` for every PR that sweep and labels nothing.
+three tries prints `API-FAIL trunk-fetch` for every PR that sweep and enqueues nothing.
 
 The queued PRs are the ones `ccx vcs pr status` reads `queued` on the list, and in
-`watch` every PR the watch saw queued or labelled, until it closes. A PR labelled earlier
-in a sweep is a conflict base for the rest of that sweep. A queued PR in a head's own
-downstack is not a conflict base for it.
+`watch` every PR the watch saw queued or enqueued, until it closes. A stack enqueued
+earlier in a sweep is a conflict base for the rest of that sweep.
 *Prevents #25907 being evicted for conflicting with #25890, which the queue already held
 ahead of it.*
 
 A `CONFLICT` or `red` line goes to the lane that owns the PR, to rebase or fix. Never
-answer it with a label, and never re-queue an evicted PR before its lane pushes a fixed head. The PR stays on the list, and the watch labels the rebased head once it passes.
+answer it with a label, and never re-queue an evicted PR before its lane pushes a fixed head. The PR stays on the list, and the watch enqueues the rebased stack once it passes.
 
 A PR sent back for rework gets the `hold` label and leaves the list in the same turn.
 Taking the label off does not dequeue it, and neither does converting it to a draft.

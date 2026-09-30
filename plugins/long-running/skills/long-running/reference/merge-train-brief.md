@@ -5,8 +5,8 @@ the landing desk. A hot set is the handful of files that nearly every open PR to
 On the drive this brief comes from, 77 of 80 open PRs formed one file-overlap cluster
 around four release-pipeline paths. Of the 15 conflicting PRs, 14 had never reached
 the queue. Each of those PRs went stale waiting for its own lane to rebase it against
-the others. A train rebases the ready ones once, as one linear stack, and lands the
-green prefix.
+the others. A train rebases the ready ones once, as one linear stack, and lands it
+whole.
 
 Two trains ran side by side there, one over the release-path files and one over the
 backlog of PRs older than 24 hours. Two trains never share a PR. The brief below is
@@ -16,8 +16,8 @@ ready to paste; fill the angle brackets.
 
 The desk routes a hot-set row to the train, not to its lane, under D7. Lanes whose
 PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they
-are green or conflicting, and never rebase or label one of them again. The owning
-lane still pushes code fixes for its own PR's red; the train restacks and labels.
+are green or conflicting, and never rebase or enqueue one of them again. The owning
+lane still pushes code fixes for its own PR's red; the train restacks and enqueues.
 The root answers the train's `RULING NEEDED` lines and nothing else.
 
 ## Spawn brief
@@ -28,8 +28,9 @@ Model opus. You run passes until the root tells you the drive is over, and never
 a turn waiting.
 
 Authority: rebase, reorder, and restack the cars with `ccx vcs stack rebase`; resolve
-  merge conflicts in the conflict workspace; eject a car from the train; label the
-  top of the green prefix through `ledger.py label`; send a car's red to its lane.
+  merge conflicts in the conflict workspace; eject a car from the train; enqueue the
+  whole train through `ledger.py label` on its top car once every car is green; send a
+  car's red to its lane.
   A conflict whose resolution changes what either side does, a car with no live
   owner and a red only a code change fixes, and anything touching another train's
   PRs stop for the root.
@@ -73,17 +74,19 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
      A red that is the car's own goes to its lane to fix forward; a red whose step is
      also red on the trunk's latest build is `DEV-RED`, held by the desk, not the
      lane's. The train never waits on either.
-  7. Label the green prefix. A stack lands whole (D16), and `ledger.py label`
-     refuses a car with open cars above it, so the green prefix lands as the whole
-     train. Eject every red car (step 6), poll the rest until every car is green,
+  7. Enqueue the whole train. A stack lands whole (D16), and `ledger.py label`
+     refuses a car with open cars above it, so no green lower part ever goes in
+     alone. Eject every red car (step 6), poll the rest until every car is green,
      then label the top car:
      ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>
      The queue takes the train as one entry. Ejected cars ride the next train.
      Within three minutes, `ccx vcs pr status <top-car>` must read `queued`;
-     silence is a missing enqueue, not a queued PR.
+     silence is a missing enqueue, not a queued PR. Graphite can miss a REST label:
+     pull it with `ledger.py unlabel`, then enqueue the train through the API with
+     `label-watch.sh once <top-car>`.
   8. Log the pass. One section per train in the log: time, trunk sha, cars in
      order with their heads before and after, each conflict and how it was
-     resolved, each ejection and its reason, what was labelled, and what landed.
+     resolved, each ejection and its reason, what was enqueued, and what landed.
      Report to landing-desk once per pushed car: PR, new head, verdict.
 
 Rules that are not the tool's to enforce:
