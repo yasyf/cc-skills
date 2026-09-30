@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -94,7 +93,7 @@ def test_quoted_plan_arg_records_bare_path(home: Path, args: str) -> None:
 )
 def test_slash_command_records_plan_path(home: Path, prompt: str) -> None:
     session = home / "session"
-    raw = {"session_id": SESSION, "prompt": prompt}
+    raw = {"session_id": SESSION, "prompt": prompt, "cwd": str(FIXTURES / "project-600k")}
     handoff.activate_on_command(UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=session)))
     saved = state(session)
     assert (saved.active, saved.plan_path) == (True, str(home / ".claude/plans/x.md"))
@@ -169,15 +168,12 @@ def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, doc
     assert "--label progress:release-v3" in pending(session)[0]
 
 
-def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(
-    home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    due = datetime(2026, 9, 30, 5, 40, tzinfo=UTC).timestamp()
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", due_since=due).save(
-        bash(session)
-    )
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.nudge_at_threshold(bash(session))
+    assert state(session).prior == ["a" * 40]
 
     assert handoff.compact_when_idle(stop_event(session)) is None
     assert state(session).phase == "due"
@@ -188,18 +184,35 @@ def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(
 
     assert result.system_message.startswith("Long-running progress for ")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
+    assert pending(session)
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
     assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
 
-    (docs / "docs.json").write_text(json.dumps([doc("c" * 40, "2026-09-30T07:00:00Z")]))
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", due_since=due).save(
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["b" * 40]).save(
         bash(session)
     )
+    (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z"), doc("c" * 40, "2026-09-30T07:00:00Z")]))
     handoff.compact_when_idle(stop_event(session))
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
     assert "now `cccccccc`" in pointer
+    assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
     assert plan.read_text().startswith("# brook\n\n")
+
+
+def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
+        bash(session)
+    )
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
+    ccn = Path(os.environ["PATH"].split(":")[0]) / "ccn"
+    ccn.write_text(ccn.read_text() + 'sys.exit(1 if args[:2] == ["doc", "supersede"] else 0)\n')
+
+    assert handoff.compact_when_idle(stop_event(session)) is None
+
+    assert state(session).phase == "due"
+    assert plan.read_text() == "# brook\n"
 
 
 def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -309,7 +322,7 @@ def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
 @pytest.mark.parametrize("phase", ["due", "written", "compacting", "idle"])
 def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
     evt = SessionStartEvent(
-        _raw={"session_id": SESSION, "source": "compact"}, ctx=build_context(session_dir=tmp_path / "session")
+        _raw={"session_id": SESSION, "source": "compact", "cwd": str(FIXTURES / "project-600k")}, ctx=build_context(session_dir=tmp_path / "session")
     )
     handoff.CompactionState(
         active=True, plan_path="/p/brook.md", phase=phase, compacting_since=1.0 if phase == "compacting" else None

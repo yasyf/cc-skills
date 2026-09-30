@@ -40,6 +40,7 @@ DOC_SECTIONS = "how the drive runs; owner asks and state; lanes and binding ruli
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 FIRE_FRACTION = 0.8
+CCN_TIMEOUT_SECONDS = 20
 COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 
 
@@ -51,12 +52,16 @@ class CompactionState(WorkflowState):
     phase: Literal["idle", "due", "written", "compacting"] = "idle"
     store: Literal["ccn", "folder"] = "ccn"
     slug: str | None = None
-    due_since: float | None = None
+    prior: list[str] = []
     compacting_since: float | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["ccn", "-R", cwd, *args], capture_output=True, text=True)
+    argv = ["ccn", "-R", cwd, *args]
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", "timed out")
 
 
 def has_cc_notes(cwd: str) -> bool:
@@ -71,6 +76,23 @@ def slug_of(plan: Path) -> str:
 
 def progress_folder(plan: Path) -> Path:
     return plan.with_name(f"{plan.stem}-progress")
+
+
+def resolve_record(state: CompactionState, cwd: str) -> None:
+    if state.plan_path and state.slug is None:
+        state.slug = slug_of(Path(state.plan_path).expanduser())
+        state.store = "ccn" if has_cc_notes(cwd) else "folder"
+
+
+def progress_docs(state: CompactionState, cwd: str) -> list[dict] | None:
+    listed = ccn(cwd, "doc", "list", "--label", f"progress:{state.slug}", "--json")
+    return json.loads(listed.stdout or "[]") if listed.returncode == 0 else None
+
+
+def records(state: CompactionState, cwd: str) -> list[str]:
+    if state.store == "folder":
+        return [path.name for path in progress_folder(Path(state.plan_path or "")).glob("*.md")]
+    return [doc["id"] for doc in progress_docs(state, cwd) or []]
 
 
 def resume_steps(state: CompactionState) -> str:
@@ -119,13 +141,13 @@ def point_plan(plan: Path, line: str) -> None:
 
 
 def record_doc(state: CompactionState, cwd: str) -> bool:
-    listed = ccn(cwd, "doc", "list", "--label", f"progress:{state.slug}", "--json")
-    docs = sorted(json.loads(listed.stdout or "[]"), key=lambda doc: doc["updated_at"], reverse=True)
-    if not docs or datetime.fromisoformat(docs[0]["updated_at"]).timestamp() < int(state.due_since or 0):
+    docs = progress_docs(state, cwd)
+    if not (fresh := [doc for doc in docs or [] if doc["id"] not in state.prior]):
         return False
-    newest, *older = docs
-    for doc in older:
-        ccn(cwd, "doc", "supersede", doc["id"], "--by", newest["id"])
+    newest = max(fresh, key=lambda doc: doc["updated_at"])
+    for doc in docs or []:
+        if doc["id"] != newest["id"] and ccn(cwd, "doc", "supersede", doc["id"], "--by", newest["id"]).returncode:
+            return False
     point_plan(
         Path(state.plan_path or ""),
         f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
@@ -138,13 +160,13 @@ def record_doc(state: CompactionState, cwd: str) -> bool:
 
 def record_file(state: CompactionState) -> bool:
     plan = Path(state.plan_path or "")
-    files = sorted(progress_folder(plan).glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
-    if not files or files[0].stat().st_mtime < int(state.due_since or 0):
+    if not (fresh := [path for path in progress_folder(plan).glob("*.md") if path.name not in state.prior]):
         return False
+    newest = max(fresh, key=lambda path: path.stat().st_mtime)
     point_plan(
         plan,
         f"{POINTER_PREFIX} the latest execution state is the newest file in `{progress_folder(plan)}/`, "
-        f"now `{files[0].name}`; only this line's name changes.",
+        f"now `{newest.name}`; only this line's name changes.",
     )
     return True
 
@@ -154,7 +176,11 @@ def record_file(state: CompactionState) -> bool:
     only_if=[Tool("Skill")],
     skip_if=[FromSubagent()],
     tests={
-        Input(tool="Skill", tool_input={"skill": "long-running:long-running", "args": "~/.claude/plans/x.md"}): Allow(),
+        Input(
+            tool="Skill",
+            tool_input={"skill": "long-running:long-running", "args": "~/.claude/plans/x.md"},
+            cwd=str(FIXTURES / "project-600k"),
+        ): Allow(),
         Input(tool="Skill", tool_input={"skill": "codex"}): Allow(),
     },
 )
@@ -168,7 +194,10 @@ def activate_on_skill(evt: BaseHookEvent) -> HookResult | None:
     Event.UserPromptSubmit,
     tests={
         Input(prompt="/long-running drive the release"): Allow(),
-        Input(prompt="/long-running:long-running Continue the plan at ~/.claude/plans/x.md"): Allow(),
+        Input(
+            prompt="/long-running:long-running Continue the plan at ~/.claude/plans/x.md",
+            cwd=str(FIXTURES / "project-600k"),
+        ): Allow(),
         Input(prompt="drive /long-running later"): Allow(),
     },
 )
@@ -183,6 +212,8 @@ def activate(evt: BaseHookEvent, args: str) -> None:
         state.active = True
         if match := PLAN_ARG.search(args):
             state.plan_path = str(Path(match[0]).expanduser())
+            state.slug = None
+            resolve_record(state, evt.cwd)
 
 
 @on(
@@ -190,7 +221,9 @@ def activate(evt: BaseHookEvent, args: str) -> None:
     only_if=[Tool("Write", "Edit")],
     skip_if=[FromSubagent()],
     tests={
-        Input(tool="Write", file="/home/u/.claude/plans/brook.md", content="# plan"): Allow(),
+        Input(
+            tool="Write", file="/home/u/.claude/plans/brook.md", content="# plan", cwd=str(FIXTURES / "project-600k")
+        ): Allow(),
     },
 )
 def track_plan(evt: BaseHookEvent) -> HookResult | None:
@@ -198,7 +231,10 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
     if not path.match(".claude/plans/*.md"):
         return None
     with CompactionState.mutate(evt) as state:
-        state.plan_path = str(path)
+        if state.plan_path != str(path):
+            state.plan_path = str(path)
+            state.slug = None
+        resolve_record(state, evt.cwd)
     return None
 
 
@@ -244,9 +280,9 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             else Path.home() / ".claude" / "plans" / f"long-running-{evt.session_id[:8]}.md"
         )
         state.plan_path = str(plan)
-        state.slug = slug_of(plan)
-        state.store = "ccn" if has_cc_notes(evt.cwd) else "folder"
-        state.due_since = time.time()
+        state.slug = None
+        resolve_record(state, evt.cwd)
+        state.prior = records(state, evt.cwd)
         state.phase = "due"
         queue_nudge(evt, handoff_nudge(used=root.tokens, limit=limit, state=state))
     return None
@@ -288,6 +324,7 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         state.compacting_since = None
         if not (state.active and state.plan_path):
             return None
+        resolve_record(state, evt.cwd)
     return evt.context(
         f"Compacted long-running session. Read `{state.plan_path}` before anything else, {resume_steps(state)}; "
         "they supersede the summary. "
@@ -366,7 +403,8 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
-    state = CompactionState.load(evt)
-    if state.active and state.plan_path:
-        return evt.context(compact_instructions(state))
-    return None
+    with CompactionState.mutate(evt) as state:
+        if not (state.active and state.plan_path):
+            return None
+        resolve_record(state, evt.cwd)
+    return evt.context(compact_instructions(state))

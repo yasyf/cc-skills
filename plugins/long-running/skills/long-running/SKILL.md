@@ -940,17 +940,19 @@ Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the 
 record as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
 use a progress doc; a note, a log, or a loose file does not replace it.
 
-**Supersede and point.** At the next main-session `Stop` after a doc under the label
-has an update timestamp newer than the nudge, the hook selects the newest doc and
+**Supersede and point.** At the next main-session `Stop` after a doc appears under
+the label that was not active at the nudge, the hook selects the newest such doc and
 runs `ccn doc supersede OLD --by NEW` for every other active doc under that label.
-Exactly one doc stays active; history is the supersede chain.
+Exactly one doc stays active; history is the supersede chain. A failed supersede
+leaves the handoff pending, and the next `Stop` retries it; each `ccn` call is capped
+at 20 seconds.
 
 The hook adds one pointer line to the plan the first time. It starts with
 `- **Progress (read first after any compaction):**` and names the label and current
 doc id. Later handoffs change only that line's id. The handoff never restructures
 the plan. Let the hook do the superseding and pointer edit.
 
-For the file fallback, the hook waits for a file newer than the nudge and points the
+For the file fallback, the hook waits for a file that did not exist at the nudge and points the
 same line at the newest file in the folder; later handoffs change only its filename.
 In the release-v3 example, the plan's last line names
 `progress:release-v3` and doc `d473abdd`.
