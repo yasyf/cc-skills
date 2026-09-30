@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,11 @@ SESSION = "0123456789abcdef"
 
 
 def stop_event(session_dir: Path, **raw) -> StopEvent:
-    payload = {"session_id": SESSION, "transcript_path": str(FIXTURES / "usage-460k.jsonl")} | raw
+    payload = {
+        "session_id": SESSION,
+        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
+        "cwd": str(FIXTURES / "project-600k"),
+    } | raw
     return StopEvent(_raw=payload, ctx=build_context(session_dir=session_dir))
 
 
@@ -66,7 +71,7 @@ def plan(home: Path) -> Path:
     [
         ("activate_on_skill", "Skill", {"skill": "long-running"}),
         ("track_plan", "Write", {"file_path": "/home/u/.claude/plans/other.md", "content": "# other"}),
-        ("archive_at_threshold", "Bash", {"command": "ls"}),
+        ("nudge_at_threshold", "Bash", {"command": "ls"}),
     ],
 )
 def test_subagent_tool_events_are_skipped(tmp_path: Path, handler: str, tool_name: str, tool_input: dict) -> None:
@@ -88,145 +93,184 @@ def test_quoted_plan_arg_records_bare_path(home: Path, args: str) -> None:
 )
 def test_slash_command_records_plan_path(home: Path, prompt: str) -> None:
     session = home / "session"
-    raw = {"session_id": SESSION, "prompt": prompt}
+    raw = {"session_id": SESSION, "prompt": prompt, "cwd": str(FIXTURES / "project-600k")}
     handoff.activate_on_command(UserPromptSubmitEvent(_raw=raw, ctx=build_context(session_dir=session)))
     saved = state(session)
     assert (saved.active, saved.plan_path) == (True, str(home / ".claude/plans/x.md"))
 
 
-def test_threshold_archives_the_plan_and_queues_one_nudge_without_blocking(home: Path, plan: Path) -> None:
+FAKE_CCN = """#!/usr/bin/env python3
+import json, os, sys
+state = os.environ["FAKE_CCN"]
+args = sys.argv[3:]
+with open(os.path.join(state, "calls"), "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
+if args[:2] == ["doc", "list"]:
+    print(open(os.path.join(state, "docs.json")).read())
+"""
+
+
+@pytest.fixture
+def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    state_dir = home / "ccn"
+    bin_dir = home / "bin"
+    state_dir.mkdir()
+    bin_dir.mkdir()
+    (bin_dir / "ccn").write_text(FAKE_CCN)
+    (bin_dir / "ccn").chmod(0o755)
+    (state_dir / "docs.json").write_text("[]")
+    monkeypatch.setenv("FAKE_CCN", str(state_dir))
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    return state_dir
+
+
+def ccn_calls(docs: Path) -> list[list[str]]:
+    path = docs / "calls"
+    return [json.loads(line)[2:] for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def doc(doc_id: str, updated: str) -> dict:
+    return {"id": doc_id, "title": f"brook: progress {updated}", "tags": ["progress:brook"], "updated_at": updated}
+
+
+def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
 
     for _ in range(3):
-        assert handoff.archive_at_threshold(bash(session)) is None
+        assert handoff.nudge_at_threshold(bash(session)) is None
         assert handoff.compact_when_idle(stop_event(session)) is None
 
-    [archive] = plan.parent.glob("brook.*-pre-compact.md")
-    assert archive.read_text() == "# brook\n"
+    assert plan.read_text() == "# brook\n"
+    assert list(plan.parent.iterdir()) == [plan]
     saved = state(session)
-    assert (saved.phase, saved.archive_path) == ("archived", str(archive))
+    assert (saved.phase, saved.store, saved.slug) == ("due", "ccn", "brook")
     [nudge] = pending(session)
-    assert nudge == (
-        "Context is at 460,000 of the 567,000-token auto-compaction threshold (81%). When convenient, rewrite "
-        f"`{plan}` as the current restart state; the previous version is archived at `{archive}`. The hook links "
-        "the archives into it and runs /compact once the input line is empty."
+    assert nudge.startswith(
+        "Context is at 460,000 of the 567,000-token auto-compaction threshold (81%). When convenient, write the "
+        'drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress '
     )
+    assert "--label progress:brook" in nudge
+    assert "with sections: how the drive runs; owner asks and state; lanes and binding rulings; landed; " in nudge
+    assert f"Never rewrite `{plan}`." in nudge
     assert nudges.deliver_nudge(bash(session)).message == nudge
     assert pending(session) == []
-    assert nudges.deliver_nudge(bash(session)) is None
+
+
+def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, docs: Path) -> None:
+    plan.write_text(f"# brook\n\n{handoff.POINTER_PREFIX} the active doc labelled `progress:release-v3`, now `d473abdd`.\n")
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+
+    handoff.nudge_at_threshold(bash(session))
+
+    assert state(session).slug == "release-v3"
+    assert "--label progress:release-v3" in pending(session)[0]
+
+
+def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+    handoff.nudge_at_threshold(bash(session))
+    assert state(session).prior == ["a" * 40]
+
+    assert handoff.compact_when_idle(stop_event(session)) is None
+    assert state(session).phase == "due"
+    assert plan.read_text() == "# brook\n"
+
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
+    result = handoff.compact_when_idle(stop_event(session))
+
+    assert result.system_message.startswith("Long-running progress for ")
+    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
+    assert pending(session)
+    lines = plan.read_text().splitlines()
+    assert lines[:2] == ["# brook", ""]
+    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
+
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["b" * 40]).save(
+        bash(session)
+    )
+    (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z"), doc("c" * 40, "2026-09-30T07:00:00Z")]))
+    handoff.compact_when_idle(stop_event(session))
+    [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
+    assert "now `cccccccc`" in pointer
+    assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
+    assert plan.read_text().startswith("# brook\n\n")
+
+
+def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
+        bash(session)
+    )
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
+    ccn = Path(os.environ["PATH"].split(":")[0]) / "ccn"
+    ccn.write_text(ccn.read_text() + 'sys.exit(1 if args[:2] == ["doc", "supersede"] else 0)\n')
+
+    assert handoff.compact_when_idle(stop_event(session)) is None
+
+    assert state(session).phase == "due"
+    assert plan.read_text() == "# brook\n"
+
+
+def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
+
+    handoff.nudge_at_threshold(bash(session))
+
+    saved = state(session)
+    assert saved.store == "folder"
+    folder = plan.with_name("brook-progress")
+    assert f"to a new file `{folder}/" in pending(session)[0]
+    folder.mkdir()
+    (folder / "2026-09-30T0544Z.md").write_text("# state\n")
+
+    handoff.compact_when_idle(stop_event(session))
+
+    assert state(session).phase == "compacting"
+    assert plan.read_text().splitlines()[-1] == (
+        f"{handoff.POINTER_PREFIX} the latest execution state is the newest file in `{folder}/`, now "
+        "`2026-09-30T0544Z.md`; only this line's name changes."
+    )
 
 
 def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> None:
     session = home / "session"
     handoff.CompactionState(active=True, model="claude-fable-5-1").save(bash(session))
 
-    handoff.archive_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-262k-fable-5-1.jsonl")))
+    handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-262k-fable-5-1.jsonl")))
 
     assert (state(session).phase, pending(session)) == ("idle", [])
 
 
-def test_legacy_model_fires_at_the_200k_window(home: Path) -> None:
+def test_legacy_model_fires_at_the_200k_window(home: Path, docs: Path) -> None:
     session = home / "session"
     handoff.CompactionState(active=True).save(bash(session))
 
-    handoff.archive_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-170k-sonnet-4-6.jsonl")))
+    handoff.nudge_at_threshold(bash(session, transcript_path=str(FIXTURES / "usage-170k-sonnet-4-6.jsonl")))
 
     saved = state(session)
-    assert (saved.phase, saved.plan_path) == ("archived", str(home / ".claude/plans/long-running-01234567.md"))
+    assert (saved.phase, saved.plan_path) == ("due", str(home / ".claude/plans/long-running-01234567.md"))
+    assert saved.slug == "long-running-01234567"
     [nudge] = pending(session)
     assert nudge.startswith("Context is at 170,000 of the 167,000-token auto-compaction threshold (102%). ")
-    assert "archived at" not in nudge
 
 
-def test_plan_write_links_every_archive_once(home: Path, plan: Path) -> None:
+def test_plan_write_only_tracks_the_path(home: Path, plan: Path) -> None:
     session = home / "session"
-    older = plan.with_name("brook.2026-09-24-163000-pre-compact.md")
-    newer = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
-    for archive in (older, newer):
-        archive.write_text("# old\n")
-    plan.write_text(f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{older}`\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived", archive_path=str(newer)).save(
-        bash(session)
-    )
-    write = tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"})
-
-    handoff.track_plan(write)
-    handoff.track_plan(write)
-
-    assert plan.read_text() == f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{newer}`\n- `{older}`\n"
-    assert state(session).phase == "rewritten"
-
-
-def test_plan_write_appends_the_archive_section(home: Path, plan: Path) -> None:
-    session = home / "session"
-    archive = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
-    archive.write_text("# old\n")
-    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived").save(bash(session))
-
-    handoff.track_plan(tool_event(session, "Edit", {"file_path": str(plan), "old_string": "a", "new_string": "b"}))
-
-    assert plan.read_text() == f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{archive}`\n"
-
-
-def test_plan_heading_on_the_last_line_still_gets_links(home: Path, plan: Path) -> None:
-    session = home / "session"
-    archive = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
-    archive.write_text("# old\n")
-    plan.write_text(f"# brook\n\n{handoff.ARCHIVE_HEADING}")
-    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived").save(bash(session))
-
-    handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
-
-    assert plan.read_text() == f"# brook\n\n{handoff.ARCHIVE_HEADING}\n- `{archive}`\n"
-
-
-def test_plan_write_identical_to_its_archive_is_not_a_rewrite(home: Path, plan: Path) -> None:
-    session = home / "session"
-    archive = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
-    archive.write_text(plan.read_text())
-    handoff.CompactionState(active=True, plan_path=str(plan), phase="archived", archive_path=str(archive)).save(
-        bash(session)
-    )
-
-    handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
-
-    assert (plan.read_text(), state(session).phase) == ("# brook\n", "archived")
-
-
-def test_archives_of_another_plan_are_not_linked(home: Path, plan: Path) -> None:
-    plan.with_name("brook.v2.2026-09-25-220650-pre-compact.md").write_text("# other\n")
-    own = plan.with_name("brook.2026-09-25-220650-pre-compact.md")
-    own.write_text("# old\n")
-
-    assert handoff.archives_of(plan) == [own]
-
-
-def test_missing_plan_file_is_nudged_without_an_archive(home: Path) -> None:
-    session = home / "session"
-    missing = home / ".claude" / "plans" / "x.md"
-    handoff.CompactionState(active=True, plan_path=str(missing)).save(bash(session))
-
-    handoff.archive_at_threshold(bash(session))
-
-    saved = state(session)
-    assert (saved.phase, saved.plan_path, saved.archive_path) == ("archived", str(missing), None)
-    [nudge] = pending(session)
-    assert f"rewrite `{missing}` as the current restart state. " in nudge
-
-
-def test_plan_write_before_the_threshold_only_tracks_the_path(home: Path, plan: Path) -> None:
-    session = home / "session"
-    plan.with_name("brook.2026-09-25-220650-pre-compact.md").write_text("# old\n")
-    handoff.CompactionState(active=True).save(bash(session))
+    handoff.CompactionState(active=True, phase="due").save(bash(session))
 
     handoff.track_plan(tool_event(session, "Write", {"file_path": str(plan), "content": "# brook"}))
 
     assert plan.read_text() == "# brook\n"
-    assert (state(session).phase, state(session).plan_path) == ("idle", str(plan))
+    assert (state(session).phase, state(session).plan_path) == ("due", str(plan))
 
 
-def test_stop_after_rewrite_spawns_one_compact_job_and_retries_after_30_minutes(
+def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minutes(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clock = [1_790_000_000.0]
@@ -236,7 +280,7 @@ def test_stop_after_rewrite_spawns_one_compact_job_and_retries_after_30_minutes(
     spawned = []
     monkeypatch.setattr(handoff.subprocess, "Popen", lambda argv, **kw: spawned.append((argv, kw)))
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path="/p/brook.md", phase="rewritten").save(bash(session))
+    handoff.CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
 
     assert handoff.compact_when_idle(stop_event(session)) is None
     clock[0] += handoff.COMPACT_RETRY_SECONDS - 1
@@ -251,8 +295,9 @@ def test_stop_after_rewrite_spawns_one_compact_job_and_retries_after_30_minutes(
         sys.executable,
         str(handoff.COMPACT_JOB),
         "term-7",
-        "/compact Long-running compaction handoff. `/p/brook.md` is the authoritative restart state; "
-        "keep only in-flight details from the last turn that it lacks.",
+        "/compact Long-running compaction handoff. `/p/brook.md` and its progress record are the authoritative "
+        "restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
+        "`ccn doc show <id>`. Keep only in-flight details from the last turn that they lack.",
         str(FIXTURES / "usage-460k.jsonl"),
     ]
     assert kw["env"]["ORCA_USER_DATA_PATH"] == "/orca/data"
@@ -263,24 +308,21 @@ def test_stop_after_rewrite_spawns_one_compact_job_and_retries_after_30_minutes(
 
 def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
     session = home / "session"
-    handoff.CompactionState(active=True, plan_path="/p/brook.md", phase="rewritten").save(bash(session))
+    handoff.CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written").save(bash(session))
 
     first = handoff.compact_when_idle(stop_event(session))
 
-    assert (first.action, first.system_message.startswith("Long-running plan `/p/brook.md` is rewritten")) == (
+    assert (first.action, first.system_message.startswith("Long-running progress for `/p/brook.md` is recorded")) == (
         "allow",
         True,
     )
     assert handoff.compact_when_idle(stop_event(session)) is None
 
 
-@pytest.mark.parametrize(
-    ("phase", "kept"),
-    [("archived", "idle"), ("rewritten", "idle"), ("compacting", "idle"), ("idle", "idle")],
-)
-def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, kept: str) -> None:
+@pytest.mark.parametrize("phase", ["due", "written", "compacting", "idle"])
+def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
     evt = SessionStartEvent(
-        _raw={"session_id": SESSION, "source": "compact"}, ctx=build_context(session_dir=tmp_path / "session")
+        _raw={"session_id": SESSION, "source": "compact", "cwd": str(FIXTURES / "project-600k")}, ctx=build_context(session_dir=tmp_path / "session")
     )
     handoff.CompactionState(
         active=True, plan_path="/p/brook.md", phase=phase, compacting_since=1.0 if phase == "compacting" else None
@@ -289,24 +331,7 @@ def test_compaction_resets_only_a_finished_handoff(tmp_path: Path, phase: str, k
     handoff.reground_after_compact(evt)
 
     saved = handoff.CompactionState.load(evt)
-    assert (saved.phase, saved.compacting_since) == (kept, None)
-
-
-def test_archive_collision_raises_before_state_change(
-    home: Path, plan: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    frozen = datetime(2026, 9, 24, 16, 30, 5, tzinfo=UTC)
-    monkeypatch.setattr(handoff, "datetime", type("Frozen", (datetime,), {"now": staticmethod(lambda tz: frozen)}))
-    archive = plan.with_name("brook.2026-09-24-163005-pre-compact.md")
-    archive.write_text("# first snapshot\n")
-    session = home / "session"
-    handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
-
-    with pytest.raises(FileExistsError):
-        handoff.archive_at_threshold(bash(session))
-
-    assert archive.read_text() == "# first snapshot\n"
-    assert (state(session).phase, state(session).archive_path, pending(session)) == ("idle", None, [])
+    assert (saved.phase, saved.compacting_since) == ("idle", None)
 
 
 RULE = "─" * 40

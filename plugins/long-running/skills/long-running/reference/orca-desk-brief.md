@@ -82,7 +82,9 @@ Do, in this order, forever:
      addresses the lane's current dispatch before relaying it. Reply to a current
      question with
        orca orchestration reply --id "<msg id>" --body "<ruling>"
-     or send guidance to its current dispatch with
+     Only a reply to the original question message id wakes an orchestration ask
+     wait (R56); send --type dispatch can sit unread in a background wait.
+     Send other guidance or added context to its current dispatch with
        orca orchestration send --to "dispatch:<dispatch id>" --type dispatch --subject "<subject>" --body "<ruling or brief-file pointer>"
      Record every relayed ruling before advancing the cursor:
        ccn --repo "$ORCA_LAUNCH_PARENT" log append "$LOG" --entry "R<n> <msg id> <lane> dispatch=<id>: <ruling>"
@@ -133,8 +135,9 @@ Do, in this order, forever:
      rest to the root with msg id + lane + 2-4 options, ≤5 lines. Record the
      pending question in the log before acknowledging its batch; do not wait
      for a root ruling to acknowledge it. Send routine replies with reply --id
-     and log the message id, lane, dispatch, and answer with ccn log append;
-     those replies do not advance the root inbox cursor. If orchestration ask
+     <original question message id> and log the message id, lane, dispatch, and
+     answer with ccn log append; those replies do not advance the root inbox
+     cursor. If orchestration ask
      returns "capacity reached", workers fall back
      to send --type question or --type escalation and keep working on everything
      independent of the answer. Treat those messages exactly like an ask.
