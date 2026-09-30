@@ -242,3 +242,14 @@ def test_a_shard_watches_only_its_lanes_and_keeps_its_own_snapshot(tmp_path):
     home = ledger.Path.home() / ".cache" / "ccn-ledger"
     assert ledger.watch_state(LEDGER, None) == home / f"{LEDGER}.watch.json"
     assert ledger.watch_state(LEDGER, frozenset({"b", "a"})) == home / f"{LEDGER}.a+b.watch.json"
+
+
+@pytest.mark.parametrize("snapshot", [{}, {"prs": None}])
+def test_a_snapshot_without_prs_arms_like_an_absent_one(capsys, tmp_path, snapshot):
+    (tmp_path / "watch.json").write_text(json.dumps(snapshot))
+    shell = row_shell()
+    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n"
+
+    assert watch(shell, tmp_path) == 0
+
+    assert shell.fields(PR)["state"] == "open"

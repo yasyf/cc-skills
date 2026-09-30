@@ -1385,7 +1385,7 @@ def watch_state(ledger: str, shard: frozenset[str] | None) -> Path:
 
 
 def snapshot_prs(state: Path) -> frozenset[str]:
-    return frozenset(json.loads(state.read_text())["prs"]) if state.exists() else frozenset()
+    return frozenset(json.loads(state.read_text()).get("prs") or ()) if state.exists() else frozenset()
 
 
 def watch_line(event: dict) -> str:
