@@ -125,6 +125,14 @@ and `ledger.py answer` when the ask is a question rather than shipped work.
 release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
+**R9. Orca changes nothing about R1-R2.** Running workers through Orca does not license
+the root to do lifecycle, inbox, script, or retry work inline. Worktree and terminal
+creation, relaunch sweeps, the `check --wait`/ack loop, routine replies from a lane's own
+brief, and any helper script belong to a dedicated `long-running:lane` subagent (an
+orca-desk beside the landing-desk) that forwards only rulings, in five lines or fewer. The
+root holds decisions, owner asks, and rulings. *Prevents the root spending its window
+relaunching 33 lanes and answering scope questions the briefs already settled.*
+
 **R10. Landed is the only progress.** Status to the owner is landed, queued, or the
 exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
 status. PRs sitting more than 24 hours on merge conflicts are combined into trains
@@ -390,6 +398,11 @@ the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll ne
 `lane` also leaves out the Skill tool and the skill listing, so it starts 16k tokens
 lighter than `general-purpose`; `lane-ship` starts 5k lighter. A `lane` that turns out
 to need a skill is rotated or respawned as `lane-ship`, never worked around.
+
+A lane that runs as an Orca worker, started with `orca orchestration worker-start`, is a
+separate session the Agent tool cannot message. Its brief is
+`reference/orca-lane-brief.md`, ready to paste: a shared contract file and one file per
+lane, with a short pointer as the `--spec`.
 
 One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
@@ -968,6 +981,7 @@ same inputs, which resumes from that file.
 10. Before saying something is assigned, read the summary's `LOST` lines first.
     Never call an ask done before `LIVE`.
 11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
+12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk lane does it and forwards only rulings.
 
-Apply D3 to priority PRs before delegating. A call that survives all eleven decides
+Apply D3 to priority PRs before delegating. A call that survives all twelve decides
 something no lane can decide for you; everything else is a lane.
