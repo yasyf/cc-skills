@@ -175,7 +175,7 @@ def test_no_binary_anywhere(common, plugin):
 
 def test_service_label_matches_the_daemon_spec(common):
     runtime = (REPO_ROOT / "plugins" / "codex" / "daemon_runtime.go").read_text()
-    assert f'codexServiceLabel      = "{common.SERVICE_LABEL}"' in runtime
+    assert f'const codexServiceLabel = "{common.SERVICE_LABEL}"' in runtime
 
 
 @pytest.fixture
