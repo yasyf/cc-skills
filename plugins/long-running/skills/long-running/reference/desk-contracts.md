@@ -359,7 +359,9 @@ still absent from the trunk.
 **Enqueue the whole stack with one `merge` label on its tip.** Graphite
 [propagates that label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
 the stack as one entry. The desk re-reads every PR and runs every guard before adding the
-label; one refusal refuses the whole stack. The tool refuses to label a PR whose branch
+label; one refusal refuses the whole stack. A repository that carries
+`.agents/skills/submit-pr/scripts/stack-enqueue` enqueues the tip through it instead of the
+label, and the script's own gate can refuse the stack too. The tool refuses to label a PR whose branch
 is the base of an open PR outside the enqueued stack, naming the children left exposed
 to branch deletion.
 

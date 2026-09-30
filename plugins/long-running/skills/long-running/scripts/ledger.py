@@ -68,6 +68,9 @@ ROUTE_STATES = ("dirty", "blocked")
 KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = ("clean", "red", "conflicting", "held")
 MERGE_LABEL = "merge"
+STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
+STACK_ENQUEUE_UNSETTLED = 2
+STACK_ENQUEUE_BLOCKED = re.compile(r"^#(\d+) BLOCKED \S+ (.*)$", re.MULTILINE)
 LABELLABLE_STATES = ("clean", "behind", "has_hooks")
 FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
 SUMMARY_LINES = 10
@@ -175,6 +178,7 @@ REFUSAL = {
     "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
     "untracked": "#{pr} is below #{tip} in the stack and no lane reported it; the label on #{tip} would enqueue it too",
     "stack": "the stack {stack} enqueues as one entry, so {refused} refuses all of it; nothing was labelled",
+    "enqueue": "stack-enqueue refused #{pr} (stack tip #{tip}): {detail}",
     "shallow": "{checkout} is a shallow clone; trunk traversal truncates at a depth that moves with each fetch. Run: git fetch --unshallow origin",
     "fetch": "fetching {ref} failed, so this pass has graded nothing: {detail}",
 }
@@ -1108,6 +1112,30 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
     return approved
 
 
+def stack_enqueue_script(checkout: Path | None) -> Path | None:
+    """The repository's own enqueue script, when the checkout carries one; otherwise the label is the enqueue."""
+    script = checkout / STACK_ENQUEUE if checkout else None
+    return script if script and script.is_file() else None
+
+
+def run_stack_enqueue(shell: Shell, script: Path, tip: str, heads: dict[str, str], dry_run: bool) -> dict[str, tuple[str, Refused]]:
+    """Enqueue `tip` with its whole downstack, or with `dry_run` only gate it; returns each PR the script blocked.
+
+    Exit 2 means the enqueue was made and part of it dropped or has not settled, so the
+    heads count as enqueued: the same head is never queued twice.
+    """
+    try:
+        report = shell.run([str(script), tip] + (["--check"] if dry_run else []))
+    except subprocess.CalledProcessError as failure:
+        output = failure.stdout or ""
+        if failure.returncode != STACK_ENQUEUE_UNSETTLED:
+            blocked = STACK_ENQUEUE_BLOCKED.findall(output) or [(tip, output.strip() or (failure.stderr or "").strip() or f"exit {failure.returncode}")]
+            return {pr: (heads[pr], refusal("enqueue", pr=pr, tip=tip, detail=detail)) for pr, detail in blocked}
+        report = output
+    print(report, end="")
+    return {}
+
+
 def record_refusals(notes: Notes, rows: dict[str, dict[str, str]], refusals: dict[str, tuple[str, str]]) -> None:
     """Write each tracked row's refusal and the head it was graded at, so `stale` can name the blocker."""
     at = utc_stamp()
@@ -1119,7 +1147,7 @@ def record_refusals(notes: Notes, rows: dict[str, dict[str, str]], refusals: dic
 def label_stack(
     shell: Shell, gh: Github, notes: Notes, rows: dict[str, dict[str, str]], trunk: str, tip: dict, expected: str | None, checkout: Path | None, dry_run: bool
 ) -> dict[str, tuple[str, Refused]]:
-    """Guard every PR from the trunk up to `tip`, then label the tip once; returns each refusing PR's head and reason."""
+    """Guard every PR from the trunk up to `tip`, then enqueue the tip once, through the repository's stack-enqueue script or else the label; returns each refusing PR's head and reason."""
     number = str(tip["number"])
     try:
         stack = stack_to_trunk(gh, tip, trunk)
@@ -1143,6 +1171,12 @@ def label_stack(
             print(f"REFUSED {reason} (#{pr})")
             refused[pr] = (head, reason)
     chain = " <- ".join(f"#{pr}" for pr in numbers)
+    script = stack_enqueue_script(checkout)
+    if script and not refused:
+        heads = {pr: pull["head"]["sha"] for pull, pr in zip(stack, numbers, strict=True)}
+        refused = run_stack_enqueue(shell, script, number, heads, dry_run)
+        for pr, (_, reason) in refused.items():
+            print(f"REFUSED {reason} (#{pr})")
     if refused:
         whole = REFUSAL["stack"].format(stack=chain, refused=", ".join(f"#{pr}" for pr in refused))
         print(f"REFUSED {whole}")
@@ -1151,11 +1185,13 @@ def label_stack(
         return refused
     head = stack[-1]["head"]["sha"]
     if dry_run:
-        print(f"would label #{number} {head}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
+        if not script:
+            print(f"would label #{number} {head}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
         return {}
-    gh.add_label(number, MERGE_LABEL)
+    if not script:
+        gh.add_label(number, MERGE_LABEL)
     labelled = utc_stamp()
-    print(f"labelled #{number} {head} at {labelled}; the queue takes {chain} as one entry")
+    print(f"{'enqueued' if script else 'labelled'} #{number} {head} at {labelled}; the queue takes {chain} as one entry")
     for pull, pr in zip(stack, numbers, strict=True):
         head, approved_by = pull["head"]["sha"], ",".join(approved[pr])
         notes.set_fields(
@@ -1473,13 +1509,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_shard(train)
     train.set_defaults(handler=cmd_train)
 
-    label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then label the tip once")
+    label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then enqueue the tip once: through the checkout's stack-enqueue, else by label")
     add_ledger(label, repo=True)
     target = label.add_mutually_exclusive_group(required=True)
     target.add_argument("--pr")
     target.add_argument("--all-clean", action="store_true", help="label every clean, unheld, never-labelled stack's tip in one batch")
     label.add_argument("--expect-head")
-    label.add_argument("--checkout", type=Path)
+    label.add_argument("--checkout", type=Path, help="clone for the conflict check; a copy of .agents/skills/submit-pr/scripts/stack-enqueue in it replaces the label")
     label.add_argument("--dry-run", action="store_true")
     add_shard(label)
     label.set_defaults(handler=cmd_label)

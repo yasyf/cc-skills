@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import ledger
 import pytest
@@ -631,6 +632,111 @@ def test_a_clean_stack_is_enqueued_by_one_label_on_its_tip(capsys):
         assert row["label_head"] == f"{index + 1}" * 40
         assert row["label_stack"] == "24001,24002,24003"
         assert row["approved_by"] == "yasyf"
+
+
+def checkout_with_stack_enqueue(tmp_path):
+    script = tmp_path / ledger.STACK_ENQUEUE
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/usr/bin/env python3\n")
+    return str(tmp_path)
+
+
+def test_a_checkout_carrying_stack_enqueue_enqueues_the_tip_through_it_and_adds_no_label(capsys, tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_out = "#24001 QUEUED 1111111111 graphite READY\n#24002 QUEUED 2222222222 graphite READY\n#24003 QUEUED 3333333333 graphite READY\n"
+
+    assert label_stack(shell, STACK[-1], "--checkout", checkout_with_stack_enqueue(tmp_path)) == 0
+
+    assert shell.stack_enqueues == [["24003"]]
+    assert shell.labelled == []
+    out = capsys.readouterr().out
+    assert "#24003 QUEUED 3333333333 graphite READY" in out
+    assert f"enqueued #24003 {'3' * 40}" in out
+    assert "the queue takes #24001 <- #24002 <- #24003 as one entry" in out
+    for index, pr in enumerate(STACK):
+        row = shell.fields(pr)
+        assert row["label_head"] == f"{index + 1}" * 40
+        assert row["label_stack"] == "24001,24002,24003"
+
+
+def test_stack_enqueue_naming_blockers_refuses_the_stack_and_records_them(capsys, tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_exit = 1
+    shell.stack_enqueue_out = "#24001 GREEN 1111111111\n#24002 BLOCKED 2222222222 awaiting approval on head from poetic-svc\nenqueued nothing: every PR in the downstack must be GREEN\n"
+
+    assert label_stack(shell, STACK[-1], "--checkout", checkout_with_stack_enqueue(tmp_path)) == 1
+
+    out = capsys.readouterr().out
+    assert "REFUSED stack-enqueue refused #24002 (stack tip #24003): awaiting approval on head from poetic-svc (#24002)" in out
+    assert "so #24002 refuses all of it" in out
+    assert shell.labelled == []
+    assert "awaiting approval on head from poetic-svc" in shell.fields("24002")["label_refused"]
+    assert "so #24002 refuses all of it" in shell.fields("24001")["label_refused"]
+    assert all("label_head" not in shell.fields(pr) for pr in STACK[:2])
+
+
+def test_a_stack_enqueue_blocker_is_returned_against_the_blocked_prs_own_head(tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_exit = 1
+    shell.stack_enqueue_out = "#24002 BLOCKED 2222222222 graphite CONFLICTING\n"
+    gh, notes = ledger.Github(shell, REPO), ledger.Notes(shell, LEDGER)
+
+    refused = ledger.label_stack(shell, gh, notes, notes.pr_rows(), "dev", gh.api(f"pulls/{STACK[-1]}"), None, Path(checkout_with_stack_enqueue(tmp_path)), False)
+
+    assert list(refused) == ["24002"]
+    assert refused["24002"][0] == "2" * 40
+
+
+def test_a_stack_enqueue_crash_without_blocker_lines_refuses_the_tip(capsys, tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_exit = 1
+
+    assert label_stack(shell, STACK[-1], "--checkout", checkout_with_stack_enqueue(tmp_path)) == 1
+
+    assert "stack-enqueue refused #24003 (stack tip #24003): exit 1" in capsys.readouterr().out
+
+
+def test_a_partly_dropped_enqueue_still_counts_as_enqueued_so_the_heads_are_not_queued_twice(capsys, tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_exit = 2
+    shell.stack_enqueue_out = "#24003 DROPPED 3333333333 graphite CONFLICT\nthe queue dropped part of the stack; read each PR's Merge activity comment\n"
+
+    assert label_stack(shell, STACK[-1], "--checkout", checkout_with_stack_enqueue(tmp_path)) == 0
+
+    out = capsys.readouterr().out
+    assert "the queue dropped part of the stack" in out
+    assert f"enqueued #24003 {'3' * 40}" in out
+    assert all(shell.fields(pr)["label_head"] for pr in STACK[:2])
+    assert ledger.is_label_candidate(shell.fields("24001")) is False
+
+
+def test_a_refused_guard_never_reaches_stack_enqueue(tmp_path):
+    shell = stack_shell()
+    shell.routes[f"status:{'2' * 40}"] = "status-failure.json"
+
+    assert label_stack(shell, STACK[-1], "--checkout", checkout_with_stack_enqueue(tmp_path)) == 1
+
+    assert shell.stack_enqueues == []
+
+
+def test_a_stack_dry_run_gates_through_stack_enqueue_check_and_records_nothing(capsys, tmp_path):
+    shell = stack_shell()
+    shell.stack_enqueue_out = "would enqueue #24001 #24002 #24003\n"
+
+    assert label_stack(shell, STACK[-1], "--dry-run", "--checkout", checkout_with_stack_enqueue(tmp_path)) == 0
+
+    assert shell.stack_enqueues == [["24003", "--check"]]
+    assert capsys.readouterr().out.strip() == "would enqueue #24001 #24002 #24003"
+    assert all("label_head" not in shell.fields(pr) for pr in STACK[:2])
+
+
+def test_a_checkout_without_stack_enqueue_still_labels_the_tip(tmp_path):
+    shell = stack_shell()
+
+    assert label_stack(shell, STACK[-1], "--checkout", str(tmp_path)) == 0
+
+    assert shell.labelled == ["24003:merge"]
+    assert shell.stack_enqueues == []
 
 
 def test_one_red_pr_refuses_the_whole_stack(capsys):
