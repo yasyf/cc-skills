@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -623,6 +624,8 @@ def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> st
         identity = ("kind", "pr", "text")
     elif "event" in fields:
         identity = ("kind", "pr", "head", "event")
+    elif fields["kind"] == "report":
+        identity = ("kind", "pr", "head", "text")
     else:
         identity = ("kind", "pr", "head")
     wanted = tuple(fields[name] for name in identity)
@@ -640,6 +643,10 @@ def enqueue(notes: Notes, fields: dict[str, str]) -> str:
         return seen
     key = next_key(MESSAGE_PREFIX, messages)
     notes.set_fields(key, dict(fields, at=utc_stamp(), state="pending"))
+    if fields["kind"] == "report":
+        for earlier, existing in messages.items():
+            if existing["state"] == "pending" and (existing["kind"], existing["pr"], existing["head"]) == ("report", fields["pr"], fields["head"]):
+                notes.set_fields(earlier, {"state": "acked", "acked_at": utc_stamp(), "superseded_by": key})
     print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
     return key
 
@@ -705,13 +712,15 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
 
 def merge_conflicts(shell: Shell, checkout: Path, pr: str, base: str, head: str) -> Refused | None:
     git = ["git", "-C", str(checkout)]
-    shell.run(git + ["fetch", "-q", "origin", f"refs/pull/{pr}/head"])
-    fetched = shell.run(git + ["rev-parse", "FETCH_HEAD"]).strip()
+    pull = f"refs/desk/pr{pr}"
+    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:{pull}"])
+    fetched = shell.run(git + ["rev-parse", pull]).strip()
     if fetched != head:
         return refusal("fetched", pr=pr, fetched=fetched[:9], head=head[:9])
-    shell.run(git + ["fetch", "-q", "origin", base])
+    tip = f"refs/desk/base/{base}"
+    shell.run(git + ["fetch", "-q", "origin", f"+refs/heads/{base}:{tip}"])
     try:
-        shell.run(git + ["merge-tree", "--write-tree", "FETCH_HEAD", head])
+        shell.run(git + ["merge-tree", "--write-tree", tip, head])
     except subprocess.CalledProcessError as failure:
         paths = sorted({line.split("\t")[-1] for line in failure.stdout.splitlines()[1:] if "\t" in line})
         return refusal("conflict", head=head[:9], base=base, paths=", ".join(paths) or "unlisted paths")
@@ -1427,7 +1436,7 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def watch_state(ledger: str, shard: frozenset[str] | None) -> Path:
-    name = ledger if shard is None else f"{ledger}.{'+'.join(sorted(shard))}"
+    name = ledger if shard is None else f"{ledger}.{hashlib.sha256('+'.join(sorted(shard)).encode()).hexdigest()[:16]}"
     return Path.home() / ".cache" / "ccn-ledger" / f"{name}.watch.json"
 
 

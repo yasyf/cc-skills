@@ -124,6 +124,33 @@ def test_duplicate_idle_notice_is_recorded_once_and_answered_never(capsys):
     assert messages(shell) == ["msg/000001"]
 
 
+def test_a_new_verdict_at_the_same_head_supersedes_the_pending_report(capsys):
+    shell = desk_shell()
+    argv = ["report", "--ledger", LEDGER, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
+    run(shell, *argv, "--verdict", "red")
+    run(shell, *argv, "--verdict", "clean")
+    run(shell, *argv, "--verdict", "clean")
+    capsys.readouterr()
+
+    assert messages(shell) == ["msg/000001", "msg/000002"]
+    assert shell.fields("msg/000001")["state"] == "acked"
+    assert shell.fields("msg/000001")["superseded_by"] == "msg/000002"
+    assert shell.fields(PR)["reported_verdict"] == "clean"
+    run(shell, "inbox", "--ledger", LEDGER)
+    assert capsys.readouterr().out.splitlines() == [f"msg/000002 report #{PR} {HEAD[:9]} {LANE}: clean ci"]
+
+
+def test_label_with_a_checkout_grades_named_refs_so_concurrent_desks_never_share_fetch_head(tmp_path):
+    shell = desk_shell()
+
+    label(shell, "--checkout", str(tmp_path))
+
+    git = [argv for argv in shell.calls if argv[0] == "git"]
+    assert not any("FETCH_HEAD" in argv for argv in git)
+    assert [argv[-1] for argv in git if argv[3] == "merge-tree"] == [HEAD]
+    assert [argv[-2] for argv in git if argv[3] == "merge-tree"] == ["refs/desk/base/dev"]
+
+
 def test_hold_carries_reason_and_expiry_on_the_row_and_lift_clears_them(capsys):
     shell = desk_shell()
     hold(shell, PR, "--until", "2020-01-01T00:00:00Z")
