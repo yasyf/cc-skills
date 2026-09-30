@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The landing desk's ledger over cc-notes — one row per PR our lanes shipped, REST only.
+"""The landing desk's ledger over cc-notes — one row per PR our lanes shipped.
 
     ledger.py init    --title TEXT
     ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK
@@ -12,7 +12,7 @@
     ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
     ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
     ledger.py ack     --ledger ID KEY...
-    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES]
+    ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
     ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID --pr N
     ledger.py route   --repo owner/name --ledger ID [--pr N] [--job TEXT] [--lane NAME] [--train LANE --paths GLOB...] [--fallback LANE] [--dry-run] [--shard LANES]
@@ -28,7 +28,9 @@
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
 branch under a lane's registered prefix, or because refresh was handed its number; the
-repository's PR list is never read and this script calls no GraphQL itself; ``watch`` subscribes through ``ccx vcs pr watch``. Holds, routing, the label history, and the landing are fields on that row;
+repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
+and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
+repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by the
 base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
 merged field and never by searching the base log for its number. Buildkite
@@ -382,11 +384,12 @@ def queue_ejected(gh: Github, pr: str) -> str:
     return ""
 
 
-def ai_review(checks: dict) -> str:
-    for run in checks["check_runs"]:
-        if run["name"] == AI_REVIEW_CHECK:
-            return run["conclusion"] or run["status"]
-    return AI_REVIEW_ABSENT
+def ai_review(contexts: list[dict]) -> str:
+    """The newest ai-review run's verdict; a rollup lists a check's re-runs oldest first."""
+    runs = [context for context in contexts if context.get("__typename") == "CheckRun" and context.get("name") == AI_REVIEW_CHECK]
+    if not runs:
+        return AI_REVIEW_ABSENT
+    return (runs[-1].get("conclusion") or runs[-1].get("status") or "").lower()
 
 
 def latest_ai_review(gh: Github, head: str) -> dict | None:
@@ -399,26 +402,32 @@ def approvers(gh: Github, pr: str) -> list[str]:
     return sorted(login for login, state in decisions.items() if state == APPROVED)
 
 
-def grade(gh: Github, number: str) -> dict[str, str]:
-    """Re-read the head from the same `pulls/{n}` call the verdicts are graded against."""
-    pull = gh.api(f"pulls/{number}")
-    head = pull["head"]["sha"]
-    status = gh.api(f"commits/{head}/status")
-    labels = gh.api(f"issues/{number}/labels")
-    checks = gh.api(f"commits/{head}/check-runs")
+def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[str]) -> dict:
+    """One read of ccx's machine-wide pull request cache, which every desk and watcher on the machine shares."""
+    if not prs and not prefixes:
+        return {"lanes": {}, "prs": {}}
+    argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
+    for prefix in prefixes:
+        argv += ["--lane-prefix", prefix]
+    return json.loads(shell.run(argv))
+
+
+def grade(record: dict) -> dict[str, str]:
+    """A row's graded fields, off one record whose head and verdicts a single poll read together."""
+    rollup = record.get("rollup") or {}
     return {
-        "state": pull["state"],
-        "head": head,
-        "base": pull["base"]["ref"],
-        "branch": pull["head"]["ref"],
-        "author": pull["user"]["login"],
-        "title": pull["title"],
-        "created_at": pull["created_at"],
-        "test_state": status["state"],
-        "mergeable_state": pull["mergeable_state"],
-        "labels": ",".join(label["name"] for label in labels),
-        "ai_review": ai_review(checks),
-        "changed_files": str(pull["changed_files"]),
+        "state": "open" if record["state"] == "OPEN" else "closed",
+        "head": record["headRefOid"],
+        "base": record["baseRefName"],
+        "branch": record["headRefName"],
+        "author": record.get("author", ""),
+        "title": record["title"],
+        "created_at": record["createdAt"],
+        "test_state": (record.get("status") or "pending").lower(),
+        "mergeable_state": record["mergeStateStatus"].lower(),
+        "labels": ",".join(record.get("labels") or []),
+        "ai_review": ai_review(rollup.get("contexts", {}).get("nodes", [])),
+        "changed_files": str(record["changedFiles"]),
     }
 
 
@@ -962,30 +971,23 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def lane_prs(gh: Github, prefix: str) -> list[str]:
-    """Open pull requests on branches under one lane's prefix: one matching-refs call, one scoped lookup per branch."""
-    owner = gh.repo.split("/")[0]
-    branches = [ref["ref"].removeprefix("refs/heads/") for ref in gh.api(f"git/matching-refs/heads/{prefix}")]
-    return [str(pull["number"]) for branch in branches for pull in gh.api("pulls", head=f"{owner}:{branch}", state="open")]
-
-
 def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
-    gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     lanes = dict(pair.split("=", 1) for pair in args.lane)
     with locked(args.lock or default_lock(args.ledger)):
         known = sharded(notes.pr_rows(), args.shard)
+        registrations = list(sharded(notes.lanes(), args.shard).values())
+        prefixes = sorted({lane["branch_prefix"] for lane in registrations})
         moment = utc_stamp()
-        rows = []
+        wanted = sorted(set(known) | set(args.pr), key=int)
         try:
-            registered = {pr: lane["lane"] for lane in sharded(notes.lanes(), args.shard).values() for pr in lane_prs(gh, lane["branch_prefix"])}
+            state = pr_state(shell, args.ccx, args.repo, wanted, prefixes)
         except subprocess.CalledProcessError as failure:
-            raise ForgeUnreachable(f"registered branches: {failure.stderr.strip() or failure}") from failure
-        for key in sorted(set(known) | set(args.pr) | set(registered), key=int):
-            try:
-                fields = grade(gh, key)
-            except subprocess.CalledProcessError as failure:
-                raise ForgeUnreachable(f"#{key}: {failure.stderr.strip() or failure}") from failure
+            raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+        registered = {str(pr): lane["lane"] for lane in registrations for pr in state["lanes"][lane["branch_prefix"]]}
+        rows = []
+        for key in sorted(set(wanted) | set(registered), key=int):
+            fields = grade(state["prs"][key])
             fields["last_refresh"] = moment
             if key not in known:
                 fields["first_seen"] = moment
@@ -1669,6 +1671,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--pr", action="append", default=[], metavar="N", help="admit this PR, reported by one of our lanes")
     refresh.add_argument("--lane", action="append", default=[], metavar="PR=NAME")
     refresh.add_argument("--lock", type=Path)
+    refresh.add_argument("--ccx", default="ccx", help="the ccx binary")
     add_shard(refresh)
     refresh.set_defaults(handler=cmd_refresh)
 

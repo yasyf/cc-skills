@@ -125,16 +125,19 @@ Do, in this order, forever:
      report to the next pass. Reports open rows,
      carry the lane's text, and feed stale and p50; they are not required to label.
      A lane's red or conflicting verdict does not overrule the forge's state.
-  2. Ground truth, one REST batch every 3 minutes:
+  2. Ground truth, one ccx cache read every 3 minutes:
      This pass no longer has to catch ejections; the watch forwards them immediately.
      `ledger.py refresh` over the rows the ledger already holds and every open PR
      on a registered lane's branches, then
      `ledger.py landed --checkout <path>` to settle closed rows by the squash on the
      trunk, never the PR's own base, which the queue deletes when a stack lands; a row
      the forge cannot answer records `settle_error` and the pass settles the rest. PR rows enter through a lane's report, registration, or an explicit
-     `refresh --pr`. Discover registered branches through the forge's matching-refs
-     call for the lane's unique prefix, then one scoped `pulls?head=` lookup per
-     branch. Grade every tracked current head without waiting for a report.
+     `refresh --pr`. Refresh makes one `ccx vcs pr state --repo <repo> <PR numbers>`
+     call with every tracked or explicitly supplied PR number and one
+     `--lane-prefix <prefix>` per registered prefix. The same read returns the lanes'
+     open PRs from ccx's machine-wide pull request cache, shared with `ccx vcs pr watch`
+     and `ccx vcs pr status`, with at most one poll per repository every 30 seconds.
+     Grade every tracked current head without waiting for a report.
      Record labels added by the root on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
