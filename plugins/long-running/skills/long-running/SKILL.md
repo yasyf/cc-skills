@@ -46,6 +46,17 @@ Ask, and set a deadline for the answer.
 
 *Prevents repeated small reads and merge calls filling the root's window.*
 
+The root never reads a PR, diff, CI log, Slack thread, plan artifact, or long file to
+answer a question. `gh pr view` and `ccx vcs diff` become a sonnet or opus reader lane,
+or `cc-context:pr-review-triage`; a CI log becomes `cc-context:ci-triage`; a Slack
+thread becomes a reader lane. The lane returns the conclusion and pointers: file:line,
+PR number, Slack ts. A lane report longer than a screen goes back to its lane through a
+scoped resume, to be rewritten under 25 lines with a disk pointer. The root stays at
+rulings, dispatch, and the handoff record.
+
+*Prevents the root filling its window with PR bodies and diffs it read to answer one
+question: "stop polluting your main context by reading PRs etc" (release-v3, 2026-09-30).*
+
 **R3. One lane per wait→do chain, and no lane ever parks.** "When X lands, do Y" is one
 sequencer lane that polls X, does Y, and sends one message. Never a per-step Bash
 watcher, never a Monitor per build, never a root-context poll. A lane that ends its turn
@@ -612,6 +623,8 @@ Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <driv
     carries the entry number, never the body.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
+Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
+  paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
   Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
@@ -1212,6 +1225,8 @@ same inputs, which resumes from that file.
 - Sending rulings by `SendMessage` to a looping desk: 26 sat undelivered for over an
   hour instead of reaching an inbox file read every minute (2026-09-30).
 - Reading build and cloud logs in the root window while an assigned lane owned the question.
+- The root reading PRs and diffs itself to answer questions until the owner said "stop
+  polluting your main context by reading PRs etc" (release-v3, 2026-09-30).
 - One Bash watcher per build or PR landing, each returning JSON parsed in the root window.
 - Replying to every lane idle-notification, duplicates included.
 - Restating status to the user after each event instead of at milestones.
@@ -1273,7 +1288,7 @@ same inputs, which resumes from that file.
 ## Checklist before every tool call
 
 1. Could a lane return this as ≤10 lines? → delegate.
-2. Is this raw data - log, JSON, resource list, webpage, diff? → delegate.
+2. Is this raw data - log, JSON, resource list, webpage, diff, PR, Slack thread, plan artifact? → delegate to a reader lane.
 3. Does a lane already own this question? → scoped resume, do not look.
 4. Am I about to wait? → fold the wait into the lane that acts.
 5. Am I about to restate status? → send nothing.
