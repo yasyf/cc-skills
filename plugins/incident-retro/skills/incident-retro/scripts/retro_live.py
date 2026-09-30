@@ -217,6 +217,7 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
 
 
 def timeline_of(state: dict, messages: list, retro, onset) -> list:
+    all_clear = retro.try_ts(state.get("all_clear_at"))
     rows = []
     for m in messages:
         if m.get("thread_ts") or not (m.get("text") or "").strip():
@@ -252,6 +253,8 @@ def timeline_of(state: dict, messages: list, retro, onset) -> list:
     for row in rows:
         if onset and retro.parse_ts(row["ts"]) < onset:
             row["phase"] = "before"
+        elif all_clear and retro.parse_ts(row["ts"]) > all_clear:
+            row["phase"] = "after"
         if row["key"]:
             flagged += 1
             if flagged > retro.KEY_MOMENTS:

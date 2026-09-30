@@ -233,6 +233,31 @@ class Finalize(unittest.TestCase):
         self.assertEqual(R["windows"][0]["end"], "2026-09-02T17:30:00-07:00")
 
 
+class AfterAllClear(unittest.TestCase):
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        state = json.loads((self.incident / "state.json").read_text())
+        state["all_clear_at"] = "2026-09-02T14:45:00-07:00"
+        (self.incident / "state.json").write_text(json.dumps(state))
+        late = {"ts": "1788390000.000400", "thread_ts": None, "channel": "C07KFSH3Z4Y", "channel_name": "#outage",
+                "user": "U1", "author": "Dana", "text": "Late note once the all-clear stood.",
+                "permalink": "https://example.slack.com/archives/C07KFSH3Z4Y/p1788390000000400",
+                "seen_at": "2026-09-02T15:00:00-07:00", "backfilled": False}
+        with (self.incident / "slack-log.jsonl").open("a") as log:
+            log.write(json.dumps(late) + "\n")
+        self.code = run(retro_live.sync, args(self.incident, self.docs))
+
+    def test_a_post_after_the_all_clear_carries_the_after_phase_and_passes_check(self):
+        self.assertEqual(self.code, 0)
+        rows = json.loads((self.root / "retro.json").read_text())["timeline"]
+        late = next(r for r in rows if "Late note" in r["text"])
+        self.assertEqual((late["kind"], late["phase"]), ("report", "after"))
+        clear = next(r for r in rows if r["kind"] == "allclear")
+        self.assertNotIn("phase", clear)
+
+
 class Scrubbing(unittest.TestCase):
     def scrub(self):
         return retro_live.scrubber([{"codename": "Polar", "aliases": ["Northwind", "Northwind Foods"]}])
