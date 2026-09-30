@@ -504,13 +504,18 @@ launch until it falls. This is a standing rule, not a per-drive ruling.
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 
 **O15. A codex Orca lane runs on Orca's codex agent.** Launch it with
-`orca orchestration worker-start --run <run> --spec <pointer> --worktree path:<wt> --agent codex --model gpt-6-astra --effort xhigh --json`
-on a worktree created as `orca-launch.sh` creates one; `reference/orca-workers.md`
-has the recipe. Orca's codex default arguments already skip approvals, so it needs no
-custom terminal; count it on a `ready` receipt. Never launch a claude worker whose
-brief calls the codex skill. An inline lane, an Agent-tool subagent or the root's own
-turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off question still
-goes to `codex-ask`.
+`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex` or `gpt-*` model runs
+`worker-start --agent codex --model <id> --effort <level>` with no custom terminal,
+since Orca's codex default arguments already skip approvals. Never launch a claude
+worker whose brief calls the codex skill. An inline lane, an Agent-tool subagent or
+the root's own turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off
+question still goes to `codex-ask`.
+
+Orca does not yet detect a ready codex agent. On 2026-09-30 both `--agent codex`
+(dispatch `ctx_43637c1c2b7b`) and a custom `codex` terminal passed as `--terminal`
+(dispatch `ctx_4aa6ac245439`) left codex idle at its prompt until `worker-start`
+failed at `agent_readiness` with `timeout`; the spec never arrived. Until Orca fixes
+that, the desk reports each failed codex launch to the root, which rules on the lane.
 
 ## The priority desk
 

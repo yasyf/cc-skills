@@ -25,7 +25,12 @@ pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
 pointer must stay within 300 characters. The launch counts only once the
 receipt reads ready and the terminal's screen shows bypass permissions on.
 
-<model> is opus, sonnet, fable, or a full model id. <effort> is low, medium,
+A codex model launches on Orca's codex agent instead: worker-start creates the
+terminal with --agent codex --model --effort, and Orca's codex default args
+already bypass approvals, so there is no custom command and no screen check.
+
+<model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), or a
+gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Worktree and terminal creation retry after
 ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
 
@@ -62,7 +67,10 @@ fail() {
   exit 1
 }
 
+AGENT=claude
 case $MODEL in
+  codex) AGENT=codex MODEL_ID=gpt-6-astra ;;
+  gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
   fable) MODEL_ID=claude-fable-5-1 ;;
@@ -102,25 +110,31 @@ SPEC=$(spec)
 [ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the brief path"
 
 attempt=0 TERMINAL=''
-until [ -n "$TERMINAL" ]; do
+until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 3 ] || fail "terminal create: $(head -c 300 "$STATE/$LANE.terminal.err")"
   TERMINAL=$(orca terminal create --worktree "path:$WT" --title "$NAME" --command "$COMMAND" --json \
     2>"$STATE/$LANE.terminal.err" | jq -r '.result.terminal.handle // empty') || TERMINAL=
   [ -n "$TERMINAL" ] || sleep "$RETRY"
 done
-sleep "$BOOT"
+[ "$AGENT" = codex ] || sleep "$BOOT"
 
 if [ -s "$RECEIPT" ]; then
   set -- --task "$(jq -r '.result.taskId' "$RECEIPT")" --retry-of "$(jq -r '.result.dispatchId' "$RECEIPT")"
 else
   set -- --spec "$SPEC" --task-title "$NAME"
 fi
+if [ "$AGENT" = codex ]; then
+  set -- "$@" --agent codex --model "$MODEL_ID" --effort "$EFFORT"
+else
+  set -- "$@" --terminal "$TERMINAL"
+fi
 STARTED=0
-orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" --terminal "$TERMINAL" \
+orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
   --timeout-ms 600000 --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
 if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
   mv "$RECEIPT.new" "$RECEIPT"
+  [ "$AGENT" = claude ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
 fi
 [ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL: $(head -c 300 "$STATE/$LANE.worker.err")"
@@ -128,7 +142,7 @@ READY=$(jq -r '.result.state' "$RECEIPT")
 [ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL"
 
 attempt=0
-until orca terminal read --terminal "$TERMINAL" --screen --json |
+until [ "$AGENT" = codex ] || orca terminal read --terminal "$TERMINAL" --screen --json |
   jq -e '.result.terminal.tail | tostring | contains("bypass permissions on")' >/dev/null; do
   attempt=$((attempt + 1))
   [ "$attempt" -lt 5 ] || fail "terminal=$TERMINAL does not show bypass permissions on; shift-tab it before the worker opens a plan"

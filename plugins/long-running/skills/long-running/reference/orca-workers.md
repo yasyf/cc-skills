@@ -57,8 +57,8 @@ Use these model ids; the script also accepts the aliases in the first column.
 Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 
 A lane the routing table sends to codex launches on Orca's codex agent, never as a
-claude worker calling the codex skill. Create its worktree with the same
-`orca worktree create` command, then:
+claude worker calling the codex skill. `orca-launch.sh <lane> codex xhigh <brief>`
+creates the worktree the same way, then runs:
 
 ```sh
 orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<prefix><lane>" \
@@ -67,8 +67,17 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<
 
 `--agent` makes Orca create the terminal, and Orca's `agentDefaultArgs.codex` carries
 `--dangerously-bypass-approvals-and-sandbox`, so there is no custom command and no
-screen check. Count the launch once `.result.state` reads `ready`, and keep the result
-as the lane's receipt for a `--retry-of` relaunch.
+screen check. The script reads the terminal handle from the receipt's agent-terminal
+effect and counts the launch once `.result.state` reads `ready`. `--terminal` refuses
+`--agent`, so a custom codex terminal cannot name its agent.
+
+Orca's readiness check does not yet recognise codex. Both launch shapes left codex idle
+at its prompt until `worker-start` failed with `failedStage: agent_readiness` and
+`lastError: timeout`: dispatch `ctx_43637c1c2b7b` through `--agent codex`, and
+`ctx_4aa6ac245439` through a terminal created with
+`--command "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=xhigh"`.
+Release a failed launch's terminal with `worker-release --dispatch <id>` and report the
+dispatch to the root.
 
 `send --type` accepts only
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
