@@ -1399,6 +1399,47 @@ def test_summary_never_reports_a_landed_row_as_waiting(capsys):
     assert not [line for line in lines if line.startswith("waiting")]
 
 
+def orca_worker(dispatch: str, outcome: str = "in_progress") -> dict:
+    return {"dispatchId": dispatch, "projection": {"outcome": outcome}}
+
+
+def minutes_ago(minutes: int) -> float:
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).timestamp() * 1000
+
+
+def shown(branch: str, wait: dict | None) -> dict:
+    return {"observation": {"agentWait": wait}, "terminal": {"branch": f"refs/heads/{branch}"}}
+
+
+def test_summary_inside_orca_names_every_worker_parked_on_a_prompt_for_five_minutes(capsys, monkeypatch):
+    monkeypatch.setenv(ledger.ORCA_TERMINAL, "term_root")
+    shell = FakeShell(rows=[{"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "yasyf/lightning/"}}])
+    shell.orca = {
+        ("orchestration", "worker-list"): {"workers": [orca_worker("ctx_old"), orca_worker("ctx_new"), orca_worker("ctx_done", "succeeded")], "page": {"hasMore": True, "nextCursor": "c2"}},
+        ("orchestration", "worker-list", "--cursor", "c2"): {"workers": [orca_worker("ctx_busy"), orca_worker("ctx_title")], "page": {"hasMore": False}},
+        ("orchestration", "worker-show", "--dispatch", "ctx_old"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(7)}),
+        ("orchestration", "worker-show", "--dispatch", "ctx_new"): shown("yasyf/lightning/bake", {"source": "hook", "since": minutes_ago(2)}),
+        ("orchestration", "worker-show", "--dispatch", "ctx_busy"): shown("yasyf/lightning/bake", None),
+        ("orchestration", "worker-show", "--dispatch", "ctx_title"): shown("yasyf/v3-other", {"source": "prompt-text", "reason": "plan approval"}),
+    }
+
+    lines = summarize(shell, capsys)
+
+    assert lines[1:3] == [
+        f"WAITING-ON-PROMPT {LANE} 7m dispatch=ctx_old via hook: interactive prompt",
+        "WAITING-ON-PROMPT yasyf/v3-other ?m dispatch=ctx_title via prompt-text: plan approval",
+    ]
+    assert ["orca", "orchestration", "worker-show", "--dispatch", "ctx_done", "--json"] not in shell.calls
+
+
+def test_summary_outside_orca_reads_no_orca_state(capsys):
+    shell = FakeShell()
+
+    summarize(shell, capsys)
+
+    assert not [call for call in shell.calls if call[0] == "orca"]
+
+
 def test_register_refuses_a_prefix_that_is_not_a_whole_branch_namespace():
     for prefix in ("lightning", "", "/"):
         with pytest.raises(SystemExit):

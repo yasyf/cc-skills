@@ -18,7 +18,9 @@ name to '-', so a worktree named <prefix><lane> gets branch yasyf/<prefix><lane>
 and git then refuses every branch under the lane's yasyf/<prefix><lane>/ prefix.
 The terminal runs claude in bypass-permissions mode with the model and effort on its
 command line, since Orca's default agent args start claude in plan mode and
-worker-start refuses --model and --effort beside --terminal. The spec is a
+worker-start refuses --model and --effort beside --terminal. The command always
+disallows AskUserQuestion, EnterPlanMode, and ExitPlanMode: a worker's prompt
+reaches only its own terminal, which no one watches. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
 pointer must stay within 300 characters. The launch counts only once the
 receipt reads ready and the terminal's screen shows bypass permissions on.
@@ -75,7 +77,7 @@ esac
 BRIEF=$(cd "$(dirname "$BRIEF")" && pwd)/$(basename "$BRIEF")
 
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
-COMMAND="claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
+COMMAND="claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 spec() {
   printf '%s' "Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }

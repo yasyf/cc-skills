@@ -113,6 +113,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
         "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
+        " --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode"
         " --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high"
     )
     [start] = orca.calls("orchestration worker-start")

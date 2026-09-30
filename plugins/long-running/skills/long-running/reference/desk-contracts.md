@@ -144,6 +144,13 @@ them all unchanged. The root dispatches each `LOST` ask in that turn. For each
 `LANDED-NOT-LIVE` or `IN-PR` ask, it checks whether it can advance the pipeline or PR
 before the next sweep.
 
+Inside an Orca terminal (`ORCA_TERMINAL_HANDLE` set), a `WAITING-ON-PROMPT <lane> <n>m
+dispatch=<id> via <source>: <reason>` line precedes the ask lines for every
+in-progress Orca worker whose `worker-show` `observation.agentWait` has stood five
+minutes or more; a wait with no `since` prints `?m`. The lane is the registered lane
+whose branch prefix holds the worker's branch, else that branch. Forward each line
+unchanged; the orca-desk answers or escalates it in the same pass.
+
 `ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
 `--repo` and `--checkout` and settles landings before printing. The `waiting:` line
 groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. Empty groups

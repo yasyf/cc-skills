@@ -42,6 +42,9 @@ delivered ask reads LANDED-NOT-LIVE. An open linked PR reads IN-PR; no PR at all
 LOST once ``asked_at`` is 30 minutes old. ``report --ask`` refuses a second, still-IN-PR
 ask on one PR: a PR already carrying an unlanded ask takes no more, and a fresh ask goes
 on a stacked follow-up PR instead.
+
+Run inside an Orca terminal, ``summary`` also names every in-progress Orca worker that
+Orca's own ``agentWait`` shows parked on a prompt for five minutes or more.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -99,6 +103,9 @@ ASK_LANDED_NOT_LIVE = "LANDED-NOT-LIVE"
 ASK_IN_PR = "IN-PR"
 ASK_LOST = "LOST"
 ASK_DROPPED = "dropped"
+ORCA_TERMINAL = "ORCA_TERMINAL_HANDLE"
+ORCA_IN_PROGRESS = "in_progress"
+PROMPT_MINUTES = 5
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
 UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
@@ -767,7 +774,45 @@ def render_table(rows: dict[str, dict[str, str]]) -> str:
     return "\n".join(out)
 
 
-def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta) -> list[str]:
+def orca(shell: Shell, *argv: str) -> dict:
+    return json.loads(shell.run(["orca", *argv, "--json"]))["result"]
+
+
+def orca_workers(shell: Shell) -> list[dict]:
+    workers: list[dict] = []
+    cursor: list[str] = []
+    while True:
+        listed = orca(shell, "orchestration", "worker-list", *cursor)
+        workers += listed["workers"]
+        if not listed["page"]["hasMore"]:
+            return workers
+        cursor = ["--cursor", listed["page"]["nextCursor"]]
+
+
+def lane_of(branch: str, lanes: dict[str, dict[str, str]]) -> str:
+    name = branch.removeprefix("refs/heads/")
+    return next((fields["lane"] for fields in lanes.values() if name.startswith(fields["branch_prefix"])), name)
+
+
+def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozenset[str] | None, moment: datetime) -> list[str]:
+    """Orca's `agentWait` names a worker parked on a prompt only a human can answer; a wait with no `since` has an unknown age and is named too."""
+    lines = []
+    for worker in orca_workers(shell):
+        if worker["projection"]["outcome"] != ORCA_IN_PROGRESS:
+            continue
+        shown = orca(shell, "orchestration", "worker-show", "--dispatch", worker["dispatchId"])
+        if not (wait := shown["observation"].get("agentWait")):
+            continue
+        minutes = int((moment.timestamp() * 1000 - wait["since"]) // 60000) if "since" in wait else None
+        lane = lane_of(shown["terminal"]["branch"], lanes)
+        if (minutes is not None and minutes < PROMPT_MINUTES) or (shard is not None and lane not in shard):
+            continue
+        age = "?" if minutes is None else minutes
+        lines.append(f"WAITING-ON-PROMPT {lane} {age}m dispatch={worker['dispatchId']} via {wait['source']}: {wait.get('reason', 'interactive prompt')}")
+    return lines
+
+
+def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta, prompts: list[str]) -> list[str]:
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
     asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
@@ -807,7 +852,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
         f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: #{(pr := ask_open_pr(asks[key], prs))} {blocker(prs[pr])}"
         for key in stuck
     ]
-    return [lines[0], *asked, *lines[1:]]
+    return [lines[0], *prompts, *asked, *lines[1:]]
 
 
 def cmd_init(args: argparse.Namespace, shell: Shell) -> int:
@@ -1488,7 +1533,10 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
 def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
     cmd_reconcile(args, shell)
     rows = sharded(Notes(shell, args.ledger).rows(), args.shard)
-    print("\n".join(summary_lines(rows, now(), timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes))))
+    moment = now()
+    lanes = {key: fields for key, fields in rows.items() if key.startswith(LANE_PREFIX)}
+    prompts = prompt_lines(shell, lanes, args.shard, moment) if os.environ.get(ORCA_TERMINAL) else []
+    print("\n".join(summary_lines(rows, moment, timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
     return 0
 
 

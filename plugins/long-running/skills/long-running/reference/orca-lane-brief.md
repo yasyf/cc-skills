@@ -46,8 +46,8 @@ is listed under Escalate stops for the coordinator: use the preamble's
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
 orca-desk treats those messages exactly like an ask.
-Never end a turn waiting and never park. Never AskUserQuestion: it opens a prompt only
-this terminal sees.
+Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
+take the brief's default, log it with `ccn log append <drive log id>`, and report it.
 
 Binding rules (owner):
 - <one rule per bullet, each as the owner stated it>
