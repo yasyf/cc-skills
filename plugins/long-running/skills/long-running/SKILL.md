@@ -419,7 +419,7 @@ Orca workers. `scripts/orca-launch.sh` owns launches and relaunches;
 `reference/orca-desk-brief.md` is the desk's brief, ready to paste;
 `reference/orca-workers.md` holds the launch recipe and script interfaces.
 
-**O1. Launch every worker through `scripts/orca-launch.sh`.** Worktree and terminal
+**O1. Launch every Claude worker through `scripts/orca-launch.sh`.** Worktree and terminal
 creation, relaunch sweeps, retries, and helper scripts stay in the desk. The root
 dispatches the lane's brief and rules on exceptions.
 
@@ -501,6 +501,15 @@ read the 1-minute load. While it exceeds the core count, start no new worker; ho
 launch until it falls. This is a standing rule, not a per-drive ruling.
 
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
+
+**O15. A codex Orca lane runs on Orca's codex agent.** Launch it with
+`orca orchestration worker-start --run <run> --spec <pointer> --worktree path:<wt> --agent codex --model gpt-6-astra --effort xhigh --json`
+on a worktree created as `orca-launch.sh` creates one; `reference/orca-workers.md`
+has the recipe. Orca's codex default arguments already skip approvals, so it needs no
+custom terminal; count it on a `ready` receipt. Never launch a claude worker whose
+brief calls the codex skill. An inline lane, an Agent-tool subagent or the root's own
+turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off question still
+goes to `codex-ask`.
 
 ## The priority desk
 
@@ -653,6 +662,7 @@ Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <driv
     `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
     that acts; `withdraw --re` before you change or retract any of them. A SendMessage
     carries the entry number, never the body.
+Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verify through CI: never run a whole-package build or suite locally (buck2/cargo build,
@@ -682,7 +692,9 @@ A lane that runs as an Orca worker is a separate session the Agent tool cannot m
 The orca-desk launches it through `scripts/orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤300-character
-pointer as the `--spec`.
+pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
+never as a claude worker calling the codex skill; the codex skill is for inline lanes,
+and `codex-ask` for one-off questions.
 
 One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
@@ -1307,6 +1319,8 @@ same inputs, which resumes from that file.
   queued it by hand.
 - A desk kept for the whole drive, re-reading hundreds of thousands of tokens of history
   on every report while its state already sat on the ledger.
+- A claude Orca worker wrapping codex through the codex skill, which doubles the
+  sessions and the context for one lane's work (release-v3, 2026-09-30).
 - A lane backgrounded a codex subagent and ended its turn; completion went to the
   root session and the lane never woke. The "Use ccx for" ask for `AGENTS.md` died
   at `00:48Z`.
