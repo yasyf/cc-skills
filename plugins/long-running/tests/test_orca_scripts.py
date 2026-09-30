@@ -64,7 +64,7 @@ class Orca:
 
     @property
     def worktree(self) -> Path:
-        return self.parent.parent / "v3-lane-a"
+        return self.parent.parent / "v3-lane-a-base"
 
     def reply(self, command: str, *replies: dict) -> None:
         (self.state / command.replace(" ", "_")).write_text(json.dumps(list(replies)))
@@ -107,7 +107,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
     [worktree] = orca.calls("worktree create")
-    assert flag(worktree, "--name") == "v3-lane-a"
+    assert flag(worktree, "--name") == "v3-lane-a-base"
     assert flag(worktree, "--parent-worktree") == f"path:{orca.parent}"
     assert flag(worktree, "--base-branch") == "origin/dev"
     [terminal] = orca.calls("terminal create")
