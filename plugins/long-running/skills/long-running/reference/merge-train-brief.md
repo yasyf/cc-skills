@@ -77,13 +77,13 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
   7. Enqueue the whole train. A stack lands whole (D16), and `ledger.py label`
      refuses a car with open cars above it, so no green lower part ever goes in
      alone. Eject every red car (step 6), poll the rest until every car is green,
-     then label the top car:
+     then enqueue it from the top car:
      ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>
      The queue takes the train as one entry. Ejected cars ride the next train.
      Within three minutes, `ccx vcs pr status <top-car>` must read `queued`;
-     silence is a missing enqueue, not a queued PR. Graphite can miss a REST label:
-     pull it with `ledger.py unlabel`, then enqueue the train through the API with
-     `label-watch.sh once <top-car>`.
+     silence is a missing enqueue, not a queued PR. Read `ccx vcs pr status` again
+     a minute later too: the queue replays a stack's commits one at a time and can
+     drop it for merge conflicts GitHub reads as clean.
   8. Log the pass. One section per train in the log: time, trunk sha, cars in
      order with their heads before and after, each conflict and how it was
      resolved, each ejection and its reason, what was enqueued, and what landed.
@@ -97,8 +97,6 @@ Rules that are not the tool's to enforce:
   - Never restack a car that did not move. A pure restack restarts its CI and its
     review; the train rebuilds only on a new car, a conflict, an ejection, or a
     landing below.
-  - Wrap every stack write that shares a Git directory in the shared stack lock:
-    lockf -k "$(git rev-parse --path-format=absolute --git-common-dir)/ccx-agent-stack.lock" <command>
   - Run subagents and codex in the foreground (blocking), never background-and-end-turn.
 
 Do NOT touch: another train's PRs; a PR outside the hot set; any lane's worktree.

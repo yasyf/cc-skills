@@ -10,7 +10,7 @@ The brief below is ready to paste; fill the angle brackets.
 The root owns rulings, dispatch, and one summary to the owner. For a priority PR,
 flagged by the owner or blocking a release or a user, it checks the gates itself
 with `ccx vcs status --refresh` or REST reads of approval, CI, and mergeability.
-If they pass, it adds the merge label itself in the same turn under D3. It never
+If they pass, it enqueues the stack itself in the same turn under D3. It never
 relays a lane's ETA for a green PR. The desk records the label on its next refresh
 as `in the queue, labelled outside the desk`.
 
@@ -114,7 +114,7 @@ Do, in this order, forever:
      `mergeable_state` of clean/behind/has_hooks, a completed, successful latest
      `ai-review`, and no conflict with its base. An untracked downstack PR, an
      orphaned base, or an open child outside the enqueued stack also refuses the
-     whole stack; nothing is labelled. When every PR passes, one label on the tip
+     whole stack; nothing is enqueued. When every PR passes, one Graphite API call
      enqueues the stack as one entry and every row records `label_head`,
      `labelled_at`, `approved_by`, and `label_stack`. Where the drive carries a bar
      beyond CI (a plan comment, a grader's verdict), read it for every PR before

@@ -48,7 +48,8 @@ class FakeShell(ledger.Shell):
         self.ejected: dict[str, tuple[str, str]] = {}
         self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
-        self.labelled: list[str] = []
+        self.enqueued: list[list[str]] = []
+        self.evicted: dict[str, str] = {}
         self.unlabelled: list[str] = []
         self.fetched = ""
         self.routes = dict(routes or {})
@@ -66,6 +67,10 @@ class FakeShell(ledger.Shell):
             return self._ccn(argv, stdin)
         if argv[0] == "git":
             return self._git(argv)
+        if argv[0] == "curl":
+            return self._curl(argv, stdin)
+        if argv[:4] == ["ccx", "vcs", "pr", "status"]:
+            return self._ccx(argv)
         raise AssertionError(f"unexpected command: {argv}")
 
     @property
@@ -86,9 +91,6 @@ class FakeShell(ledger.Shell):
                 return json.dumps(self.pulls[parts[1]])
             detail = FIXTURES / f"pull-{parts[1]}.json"
             return detail.read_text() if detail.exists() else json.dumps(self._listed(parts[1]))
-        if parts[:1] == ["issues"] and parts[2:] == ["labels"] and "POST" in argv:
-            self.labelled.extend(f"{parts[1]}:{name}" for name in json.loads(stdin)["labels"])
-            return "[]"
         if parts[:1] == ["issues"] and parts[2:3] == ["labels"] and "DELETE" in argv:
             self.unlabelled.append(f"{parts[1]}:{parts[3]}")
             return "[]"
@@ -129,6 +131,23 @@ class FakeShell(ledger.Shell):
                 checks["check_runs"] = [run for run in checks["check_runs"] if run["name"] == params["check_name"]]
             return json.dumps(checks)
         raise AssertionError(f"unexpected gh endpoint: {endpoint}")
+
+    def _curl(self, argv, stdin):
+        assert argv[-1] == f"{ledger.GRAPHITE_API}/graphite/merge"
+        assert stdin == 'header = "Authorization: token tok"'
+        body = json.loads(argv[argv.index("-d") + 1])
+        assert (body["repoOwner"], body["trunkBranchName"]) == ("Forge-AI", self.trunk)
+        self.enqueued.append([str(n) for n in body["prNumbers"]])
+        return ""
+
+    def _ccx(self, argv):
+        return json.dumps(
+            [{"number": int(pr), "queue": "evicted" if pr in self.evicted else "not queued", "evicted_at": self.evicted.get(pr, "")} for pr in argv[7:]]
+        )
+
+    @property
+    def tips(self) -> list[str]:
+        return [numbers[-1] for numbers in self.enqueued]
 
     def _listed(self, number: str) -> dict:
         for name in self.pages.values():
@@ -239,3 +258,10 @@ def lock(tmp_path) -> Path:
 @pytest.fixture
 def red_routes() -> dict[str, str]:
     return {f"status:{MOVED_HEAD}": "status-failure.json"}
+
+
+@pytest.fixture(autouse=True)
+def graphite_token(tmp_path, monkeypatch):
+    auth = tmp_path / "graphite-auth"
+    auth.write_text(json.dumps({"authToken": "tok"}))
+    monkeypatch.setattr(ledger, "GRAPHITE_AUTH", auth)
