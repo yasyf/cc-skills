@@ -356,10 +356,13 @@ measured in seconds, and a poll does not win it: one desk watched at thirty-seco
 intervals, got `HTTP 422` on its retarget, and lost a pull request whose one-line fix was
 still absent from the trunk.
 
-**Enqueue the whole stack with one `merge` label on its tip.** Graphite
-[propagates that label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
-the stack as one entry. The desk re-reads every PR and runs every guard before adding the
-label; one refusal refuses the whole stack. The tool refuses to label a PR whose branch
+**Enqueue the whole stack in one Graphite API call.** `ledger.py label` posts every PR
+from the trunk to the tip, bottom first, to `POST /v1/graphite/merge`, the call `gt merge`
+makes, and Graphite takes the stack as one entry. It adds no `merge` label: a REST label
+can go unseen by Graphite, and a label on part of a stack lands that part alone. The
+desk re-reads every PR and runs every guard before the call; one refusal refuses the
+whole stack. The call answers 200 with an empty body, and a drop shows only in the
+Merge activity comment, which `ledger.py reconcile` reads through `ccx vcs pr status`. The tool refuses to label a PR whose branch
 is the base of an open PR outside the enqueued stack, naming the children left exposed
 to branch deletion.
 

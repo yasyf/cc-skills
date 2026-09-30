@@ -68,6 +68,8 @@ ROUTE_STATES = ("dirty", "blocked")
 KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = ("clean", "red", "conflicting", "held")
 MERGE_LABEL = "merge"
+GRAPHITE_API = "https://api.graphite.com/v1"
+GRAPHITE_AUTH = Path.home() / ".config/graphite/auth"
 LABELLABLE_STATES = ("clean", "behind", "has_hooks")
 FAILED_CONCLUSIONS = ("failure", "timed_out", "cancelled", "action_required")
 SUMMARY_LINES = 10
@@ -223,17 +225,33 @@ class Github:
             page += 1
         return items
 
-    def add_label(self, number: str, name: str) -> None:
-        self.shell.run(
-            ["gh", "api", f"repos/{self.repo}/issues/{number}/labels", "--method", "POST", "--input", "-"],
-            stdin=json.dumps({"labels": [name]}),
-        )
-
     def remove_label(self, number: str, name: str) -> None:
         self.shell.run(["gh", "api", f"repos/{self.repo}/issues/{number}/labels/{name}", "--method", "DELETE"])
 
     def default_branch(self) -> str:
         return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
+
+
+@dataclass
+class Graphite:
+    """Graphite's merge API, the call `gt merge` and the web UI's merge button make; gt's token rides curl's stdin."""
+
+    shell: Shell
+    repo: str
+
+    def enqueue(self, numbers: list[str], trunk: str) -> None:
+        owner, name = self.repo.split("/")
+        body = {"repoOwner": owner, "repoName": name, "trunkBranchName": trunk, "prNumbers": [int(n) for n in numbers]}
+        token = json.loads(GRAPHITE_AUTH.read_text())["authToken"]
+        self.shell.run(
+            ["curl", "-fsS", "-K", "-", "-X", "POST", "-H", "Content-Type: application/json", "-d", json.dumps(body), f"{GRAPHITE_API}/graphite/merge"],
+            stdin=f'header = "Authorization: token {token}"',
+        )
+
+    def evicted_at(self, pr: str) -> str:
+        """When the queue dropped this pull request, read from its Merge activity comment through ccx."""
+        [report] = json.loads(self.shell.run(["ccx", "vcs", "pr", "status", "--json", "-R", self.repo, pr]))
+        return report.get("evicted_at", "") if report["queue"] == "evicted" else ""
 
 
 @dataclass
@@ -1119,7 +1137,7 @@ def record_refusals(notes: Notes, rows: dict[str, dict[str, str]], refusals: dic
 def label_stack(
     shell: Shell, gh: Github, notes: Notes, rows: dict[str, dict[str, str]], trunk: str, tip: dict, expected: str | None, checkout: Path | None, dry_run: bool
 ) -> dict[str, tuple[str, Refused]]:
-    """Guard every PR from the trunk up to `tip`, then label the tip once; returns each refusing PR's head and reason."""
+    """Guard every PR from the trunk up to `tip`, then enqueue the whole stack once; returns each refusing PR's head and reason."""
     number = str(tip["number"])
     try:
         stack = stack_to_trunk(gh, tip, trunk)
@@ -1151,11 +1169,11 @@ def label_stack(
         return refused
     head = stack[-1]["head"]["sha"]
     if dry_run:
-        print(f"would label #{number} {head}" + (f", enqueuing {chain}" if len(stack) > 1 else ""))
+        print(f"would enqueue {chain} at #{number} {head}")
         return {}
-    gh.add_label(number, MERGE_LABEL)
+    Graphite(shell, gh.repo).enqueue(numbers, trunk)
     labelled = utc_stamp()
-    print(f"labelled #{number} {head} at {labelled}; the queue takes {chain} as one entry")
+    print(f"enqueued #{number} {head} at {labelled}; the queue takes {chain} as one entry")
     for pull, pr in zip(stack, numbers, strict=True):
         head, approved_by = pull["head"]["sha"], ",".join(approved[pr])
         notes.set_fields(
@@ -1223,7 +1241,7 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
         refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{pr}"), current_head(rows[pr]), args.checkout, args.dry_run)
         (failed if refused else passed).append(pr)
         route_refused(notes, gh, rows, refused, args.dry_run, gone)
-    verb = "would label" if args.dry_run else "labelled"
+    verb = "would enqueue" if args.dry_run else "enqueued"
     print(f"batch: {verb} {len(passed)} of {len(tips)} stacks" + "".join(f" #{pr}" for pr in passed) + (" | refused" + "".join(f" #{pr}" for pr in failed) if failed else ""))
     return 0
 
@@ -1261,10 +1279,10 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str
     for pr in prs:
         pull = gh.api(f"pulls/{pr}")
         if pull["state"] == "open":
-            ejected = queue_ejected(gh, pr)
+            ejected = queue_ejected(gh, pr) or Graphite(shell, gh.repo).evicted_at(pr)
             if ejected:
                 notes.set_fields(pr, {"ejected_at": ejected})
-                print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
+                print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open")
             continue
         base = pull["base"]["ref"]
         delivered = landed_on_base(shell, gh, checkout, base, pr, pull["head"]["sha"])
@@ -1473,11 +1491,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_shard(train)
     train.set_defaults(handler=cmd_train)
 
-    label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then label the tip once")
+    label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then enqueue the whole stack through Graphite's API once")
     add_ledger(label, repo=True)
     target = label.add_mutually_exclusive_group(required=True)
     target.add_argument("--pr")
-    target.add_argument("--all-clean", action="store_true", help="label every clean, unheld, never-labelled stack's tip in one batch")
+    target.add_argument("--all-clean", action="store_true", help="enqueue every clean, unheld, never-enqueued stack in one batch")
     label.add_argument("--expect-head")
     label.add_argument("--checkout", type=Path)
     label.add_argument("--dry-run", action="store_true")

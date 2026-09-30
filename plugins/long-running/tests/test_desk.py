@@ -144,7 +144,7 @@ def test_label_re_reads_the_head_and_posts_the_label_once():
     shell = desk_shell()
     assert label(shell) == 0
 
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
     assert f"repos/{REPO}/pulls/{PR}" in shell.endpoints()
     assert f"repos/{REPO}/commits/{HEAD}/status" in shell.endpoints()
     row = shell.fields(PR)
@@ -153,7 +153,7 @@ def test_label_re_reads_the_head_and_posts_the_label_once():
     assert row["base"] == "dev"
 
     assert label(shell) == 1
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
 
 
 def test_label_refuses_a_conflicting_or_uncomputed_head(capsys):
@@ -161,7 +161,7 @@ def test_label_refuses_a_conflicting_or_uncomputed_head(capsys):
         shell = desk_shell(mergeable_state=state)
         assert label(shell) == 1
         assert f"REFUSED mergeable_state {state}" in capsys.readouterr().out
-        assert shell.labelled == []
+        assert shell.tips == []
 
 
 def test_label_refuses_when_the_forge_head_moved(capsys):
@@ -204,7 +204,7 @@ def test_label_with_a_checkout_refuses_a_head_that_conflicts_with_the_base(capsy
 
     assert label(shell, "--checkout", str(tmp_path)) == 1
     assert "REFUSED 3f3acff97 conflicts with dev on infra/rows/k8s/api.ts" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_label_with_a_checkout_refuses_when_the_pull_ref_disagrees_with_the_api(capsys, tmp_path):
@@ -219,8 +219,8 @@ def test_label_dry_run_runs_every_guard_and_writes_nothing(capsys, tmp_path):
     shell = desk_shell()
 
     assert label(shell, "--checkout", str(tmp_path), "--dry-run") == 0
-    assert capsys.readouterr().out.strip() == f"would label #{PR} {HEAD}"
-    assert shell.labelled == []
+    assert capsys.readouterr().out.strip() == f"would enqueue #{PR} at #{PR} {HEAD}"
+    assert shell.tips == []
     assert shell.keys() == []
 
 
@@ -244,7 +244,7 @@ def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"label_head": OLD_HEAD, "labelled_at": "x", "label_pulled_at": "y", "label_pull_reason": "z"}})
 
     assert label(shell) == 0
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
     assert shell.fields(PR)["label_pulled_at"] == ""
 
 
@@ -493,7 +493,7 @@ def test_label_refuses_a_pr_with_no_reviews(capsys):
 
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
     assert shell.keys() == []
 
 
@@ -502,7 +502,7 @@ def test_label_accepts_an_approval_of_an_earlier_head(capsys):
     shell.reviews[PR] = [review("APPROVED", OLD_HEAD)]
 
     assert label(shell, "--expect-head", HEAD) == 0
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
     assert shell.fields(PR)["approved_by"] == "yasyf"
 
 
@@ -512,7 +512,7 @@ def test_label_refuses_a_dismissed_approval_of_the_head(capsys):
 
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
@@ -521,7 +521,7 @@ def test_label_refuses_an_approval_its_reviewer_later_withdrew(capsys):
 
     assert label(shell) == 1
     assert "REFUSED #21221 has no approval in force" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys):
@@ -530,7 +530,7 @@ def test_label_refuses_while_the_latest_ai_review_run_is_still_reviewing(capsys)
 
     assert label(shell) == 1
     assert "REFUSED ai-review still reviewing 3f3acff97" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
@@ -538,7 +538,7 @@ def test_label_records_the_approvers_of_the_head_from_every_review_page(capsys):
     shell.reviews[PR] = [review("COMMENTED", OLD_HEAD, "bot")] * 100 + [review("APPROVED", HEAD, "yasyf"), review("APPROVED", HEAD, "octocat")]
 
     assert label(shell) == 0
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
     assert shell.fields(PR)["approved_by"] == "octocat,yasyf"
     assert "approved by octocat,yasyf" in capsys.readouterr().out
 
@@ -590,6 +590,18 @@ def test_reconcile_reports_a_queue_ejection_on_a_row_that_still_reads_open(capsy
     assert shell.fields(PR)["ejected_at"] == "2026-09-17T02:09:24Z"
 
 
+def test_reconcile_reports_a_drop_of_a_stack_enqueued_through_the_api(capsys, tmp_path):
+    """An API enqueue puts no label on the PR, so the drop is read from the Merge activity comment."""
+    shell = desk_shell()
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.evicted[PR] = "Sep 30, 1:40 AM UTC"
+
+    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert "EJECTED by the queue at Sep 30, 1:40 AM UTC" in capsys.readouterr().out
+    assert shell.fields(PR)["ejected_at"] == "Sep 30, 1:40 AM UTC"
+
+
 STACK = ("24001", "24002", "24003")
 
 
@@ -624,7 +636,9 @@ def test_a_clean_stack_is_enqueued_by_one_label_on_its_tip(capsys):
 
     assert label_stack(shell) == 0
 
-    assert shell.labelled == ["24003:merge"]
+    assert shell.tips == ["24003"]
+    assert shell.enqueued == [list(STACK)]
+    assert not any(argv[0] == "gh" and "POST" in argv for argv in shell.calls)
     assert "the queue takes #24001 <- #24002 <- #24003 as one entry" in capsys.readouterr().out
     for index, pr in enumerate(STACK):
         row = shell.fields(pr)
@@ -642,7 +656,7 @@ def test_one_red_pr_refuses_the_whole_stack(capsys):
     out = capsys.readouterr().out
     assert "REFUSED commit status failure on 222222222; only success is labelled (#24002)" in out
     assert "the stack #24001 <- #24002 <- #24003 enqueues as one entry, so #24002 refuses all of it" in out
-    assert shell.labelled == []
+    assert shell.tips == []
     assert all("label_head" not in shell.fields(pr) for pr in STACK[:2])
 
 
@@ -650,8 +664,8 @@ def test_a_stack_dry_run_names_every_pr_it_would_enqueue(capsys):
     shell = stack_shell()
 
     assert label_stack(shell, STACK[-1], "--dry-run") == 0
-    assert capsys.readouterr().out.strip() == f"would label #24003 {'3' * 40}, enqueuing #24001 <- #24002 <- #24003"
-    assert shell.labelled == []
+    assert capsys.readouterr().out.strip() == f"would enqueue #24001 <- #24002 <- #24003 at #24003 {'3' * 40}"
+    assert shell.tips == []
 
 
 def test_a_downstack_pr_no_lane_reported_refuses_the_stack(capsys):
@@ -659,7 +673,7 @@ def test_a_downstack_pr_no_lane_reported_refuses_the_stack(capsys):
 
     assert label_stack(shell) == 1
     assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_downstack_pr_whose_head_moved_since_its_report_refuses_the_stack(capsys):
@@ -668,7 +682,7 @@ def test_a_downstack_pr_whose_head_moved_since_its_report_refuses_the_stack(caps
 
     assert label_stack(shell) == 1
     assert "REFUSED head moved: expected 000000000, the forge has 111111111; grade the new head before labelling (#24001)" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_labelling_mid_stack_refuses_because_the_pr_above_would_be_closed(capsys):
@@ -677,7 +691,7 @@ def test_labelling_mid_stack_refuses_because_the_pr_above_would_be_closed(capsys
     assert label_stack(shell, "24002") == 1
     out = capsys.readouterr().out
     assert "#24002's branch stack/24002 is the base of #24003, which this stack does not enqueue" in out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_stack_whose_parent_closed_without_landing_is_refused(capsys):
@@ -686,7 +700,7 @@ def test_a_stack_whose_parent_closed_without_landing_is_refused(capsys):
 
     assert label_stack(shell) == 1
     assert "#24002 is based on stack/24001, which is neither dev nor exactly one open pull request's branch (found none)" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_downstack_row_with_no_reported_head_is_untracked(capsys):
@@ -695,7 +709,7 @@ def test_a_downstack_row_with_no_reported_head_is_untracked(capsys):
 
     assert label_stack(shell) == 1
     assert "#24001 is below #24003 in the stack and no lane reported it" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
@@ -704,7 +718,7 @@ def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
 
     assert label_stack(shell) == 1
     assert "found #24001, #24004" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_base_cycle_refuses_instead_of_walking_forever(capsys):
@@ -713,7 +727,7 @@ def test_a_base_cycle_refuses_instead_of_walking_forever(capsys):
 
     assert label_stack(shell) == 1
     assert "#24003 is its own ancestor" in capsys.readouterr().out
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_refused_stack_records_each_rows_blocker_and_a_label_clears_it(capsys):
@@ -770,8 +784,8 @@ def test_all_clean_labels_every_clean_stack_tip_in_one_pass(capsys):
 
     assert all_clean(shell) == 0
 
-    assert sorted(shell.labelled) == ["24003:merge", "24010:merge", "24011:merge"]
-    assert capsys.readouterr().out.splitlines()[-1] == "batch: labelled 3 of 3 stacks #24003 #24010 #24011"
+    assert sorted(shell.tips) == ["24003", "24010", "24011"]
+    assert capsys.readouterr().out.splitlines()[-1] == "batch: enqueued 3 of 3 stacks #24003 #24010 #24011"
     assert shell.fields("24001")["label_stack"] == "24001,24002,24003"
 
 
@@ -782,8 +796,8 @@ def test_all_clean_labels_the_rest_when_one_stack_refuses(capsys):
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == ["24010:merge"]
-    assert capsys.readouterr().out.splitlines()[-1] == "batch: labelled 1 of 2 stacks #24010 | refused #24003"
+    assert shell.tips == ["24010"]
+    assert capsys.readouterr().out.splitlines()[-1] == "batch: enqueued 1 of 2 stacks #24010 | refused #24003"
     assert shell.fields("24002")["label_refused_head"] == "2" * 40
 
 
@@ -797,8 +811,8 @@ def test_all_clean_skips_held_landed_and_already_labelled_rows(capsys):
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == []
-    assert capsys.readouterr().out.strip() == "batch: labelled 0 of 0 stacks"
+    assert shell.tips == []
+    assert capsys.readouterr().out.strip() == "batch: enqueued 0 of 0 stacks"
     assert not any(endpoint.startswith(f"repos/{REPO}/pulls/2401") for endpoint in shell.endpoints())
 
 
@@ -807,7 +821,7 @@ def test_a_lanes_red_report_gates_nothing_when_the_forge_reads_green(capsys):
     lone_pr(shell, "24015", "f" * 40, reported_verdict="red")
 
     assert all_clean(shell) == 0
-    assert shell.labelled == ["24015:merge"]
+    assert shell.tips == ["24015"]
 
 
 def test_all_clean_labels_nothing_in_a_stack_whose_tip_is_red_on_the_forge(capsys):
@@ -816,7 +830,7 @@ def test_all_clean_labels_nothing_in_a_stack_whose_tip_is_red_on_the_forge(capsy
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == []
+    assert shell.tips == []
     assert "commit status failure on 333333333" in capsys.readouterr().out
 
 
@@ -827,9 +841,9 @@ def test_all_clean_dry_run_names_each_stack_and_writes_nothing(capsys):
     assert all_clean(shell, "--dry-run") == 0
 
     out = capsys.readouterr().out
-    assert f"would label #24003 {'3' * 40}, enqueuing #24001 <- #24002 <- #24003" in out
-    assert out.splitlines()[-1] == "batch: would label 2 of 2 stacks #24003 #24010"
-    assert shell.labelled == []
+    assert f"would enqueue #24001 <- #24002 <- #24003 at #24003 {'3' * 40}" in out
+    assert out.splitlines()[-1] == "batch: would enqueue 2 of 2 stacks #24003 #24010"
+    assert shell.tips == []
 
 
 def test_all_clean_with_a_shard_labels_only_that_shards_lanes(capsys):
@@ -840,7 +854,7 @@ def test_all_clean_with_a_shard_labels_only_that_shards_lanes(capsys):
 
     assert all_clean(shell, "--shard", "lane-a,lane-c") == 0
 
-    assert sorted(shell.labelled) == ["24010:merge", "24012:merge"]
+    assert sorted(shell.tips) == ["24010", "24012"]
 
 
 def test_label_requires_a_pr_or_all_clean():
@@ -949,7 +963,7 @@ def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):
 
 
 class MovingShell(FakeShell):
-    """Moves one PR's head the moment another PR is labelled, as a lane pushing mid-batch would."""
+    """Moves one PR's head the moment another PR is enqueued, as a lane pushing mid-batch would."""
 
     def __init__(self, moves: str, to: str, after: str):
         super().__init__()
@@ -957,7 +971,7 @@ class MovingShell(FakeShell):
 
     def run(self, argv, stdin=None):
         out = super().run(argv, stdin)
-        if argv[0] == "gh" and "POST" in argv and f"issues/{self.after}/labels" in argv[2]:
+        if argv[0] == "curl" and self.tips[-1:] == [self.after]:
             self.pulls[self.moves]["head"]["sha"] = self.to
         return out
 
@@ -969,7 +983,7 @@ def test_all_clean_rereads_each_tip_so_a_head_pushed_mid_batch_is_refused(capsys
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == ["24010:merge"]
+    assert shell.tips == ["24010"]
     assert "REFUSED head moved: expected bbbbbbbbb, the forge has ccccccccc" in capsys.readouterr().out
     assert shell.fields("24011")["label_refused_head"] == "c" * 40
 
@@ -980,7 +994,7 @@ def test_all_clean_ignores_a_closed_child_so_its_parent_is_the_tip(capsys):
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == ["24002:merge"]
+    assert shell.tips == ["24002"]
 
 
 def test_a_refusal_on_a_moved_head_reads_as_refused_in_stale(capsys):
@@ -1050,7 +1064,7 @@ def test_an_unreported_registered_head_is_labelled_once_its_gates_pass(capsys, l
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == ["24071:merge"]
+    assert shell.tips == ["24071"]
 
 
 def test_a_head_moved_since_the_report_is_regraded_and_labelled_without_a_re_report(capsys, lock):
@@ -1061,7 +1075,7 @@ def test_a_head_moved_since_the_report_is_regraded_and_labelled_without_a_re_rep
 
     assert all_clean(shell) == 0
 
-    assert shell.labelled == ["24071:merge"]
+    assert shell.tips == ["24071"]
     assert shell.fields("24071")["label_head"] == "b" * 40
 
 
@@ -1078,7 +1092,7 @@ def test_a_moved_head_a_gate_refuses_routes_one_new_head_line_once(capsys, lock)
     all_clean(shell)
     second = capsys.readouterr().out
 
-    assert shell.labelled == []
+    assert shell.tips == []
     assert f"to {LANE}:\nDESK #24071 bbbbbbbbb: new head bbbbbbbbb: #24071 has no approval in force" in first
     assert "already routed" in second
     assert shell.fields("24071")["routed_head"] == "b" * 40
@@ -1110,7 +1124,7 @@ def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsy
     refresh(shell, lock)
 
     assert all_clean(shell) == 0
-    assert shell.labelled == ["24082:merge"]
+    assert shell.tips == ["24082"]
     assert shell.fields("24081")["label_head"] == "c" * 40
 
 
@@ -1118,7 +1132,7 @@ def test_a_head_is_labelled_as_soon_as_its_gates_pass(capsys):
     shell = desk_shell()
 
     assert label(shell, "--expect-head", HEAD) == 0
-    assert shell.labelled == [f"{PR}:merge"]
+    assert shell.tips == [PR]
     assert f"repos/{REPO}/commits/{HEAD}" not in shell.endpoints()
 
 
@@ -1185,7 +1199,7 @@ def test_a_parent_shared_by_two_tips_is_routed_once_per_batch(capsys, lock):
     all_clean(shell)
 
     assert capsys.readouterr().out.count("DESK #24101") == 1
-    assert shell.labelled == []
+    assert shell.tips == []
 
 
 def test_a_red_head_the_route_sweep_owns_is_not_routed_again_by_the_batch(capsys, lock):
