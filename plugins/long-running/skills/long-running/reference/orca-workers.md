@@ -98,8 +98,8 @@ at its prompt until `worker-start` failed with `failedStage: agent_readiness` an
 `lastError: timeout`: dispatch `ctx_43637c1c2b7b` through `--agent codex`, and
 `ctx_4aa6ac245439` through a terminal created with
 `--command "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=xhigh"`.
-Release a failed launch's terminal with `worker-release --dispatch <id>` and report the
-dispatch to the root.
+Leave a failed launch's terminal open, as R195 requires, and report the dispatch to
+the root.
 
 `send --type` accepts only
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
