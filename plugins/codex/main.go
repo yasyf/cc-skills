@@ -14,7 +14,7 @@ import (
 
 const (
 	modelAstra = "gpt-6-astra"
-	modelSol   = "gpt-5.6-sol"
+	modelSol   = "gpt-6.1-sol"
 	modelLuna  = "gpt-5.6-luna"
 	effort     = "xhigh"
 
