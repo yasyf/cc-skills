@@ -86,15 +86,37 @@ them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so th
 write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`,
 `ccn doc add`, and `ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
 
-The root tracks active tasks with `TaskCreate`/`TaskUpdate`. Report to the user on
-milestones or when they must act, never per event. Once `long-running` is invoked,
-the compaction hook nudges the root to write a new progress doc, then handles
-superseding, the plan pointer, and `/compact`, as Compaction handoff describes.
-The plan stays the drive's mandate and decisions. *Prevents the
-forced mid-drive handoff with nothing written down to hand over.*
+Keep the task list current with every lane and ruling. The root creates a task with
+`TaskCreate` in the same turn it spawns a lane through `Agent`, `orca-launch.sh`, or
+`orca worker-start`; set `owner` to the lane's name. The root creates a task in the same
+turn every owner ask arrives, including a queued message delivered mid-turn.
 
-Every lane receives the whole task list on every wake. The root deletes a completed task
-with `TaskUpdate` status `deleted` once its result is in cc-notes or the plan.
+Only the root completes a task, and only after consuming the deliverable: route the PR
+to the desk/ledger, record the ruling, relay the answer to the owner. A lane saying
+done, READY, GREEN, or landed completes nothing. Lanes report through `SendMessage`
+and leave the root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a
+lane-owned task.
+
+At every handoff, milestone report, and compaction, the root reconciles the list:
+every `in_progress` task has a working lane, and every running lane has an open task.
+Complete what was consumed; re-own or delete the rest. Every lane receives the whole
+task list on every wake. The root deletes a completed task with `TaskUpdate` status
+`deleted` once its result is in cc-notes or the plan.
+
+Report to the user on milestones or when they must act, never per event. Once
+`long-running` is invoked, the compaction hook nudges the root to write a new progress
+doc, then handles superseding, the plan pointer, and `/compact`, as Compaction handoff
+describes. The plan stays the drive's mandate and decisions. *Prevents the forced
+mid-drive handoff with nothing written down to hand over.*
+
+The pack's `task_list` hooks enforce this. They nudge when a spawned lane has no task by
+turn end, when a lane's done report names a task still `in_progress`, and when an owner
+ask has no task after three tool calls or by turn end. Every 20 turns they list the drift
+in one line. Treat each nudge as a `TaskCreate` or `TaskUpdate` due now.
+
+*Prevents lanes running with no task, completed lanes left `in_progress` for hours,
+mid-turn owner asks with no task, and lanes completing tasks the root still owed
+follow-ups on.*
 
 **R6. Put every owner request in flight the turn it arrives.** Start a new lane or an
 explicitly named parallel sub-lane; never append the request behind a busy lane's queue.
@@ -1517,6 +1539,7 @@ release-v3 drive (2026-09-30).*
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
+16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 
-Apply D3 to priority PRs before delegating. A call that survives all fifteen decides
+Apply D3 to priority PRs before delegating. A call that survives all sixteen decides
 something no lane can decide for you; everything else is a lane.
