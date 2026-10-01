@@ -89,21 +89,22 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   followed by the reason. Only the root edits it.
 - You are a separate session. Register your prefix and report verdicts yourself;
   the hook records opened PRs, with hand registration as the fallback. Never SendMessage a subagent.
-- On spawn: `python3 <ledger.py> register --ledger <id> --lane <lane> --branch-prefix
+- On spawn: `ledger.py register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
-- On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head
+- On every PR open, push, and READY: `ledger.py report --ledger <id> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
+  READY is `--verdict clean --text "READY ..."`; the desk reads only this row.
 - The moment your stack has a green, approved bottom prefix, re-read the holds file.
   Before each enqueue, write a fresh digits-only file with
   `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
-  PR of a held lane from `python3 <ledger.py> show --ledger <id> --json` under D3.
+  PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
   Never cache the held set or self-enqueue above a held PR or any PR of a held
   lane. Report `held` on your tip with the held PR named and leave release to
   the root. Where the checkout carries an enqueue script, call it directly as
   `stack-enqueue --hold <held file> <prefix top>`, then report the enqueue with
-  `python3 <ledger.py> report`; refresh records it as labelled outside the desk.
+  `ledger.py report`; refresh records it as labelled outside the desk.
   `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
-  `python3 <ledger.py> label --repo <owner/name> --ledger <id> --pr <prefix top>
+  `ledger.py label --repo <owner/name> --ledger <id> --pr <prefix top>
   --expect-head <sha> --checkout <worktree>`; mirrored ledger holds are the guard.
   Enqueue the largest contiguous green, approved, unheld bottom prefix as one batch.
   Never wait for the PRs above it. After it lands, restack the rest with

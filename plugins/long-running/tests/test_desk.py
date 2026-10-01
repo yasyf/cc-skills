@@ -114,6 +114,31 @@ def test_inbox_orders_p0_before_rulings_before_reports_before_idles(capsys):
     assert len(capsys.readouterr().out.splitlines()) == 4
 
 
+def test_a_new_head_supersedes_the_pending_report_on_the_old_head(capsys):
+    shell = desk_shell()
+    report(shell, head=OLD_HEAD)
+    report(shell)
+    capsys.readouterr()
+
+    assert shell.fields("msg/000001")["superseded_by"] == "msg/000002"
+    run(shell, "inbox", "--ledger", LEDGER)
+    assert capsys.readouterr().out.splitlines() == [f"msg/000002 report #{PR} {HEAD[:9]} {LANE}: clean"]
+
+
+def test_inbox_takes_reports_on_landed_prs_and_old_heads_without_listing_them(capsys):
+    shell = desk_shell()
+    rows = shell.stores[LEDGER]["rows"]
+    rows.append({"key": "28001", "fields": {"lane": LANE, "state": "landed"}})
+    for key, pr, head in (("msg/000001", "28001", HEAD), ("msg/000002", PR, OLD_HEAD), ("msg/000003", PR, HEAD)):
+        rows.append({"key": key, "fields": {"kind": "report", "pr": pr, "head": head, "lane": LANE, "text": "clean READY", "state": "pending"}})
+
+    run(shell, "inbox", "--ledger", LEDGER, "--take")
+
+    assert capsys.readouterr().out.splitlines() == [f"msg/000003 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
+    assert all(shell.fields(key)["state"] == "acked" for key in messages(shell))
+    assert shell.fields("msg/000001")["moot"] == shell.fields("msg/000002")["moot"] == "true"
+
+
 def test_a_hand_keyed_message_row_does_not_break_the_next_key():
     shell = desk_shell()
     stray = {"kind": "report", "pr": PR, "head": HEAD, "lane": "bg-pulumi", "state": "ready", "text": "READY"}

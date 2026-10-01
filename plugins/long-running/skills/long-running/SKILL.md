@@ -365,7 +365,7 @@ The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebas
 
 Only the root appends or edits the holds file. Each line names held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is held, so a reason names another PR without the `#`. A lane never self-enqueues a prefix containing or sitting above a held PR, including any PR of a held lane. It reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
 
-Lanes send the desk the three-line report of PR, full head sha, and verdict. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
+Lanes record each report themselves with `ledger.py report`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI.*
 
@@ -821,8 +821,12 @@ Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and
   re-enqueue. After the prefix lands, restack the PRs above it with
   `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
-Register your branch prefix with landing-desk when spawned and whenever you open a PR.
-For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
+Ledger: <id>. Register your branch prefix when spawned:
+  `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>`.
+Report every PR open, push, enqueue, and READY yourself, in this one shape:
+  `ledger.py report --ledger <id> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
+  plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`.
+  The desk's inbox reads that row; a SendMessage to a looping desk is never read.
 Bus: <id>; script bus.py, on PATH by name; --repo <drive checkout>.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
@@ -854,7 +858,7 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
   Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
-  head to landing-desk in the same turn; the desk grades without waiting for it.
+  head with `ledger.py report` in the same turn; the desk grades without waiting for it.
 ```
 
 Spawn every lane as one of this plugin's two lane types, with the routing table's

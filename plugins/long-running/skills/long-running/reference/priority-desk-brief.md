@@ -53,6 +53,8 @@ Do, in this order, every iteration:
      Your lanes report and register with you, not with landing-desk. Type each
      3-line report in with `ledger.py report` and each registration with
      `ledger.py register`, exactly as landing-desk does, so the ledger stays whole.
+     Lanes that write their own `ledger.py report` reach you only through
+     `ledger.py inbox --ledger <id> --shard <your lanes> --take`; run it here.
   1. Read every owed PR in one batched
      `ccx vcs pr status <n1> <n2> ...` call and read the Buildkite build list.
      Never make one REST status call per PR. Check landed claims against the

@@ -19,8 +19,10 @@ PR #<n> <head sha, full> <clean|red|conflicting|held>
 For an owner ask, append an optional fourth line, `ask <id>`. The desk records it
 with `--ask <id>` on `ledger.py report`.
 
-The desk records it as `ledger.py report --pr <n> --head <sha> --lane <name> --verdict
-<v> --text "<line 2>"`. The same
+A lane with the ledger id records it itself, and a running desk reads nothing else:
+`ledger.py report --ledger <id> --pr <n> --head <sha> --lane <name> --verdict <v>
+--text "<line 2>"`. READY is `--verdict clean`. A desk types a report that arrives as
+a message in the same shape. The desk's `ledger.py inbox --take` lists both. The same
 PR, head, and verdict twice is one report: the second is dropped and never answered. A
 new head is a new report. Reports open rows, carry the lane's text, and feed `stale`
 and the p50 report-to-landing figure. A report is not required to label; the current
