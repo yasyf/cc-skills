@@ -78,8 +78,9 @@ Do, in this order, every iteration:
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
        --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
        are the guard. A `held` refusal is not a red and is not routed; it waits
-       for the root. Never enqueue one stack per iteration. `label --all-clean`
-       walks stacks one at a time and is the fallback only where the repo has
+       for the root. Never enqueue one stack per iteration, and never hold a ready
+       stack for another stack's landing under D19. `label --all-clean` grades
+       stacks in one sequential call and is the fallback only where the repo has
        no enqueue script.
        Never wait for the PRs above the prefix. After it lands, route a restack of
        the first PR above it to its owning lane; Orca routes go to inbox/orca-desk.md.

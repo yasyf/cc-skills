@@ -381,11 +381,11 @@ An open child outside the prefix is allowed only when a lane tracks its ledger r
 
 When the prefix passes, its top goes into the queue with every PR below it as one Graphite batch through `.agents/skills/submit-pr/scripts/stack-enqueue --hold <held file> <prefix top>` when the checkout carries it, which is the monorepo's rule, and otherwise through `ledger.py label` with one `merge` label on the prefix top. Report a direct enqueue with `ledger.py report`; the desk records it on refresh as `in the queue, labelled outside the desk`. `stack-enqueue` applies its own gate first; when it names a blocker, the requested prefix is refused with its per-PR lines. `stack-enqueue --check --hold <held file> <prefix top>` gates without enqueueing. A queue that drops part of the prefix after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment.
 
-The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues the largest green, approved, unheld, unqueued bottom prefix of every open tracked stack. It starts one `stack-enqueue --hold <held file> <prefix top>` per ready prefix together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass.
+The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues the largest green, approved, unheld, unqueued bottom prefix of every open tracked stack. It starts one `stack-enqueue --hold <held file> <prefix top>` per ready prefix together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass, and never hold a ready stack behind another stack's landing under D19.
 
 Each call re-reads the root's holds file and builds a fresh numeric held file under D1, extended with every open ledger row whose lane is named as `lane:<name>` in the holds file. Read those rows with `ledger.py show --ledger <id> --json`, across the whole ledger even for a shard. Priority desks and shards use the same held set. A stack refused as `held` waits for the root; never treat it as a red or route it.
 
-Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` instead. `label --all-clean` walks stacks one at a time, so it is the fallback sweep only where the repo has no enqueue script.
+Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` instead. `label --all-clean` grades every stack in one sequential call, so it is the fallback sweep only where the repo has no enqueue script.
 
 For priority PRs, the root reads their gates itself in one batched `ccx vcs pr status <n1> <n2> ...` call and enqueues in the same turn. Priority approval covers only the named head under D1. The desk records an outside label on its next refresh as `in the queue, labelled outside the desk`; it does not treat it as a bypass.
 
@@ -524,6 +524,24 @@ Monitor, re-armed on expiry, or in a foreground loop instead of ad-hoc polling.
 green, approved, and queued at 05:29Z, then ejected on a merge conflict at 05:34Z
 after a nine-PR stack landed on `dev`. The desk's pass was minutes away and its summary
 half an hour away; the lane had stopped watching, and the owner found it first.*
+
+**D19. Land as many independent stacks at once as possible; shape them so they do not conflict.**
+Every green, approved, unheld stack enqueues in the pass it reaches that state. The
+desk never holds a ready stack for another stack, never waits for another stack's
+squash, and never reads an ejection as a reason to slow down. It routes a `conflicting`
+or ejected PR to its lane in the same pass, and the lane re-enqueues the moment its
+restack is green.
+
+Stack shaping prevents conflicts; serial landing does not. The lane brief states the
+shape. A shared-file edit goes in the smallest additive first PR of its stack, in the
+file's declared order. A lane whose change touches a file another open PR touches
+stacks on that PR instead of racing it. A generated output is never committed, since
+the build generates it, which is a repo rule. A stack that still carries a regenerated
+artifact rebases and regenerates it on ejection, never resolving the file by hand.
+
+*Prevents the serial landing the owner revoked on 2026-10-01: "the fix is to have as
+many independent PR stacks merging as possible, and shaping them carefully to avoid
+conflicts".*
 
 `refresh` regrades the rows the ledger holds and merges the forge's fields into them, so
 the fields the desk writes are never overwritten: `lane`, `declared_intent`, the holds,
@@ -810,6 +828,11 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
+Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
+  your stack, in the file's declared order. When a file you change is in another open
+  PR, stack on that PR instead of racing it. Never commit a generated output; the build
+  generates it. A stack that still carries a regenerated artifact rebases and
+  regenerates it on ejection.
 Holds file: <path>, root-owned; rebuild a fresh numeric held file before every
   enqueue from its #<n> entries and held lanes' open PRs under D3.
 Self-enqueue: take the largest green, approved, unheld bottom prefix and run
@@ -819,7 +842,8 @@ Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   Never self-enqueue above a held PR or any PR of a held lane. Report `held` on
   your tip, name the held PR, and leave release to the root.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and
-  re-enqueue. After the prefix lands, restack the PRs above it with
+  re-enqueue the moment the restack is green. Never wait for another stack to land
+  before enqueueing yours. After the prefix lands, restack the PRs above it with
   `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
 Ledger: <id>. Register your branch prefix when spawned:
   `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>`.
@@ -1131,7 +1155,7 @@ as `in the queue, labelled outside the desk`. A `held` refusal waits for the roo
 
 Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <sha>`
 for each ready prefix's top; mirrored ledger holds are the guard. `label --all-clean` is
-the fallback sweep there because it enqueues stacks one at a time.
+the fallback sweep there because it grades every stack in one sequential call.
 It supports `--dry-run` and prints each stack to enqueue. It considers every tracked open row whose
 current head has never carried the label and is not held, and re-reads each tip before
 grading it. `--expect-head` pins the graded tip for a single-stack call.

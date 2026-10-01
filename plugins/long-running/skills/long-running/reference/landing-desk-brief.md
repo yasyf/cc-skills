@@ -164,8 +164,10 @@ Do, in this order, forever:
      outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the repo
      has no script, use `ledger.py label --pr <prefix top> --expect-head <sha>
      --checkout <path>` and the holds mirrored into the ledger. Never enqueue
-     one stack per pass. `label --all-clean` walks stacks one at a time; use it
-     only as the fallback sweep where the repo has no enqueue script.
+     one stack per pass, and never hold a ready stack for another stack's landing
+     or slow the pass after an ejection under D19. `label --all-clean` grades stacks
+     in one sequential call; use it only as the fallback sweep where the repo has no
+     enqueue script.
      A `held` refusal is not a red and is not routed; it waits for the root.
      A lane report is not a gate. For each other refused head, send the lane the tool's
      `new head <sha9>: <blocker>` line once per head and blocker. If the head moved
@@ -203,7 +205,8 @@ Do, in this order, forever:
      and the movers, label anyway, and let the landing grade the tree it applies.
      A rebase is asked for on a merge conflict or after a bottom prefix lands.
   4. Route ejections and conflicts to the owning lane at once when the watch or
-     a pass shows them. The lane rebases and re-enqueues from its own watch under D1.
+     a pass shows them. The lane rebases and re-enqueues from its own watch under D1
+     the moment its restack is green; every other ready stack still enqueues this pass.
      `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
