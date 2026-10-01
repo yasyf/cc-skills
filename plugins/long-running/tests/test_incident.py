@@ -424,7 +424,7 @@ def test_missing_comms_answer_escalates_once(store, clock, fake):
     incident_id = open_incident(store, clock)
     drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=10), worker=lambda *_: None)
 
-    overdue = [ask for ask in fake.asks if "comms" in ask and "deadline" in ask]
+    overdue = [ask for ask in fake.asks if "comms" in ask and "is overdue" in ask]
     assert len(overdue) == 1
 
 
@@ -442,7 +442,8 @@ def test_pacific_times_carry_no_zone():
 
 
 def test_render_brief_fills_every_placeholder():
-    text = incident.render_brief("Fix lane brief", {"fix lane name": "incident-x-fix", "incident id": "x"})
+    text = incident.render_brief("Fix lane brief", {"fix lane name": "incident-x-fix", "incident id": "x", "break-glass skill": "break-glass"})
+    assert "  break-glass without asking" in text
     assert "incident-x-fix" in text
     assert "incident.py note --incident x --pr <PR number>" in text
     assert not incident.PLACEHOLDER.search(text)
@@ -638,3 +639,39 @@ def test_a_runner_for_a_former_owner_refuses_to_start(store, clock):
     store.transfer(incident_id, 1, "runner-b")
     store.ack(incident_id, "runner-b")
     assert incident.main(["run", "--incident", incident_id, "--once"], store, clock) == 3
+
+
+def test_an_adopted_lane_is_recorded_not_launched(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert")
+    with store.inputs(incident_id) as record:
+        record.facts["adopted"] = {"fix": "api-1n85-fix"}
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+
+    assert [lane for lane, _, _ in fake.launches] == [f"incident-{incident_id}-evidence"]
+    assert fake.fences == ["fence api from applies and deploys except api-1n85-fix"]
+    assert store.load(incident_id).actions["dispatch:fix"].verification_receipt == {"lane": "api-1n85-fix", "adopted": True}
+    brief = (store.root / incident_id / f"incident-{incident_id}-evidence.full.md").read_text()
+    assert "Feed api-1n85-fix and the executor" in brief
+
+
+def test_a_not_ours_verdict_closes_with_a_final_reply(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert")
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=3))
+    incident.main(["note", "--incident", incident_id, "--not-ours", "one employee sand-cli event; no user traffic"], store, clock)
+    record = drive(runner, store, clock, clock.at + timedelta(minutes=20), worker=lambda *_: None)
+
+    assert record.status == "closed"
+    assert [post["event"] for post in fake.posts] == ["ack", "recovered"]
+    assert fake.posts[-1]["facts"]["not_ours"].startswith("one employee")
+    assert "backup" not in " ".join(lane for lane, _, _ in fake.launches)
+
+
+def test_open_takes_the_alert_link_code_path_and_runbook(store, clock):
+    incident_id = open_incident(store, clock, kind="alert")
+    facts = store.load(incident_id).facts
+    assert (facts["alert"], facts["code_path"], facts["runbook"], facts["adopted"]) == (facts["thread"], "the api service", None, {})
+    assert incident.main(["open", "--kind", "alert", "--incident", "x2", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--alert", "https://forge-rf.sentry.io/issues/7766636402/", "--runbook", "4950740", "--adopt", "fix=api-1n85-fix"], store, clock) == 0
+    facts = store.load("x2").facts
+    assert (facts["alert"], facts["runbook"], facts["adopted"]) == ("https://forge-rf.sentry.io/issues/7766636402/", "4950740", {"fix": "api-1n85-fix"})
