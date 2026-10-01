@@ -269,54 +269,49 @@ and starts no build.
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill.*
 
-**R16. An active production alert gets its fix lane in the same turn.** An active alert
-or outage on any surface: a Datadog monitor, a Sentry alert, an `#outage` report, an
-on-call page, a broken CI or review pipeline, or an alert or breakage link from the
-owner is P0 from the moment it is seen. Run this checklist that turn, before anything
-else.
+**R16. An active production alert gets its executor in the same turn.** An active
+alert or outage on any surface counts: a Datadog monitor, a Sentry alert, an
+`#outage` report, an on-call page, a broken CI or review pipeline, or an alert or
+breakage link from the owner. It is P0 from the moment it is seen. That turn,
+before anything else, the root runs `incident.py open` and starts `incident.py run`
+as a background command (`reference/active-alert-brief.md`). From then on the
+executor owns the incident, through the final reply:
 
-- (a) Spawn the fix lane with apply authority in its brief. PR through the repo's
-  submit skill; break-glass or hand apply pre-authorized at `0 deletes` / `0 replaces`,
-  counts reported first, runbook-logged. Any delete or replace goes to the owner.
-  Start at the code path the alert names. Inside a drive, append
-  `orca-desk: launch <name> NOW` to the desk's inbox; the desk runs
-  `scripts/orca-launch.sh <name> sol xhigh <brief>` for an Orca codex worker on
-  `gpt-6.1-sol`, fast tier, `xhigh`. Outside a drive, use an inline background
-  `codex:codex-wrapper` (`codex-ask -m sol`) on the same model, tier, and effort.
-  On a miss, use Claude Opus 5.5 (`claude-opus-5-5`). Never fable or astra.
-- (b) Spawn an evidence lane for telemetry, logs, and the deploy timeline, feeding
-  the fix lane by name. It gates nothing.
-- (c) Fence the target from further applies and deploys in the same inbox line as
-  both launches. The fence exempts the fix lane's apply under (a).
-- (d) Send a one-line owner report at spawn with the alert, both lane names, and authority given.
-  Send one line at mechanism and one at fix-live. Never inside a status wall.
-- (e) When the alert has a Slack thread, spawn the comms lane that turn from
-  `reference/slack-lane-brief.md` (Incident comms lane), briefed with the owner's
-  standing grant for that thread, quoted verbatim, and both incident lane names; both
-  incident briefs name the comms lane. The fix lane sends PR, plan counts, apply,
-  landing, and fix-live to the comms lane directly. The comms lane posts on thread
-  events and lane messages without a root turn and tells the root each posted ts.
-  On any owner order to respond, the root sends it to the comms lane and confirms the
-  posted ts within 2 minutes; with no ts by then, it spawns a replacement from the
-  same brief.
+- It posts the fence and launches the fix and evidence lanes through
+  `scripts/orca-launch.sh` as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`.
+  With no mechanism after 15 minutes, it adds an Opus 5.5 backup lane
+  (`claude-opus-5-5`) and keeps the first running. It refuses Claude for the fix and
+  evidence roles and never uses fable or astra.
+- It posts each comms event (ack, PR, review request, landing, live, final reply)
+  to the comms lane on the bus with that event's cc-slack grant id. It confirms each
+  posted ts from the lane's bus answer.
+- It holds a landed fix at `activation_pending` until the live configuration reads
+  back as the landed tree. It runs a canary, rebuilds each failed head of the outage
+  window once, and accounts for every rebuild before it reports `recovered`.
+- It records every side effect in the `scripts/actions.py` store before running it,
+  so a restart or a duplicate delivery never repeats one. A lost response stays
+  `unverifiable` until a read of external state settles it.
 
-**Never between the alert and (a).**
+The root's part is the grants and the decisions. It opens the incident with the
+owner's grants (`--grant thread=… channel=… sync=… rebuild=…`). It answers the
+executor's bus asks: a missing grant (`incident.py grant`), a silent comms lane,
+an overdue action, a failed canary, or a read-back that still drifts. It relays
+the executor's `opened`, `live`, and `closed` milestones to the owner as one line
+each, in Pacific time. It never relays owner words to a lane as authority, never
+re-briefs the executor's lanes, and never posts or composes incident copy.
+
+**Never between the alert and `incident.py run`.**
 
 - A "real-or-not" or "ours-or-not" verdict
 - A mechanism-depth mandate
 - An `AskUserQuestion`
 - Treating a mute as resolution
 
-The fix lane's route is the surface-independent one in (a). A CI or tooling breakage
-is not a reason to spawn a Claude Agent fix lane.
+The fix lane's route is the executor's, whatever the surface. A CI or tooling
+breakage is not a reason to spawn a Claude Agent fix lane.
 
 Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real,
-fix it" means fix lane plus evidence lane, not a verdict gate.
-
-Check each incident lane every 10 minutes. At 15 minutes without a mechanism, start
-a second lane on a different model in parallel (Opus 5.5 after sol); keep the first
-running. `reference/active-alert-brief.md` holds both briefs; O15 and
-`reference/orca-workers.md` hold launch mechanics.
+fix it" means the executor's fix and evidence lanes, not a verdict gate.
 
 The pack's `owner_facing` hook blocks the root's `Agent` spawn whose name starts with
 `incident-` or `outage-`, or whose brief's first line says incident or outage, unless
@@ -328,7 +323,9 @@ behind a verdict gate and the owner's sol routing was applied 6.4 min late; thre
 owner-approved incident posts then waited 15 minutes on root turns while the root
 compacted and the Slack waiter parked in ten-minute polls; and the pr-review outage's
 fix lane was spawned as a Claude opus Agent (`pr-review-pipeline-fix`) instead of a sol
-worker through the orca-desk.*
+worker through the orca-desk. The repair #28998 landed at 10:49am and the stored
+pr-review configuration stayed old until 11:08am, because merge, sync, canary, and
+rebuild each had a different implied owner and every handoff waited on a root turn.*
 
 **R17. Owner routing applies to the next spawn and to every live lane on that problem.**
 An owner's routing or process instruction applies in the turn it arrives.
@@ -390,13 +387,14 @@ A Slack permalink the owner pastes, bare or with words, is the root's to own, wh
 wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
 handed it to the drive, never "the owner has it". It is never informational.
 
-That turn, before anything except the R16 alert checklist:
+That turn, before anything except R16's `incident.py open` and `run`:
 
 - (a) Spawn `long-running:lane-ship` on sonnet from `reference/slack-lane-brief.md`.
   It adds `eyes` within one minute on the message that asks, through the cc-slack CLI,
   reads the thread, and returns the ask in ≤5 lines.
 - (b) Spawn the doing lane (fix, investigation, or answer) from the link itself,
-  without waiting for the Slack lane's read. An alert is R16.
+  without waiting for the Slack lane's read. An alert or a broken pipeline is R16:
+  the executor is the doing lane, and its comms lane is the Slack lane.
 - (c) Send one owner line naming both lanes.
 - (d) `TaskCreate` for both.
 
@@ -412,8 +410,9 @@ Permission follows the cc-slack skill. The owner's own words in the root's trans
 asking for a report in that thread grant it. Otherwise the lane returns the exact
 draft; the root shows it verbatim in an `AskUserQuestion` `Send` preview and hands the
 approved text back to the lane.
-The R16 (e) incident comms lane carries the owner's standing thread grant and never
-returns drafts for that thread.
+The incident comms lane posts with the cc-slack grant id on each executor event
+(`--grant <id>`) and never returns drafts for a granted thread. The grant comes
+from the owner through cc-slack, never from owner words a lane relays.
 
 The root never writes to Slack or composes Slack copy: no cc-slack MCP writes
 (`slack_send`, `slack_reply`, `slack_edit`, `slack_unreact`, or reactions), no
@@ -435,16 +434,18 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
   spawns a fresh sender lane whose brief carries the grant and the exact approved or
   dictated text; it posts first, then watches. The root tells the owner "posting via
   a lane" and checks the post's ts on disk within 2 minutes. A lane that is mid-watch
-  is never the channel for a new post.
+  is never the channel for a new post. In an incident, the executor raises a silent
+  comms lane as a decision. The replacement lane posts the executor's unanswered
+  event, so nothing is restated.
 - An answer the owner dictated goes out as one message with the grant in the dispatch,
   never staged across several instructions.
 - The owner's surface word is literal: "channel" means a top-level channel post,
   "thread" a thread reply, "DM" a direct message.
 - A post about a PR re-reads the PR's state (approvals, CI, landed) immediately before
   posting; the writer lane does that read itself, never the root from memory.
-- An incident's comms lane and fix lane get the owner's grant and each other's names
-  in their briefs and act on thread events without a root turn; the root is told,
-  not asked (`reference/active-alert-brief.md`).
+- An incident's comms lane takes its authority from the grant id on each executor
+  event and posts without a root turn; the root is told, not asked
+  (`reference/active-alert-brief.md`).
 
 The pack's `root_context` hook blocks every Slack write in a drive's root with
 `delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
@@ -850,7 +851,7 @@ Production monitor traffic belongs to one long-lived `long-running:lane`, `alert
 model sonnet, effort low. Spawn it beside the landing-desk whenever the drive deploys,
 applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and the
 dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
-`reference/active-alert-brief.md` holds the fix and diagnosis lane briefs.
+`reference/active-alert-brief.md` holds the executor's runbook and its lane briefs.
 
 **A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
 `monitor-watch.py watch` over the drive's monitors, by tag glob such as
@@ -859,8 +860,8 @@ Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
 one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
 and posts nothing to Slack.
 
-Each alert is P0 for the root. Spawn a fix lane and a diagnosis lane in parallel
-that turn under R16, with no verdict gate. The monitor's
+Each alert is P0 for the root. Open its incident and start the executor that turn
+under R16, with no verdict gate. The monitor's
 targets stay fenced from deploys, applies, and enqueues until it recovers or diagnosis
 clears the alert; the fence never blocks the fix lane's own apply under R16.
 
@@ -1917,7 +1918,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
-15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live, (e) a comms lane holding the owner's standing thread grant and both lane names, posting without a root turn; confirm its posted ts within 2 minutes of any owner order to respond; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
+15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
