@@ -25,8 +25,9 @@ CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a driv
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
 opens in the drive's ledger under the lane's name. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
-pointer must stay within 300 characters. The launch counts only once the
-receipt reads ready and the terminal's screen shows bypass permissions on.
+pointer must stay within 300 characters, so a brief path that pushes it over is
+replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. The
+launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
@@ -103,11 +104,19 @@ DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
 [ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT'"
-spec() {
-  printf '%s' "Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
+pointer() {
+  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
-SPEC=$(spec)
-[ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the brief path"
+spec() {
+  SPEC=$(pointer "$BRIEF")
+  [ "${#SPEC}" -gt 300 ] || return 0
+  LINK=$HOME/.claude/$(printf '%s' "$BRIEF" | shasum | cut -c1-8)
+  mkdir -p "$HOME/.claude"
+  ln -sfn "$BRIEF" "$LINK"
+  SPEC=$(pointer "$LINK")
+  [ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the worktree path"
+}
+spec
 
 mkdir -p "$STATE"
 
@@ -126,8 +135,7 @@ until [ -d "$WT" ]; do
   fi
 done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
-SPEC=$(spec)
-[ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the brief path"
+spec
 
 attempt=0 TERMINAL=''
 until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
