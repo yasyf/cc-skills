@@ -14,7 +14,8 @@ except heartbeats, one per line, then the delivery to acknowledge:
   delivery <delivery id> heartbeats=<n>
 
 --json prints each of those messages as one compact JSON object instead, the
-message as Orca returned it plus its "lane", for desk-runner.py. A wait that ends
+message as Orca returned it plus its "lane", for desk-runner.py, and also wakes
+on status, decision_gate, and handoff, which carry a lane's started/done replies. A wait that ends
 empty prints `timeout`. --ack <delivery-id> acknowledges the
 previous batch before waiting; pass result.deliveryId, since a message id
 acknowledges nothing and the Run replays an unacknowledged batch. --peek prints
@@ -102,7 +103,9 @@ fi
 if [ -n "$PEEK" ]; then
   set -- --peek "$@"
 else
-  set -- --wait --types worker_done,escalation,question --timeout-ms "$TIMEOUT" ${ACK:+--ack "$ACK"} "$@"
+  TYPES=worker_done,escalation,question
+  [ -z "$JSON" ] || TYPES=$TYPES,status,decision_gate,handoff
+  set -- --wait --types "$TYPES" --timeout-ms "$TIMEOUT" ${ACK:+--ack "$ACK"} "$@"
 fi
 
 attempt=0

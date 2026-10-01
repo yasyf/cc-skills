@@ -58,10 +58,12 @@ STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 INACTIVE = frozenset({"completed", "failed"})
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
+RETRYABLE = frozenset({"blocked", "superseded"})
 SWEEP_EVERY = timedelta(minutes=5)
 ORPHANED_SEND = timedelta(minutes=2)
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
+UNPARSEABLE = "unparseable"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
@@ -250,11 +252,15 @@ class Orca:
         try:
             return json.loads(done.out)
         except json.JSONDecodeError:
-            return {"ok": False, "error": {"code": "unparseable", "message": (done.out or done.err).strip()[:300]}}
+            return {"ok": False, "error": {"code": UNPARSEABLE, "message": (done.out or done.err).strip()[:300]}}
 
     def receipt(self, lane: str) -> str:
+        """The lane's current dispatch, or empty while no launch has written a whole receipt."""
         path = self.config.receipts / f"{lane}.json"
-        return json.loads(path.read_text())["result"]["dispatchId"] if path.is_file() else ""
+        try:
+            return json.loads(path.read_text())["result"]["dispatchId"]
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+            return ""
 
     def terminal(self, lane: str) -> str:
         path = self.config.receipts / f"{lane}.terminal"
@@ -420,7 +426,7 @@ class Runner:
                 self.book.attempt(container, lambda incident: (incident.start(action.action_id, self.now()), incident.complete(action.action_id, {"message": message, "at": self.book.stamp()})))
             else:
                 self.orca.wake(dispatch.terminal, f"{action.authority_ref}: read Orca message on thread {thread} now")
-        elif request := request_id(reply):
+        elif (request := request_id(reply)) or reply["error"]["code"] == UNPARSEABLE:
             self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request}))
         else:
             self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
@@ -511,7 +517,8 @@ class Runner:
         return following
 
     def message(self, message: dict) -> None:
-        payload = json.loads(message.get("payload") or "{}")
+        decoded = json.loads(message.get("payload") or "{}")
+        payload = decoded if isinstance(decoded, dict) else {}
         lane = message.get("lane") or self.orca.lane_of(message.get("from_handle", ""))
         sender = payload.get("dispatchId") or (self.orca.receipt(lane) if self.orca.terminal(lane) == message.get("from_handle") else "")
         acked = ACK.match(message.get("subject") or "")
@@ -560,27 +567,34 @@ class Runner:
         """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""
         key = f"judge:{message['id']}"
         question = f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}"
-        judged, created = self.book.accept(RUNNER, key, "judge", message.get("subject", ""), lane, None)
+        _, created = self.book.accept(RUNNER, key, "judge", json.dumps({"msg": message["id"], "question": question}), lane, None)
         if not created:
-            if judged.status == "started" and actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
-                self.escalate(message["id"], "DECIDE", lane, f"{question} (the judge never returned)")
             return
         self.book.attempt(RUNNER, lambda incident: incident.start(key, self.now()))
         brief = self.brief_for(lane)
         if not brief:
-            self.book.attempt(RUNNER, lambda incident: incident.complete(key, {"verdict": "escalate", "text": "no brief", "at": self.book.stamp()}))
-            self.escalate(message["id"], "DECIDE", lane, f"{question} (no brief file for {lane})")
+            self.book.attempt(RUNNER, lambda incident: incident.complete(key, {"verdict": "escalate", "text": f"no brief file for {lane}", "at": self.book.stamp()}))
+            self.resume_judges()
             return
         prompt = JUDGE_PROMPT.format(lane=lane, brief=brief.read_text(), msg=message["id"], type=message["type"], subject=message.get("subject", ""), body=message.get("body", ""))
         argv = ["claude", "-p", "--model", self.config.judge_model, "--effort", "low", "--no-session-persistence", "--strict-mcp-config", "--tools", "", "--output-format", "json", "--json-schema", JUDGE_SCHEMA]
         verdict = judge_verdict(self.shell.run(argv, stdin=prompt))
         self.book.attempt(RUNNER, lambda incident: incident.complete(key, {**verdict, "at": self.book.stamp()}))
-        if verdict["verdict"] == "answer":
-            reply, _ = self.accept_relay(f"answer:{message['id']}", lane, verdict["text"], message["id"], self.config.start_minutes)
-            if (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
-                self.send(lane_container(lane), dispatch, reply)
-        else:
-            self.escalate(message["id"], "DECIDE", lane, f"{question} | {verdict['text']}")
+        self.resume_judges()
+
+    def resume_judges(self) -> None:
+        """Carry every judged question to its reply or escalation, so a restart between the verdict and its follow-up loses nothing."""
+        for judged in self.book.actions(RUNNER, kind="judge"):
+            spec = json.loads(judged.target)
+            lane = judged.authority_ref
+            if judged.status == "started" and actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
+                self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} (the judge never returned)")
+            elif judged.status == "completed" and judged.response["verdict"] == "answer":
+                reply, created = self.accept_relay(f"answer:{spec['msg']}", lane, judged.response["text"], spec["msg"], self.config.start_minutes)
+                if created and (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
+                    self.send(lane_container(lane), dispatch, reply)
+            elif judged.status == "completed":
+                self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} | {judged.response['text']}")
 
     def sweep(self) -> None:
         """Unread mail on a live dispatch gets one wake; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
@@ -609,13 +623,14 @@ class Runner:
     def overdue(self, container: str, about: str) -> None:
         moment = self.now()
         for action in self.book.load(container).actions.values():
-            if action.kind not in ("relay", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
+            if action.kind not in ("relay", "reply", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
                 continue
-            if action.kind == "relay" and action.status == "started":
+            if action.kind in ("relay", "reply") and action.status == "started":
                 continue
             sent = [send for send in self.book.actions(container, kind="send") if send.authority_ref == action.action_id]
             missing = {
                 "relay": f"delivered to {sent[-1].target}, no started reply" if sent and sent[-1].status == "completed" else "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
+                "reply": "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
                 "launch": "launch never finished" if action.status == "started" else "launch held: load above the core count",
                 "enqueue": "stack-enqueue never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
@@ -659,6 +674,10 @@ def finish(incident: actions.Incident, key: str, response: dict, dispatch: str) 
     if incident.action(key).status == "accepted":
         incident.start(key, actions.parse_stamp(response["at"]), dispatch_id=dispatch)
     incident.complete(key, response, dispatch_id=dispatch)
+
+
+def enqueue_key(prefix: list[str], verdicts: dict) -> str:
+    return "enqueue:" + ",".join(f"{pr}@{verdicts[pr]['sha'] if pr in verdicts else ''}" for pr in prefix)
 
 
 def judge_verdict(done: Done) -> dict:
@@ -719,9 +738,9 @@ class Landing:
 
     def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match]) -> None:
         """One enqueue per exact set of prefix heads; a fresh attempt only after every earlier one enqueued nothing."""
-        base = "enqueue:" + ",".join(f"{pr}@{verdicts[pr]['sha'] if pr in verdicts else ''}" for pr in prefix)
+        base = enqueue_key(prefix, verdicts)
         attempts = [action for action in self.book.actions(LANDING, kind="enqueue") if action.action_id.split("#")[0] == base]
-        if any(action.status != "completed" or action.response["outcome"] != "blocked" for action in attempts):
+        if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
             return
         policy = self.runner.landing_policy()
         authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
@@ -737,7 +756,14 @@ class Landing:
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         prefix = action.target.split(",")
-        done = self.shell.run(self.enqueue_argv(prefix[-1], self.held(self.rows()), check=False))
+        held = self.held(self.rows())
+        fresh = self.shell.run(self.enqueue_argv(prefix[-1], held, check=True)).out
+        would = WOULD_ENQUEUE.search(fresh)
+        current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""
+        if current != key.split("#")[0]:
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh[-800:], "at": self.book.stamp()}))
+            return
+        done = self.shell.run(self.enqueue_argv(prefix[-1], held, check=False))
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
         if outcome == "enqueued" and "enqueue #" not in done.out:
             outcome = "noop"
@@ -762,10 +788,8 @@ class Landing:
             key = action.action_id
             if len(queued) == len(prefix):
                 self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "enqueued", "out": "reconciled from Graphite status", "at": self.book.stamp()}))
-            elif not queued:
-                self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": "reconciled: Graphite holds none of the prefix", "at": self.book.stamp()}))
             else:
-                self.runner.escalate(key, "UNVERIFIABLE", f"#{prefix[-1]}", f"Graphite holds {', '.join('#' + pr for pr in queued)} of {', '.join('#' + pr for pr in prefix)}; nothing was re-enqueued")
+                self.runner.escalate(key, "UNVERIFIABLE", f"#{prefix[-1]}", f"Graphite holds {', '.join('#' + pr for pr in queued) or 'none'} of {', '.join('#' + pr for pr in prefix)}; nothing was re-enqueued")
 
     def verify(self, rows: dict[str, dict]) -> None:
         for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
@@ -827,9 +851,9 @@ class Landing:
         for container, action in routes:
             if not action.action_id.startswith("restack:") or action.status in ("verified", "failed"):
                 continue
-            pr = action.action_id.split(":")[1]
+            _, pr, landed_pr = action.action_id.split(":")
             row = rows.get(pr, {})
-            if row.get("state") == "landed" or (row.get("head") and row["head"][:10] not in action.target):
+            if row and (row.get("state", "open") != "open" or row.get("base") != rows.get(landed_pr, {}).get("branch")):
                 receipt = {"head": row.get("head", ""), "state": row.get("state", ""), "at": self.book.stamp()}
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
 
@@ -859,6 +883,7 @@ def run_orca(runner: Runner, once: bool) -> int:
     swept = datetime.min.replace(tzinfo=timezone.utc)
     while True:
         runner.reap()
+        runner.resume_judges()
         runner.deliver()
         if runner.now() - swept >= SWEEP_EVERY:
             runner.sweep()

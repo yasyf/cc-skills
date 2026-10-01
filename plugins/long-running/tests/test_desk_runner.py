@@ -35,6 +35,7 @@ class FakeShell(runner_module.Shell):
         self.mailbox: list[dict] = []
         self.inboxes: dict[str, list[dict]] = {}
         self.lose_sends = 0
+        self.garble_sends = 0
         self.requests: dict[str, str] = {}
         self.stale_out = ""
         self.gates: dict[str, list[str]] = {}
@@ -95,6 +96,9 @@ class FakeShell(runner_module.Shell):
             dispatch = self.dispatches[argv[3]]
             return self.ok({"dispatch": {"status": dispatch["status"]}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
         if verb == ["orchestration", "send"]:
+            if self.garble_sends:
+                self.garble_sends -= 1
+                return runner_module.Done(1, "", "socket hang up")
             if self.lose_sends:
                 self.lose_sends -= 1
                 request = f"00000000-0000-0000-0000-{self.sequence:012d}"
@@ -377,6 +381,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]
     shell.enqueue_out["29016"] = (0, "enqueue #28997 #29016: {}\n#28997 QUEUED aaaa111111 graphite QUEUED_TO_MERGE\n")
+    shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
     landing_pass(shell, config)
     assert cli(shell, config, "policy", "--key", "L260", "--landing", "whole", "--revision", "e802ae614e", "--source", "sole checkout") == 0
     lines = escalations(tmp_path)
@@ -468,3 +473,111 @@ def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):
     view = (tmp_path / "desk-runner.md").read_text()
     assert "R625 relay [accepted] accepted 11:00" in view
     assert "Z" not in view.split("\n", 1)[1].replace("desk-lane", "")
+
+
+def test_a_send_with_no_parseable_reply_is_unverifiable_not_retried(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.garble_sends = 1
+    cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
+    for _ in range(3):
+        orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert "UNVERIFIABLE" in escalations(tmp_path)[0]
+
+
+def test_an_undeliverable_reply_reaches_its_deadline(shell, config, tmp_path):
+    cli(shell, config, "relay", "--key", "R633", "--lane", LANE, "--text", "use evidence.md", "--reply-to", "msg_q9")
+    for _ in range(12):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    lines = escalations(tmp_path)
+    assert len(lines) == 1 and "DEADLINE" in lines[0] and "never delivered" in lines[0]
+
+
+def test_a_judged_answer_survives_a_restart_before_its_reply(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner.book.accept("desk-runner", "judge:msg_q3", "judge", json.dumps({"msg": "msg_q3", "question": "rebase?"}), LANE, None)
+    with store.owned("desk-runner", 0) as live:
+        live.start("judge:msg_q3", shell.now())
+        live.complete("judge:msg_q3", {"verdict": "answer", "text": "yes, per the brief", "at": "2026-10-01T18:00:00Z"})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+    assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q3"
+
+
+def test_a_judge_that_never_returned_escalates(shell, config, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner.book.accept("desk-runner", "judge:msg_q4", "judge", json.dumps({"msg": "msg_q4", "question": "scope?"}), LANE, None)
+    with store.owned("desk-runner", 0) as live:
+        live.start("judge:msg_q4", shell.now())
+    shell.sleep(6 * 60)
+    orca_pass(shell, config)
+    lines = escalations(tmp_path)
+    assert len(lines) == 1 and "DECIDE msg_q4" in lines[0] and "never returned" in lines[0]
+
+
+def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [
+        gate("#28997 GREEN aaaa111111 graphite READY", would="#28997"),
+        gate("#28997 GREEN abab111111 graphite READY", would="#28997"),
+    ]
+    shell.enqueue_out["28997"] = (0, "enqueue #28997: {}\n")
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}})
+    shell.gates["28997"] = [gate("#28997 GREEN abab111111 graphite READY", would="#28997")]
+    landing.enqueue()
+    assert shell.enqueues() == []
+    [action] = [action for action in store.load("desk-landing").actions.values() if action.kind == "enqueue"]
+    assert action.response["outcome"] == "superseded"
+
+
+def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}})
+    key = next(key for key in store.load("desk-landing").actions if key.startswith("enqueue:"))
+    with store.owned("desk-landing", 0) as live:
+        live.start(key, shell.now())
+    shell.sleep(16 * 60)
+    shell.statuses = "#28997 READY_TO_MERGE aaaa111111 open review APPROVED on dev\n"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert store.load("desk-landing").actions[key].status == "unverifiable"
+    assert shell.enqueues() == []
+    lines = escalations(tmp_path)
+    assert len(lines) == 1 and "holds none of #28997" in lines[0]
+
+
+def test_an_unrelated_push_does_not_settle_a_restack_still_on_the_landed_branch(shell, config, tmp_path):
+    shell.rows = stack_rows(**{"28997": "landed", "29016": "landed"})
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner.accept_relay("restack:29020:29016", LANE, "#29016 landed; #29020 at cccc333333 sits on its deleted branch.", "", 10)
+    landing = runner_module.Landing(runner, runner.config.landing)
+    shell.rows[2]["head"] = "dddd444444"
+    landing.verify_restacks({row["pr"]: row for row in shell.rows})
+    assert store.load(f"desk-lane-{LANE}").actions["restack:29020:29016"].status == "accepted"
+    shell.rows[2]["base"] = "dev"
+    landing.verify_restacks({row["pr"]: row for row in shell.rows})
+    assert store.load(f"desk-lane-{LANE}").actions["restack:29020:29016"].status == "verified"
+
+
+def test_an_empty_receipt_or_a_null_payload_does_not_stop_the_runner(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    (tmp_path / "receipts" / "half-written.json").write_text("")
+    (tmp_path / "receipts" / "half-written.terminal").write_text("term_x\n")
+    cli(shell, config, "relay", "--key", "R700", "--lane", "half-written", "--text", "hello")
+    shell.mailbox.append({"id": "msg_n", "type": "status", "subject": "note", "body": "", "thread_id": None, "payload": "null", "from_handle": "term_ctx_a", "lane": LANE})
+    orca_pass(shell, config)
+    assert shell.sends() == []
