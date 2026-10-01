@@ -1,0 +1,26 @@
+name: open-pr CI
+
+on:
+  push:
+    paths:
+      - "plugins/open-pr/**"
+      - ".github/workflows/open-pr-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/open-pr/**"
+      - ".github/workflows/open-pr-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: pytest
+        run: uv run --project plugins/open-pr pytest plugins/open-pr/tests -q
+      - name: capt-hook pack test
+        run: uvx --isolated 'capt-hook>=12.72.0' pack test plugins/open-pr

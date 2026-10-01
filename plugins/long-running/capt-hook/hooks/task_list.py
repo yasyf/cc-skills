@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import json
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
+
+from cc_transcript import AttachmentEvent, UserEvent
+from cc_transcript.models import TranscriptEvent
 
 from captain_hook import (
     Allow,
+    Block,
     BaseHookEvent,
     Event,
     FromSubagent,
@@ -22,15 +25,17 @@ from captain_hook import (
 )
 from captain_hook.tasks import Task, Tasks
 
+from . import session_tree
 from .compaction_handoff import CompactionState
-from .lane_rotation import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, entries_after, live_lanes
+from .lane_rotation import DriveActive, live_lanes
 from .nudges import queue_nudge
+from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE
 
 ASK_CALLS = 3
+ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
 RECONCILE_TURNS = 20
 DONE_COOLDOWN_SECONDS = 30 * 60
 IDLE_SECONDS = 30 * 60
-EXCERPT = 80
 ROOT_NAMES = frozenset({"team-lead", "main"})
 TASK_TOOLS = frozenset({"TaskCreate", "TaskUpdate"})
 NAME_FLAGS = ("--display-name", "--name", "--task-title")
@@ -46,22 +51,35 @@ ASK = re.compile(
     r"need to|needs to|have to|should|can you|please)\b",
     re.IGNORECASE,
 )
+LANE_TASK = {"id": "1", "subject": "Land the stack", "status": "in_progress", "owner": "stack-lander"}
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
 
 
-@workflow_state("long_running_task_list")
-class TaskListState(WorkflowState):
-    unowned: list[str] = []
-    asks: list[str] = []
-    ask_calls: int = 0
+@workflow_state("long_running_task_asks")
+class AskState(WorkflowState):
+    pending: bool = False
+    calls: int = 0
+    cursor: str | None = None
+
+
+@workflow_state("long_running_task_unowned")
+class UnownedState(WorkflowState):
+    lanes: list[str] = []
+
+
+@workflow_state("long_running_task_done")
+class DoneState(WorkflowState):
     nudged: dict[str, float] = {}
+    cursor: str | None = None
+
+
+@workflow_state("long_running_task_drift")
+class DriftState(WorkflowState):
     turns: int = 0
-    scanned: int | None = None
 
 
 def spawned_names(evt: BaseHookEvent) -> set[str]:
-    metas = (evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json")
-    return {name for meta in metas if (name := json.loads(meta.read_text()).get("name"))}
+    return {agent.name for agent in session_tree.subagents(evt) if agent.name}
 
 
 def lane_of(task: Task) -> str | None:
@@ -99,23 +117,13 @@ def spawned_lane(evt: BaseHookEvent) -> str | None:
     return None
 
 
-def prompts(entries: list[dict]) -> Iterator[str]:
-    for entry in entries:
-        if entry.get("type") == "user" and not entry.get("isMeta") and not entry.get("isCompactSummary"):
-            content = entry["message"]["content"]
-        elif entry.get("type") == "attachment" and entry["attachment"].get("type") == "queued_command":
-            content = entry["attachment"]["prompt"]
-        else:
-            continue
-        if isinstance(content, list):
-            content = "\n".join(block["text"] for block in content if block.get("type") == "text")
-        if content:
-            yield content
-
-
-def excerpt(text: str) -> str:
-    line = " ".join(text.split())
-    return line if len(line) <= EXCERPT else line[: EXCERPT - 1] + "…"
+def prompts(events: Iterable[TranscriptEvent]) -> Iterator[str]:
+    for event in events:
+        match event:
+            case UserEvent() if not event.meta.is_meta and not event.meta.is_compact_summary and event.text:
+                yield event.text
+            case AttachmentEvent(attachment_type="queued_command") if event.detail.prompt:
+                yield event.detail.prompt
 
 
 def is_ask(text: str) -> bool:
@@ -148,7 +156,7 @@ def reported(tasks: tuple[Task, ...], lane: str, body: str) -> list[Task]:
     return [task for task in owned if refs & set(REF.findall(task.subject))]
 
 
-def finished(evt: BaseHookEvent, state: TaskListState, text: str, now: float) -> list[str]:
+def finished(evt: BaseHookEvent, state: DoneState, text: str, now: float) -> list[str]:
     if not (reports := done_reports(text)):
         return []
     tasks = evt.tasks.in_progress
@@ -160,104 +168,155 @@ def finished(evt: BaseHookEvent, state: TaskListState, text: str, now: float) ->
                 if now - state.nudged.get(task.id, 0.0) >= DONE_COOLDOWN_SECONDS:
                     state.nudged[task.id] = now
                     lines.append(
-                        f"task #{task.id} ({lane}) may be complete: TaskUpdate it once you have consumed the "
-                        "deliverable (PR routed, ruling recorded), never on the lane's word alone"
+                        f"Lane `{lane}` reported its task done. Consume its deliverable, then run `TaskUpdate`."
                     )
     return lines
 
 
-def ask_line(asks: list[str]) -> str:
-    quoted = "; ".join(f'"{ask}"' for ask in asks)
-    return f"owner ask has no task: TaskCreate one per ask this turn, owner = the lane you dispatch — {quoted}"
-
-
-def spawn_line(name: str) -> str:
-    return f"lane {name} has no task: TaskCreate one now with owner={name}"
-
-
-def reconcile_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
+def drift_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
     lanes = {lane.name: lane for lane in live_lanes(evt)}
     known = spawned_names(evt)
-    stale = [
-        f"#{task.id} ({lane})"
+    stale = any(
+        (lane := lane_of(task)) in known and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
         for task in tasks.in_progress
-        if (lane := lane_of(task)) in known
-        and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
-    ]
-    untracked = sorted(name for name in lanes if not covered(tasks, name))
-    parts = []
-    if stale:
-        parts.append(f"in_progress with no working lane: {', '.join(stale)}")
-    if untracked:
-        parts.append(f"running lanes with no open task: {', '.join(untracked)}")
-    if not parts:
+    )
+    untracked = any(not covered(tasks, name) for name in lanes)
+    if not (stale or untracked):
         return None
-    return f"task list drift — {'; '.join(parts)}. Complete what you consumed, re-own or delete the rest."
+    return "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+
+
+def deliver(evt: BaseHookEvent, lines: list[str]) -> HookResult | None:
+    if evt.event == Event.Stop:
+        for line in lines:
+            queue_nudge(evt, line)
+        return None
+    return evt.context("\n".join(lines)) if lines else None
+
+
+def fresh_prompts(evt: BaseHookEvent, cursor: str | None) -> tuple[list[str], str | None]:
+    events, cursor = session_tree.events_after(evt.ctx.t.events, cursor)
+    return list(prompts(events)), cursor
 
 
 @on(
     Event.PostToolUse | Event.Stop,
+    only_if=[DriveActive()],
     skip_if=[FromSubagent()],
     tests={
-        Input(tool="Agent", tool_input={"name": "desk", "prompt": "go"}): Allow(),
+        Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
         Input(tool="TaskCreate", tool_input={"subject": "x", "description": "y"}): Allow(),
     },
 )
-def track_task_list(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
-        return None
-    now = time.time()
-    lines = []
-    with TaskListState.mutate(evt) as state:
-        if state.scanned is None:
-            state.scanned = evt.transcript_path.stat().st_size
-        entries, state.scanned = entries_after(evt.transcript_path, state.scanned)
-        for text in prompts(entries):
-            lines += finished(evt, state, text, now)
-            if is_ask(text):
-                state.asks.append(excerpt(text))
-                state.ask_calls = 0
+def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
+    with AskState.mutate(evt) as state:
+        texts, state.cursor = fresh_prompts(evt, state.cursor)
+        if any(is_ask(text) for text in texts):
+            state.pending, state.calls = True, 0
+        if evt.event == Event.Stop:
+            asked, state.pending = state.pending, False
+            return deliver(evt, [ASK_LINE] * asked)
+        if evt.tool_name in TASK_TOOLS and (
+            not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted")
+        ):
+            state.pending = False
+        if state.pending:
+            state.calls += 1
+            if state.calls >= ASK_CALLS:
+                state.pending = False
+                return deliver(evt, [ASK_LINE])
+    return None
+
+
+@on(
+    Event.PostToolUse | Event.Stop,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(tool="Agent", tool_input={"name": "desk", "prompt": "go"}): Allow(),
+        Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
+    },
+)
+def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
+    with UnownedState.mutate(evt) as state:
         if evt.event == Event.Stop:
             tasks = evt.tasks
-            lines += [spawn_line(name) for name in state.unowned if not covered(tasks, name)]
-            state.unowned = []
-            if state.asks:
-                lines.append(ask_line(state.asks))
-                state.asks = []
-            state.turns += 1
-            if state.turns >= RECONCILE_TURNS:
-                state.turns = 0
-                if line := reconcile_line(evt, tasks, now):
-                    lines.append(line)
-            for line in lines:
-                queue_nudge(evt, line)
-            return None
+            lines = [f"Lane `{name}` has no task. Run `TaskCreate` with `owner={name}`." for name in state.lanes if not covered(tasks, name)]
+            state.lanes = []
+            return deliver(evt, lines)
         if evt.tool_name in TASK_TOOLS:
             tasks = evt.tasks
-            if not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted"):
-                state.asks = []
-            state.unowned = [name for name in state.unowned if not covered(tasks, name)]
+            state.lanes = [name for name in state.lanes if not covered(tasks, name)]
         elif name := spawned_lane(evt):
-            state.unowned.append(name)
-        if state.asks:
-            state.ask_calls += 1
-            if state.ask_calls >= ASK_CALLS:
-                lines.append(ask_line(state.asks))
-                state.asks = []
-    return evt.context("\n".join(lines)) if lines else None
+            state.lanes.append(name)
+    return None
+
+
+@on(
+    Event.PostToolUse | Event.Stop,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
+        Input(tool="TaskUpdate", tool_input={"taskId": "1", "status": "completed"}): Allow(),
+    },
+)
+def flag_lane_done_reports(evt: BaseHookEvent) -> HookResult | None:
+    now = time.time()
+    with DoneState.mutate(evt) as state:
+        texts, state.cursor = fresh_prompts(evt, state.cursor)
+        lines = [line for text in texts for line in finished(evt, state, text, now)]
+    return deliver(evt, lines)
+
+
+@on(
+    Event.Stop,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={Input(tool="Bash", tool_input={"command": "ls"}): Allow()},
+)
+def flag_task_list_drift(evt: BaseHookEvent) -> HookResult | None:
+    with DriftState.mutate(evt) as state:
+        state.turns += 1
+        if state.turns < RECONCILE_TURNS:
+            return None
+        state.turns = 0
+    if line := drift_line(evt, evt.tasks, time.time()):
+        queue_nudge(evt, line)
+    return None
+
 
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("TaskUpdate"), FromSubagent()],
+    only_if=[Tool("TaskUpdate"), FromSubagent(), DriveActive()],
     tests={
-        Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "completed"}): Allow(),
-        Input(tool="TaskUpdate", agent_id="a1b2c3", tool_input={"taskId": "1", "status": "in_progress"}): Allow(),
+        Input(
+            tool="TaskUpdate",
+            agent_id="a1b2c3",
+            tool_input={"taskId": "1", "status": "completed"},
+            tasks=[LANE_TASK],
+            state=[CompactionState(active=True)],
+        ): Block(pattern="leave the task open"),
+        Input(
+            tool="TaskUpdate",
+            agent_id="a1b2c3",
+            tool_input={"taskId": "1", "status": "in_progress"},
+            tasks=[LANE_TASK],
+            state=[CompactionState(active=True)],
+        ): Allow(),
+        Input(
+            tool="TaskUpdate",
+            agent_id="a1b2c3",
+            tool_input={"taskId": "2", "status": "completed"},
+            tasks=[LANE_TASK],
+            state=[CompactionState(active=True)],
+        ): Allow(),
     },
 )
 def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
     call = evt.as_input(TaskUpdateCall)
-    if call.status != "completed" or not CompactionState.load(evt).active:
+    if call.status != "completed":
         return None
     if (task := evt.tasks.get(call.task_id)) and (lane := lane_of(task)):
         return evt.block(

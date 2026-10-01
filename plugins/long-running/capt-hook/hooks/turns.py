@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
+from cc_transcript import AssistantEvent, SystemEvent
+from cc_transcript.models import TranscriptEvent
 from captain_hook.util import reqenv
 
 __capt_hook_skip__ = True
@@ -69,6 +71,22 @@ def latest_turn(transcript: Path, *, sidechain: bool = False) -> Turn | None:
                 return replace(compacted, model=model)
             tokens = usage["input_tokens"] + usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"]
             return Turn(model, tokens, datetime.fromisoformat(entry["timestamp"]))
+    return None
+
+
+def turn_of(events: Iterable[TranscriptEvent], *, sidechain: bool = False) -> Turn | None:
+    compacted: Turn | None = None
+    for event in reversed(tuple(events)):
+        match event:
+            case SystemEvent(subtype="compact_boundary") if compacted is None and event.meta.is_sidechain == sidechain:
+                compacted = Turn("", event.detail.post_tokens, event.meta.timestamp)
+            case AssistantEvent(usage=usage) if (
+                usage is not None and event.model != SYNTHETIC_MODEL and event.meta.is_sidechain == sidechain
+            ):
+                if compacted:
+                    return replace(compacted, model=event.model)
+                tokens = usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens
+                return Turn(event.model, tokens, event.meta.timestamp)
     return None
 
 

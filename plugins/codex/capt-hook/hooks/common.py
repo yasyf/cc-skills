@@ -13,7 +13,6 @@ from captain_hook import BaseHookEvent
 
 __capt_hook_skip__ = True
 
-# parents[2] is the plugin root; bin/codex-ask is the launcher symlink, else PATH.
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = PLUGIN_ROOT / "bin" / "codex-ask"
 DESCRIPTOR = PLUGIN_ROOT / "bin" / "codex-ask.binrun"
@@ -41,7 +40,6 @@ def state_db() -> Path:
 
 
 def daemon_is_down() -> bool:
-    # An absent state dir is an unreadable layout, not a stopped daemon: spawn anyway.
     socket = daemon_socket()
     return socket.parent.is_dir() and not socket.exists()
 
@@ -108,7 +106,6 @@ def call_bin(evt: BaseHookEvent, sub: str, *, timeout: int = 10) -> str | None:
         return evt.ctx.call_cli(
             [*argv, sub],
             input=json.dumps(evt._raw),
-            # Under binrun the binary runs from a cache shard (dispatch.go pluginRoots).
             env={"BINRUN_PLUGIN_ROOT": str(PLUGIN_ROOT)},
             timeout=timeout,
             throw=False,

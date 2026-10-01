@@ -8,6 +8,6 @@
   },
   "license": "MIT",
   "dependencies": [
-    { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=11.0.0" }
+    { "name": "captain-hook", "marketplace": "captain-hook", "version": ">=12.71.1" }
   ]
 }

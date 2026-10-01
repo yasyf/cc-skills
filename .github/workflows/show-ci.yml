@@ -1,0 +1,24 @@
+name: show CI
+
+on:
+  push:
+    paths:
+      - "plugins/show/**"
+      - ".github/workflows/show-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/show/**"
+      - ".github/workflows/show-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: capt-hook pack test
+        run: uvx --isolated 'capt-hook>=12.72.0' pack test plugins/show
