@@ -608,24 +608,25 @@ launch until it falls. This is a standing rule, not a per-drive ruling.
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 
 **O15. A codex Orca lane runs on Orca's codex agent.** Launch it with
-`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex`, `sol`, or `gpt-*` model runs
+`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex` or `gpt-*` model runs
 `worker-start --agent codex --model <id> --effort <level>` with no custom terminal,
 since Orca's codex default arguments already skip approvals. Never launch a claude
 worker whose brief calls the codex skill. An inline lane, an Agent-tool subagent or
 the root's own turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off
 question still goes to `codex-ask`.
 
-Incident lanes use `scripts/orca-launch.sh <lane> sol xhigh <brief>` on the supervised
-codex agent, model `gpt-6.1-sol`, in a top-level (`--no-parent`) worktree. The fast
-tier comes from Orca's codex runtime config; `worker-start` has no service-tier flag.
-`reference/orca-workers.md` gives the config line and the custom-terminal fallback
-when that config cannot carry the tier.
+Incident lanes use `scripts/orca-launch.sh <lane> sol xhigh <brief>`, model
+`gpt-6.1-sol`, in a top-level (`--no-parent`) worktree. `worker-start` has no
+service-tier flag, so the script creates the terminal itself with
+`codex ... -c service_tier=fast` on its command line and starts the worker with
+`--terminal`. Only sol lanes run fast. Orca's codex runtime config stays
+`service_tier = "default"`; no script or lane edits it.
 
 On 2026-10-01, supervised dispatch `ctx_a1c0260ecb02` started on fast but failed at
 `agent_readiness` with `timeout`, as did the root's two hand-launched sol workers;
 codex was at its prompt and the spec never arrived. Earlier custom-terminal
 dispatch `ctx_e6b256d5c0c8` did read `ready`. On a readiness timeout with a live codex
-terminal, the script delivers the spec pointer itself and prints
+or sol terminal, the script delivers the spec pointer itself and prints
 `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 Count it as launched and report it to the root. It has no Orca `worker_done` or
 escalation plumbing; the lane reports through its inbox/bus file. The desk starts

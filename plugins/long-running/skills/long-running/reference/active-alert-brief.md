@@ -27,9 +27,10 @@ R<n> prompt orca-desk: launch <fix lane name> NOW sol xhigh; orca-desk: launch <
 ```
 
 The desk runs `scripts/orca-launch.sh <name> sol xhigh <brief>` for each lane on
-supervised Orca codex, `gpt-6.1-sol`, fast tier, `xhigh`, in a `--no-parent` worktree.
+Orca codex, `gpt-6.1-sol`, fast tier, `xhigh`, in a `--no-parent` worktree; the script
+passes `-c service_tier=fast` on the codex command line.
 O15 and [orca-workers.md](orca-workers.md#incident-lanes-gpt-61-sol-on-the-fast-tier)
-hold the runtime config and readiness fallback. Outside a drive, use inline
+hold the launch recipe and readiness fallback. Outside a drive, use inline
 background `codex:codex-wrapper` agents (`codex-ask -m sol`) on the same model, tier,
 and effort. On a miss, use Claude Opus 5.5 (`claude-opus-5-5`); inside a drive,
 route it through the same inbox with `opus xhigh`. Never fable or astra on the incident path.

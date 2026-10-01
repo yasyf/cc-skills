@@ -162,8 +162,9 @@ Do, in this order, forever:
        <lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>
        <lane> unsupervised task=<id> dispatch=<id> terminal=<handle> worktree=<path>
      For Claude, the script checks the custom command's bypass-permissions screen.
-     For codex, it uses --agent codex; on an agent_readiness timeout it sends the
-     spec pointer itself. Report an unsupervised result to the root; the lane
+     For codex, it uses --agent codex. For sol, it creates the terminal running
+     codex with -c service_tier=fast and starts the worker on it. On an
+     agent_readiness timeout for either, it sends the spec pointer itself. Report an unsupervised result to the root; the lane
      reports through its inbox/bus file, without Orca worker_done or escalation.
      Keep that lane active despite its failed dispatch; steps 1 and 2 must not
      relaunch it. Deliver its rulings through the file and wake its terminal.
