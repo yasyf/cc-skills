@@ -33,7 +33,8 @@ The Orca preamble above the task carries the worker's handle, dispatch capabilit
 and exact `send`, `ask`, and `check` commands. The brief tells the worker to copy these
 commands verbatim. It never restates them.
 
-Launch through the orca-desk using [Orca workers: launch recipe](orca-workers.md).
+Launch with `desk-runner.py launch --config C --key R<n> --lane L --model M
+--effort E --brief PATH` using [Orca workers: launch recipe](orca-workers.md).
 
 ## `common.md`: the contract every lane shares
 
@@ -49,7 +50,7 @@ is listed under Escalate stops for the coordinator: use the preamble's
 `orca orchestration ask` with the question and 2-4 options. If it returns
 "capacity reached", use the preamble's `send --type question` or `--type escalation`
 instead. Keep working on everything that does not depend on the answer; the
-orca-desk treats those messages exactly like an ask.
+runner judges those messages from your brief exactly like an ask.
 Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
 take the brief's default, log it with `ccn log append <drive log id>`, and report it.
 
@@ -67,6 +68,23 @@ Never end a turn without a Monitor on your own messages. Re-arm it after compact
   while :; do orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json 2>/dev/null | jq -r '.result.messages[]? | "\(.id) \(.type) \(.subject)"' | while read -r id rest; do grep -qx "$id" <seen file> || { echo "$id" >> <seen file>; echo "NEW $id $rest"; }; done; sleep 60; done
 
 Orca messages are pull-only; idle sessions wake only on terminal input or Monitor events.
+
+Runner actions: every guidance relay names its key and thread id. Before acting,
+send the preamble's status command with your own dispatch and that thread:
+  orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "started <key>"
+After acting, send:
+  orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "done <key>: <result>"
+Carry the preamble's addressing and capability arguments. A send proves delivery,
+not that you started. The action moves from accepted to started, completed, and
+verified; failed and unverifiable record failure or missing proof. Your done reply
+records completion; verification needs an external receipt. Do not mark root tasks
+complete for runner actions.
+
+A relaunch offers this lane's container to the new dispatch; its first ack takes
+ownership at the next owner generation. Until then the old owner retains it.
+After transfer, an ack from another dispatch gets a stand-down reply and cannot
+move the original action. Obey that stand-down without ending or closing your
+session. Never act on a replayed key you already completed.
 
 Binding rules (owner):
 - <one rule per bullet, each as the owner stated it>
@@ -110,7 +128,9 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   Never cache the held set or self-enqueue above a held PR or any PR of a held
   lane. Report `held` on your tip with the held PR named and leave release to
   the root. Where the checkout carries an enqueue script, call it directly as
-  `stack-enqueue --hold <held file> <prefix top>`, then report the enqueue with
+  `stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
+  numeric file is empty; it requires at least one number, never a filename.
+  Argparse exit 2 otherwise reads as unsettled. Report the enqueue with
   `ledger.py report`; refresh records it as labelled outside the desk.
   `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
   `ledger.py label --repo <owner/name> --ledger <id> --pr <prefix top>

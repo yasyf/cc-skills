@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger records every PR and owner ask, lanes self-enqueue their stacks against a root-owned holds list, a landing-desk reconciles landings, an orca-desk owns worker traffic, each owner-named number-one outcome gets a priority desk, and a lane bus carries decisions, heads, contracts, blockers, and asks from each lane's cursor. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
+description: Hard rules for orchestrating multi-lane work without burning the orchestrator's context - routine ground truth arrives as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, state lives in cc-notes and the task list, an open-PR ledger records every PR and owner ask, lanes self-enqueue their stacks against a root-owned holds list, a landing-desk reconciles landings, desk-runner.py owns worker traffic and ready-prefix landing, each owner-named number-one outcome gets a priority desk, and a lane bus carries decisions, heads, contracts, blockers, and asks from each lane's cursor. Use when orchestrating multi-lane work, driving a CI or infra bring-up, running a migration or audit across many units, supervising background agents or PR landings, tracking more than ten open PRs at once, landing PRs through a merge queue from many lanes, or on any task that will plainly exceed one context window.
 ---
 
 # Long-running orchestration
@@ -21,9 +21,11 @@ notifications it answered, and status it restated per event.
 
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
-The standing subagents are `landing-desk`; `orca-desk` when any lane runs
-through Orca; `alerts-desk` when the drive touches production; and one
-priority desk per owner-named #1-priority outcome while that outcome is open.
+The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
+production; and one priority desk per owner-named #1-priority outcome while that
+outcome is open. The orca desk is the `desk-runner.py run --desk orca` process,
+not a subagent. Its landing process shares the store and runs D3, D14, and D16
+where the checkout carries `stack-enqueue`.
 The root spawns a subagent for every task with a body, including its own routine work.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
@@ -113,6 +115,12 @@ them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so th
 write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`,
 `ccn doc add`, and `ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
 
+The action record tracks work routed through `desk-runner.py`; never mirror it
+into `TaskCreate`/`TaskUpdate`. The root does not complete shadow tasks
+for runner actions. Its task list holds owner asks and Agent lanes; the task rules
+below apply to those. Lanes' `started`/`done` replies, not the root, move runner
+actions. A send proves delivery only.
+
 Keep the task list current with every lane and ruling. The root creates a task with
 `TaskCreate` in the same turn it spawns a lane through `Agent`, `orca-launch.sh`, or
 `orca worker-start`; set `owner` to the lane's name. The root creates a task in the same
@@ -193,15 +201,19 @@ and `ledger.py answer` when the ask is a question rather than shipped work.
 release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
-**R9. Orca changes nothing about R1-R2.** Running workers through Orca does not license
-the root to do lifecycle, inbox, script, or retry work inline. Worktree and terminal
-creation, relaunch sweeps, the `check --wait`/ack loop, routine replies from a lane's own
-brief, and any helper script belong to a dedicated `long-running:lane` subagent, the
-orca-desk, spawned beside the landing-desk before the first Orca worker. The root holds
-decisions, owner asks, and rulings; it hears from the orca-desk only as ≤5-line ruling
-requests and `worker_done` outcomes that need action.
+**R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
+and `launch` commands and reads escalation lines through one Monitor on
+`tail -n 0 -F <escalations file>`, re-armed on expiry. It never runs the check/ack
+loop, relaunch sweeps, or helper scripts inline. No model desk sits between the
+root and Orca.
 
-*Prevents the root spending its window relaunching 33 lanes and answering scope questions the briefs already settled (release v3, 2026-09-30).*
+Start the orca runner before the first worker; keep its escalations
+under the drive's `inbox/`. Use `policy` for a landing rule and `show` for action
+state. [The runner brief](reference/orca-desk-brief.md) gives the config and cutover.
+
+*Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 being sent
+to a superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3
+and ranked fix 3).*
 
 **R10. Landed is the only progress.** Status to the owner is landed, queued, or the
 exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
@@ -338,9 +350,10 @@ the lane editing the skill.
 *Prevents the 2026-10-01 instruction at `04:14:42Z` taking until `04:21:03Z` to apply,
 with three lanes and two PRs (#28594, #28598) for one fix.*
 
-**R18. A ruling reaches a lane the way it reads.** A desk looping on an inbox file
-gets the ruling as a line in that file with the verb it keys on
-(`orca-desk: launch`), never a policy sentence or `SendMessage` alone. A running
+**R18. A ruling reaches a lane the way it reads.** Orca rulings use
+`desk-runner.py relay --config C --key R<n> --lane L --text T`; launches use its
+`launch` command under O1. A model desk gets rulings through its inbox under I1.
+A running
 Agent lane gets a `SendMessage` AND the handoff line in the file it hands off
 through. The root confirms the handoff on disk before treating the lane as stood
 down; a running copy never sees the `SendMessage`.
@@ -497,8 +510,11 @@ answering; and it described a 10-minute delay its own staged dispatches caused a
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
 Each report is a message in the root's window, and each landing is a wait. The desk is
 one long-lived lane, `landing-desk`, that takes those reports and reconciles landings.
-Lanes enqueue their own stacks under D1; the desk enqueues any ready stack they leave
-unqueued. The root owns the holds file and checks and enqueues priority PRs under D3.
+
+Lanes enqueue their own stacks under D1. Where the checkout carries `stack-enqueue`,
+`desk-runner.py run --desk landing` owns D3, D14, and D16, including for shards.
+The landing desk never enqueues beside it. Without that script, the desk keeps
+the `ledger.py label` path. The root owns the holds file and priority PRs under D3.
 It receives P0 lines immediately and a summary every 30 minutes.
 
 `scripts/ledger.py` is its one tool. It uses `ccx vcs pr state` for refreshes and
@@ -528,7 +544,16 @@ under Mechanics, and there is no desk.
 
 **D1. Lanes enqueue their own green bottom prefixes; the root owns holds and priority PRs.** The moment its stack has a green, approved bottom prefix, the owning lane re-reads the root's holds file. Before every enqueue it writes the held PR numbers to a fresh file, digits only, with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`; never cache the held set. Extend it with the open PRs of held lanes under D3.
 
-Where the checkout carries an enqueue script, call it directly as `stack-enqueue --hold <held file> <prefix top>`, then `ledger.py report` the enqueue. The desk records it on refresh as `in the queue, labelled outside the desk`. `ledger.py label` cannot pass `--hold` yet. Where the repo has no enqueue script, run `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <its worktree>`; the holds the desk has mirrored into the ledger are the guard.
+Where the checkout carries an enqueue script, a lane calls it as
+`stack-enqueue <prefix top> --hold $(cat <held file>)`, then reports with
+`ledger.py report`. Drop `--hold` when the numeric file is empty: it requires at
+least one PR number, never a filename. Argparse exit 2 otherwise reads as
+`unsettled`.
+
+The landing runner runs D3 for tracked stacks; the landing desk
+never adds a competing enqueue. The desk records outside enqueues on refresh as
+`in the queue, labelled outside the desk`. `ledger.py label` cannot pass `--hold`
+yet. Where the repo has no enqueue script, run `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <its worktree>`; the holds the desk has mirrored into the ledger are the guard.
 
 The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases and re-enqueues at once. It is not finished until its squash `(#N)` is on the base branch, and never ends a turn with a green, approved, unheld bottom prefix unenqueued. After the prefix lands, the lane restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
@@ -548,17 +573,41 @@ Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR ab
 
 An open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run. Restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
-When the prefix passes, its top goes into the queue with every PR below it as one Graphite batch through `.agents/skills/submit-pr/scripts/stack-enqueue --hold <held file> <prefix top>` when the checkout carries it, which is the monorepo's rule, and otherwise through `ledger.py label` with one `merge` label on the prefix top. Report a direct enqueue with `ledger.py report`; the desk records it on refresh as `in the queue, labelled outside the desk`. `stack-enqueue` applies its own gate first; when it names a blocker, the requested prefix is refused with its per-PR lines. `stack-enqueue --check --hold <held file> <prefix top>` gates without enqueueing. A queue that drops part of the prefix after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment.
+Where the checkout carries `.agents/skills/submit-pr/scripts/stack-enqueue`,
+`desk-runner.py run --desk landing` runs D3. Each pass runs `ledger.py refresh`
+and `reconcile`, reads rows, and gates every tracked open stack tip in parallel:
+`stack-enqueue <tip> --check [--whole] [--hold <n>...]`. The gate selects the largest
+ready bottom prefix. The runner accepts an enqueue for its exact prefix heads
+and runs independent enqueues in parallel. It permits another attempt for the
+same heads only when earlier attempts are proven to have enqueued nothing.
 
-The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues the largest green, approved, unheld, unqueued bottom prefix of every open tracked stack. It starts one `stack-enqueue --hold <held file> <prefix top>` per ready prefix together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass, and never hold a ready stack behind another stack's landing under D19.
+Every enqueue re-reads the root's holds file, including every open ledger row
+whose lane is named as `lane:<name>`. The command is
+`stack-enqueue <prefix top> --hold $(cat <held file>)`; omit `--hold` for an empty
+numeric file. A `held` refusal waits for the root and is never routed as a red.
+The runner verifies an enqueue only when `reconcile` records every prefix row
+as `landed` by squash on the base. The landing desk never enqueues beside it.
+Never hold a ready prefix behind another stack's landing under D19.
 
-Each call re-reads the root's holds file and builds a fresh numeric held file under D1, extended with every open ledger row whose lane is named as `lane:<name>` in the holds file. Read those rows with `ledger.py show --ledger <id> --json`, across the whole ledger even for a shard. Priority desks and shards use the same held set. A stack refused as `held` waits for the root; never treat it as a red or route it.
+The accepted policy is a record seeded from config as `prefix` at #28601's
+revision. The root changes it with `desk-runner.py policy --config C --key L<n>
+--landing prefix|whole --revision REV --source TEXT --supersedes <current revision>`.
+A command naming another predecessor is rejected with `STALE-POLICY`; a
+stale-checkout ruling such as L260 cannot replace the accepted rule that way.
 
-Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` instead. `label --all-clean` grades every stack in one sequential call, so it is the fallback sweep only where the repo has no enqueue script.
+Where the repo has no enqueue script, the landing desk uses
+`ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>`. One label
+on the prefix top enqueues the prefix as a batch. `label --all-clean` grades
+stacks sequentially and is the fallback sweep only for these repos. Re-read
+holds before each call and mirror PR holds and held lanes' open PRs under D1.
 
-For priority PRs, the root reads their gates itself in one batched `ccx vcs pr status <n1> <n2> ...` call and enqueues in the same turn. Priority approval covers only the named head under D1. The desk records an outside label on its next refresh as `in the queue, labelled outside the desk`; it does not treat it as a bypass.
+Lanes retain D1. For priority PRs, the root reads their gates in one batched
+`ccx vcs pr status <n1> <n2> ...` call and enqueues in the same turn. Priority
+approval covers only the named head under D1. The desk records outside enqueues
+on refresh as `in the queue, labelled outside the desk`.
 
-*Prevents a green tip enqueueing a red parent, an ejected head entering the queue again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
+*Prevents a green tip enqueueing a red parent, an ejected head entering the queue
+again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py reconcile` fetches the
 trunk (the repo's default branch) once, lands every row a squash subject ending `(#n)`
@@ -621,11 +670,22 @@ merge conflict or after a bottom prefix lands under D16.
 because an unrelated stack moved and then spends half an hour in a rebase and a CI
 re-run that change nothing about what the landing does.*
 
-**D10. Enqueue on the report, and reconcile every three minutes.** When a lane reports `clean`, enqueue its stack's largest ready, unheld, unqueued bottom prefix in the same turn. Every three-minute pass reads every PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build list, never one REST call per PR. Desks and shards stagger their reads by a minute at `:00`, `:01`, and `:02`.
+**D10. Record reports immediately; reconcile every three minutes.** Where
+`stack-enqueue` exists, the landing runner runs D3 every 180 seconds by
+default, without waiting for a report. The landing desk types reports, runs
+refresh/watch/P0 and red routing, mirrors holds, and keeps stale, summary,
+shards, and train duties. It never enqueues beside the runner. Where the repo
+has no script, a `clean` report still triggers `ledger.py label` on its largest
+ready, unheld, unqueued bottom prefix in the same turn.
 
-Enqueue all ready prefixes together under D3. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused prefix does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
+Each desk pass reads all PR numbers in one `ccx vcs pr status <n1> <n2> ...` call
+and the Buildkite build list, never one REST call per PR. Stagger desks and shards
+by a minute at `:00`, `:01`, and `:02`. One refused prefix never stops another;
+the D3 executor routes gate blockers under D14. A lane's `red` or `conflicting`
+verdict does not refuse a head the forge passes.
 
-*Prevents clean PRs waiting for a 20-minute pass that labels one report at a time, until the owner enqueues one in Graphite by hand.*
+*Prevents clean PRs waiting for a 20-minute pass that labels one report at a time,
+until the owner enqueues one in Graphite by hand.*
 
 **D11. Name every clean row older than 30 minutes with its blocker.** `ledger.py stale`
 lists every open row whose latest report is `clean` and at least 30 minutes old, with
@@ -641,15 +701,16 @@ reads healthy.*
 Spawn parallel sub-lanes named
 `landing-desk-<shard>`, each owning a named set of lanes' rows in the same ledger with
 `--shard lane-a,lane-b`. A stack's rows belong to the shard of its tip's lane. Each
-shard runs `refresh`, `landed`, `route`, D3's parallel enqueues, and `stale` on its own
-rows every three minutes.
+shard runs `refresh`, `landed`, `route`, and `stale` on its own rows every three
+minutes. It runs D3's `ledger.py label` path only where no `stack-enqueue` exists;
+the landing runner owns those enqueues otherwise.
 
 Stagger desks and shards by a minute at `:00`, `:01`, and `:02`.
 Read all PR numbers in the pass with one `ccx vcs pr status` call and the Buildkite
 build list. The refresh lock is keyed on the ledger, so shards never race a sync.
 
-Lanes keep reporting to `landing-desk`; the main desk types every message in, labels
-on each clean report, and alone sends the root the summary. *Prevents one desk's pass
+Lanes keep reporting to `landing-desk`; the main desk types every message in, uses
+D10's report path, and alone sends the root the summary. *Prevents one desk's pass
 growing with the board until its pass takes 20 minutes.*
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.** The root registers the drive with `drive.py start --ledger <id>`. The pack's PR hook then registers every PR a drive session or Orca worker opens under the lane's name. It records the head when the command prints one. This covers in-process subagents and teammates at any depth; `orca-launch.sh` passes the drive to Orca workers.
@@ -660,15 +721,32 @@ Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefi
 
 *Prevents three PRs a lane never reported sitting unmerged for hours.*
 
-**D14. Grade a moved or unreported head like any other.** Every tracked current head takes D3's gates without a report. For each refused head, send `new head <sha9>: <blocker>` to its lane once per head and blocker. A head that moved since the refresh is graded on the next pass, without a route; red CI and conflicts go through `route` and get no duplicate message from the batch.
+**D14. Grade a moved or unreported head like any other.** Every tracked current
+head takes D3's gates without a report. Where `stack-enqueue` exists, the landing
+runner routes each `BLOCKED` head except `held` once per head and blocker. It
+re-runs the gate immediately before creating the route and suppresses a blocker
+that already cleared.
+
+Orca delivery can follow later; this is not a recheck at
+that later send. Orca lanes receive a relay; other lanes receive
+`bus.py post --kind blocker`. The landing desk never repeats these per-head gate
+messages and retains `ledger.py route` for red CI and conflicts.
+
+Without `stack-enqueue`, the desk sends `new head <sha9>: <blocker>` once per head
+and blocker. A head that moved since refresh is graded on the next pass without
+a route; red CI and conflicts go through `route` without a duplicate batch message.
 
 *Prevents two heads that moved after their reports being ignored for hours.*
 
-**D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head. In the same pass, run `route` and D3's parallel enqueues, and send each lane the messages they print. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
+**D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head.
+
+In the same pass, run `route` and send its messages. D3's executor handles enqueues; the landing desk runs that step only without `stack-enqueue`. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
-**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`. For Orca lanes, append the route to `inbox/orca-desk.md` under D5.
+**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`.
+
+Where `stack-enqueue` exists, the landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `bus.py post --kind blocker` for others. The landing desk never duplicates it. Without that script, the desk keeps the route; for Orca lanes use `desk-runner.py relay --config C --key R<n> --lane L --text T`.
 
 *Prevents the wait for unfinished PRs above a green bottom that the owner ruled out on 2026-10-01, and made the repo rule in the monorepo's #28601: AGENTS.md "Stacked diffs" lands the largest green bottom prefix with `stack-enqueue <any PR of the stack>` and restacks everything above it right after. Restacking children and rerunning their CI after the prefix lands is an accepted cost.*
 
@@ -721,129 +799,116 @@ reads its inbox, holds, routes, label history, and landings from the ledger and 
 from its cursor. None of that goes into session memory or the plan file.
 See Lane rotation.
 
-## The orca-desk
+<a id="the-orca-desk"></a>
 
-Orca worker traffic outside a priority desk's lanes belongs to one long-lived
-`long-running:lane`, `orca-desk`.
-It creates worktrees and terminals, checks receipts, reads the worker inbox, and
-answers what the briefs already settle. The root holds decisions, owner asks, and
-rulings. It receives only ≤5-line ruling requests and `worker_done` outcomes that
-need action.
+## The orca desk runner
 
-Spawn it beside the landing-desk before the first Orca worker, whenever a drive runs
-Orca workers. `scripts/orca-launch.sh` owns launches and relaunches;
-`scripts/orca-check.sh` owns each blocking inbox check.
-Its `--stale --inbox <inbox file>` mode flags aged unread worker messages and unread work for completed or failed dispatches on every pass.
-`reference/orca-desk-brief.md` is the desk's brief, ready to paste;
-`reference/orca-workers.md` holds the launch recipe and script interfaces.
+`desk-runner.py` replaces the model-operated orca-desk. Start two detached
+processes with one config and store: `run --desk orca` and `run --desk landing`.
+Restarting either is idempotent. The orca process alone consumes the Run mailbox;
+let an existing desk finish its pass and end its loop before starting it. Keep
+the old session open. The landing process runs D3, D14, and D16 where the
+checkout carries `stack-enqueue`.
 
-**O1. Launch every Claude worker through `scripts/orca-launch.sh`.** Worktree and terminal
-creation, relaunch sweeps, retries, and helper scripts stay in the desk. The root
-dispatches the lane's brief and rules on exceptions.
+The root issues `relay`, `launch`, and `policy` commands with the drive's R/L
+keys. A repeated key in the same lane is one action. It never appends Orca rulings
+to `inbox/orca-desk.md` or `SendMessage`s a desk. It reads escalation lines through
+one Monitor on `tail -n 0 -F <escalations file>`, under the drive's `inbox/`,
+re-armed on expiry. `show` and the config's `view` file render state; these inbox
+files are views, never authority.
 
-*Prevents the root relaunching 33 lanes inline (release v3, 2026-09-30).*
+[reference/orca-desk-brief.md](reference/orca-desk-brief.md) owns the config,
+commands, passes, acknowledgement contract, escalation kinds, and cutover.
+[reference/orca-workers.md](reference/orca-workers.md) describes the adapters.
 
-**O2. Count a `ready` receipt or O15's `unsupervised` result.** A supervised launch prints
-`<lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>`.
-For Claude, the terminal runs the custom command in bypass-permissions mode; the
-script checks its screen for `bypass permissions on` before printing that line.
-Anything else is a failed launch.
+*Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 going to a
+superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3 and
+ranked fix 3).*
 
-**O3. Keep one foreground check loop and acknowledge deliveries.** Run
-`scripts/orca-check.sh`: one blocking `check --wait --types worker_done,escalation,question`.
-Process the whole batch, then pass the printed `delivery <id>` as `--ack <id>` on
-the next call. That id is `result.deliveryId`. A message id acknowledges nothing;
-an unacknowledged batch replays.
+**O1. Launch through the runner.** The root submits
+`desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH`.
+The runner starts `orca-launch.sh` detached. No model desk runs lifecycle helpers.
 
-**O4. Answer from the brief, escalate the rest.** Answer routine questions from the
-lane's brief file. Forward anything it does not settle to the root with the message
-id, lane, and 2-4 options, in ≤5 lines.
+**O2. Settle a launch from its line or receipt.** A `ready` or `unsupervised` line
+counts as launched, as does a new dispatch receipt when the log is empty. Other
+output produces `LAUNCH-FAILED`; neither a line nor a new receipt produces
+`UNVERIFIABLE`, never an automatic relaunch. `unsupervised` escalates separately.
 
-*Prevents the root answering scope questions the lane briefs already settled (release v3, 2026-09-30).*
+**O3. Keep one check loop and acknowledge deliveries.** The orca runner calls
+`orca-check.sh --json -- --run <run>`, handles every non-heartbeat message, and
+passes the printed delivery id as `--ack` on the next call. A message id
+acknowledges nothing; an unacknowledged batch replays. Never start a second
+consumer for a priority desk or a root poll.
 
-**O5. Relay the root's ruling to the current dispatch.** Answer a question with
-`orca orchestration reply --id <question message id> --body "<ruling>"`;
-only a reply to that original id wakes an `orca orchestration ask` wait (R56).
-Send other guidance with
-`orca orchestration send --to dispatch:<current dispatch> --type dispatch --subject "<subject>" --body "<ruling>"`.
-Read the current dispatch before sending; a prior receipt is not a live address.
+**O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
+with no tools reads the lane's brief. It answers what the brief settles or emits
+`DECIDE` with the question and options. Missing briefs and judge failures can
+escalate without options. The root answers with `relay --reply-to <msg id>`.
 
-**O6. Never end a session.** A settled dispatch keeps its terminal open and idle.
-Claude and Codex sessions, Orca, terminal hosts, and PTY daemons are never stopped,
-signalled, released, or closed; working workers have no cap, and the only launch
-throttle is a 1-minute load average above the core count. Forward only outcomes
-that need the root to act.
+**O5. Relay to the current dispatch.** Submit
+`desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <msg id>]`.
+The runner checks the current receipt and dispatch. A guidance relay sends the action's
+thread id and requests `started <key>` before acting and `done <key>: <result>`
+after. Its send proves delivery only; the lane's status replies move the action.
+Question-reply actions currently complete on send without those worker acks.
+
+**O6. Never end a session.** The runner never stops, signals, releases, or closes
+Claude, Codex, Orca, terminals, PTY daemons, or their supervisors. A settled
+worker keeps its session open. No launch receipt or missing heartbeat changes this.
 
 *Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
 
-**O7. Record every relayed ruling.** Append the message id, lane, dispatch, and ruling
-to the drive's cc-notes log with `ccn log append`. A sent reply without its log entry
-is unfinished work.
+**O7. Keep acceptance, start, result, and verification distinct.** Actions move
+through `accepted`, `started`, `completed`, and `verified`, with `failed` and
+`unverifiable` recording failure or missing proof. An `unverifiable` send is
+settled from Orca `request-show`/`--retry-request` or the recipient's mailbox;
+without proof it escalates. Never resend blindly. An unparseable CLI response
+currently enters failed-send retries; that response shape lacks this guarantee.
+`show` renders the record.
 
-**O8. Check liveness hourly.** Run `orca orchestration task-list --run <run>` and
-`orca orchestration worker-show --dispatch <id>` for each active worker. A worker
-with no heartbeat for 30 minutes goes to the root with its current dispatch and
-terminal state. A stale heartbeat never authorizes a relaunch. Resume the existing
-session in place; a separate successor must never stop it or duplicate its active work.
+**O8. A stale heartbeat never authorizes a relaunch.** Every five minutes the
+runner sweeps receipt dispatches. A non-live active dispatch emits `LIVENESS`;
+resume its session in place. A requested relaunch offers the lane container to
+the new dispatch; its first ack takes ownership at the next generation. The old
+owner retains authority until that ack. After transfer, another dispatch's ack
+gets a stand-down reply and cannot move the original action.
 
-**O9. Never re-brief.** Edit the lane's brief file, then send its pointer to the
-current dispatch with `send --type dispatch`. Never paste the whole brief into a
-message or start a second lane to carry a follow-up.
+**O9. Never re-brief.** Edit the brief file, rebuild `<lane>.full.md` when needed,
+and relay its pointer. Never start another lane to carry a follow-up.
 
-**O10. Acknowledge stale questions without answering.** For a question from a stopped
-or superseded dispatch, record it as stale and acknowledge its delivery. Never
-answer it or send its answer to the replacement worker.
+**O10. Never answer stale questions to a replacement.** Keep the original
+question id as the reply address. The current judge path lacks a stale-sender
+fence; this rule must not be reported as an enforced runner guarantee.
 
-**O11. Treat a capacity fallback like an ask.** Under load, `orchestration ask`
-returns `capacity reached`. The worker sends `--type question` or
-`--type escalation` instead and keeps working on everything that does not depend
-on the answer. The desk applies the same brief check and ruling path to those messages.
+**O11. Treat a capacity fallback like an ask.** Workers whose `ask` returns
+`capacity reached` send `question` or `escalation`. Both use the same judge path.
 
-**O12. Follow Desk inboxes before every wait.** Every inbox wait is at most
-60 seconds; `orca-check.sh` defaults `ORCA_CHECK_TIMEOUT_MS` to `60000`.
-The same wait limit applies to the landing-desk.
+**O12. Wait at most 60 seconds per mailbox check.** Keep
+`ORCA_CHECK_TIMEOUT_MS=60000`. A connection retry can extend the wrapper call;
+this is not a total pass deadline. The landing process uses its configured
+180-second interval. Model desks retain the 60-second inbox-wait rule.
 
-*Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
+**O13. A prompt is a desk bug.** The five-minute sweep reads `observation.agentWait`
+and emits `PROMPT` in the pass that sees it. Stale unread mail gets one terminal
+wake per message. Completed or failed dispatch mail emits `STALE-MAIL`; no sweep
+relaunches a worker or guesses an answer to its prompt.
 
-**O13. A lane stuck on a prompt is a desk bug.** Every worker's launch command
-disallows `AskUserQuestion`, `EnterPlanMode`, and `ExitPlanMode`. Every pass, the desk
-reads `observation.agentWait` from `orca orchestration worker-show` for each
-in-progress dispatch, and answers or escalates any prompt it names in that pass.
-`ledger.py summary`, run inside an Orca terminal, prints `WAITING-ON-PROMPT` for any
-worker parked five minutes or more.
+*Prevents lanes sitting for hours on a prompt only their own terminal showed
+(release v3, 2026-09-30).*
 
-*Prevents lanes sitting for hours on an AskUserQuestion only their own terminal showed (release v3, 2026-09-30).*
-
-**O14. Launch nothing while the box is saturated.** Before every launch or relaunch,
-read the 1-minute load. While it exceeds the core count, start no new worker; hold the
-launch until it falls. This is a standing rule, not a per-drive ruling.
+**O14. Hold launches while load exceeds the core count.** The runner reads the
+1-minute load before each launch. Above the core count it leaves the action
+accepted; its deadline still applies. It never kills a worker to lower load.
 
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 
-**O15. A codex Orca lane runs on Orca's codex agent.** Launch it with
-`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex` or `gpt-*` model runs
-`worker-start --agent codex --model <id> --effort <level>` with no custom terminal,
-since Orca's codex default arguments already skip approvals. Never launch a claude
-worker whose brief calls the codex skill. An inline lane, an Agent-tool subagent or
-the root's own turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off
-question still goes to `codex-ask`.
-
-Incident lanes use `scripts/orca-launch.sh <lane> sol xhigh <brief>`, model
-`gpt-6.1-sol`, in a top-level (`--no-parent`) worktree. `worker-start` has no
-service-tier flag, so the script creates the terminal itself with
-`codex ... -c service_tier=fast` on its command line and starts the worker with
-`--terminal`. Only sol lanes run fast. Orca's codex runtime config stays
-`service_tier = "default"`; no script or lane edits it.
-
-On 2026-10-01, supervised dispatch `ctx_a1c0260ecb02` started on fast but failed at
-`agent_readiness` with `timeout`, as did the root's two hand-launched sol workers;
-codex was at its prompt and the spec never arrived. Earlier custom-terminal
-dispatch `ctx_e6b256d5c0c8` did read `ready`. On a readiness timeout with a live codex
-or sol terminal, the script delivers the spec pointer itself and prints
-`<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
-Count it as launched and report it to the root. It has no Orca `worker_done` or
-escalation plumbing; the lane reports through its inbox/bus file. The desk starts
-the script asynchronously and never waits on the `agent_readiness` timeout.
+**O15. Preserve the codex and sol launch routes.** `codex` and `gpt-*` use
+`orca-launch.sh` on Orca's codex agent. Incident launches name `--model sol
+--effort xhigh`: `gpt-6.1-sol`, a `--no-parent` worktree, and an explicit terminal
+command with `--dangerously-bypass-approvals-and-sandbox` and
+`-c service_tier=fast`. Keep Orca's runtime defaults unchanged. An unsupervised
+launch needs a reporting route, never another launch. Inline lanes still use
+`Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
 ## The alerts desk
 
@@ -903,7 +968,11 @@ session open and idle.
 
 ## Desk inboxes
 
-These rules apply to the landing desk, orca-desk, priority desks, and shards.
+These I-rules apply to the landing desk, priority desks, and shards. Orca traffic
+uses `desk-runner.py relay`, `launch`, and `policy` commands; never append it to
+`inbox/orca-desk.md`. The runner's escalation and state files under `inbox/` are
+rendered views. Its action records hold authority. The root never `SendMessage`s
+a desk.
 
 **I1. Give every desk one append-only inbox file.** The root appends numbered lines
 `R<n> ...`. It never rewrites or truncates the file.
@@ -1028,8 +1097,9 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
 Holds file: <path>, root-owned; rebuild a fresh numeric held file before every
   enqueue from its #<n> entries and held lanes' open PRs under D3.
 Self-enqueue: take the largest green, approved, unheld bottom prefix and run
-  `stack-enqueue --hold <held file> <prefix top>` at once, then `ledger.py report` the
-  enqueue. Where the repo has no enqueue script, use
+  `stack-enqueue <prefix top> --hold $(cat <held file>)` at once, omitting `--hold`
+  when the numeric file is empty, then `ledger.py report` the enqueue. Where the
+  repo has no enqueue script, use
   `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <worktree>`.
   Never self-enqueue above a held PR or any PR of a held lane. Report `held` on
   your tip, name the held PR, and leave release to the root.
@@ -1090,7 +1160,8 @@ with a scoped brief.
 Keep the original lane running; the new lane must not duplicate its active work.
 
 A lane that runs as an Orca worker is a separate session the Agent tool cannot message.
-The orca-desk launches it through `scripts/orca-launch.sh` using
+Submit `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E
+--brief PATH`; the runner invokes `scripts/orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤300-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
@@ -1257,10 +1328,11 @@ and put its id in every brief. Each pass reads all PR numbers in one
 call per PR. Run every three minutes, with desks and shards staggered by a minute at
 `:00`, `:01`, and `:02`.
 
-Before each enqueue, re-read the root's holds file and
-build a fresh numeric held file from its `#<n>` entries and every open ledger row
-of a `lane:<name>` entry under D3. Never reuse a held file from an earlier call.
-Set `HOLDS_FILE` to the root's file and `OUTPUT_DIR` to the pass's output directory.
+Where the checkout carries `stack-enqueue`, start the landing runner from
+[its config](reference/orca-desk-brief.md#config-and-startup). It owns the enqueue
+pass and re-reads holds for every call. The model desk runs the ledger duties
+below and never adds an enqueue loop beside it. Use `ledger.py label` only where
+the repo has no enqueue script.
 
 A resumed root in a new session runs `drive.py start --drive <id> --ledger <id>`
 to join the existing drive. Run `drive.py end` only when the drive is over.
@@ -1281,24 +1353,6 @@ ledger.py register --ledger "$LEDGER" --lane lightning-eh --branch-prefix lightn
 ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
 ledger.py reconcile --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
-for TIP in "<tip-a>" "<tip-b>"; do
-  (
-    HELD_FILE=$(mktemp)
-    grep -o '#[0-9]\+' "$HOLDS_FILE" | tr -d '#' > "$HELD_FILE"
-    ledger.py show --ledger "$LEDGER" --json |
-      jq -r --rawfile holds "$HOLDS_FILE" '
-        ($holds | [scan("lane:([^[:space:]]+)")[0]]) as $lanes
-        | .rows[]
-        | select(.key | test("^[0-9]+$"))
-        | select((.fields.state // "open") == "open")
-        | select(.fields.lane as $lane | $lanes | index($lane))
-        | .key
-      ' >> "$HELD_FILE"
-    "$CHECKOUT/.agents/skills/submit-pr/scripts/stack-enqueue" --hold "$HELD_FILE" "$TIP"
-  ) > "$OUTPUT_DIR/$TIP" 2>&1 &
-done
-wait
-cat "$OUTPUT_DIR/<tip-a>" "$OUTPUT_DIR/<tip-b>"
 ledger.py stale   --ledger "$LEDGER"
 
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --pr 21221 --job "plan comment missing for this head"
@@ -1316,8 +1370,9 @@ ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 3
 ledger.py drop    --ledger "$LEDGER" --ask ask/000002 --reason "owner withdrew it"
 ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
-# fallback sweep over one shard's lanes
-ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
+if [ ! -f "$CHECKOUT/.agents/skills/submit-pr/scripts/stack-enqueue" ]; then
+  ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
+fi
 
 drive.py end
 ```
@@ -1458,7 +1513,9 @@ and the PRs below it `SKIP covered-by #<top>`. Each PR above keeps its `NOT-READ
 prints `ENQUEUED <sha>` without `prefix`.
 
 After the prefix lands, route the first PR above it to its owning lane to restack
-the rest with `ccx vcs stack submit`; Orca routes go to `inbox/orca-desk.md`.
+the rest with `ccx vcs stack submit`; Orca routes use
+`desk-runner.py relay --config C --key R<n> --lane L --text T`. Where the landing
+runner owns D16, it sends this route; the desk never duplicates it.
 A stack that forks never goes in. Every passing PR prints
 `NOT-READY <sha> fork at #N` until the stack is linearized.
 *Prevents #27520 sitting on a stale `graphite-base` branch after #27616 and #27617
@@ -1915,11 +1972,11 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 9. Am I about to relay an ETA for a green PR? → check its gates and label it now if it is a priority PR.
 10. Before saying something is assigned, read the summary's `LOST` lines first. Never call an ask done before `LIVE`.
 11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
-12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
+12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → issue `desk-runner.py relay` or `launch`; read its escalation file, never run a model desk or a second mailbox loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
-16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
+16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.

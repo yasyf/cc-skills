@@ -1,9 +1,14 @@
 # Orca workers: launch recipe
 
-The orca-desk launches every worker through `scripts/orca-launch.sh` and owns the
-foreground `scripts/orca-check.sh` loop. Spawn it beside the landing-desk before the
-first Orca worker. The root sends briefs and rulings; R9 keeps worker mechanics in
-the desk. Its spawn brief is [orca-desk-brief.md](orca-desk-brief.md).
+`desk-runner.py run --config C --desk orca` owns launches and the
+`scripts/orca-check.sh` loop. Start it detached before the first worker, with the
+config in [orca-desk-brief.md](orca-desk-brief.md). The root issues
+`desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH`
+and `desk-runner.py relay --config C --key R<n> --lane L --text T
+[--reply-to <question msg id>]`. No model desk runs between the root and Orca;
+the root reads the runner's escalation file. Only the orca runner consumes
+`check --run`; end any old desk loop after its current pass before starting it.
+The commands below describe the adapters the runner calls, not a second root loop.
 
 ## Launching
 
@@ -127,7 +132,8 @@ ended `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` with co
 the spec undelivered. On that timeout with a live codex or sol terminal, the script types the
 spec pointer itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 Count it as launched; it reports through its inbox/bus file, with no Orca `worker_done` or escalation plumbing.
-The desk starts the script asynchronously and never waits on readiness.
+A `desk-runner.py launch` action starts the script detached; the runner never
+waits on readiness in its mailbox loop.
 
 That earlier dispatch read `ready`. `--skip-git-repo-check` is exec-only and breaks interactive codex.
 Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at twice the speed.
@@ -139,20 +145,21 @@ Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
 Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
 `capacity reached`, they send `--type question` or `--type escalation` and keep
-working on everything that does not depend on the answer. The desk treats either
-message like an ask.
+working on everything that does not depend on the answer. The runner judges
+either message from the brief; the root answers a `DECIDE` through
+`desk-runner.py relay --config C --key R<n> --lane L --text T --reply-to <msg id>`.
 
-**R56. Reply to the original question id.** Before every relay, run
-`orca orchestration worker-show --dispatch '<dispatch id>' --json`.
-If `.result.dispatch.status` is `completed`, start a new dispatch with a
-self-contained brief; never reply or send to the completed dispatch (`dispatch_inactive`).
-For an active dispatch, only `orca orchestration reply --id <its question message id>`
-wakes an `orca orchestration ask` wait. Keep the reply or send as the record; neither
-wakes an idle Claude session. After every reply or send, the desk always wakes the worker.
+**R56. Reply to the original question id.** Submit
+`desk-runner.py relay --config C --key R<n> --lane L --text T --reply-to <msg id>`.
+The runner checks the current dispatch and uses `orca orchestration reply --id`
+for the original question. Only that reply wakes an `orca orchestration ask`
+wait; a dispatch message does not.
 
-```sh
-orca terminal send --terminal '<handle>' --text 'R<n>: <one line>; brief <path>' --enter
-```
+The runner wakes a terminal after a guidance
+relay, not after a question reply. Completed or failed dispatches receive no new
+relay; request any authorized successor with `desk-runner.py launch`, never a
+second mailbox loop. The runner records a missing launch outcome as
+`UNVERIFIABLE` and never retries it blindly.
 
 `orca orchestration worker-release` releases only a settled
 worker's terminal; it never stops a live worker.
@@ -171,8 +178,9 @@ orca orchestration worker-read --dispatch "<id>"
 ```
 
 A check from a worker terminal must name `--terminal <its handle>`. A `--run` check
-from a non-coordinator terminal fails `consumer_fenced`. The desk consumes the run's
-inbox from the coordinator terminal; workers consume their own terminal inboxes.
+from a non-coordinator terminal fails `consumer_fenced`. Only
+`desk-runner.py run --config C --desk orca` consumes the Run mailbox, using the
+coordinator identity; workers consume their own terminal inboxes.
 
 **R195. Sessions are protected.** Claude and Codex sessions, Orca, terminal hosts,
 PTY daemons, and their supervisors are never stopped, signalled, suspended,
@@ -251,10 +259,10 @@ it is not one of those retry loops.
 
 ### `orca-check.sh`
 
-The script runs one check, not the desk's whole loop:
+The runner calls this adapter for one mailbox check:
 
 ```text
-usage: orca-check.sh [--ack <delivery-id>] [--peek] [-- <orca check args>...]
+usage: orca-check.sh [--ack <delivery-id>] [--peek] [--json] [-- <orca check args>...]
        orca-check.sh --stale [--inbox <inbox file>]
 ```
 
@@ -269,22 +277,24 @@ delivery <delivery id> heartbeats=<n>
 ```
 
 The lane comes from the launch receipt's terminal handle; a sender with no matching
-receipt prints as its handle. A wait that ends empty prints `timeout`.
+receipt prints as its handle. A wait that ends empty prints `timeout`. The
+runner uses `--json`: one compact JSON object per non-heartbeat message, including
+its lane, followed by the same delivery line.
 
-Process every message, then pass the printed delivery id as `--ack <delivery-id>`
-on the next call. This is
+The runner processes every message, then passes the printed delivery id as
+`--ack <delivery-id>` on its next call. This is
 `result.deliveryId`, never a message id. A message id acknowledges nothing, and an
 unacknowledged batch replays.
 
 An escalated question can be recorded as awaiting a
 root ruling before acknowledging its delivery; the question's message id remains
-the reply address. A stale question from a stopped or superseded dispatch is
-acknowledged without an answer.
+the reply address. Never answer a stale question to a replacement dispatch;
+[O10](../SKILL.md#the-orca-desk) records the current judge path's missing fence.
 
 `--peek` prints unread messages without waiting or marking them read. It does not
 acknowledge a batch, even if `--ack` is supplied beside it. Arguments after `--`
-pass through to `orca orchestration check`. Use `--run <id>` for the desk and
-`--terminal <handle>` for a worker.
+pass through to `orca orchestration check`. Only the orca runner uses `--run <id>`;
+a worker uses `--terminal <handle>`.
 
 `--stale` reads every launch receipt's dispatch with `worker-show` and peeks the
 worker terminal's unread messages. It prints `STALE <lane> <age>m unread <msg id>`
@@ -297,51 +307,37 @@ age starts at creation; an inbox line's age starts at dispatch completion.
 | Variable | Meaning and default |
 |---|---|
 | `ORCA_CHECK_STALE_MINUTES` | Unread age that flags an in-progress dispatch; default `10`. |
-| `ORCA_CHECK_TIMEOUT_MS` | Longest wait; default `60000`. Keep it at most 60000 so the desk reads its inbox file every minute. |
+| `ORCA_CHECK_TIMEOUT_MS` | Longest mailbox wait; default `60000`. Keep it at most 60000; a retry can extend the wrapper call. |
 | `ORCA_CHECK_STATE` | Launch receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
 | `ORCA_CHECK_RETRY_SECONDS` | Wait before a connection retry; default `30`. |
 
 A lost connection or a `runtime_unavailable` error retries once, then prints
-`connection-lost` and exits 1, so the desk is back at its inbox file within the
-minute. Any other Orca error response prints `error <code>: <message>` and exits 1 without retrying.
-On either failure, return to the inbox-file step before the next check; never restart
-Orca. Read the append-only inbox with its saved cursor at the top of every iteration,
-including after `timeout`; [orca-desk-brief.md](orca-desk-brief.md) gives the loop.
+`connection-lost` and exits 1. Any other Orca error prints
+`error <code>: <message>` and exits 1 without retrying. The runner emits
+`ORCA-CHECK` and continues its loop; it never restarts Orca. It reads actions from
+the store, never an inbox cursor. [orca-desk-brief.md](orca-desk-brief.md) gives the
+loop and escalation contract.
 
 ## Worked example: a v3 drive
 
-From the coordinator terminal, the orca-desk fills these paths and ids. The spec
-directory already holds `common.md` and `ci-fix.md`; the inbox file is append-only.
-Replace the channel argument with the other arguments in Orca's defaults.
+Fill the runner config from [the template](orca-desk-brief.md#config-and-startup)
+and start both processes detached there. The spec directory holds `common.md`
+and `ci-fix.md`. Build the brief and submit a launch:
 
 ```sh
-SPEC_DIR='<spec dir>'
-INBOX='<inbox file>'
-export ORCA_LAUNCH_RUN='<run id>'
-export ORCA_LAUNCH_REPO='<repo id>'
-export ORCA_LAUNCH_PARENT='<coordinator worktree>'
-export ORCA_LAUNCH_PREFIX='v3-'
-export ORCA_LAUNCH_STATE='<receipt dir>'
-export ORCA_LAUNCH_CLAUDE_ARGS='--channels plugin:cc-review@cc-review'
-export ORCA_LAUNCH_RETRY_SECONDS=30 ORCA_LAUNCH_BOOT_SECONDS=8
-export ORCA_CHECK_STATE="$ORCA_LAUNCH_STATE"
-export ORCA_CHECK_TIMEOUT_MS=60000 ORCA_CHECK_RETRY_SECONDS=30
-touch "$INBOX"
+SPEC_DIR='/absolute/drive/briefs'
+CONFIG='/absolute/drive/runner.json'
 cat "$SPEC_DIR/common.md" "$SPEC_DIR/ci-fix.md" > "$SPEC_DIR/ci-fix.full.md"
-orca-launch.sh ci-fix opus xhigh "$SPEC_DIR/ci-fix.full.md"
-orca-check.sh -- --run "$ORCA_LAUNCH_RUN"
+desk-runner.py launch --config "$CONFIG" --key R1 --lane ci-fix --model opus --effort xhigh --brief "$SPEC_DIR/ci-fix.full.md"
 ```
 
-After processing that batch and reading new inbox-file lines, acknowledge its
-printed delivery on the next wait:
+Submit a ruling with its existing R number. For a question, retain its message id:
 
 ```sh
-orca-check.sh --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
+desk-runner.py relay --config "$CONFIG" --key R2 --lane ci-fix --text '<ruling>' --reply-to '<question msg id>'
+desk-runner.py show --config "$CONFIG"
 ```
 
-The root appends each ruling as one numbered line. It never sends a ruling by
-`SendMessage` to the looping desk:
-
-```sh
-printf '%s\n' 'R1 <msg id> ci-fix: <ruling>' >> '<inbox file>'
-```
+The root never appends to an orca-desk inbox or `SendMessage`s a desk. It arms one
+Monitor on `tail -n 0 -F <escalations file>` and re-arms on expiry. The orca runner
+alone reads and acknowledges Run deliveries.

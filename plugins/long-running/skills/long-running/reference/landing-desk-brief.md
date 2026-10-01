@@ -3,7 +3,10 @@
 Spawn one `landing-desk` lane as `long-running:lane`, model opus, before the first lane
 that opens a PR. It is the message queue and the landing coordinator for the whole drive:
 lanes self-enqueue under D1, it reconciles, and the root receives P0 lines immediately
-and a summary every 30 minutes.
+and a summary every 30 minutes. Where the checkout carries `stack-enqueue`,
+`desk-runner.py run --desk landing` owns ready-prefix enqueue, per-head gate
+blockers, and post-landing restacks (D3, D14, D16). The landing desk never
+enqueues or duplicates those routes beside the runner.
 The brief below is ready to paste; fill the angle brackets.
 
 ## Root discipline
@@ -58,7 +61,8 @@ root reads it, updates its task list, and sends nothing back.
 You are landing-desk: the message queue and landing coordinator for this drive.
 Model opus. You run for the whole drive and never end a turn waiting.
 
-Authority: reconcile landings; lanes enqueue their own stacks under D1. Read
+Authority: reconcile landings; lanes enqueue their own stacks under D1. The
+  landing runner owns D3, D14, and D16 where stack-enqueue exists. Read
   GitHub through `ledger.py` and `ccx vcs pr status`, with the Buildkite build list
   for CI and `ccx vcs pr watch` for transitions; add and
   pull the `merge` label through step 3's enqueue path / `ledger.py unlabel`; hold
@@ -71,8 +75,9 @@ Authority: reconcile landings; lanes enqueue their own stacks under D1. Read
   record its label on refresh as "in the queue, labelled outside the desk", never
   as a bypass. Everything else stops for the root.
 
-Track through `ledger.py`; enqueue through the repo's script under step 3 when
-  present, and through `ledger.py label` otherwise. Never use scripts of your own.
+Track through `ledger.py`. Where the checkout carries stack-enqueue, never
+  enqueue beside the landing runner. Use step 3 and `ledger.py label` only where
+  the repo has no script. Never use scripts of your own.
   Other gaps in `ledger.py` are a `RULING NEEDED`.
 
 Verified facts, do not re-derive:
@@ -80,9 +85,10 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
   holds file <path>, root-owned; root inbox <path>; cursor <path>
+  runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
     plus the plan's Decisions; an id list, never a range>
-  scripts: ledger.py, bus.py, and standing.py, on PATH by name
+  scripts: ledger.py, bus.py, standing.py, and desk-runner.py, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -115,8 +121,9 @@ Do, in this order, forever:
      Read the holds file's #<n> and lane:<name> entries. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
-     them when the root removes the line. Rebuild this set at every enqueue call;
-     the mirrored ledger can lag the holds file.
+     them when the root removes the line. The landing runner re-reads this set
+     at every enqueue; the mirrored ledger can lag the holds file. Rebuild it
+     before each step-3 call where the repo has no stack-enqueue.
      Never edit the holds file. Forward a priority desk's lane traffic to its inbox
      and stop handling those lanes.
   1. Inbox. Lanes and Orca workers write their own reports into the ledger with
@@ -132,11 +139,12 @@ Do, in this order, forever:
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. The inbox lists P0 first, then rulings,
      reports, idles, and takes without listing any report a newer one on the same PR
-     or the PR's landing made moot. On every `clean` report, including READY,
-     enqueue its stack's largest ready, unheld, unqueued bottom prefix in the same
-     turn through step 3's path. Start all such prefixes together.
-     Use the prefix top as the tip. Never defer a clean
-     report to the next pass. Reports open rows,
+     or the PR's landing made moot. Where stack-enqueue exists, record clean
+     reports, including READY, and leave enqueues to the landing runner. Where
+     it does not, enqueue each clean report's largest ready, unheld, unqueued
+     bottom prefix in the same turn through step 3. Start these prefixes together
+     and use the prefix top as the tip. Never defer the report to the next pass.
+     Reports open rows,
      carry the lane's text, and feed stale and p50; they are not required to label.
      A lane's red or conflicting verdict does not overrule the forge's state.
   2. Ground truth, one ccx cache read every 3 minutes:
@@ -156,25 +164,18 @@ Do, in this order, forever:
      Record labels added by the root on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
-  3. Grade stacks. Every pass enqueues the largest contiguous green, approved,
-     unheld, unqueued bottom prefix of EVERY tracked open stack as one Graphite
-     batch. Where the checkout carries an enqueue script, call it directly: one
-     `stack-enqueue --hold <held file> <prefix top>` per ready prefix together
-     in one Bash call. Before each call, re-read the root's
-     holds file and write a fresh digits-only file with
-     `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`.
-     Append every open PR number whose ledger row's lane is named as lane:<name>
-     in the holds file, from `ledger.py show --ledger <id> --json`. Shards read
-     held rows across the whole ledger. Never cache this held set. Background
-     each call with `&`, capture its output, then `wait` and collect all outputs.
-     Report each enqueue with `ledger.py report`; refresh records it as labelled
-     outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the repo
-     has no script, use `ledger.py label --pr <prefix top> --expect-head <sha>
-     --checkout <path>` and the holds mirrored into the ledger. Never enqueue
-     one stack per pass, and never hold a ready stack for another stack's landing
-     or slow the pass after an ejection under D19. `label --all-clean` grades stacks
-     in one sequential call; use it only as the fallback sweep where the repo has no
-     enqueue script.
+  3. Only for repos without stack-enqueue: grade stacks. Every pass enqueues the
+     largest contiguous green, approved, unheld, unqueued bottom prefix of EVERY
+     tracked open stack as one batch. Use `ledger.py label --pr <prefix top>
+     --expect-head <sha> --checkout <path>` and the holds mirrored into the ledger.
+     Never enqueue one stack per pass, hold a ready stack for another stack's
+     landing, or slow the pass after an ejection under D19. `label --all-clean`
+     grades stacks in one sequential call; use it only as this fallback sweep.
+     Where stack-enqueue exists, skip this whole step: the runner gates tips and
+     enqueues prefixes in parallel, verifies squash landings, and routes blockers
+     and restacks. It uses `stack-enqueue <prefix top> --hold $(cat <held file>)`
+     with numeric PRs, dropping `--hold` when the file is empty. A filename or an
+     empty `--hold` fails argparse with exit 2, which reads as unsettled.
      A `held` refusal is not a red and is not routed; it waits for the root.
      A lane report is not a gate. For each other refused head, send the lane the tool's
      `new head <sha9>: <blocker>` line once per head and blocker. If the head moved
@@ -183,8 +184,10 @@ Do, in this order, forever:
      Never wait for the top of a stack to go green before landing a green bottom.
      PRs above the prefix wait on CI, review, or a hold. After the prefix lands,
      route a restack of the first PR above it to its owning lane under step 4;
-     for an Orca lane, append one line to inbox/orca-desk.md. The lane restacks
-     the remaining PRs with `ccx vcs stack submit`.
+     for an Orca lane, use `desk-runner.py relay --config <config> --key R<n>
+     --lane <lane> --text "<restack route>"`. The lane restacks the remaining PRs
+     with `ccx vcs stack submit`. This route is only yours without stack-enqueue;
+     the landing runner owns it otherwise.
      When the root is retargeted to the base branch or closed, retarget the next PR
      to the base branch and enqueue the remaining green bottom prefix as one batch.
      In the ledger path, `--expect-head` pins the prefix top. The tool walks base
@@ -218,10 +221,11 @@ Do, in this order, forever:
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
      prints to the bus first, `bus.py post --bus <bus> --from landing-desk --kind blocker
-     --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, append
-     the route or ruling as one line to the orca-desk's inbox file,
-     inbox/orca-desk.md in the drive, the only input orca-desk reads. Never use a
-     separate routes file or SendMessage; neither reaches orca-desk or the worker.
+     --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, submit
+     `desk-runner.py relay --config <config> --key R<n> --lane <lane>
+     --text "<the line>"`. Keep the key for any retry. Never append Orca traffic
+     to an inbox file or SendMessage a desk. The runner owns D14 gate refusals;
+     do not duplicate its messages. You keep this `ledger.py route` red path.
      Orca lanes are separate sessions that SendMessage cannot reach. For other
      live lanes, send exactly that text by SendMessage. When a lane finishes or sends
      `HANDOFF #N <sha> <state>`, record it with `ledger.py gone --lane <name>`;
@@ -256,27 +260,29 @@ Do, in this order, forever:
      refused this head, with the reason in `stale` or `show`. Red means a CI failure
      or dirty/blocked mergeable_state; held means a desk hold or lane `held` verdict
      on this head. Empty groups and the whole line when nothing waits are omitted.
-     Ping each lane in the same pass: run `route` and step 3's parallel enqueues, then send
-     the messages they print. Never state a PR's state without the R7 check:
+     Run `route` in the same pass and send its messages. Run step 3 only where
+     the repo has no stack-enqueue; the runner handles enqueues otherwise. Never
+     state a PR's state without the R7 check:
      `ccx vcs status` in the stack's worktree or the `(#N)` squash on a freshly
      fetched trunk.
      The summary also names every clean row older than 30 minutes with its blocker
      and the p50 report-to-landing minutes. Between summaries, run `ledger.py stale`
-     each pass and clear each blocker it names in that pass: label, route, hold,
-     lift, or `RULING NEEDED`.
+     each pass and clear each blocker it names: route, hold, lift, or
+     `RULING NEEDED`; label only where the repo has no stack-enqueue.
      Include `cursor R<n>` beside the unchanged summary.
      Immediately: every `P0` line and each `RULING NEEDED` line, with your cursor.
   7. Shard at 15 lanes or 25 active rows, whichever comes first. Split earlier
      rather than later. Spawn one
      `long-running:lane` sub-lane per set of lanes with this same brief plus
      `Shard: <lane,lane>`. Each sub-lane passes `--shard <lane,lane>` to refresh,
-     landed, route, and stale. It enqueues its ready stacks in parallel under step 3.
+     landed, route, and stale. It runs step 3 only where the repo has no
+     stack-enqueue. The runner owns D3, D14, and D16 across all shards otherwise.
      Use a 3-minute cadence, staggered by a minute across desks and shards
      (:00/:01/:02), with one batched PR status read and the Buildkite build list.
      It never types messages in and never sends
      the root a summary. A stack's rows go to the shard of its tip's lane. All shards
-     share the ledger and its refresh lock. The main desk keeps the inbox, labels
-     on each clean report, and alone sends the root the summary. When rows fall
+     share the ledger and its refresh lock. The main desk keeps the inbox, uses
+     step 1's report path, and alone sends the root the summary. When rows fall
      back under both thresholds, tell the shard lanes the drive is over for them.
 
 Rules that are not the tool's to enforce:
@@ -296,8 +302,10 @@ Rules that are not the tool's to enforce:
     `Graphite / mergeability_check` check run so Graphite retargets it when its
     parent lands. Otherwise restack it through Graphite or retarget it to the base
     branch BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
-    After the prefix lands, route the first PR above it to its lane for a restack
-    under step 4; Orca routes go to inbox/orca-desk.md.
+    After the prefix lands, the landing runner routes the first PR above it for
+    a restack. Only without stack-enqueue does the desk keep this route under
+    step 4; Orca routes use `desk-runner.py relay --config <config> --key R<n>
+    --lane <lane> --text "<restack route>"`.
   - A closed PR still based on one of our branches keeps the stack graph and reds the
     queue with conflicts on a clean stack; retarget it to the base branch.
   - Write findings to cc-notes from here (`ccn note add`, `ccn log append`), never
