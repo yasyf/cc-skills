@@ -778,6 +778,46 @@ def test_list_open_names_only_rows_still_open(capsys):
     assert [line.split()[0] for line in capsys.readouterr().out.splitlines()] == ["#28100", "#28230", "#28302", "#28349"]
 
 
+def test_report_refuses_a_pr_that_is_not_a_bare_number(capsys):
+    shell = desk_shell()
+
+    with pytest.raises(SystemExit):
+        run(shell, "report", "--ledger", LEDGER, "--pr", "28096 publish-kinds restacked", "--head", HEAD, "--lane", LANE, "--verdict", "held")
+
+    assert "a bare PR number" in capsys.readouterr().err
+    assert shell.keys() == []
+
+
+def test_report_refuses_a_branch_prefix_as_the_head(capsys):
+    shell = desk_shell()
+
+    with pytest.raises(SystemExit):
+        run(shell, "report", "--ledger", LEDGER, "--pr", PR, "--head", "yasyf/v3-b6-publish/", "--lane", LANE, "--verdict", "held")
+
+    assert "hex prefix of the head sha" in capsys.readouterr().err
+
+
+def test_every_reader_skips_malformed_keys_with_one_warning(capsys):
+    stray = [
+        {"key": "28096 publish-kinds restacked", "fields": {"lane": "b6-publish", "reported_head": "yasyf/v3-b6-publish/"}},
+        {"key": "msg/bg-pulumi-28510-open", "fields": {"kind": "report", "pr": "28510", "head": "1d192f7834a4", "lane": "bg-pulumi", "state": "pending", "text": "READY"}},
+    ]
+    shell = reconcile_shell()
+    shell.store["rows"].extend(stray)
+
+    assert run(shell, "report", "--ledger", LEDGER, "--pr", "28349", "--head", "4" * 40, "--lane", "d-cutover", "--verdict", "clean") == 0
+    assert run(shell, "list", "--ledger", LEDGER) == 0
+    assert run(shell, "inbox", "--ledger", LEDGER) == 0
+    assert reconcile(shell) == 0
+
+    captured = capsys.readouterr()
+    warnings = [line for line in captured.err.splitlines() if "skipping malformed keys" in line]
+    assert len(warnings) == 4, "one line per command, never one per read"
+    assert "'28096 publish-kinds restacked', 'msg/bg-pulumi-28510-open'" in warnings[0]
+    assert "bg-pulumi" not in captured.out
+    assert "publish-kinds" not in captured.out
+
+
 STACK = ("24001", "24002", "24003")
 
 
