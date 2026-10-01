@@ -67,6 +67,13 @@ homebrew_casks:
     ids: [codex-ask]
     binaries:
       - codex-ask
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/codesign", args: ["--verify", "--strict", "-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"SXKCTF23Q2\"", "--", "{{ "{{staged_path}}" }}/codex-ask"]
+          run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{ "{{staged_path}}" }}/codex-ask"], must_succeed: false, print_stderr: false
+        end
+      end
     repository:
       owner: yasyf
       name: homebrew-tap

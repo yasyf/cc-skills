@@ -25,12 +25,27 @@ from bootstrap.common import Notice, PlanItem, ScaffoldError, TransformCtx
 DATE = datetime.date(2026, 6, 8)
 
 
-def test_codex_release_cask_preserves_gatekeeper_quarantine():
+CASK_DEQUARANTINE_GATE = (
+    'run "/usr/bin/codesign", args: ["--verify", "--strict", '
+    '"-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] '
+    "and certificate leaf[field.1.2.840.113635.100.6.1.13] "
+    'and certificate leaf[subject.OU] = \\"SXKCTF23Q2\\"", "--", "{{ "{{staged_path}}" }}/codex-ask"]'
+)
+CASK_DEQUARANTINE_STRIP = (
+    'run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{ "{{staged_path}}" }}/codex-ask"], '
+    "must_succeed: false, print_stderr: false"
+)
+
+
+def test_codex_release_cask_strips_quarantine_only_behind_developer_id_gate():
     goreleaser = (Path(__file__).parents[3] / ".goreleaser.yaml").read_text()
-    assert "homebrew_casks:" in goreleaser
-    assert "com.apple.quarantine" not in goreleaser
-    assert "/usr/bin/xattr" not in goreleaser
     assert "MACOS_CODESIGN_SCRIPT" in goreleaser
+    cask = goreleaser[goreleaser.index("homebrew_casks:"):]
+    steps = cask[cask.index("postflight_steps do"):cask.index("    repository:")]
+    assert steps.index("on_macos do") < steps.index(CASK_DEQUARANTINE_GATE) < steps.index(CASK_DEQUARANTINE_STRIP)
+    assert goreleaser.count("com.apple.quarantine") == 1
+    assert '"-dr"' not in goreleaser
+    assert not re.search(r"^\s+(pre|post)flight do", goreleaser, re.MULTILINE)
 
 
 def test_postrelease_workflows_dispatch_exact_commit():
