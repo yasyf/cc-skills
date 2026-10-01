@@ -162,13 +162,37 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        f"env PATH={BIN}:{orca.env['PATH']} codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh'"
     )
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--terminal") == "term_a"
     assert "--agent" not in start and "--model" not in start and "--effort" not in start
     assert orca.calls("terminal read") == []
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
+
+
+@pytest.mark.parametrize("model", ["sol", "opus"])
+def test_a_terminal_command_never_inlines_the_callers_path(orca, model):
+    orca.healthy()
+    orca.env["PATH"] = f"{orca.env['PATH']}:/{'p' * 6000}"
+    assert orca.launch("lane-a", model, "xhigh", str(orca.brief)).returncode == 0
+    command = flag(orca.calls("terminal create")[0], "--command")
+    assert "p" * 100 not in command and len(command) < 600
+
+
+def test_a_sol_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orca):
+    orca.healthy()
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    command = flag(orca.calls("terminal create")[0], "--command")
+    codex = orca.root / "bin" / "codex"
+    codex.write_text('#!/bin/sh\necho "$PATH"\necho "$@"\n')
+    codex.chmod(0o755)
+    shell = subprocess.run(["sh", "-c", command], env={"PATH": f"{orca.root / 'bin'}:/usr/bin:/bin"}, capture_output=True, text=True)
+    assert shell.returncode == 0, shell.stderr
+    assert shell.stdout.splitlines() == [
+        f"{BIN}:{orca.root / 'bin'}:/usr/bin:/bin",
+        "--dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh",
+    ]
 
 
 def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
@@ -417,6 +441,16 @@ def test_stale_flags_every_message_and_inbox_route_to_a_completed_dispatch(orca)
     result = orca.run("orca-check.sh", "--stale", "--inbox", str(inbox))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines() == ["STALE lane-a 2m completed msg_new", "STALE lane-a 90m completed R3"]
+
+
+def test_stale_skips_a_terminal_receipt_without_its_json_and_sweeps_the_rest(orca):
+    stale_lane(orca, "dispatched")
+    (orca.receipts / "codex-smoke.terminal").write_text("term_smoke\n")
+    (orca.receipts / "codex-smoke.json.foreign").write_text("{}")
+    orca.reply("orchestration check", {"rc": 0, "out": {"ok": True, "result": {"messages": [unread("msg_old", 30)]}}})
+    result = orca.run("orca-check.sh", "--stale")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == ["skip codex-smoke: no receipt json", "STALE lane-a 30m unread msg_old"]
 
 
 def test_stale_reports_an_orca_error(orca):

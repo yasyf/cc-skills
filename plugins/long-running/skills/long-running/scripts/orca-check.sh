@@ -32,6 +32,8 @@ printing one line per message nobody will read in time:
   STALE <lane> <age>m <status> <msg id>     unread by a completed or failed dispatch
   STALE <lane> <age>m <status> R<n>         an inbox line past the cursor for that dispatch
 
+  skip <lane>: no receipt json             a terminal receipt without <lane>.json
+
 <age> counts from the message, or from the dispatch's completion for an inbox
 line. --inbox names the desk's inbox file; its cursor is <inbox file>.cursor.
 
@@ -72,6 +74,7 @@ if [ -n "$STALE" ]; then
   for receipt in "$STATE"/*.terminal; do
     [ -e "$receipt" ] || continue
     lane=$(basename "$receipt" .terminal)
+    [ -e "$STATE/$lane.json" ] || { echo "skip $lane: no receipt json"; continue; }
     orca_json orchestration worker-show --dispatch "$(jq -r '.result.dispatchId' "$STATE/$lane.json")"
     SHOW=$OUT
     orca_json orchestration check --terminal "$(cat "$receipt")" --peek
