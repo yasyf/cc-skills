@@ -69,6 +69,13 @@ def test_a_handoff_joins_the_drive_and_keeps_its_orca_run(repo, monkeypatch):
     assert drive.main(["current"]) == 0
 
 
+def test_a_session_runs_one_drive_at_a_time(repo):
+    started(repo)
+
+    with pytest.raises(SystemExit, match="already runs drive 900424b6"):
+        drive.main(["start", "--ledger", LEDGER, "--drive", "second"])
+
+
 def test_current_and_end_resolve_the_session_drive(repo, monkeypatch, capsys):
     started(repo)
     capsys.readouterr()

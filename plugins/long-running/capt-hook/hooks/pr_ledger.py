@@ -12,8 +12,20 @@ from captain_hook.util import reqenv
 
 DRIVE = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "pr_ledger"
-PR_URL = re.compile(r"https://(?:github\.com/(?P<gh>[\w.-]+/[\w.-]+)/pull|app\.graphite\.com/github/pr/(?P<gt>[\w.-]+/[\w.-]+))/(?P<pr>\d+)")
-SHIPPED = re.compile(r"(?:(?:submitted|landed) \S+ → PR|(?:opened|updated) PR) #(?P<pr>\d+)")
+OPENERS = (
+    ("ccx", "vcs", "ship"),
+    ("ccx", "vcs", "stack", "submit"),
+    ("ccx", "vcs", "stack", "continue"),
+    ("gt", "submit"),
+    ("gt", "ss"),
+    ("gh", "pr", "create"),
+)
+URL = r"https://(?:github\.com/(?P<gh>[\w.-]+/[\w.-]+)/pull|app\.graphite\.com/github/pr/(?P<gt>[\w.-]+/[\w.-]+))/(?P<url_pr>\d+)"
+SUBMITTED = (
+    re.compile(rf"(?:(?:submitted|landed) \S+ → PR|(?:opened|updated) PR) #(?P<pr>\d+)(?: {URL})?"),
+    re.compile(rf"^\S+: {URL} \((?:created|updated)\)$", re.MULTILINE),
+    re.compile(rf"^{URL}$", re.MULTILINE),
+)
 STACK_HEAD = re.compile(r"^\S+ · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · ", re.MULTILINE)
 PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
 RECORD_TIMEOUT_SECONDS = 30
@@ -41,13 +53,18 @@ def response_text(response: object) -> str:
 
 
 def opened_prs(output: str) -> list[OpenedPr]:
-    repos = {match["pr"]: match["gh"] or match["gt"] for match in PR_URL.finditer(output)}
+    submitted = [match for pattern in SUBMITTED for match in pattern.finditer(output)]
+    repos = {match.groupdict().get("pr") or match["url_pr"]: match["gh"] or match["gt"] for match in submitted}
     heads = {match["pr"]: match["head"] for match in STACK_HEAD.finditer(output)}
-    shipped = [match["pr"] for match in SHIPPED.finditer(output)]
-    if len(set(shipped)) == 1 and (published := PUBLISHED.findall(output)):
-        heads.setdefault(shipped[0], published[-1])
-    numbers = dict.fromkeys([*heads, *shipped, *repos])
+    if len(repos) == 1 and (published := PUBLISHED.findall(output)):
+        heads.setdefault(next(iter(repos)), published[-1])
+    numbers = dict.fromkeys([*heads, *repos])
     return [OpenedPr(number, repos.get(number), heads.get(number)) for number in numbers]
+
+
+def opener_cwd(evt: BaseHookEvent) -> Path | None:
+    calls = (call for call in evt.cmd.calls() if any((call.name, *call.args)[: len(argv)] == argv for argv in OPENERS))
+    return next((call.cwd for call in calls if call.cwd), evt.cwd)
 
 
 def lane_name(evt: BaseHookEvent) -> str:
@@ -55,21 +72,14 @@ def lane_name(evt: BaseHookEvent) -> str:
         meta = evt.transcript_path.with_suffix("") / "subagents" / f"agent-{evt.agent_id}.meta.json"
         if meta.is_file() and (name := json.loads(meta.read_text()).get("name")):
             return name
-    return reqenv.getenv("LONG_RUNNING_LANE") or evt.session_id
+    return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
 @on(
     Event.PostToolUse,
     only_if=[
         Tool("Bash"),
-        Or(
-            Runs("ccx", "vcs", "ship"),
-            Runs("ccx", "vcs", "stack", "submit"),
-            Runs("ccx", "vcs", "stack", "continue"),
-            Runs("gt", "submit"),
-            Runs("gt", "ss"),
-            Runs("gh", "pr", "create"),
-        ),
+        Or(*(Runs(*argv) for argv in OPENERS)),
     ],
     tests={
         Input(
@@ -93,8 +103,8 @@ def lane_name(evt: BaseHookEvent) -> str:
 def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if not (prs := opened_prs(response_text(evt.tool_response))):
         return None
-    argv = [sys.executable, str(DRIVE), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(evt.cwd)]
-    argv += ["--drive", drive] if (drive := reqenv.getenv("LONG_RUNNING_DRIVE")) else []
+    argv = [sys.executable, str(DRIVE), "record", "--session", evt.session_id, "--lane", lane_name(evt), "--cwd", str(opener_cwd(evt))]
+    argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
     for pr in prs:
         argv += ["--pr", pr.spec]
     try:

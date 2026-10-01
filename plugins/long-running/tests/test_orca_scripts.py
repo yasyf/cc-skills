@@ -63,7 +63,7 @@ class Orca:
             "ORCA_CHECK_STATE": str(self.receipts),
             "HOME": str(root / "home"),
         }
-        self.env.pop("LONG_RUNNING_DRIVE", None)
+        self.env.pop("CLAUDE_LONG_RUNNING_DRIVE", None)
 
     @property
     def worktree(self) -> Path:
@@ -106,10 +106,10 @@ def flag(argv: list[str], name: str) -> str:
 
 def test_a_worker_launched_inside_a_drive_carries_the_drive_to_claude(orca):
     orca.healthy()
-    orca.env["LONG_RUNNING_DRIVE"] = "900424b6"
+    orca.env["CLAUDE_LONG_RUNNING_DRIVE"] = "900424b6"
     assert orca.launch().returncode == 0
     [terminal] = orca.calls("terminal create")
-    assert flag(terminal, "--command").startswith("env LONG_RUNNING_LANE=lane-a LONG_RUNNING_DRIVE=900424b6 claude ")
+    assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
 
 
 def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
@@ -123,7 +123,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     assert flag(worktree, "--base-branch") == "origin/dev"
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        "env LONG_RUNNING_LANE=lane-a claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
+        "env CLAUDE_LONG_RUNNING_LANE=lane-a claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
         " --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode"
         " --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high"
     )

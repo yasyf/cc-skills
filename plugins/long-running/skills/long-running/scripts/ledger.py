@@ -993,12 +993,13 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     if args.branch_prefix:
         notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
-    rows = notes.pr_rows() if args.pr else {}
-    owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
-    for pr, owner in owners.items():
-        fields = {"lane": owner, "registered": owner} | ({"registered_head": args.head} if args.head else {})
-        if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
-            notes.set_fields(pr, fields)
+    with locked(default_lock(args.ledger)):
+        rows = notes.pr_rows() if args.pr else {}
+        owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
+        for pr, owner in owners.items():
+            fields = {"lane": owner, "registered": owner} | ({"registered_head": args.head} if args.head else {})
+            if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
+                notes.set_fields(pr, fields)
     namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
     claimed = "".join(f" #{pr}" if owner == args.lane else f" #{pr} (lane {owner})" for pr, owner in owners.items())
     print(f"registered {args.lane}{namespace}{claimed}")

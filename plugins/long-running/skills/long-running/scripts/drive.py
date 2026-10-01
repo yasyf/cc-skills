@@ -14,7 +14,7 @@ the checkout the drive started in, every root session that has run it, and its O
 
 ``record`` is the capt-hook pack's entry point after a command opened or pushed pull requests.
 A session belongs to a drive when its id is one of the drive's root sessions, which covers every
-in-process subagent and teammate, or when it carries ``LONG_RUNNING_DRIVE``, which Orca workers
+in-process subagent and teammate, or when it carries ``CLAUDE_LONG_RUNNING_DRIVE``, which Orca workers
 inherit from ``orca-launch.sh``. A session in no drive, a command run outside the drive's
 repository, and a pull request on another repository are not the drive's and record nothing.
 """
@@ -33,7 +33,7 @@ from pathlib import Path
 import ledger
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
-DRIVE_ENV = "LONG_RUNNING_DRIVE"
+DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 DRIVE_ID_LENGTH = 8
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
@@ -102,6 +102,8 @@ def current_drive() -> str | None:
 def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
     session = session_id()
     drive = args.drive or current_drive() or session[:DRIVE_ID_LENGTH]
+    if (joined := find(None, session)) and joined["drive"] != drive:
+        raise SystemExit(f"this session already runs drive {joined['drive']}; end it with drive.py end before starting {drive}")
     cwd = Path.cwd()
     entry = find(drive, None) or {"drive": drive, "sessions": [], "orca_run": None, "started_at": stamp()}
     entry |= {
@@ -203,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     record = subparsers.add_parser("record", help="register PRs a command opened or pushed in the drive's ledger")
     record.add_argument("--session", required=True)
-    record.add_argument("--drive", help="the drive named by the session's LONG_RUNNING_DRIVE")
+    record.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
     record.add_argument("--lane", required=True)
     record.add_argument("--cwd", required=True, type=Path)
     record.add_argument("--pr", required=True, action="append", type=pr_spec, metavar="[OWNER/NAME#]N[=SHA]")

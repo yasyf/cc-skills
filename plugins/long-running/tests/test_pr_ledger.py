@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from captain_hook.events import PostToolUseEvent
 from captain_hook.testing.helpers import build_context
-from hooks.pr_ledger import FIXTURES, OpenedPr, lane_name, opened_prs, response_text
+from hooks.pr_ledger import FIXTURES, OpenedPr, lane_name, opened_prs, opener_cwd, response_text
 
 SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 
@@ -25,6 +25,11 @@ def test_opened_prs_reads_only_the_prs_the_command_submitted(fixture, expected):
     assert opened_prs((FIXTURES / fixture).read_text()) == expected
 
 
+def test_a_pr_url_the_command_did_not_submit_records_nothing():
+    output = 'committed 1caa098d30 "ci: ✨ revert https://github.com/Forge-AI/monorepo/pull/7" · pushed nothing'
+    assert opened_prs(output) == []
+
+
 def test_a_pr_spec_carries_its_repo_and_head():
     assert [pr.spec for pr in opened_prs((FIXTURES / "ccx-ship-gt.txt").read_text())] == ["Forge-AI/monorepo#28534=1caa098d30a8"]
 
@@ -33,10 +38,10 @@ def test_response_text_reads_a_bash_result_and_its_stderr():
     assert response_text({"stdout": "out", "stderr": "err", "interrupted": False}) == "out\nerr"
 
 
-def event(tmp_path: Path, agent_id: str | None = None) -> PostToolUseEvent:
+def event(tmp_path: Path, agent_id: str | None = None, command: str = "ccx vcs ship") -> PostToolUseEvent:
     transcript = tmp_path / f"{SESSION}.jsonl"
     transcript.write_text("")
-    raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": "ccx vcs ship"}}
+    raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path)}
     return PostToolUseEvent(_raw=raw | ({"agent_id": agent_id} if agent_id else {}), ctx=build_context(None, transcript, tmp_path, tmp_path))
 
 
@@ -49,8 +54,14 @@ def test_a_named_subagent_records_under_its_own_name(tmp_path):
 
 
 def test_an_unnamed_session_falls_back_to_its_lane_env_then_its_session_id(tmp_path, monkeypatch):
-    monkeypatch.delenv("LONG_RUNNING_LANE", raising=False)
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     assert lane_name(event(tmp_path, "aship-pr-9f9f")) == SESSION
 
-    monkeypatch.setenv("LONG_RUNNING_LANE", "orca-desk")
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "orca-desk")
     assert lane_name(event(tmp_path)) == "orca-desk"
+
+
+def test_the_ship_runs_in_the_directory_its_command_cd_into(tmp_path):
+    (tmp_path / "cc-skills").mkdir()
+    assert opener_cwd(event(tmp_path, command=f"cd {tmp_path}/cc-skills && ccx vcs ship -m x")) == tmp_path / "cc-skills"
+    assert opener_cwd(event(tmp_path, command="gt submit --stack")) == tmp_path
