@@ -115,6 +115,24 @@ them, never into the orchestrator's window. Lanes carry no `mcp__*` tools, so th
 write with `ccn log append`, `ccn investigation open` and `append`, `ccn note add`,
 `ccn doc add`, and `ccn task add`. The root may use the `mcp__plugin_cc-notes_*` tools.
 
+Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
+
+- Incidents use an investigation and log through `incident.py`.
+- Handoffs use a doc; follow
+  [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md).
+- Reports and audits use a note for a verdict or finding, or a doc with a
+  read-before trigger.
+- Lane briefs are attachments on one `briefs: <slug>` log; use `--replace` on edit.
+  A tool that needs a file reads `ccn attachment path <id> <name>`.
+
+Never run `mkdir` or `cat >` to create a markdown record under `~/.claude/scratch`.
+Desk inboxes (`inbox/*.md`) stay files because readers tail them by line cursor,
+`standing.py` reads them, and `desk-runner.py` appends escalations. The
+orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
+their stream and state readers. The executor's actions JSON stays a file because
+it needs `flock` and generation compare-and-swap, which cc-notes lacks. Lanes never run
+`ccn sync`; the root syncs.
+
 The action record tracks work routed through `desk-runner.py`; never mirror it
 into `TaskCreate`/`TaskUpdate`. The root does not complete shadow tasks
 for runner actions. Its task list holds owner asks and Agent lanes; the task rules
@@ -873,8 +891,10 @@ the new dispatch; its first ack takes ownership at the next generation. The old
 owner retains authority until that ack. After transfer, another dispatch's ack
 gets a stand-down reply and cannot move the original action.
 
-**O9. Never re-brief.** Edit the brief file, rebuild `<lane>.full.md` when needed,
-and relay its pointer. Never start another lane to carry a follow-up.
+**O9. Never re-brief.** Update the attachment with
+`ccn log append <briefs log> --entry "<what changed>" --attach <lane>.full.md --replace`,
+then relay its pointer from `ccn attachment path <briefs log> <lane>.full.md`.
+Never start another lane to carry a follow-up.
 
 **O10. Never answer stale questions to a replacement.** Keep the original
 question id as the reply address. The current judge path lacks a stale-sender
@@ -1840,11 +1860,11 @@ with three steps:
 
 0. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
-   `<drive scratch>/handoffs/<lane>.md`. It returns the path, plus at most three
-   lines on what it could not reconstruct.
-1. Spawn `<lane>-N+1` from the old lane's brief plus that handoff file and the
-   cursor it names. `alerts-watch` becomes `alerts-watch-2`; `desk-3` becomes
-   `desk-4`.
+   a cc-notes doc. Pass the previous handoff's doc id, if any. It returns the new
+   doc id, plus at most three lines on what it could not reconstruct.
+1. Spawn `<lane>-N+1` from the old lane's brief plus that doc id, read with
+   `ccn doc show <id>`, and the cursor it names. `alerts-watch` becomes
+   `alerts-watch-2`; `desk-3` becomes `desk-4`.
 2. Once the successor reports, `TaskStop` the old lane by the id named in the line:
    `<name>@<team>` for a teammate, which `TaskStop` resolves by name, or the agent id
    for a subagent. Never pass a `t…` task id from the label match; it can belong to
@@ -1859,7 +1879,7 @@ The same swap applies to a lane that died or outgrew its line before any ask. Th
 root never reconstructs a handoff inline. It never opens a lane's transcript, its
 receipts, its cursor files, or a runtime listing such as `orca orchestration
 task-list` for a rotation. The handoff subagent reads all of them in its own
-context; the root holds only the path it returns.
+context; the root holds only the doc id it returns.
 
 The session's hook state directory holds `rotation_state.json` with a `timeline`
 list. It records one entry per `ask`, `flushed`, `compacted`, or `gone` event. An
@@ -1978,7 +1998,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
-18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
+18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner? → times in Pacific with no zone label; a

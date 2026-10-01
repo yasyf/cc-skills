@@ -45,6 +45,7 @@ class FakeShell(runner_module.Shell):
         self.verdict = {"verdict": "answer", "text": "the brief says yes"}
         self.launch_line = ""
         self.cpu_load = 1.0
+        self.attachments: dict[str, Path] = {}
         self.sequence = 0
 
     def now(self):
@@ -74,6 +75,9 @@ class FakeShell(runner_module.Shell):
         name = Path(argv[0]).name
         if argv[0] == "orca":
             return self.orca(argv[1:-1])
+        if argv[:5] == ["ccn", "-R", str(self.root / "checkout"), "attachment", "path"] and argv[5] == "briefs1":
+            path = self.attachments.get(argv[6])
+            return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[6]}")
         if name == "orca-check.sh":
             return self.check(argv)
         if name == "stack-enqueue":
@@ -172,10 +176,11 @@ def shell(tmp_path: Path) -> FakeShell:
 
 
 @pytest.fixture
-def config(tmp_path: Path) -> Path:
-    briefs = tmp_path / "briefs"
+def config(tmp_path: Path, shell: FakeShell) -> Path:
+    briefs = tmp_path / "lfs"
     briefs.mkdir()
-    (briefs / f"{LANE}.full.md").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
+    (briefs / "f85c00ba").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
+    shell.attachments[f"{LANE}.full.md"] = briefs / "f85c00ba"
     path = tmp_path / "runner.json"
     path.write_text(
         json.dumps(
@@ -183,7 +188,7 @@ def config(tmp_path: Path) -> Path:
                 "store": str(tmp_path / "store"),
                 "escalations": str(tmp_path / "inbox/root-runner.md"),
                 "view": str(tmp_path / "desk-runner.md"),
-                "orca": {"run": "run_1", "receipts": str(tmp_path / "receipts"), "briefs": str(briefs)},
+                "orca": {"run": "run_1", "receipts": str(tmp_path / "receipts"), "briefs": {"repo": str(tmp_path / "checkout"), "log": "briefs1"}},
                 "landing": {
                     "repo": "Forge-AI/monorepo",
                     "ledger": "abc",
@@ -339,7 +344,7 @@ def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, conf
 
 
 def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell, config, tmp_path):
-    brief = tmp_path / "briefs" / "fix.md"
+    brief = tmp_path / "fix.md"
     brief.write_text("brief")
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
@@ -355,7 +360,7 @@ def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell,
 
 
 def test_a_launch_held_by_load_starts_nothing(shell, config, tmp_path):
-    brief = tmp_path / "briefs" / "fix.md"
+    brief = tmp_path / "fix.md"
     brief.write_text("brief")
     shell.cpu_load = 40
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))

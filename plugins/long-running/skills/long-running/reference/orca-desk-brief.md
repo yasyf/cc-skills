@@ -25,7 +25,8 @@ desk-runner.py show --config C
 
 Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
 question message id as its key; answer with `relay --reply-to <msg id>`. Other
-relays carry guidance or a brief-file pointer. Keep briefs complete on disk.
+relays carry guidance or a brief attachment pointer. Keep each brief complete as
+an attachment on the drive's `briefs: <slug>` log.
 
 Read runner traffic only from the config's `escalations` file, under the drive's
 `inbox/`, through one Monitor on `tail -n 0 -F <file>`. Re-arm on expiry and after
@@ -56,7 +57,7 @@ environment. Set the accepted prefix policy's revision to #28601's revision.
   "orca": {
     "run": "<run id>",
     "receipts": "/absolute/drive/receipts",
-    "briefs": "/absolute/drive/briefs",
+    "briefs": {"repo": "/absolute/drive/checkout", "log": "<briefs log id>"},
     "launch_env": {
       "ORCA_LAUNCH_RUN": "<run id>",
       "ORCA_LAUNCH_REPO": "<Orca repo id>",
@@ -177,8 +178,10 @@ inbox cursor proves the lane acted.
 non-live dispatch as `LIVENESS`; resume its existing session in place. The
 runner does not infer that missing liveness means the session ended.
 
-**O9. Never re-brief.** Edit the brief file, rebuild `<lane>.full.md` when needed,
-and submit its pointer through `relay`.
+**O9. Never re-brief.** Update the attachment with
+`ccn log append <briefs log> --entry "<what changed>" --attach <lane>.full.md --replace`,
+then submit its pointer from `ccn attachment path <briefs log> <lane>.full.md`
+through `relay`.
 
 **O10. Never answer a stale dispatch's question to its replacement.** Preserve
 the original question id. The current judge path does not fence stale senders;

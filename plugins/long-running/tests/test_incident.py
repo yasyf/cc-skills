@@ -54,6 +54,9 @@ class Replay:
         self.asks: list[str] = []
         self.reports: list[str] = []
         self.fences: list[str] = []
+        self.entries: list[tuple[str, str, Path | None]] = []
+        self.verdicts: list[tuple[str, str, str, str | None]] = []
+        self.refuse_records = False
         self.created: dict[int, dict] = {}
         self.outcomes = {row["source"]: row for row in REPLAY["builds"]}
         self.prs: dict[int, dict] = {}
@@ -179,6 +182,18 @@ class Replay:
         self.fences.append(text)
         return len(self.fences)
 
+    def open_records(self, incident_id: str, title: str, premise: str) -> dict:
+        if self.refuse_records:
+            raise ResponseLost("ccn: malformed refspec")
+        self.premise = premise
+        return {"investigation": "inv1234", "log": "log1234"}
+
+    def record_entry(self, log: str, text: str, attach: Path | None = None) -> None:
+        self.entries.append((log, text, attach))
+
+    def record_verdict(self, investigation: str, verb: str, text: str, commit: str | None = None) -> None:
+        self.verdicts.append((investigation, verb, text, commit))
+
 
 class Adapter:
     def __init__(self, fake: Replay, **methods):
@@ -194,6 +209,7 @@ def world_of(fake: Replay) -> World:
         buildkite=Adapter(fake, configuration=fake.configuration, failed=fake.failed, unfinished=fake.unfinished, since=fake.since, rebuild=fake.rebuild),
         activation=Adapter(fake, prepare=fake.prepare, drifted=fake.drifted, apply=fake.apply),
         comms=Adapter(fake, event=fake.event, find=fake.find, posted=fake.posted, ask_root=fake.ask_root, report=fake.report, fence=fake.fence),
+        records=Adapter(fake, open=fake.open_records, entry=fake.record_entry, verdict=fake.record_verdict),
     )
 
 
@@ -279,7 +295,7 @@ def test_replay_reaches_the_final_reply_with_no_root_turn(store, clock, fake):
     assert {entry["pr"] for entry in accounting["skipped"]} >= closed | {ADVANCED_PR}
     assert final["live_at"].endswith(("am", "pm")) and "Z" not in final["live_at"]
     names = [entry["name"] for entry in record.milestones]
-    assert names == ["opened", "pr", "landed", "activated", "live", "recovered", "closed"]
+    assert names == ["opened", "mechanism", "pr", "landed", "activated", "live", "recovered", "closed"]
 
 
 def test_merge_without_a_sync_grant_stays_activation_pending_and_rekicks_nothing(store, clock, fake):
@@ -675,3 +691,46 @@ def test_open_takes_the_alert_link_code_path_and_runbook(store, clock):
     assert incident.main(["open", "--kind", "alert", "--incident", "x2", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--alert", "https://forge-rf.sentry.io/issues/7766636402/", "--runbook", "4950740", "--adopt", "fix=api-1n85-fix"], store, clock) == 0
     facts = store.load("x2").facts
     assert (facts["alert"], facts["runbook"], facts["adopted"]) == ("https://forge-rf.sentry.io/issues/7766636402/", "4950740", {"fix": "api-1n85-fix"})
+
+
+def test_the_record_lives_in_cc_notes_and_briefs_carry_its_ids(store, clock, fake):
+    incident_id = open_incident(store, clock)
+    record = drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(hours=2))
+
+    assert record.facts["records"] == {"investigation": "inv1234", "log": "log1234"}
+    assert fake.premise.startswith(f"{record.facts['alert']} reports a pr-review outage on the pr-review pipeline since ")
+    attached = [path.name for _, _, path in fake.entries if path]
+    assert attached == [f"incident-{incident_id}-fix.full.md", f"incident-{incident_id}-evidence.full.md"]
+    brief = (store.root / incident_id / f"incident-{incident_id}-evidence.full.md").read_text()
+    assert "log1234" in brief and "inv1234" in brief
+    logged = [text.split(" at ")[0] for _, text, path in fake.entries if not path]
+    assert logged == [entry["name"] for entry in record.milestones]
+    assert [(verb, commit) for _, verb, _, commit in fake.verdicts] == [("root-cause", None), ("fix", REPAIR["sha"])]
+
+
+def test_a_refused_record_asks_the_root_once_and_still_launches(store, clock, fake):
+    fake.refuse_records = True
+    incident_id = open_incident(store, clock)
+    drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=2), worker=lambda *_: None)
+
+    assert [lane for lane, _, _ in fake.launches] == [f"incident-{incident_id}-fix", f"incident-{incident_id}-evidence"]
+    assert len([ask for ask in fake.asks if "cc-notes refused" in ask]) == 1
+    assert fake.entries == []
+
+
+def test_a_not_ours_verdict_exonerates_the_investigation(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert")
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=3))
+    incident.main(["note", "--incident", incident_id, "--not-ours", "one employee sand-cli event; no user traffic"], store, clock)
+    drive(runner, store, clock, clock.at + timedelta(minutes=20), worker=lambda *_: None)
+
+    assert ("inv1234", "exonerate", "one employee sand-cli event; no user traffic", None) in fake.verdicts
+
+
+def test_records_reuse_an_investigation_and_log_already_labelled_for_the_incident():
+    listed = json.dumps([{"id": "abcdef0123", "title": "t"}])
+    shell = Shell({("ccn", "-R", "/m", "investigation", "list"): listed, ("ccn", "-R", "/m", "log", "list"): listed})
+    assert incident.Records(shell, Path("/m")).open("x1", "t", "p") == {"investigation": "abcdef0", "log": "abcdef0"}
+    assert [call[3:5] for call in shell.calls] == [["investigation", "list"], ["log", "list"]]
+    assert all("incident:x1" in call for call in shell.calls)

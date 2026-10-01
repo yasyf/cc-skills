@@ -9,6 +9,14 @@ in the `scripts/actions.py` store, one file per incident under
 `~/.claude/long-running/incidents/`, so a restarted executor resumes where the last
 one stopped and never repeats a side effect.
 
+At intake, the executor opens an investigation and an `incident <id>` log in
+cc-notes on the drive checkout, both labeled `incident` and `incident:<id>`.
+Milestones and lane-brief attachments go to the log; evidence and verdicts go to
+the investigation. It records mechanism with `root-cause`, landing with
+`fix --commit`, and not-ours with `exonerate`. Read the record with
+`incident.py status --incident <id>`, `ccn investigation show <id>`, and
+`ccn log show <id>`. A refused write asks the root once and never blocks a launch.
+
 ## Root discipline
 
 **Open the incident and start its executor before anything else.** The alert is P0
@@ -17,7 +25,8 @@ under R16.
 ```sh
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
   --bus <bus id> --comms-lane <comms lane name> --root-lane <root agent name> \
-  --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> --common <spec dir>/common.md \
+  --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> \
+  --common "$(ccn -R <repo checkout> attachment path <briefs log> common.md)" \
   --alert <Sentry issue or monitor link> --runbook <runbook> [--adopt fix=<lane already running>] \
   --grant thread=<grant id> [--grant channel=<grant id>] --grant sync=<authority ref> --grant rebuild=<authority ref> \
   [--expect-config <text the live configuration carries>]
@@ -136,6 +145,8 @@ Verified facts, do not re-derive:
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; evidence lane <evidence lane name>
   comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  record: investigation <investigation id>, log <incident log id>
+    (cc-notes, on the drive checkout)
 
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
@@ -157,6 +168,13 @@ Do:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
      If the evidence shows the alert is not ours, record that instead:
      `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
+  6. Record every artifact in cc-notes, never under ~/.claude/scratch:
+     `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
+     A directory goes as one .tgz; `--replace` updates a same-named attachment.
+     Investigation detail goes to
+     `ccn investigation append <investigation id> "<evidence, one line>"`.
+     Mechanism, PR, live, and not-ours still go through `incident.py note`; the
+     executor records the verdicts. Never run `ccn sync`; the root syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup lane on this brief in parallel; keep working.
@@ -185,6 +203,8 @@ Verified facts, do not re-derive:
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; fix lane <fix lane name>
   comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  record: investigation <investigation id>, log <incident log id>
+    (cc-notes, on the drive checkout)
 
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
@@ -199,6 +219,13 @@ Do:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
   5. If the alert is a monitor defect, send the evidence to redirect the fix lane
      to a monitor fix. A muted monitor is not resolved.
+  6. Record every artifact in cc-notes, never under ~/.claude/scratch:
+     `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
+     A directory goes as one .tgz; `--replace` updates a same-named attachment.
+     Investigation detail goes to
+     `ccn investigation append <investigation id> "<evidence, one line>"`.
+     Mechanism, PR, live, and not-ours still go through `incident.py note`; the
+     executor records the verdicts. Never run `ccn sync`; the root syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup fix lane in parallel; keep working. Never fable or astra.
