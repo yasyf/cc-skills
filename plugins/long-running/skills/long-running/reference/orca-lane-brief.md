@@ -82,7 +82,8 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   `<owner/name>`; base `<base>`.
 - Holds file `<path>`, root-owned; #<n> names a held PR, lane:<name> a held lane,
   followed by the reason. Only the root edits it.
-- You are a separate session. Run register/report yourself; never SendMessage a subagent.
+- You are a separate session. Register your prefix and report verdicts yourself;
+  the hook records opened PRs, with hand registration as the fallback. Never SendMessage a subagent.
 - On spawn: `python3 <ledger.py> register --ledger <id> --lane <lane> --branch-prefix
   <prefix>/<lane>/`.
 - On every PR open or push: `python3 <ledger.py> report --ledger <id> --pr <n> --head

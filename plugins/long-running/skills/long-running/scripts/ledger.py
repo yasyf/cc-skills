@@ -7,7 +7,7 @@
     ledger.py answer  --ledger ID --ask ID --text ...
     ledger.py live    --ledger ID --at ISO [--text ...]
     ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
-    ledger.py register --ledger ID --lane NAME --branch-prefix PREFIX [--pr N]...
+    ledger.py register --ledger ID --lane NAME [--branch-prefix PREFIX] [--pr N]... [--head SHA]
     ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
     ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
     ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
@@ -25,6 +25,7 @@
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
     ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--red | --asks] [--json]
+    ledger.py list    --ledger ID [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
 branch under a lane's registered prefix, or because refresh was handed its number; the
@@ -984,11 +985,24 @@ def branch_prefix(value: str) -> str:
 
 
 def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
+    """A PR row keeps the lane that first claimed it; a re-push only moves its registered head."""
+    if not args.branch_prefix and not args.pr:
+        raise SystemExit("register needs --branch-prefix, --pr, or both")
+    if args.head and len(args.pr) != 1:
+        raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
     notes = Notes(shell, args.ledger)
-    notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
-    for pr in args.pr:
-        notes.set_fields(pr, {"lane": args.lane, "registered": args.lane})
-    print(f"registered {args.lane} on {args.branch_prefix}*" + "".join(f" #{pr}" for pr in args.pr))
+    if args.branch_prefix:
+        notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
+    with locked(default_lock(args.ledger)):
+        rows = notes.pr_rows() if args.pr else {}
+        owners = {pr: rows.get(pr, {}).get("lane") or args.lane for pr in args.pr}
+        for pr, owner in owners.items():
+            fields = {"lane": owner, "registered": owner} | ({"registered_head": args.head} if args.head else {})
+            if any(rows.get(pr, {}).get(name) != value for name, value in fields.items()):
+                notes.set_fields(pr, fields)
+    namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
+    claimed = "".join(f" #{pr}" if owner == args.lane else f" #{pr} (lane {owner})" for pr, owner in owners.items())
+    print(f"registered {args.lane}{namespace}{claimed}")
     return 0
 
 
@@ -1594,6 +1608,21 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
+    rows = {
+        key: fields
+        for key, fields in Notes(shell, args.ledger).pr_rows().items()
+        if (not args.lane or fields.get("lane") == args.lane) and (not args.open or is_open(fields))
+    }
+    ordered = sorted(rows.items(), key=lambda item: int(item[0]))
+    if args.json:
+        print(json.dumps([{"pr": key, **fields} for key, fields in ordered]))
+        return 0
+    for key, fields in ordered:
+        print(f"#{key} {fields.get('lane', NO_PR)} {fields.get('state', 'open')} {fields.get('branch', NO_PR)} {current_head(fields)[:12] or NO_PR}")
+    return 0
+
+
 def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
     if repo:
         parser.add_argument("--repo", required=True)
@@ -1653,11 +1682,12 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--text", default="")
     live.set_defaults(handler=cmd_live)
 
-    register = subparsers.add_parser("register", help="track every open PR on a lane's branch prefix, with no per-head report")
+    register = subparsers.add_parser("register", help="track a lane's PRs, or every open PR on its branch prefix, with no per-head report")
     add_ledger(register)
     register.add_argument("--lane", required=True)
-    register.add_argument("--branch-prefix", required=True, type=branch_prefix)
+    register.add_argument("--branch-prefix", type=branch_prefix)
     register.add_argument("--pr", action="append", default=[], metavar="N")
+    register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
     register.set_defaults(handler=cmd_register)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
@@ -1806,6 +1836,13 @@ def build_parser() -> argparse.ArgumentParser:
     view.add_argument("--asks", action="store_true")
     show.add_argument("--json", action="store_true")
     show.set_defaults(handler=cmd_show)
+
+    list_cmd = subparsers.add_parser("list", help="every PR row, oldest first, with its lane, state, branch, and head")
+    add_ledger(list_cmd)
+    list_cmd.add_argument("--lane", help="only this lane's rows")
+    list_cmd.add_argument("--open", action="store_true", help="only rows still open")
+    list_cmd.add_argument("--json", action="store_true")
+    list_cmd.set_defaults(handler=cmd_list)
 
     return parser
 

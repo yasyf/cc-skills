@@ -319,7 +319,7 @@ Lanes send the desk the three-line report of PR, full head sha, and verdict. The
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI.*
 
-**D2. Track and grade our lanes' PRs.** `ledger.py report`, `ledger.py register` with a lane's branch prefix, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. A PR on a registered prefix or reported by a lane is tracked and graded without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
+**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
@@ -433,7 +433,11 @@ Lanes keep reporting to `landing-desk`; the main desk types every message in, la
 on each clean report, and alone sends the root the summary. *Prevents one desk's pass
 growing with the board until its pass takes 20 minutes.*
 
-**D13. Register each lane's stack when it starts and whenever it opens a PR.** The lane sends the desk its branch prefix and PR numbers to record with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`. The prefix must be unique to the lane and end in `/`. Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
+**D13. Register each lane's stack when it starts and whenever it opens a PR.** The root registers the drive with `drive.py start --ledger <id>`. The pack's PR hook then registers every PR a drive session or Orca worker opens under the lane's name. It records the head when the command prints one. This covers in-process subagents and teammates at any depth; `orca-launch.sh` passes the drive to Orca workers.
+
+Lanes still register a unique branch prefix ending in `/` at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>` and still `report` verdicts. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
+
+Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
 *Prevents three PRs a lane never reported sitting unmerged for hours.*
 
@@ -987,8 +991,12 @@ build a fresh numeric held file from its `#<n>` entries and every open ledger ro
 of a `lane:<name>` entry under D3. Never reuse a held file from an earlier call.
 Set `HOLDS_FILE` to the root's file and `OUTPUT_DIR` to the pass's output directory.
 
+A resumed root in a new session runs `drive.py start --drive <id> --ledger <id>`
+to join the existing drive. Run `drive.py end` only when the drive is over.
+
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
+drive.py start --ledger "$LEDGER" [--orca-run <run>]
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
 # on each report: record it and grade the current head; reports are not a gate
@@ -1039,6 +1047,8 @@ ledger.py answer  --ledger "$LEDGER" --ask ask/000003 --text "<the reply>"
 
 # fallback sweep over one shard's lanes
 ledger.py label --repo "$REPO" --ledger "$LEDGER" --all-clean --shard lane-a,lane-b --checkout "$CHECKOUT"
+
+drive.py end
 ```
 
 At spawn, arm the watch under Monitor at its maximum timeout and re-arm on every

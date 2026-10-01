@@ -1337,6 +1337,47 @@ def test_register_records_the_lane_and_marks_its_prs_tracked(capsys):
     assert capsys.readouterr().out.strip() == f"registered {LANE} on lightning/* #24070"
 
 
+def test_register_a_lone_pr_records_its_head_and_keeps_the_lane_that_claimed_it_first(capsys):
+    shell = FakeShell()
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070", "--head", HEAD)
+    run(shell, "register", "--ledger", LEDGER, "--lane", "ship-pr", "--pr", "24070", "--head", OLD_HEAD)
+
+    assert [row["key"] for row in shell.stores[LEDGER]["rows"]] == ["24070"]
+    assert shell.fields("24070") == {"lane": LANE, "registered": LANE, "registered_head": OLD_HEAD}
+    assert capsys.readouterr().out.splitlines() == [f"registered {LANE} #24070", f"registered ship-pr #24070 (lane {LANE})"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--lane", LANE], ["--lane", LANE, "--pr", "1", "--pr", "2", "--head", HEAD]],
+    ids=["nothing-to-register", "head-for-two-prs"],
+)
+def test_register_refuses_an_ambiguous_call(argv):
+    with pytest.raises(SystemExit):
+        run(FakeShell(), "register", "--ledger", LEDGER, *argv)
+
+
+def test_list_reads_back_pr_rows_oldest_first_filtered_by_lane_and_state(capsys):
+    shell = FakeShell(
+        rows=[
+            {"key": "24071", "fields": {"lane": LANE, "state": "open", "branch": "lightning/b", "head": HEAD}},
+            {"key": "24070", "fields": {"lane": LANE, "registered": LANE, "registered_head": OLD_HEAD}},
+            {"key": "24072", "fields": {"lane": "other", "state": "landed"}},
+            {"key": "msg/000001", "fields": {"kind": "report"}},
+        ]
+    )
+
+    run(shell, "list", "--ledger", LEDGER, "--lane", LANE, "--json")
+    assert [row["pr"] for row in json.loads(capsys.readouterr().out)] == ["24070", "24071"]
+
+    run(shell, "list", "--ledger", LEDGER, "--open")
+    assert capsys.readouterr().out.splitlines() == [
+        f"#24070 {LANE} open - -",
+        f"#24071 {LANE} open lightning/b {HEAD[:12]}",
+    ]
+
+
 def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lock):
     shell = FakeShell()
     lane_pull(shell, "24071", "a" * 40, "lightning/one")
