@@ -31,13 +31,15 @@ receipt reads ready and the terminal's screen shows bypass permissions on.
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
 already bypass approvals, so there is no custom command and no screen check.
-Orca's codex runtime config sets the service tier, since worker-start cannot.
-When Orca times out at agent_readiness on a codex worker whose terminal is up,
-the script types the spec pointer into that terminal itself and prints the
-lane as unsupervised: it runs, but Orca carries no worker_done for it.
+Its service tier comes from Orca's codex runtime config, since worker-start has
+no tier flag.
 
-sol is the incident lane: gpt-6.1-sol on Orca's codex agent in a top-level
-worktree.
+sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
+terminal running codex with -c service_tier=fast on its command line, so the
+fast tier never depends on Orca's runtime config. When Orca times out at
+agent_readiness on a codex or sol worker whose terminal is up, the script types
+the spec pointer into that terminal itself and prints the lane as unsupervised:
+it runs, but Orca carries no worker_done for it.
 
 <model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), sol
 (gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
@@ -80,7 +82,7 @@ fail() {
 AGENT=claude
 case $MODEL in
   codex) AGENT=codex MODEL_ID=gpt-6-astra ;;
-  sol) AGENT=codex MODEL_ID=gpt-6.1-sol ;;
+  sol) AGENT=sol MODEL_ID=gpt-6.1-sol ;;
   gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
@@ -98,6 +100,7 @@ BRIEF=$(cd "$(dirname "$BRIEF")" && pwd)/$(basename "$BRIEF")
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
+[ "$AGENT" != sol ] || COMMAND="codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT"
 spec() {
   printf '%s' "Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
@@ -107,7 +110,7 @@ SPEC=$(spec)
 mkdir -p "$STATE"
 
 set -- --parent-worktree "path:$PARENT"
-[ "$MODEL" != sol ] || set -- --no-parent
+[ "$AGENT" != sol ] || set -- --no-parent
 
 attempt=0
 until [ -d "$WT" ]; do
@@ -145,16 +148,16 @@ else
   set -- "$@" --terminal "$TERMINAL"
 fi
 TIMEOUT=600000
-[ "$AGENT" != codex ] || TIMEOUT=90000
+[ "$AGENT" = claude ] || TIMEOUT=90000
 STARTED=0
 orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
   --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
 if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
   mv "$RECEIPT.new" "$RECEIPT"
-  [ "$AGENT" = claude ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
+  [ "$AGENT" != codex ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
 fi
-if [ "$AGENT" = codex ] && [ -n "$TERMINAL" ] &&
+if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   [ "$(jq -r '.result.failedStage // empty' "$RECEIPT")" = agent_readiness ]; then
   orca terminal send --terminal "$TERMINAL" --text "$SPEC" --enter --json >/dev/null ||
     fail "spec send terminal=$TERMINAL after agent_readiness timeout"
@@ -166,7 +169,7 @@ READY=$(jq -r '.result.state' "$RECEIPT")
 [ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL"
 
 attempt=0
-until [ "$AGENT" = codex ] || orca terminal read --terminal "$TERMINAL" --screen --json |
+until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --screen --json |
   jq -e '.result.terminal.tail | tostring | contains("bypass permissions on")' >/dev/null; do
   attempt=$((attempt + 1))
   [ "$attempt" -lt 5 ] || fail "terminal=$TERMINAL does not show bypass permissions on; shift-tab it before the worker opens a plan"

@@ -152,31 +152,45 @@ def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
-def test_a_sol_lane_starts_on_the_codex_agent_in_a_top_level_worktree(orca):
+def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_level_worktree(orca):
     orca.healthy()
-    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
     result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
     [worktree] = orca.calls("worktree create")
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
-    assert orca.calls("terminal create") == []
+    [terminal] = orca.calls("terminal create")
+    assert flag(terminal, "--command") == (
+        "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+    )
     [start] = orca.calls("orchestration worker-start")
-    assert flag(start, "--agent") == "codex"
-    assert flag(start, "--model") == "gpt-6.1-sol"
-    assert flag(start, "--effort") == "xhigh"
+    assert flag(start, "--terminal") == "term_a"
+    assert "--agent" not in start and "--model" not in start and "--effort" not in start
+    assert orca.calls("terminal read") == []
+    assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
 
 
 def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
     orca.healthy()
     orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
     orca.reply("terminal send", {"rc": 0, "out": {"ok": True}})
-    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    result = orca.launch("lane-a", "codex", "xhigh", str(orca.brief))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
     [send] = orca.calls("terminal send")
     assert flag(send, "--terminal") == "term_codex"
     assert str(orca.brief) in flag(send, "--text") and "--enter" in send
+
+
+def test_a_sol_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a"}}})
+    orca.reply("terminal send", {"rc": 0, "out": {"ok": True}})
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    [send] = orca.calls("terminal send")
+    assert flag(send, "--terminal") == "term_a"
 
 
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):

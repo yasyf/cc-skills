@@ -105,28 +105,29 @@ Leave the terminal open, as R195 requires, and report the dispatch to the root.
 ### Incident lanes: gpt-6.1-sol on the fast tier
 
 Launch both incident lanes with `scripts/orca-launch.sh <lane> sol xhigh <brief>`.
-The preferred path is supervised, with `worker-start --agent codex --model gpt-6.1-sol --effort xhigh` in a top-level (`--no-parent`) worktree.
-The probe used `--timeout-ms 180000`; the script uses `600000`.
+`worker-start` has no service-tier flag, so the script passes the tier on the codex
+command line. It creates a top-level (`--no-parent`) worktree and a terminal running
+codex on the fast tier, then starts the worker on that terminal. This is the recipe
+verified on `ctx_e6b256d5c0c8`:
 
-`worker-start` has no service-tier flag. Before an incident launch, set `service_tier = "fast"` in `~/Library/Application Support/orca/codex-runtime-home/home/config.toml`.
-It changed from `"default"` on 2026-10-01; Orca's settings baseline does not manage that key.
-If it reads anything else, set it back. Dispatch `ctx_a1c0260ecb02` verified fast when `/fast` switched it to `"default"`.
+```sh
+orca terminal create --worktree "path:<wt>" --title "<name>" --json \
+  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+orca orchestration worker-start --run "<run>" --spec "<pointer>" \
+  --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 90000 --json
+```
 
-Orca's readiness check does not recognize codex. That dispatch and the root's two hand-launched sol workers
+Only sol lanes run fast. Orca's codex runtime config,
+`~/Library/Application Support/orca/codex-runtime-home/home/config.toml`, stays
+`service_tier = "default"`, so astra `codex` lanes on `--agent codex` run on the
+default tier. No script or lane edits that file.
+
+Orca's readiness check does not recognize codex. Dispatch `ctx_a1c0260ecb02` and the root's two hand-launched sol workers
 ended `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` with codex at its prompt and
-the spec undelivered. On that timeout with a live codex terminal, the script types the
+the spec undelivered. On that timeout with a live codex or sol terminal, the script types the
 spec pointer itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 Count it as launched; it reports through its inbox/bus file, with no Orca `worker_done` or escalation plumbing.
 The desk starts the script asynchronously and never waits on readiness.
-
-If the runtime config cannot carry the tier, use the custom-terminal fallback verified on `ctx_e6b256d5c0c8`.
-
-```sh
-orca terminal create --worktree "path:<wt>" --json \
-  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
-orca orchestration worker-start --run "<run>" --spec "<pointer>" \
-  --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 180000 --json
-```
 
 That earlier dispatch read `ready`. `--skip-git-repo-check` is exec-only and breaks interactive codex.
 Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at twice the speed.
