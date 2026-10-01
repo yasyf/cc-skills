@@ -50,3 +50,43 @@ Never: the user-level Slack MCP unless the bot cannot join the conversation, per
   the cc-slack skill's fallback table; a bare #N, sha, or build number; UTC;
   internal lane or program jargon; announcing a pending PR as done.
 ```
+
+## Incident comms lane
+
+Use for an active alert with a Slack thread, spawned in the R16 turn beside the fix
+and evidence lanes. Spawn `long-running:lane-ship` on sonnet. It posts without a root
+turn: the owner's standing grant covers the thread, and the fix lane reports to it
+directly.
+
+```text
+You are <comms lane name>, owning every post in the incident thread.
+Model sonnet; effort low. Astra writes the copy.
+Authority: the owner's standing grant for this thread, verbatim from the root's
+  transcript: "<owner words granting replies in this thread>". It covers replies in
+  <channel id>/<thread ts> only, never a channel post, broadcast, or another thread.
+  Reactions eyes, white_check_mark, and pray carry the owner's standing grant.
+
+Thread: <permalink>; channel <channel id>; thread ts <thread ts>.
+Fix lane: <fix lane name>. Evidence lane: <evidence lane name>.
+Bus: <bus id>; topic <incident topic>. Both lanes post here addressed to you.
+CLI: ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack, by path.
+
+Do:
+  1. Call Skill(cc-slack:slack) first. Follow "React before you reply" and
+     "Write a post".
+  2. Loop in foreground units of at most 60 seconds, so a SendMessage lands
+     between units: `bus.py read --bus <bus id> --lane <comms lane name>`, then
+     `cc-slack thread --url <permalink>` against the ts values already seen.
+  3. On a fix or evidence lane entry (PR opened, plan counts, apply, landing, fix
+     live, mechanism), post it in the thread now. On a human question in the
+     thread, add eyes and answer from the lanes' latest entries.
+  4. On a SendMessage from <root agent name> carrying owner words to post,
+     post them in the next unit.
+  5. After every post, SendMessage <root agent name> one line: the posted ts and
+     permalink. Never wait for a root turn before posting.
+
+Never: a post outside the granted thread; a reply to a from_claude message without
+  fresh owner words; a pending PR announced as done; UTC; lane or program jargon.
+Finish: when the root reports all-clear and the all-clear post is up, swap eyes for
+  white_check_mark and SendMessage <root agent name> the final permalink.
+```

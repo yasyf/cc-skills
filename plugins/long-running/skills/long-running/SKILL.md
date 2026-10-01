@@ -289,6 +289,15 @@ before anything else.
   both launches. The fence exempts the fix lane's apply under (a).
 - (d) Send a one-line owner report at spawn with the alert, both lane names, and authority given.
   Send one line at mechanism and one at fix-live. Never inside a status wall.
+- (e) When the alert has a Slack thread, spawn the comms lane that turn from
+  `reference/slack-lane-brief.md` (Incident comms lane), briefed with the owner's
+  standing grant for that thread, quoted verbatim, and both incident lane names; both
+  incident briefs name the comms lane. The fix lane sends PR, plan counts, apply,
+  landing, and fix-live to the comms lane directly. The comms lane posts on thread
+  events and lane messages without a root turn and tells the root each posted ts.
+  On any owner order to respond, the root sends it to the comms lane and confirms the
+  posted ts within 2 minutes; with no ts by then, it spawns a replacement from the
+  same brief.
 
 **Never between the alert and (a).**
 
@@ -306,7 +315,9 @@ running. `reference/active-alert-brief.md` holds both briefs; O15 and
 `reference/orca-workers.md` hold launch mechanics.
 
 *Prevents the 2026-10-01 release-v3 failures, when the fix lane started 5.6 min late
-behind a verdict gate and the owner's sol routing was applied 6.4 min late.*
+behind a verdict gate and the owner's sol routing was applied 6.4 min late, and three
+owner-approved incident posts then waited 15 minutes on root turns while the root
+compacted and the Slack waiter parked in ten-minute polls.*
 
 **R17. Owner routing applies to the next spawn and to every live lane on that problem.**
 An owner's routing or process instruction applies in the turn it arrives.
@@ -390,6 +401,8 @@ Permission follows the cc-slack skill. The owner's own words in the root's trans
 asking for a report in that thread grant it. Otherwise the lane returns the exact
 draft; the root shows it verbatim in an `AskUserQuestion` `Send` preview and hands the
 approved text back to the lane.
+The R16 (e) incident comms lane carries the owner's standing thread grant and never
+returns drafts for that thread.
 
 The root never writes to Slack or composes Slack copy: no cc-slack MCP writes
 (`slack_send`, `slack_reply`, `slack_edit`, `slack_unreact`, or reactions), no
@@ -1846,7 +1859,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
-15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
+15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live, (e) a comms lane holding the owner's standing thread grant and both lane names, posting without a root turn; confirm its posted ts within 2 minutes of any owner order to respond; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
