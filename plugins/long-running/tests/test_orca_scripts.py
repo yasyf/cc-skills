@@ -96,9 +96,13 @@ class Orca:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
 
 
-def listing(agent: str | None) -> dict:
-    terminals = [{"handle": "term_other", "agentIdentity": "claude"}, {"handle": "term_a", "agentIdentity": agent}]
+def listing(agent: str | None, *handles: str) -> dict:
+    terminals = [{"handle": "term_other", "agentIdentity": "claude"}, *({"handle": handle, "agentIdentity": agent} for handle in handles or ("term_a",))]
     return {"rc": 0, "out": {"ok": True, "result": {"terminals": terminals}}}
+
+
+def bare() -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"terminals": [{"handle": "term_other", "agentIdentity": "claude"}]}}}
 
 
 @pytest.fixture
@@ -308,10 +312,10 @@ def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
 
 def test_launch_starts_the_worker_once_orca_detects_claude_in_its_terminal(orca):
     orca.healthy()
-    orca.reply("terminal list", {"rc": 1, "out": "connection lost"}, listing(None), listing("claude"))
+    orca.reply("terminal list", bare(), {"rc": 1, "out": "connection lost"}, listing(None), listing("claude"))
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(orca.calls("terminal list")) == 3
+    assert len(orca.calls("terminal list")) == 4
     assert orca.sleeps() == ["4", "4", "4"]
     assert [" ".join(call[:2]) for call in orca.calls()][-3:] == ["terminal list", "orchestration worker-start", "terminal read"]
 
@@ -322,8 +326,48 @@ def test_launch_fails_when_orca_never_detects_the_agent_within_the_boot_ceiling(
     result = orca.launch()
     assert result.returncode == 1
     assert result.stdout.strip() == "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s"
-    assert len(orca.calls("terminal list")) == 3
+    assert len(orca.calls("terminal list")) == 4
     assert orca.calls("orchestration worker-start") == []
+
+
+def test_every_terminal_list_is_scoped_to_the_lanes_worktree(orca):
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    lists = orca.calls("terminal list")
+    assert len(lists) == 2
+    assert all(flag(call, "--worktree") == f"path:{orca.worktree}" for call in lists)
+
+
+def test_a_create_that_prints_no_handle_adopts_the_terminal_it_created(orca):
+    orca.healthy()
+    orca.reply("terminal create", {"rc": 0, "out": "Error: socket hang up"}, {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_dup"}}}})
+    orca.reply("terminal list", bare(), listing(None), listing("claude"))
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    assert len(orca.calls("terminal create")) == 1
+    assert flag(orca.calls("orchestration worker-start")[0], "--terminal") == "term_a"
+    assert (orca.receipts / "lane-a.terminal.json").read_text() == "Error: socket hang up"
+
+
+def test_a_relaunch_never_adopts_a_terminal_that_predates_the_create(orca):
+    orca.healthy()
+    orca.reply("terminal create", {"rc": 0, "out": ""}, {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_b"}}}})
+    orca.reply("terminal list", listing("claude", "term_a"), listing("claude", "term_a"), listing("claude", "term_a", "term_b"))
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(orca.calls("terminal create")) == 2
+    assert flag(orca.calls("orchestration worker-start")[0], "--terminal") == "term_b"
+
+
+def test_a_failed_create_reports_its_output_after_three_attempts(orca):
+    orca.healthy()
+    orca.reply("terminal create", {"rc": 1, "out": "runtime_unavailable"})
+    orca.reply("terminal list", bare())
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed terminal create: runtime_unavailable"
+    assert len(orca.calls("terminal create")) == 3
 
 
 def test_a_sol_lane_waits_for_orca_to_detect_codex(orca):
