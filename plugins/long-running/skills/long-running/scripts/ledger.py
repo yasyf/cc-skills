@@ -279,14 +279,26 @@ class Github:
         return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
 
 
+def is_malformed(key: str) -> bool:
+    """A PR key that is not a bare number, or a message or ask key whose sequence is not one."""
+    if key[:1].isdigit():
+        return not key.isdigit()
+    return any(key.startswith(prefix) and not key[len(prefix) :].isdigit() for prefix in (MESSAGE_PREFIX, ASK_PREFIX))
+
+
 @dataclass
 class Notes:
     shell: Shell
     ledger: str
+    warned: bool = False
 
     def rows(self) -> dict[str, dict[str, str]]:
         payload = json.loads(self.shell.run(["ccn", "ledger", "show", self.ledger, "--json"]))
-        return {row["key"]: row["fields"] for row in payload["rows"]}
+        malformed = [row["key"] for row in payload["rows"] if is_malformed(row["key"])]
+        if malformed and not self.warned:
+            self.warned = True
+            print(f"ledger {self.ledger[:8]}: skipping malformed keys {', '.join(map(repr, malformed))}; remove each with: ccn ledger row rm {self.ledger} --key KEY", file=sys.stderr)
+        return {row["key"]: row["fields"] for row in payload["rows"] if row["key"] not in malformed}
 
     def pr_rows(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.isdigit()}
@@ -1676,6 +1688,12 @@ def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
     parser.add_argument("--ledger", required=True)
 
 
+def pr_number(value: str) -> str:
+    if not value.isdigit():
+        raise argparse.ArgumentTypeError("a bare PR number, like 28510")
+    return value
+
+
 def head_prefix(value: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{7,40}", value):
         raise argparse.ArgumentTypeError("a 7 to 40 character lowercase hex prefix of the head sha")
@@ -1697,8 +1715,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("report", help="record a lane's 3-line ship report; the only way a PR row is opened by hand")
     add_ledger(report)
-    report.add_argument("--pr", required=True)
-    report.add_argument("--head", required=True)
+    report.add_argument("--pr", required=True, type=pr_number)
+    report.add_argument("--head", required=True, type=head_prefix)
     report.add_argument("--lane", required=True)
     report.add_argument("--verdict", required=True, choices=VERDICTS)
     report.add_argument("--text", default="")
@@ -1734,14 +1752,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_ledger(register)
     register.add_argument("--lane", required=True)
     register.add_argument("--branch-prefix", type=branch_prefix)
-    register.add_argument("--pr", action="append", default=[], metavar="N")
+    register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
     register.set_defaults(handler=cmd_register)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
     add_ledger(enqueue_cmd)
     enqueue_cmd.add_argument("--kind", required=True, choices=KINDS)
-    enqueue_cmd.add_argument("--pr", required=True)
+    enqueue_cmd.add_argument("--pr", required=True, type=pr_number)
     enqueue_cmd.add_argument("--head", required=True)
     enqueue_cmd.add_argument("--lane", required=True)
     enqueue_cmd.add_argument("--text", required=True)
@@ -1770,7 +1788,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     refresh = subparsers.add_parser("refresh", help="regrade every PR the ledger holds, plus any --pr, and sync it")
     add_ledger(refresh, repo=True)
-    refresh.add_argument("--pr", action="append", default=[], metavar="N", help="admit this PR, reported by one of our lanes")
+    refresh.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number, help="admit this PR, reported by one of our lanes")
     refresh.add_argument("--lane", action="append", default=[], metavar="PR=NAME")
     refresh.add_argument("--lock", type=Path)
     refresh.add_argument("--ccx", default="ccx", help="the ccx binary")
@@ -1779,7 +1797,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     hold = subparsers.add_parser("hold", help="hold a PR with a reason and an expiry")
     add_ledger(hold)
-    hold.add_argument("--pr", required=True)
+    hold.add_argument("--pr", required=True, type=pr_number)
     hold.add_argument("--reason", required=True)
     expiry = hold.add_mutually_exclusive_group(required=True)
     expiry.add_argument("--until")
@@ -1789,12 +1807,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     lift = subparsers.add_parser("lift", help="lift a hold")
     add_ledger(lift)
-    lift.add_argument("--pr", required=True)
+    lift.add_argument("--pr", required=True, type=pr_number)
     lift.set_defaults(handler=cmd_lift)
 
     route = subparsers.add_parser("route", help="print the message that sends a red or conflicting head to its lane, once per PR, head, and job")
     add_ledger(route, repo=True)
-    route.add_argument("--pr")
+    route.add_argument("--pr", type=pr_number)
     route.add_argument("--job", help="the failing job or blocker; read from the forge and Buildkite when omitted")
     route.add_argument("--lane")
     route.add_argument("--train", metavar="LANE", help="route a swept conflict, or a swept row whose lane is gone, to this train when its files match --paths")
@@ -1819,7 +1837,7 @@ def build_parser() -> argparse.ArgumentParser:
     label = subparsers.add_parser("label", help="re-read every PR from the tip down to the trunk, run every guard on each, then enqueue the tip once: through the checkout's stack-enqueue, else by label")
     add_ledger(label, repo=True)
     target = label.add_mutually_exclusive_group(required=True)
-    target.add_argument("--pr")
+    target.add_argument("--pr", type=pr_number)
     target.add_argument("--all-clean", action="store_true", help="label every clean, unheld, never-labelled stack's tip in one batch")
     label.add_argument("--expect-head", type=head_prefix)
     label.add_argument("--checkout", type=Path, help="clone for the conflict check; a copy of .agents/skills/submit-pr/scripts/stack-enqueue in it replaces the label")
@@ -1829,14 +1847,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     unlabel = subparsers.add_parser("unlabel", help="pull the merge label and record why")
     add_ledger(unlabel, repo=True)
-    unlabel.add_argument("--pr", required=True)
+    unlabel.add_argument("--pr", required=True, type=pr_number)
     unlabel.add_argument("--reason", required=True)
     unlabel.set_defaults(handler=cmd_unlabel)
 
     landed = subparsers.add_parser("landed", help="settle closed PRs by the squash on the trunk")
     add_ledger(landed, repo=True)
     landed.add_argument("--checkout", type=Path, required=True)
-    landed.add_argument("--pr")
+    landed.add_argument("--pr", type=pr_number)
     add_shard(landed)
     landed.set_defaults(handler=cmd_landed)
 
