@@ -65,3 +65,22 @@ def test_the_ship_runs_in_the_directory_its_command_cd_into(tmp_path):
     (tmp_path / "cc-skills").mkdir()
     assert opener_cwd(event(tmp_path, command=f"cd {tmp_path}/cc-skills && ccx vcs ship -m x")) == tmp_path / "cc-skills"
     assert opener_cwd(event(tmp_path, command="gt submit --stack")) == tmp_path
+
+
+def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    def exhausted(*args, **kwargs):
+        raise BlockingIOError(35, "Resource temporarily unavailable")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", exhausted)
+    evt = event(tmp_path)
+    evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
+
+    result = pr_ledger.record_opened_prs(evt)
+
+    assert result is not None
+    assert result.message == (
+        "PRs #28534 were not recorded in the drive ledger: drive.py record could not start "
+        "(Resource temporarily unavailable) — run `ledger.py register` for each by hand."
+    )

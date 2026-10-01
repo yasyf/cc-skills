@@ -75,6 +75,13 @@ def lane_name(evt: BaseHookEvent) -> str:
     return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
+def unrecorded(evt: BaseHookEvent, prs: list[OpenedPr], reason: str) -> HookResult:
+    return evt.context(
+        f"PRs {', '.join('#' + pr.number for pr in prs)} were not recorded in the drive ledger: {reason} — "
+        "run `ledger.py register` for each by hand."
+    )
+
+
 @on(
     Event.PostToolUse,
     only_if=[
@@ -110,10 +117,9 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        return evt.context(
-            f"PRs {', '.join('#' + pr.number for pr in prs)} were not recorded in the drive ledger: drive.py record "
-            f"timed out after {RECORD_TIMEOUT_SECONDS}s — run `ledger.py register` for each by hand."
-        )
+        return unrecorded(evt, prs, f"drive.py record timed out after {RECORD_TIMEOUT_SECONDS}s")
+    except OSError as failure:
+        return unrecorded(evt, prs, f"drive.py record could not start ({failure.strerror})")
     if done.returncode:
         reason = done.stderr.strip().splitlines()[-1:] or [f"drive.py record exited {done.returncode}"]
         return evt.context(reason[0])
