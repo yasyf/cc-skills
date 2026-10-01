@@ -701,6 +701,13 @@ Verify through CI: never run a whole-package build or suite locally (buck2/cargo
   that reproduces a red CI step, or a single artifact this brief names, one at a time with
   `-j 8` or the tool's equivalent. With the 1-minute load above the core count, finish
   the current command and start no build.
+GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
+  per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
+  `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
+  loop `gh pr view --json statusCheckRollup` or `gh pr checks`. Probe `rateLimit` at most
+  every 5 minutes. Ship only while `rate.remaining` in
+  `~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500; REST
+  `gh api rate_limit` reads stale, so never gate on it.
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
@@ -863,9 +870,21 @@ Read GitHub PR state only through `ccx vcs pr watch`, `ccx vcs pr status`, and
 one machine-wide poll per repository at most every 30 seconds and one rate-limit
 backoff probing every two minutes, so never hand-roll `gh` PR loops.
 
+**GitHub budget.** GraphQL is one 5000-point hourly budget for the whole account, and
+every call costs 1 point whatever its shape. Steady polling by Orca cards, PR
+watchers, and lanes measured 40 to 75 points a minute, and a ship storm on top
+emptied it. A lane watches a PR with `ccx vcs pr watch --state <file>` or the REST
+check-runs endpoint, at most once a minute, and never loops `gh pr view --json
+statusCheckRollup` or `gh pr checks`. It probes `rateLimit` at most every 5 minutes,
+and ships only while `rate.remaining` in
+`~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500. REST
+`gh api rate_limit` lags the real GraphQL counter, so nothing gates on it. Both lane
+brief templates carry this rule.
+
 *Prevents a per-shard log loop emptying the Buildkite budget mid-release, and a bulk
 scan across thousands of logs failing two releases' own pipeline syncs on the same
-shared limit.*
+shared limit; also the account's GraphQL budget running dry at 04:39Z during release v3
+(2026-10-01), which refused every lane's ship until the hourly reset.*
 
 ### Desk cadence
 

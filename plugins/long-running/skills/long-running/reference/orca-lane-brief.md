@@ -109,6 +109,13 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   `conflicting` means rebase now: `ccx vcs stack submit` from your lane's worktree,
   then re-enqueue at once when the gates pass and the holds file permits it.
   `red <check>` means fix it. Your watch ends only when your PRs land.
+- GitHub budget: GraphQL is one 5000-point hourly budget for the whole account, 1 point
+  per call. Watch PRs only through `ccx vcs pr watch --state <file>` or REST
+  `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
+  loop `gh pr view --json statusCheckRollup` or `gh pr checks`. Probe `rateLimit` at
+  most every 5 minutes. Ship only while `rate.remaining` in
+  `~/Library/Caches/cc-context/prstate/<owner>/<repo>/state.json` exceeds 1500; never
+  gate on REST `gh api rate_limit`, which reads stale.
 - Findings, decisions, and handoffs go to cc-notes (`ccn note add`, `ccn log append`,
   `ccn papercut`), never only into your report.
 - Fix or accept each reviewer-bot finding with the risk
