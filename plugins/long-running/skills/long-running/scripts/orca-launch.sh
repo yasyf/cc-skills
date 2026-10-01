@@ -54,6 +54,7 @@ ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
+  ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as sol always does, default unset
   ORCA_LAUNCH_PREFIX         worktree name prefix, default none
   ORCA_LAUNCH_ROOT           directory Orca creates worktrees in, default the parent's directory
   ORCA_LAUNCH_BASE           base branch, default the parent checkout's origin/HEAD
@@ -125,7 +126,7 @@ spec
 mkdir -p "$STATE"
 
 set -- --parent-worktree "path:$PARENT"
-[ "$AGENT" != sol ] || set -- --no-parent
+[ "$AGENT" != sol ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
 
 attempt=0
 until [ -d "$WT" ]; do

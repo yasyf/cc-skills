@@ -177,6 +177,15 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
 
 
+def test_no_parent_puts_a_claude_lane_in_a_top_level_worktree(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_NO_PARENT"] = "1"
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    [worktree] = orca.calls("worktree create")
+    assert "--no-parent" in worktree and "--parent-worktree" not in worktree
+
+
 @pytest.mark.parametrize("model", ["sol", "opus"])
 def test_a_terminal_command_never_inlines_the_callers_path(orca, model):
     orca.healthy(agent="codex" if model == "sol" else "claude")
