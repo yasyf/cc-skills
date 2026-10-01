@@ -8,11 +8,10 @@ usage: label-watch.sh once <pr>...
 
 Enqueues each stack whose every pull request passes the gate and prints one
 line per pull request. A listed pull request brings in its stack: every open PR
-below it down to the trunk and every open PR stacked above it. The largest bottom
-prefix of a stack whose every PR passes goes into the Graphite merge queue as one
-batch, through the API call gt merge makes; the PRs above it wait for their own
-gates and are restacked by their lane once the prefix lands. A stack that forks
-never goes in.
+below it down to the trunk and every open PR stacked above it. A stack goes into
+the Graphite merge queue as one batch, through the API call gt merge makes, only
+when every PR in it passes; a passing bottom waits for the PRs above it. A stack
+that forks never goes in.
 
   <pr> SKIP <queue>               Graphite reads it queued or landed, the trunk carries
                                   its squash, or it closed
@@ -24,12 +23,12 @@ never goes in.
                                   yet, conflicts-with #<queued pr> <files>,
                                   downstack #<pr> when a PR below it fails the gate or
                                   is queued, fork at #<pr> when two PRs stack on one,
-                                  or held when LABEL_WATCH_HOLD lists it; above an
-                                  enqueued prefix the line ends restack-after #<top>
+                                  upstack #<pr> when a PR above it fails the gate or
+                                  is held, or held when LABEL_WATCH_HOLD lists it
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
-  <pr> ENQUEUED <sha> [prefix]    the top PR of the passing prefix; Graphite took it
-                                  and its whole downstack; prefix when open PRs stay
-                                  above it, dry-run when LABEL_WATCH_DRY_RUN is set
+  <pr> ENQUEUED <sha>             the top PR of the passing stack; Graphite took it
+                                  and its whole downstack; dry-run is appended when
+                                  LABEL_WATCH_DRY_RUN is set
   <pr> EVICTED <sha> <reason> <time>
                                   the queue dropped it; the gate runs on it again
 
@@ -328,31 +327,29 @@ climb() {
   done
 
   fork=
-  tip=
   for v in $order; do
     eval "set -- \$kids_$v"
     if [ $# -gt 1 ]; then
       fork="fork at #$v"
       break
     fi
-    [ $# -gt 0 ] || tip=$v
   done
   prefix=
   top=
+  stuck=
   if [ -z "$fork" ]; then
     for v in $order; do
       eval "verdict=\$verdict_$v"
-      case $verdict in pass | through) ;; *) break ;; esac
+      case $verdict in pass | through) ;; *) stuck=$v; break ;; esac
       prefix="$prefix $v" top=$v
     done
   fi
 
   failed=
   eval "tv=\${verdict_$top-}"
-  if [ "$tv" = pass ]; then
+  if [ "$tv" = pass ] && [ -z "$stuck" ]; then
     eval "set -- \$line_$top"
     short=$(printf %.10s "$1")
-    [ "$top" = "$tip" ] || short="$short prefix"
     if [ -n "$DRY_RUN" ]; then
       eval "line_$top=\"\$top ENQUEUED \$short dry-run\""
     elif enqueue $prefix; then
@@ -368,19 +365,19 @@ climb() {
     eval "verdict=\$verdict_$v sha=\$sha_$v"
     case " $prefix " in
       *" $v "*)
-        [ "$verdict" = pass ] && [ "$v" != "$top" ] || continue
-        if [ -n "$failed" ]; then
+        [ "$verdict" = pass ] || continue
+        if [ -n "$stuck" ]; then
+          eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") upstack #\$stuck\""
+        elif [ "$v" = "$top" ]; then
+          continue
+        elif [ -n "$failed" ]; then
           eval "line_$v=\"\$v \$failed\""
         else
           eval "line_$v=\"\$v SKIP covered-by #\$top\""
         fi
         ;;
       *)
-        if [ -n "$fork" ]; then
-          [ "$verdict" != pass ] || eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") \$fork\""
-        elif [ "$tv" = pass ] && [ -z "$failed" ]; then
-          eval "line_$v=\"\$line_$v restack-after #\$top\""
-        fi
+        [ -z "$fork" ] || [ "$verdict" != pass ] || eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") \$fork\""
         ;;
     esac
   done

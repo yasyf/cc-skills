@@ -201,7 +201,7 @@ REFUSAL = {
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
     "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
-    "children": "#{pr}'s branch {branch} is the base of {children}, which no lane tracks in Graphite's stack record; restack them through Graphite, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "children": "#{pr}'s branch {branch} is the base of {children}; a stack is enqueued whole at green, so #{pr} waits for them: their lanes make them green, or restack them onto another base, never label around this refusal",
     "orphaned": "#{pr} is based on {base}, which is neither {trunk} nor exactly one open pull request's branch (found {found}); retarget it to {trunk}",
     "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
     "untracked": "#{pr} is below #{tip} in the stack and no lane reported it; the label on #{tip} would enqueue it too",
@@ -388,13 +388,6 @@ def open_children(gh: Github, branch: str) -> list[dict]:
     race with its landing.
     """
     return gh.api("pulls", base=branch, state="open")
-
-
-def graphite_stacked(gh: Github, rows: dict[str, dict[str, str]], child: dict) -> bool:
-    """A tracked child carrying Graphite's mergeability check is in Graphite's stack record, so the queue retargets it when its parent lands."""
-    if not is_tracked(rows.get(str(child["number"]), {})):
-        return False
-    return bool(gh.api(f"commits/{child['head']['sha']}/check-runs", check_name=STACK_MERGEABILITY_CHECK, per_page=PAGE_SIZE)["check_runs"])
 
 
 def queue_ejected(gh: Github, pr: str) -> str:
@@ -1281,9 +1274,9 @@ def guard(
     verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
     if verdict != "success":
         raise refusal("ai-review", state=verdict, head=head[:9])
-    children = [str(child["number"]) for child in open_children(gh, pull["head"]["ref"]) if str(child["number"]) != above and not graphite_stacked(gh, rows, child)]
+    children = [str(child["number"]) for child in open_children(gh, pull["head"]["ref"]) if str(child["number"]) != above]
     if children:
-        raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=trunk)
+        raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children))
     if checkout:
         conflict = merge_conflicts(shell, checkout, pr, base, head)
         if conflict:
