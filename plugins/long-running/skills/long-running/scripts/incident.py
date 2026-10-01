@@ -3,8 +3,9 @@
 
     incident.py open    --kind pr-review|alert --thread URL --onset ISO --bus ID --comms-lane NAME --root-lane NAME
                         --checkout DIR [--incident ID] [--pipeline SLUG] [--target NAME] [--repo OWNER/NAME] [--trunk BRANCH]
+                        [--alert URL] [--code-path TEXT] [--runbook TEXT] [--adopt ROLE=LANE]...
                         [--grant NAME=REF]... [--expect-config TEXT] [--repair-pr N] [--orca-run ID --orca-repo ID] [--common PATH]
-    incident.py note    --incident ID [--pr N] [--mechanism TEXT] [--live TEXT]
+    incident.py note    --incident ID [--pr N] [--mechanism TEXT] [--live TEXT] [--not-ours TEXT]
     incident.py grant   --incident ID --name thread|channel|sync|rebuild --ref REF
     incident.py run     --incident ID [--owner NAME] [--interval S] [--once]
     incident.py status  --incident ID [--json]
@@ -19,7 +20,9 @@ the accounting of every rebuild, and the final reply. A merge never closes the i
 it stays ``activation_pending`` until the stored configuration matches the landed tree, and
 no rebuild fires before that read-back and a passing canary. The inventory is re-derived
 on every pass, so a head that failed after the first pass is still owned. An ``alert``
-incident has no pipeline to activate: it is live when a lane notes ``--live`` evidence.
+incident has no pipeline to activate: it is live when a lane notes ``--live`` evidence. Any
+incident closes without a fix when a lane notes ``--not-ours`` evidence. ``--adopt`` records a
+lane the desk already launched, so the executor never starts a second worker for the same role.
 
 A side effect needs its grant: ``thread`` and ``channel`` for comms posts, which the comms
 lane makes with ``cc-slack ... --grant <ref>``; ``sync`` for the apply; ``rebuild`` for the
@@ -56,6 +59,7 @@ SOL = "sol"
 INCIDENT_ROLES = ("fix", "evidence")
 FORBIDDEN_MODELS = ("fable", "codex", "claude-fable-5-1", "gpt-6-astra")
 ROUTES = {"fix": (SOL, "xhigh"), "evidence": (SOL, "xhigh"), "backup": ("opus", "xhigh")}
+ADOPTABLE = ("fix", "evidence")
 GRANTS = ("thread", "channel", "sync", "rebuild")
 BACKUP_AFTER = timedelta(minutes=15)
 COMMS_DEADLINE = timedelta(minutes=2)
@@ -74,7 +78,7 @@ PROFILES = {
 }
 LAUNCH = re.compile(r"^(?P<lane>\S+) (?P<state>ready|unsupervised) task=(?P<task>\S+) dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S*) worktree=(?P<worktree>\S+)$")
 POSTED = re.compile(r"\bts=(?P<ts>\d+\.\d+)")
-PLACEHOLDER = re.compile(r"<([a-z][a-z ]*)>")
+PLACEHOLDER = re.compile(r"<([a-z][a-z -]*)>")
 
 
 class RouteRefused(ValueError):
@@ -360,6 +364,7 @@ class Runner:
         self.dispatch()
         self.review()
         self.landing()
+        self.not_ours()
         self.activate()
         self.confirm_live()
         self.recover()
@@ -452,13 +457,24 @@ class Runner:
     def intake(self) -> None:
         incident = self.store.load(self.incident_id)
         if self.milestone("opened", f"{incident.facts['kind']} outage from {incident.facts['thread']}; executor owns it"):
-            self.world.comms.fence(f"fence {incident.facts['target']} from applies and deploys except {lane_name(self.incident_id, 'fix')}")
+            self.world.comms.fence(f"fence {incident.facts['target']} from applies and deploys except {self.lane('fix')}")
         self.comms("ack", {"reaction": "eyes", "onset": pacific(incident.facts["onset"])})
+
+    def lane(self, role: str) -> str:
+        return self.store.load(self.incident_id).facts["adopted"].get(role) or lane_name(self.incident_id, role)
 
     def launch(self, role: str, section: str) -> None:
         base = f"dispatch:{role}"
-        lane = lane_name(self.incident_id, role)
+        lane = self.lane(role)
         current = latest(self.store.load(self.incident_id), base)
+        if current is None and role in self.store.load(self.incident_id).facts["adopted"]:
+            now = self.now()
+            with self.owned() as incident:
+                incident.accept(base, "dispatch", lane, "adopted", now)
+                incident.start(base, now)
+                incident.complete(base, {"lane": lane, "adopted": True})
+                incident.verify(base, {"lane": lane, "adopted": True})
+            return
         if current and current.status == "unverifiable":
             receipt = self.world.orca.receipt(lane)
             if not receipt:
@@ -486,15 +502,16 @@ class Runner:
     def write_brief(self, incident: Incident, role: str, section: str) -> Path:
         facts = incident.facts
         values = {
-            "fix lane name": lane_name(self.incident_id, "fix"),
-            "evidence lane name": lane_name(self.incident_id, "evidence"),
+            "fix lane name": self.lane("fix"),
+            "evidence lane name": self.lane("evidence"),
             "comms lane name": facts["comms_lane"],
             "root agent name": sender(self.incident_id),
             "bus id": facts["bus"],
             "incident topic": topic(self.incident_id),
             "incident id": self.incident_id,
-            "alert link": facts["thread"],
-            "named code path": f"the {facts['pipeline']} pipeline",
+            "alert link": facts["alert"],
+            "named code path": facts["code_path"],
+            "runbook": facts.get("runbook") or "n/a",
             "submit skill": "submit-pr",
             "break-glass skill": "break-glass",
         }
@@ -512,7 +529,7 @@ class Runner:
         self.launch("evidence", "Evidence lane brief")
         fix = latest(self.store.load(self.incident_id), "dispatch:fix")
         incident = self.store.load(self.incident_id)
-        quiet = not incident.facts.get("mechanism") and not incident.facts.get("repair_pr")
+        quiet = not any(incident.facts.get(fact) for fact in ("mechanism", "repair_pr", "not_ours"))
         if fix and fix.status == "verified" and quiet and self.now() - parse_stamp(fix.started_at) >= BACKUP_AFTER:
             self.launch("backup", "Fix lane brief")
 
@@ -716,9 +733,15 @@ class Runner:
         self.comms("live", {"canary": build.get("web_url") or build["number"], "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
         return True
 
+    def not_ours(self) -> None:
+        incident = self.store.load(self.incident_id)
+        if not (verdict := incident.facts.get("not_ours")) or incident.status in ("recovered", "closed"):
+            return
+        self.milestone("not-ours", verdict, status="recovered", facts={"accounting": {"not_ours": verdict}})
+
     def confirm_live(self) -> None:
         incident = self.store.load(self.incident_id)
-        if incident.facts["pipeline"] or not (evidence := incident.facts.get("live")):
+        if incident.facts["pipeline"] or incident.facts.get("not_ours") or not (evidence := incident.facts.get("live")):
             return
         self.milestone("live", evidence)
         self.milestone("recovered", evidence, status="recovered", facts={"accounting": {"live": evidence}})
@@ -759,7 +782,7 @@ class Runner:
         incident = self.store.load(self.incident_id)
         for action in incident.actions.values():
             if action.overdue(self.now()):
-                self.decide(f"overdue:{action.action_id}", f"{action.kind} {action.target} passed its {pacific(action.deadline)} deadline at {action.status}")
+                self.decide(f"overdue:{action.action_id}", f"{action.kind} {action.target} is overdue: started {pacific(action.started_at)}, due {pacific(action.deadline)}, still {action.status}")
 
     def finish(self) -> None:
         incident = self.store.load(self.incident_id)
@@ -769,7 +792,8 @@ class Runner:
         repo = incident.facts["repo"]
         if "red" in accounting:
             accounting["red"] = [{"pr": f"https://github.com/{repo}/pull/{entry['pr']}", "state": entry["state"]} for entry in accounting["red"]]
-        self.comms("recovered", {**accounting, "live_at": pacific(incident.reached("live")["at"])})
+        live = incident.reached("live")
+        self.comms("recovered", {**accounting, **({"live_at": pacific(live["at"])} if live else {})})
         final = latest(self.store.load(self.incident_id), "comms:recovered")
         if final and final.status == "verified":
             with self.owned() as incident:
@@ -783,6 +807,13 @@ def rebuild_key(entry: dict) -> str:
 
 def job_states(build: dict) -> dict:
     return {job.get("name") or job.get("step_key") or job["id"]: job["state"] for job in build.get("jobs", [])}
+
+
+def adopt_pair(value: str) -> tuple[str, str]:
+    role, _, lane = value.partition("=")
+    if role not in ADOPTABLE or not lane:
+        raise argparse.ArgumentTypeError(f"{value!r} is not ROLE=LANE with ROLE one of {', '.join(ADOPTABLE)}")
+    return role, lane
 
 
 def grant_pair(value: str) -> tuple[str, str]:
@@ -810,6 +841,10 @@ def cmd_open(args: argparse.Namespace, store: Store, shell: Shell) -> int:
         "trunk": args.trunk,
         "checkout": str(args.checkout.resolve()),
         "thread": args.thread,
+        "alert": args.alert or args.thread,
+        "code_path": args.code_path or (f"the {pipeline} pipeline" if pipeline else f"the {target} service"),
+        "runbook": args.runbook,
+        "adopted": dict(args.adopt),
         "onset": args.onset,
         "bus": args.bus,
         "comms_lane": args.comms_lane,
@@ -836,6 +871,8 @@ def cmd_note(args: argparse.Namespace, store: Store, shell: Shell) -> int:
             incident.facts["mechanism"] = args.mechanism
         if args.live:
             incident.facts["live"] = args.live
+        if args.not_ours:
+            incident.facts["not_ours"] = args.not_ours
     print(f"noted on {args.incident} at input revision {incident.input_revision}")
     return 0
 
@@ -897,6 +934,10 @@ def build_parser() -> argparse.ArgumentParser:
     open_cmd.add_argument("--checkout", required=True, type=Path, help="a checkout of the repo; activation adds its own worktree from it")
     open_cmd.add_argument("--pipeline", help="the Buildkite pipeline whose stored settings the fix changes")
     open_cmd.add_argument("--target", help="what to fence; default the pipeline")
+    open_cmd.add_argument("--alert", help="the alert's own link (Sentry issue, monitor); default the thread")
+    open_cmd.add_argument("--code-path", help="where the fix lane starts; default the pipeline or target")
+    open_cmd.add_argument("--runbook", help="where the fix lane logs a production apply")
+    open_cmd.add_argument("--adopt", action="append", default=[], type=adopt_pair, metavar="ROLE=LANE", help="a fix or evidence lane already running; the executor records it instead of launching one")
     open_cmd.add_argument("--repo", default="Forge-AI/monorepo")
     open_cmd.add_argument("--trunk", default="dev")
     open_cmd.add_argument("--grant", action="append", default=[], type=grant_pair, metavar="NAME=REF")
@@ -912,6 +953,7 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--pr", type=int)
     note.add_argument("--mechanism")
     note.add_argument("--live", help="evidence the fix is live, for an incident with no pipeline to activate")
+    note.add_argument("--not-ours", help="the evidence that the alert is not ours; the incident closes with no fix")
     note.set_defaults(handler=cmd_note)
 
     grant = subparsers.add_parser("grant", help="add the authority a decision asked for")

@@ -18,6 +18,7 @@ under R16.
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
   --bus <bus id> --comms-lane <comms lane name> --root-lane <root agent name> \
   --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> --common <spec dir>/common.md \
+  --alert <Sentry issue or monitor link> --runbook <runbook> [--adopt fix=<lane already running>] \
   --grant thread=<grant id> [--grant channel=<grant id>] --grant sync=<authority ref> --grant rebuild=<authority ref> \
   [--expect-config <text the live configuration carries>]
 incident.py run --incident <id>
@@ -49,7 +50,11 @@ another owner takes the incident.
 `--kind pr-review` is a broken review pipeline: it carries activation, canary, and
 re-kick. `--kind alert` is any other alert, opened with `--target <service or stack>`
 in place of the pipeline. It has no activation step, and it is live when the fix or
-evidence lane runs `incident.py note --incident <id> --live "<evidence>"`.
+evidence lane runs `incident.py note --incident <id> --live "<evidence>"`. Either kind
+closes without a fix when a lane runs `incident.py note --incident <id> --not-ours
+"<evidence>"`. When the desk already launched a fix or evidence lane, `--adopt
+fix=<lane>` records it instead of starting a second worker; that lane's brief
+must carry the `incident.py note` lines below.
 
 **Never between the alert and `incident.py run`.**
 
@@ -144,6 +149,8 @@ Do:
      apply under the authority above, log the apply in <runbook>, and verify it
      against the alert's metric. Then record the evidence:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
+     If the evidence shows the alert is not ours, record that instead:
+     `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
   Opus 5.5 backup lane on this brief in parallel; keep working.
