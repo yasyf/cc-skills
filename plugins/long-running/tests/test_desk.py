@@ -962,12 +962,31 @@ def test_a_downstack_pr_whose_head_moved_since_its_report_refuses_the_stack(caps
     assert shell.labelled == []
 
 
-def test_labelling_mid_stack_refuses_because_the_pr_above_would_be_closed(capsys):
+def test_labelling_mid_stack_refuses_when_the_pr_above_is_untracked(capsys):
     shell = stack_shell()
 
     assert label_stack(shell, "24002") == 1
     out = capsys.readouterr().out
-    assert "#24002's branch stack/24002 is the base of #24003, which this stack does not enqueue" in out
+    assert "#24002's branch stack/24002 is the base of #24003, which no lane tracks in Graphite's stack record" in out
+    assert shell.labelled == []
+
+
+def test_a_green_bottom_prefix_is_labelled_under_a_tracked_graphite_child(capsys):
+    shell = stack_shell(tracked=STACK)
+
+    assert label_stack(shell, "24002") == 0
+
+    assert shell.labelled == ["24002:merge"]
+    assert "the queue takes #24001 <- #24002 as one entry" in capsys.readouterr().out
+
+
+def test_a_tracked_child_outside_graphites_stack_record_refuses_the_prefix(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"checks:{'3' * 40}"] = "check-runs-no-graphite.json"
+
+    assert label_stack(shell, "24002") == 1
+
+    assert "is the base of #24003, which no lane tracks in Graphite's stack record" in capsys.readouterr().out
     assert shell.labelled == []
 
 

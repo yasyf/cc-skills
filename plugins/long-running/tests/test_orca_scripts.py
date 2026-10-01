@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -325,3 +326,54 @@ def test_check_peek_reads_without_waiting(orca):
     assert result.stdout.strip() == "msg_9 dispatch term_root note: hi"
     [check] = orca.calls("orchestration check")
     assert check[2:] == ["--peek", "--terminal", "term_me", "--json"]
+
+
+def minutes_ago(minutes: int) -> str:
+    return (datetime.now(UTC) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def stale_lane(orca: Orca, status: str, completed_at: str | None = None) -> None:
+    orca.receipts.mkdir(exist_ok=True)
+    (orca.receipts / "lane-a.terminal").write_text("term_a\n")
+    (orca.receipts / "lane-a.json").write_text(json.dumps({"result": {"taskId": "task_a", "dispatchId": "ctx_a"}}))
+    (orca.receipts / "lane-a.worktree.json").write_text(json.dumps({"ok": True}))
+    orca.reply("orchestration worker-show", {"rc": 0, "out": {"ok": True, "result": {"dispatch": {"id": "ctx_a", "status": status, "completedAt": completed_at}}}})
+
+
+def unread(msg_id: str, minutes: int) -> dict:
+    return {**message(msg_id, "dispatch", "term_desk", "R1", "restack"), "created_at": minutes_ago(minutes), "read": 0}
+
+
+def test_stale_flags_an_in_progress_dispatch_with_an_old_unread_message(orca):
+    stale_lane(orca, "dispatched")
+    orca.reply("orchestration check", {"rc": 0, "out": {"ok": True, "result": {"messages": [unread("msg_old", 30), unread("msg_new", 2)]}}})
+    result = orca.run("orca-check.sh", "--stale")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == ["STALE lane-a 30m unread msg_old"]
+    [show] = orca.calls("orchestration worker-show")
+    assert flag(show, "--dispatch") == "ctx_a"
+    [check] = orca.calls("orchestration check")
+    assert check[2:] == ["--terminal", "term_a", "--peek", "--json"]
+
+
+def test_stale_flags_every_message_and_inbox_route_to_a_completed_dispatch(orca):
+    stale_lane(orca, "completed", minutes_ago(90).replace("Z", ".645Z"))
+    orca.reply("orchestration check", {"rc": 0, "out": {"ok": True, "result": {"messages": [unread("msg_new", 2)]}}})
+    inbox = orca.root / "orca-desk.md"
+    inbox.write_text("R1 msg_1 lane-a: done before\nR2 msg_2 lane-b: other lane\nR3 prompt lane-a: restack onto dev\n")
+    (orca.root / "orca-desk.md.cursor").write_text("1\n")
+    result = orca.run("orca-check.sh", "--stale", "--inbox", str(inbox))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == ["STALE lane-a 2m completed msg_new", "STALE lane-a 90m completed R3"]
+
+
+def test_stale_reports_an_orca_error(orca):
+    stale_lane(orca, "dispatched")
+    orca.reply("orchestration worker-show", {"rc": 1, "out": {"ok": False, "error": {"code": "not_found", "message": "no dispatch"}}})
+    result = orca.run("orca-check.sh", "--stale")
+    assert result.returncode == 1
+    assert result.stdout.strip() == "error not_found: no dispatch"
+
+
+def test_inbox_needs_stale(orca):
+    assert orca.run("orca-check.sh", "--inbox", "x").returncode == 2

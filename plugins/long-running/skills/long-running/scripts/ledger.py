@@ -190,7 +190,7 @@ REFUSAL = {
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
     "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
-    "children": "#{pr}'s branch {branch} is the base of {children}, which this stack does not enqueue; label the stack's tip, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "children": "#{pr}'s branch {branch} is the base of {children}, which no lane tracks in Graphite's stack record; restack them through Graphite, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
     "orphaned": "#{pr} is based on {base}, which is neither {trunk} nor exactly one open pull request's branch (found {found}); retarget it to {trunk}",
     "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
     "untracked": "#{pr} is below #{tip} in the stack and no lane reported it; the label on #{tip} would enqueue it too",
@@ -356,7 +356,7 @@ def fetch(shell: Shell, checkout: Path, *refs: str) -> None:
         raise ForgeUnreachable(REFUSAL["fetch"].format(ref=" ".join(refs), detail=(error.stderr or "").strip())) from error
 
 
-def open_children(gh: Github, branch: str) -> list[str]:
+def open_children(gh: Github, branch: str) -> list[dict]:
     """Open pull requests whose base is this branch.
 
     Scoped to one branch we own, never a repository listing. A child left on a parent's
@@ -364,7 +364,14 @@ def open_children(gh: Github, branch: str) -> list[str]:
     so the retarget has to happen before the parent carries a label rather than in a
     race with its landing.
     """
-    return [str(pull["number"]) for pull in gh.api("pulls", base=branch, state="open")]
+    return gh.api("pulls", base=branch, state="open")
+
+
+def graphite_stacked(gh: Github, rows: dict[str, dict[str, str]], child: dict) -> bool:
+    """A tracked child carrying Graphite's mergeability check is in Graphite's stack record, so the queue retargets it when its parent lands."""
+    if not is_tracked(rows.get(str(child["number"]), {})):
+        return False
+    return bool(gh.api(f"commits/{child['head']['sha']}/check-runs", check_name=STACK_MERGEABILITY_CHECK, per_page=PAGE_SIZE)["check_runs"])
 
 
 def queue_ejected(gh: Github, pr: str) -> str:
@@ -1167,9 +1174,12 @@ def stack_gate_pending(pull: dict, trunk: str, checks: dict) -> bool:
     return pull["mergeable_state"] == "unstable" and pull["base"]["ref"] != trunk and unfinished == [STACK_MERGEABILITY_CHECK]
 
 
-def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected: str | None, above: str | None, trunk: str, checkout: Path | None) -> list[str]:
+def guard(
+    shell: Shell, gh: Github, rows: dict[str, dict[str, str]], pull: dict, expected: str | None, above: str | None, trunk: str, checkout: Path | None
+) -> list[str]:
     """Every per-PR guard, in order; returns the approvers or raises the first refusal."""
     pr = str(pull["number"])
+    fields = rows.get(pr, {})
     head, base = pull["head"]["sha"], pull["base"]["ref"]
     if pull["state"] != "open":
         raise refusal("closed", pr=pr, state=pull["state"], base=base)
@@ -1201,7 +1211,7 @@ def guard(shell: Shell, gh: Github, pull: dict, fields: dict[str, str], expected
     verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
     if verdict != "success":
         raise refusal("ai-review", state=verdict, head=head[:9])
-    children = [child for child in open_children(gh, pull["head"]["ref"]) if child != above]
+    children = [str(child["number"]) for child in open_children(gh, pull["head"]["ref"]) if str(child["number"]) != above and not graphite_stacked(gh, rows, child)]
     if children:
         raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=trunk)
     if checkout:
@@ -1265,7 +1275,7 @@ def label_stack(
         try:
             if pr != number and not is_tracked(fields):
                 raise refusal("untracked", pr=pr, tip=number)
-            approved[pr] = guard(shell, gh, pull, fields, expected if pr == number else current_head(fields), above, trunk, checkout)
+            approved[pr] = guard(shell, gh, rows, pull, expected if pr == number else current_head(fields), above, trunk, checkout)
         except Refused as reason:
             print(f"REFUSED {reason} (#{pr})")
             refused[pr] = (head, reason)
