@@ -8,11 +8,15 @@ Fill the angle brackets and paste the brief.
 ## Root discipline
 
 Every transition to Alert, Warn, or No Data is P0. In the turn it arrives, the root
-dispatches one triage lane per alert. The lane answers "ours or not ours": it
-correlates the monitor's `at` time with the drive's landings, deploys, and applies in
-the window before it. While the alert is unresolved, the monitor's targets are fenced:
-no lane deploys, applies, releases, or enqueues into its `release-target:*` targets.
-A recovery line, or a triage verdict of not ours, lifts the fence.
+spawns a fix lane and a diagnosis lane in parallel from `active-alert-brief.md`,
+under R16. Never put a "real or not" or "ours or not ours" gate before the fix lane.
+Diagnosis findings redirect the fix lane, including to a monitor fix; they do not
+decide whether it exists.
+
+While the alert is unresolved, the monitor's targets stay fenced from deploys,
+applies, releases, and enqueues into its `release-target:*`
+targets. The fence never blocks the fix lane's own apply under R16. A recovery line,
+or a diagnosis that clears the alert, lifts the fence. A mute does not resolve it.
 
 The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
 monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
@@ -27,7 +31,8 @@ On release-v3, 2026-09-30, the watch's first read over `release-target:*` printe
 ```
 
 The desk's report carries that line's id, name, states, and `at` time, plus its first
-read of the monitor's query. The root's answer is one triage lane for 324525079.
+read of the monitor's query. The root's answer is a fix lane and a diagnosis lane
+for 324525079, spawned in parallel that turn.
 
 ## Spawn brief
 
@@ -65,7 +70,8 @@ On each printed line, in the same turn:
 Rules:
   - Never message on an unchanged state, a timer tick, or a re-arm.
   - Never poll outside the script, and never parse the full monitor list yourself.
-  - Never triage past the first read. The root dispatches a triage lane per alert.
+  - Never triage past the first read. The root spawns a fix lane and a diagnosis
+    lane per alert in the same turn, under R16.
 
 Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
 Worktree: none.

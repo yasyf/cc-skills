@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The fifteen hard rules
+## The sixteen hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -168,6 +168,7 @@ watch, or re-cut a release or deploy unless the owner asked for it in that turn.
 option the root described earlier is not permission, and no script re-cuts on its
 own. No cut goes out while a known fix for the last failure is still open: land the
 fix first.
+R16's pre-authorized active-alert fix apply is exempt from this rule.
 
 *Prevents cuts 377, 378, 388, 390, 396, and 413 each failing on the next open bug on
 09-29, and the root override-approving 413 unasked: "no one asked you to do anything
@@ -218,6 +219,34 @@ and starts no build.
 
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill.*
+
+**R16. An active production alert gets its fix lane in the same turn.** A Datadog
+monitor in Alert, a Sentry alert, an `#outage` report, an on-call page, or an alert
+link from the owner is P0 from the moment it is seen. The root spawns a fix lane and
+a telemetry/diagnosis lane in parallel that turn. The fix lane has implementation
+authority and runs as `long-running:lane-ship`. Use model fable for concurrency or
+data paths; use opus otherwise.
+
+The fix lane starts at the code path the alert's runbook or metric names while
+evidence is still arriving. Never diagnosis-then-fix, and never a "real or not" or
+"ours or not ours" gate before the fix lane exists. A diagnosis that clears the alert
+redirects the fix lane to work such as a monitor fix; it does not decide whether the
+fix lane exists.
+
+While the alert is active, a break-glass or hand apply of the fix to production is
+pre-authorized when the plan counts are reported, the plan shows `0 deletes` and
+`0 replaces` (a standing GO), and the apply is runbook-logged. Under that standing GO,
+the root never asks the owner for apply permission. It reports. Any delete or replace
+goes to the owner. A muted monitor is not resolved; the mute is the window to fix.
+
+The root reports to the owner at spawn with what is running, and again at fix-live.
+It never ends a turn on an active alert with only a question or a wait. The alert
+takes its lanes in the same turn whatever else is running, consistent with R6.
+`reference/active-alert-brief.md` holds both briefs.
+
+*Prevents the roughly 25-minute delay on release-v3, 2026-10-01, when the active
+`#alerts-api` `SandSQL handoff park timeout` on plat waited behind verdict, diagnosis,
+and owner round-trips before a fix lane started.*
 
 ## The landing desk and its ledger
 
@@ -538,15 +567,19 @@ Production monitor traffic belongs to one long-lived `long-running:lane`, `alert
 model sonnet, effort low. Spawn it beside the landing-desk whenever the drive deploys,
 applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and the
 dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
+`reference/active-alert-brief.md` holds the fix and diagnosis lane briefs.
 
 **A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
 `monitor-watch.py watch` over the drive's monitors, by tag glob such as
 `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
 one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
-and posts nothing to Slack. Each alert is P0 for the root: one triage lane per alert,
-ours or not ours, and the monitor's targets stay fenced from deploys, applies, and
-enqueues until it recovers or triage clears it.
+and posts nothing to Slack.
+
+Each alert is P0 for the root. Spawn a fix lane and a diagnosis lane in parallel
+that turn under R16, with no verdict gate. The monitor's
+targets stay fenced from deploys, applies, and enqueues until it recovers or diagnosis
+clears the alert; the fence never blocks the fix lane's own apply under R16.
 
 ## The priority desk
 
@@ -1429,6 +1462,7 @@ release-v3 drive (2026-09-30).*
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
+15. Is a production alert active? → spawn its fix lane and diagnosis lane this turn from reference/active-alert-brief.md; never gate the fix lane on a verdict.
 
-Apply D3 to priority PRs before delegating. A call that survives all fourteen decides
+Apply D3 to priority PRs before delegating. A call that survives all fifteen decides
 something no lane can decide for you; everything else is a lane.
