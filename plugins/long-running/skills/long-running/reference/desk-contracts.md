@@ -80,6 +80,13 @@ verbs close an ask outside that lifecycle: `ledger.py drop --ledger <id> --ask <
 --reason "<why>"` when the owner withdraws it, and `ledger.py answer --ledger <id> --ask
 <id> --text "<reply>"` when it was a question rather than shipped work.
 
+An ask that will never land here, such as one the owner deferred to a cc-notes
+backlog, is marked with `ledger.py ask --ledger <id> --state backlog --ask <id> --note
+"<where it went>"`. The summary lists it as `BACKLOG <id> <note>` instead of `LOST`.
+`--state live` and `--state lost` pin those states, a per-ask state outranks the
+ledger-wide `live --at`, and `--state open` restores the computed state. `dropped` and
+`answered` stay terminal.
+
 `ledger.py show --ledger <id> --asks` prints each ask with its computed state, or
 `[pending]` while it is too fresh to grade. A periodic sweep — the landing desk's
 30-minute summary, or a standalone script where one fits — reclassifies every

@@ -110,6 +110,10 @@ ASK_LANDED_NOT_LIVE = "LANDED-NOT-LIVE"
 ASK_IN_PR = "IN-PR"
 ASK_LOST = "LOST"
 ASK_DROPPED = "dropped"
+ASK_BACKLOG = "BACKLOG"
+ASK_OPEN = "open"
+ASK_OVERRIDES = {"backlog": ASK_BACKLOG, "live": ASK_LIVE, "lost": ASK_LOST}
+ASK_STATES = (*ASK_OVERRIDES, ASK_OPEN)
 ORCA_TERMINAL = "ORCA_TERMINAL_HANDLE"
 ORCA_IN_PROGRESS = "in_progress"
 PROMPT_MINUTES = 5
@@ -798,11 +802,13 @@ def ask_open_pr(fields: dict[str, str], prs: dict[str, dict[str, str]]) -> str:
 
 
 def ask_state(fields: dict[str, str], prs: dict[str, dict[str, str]], moment: datetime, live: str) -> str:
-    """LIVE, LANDED-NOT-LIVE, IN-PR, LOST, dropped, or answered; "" while too fresh to grade."""
+    """LIVE, LANDED-NOT-LIVE, IN-PR, LOST, BACKLOG, dropped, or answered; "" while too fresh to grade."""
     if fields.get("dropped_at"):
         return ASK_DROPPED
     if fields.get("answered_at"):
         return ASK_ANSWERED
+    if override := ASK_OVERRIDES.get(fields.get("state", "")):
+        return override
     if ask_delivered(fields, prs):
         landed = ask_landed_at(fields, prs)
         return ASK_LIVE if live and live >= landed else ASK_LANDED_NOT_LIVE
@@ -879,6 +885,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     states = {key: ask_state(fields, prs, moment, live) for key, fields in asks.items()}
     lost = sorted(key for key, state in states.items() if state == ASK_LOST)
     landed_not_live = sorted(key for key, state in states.items() if state == ASK_LANDED_NOT_LIVE)
+    backlog = sorted(key for key, state in states.items() if state == ASK_BACKLOG)
     stuck = sorted(key for key, state in states.items() if state == ASK_IN_PR and age_minutes(asks[key]["asked_at"], moment) >= ESCALATE_MINUTES)
     landed = sorted((pr for pr, fields in prs.items() if fields.get("landed_at") and parse_iso(fields["landed_at"]) >= cutoff), key=int)
     stale = stale_lines(prs, moment, stale_after)
@@ -907,6 +914,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
         lines = lines[: SUMMARY_LINES - 1] + [f"... {len(lines) - SUMMARY_LINES + 1} more lines in ledger show"]
     asked = [f"LOST {ask_line(key, asks[key])}" for key in lost]
     asked += [f"LANDED-NOT-LIVE {ask_line(key, asks[key])}" for key in landed_not_live]
+    asked += [f"BACKLOG {key} {asks[key].get('state_note', '')}".rstrip() for key in backlog]
     asked += [
         f"IN-PR {age_minutes(asks[key]['asked_at'], moment)}m {ask_line(key, asks[key])}: #{(pr := ask_open_pr(asks[key], prs))} {blocker(prs[pr])}"
         for key in stuck
@@ -936,7 +944,22 @@ def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
+def cmd_ask_state(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    if args.ask not in notes.asks():
+        raise SystemExit(f"no ask {args.ask} in {args.ledger}")
+    notes.set_fields(args.ask, {"state": "" if args.state == ASK_OPEN else args.state, "state_note": args.note})
+    print(f"{args.ask} {args.state}" + (f": {args.note}" if args.note else ""))
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace, shell: Shell) -> int:
+    if args.state:
+        if not args.ask:
+            raise SystemExit("ask --state needs --ask ID")
+        return cmd_ask_state(args, shell)
+    if not (args.text and args.lane and args.accept):
+        raise SystemExit("ask needs --text, --lane and --accept to record an ask, or --state with --ask to mark one")
     notes = Notes(shell, args.ledger)
     key = next_key(ASK_PREFIX, notes.asks())
     fields = {"text": args.text, "lane": args.lane, "accept": args.accept, "asked_at": utc_stamp()}
@@ -1810,11 +1833,14 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--ask", metavar="ID", help="link this PR to the owner ask it delivers")
     report.set_defaults(handler=cmd_report)
 
-    ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its lane and acceptance check")
+    ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its lane and acceptance check, or mark an ask's state with --state")
     add_ledger(ask)
-    ask.add_argument("--text", required=True)
-    ask.add_argument("--lane", required=True)
-    ask.add_argument("--accept", required=True, metavar="CHECK")
+    ask.add_argument("--text")
+    ask.add_argument("--lane")
+    ask.add_argument("--accept", metavar="CHECK")
+    ask.add_argument("--state", choices=ASK_STATES, help="override the computed state of --ask; open restores it")
+    ask.add_argument("--ask", metavar="ID")
+    ask.add_argument("--note", default="")
     ask.set_defaults(handler=cmd_ask)
 
     drop = subparsers.add_parser("drop", help="terminal: the owner withdrew this ask")

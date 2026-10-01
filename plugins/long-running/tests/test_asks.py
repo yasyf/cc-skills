@@ -185,3 +185,101 @@ def test_show_asks_lists_each_ask_with_its_computed_state(capsys):
         f"ask/000002 {LANE}: unstarted [pending]",
         f"ask/000003 {LANE}: a question [answered]",
     ]
+
+
+def mark(shell, state, ask_id="ask/000001", note=None) -> int:
+    return run(shell, "ask", "--ledger", LEDGER, "--state", state, "--ask", ask_id, *(["--note", note] if note else []))
+
+
+def test_ask_state_backlog_renders_under_its_own_heading_instead_of_lost(capsys):
+    shell = desk_shell()
+    ask(shell)
+    ask(shell, text="a second ask")
+    aged(shell, "ask/000001", 45)
+    aged(shell, "ask/000002", 45)
+
+    assert mark(shell, "backlog", note="cc-notes eb2707ec") == 0
+
+    assert capsys.readouterr().out.splitlines()[-1] == "ask/000001 backlog: cc-notes eb2707ec"
+    lines = summarize(shell, capsys)
+    assert lines[0].endswith("| lost 1 | landed-not-live 0")
+    assert lines[1:3] == [f"LOST ask/000002 {LANE}: a second ask", "BACKLOG ask/000001 cc-notes eb2707ec"]
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+    assert f"ask/000001 {LANE}: {ASK} [BACKLOG]" in capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.parametrize(
+    ("state", "shown"),
+    [("backlog", "BACKLOG"), ("live", "LIVE"), ("lost", "LOST")],
+)
+def test_ask_state_overrides_the_computed_state_of_a_fresh_ask(state, shown, capsys):
+    shell = desk_shell()
+    ask(shell)
+    mark(shell, state)
+    capsys.readouterr()
+
+    run(shell, "show", "--ledger", LEDGER, "--asks")
+
+    assert capsys.readouterr().out.splitlines() == [f"ask/000001 {LANE}: {ASK} [{shown}]"]
+
+
+def test_ask_state_live_outranks_a_delivered_ask_the_pipeline_has_not_reached(capsys):
+    shell = desk_shell()
+    ask(shell)
+    report(shell)
+    shell.fields(PR).update(state="landed", landed_at=stamp(timedelta(minutes=-5)))
+    mark(shell, "live")
+
+    lines = summarize(shell, capsys)
+
+    assert lines[0].endswith("| lost 0 | landed-not-live 0")
+
+
+def test_the_ledger_wide_live_marker_does_not_clobber_a_per_ask_state(capsys):
+    shell = desk_shell()
+    ask(shell)
+    aged(shell, "ask/000001", 45)
+    mark(shell, "backlog", note="cc-notes eb2707ec")
+
+    run(shell, "live", "--ledger", LEDGER, "--at", stamp(timedelta(minutes=-1)))
+
+    lines = summarize(shell, capsys)
+    assert lines[0].endswith("| lost 0 | landed-not-live 0")
+    assert lines[1] == "BACKLOG ask/000001 cc-notes eb2707ec"
+
+
+def test_ask_state_open_restores_the_computed_state(capsys):
+    shell = desk_shell()
+    ask(shell)
+    aged(shell, "ask/000001", 45)
+    mark(shell, "backlog", note="cc-notes eb2707ec")
+
+    mark(shell, "open")
+
+    lines = summarize(shell, capsys)
+    assert lines[0].endswith("| lost 1 | landed-not-live 0")
+    assert lines[1] == f"LOST ask/000001 {LANE}: {ASK}"
+
+
+def test_ask_state_leaves_a_dropped_ask_dropped(capsys):
+    shell = desk_shell()
+    ask(shell)
+    run(shell, "drop", "--ledger", LEDGER, "--ask", "ask/000001", "--reason", "owner withdrew it")
+    mark(shell, "backlog", note="cc-notes eb2707ec")
+
+    assert not [line for line in summarize(shell, capsys)[1:] if "ask/" in line]
+
+
+def test_ask_state_refuses_an_ask_the_ledger_does_not_hold():
+    with pytest.raises(SystemExit, match="no ask ask/000009"):
+        mark(desk_shell(), "backlog", ask_id="ask/000009")
+
+
+def test_ask_state_needs_an_ask_id():
+    with pytest.raises(SystemExit, match="--ask ID"):
+        run(desk_shell(), "ask", "--ledger", LEDGER, "--state", "backlog")
+
+
+def test_ask_without_a_state_still_needs_text_lane_and_accept():
+    with pytest.raises(SystemExit, match="--text, --lane and --accept"):
+        run(desk_shell(), "ask", "--ledger", LEDGER, "--text", ASK)
