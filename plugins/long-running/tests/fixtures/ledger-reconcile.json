@@ -1,0 +1,8 @@
+[
+  {"key": "28100", "fields": {"lane": "b2-data", "state": "open", "head": "1111111111111111111111111111111111111111"}},
+  {"key": "28230", "fields": {"lane": "orca-vm-bootstrap", "registered": "orca-vm-bootstrap", "registered_head": "2222222"}},
+  {"key": "28302", "fields": {"lane": "c2-cleanup", "state": "open", "head": "3333333333333333333333333333333333333333"}},
+  {"key": "28349", "fields": {"lane": "d-cutover", "state": "open", "head": "4444444444444444444444444444444444444444"}},
+  {"key": "27887", "fields": {"lane": "aig-proof", "state": "landed", "landed_sha": "5b6ead0145e6b87270d83391dfc1118410f4396d"}},
+  {"key": "msg/000001", "fields": {"kind": "report", "pr": "28100", "state": "acked"}}
+]
