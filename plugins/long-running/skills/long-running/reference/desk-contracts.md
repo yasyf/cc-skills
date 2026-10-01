@@ -222,7 +222,7 @@ ledger holds as the guard. Priority desks and shards use the whole ledger's held
 set under D3 and leave `held` refusals unrouted for the root. Never enqueue one
 stack per pass.
 
-`label --all-clean` walks stacks one at a time and is the fallback sweep where
+`label --all-clean` grades every stack in one sequential call and is the fallback sweep where
 the repo has no enqueue script. In this ledger path, reports
 are not required; a lane's `red` or `conflicting` verdict does not refuse a head
 the forge passes. Each call re-reads its pinned tip before grading it and runs
@@ -1196,7 +1196,9 @@ A **semantic merge conflict** git resolves with no marker — the branch imports
 the trunk renamed in the same region — kills the twin in `Render and upload the
 pipeline`, which compiles the definition and so produces no test result at all. And a
 **textual conflict with the batch already in flight**, on a file every PR of that kind
-appends to, drops the second of any two queued together; label those one at a time.
+appends to, drops the second of any two queued together. Stack the second on the first
+so both land as one batch, and stop committing the file when it is a generated output;
+never label them one at a time.
 
 The wider lesson is the expensive one. This knowledge was already written down and
 indexed before the night began, on three separate lines, and a fresh contradicting

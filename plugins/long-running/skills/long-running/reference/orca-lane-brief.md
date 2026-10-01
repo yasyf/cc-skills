@@ -81,6 +81,11 @@ Worktree and VCS:
   finished changes in the same turn. Drive it through landing under D1.
 - When your stack depends on another lane's unlanded branch, stack on top of it and
   say so in the PR body; never copy their diff.
+- Shape the stack so it lands beside every other stack under D19: put each shared-file
+  edit in the smallest additive first PR, in the file's declared order. When a file you
+  change is in another open PR, stack on that PR instead of racing it. Never commit a
+  generated output; the build generates it. A stack that still carries a regenerated
+  artifact rebases and regenerates it on ejection.
 
 Landing desk (records over cc-notes refs, shared by every checkout):
 - Ledger `<id>`; script `ledger.py`, on PATH by name; repo
