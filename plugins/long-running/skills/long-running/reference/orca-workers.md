@@ -69,10 +69,10 @@ when it does not carry that parent:
 orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator worktree>"
 ```
 
-The shared contract and lane section become one `<spec dir>/<lane>.full.md` file,
-as [orca-lane-brief.md](orca-lane-brief.md) describes. `--spec` is a pointer to that
-file, at most 300 characters. Orca truncates the pasted prompt near 3 KB, so the
-brief itself never goes in `--spec`.
+The shared contract and lane section become one `<lane>.full.md` attachment on
+the drive's briefs log, as [orca-lane-brief.md](orca-lane-brief.md) describes.
+`--spec` points to its resolved file path, at most 300 characters. Orca truncates
+the pasted prompt near 3 KB, so the brief itself never goes in `--spec`.
 
 Use these model ids; the script also accepts the aliases in the first column.
 
@@ -203,7 +203,13 @@ the replacements.
 
 ### `orca-launch.sh`
 
-The script takes one lane and its complete brief:
+The script takes one lane and a file path for its complete brief. Store briefs as
+attachments on the drive's `briefs: <slug>` log and resolve the path at launch:
+
+```sh
+orca-launch.sh <lane> <model> <effort> \
+  "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
+```
 
 ```text
 usage: orca-launch.sh <lane> <model> <effort> <brief-file>
@@ -321,14 +327,15 @@ loop and escalation contract.
 ## Worked example: a v3 drive
 
 Fill the runner config from [the template](orca-desk-brief.md#config-and-startup)
-and start both processes detached there. The spec directory holds `common.md`
-and `ci-fix.md`. Build the brief and submit a launch:
+and start both processes detached there. The drive's briefs log holds `common.md`,
+`ci-fix.md`, and the complete `ci-fix.full.md` attachment. Resolve it and submit a launch:
 
 ```sh
-SPEC_DIR='/absolute/drive/briefs'
+DRIVE_REPO='/absolute/drive/checkout'
+BRIEFS_LOG='<briefs log id>'
 CONFIG='/absolute/drive/runner.json'
-cat "$SPEC_DIR/common.md" "$SPEC_DIR/ci-fix.md" > "$SPEC_DIR/ci-fix.full.md"
-desk-runner.py launch --config "$CONFIG" --key R1 --lane ci-fix --model opus --effort xhigh --brief "$SPEC_DIR/ci-fix.full.md"
+desk-runner.py launch --config "$CONFIG" --key R1 --lane ci-fix --model opus --effort xhigh \
+  --brief "$(ccn -R "$DRIVE_REPO" attachment path "$BRIEFS_LOG" ci-fix.full.md)"
 ```
 
 Submit a ruling with its existing R number. For a question, retain its message id:

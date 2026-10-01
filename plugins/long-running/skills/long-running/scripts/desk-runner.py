@@ -142,7 +142,8 @@ class Config:
     view: Path
     run: str
     receipts: Path
-    briefs: Path
+    briefs_repo: str
+    briefs_log: str
     launch_env: dict[str, str]
     start_minutes: int
     launch_minutes: int
@@ -161,7 +162,8 @@ class Config:
             view=Path(raw["view"]).expanduser(),
             run=orca["run"],
             receipts=Path(orca["receipts"]).expanduser(),
-            briefs=Path(orca["briefs"]).expanduser(),
+            briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
+            briefs_log=orca["briefs"]["log"],
             launch_env=orca.get("launch_env", {}),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
@@ -560,8 +562,12 @@ class Runner:
     def brief_for(self, lane: str) -> Path | None:
         container = lane_container(lane)
         launched = [json.loads(action.target)["brief"] for action in self.book.actions(container, kind="launch", status="verified")] if container in self.book.store.ids() else []
-        candidates = [Path(path) for path in launched[-1:]] + [self.config.briefs / f"{lane}.full.md", self.config.briefs / f"{lane}.md"]
-        return next((path for path in candidates if path.is_file()), None)
+        candidates = [Path(path) for path in launched[-1:]] + [self.attachment(f"{lane}.full.md"), self.attachment(f"{lane}.md")]
+        return next((path for path in candidates if path and path.is_file()), None)
+
+    def attachment(self, name: str) -> Path | None:
+        done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "attachment", "path", self.config.briefs_log, name])
+        return Path(done.out.strip()) if done.code == 0 else None
 
     def judge(self, message: dict, lane: str) -> None:
         """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""

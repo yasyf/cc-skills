@@ -24,6 +24,13 @@ incident has no pipeline to activate: it is live when a lane notes ``--live`` ev
 incident closes without a fix when a lane notes ``--not-ours`` evidence. ``--adopt`` records a
 lane the desk already launched, so the executor never starts a second worker for the same role.
 
+The incident's record lives in cc-notes on the checkout: the first pass opens an investigation
+whose premise is the alert and an ``incident <id>`` log, both labelled ``incident:<id>``. Every
+milestone becomes a log entry, each lane brief is attached to the log, and the mechanism,
+landing, and not-ours verdicts land on the investigation. Briefs carry both ids, so lanes
+append evidence with ``ccn log append`` instead of writing scratch files. A refused cc-notes
+write reaches the root once and never blocks a launch.
+
 A side effect needs its grant: ``thread`` and ``channel`` for comms posts, which the comms
 lane makes with ``cc-slack ... --grant <ref>``; ``sync`` for the apply; ``rebuild`` for the
 re-kick. A missing grant, a silent comms lane, an overdue action, and a failed canary are
@@ -292,12 +299,36 @@ class Comms:
 
 
 @dataclass
+class Records:
+    shell: Shell
+    repo: Path
+
+    def ccn(self, *args: str) -> object:
+        return json.loads(self.shell.run(["ccn", "-R", str(self.repo), *args, "--json"]))
+
+    def open(self, incident_id: str, title: str, premise: str) -> dict:
+        label = f"incident:{incident_id}"
+        found = self.ccn("investigation", "list", "--all", "--label", label)
+        investigation = found[0]["id"][:7] if found else self.ccn("investigation", "open", title, "--body", premise, "--label", "incident", "--label", label)["id"][:7]
+        logs = self.ccn("log", "list", "--label", label)
+        log = logs[0]["id"][:7] if logs else self.ccn("log", "add", f"incident {incident_id}", "--label", "incident", "--label", label, "--entry", f"investigation {investigation}: {title}")["id"][:7]
+        return {"investigation": investigation, "log": log}
+
+    def entry(self, log: str, text: str, attach: Path | None = None) -> None:
+        self.ccn("log", "append", log, "--entry", text, *(["--attach", str(attach), "--replace"] if attach else []))
+
+    def verdict(self, investigation: str, verb: str, text: str, commit: str | None = None) -> None:
+        self.ccn("investigation", verb, investigation, text, *(["--commit", commit] if commit else []))
+
+
+@dataclass
 class World:
     orca: Orca
     github: GitHub
     buildkite: Buildkite
     activation: Activation
     comms: Comms
+    records: Records
 
     @classmethod
     def live(cls, incident: Incident, shell: Shell) -> World:
@@ -310,6 +341,7 @@ class World:
             Buildkite(shell, facts["pipeline"]),
             Activation(shell, checkout, facts["pipeline"], worktree),
             Comms(shell, facts["bus"], checkout, sender(incident.incident_id), facts["comms_lane"], facts["root_lane"], topic(incident.incident_id)),
+            Records(shell, checkout),
         )
 
 
@@ -361,6 +393,7 @@ class Runner:
             return incident
         self.mark_lost()
         self.intake()
+        self.mechanism()
         self.dispatch()
         self.review()
         self.landing()
@@ -396,7 +429,38 @@ class Runner:
             incident.facts |= facts or {}
         if fresh:
             self.world.comms.report(f"{self.incident_id} {name} at {pacific(self.now())}: {text}")
+            self.record(name, text)
         return fresh
+
+    def keep(self, key: str, call) -> None:
+        try:
+            call()
+        except (EffectFailed, *LOST) as failure:
+            self.decide(f"record:{key}", f"cc-notes refused the incident record ({key}): {failure}")
+
+    def record(self, name: str, text: str) -> None:
+        facts = self.store.load(self.incident_id).facts
+        if not (records := facts.get("records")):
+            return
+        self.keep(name, lambda: self.world.records.entry(records["log"], f"{name} at {pacific(self.now())}: {text}"))
+        verdicts = {"mechanism": ("root-cause", None), "landed": ("fix", facts.get("landed_sha")), "not-ours": ("exonerate", None)}
+        if name in verdicts:
+            verb, commit = verdicts[name]
+            self.keep(f"{name}-verdict", lambda: self.world.records.verdict(records["investigation"], verb, text, commit))
+
+    def open_records(self) -> None:
+        facts = self.store.load(self.incident_id).facts
+        if facts.get("records"):
+            return
+        title = f"Incident {self.incident_id}: {facts['kind']} outage on {facts['target']}"
+        premise = f"{facts['alert']} reports a {facts['kind']} outage on {facts['code_path']} since {pacific(facts['onset'])}; thread {facts['thread']}."
+        try:
+            records = self.world.records.open(self.incident_id, title, premise)
+        except (EffectFailed, *LOST) as failure:
+            self.decide("record:open", f"cc-notes refused the incident record: {failure}; lanes launch without record ids")
+            return
+        with self.owned() as incident:
+            incident.facts["records"] = records
 
     def effect(self, action_id: str, kind: str, target: str, authority: str | None, call, deadline: timedelta | None = None) -> dict | None:
         now = self.now()
@@ -455,10 +519,15 @@ class Runner:
         self.effect(next_id(incident, base), "comms", f"{surface}:{event}", ref, lambda: {"seq": self.world.comms.event(event, payload, ref)}, COMMS_DEADLINE)
 
     def intake(self) -> None:
+        self.open_records()
         incident = self.store.load(self.incident_id)
         if self.milestone("opened", f"{incident.facts['kind']} outage from {incident.facts['thread']}; executor owns it"):
             self.world.comms.fence(f"fence {incident.facts['target']} from applies and deploys except {self.lane('fix')}")
         self.comms("ack", {"reaction": "eyes", "onset": pacific(incident.facts["onset"])})
+
+    def mechanism(self) -> None:
+        if mechanism := self.store.load(self.incident_id).facts.get("mechanism"):
+            self.milestone("mechanism", mechanism)
 
     def lane(self, role: str) -> str:
         return self.store.load(self.incident_id).facts["adopted"].get(role) or lane_name(self.incident_id, role)
@@ -501,7 +570,10 @@ class Runner:
 
     def write_brief(self, incident: Incident, role: str, section: str) -> Path:
         facts = incident.facts
+        records = facts.get("records") or {}
         values = {
+            "investigation id": records.get("investigation", "n/a"),
+            "incident log id": records.get("log", "n/a"),
             "fix lane name": self.lane("fix"),
             "evidence lane name": self.lane("evidence"),
             "comms lane name": facts["comms_lane"],
@@ -519,6 +591,8 @@ class Runner:
         path = self.briefs / f"{lane_name(self.incident_id, role)}.full.md"
         common = Path(facts["common"]).read_text() + "\n" if facts.get("common") else ""
         path.write_text(common + render_brief(section, values))
+        if records:
+            self.keep(f"brief:{path.stem}", lambda: self.world.records.entry(records["log"], f"brief {path.name.removesuffix('.full.md')}", path))
         return path
 
     def dispatch(self) -> None:
@@ -613,6 +687,7 @@ class Runner:
             fresh = incident.milestone("activated", text, self.now())
         if fresh:
             self.world.comms.report(f"{self.incident_id} activated at {pacific(self.now())}: {text}")
+            self.record("activated", text)
 
     def unfinished(self) -> list[int]:
         incident = self.store.load(self.incident_id)

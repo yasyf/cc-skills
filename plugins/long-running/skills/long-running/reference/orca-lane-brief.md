@@ -3,22 +3,27 @@
 The lane brief in `SKILL.md` assumes an Agent-tool subagent the root can reach with
 `SendMessage`. A lane started with `orca orchestration worker-start` runs in a separate
 session. It reports through Orca instead of `SendMessage`. The landing desk hears from it
-through `ledger.py`, never a message. The brief lives in files on disk; a short
-`--spec` points to them. Paste the templates below and fill the angle brackets.
+through `ledger.py`, never a message. Briefs live as attachments on the drive's
+`briefs: <slug>` log; a short `--spec` points to the resolved attachment path.
+Paste the templates below and fill the angle brackets.
 
 ## Why the spec is a pointer
 
 `worker-start --spec` pastes its text into the worker's terminal. Orca truncates the
 spec near 3 KB. The full text stays in `dispatch-show --task`, but the worker sees only
-the pasted text. A long brief arrives without its Finish section. Store the briefs
-outside every repo, in one shared contract file and one file per lane. Concatenate
-them into `<spec dir>/<lane>.full.md` before launch:
+the pasted text. A long brief arrives without its Finish section.
+
+Store `common.md` and each lane's brief as attachments on the drive's briefs log.
+Attach each complete brief as `<lane>.full.md`, with the shared contract followed
+by the lane's brief.
+`orca-launch.sh` still takes a file path; resolve the attachment when launching:
 
 ```sh
-cat "<spec dir>/common.md" "<spec dir>/<lane>.md" > "<spec dir>/<lane>.full.md"
+orca-launch.sh <lane> <model> <effort> \
+  "$(ccn -R <drive checkout> attachment path <briefs log> <lane>.full.md)"
 ```
 
-Pass that full brief to `orca-launch.sh`. It generates this pointer spec, at most
+The launcher generates this pointer spec, at most
 300 characters including the lane, brief path, and worktree path:
 
 ```text
@@ -34,7 +39,8 @@ and exact `send`, `ask`, and `check` commands. The brief tells the worker to cop
 commands verbatim. It never restates them.
 
 Launch with `desk-runner.py launch --config C --key R<n> --lane L --model M
---effort E --brief PATH` using [Orca workers: launch recipe](orca-workers.md).
+--effort E --brief PATH`, resolving `PATH` with `ccn attachment path`, using
+[the launch recipe](orca-workers.md).
 
 ## `common.md`: the contract every lane shares
 
@@ -192,5 +198,6 @@ long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Fi
 - Each lane's Ownership excludes every other lane's files. If two lanes edit a shared
   file, the second is a stacked child of the first.
 - Every command in `common.md` runs as written from a lane's worktree.
-- `<spec dir>/<lane>.full.md` contains the shared contract followed by the lane section.
+- The `<lane>.full.md` attachment contains the shared contract followed by the lane
+  section. Resolve its path with `ccn attachment path` before launch.
 - The generated pointer spec is at most 300 characters.
