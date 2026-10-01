@@ -117,6 +117,9 @@ the tag right after it, and no other ruling on the line. A one-off and a standin
 spoken in the same breath are two lines. Nothing marks a standing rule done, complete,
 or closed; a later line `R<k> R<n> superseded by <id>` is its only end. A desk brief
 lists the standing rules it inherits by id, `standing: R40, R312`, never as a range.
+A standing rule handed to a lane as a deliverable still gets its own `(standing)`
+line and its own `scope:durable` answer first; the lane's task cites the id, and
+completing the task never retires the rule.
 
 ```
 standing.py inbox <inbox file>...

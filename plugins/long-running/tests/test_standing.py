@@ -130,3 +130,12 @@ def test_cli_inbox_prints_live_ids_and_exits_on_violations(tmp_path: Path, capsy
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "live standing: R40, R42"
     assert out[-1] == f"violation {inbox}:2: standing rule R40 is marked done; it ends only with `R40 superseded by <id>`"
+
+
+def test_a_provenance_parenthetical_ending_in_standing_is_a_standing_line() -> None:
+    line = "- R575 (root, 05:0xZ Oct 2 label / 14:50Z, standing) → all desks: owner-word gates are superseded by 4ffc9a5"
+
+    inbox = standing.read_inbox([line])
+
+    assert inbox.live() == {"R575": line}
+    assert inbox.violations == []

@@ -159,6 +159,7 @@ Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
+Standing rules served: <`R<n>` ids with their answer ids, or "none">; completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
 
