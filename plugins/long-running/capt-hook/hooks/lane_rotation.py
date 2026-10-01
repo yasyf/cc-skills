@@ -5,7 +5,6 @@ import re
 import secrets
 import time
 import uuid
-from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -24,7 +23,7 @@ from captain_hook import (
 )
 
 from .compaction_handoff import CompactionState
-from .nudges import queue_nudge
+from .nudges import NudgeState, queue_nudge
 from .turns import Turn, latest_turn, rotation_line
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "rotation"
@@ -33,11 +32,13 @@ SENDER = "long-running"
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
+ROOT_ACTION = "ROOT-ACTION"
 DORMANT = timedelta(hours=1)
 PACE_SECONDS = 15 * 60
 PACE_LIMIT = 3
-MAX_ASKS = 2
 ASK_GAP_SECONDS = 30 * 60
+ACK_WINDOW_SECONDS = 10 * 60
+NUMBERED = re.compile(r"(.+)-(\d+)")
 LOCK_STALE_SECONDS = 10
 LOCK_RETRIES = 10
 LOCK_MIN_DELAY = 0.005
@@ -58,15 +59,19 @@ class RotationState(WorkflowState):
     names: dict[str, str] = {}
     flushed: list[str] = []
     scanned: int | None = None
+    timeline: list[dict] = []
 
 
 @dataclass(frozen=True)
 class Lane:
     name: str
     agent_id: str
+    task_id: str
     team: str | None
     turn: Turn
     line: int
+    transcript: Path
+    spawned: datetime
 
 
 def spawned_at(transcript: Path) -> str | None:
@@ -88,7 +93,10 @@ def task_label(transcript: Path) -> str | None:
 
 def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
-    teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
+    teammate_tasks: dict[str, list[str]] = {}
+    for task in evt.background_tasks:
+        if task.type == "teammate":
+            teammate_tasks.setdefault(task.description, []).append(task.id)
     newest: dict[str, tuple[str, Path, dict]] = {}
     for meta_path in sorted((evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json")):
         meta = json.loads(meta_path.read_text())
@@ -106,32 +114,101 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     )
     lanes = []
     for name, transcript, meta, turn in active:
+        agent_id = transcript.stem.removeprefix("agent-")
+        task_id = agent_id
         if meta.get("teamName"):
-            if not (label := next((key for key in (meta["description"], task_label(transcript)) if teammate_tasks[key]), None)):
+            if not (label := next((key for key in (meta["description"], task_label(transcript)) if teammate_tasks.get(key)), None)):
                 continue
-            teammate_tasks[label] -= 1
+            task_id = teammate_tasks[label].pop(0)
         if turn:
             lanes.append(
                 Lane(
                     name=name,
-                    agent_id=transcript.stem.removeprefix("agent-"),
+                    agent_id=agent_id,
+                    task_id=task_id,
                     team=meta.get("teamName"),
                     turn=turn,
                     line=rotation_line(turn.model, meta.get("model"), evt.cwd),
+                    transcript=transcript,
+                    spawned=datetime.fromisoformat(newest[name][0]),
                 )
             )
     return lanes
 
 
+def over_line(lane: Lane, state: RotationState, root: Turn) -> bool:
+    return lane.agent_id not in state.flushed and lane.turn.tokens >= lane.line and root.at - lane.turn.at <= DORMANT
+
+
 def due(lane: Lane, state: RotationState, root: Turn, now: float) -> bool:
     asks = state.asks.get(lane.agent_id, [])
+    return over_line(lane, state, root) and (not asks or now - asks[-1] >= ASK_GAP_SECONDS)
+
+
+def overdue(lane: Lane, state: RotationState, root: Turn, now: float) -> bool:
+    asks = state.asks.get(lane.agent_id)
+    return bool(asks) and over_line(lane, state, root) and now - asks[0] >= ACK_WINDOW_SECONDS
+
+
+def iso(at: float) -> str:
+    return datetime.fromtimestamp(at, UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def record(state: RotationState, name: str, agent_id: str, event: str, now: float, **fields: object) -> None:
+    state.timeline.append({"at": iso(now), "lane": name, "agent_id": agent_id, "event": event, **fields})
+
+
+def record_escalation(state: RotationState, lane: Lane, now: float) -> None:
+    last = next((entry for entry in reversed(state.timeline) if entry["agent_id"] == lane.agent_id), None)
+    if last and last["event"] == "escalate":
+        last |= {"last": iso(now), "count": last["count"] + 1, "tokens": lane.turn.tokens}
+    else:
+        record(state, lane.name, lane.agent_id, "escalate", now, last=iso(now), count=1, tokens=lane.turn.tokens)
+
+
+def settle(state: RotationState, lanes: list[Lane], now: float) -> None:
+    live = {lane.agent_id: lane for lane in lanes}
+    for agent_id in [agent_id for agent_id in state.asks if agent_id not in state.flushed]:
+        lane = live.get(agent_id)
+        if lane and lane.turn.tokens >= lane.line:
+            continue
+        name = state.names.pop(agent_id)
+        del state.asks[agent_id]
+        if lane:
+            record(state, name, agent_id, "compacted", now, tokens=lane.turn.tokens)
+        else:
+            record(state, name, agent_id, "gone", now)
+
+
+def successor(name: str) -> str:
+    if match := NUMBERED.fullmatch(name):
+        return f"{match[1]}-{int(match[2]) + 1}"
+    return f"{name}-2"
+
+
+def span(seconds: float) -> str:
+    hours, minutes = divmod(int(seconds) // 60, 60)
+    return f"{hours}h{minutes:02}m"
+
+
+def escalation(lane: Lane, state: RotationState, now: float) -> str:
+    asks = state.asks[lane.agent_id]
+    megabytes = lane.transcript.stat().st_size / 1_000_000
+    since = datetime.fromtimestamp(asks[0], UTC).strftime("%H:%MZ")
     return (
-        lane.agent_id not in state.flushed
-        and lane.turn.tokens >= lane.line
-        and root.at - lane.turn.at <= DORMANT
-        and len(asks) < MAX_ASKS
-        and (not asks or now - asks[-1] >= ASK_GAP_SECONDS)
+        f"rotate it by hand now. It holds {lane.turn.tokens:,} tokens against its {lane.line:,} line "
+        f"(transcript {megabytes:.1f} MB, running {span(now - lane.spawned.timestamp())}) and has not replied "
+        f"`flushed` to {len(asks)} ROTATE ask(s) since {since}. "
+        f"1. Spawn `{successor(lane.name)}` from `{lane.name}`'s brief plus its handoff (ledger rows, cc-notes, cursor). "
+        f"2. Once `{successor(lane.name)}` reports, TaskStop `{lane.task_id}` to stop `{lane.name}`. "
+        f"A `flushed <ids>` reply from `{lane.name}` cancels this."
     )
+
+
+def queue_root_action(evt: BaseHookEvent, lane: Lane, text: str) -> None:
+    key = f"{ROOT_ACTION} `{lane.name}`"
+    with NudgeState.mutate(evt) as nudges:
+        nudges.pending = [line for line in nudges.pending if not line.startswith(key)] + [f"{key}: {text}"]
 
 
 def inbox_path(evt: BaseHookEvent, lane: Lane) -> Path:
@@ -188,10 +265,6 @@ def append_inbox(inbox: Path, message: dict) -> bool:
     return True
 
 
-def listed(lanes: list[Lane]) -> str:
-    return ", ".join(f"`{lane.name}` ({lane.turn.tokens:,})" for lane in lanes)
-
-
 def flushed_replies(text: str) -> list[tuple[str, list[str]]]:
     replies = []
     for name, body in TEAMMATE_MESSAGE.findall(text):
@@ -214,7 +287,7 @@ def entries_after(transcript: Path, offset: int) -> tuple[list[dict], int]:
     return [json.loads(line) for line in data[:end].splitlines() if line.strip()], start + end
 
 
-def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
+def nudge_flushed(evt: BaseHookEvent, state: RotationState, now: float) -> None:
     pending = {agent_id: name for agent_id, name in state.names.items() if agent_id not in state.flushed}
     if not pending:
         state.scanned = evt.transcript_path.stat().st_size
@@ -226,6 +299,8 @@ def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
         for name, ids in flushed_replies(content):
             if asked := [agent_id for agent_id, lane in pending.items() if lane == name and agent_id not in state.flushed]:
                 state.flushed.extend(asked)
+                for agent_id in asked:
+                    record(state, name, agent_id, "flushed", now, ids=ids)
                 queue_nudge(
                     evt,
                     f"lane {name} flushed ({', '.join(ids)}) and keeps running in place; nothing to do",
@@ -244,7 +319,14 @@ def nudge_flushed(evt: BaseHookEvent, state: RotationState) -> None:
         Input(
             transcript=ROOT,
             background_tasks=[REVIEWER],
-            state=[CompactionState(active=True), RotationState(asks={"areviewer-3c3c3c3c3c3c3c3c": [0.0, 1.0]})],
+            state=[
+                CompactionState(active=True),
+                RotationState(
+                    asks={"areviewer-3c3c3c3c3c3c3c3c": [0.0, 1.0]},
+                    names={"areviewer-3c3c3c3c3c3c3c3c": "reviewer"},
+                    scanned=0,
+                ),
+            ],
         ): Allow(),
         Input(
             transcript=ROOT,
@@ -264,27 +346,32 @@ def rotate_lanes(evt: BaseHookEvent) -> HookResult | None:
         return None
     now = time.time()
     state = RotationState.load(evt)
-    nudge_flushed(evt, state)
+    nudge_flushed(evt, state, now)
+    lanes = live_lanes(evt)
+    settle(state, lanes, now)
     state.save(evt)
-    recent = sum(now - at < PACE_SECONDS for asks in state.asks.values() for at in asks)
-    candidates = sorted(
-        (lane for lane in live_lanes(evt) if due(lane, state, root, now)),
+    recent = sum(now - asks[0] < PACE_SECONDS for asks in state.asks.values())
+    fresh = sorted(
+        (lane for lane in lanes if lane.agent_id not in state.asks and due(lane, state, root, now)),
         key=lambda lane: lane.turn.tokens,
         reverse=True,
     )
-    unreachable = []
-    for lane in candidates[: max(PACE_LIMIT - recent, 0)]:
+    repeat = [lane for lane in lanes if lane.agent_id in state.asks and due(lane, state, root, now)]
+    for lane in [*fresh[: max(PACE_LIMIT - recent, 0)], *repeat]:
         if lane.team is None:
-            unreachable.append(lane)
+            queue_root_action(
+                evt, lane, f"SendMessage it now; it has no teammate inbox and holds {lane.turn.tokens:,} tokens: `{ROTATE}`"
+            )
         elif not append_inbox(inbox_path(evt, lane), rotate_message()):
             continue
         state.asks.setdefault(lane.agent_id, []).append(now)
         state.names[lane.agent_id] = lane.name
+        via = "root" if lane.team is None else "inbox"
+        record(state, lane.name, lane.agent_id, "ask", now, via=via, tokens=lane.turn.tokens, line=lane.line)
         state.save(evt)
-    if unreachable:
-        queue_nudge(
-            evt,
-            f"Lanes over their rotation line with no teammate inbox: {listed(unreachable)}. "
-            f"SendMessage each `{ROTATE}` when convenient.",
-        )
+    for lane in lanes:
+        if overdue(lane, state, root, now):
+            queue_root_action(evt, lane, escalation(lane, state, now))
+            record_escalation(state, lane, now)
+    state.save(evt)
     return None

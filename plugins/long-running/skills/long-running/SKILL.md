@@ -1432,20 +1432,54 @@ message format and under its lock:
 
 `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.`
 
-It asks at most three lanes per 15 minutes, highest token count first, and each lane at
-most twice, at least 30 minutes apart. A lane with no teammate inbox draws one root
-nudge instead, naming at most three lanes, to `SendMessage` them the same request.
+It asks at most three new lanes per 15 minutes, highest token count first. A lane
+already asked is asked again every 30 minutes until it replies `flushed <ids>`, with
+no cap. Re-asks do not count toward the limit for new lanes.
+
+A lane with no teammate inbox is asked through the root. The hook queues a
+``ROOT-ACTION `<lane>`: SendMessage it now ...`` line carrying the same `ROTATE` text
+into the root's context on its next tool call or prompt. The root sends the request
+with `SendMessage` to the lane's name in that turn.
 
 **Handoff.** A `flushed <ids>` reply confirms the lane recorded its state and keeps
-working. The hook nudges the root once: the lane keeps running in place, nothing to do.
-After its own compaction, the lane reads its ledger and saved cursor and continues.
-Never `TaskStop` or respawn a flushed lane, and never spawn a second agent under a
-live lane's name. A separate successor must never stop the old session or
-duplicate its active work. An `open-pr:pr-watcher` resumes from its state file after
-its own compaction.
+working; it ends the rotation cycle. The hook nudges the root once: the lane keeps
+running in place, nothing to do. After its own compaction, the lane reads its ledger
+and saved cursor and continues. Never `TaskStop` or respawn a flushed lane, and
+never spawn a second agent under a live lane's name. An `open-pr:pr-watcher` resumes
+from its state file after its own compaction.
+
+A lane that drops below its line through its own compaction or leaves
+`background_tasks` because it stopped or rotated also ends the cycle. A compacted
+lane starts a fresh cycle if it crosses the line again.
+
+If a lane has not replied `flushed <ids>` within 10 minutes of its first ask and is
+still live, awake, and over its line, every later main-session `Stop` queues a
+``ROOT-ACTION `<lane>`: rotate it by hand now.`` line. It names the lane's tokens
+against its line, transcript size, running time, ask count, and first-ask time,
+with two steps:
+
+1. Spawn `<lane>-N+1` from the old lane's brief plus its handoff of ledger rows,
+   cc-notes, and cursor. `alerts-watch` becomes `alerts-watch-2`; `desk-3` becomes
+   `desk-4`.
+2. Once the successor reports, `TaskStop` the old lane's task id named in the line.
+
+Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
+adding another. The root acts on it in the turn it arrives. This is the one case
+where the root stops a lane, and it stops it only after the successor has reported.
+A `flushed <ids>` reply cancels the rotation.
+
+The session's hook state directory holds `rotation_state.json` with a `timeline`
+list. It records one entry per `ask`, `flushed`, `compacted`, or `gone` event. An
+`ask` entry holds `via` as `inbox` or `root`, `tokens`, and `line`. A `flushed` entry
+holds `ids`, and a `compacted` entry holds `tokens`. An `escalate` entry holds its
+first `at`, latest `last`, `count`, and `tokens`; consecutive escalations for the
+same lane update that entry.
 
 *Prevents stopping and respawning lanes from ending live sessions during the
 release-v3 drive (2026-09-30).*
+
+*Prevents alerts-watch sitting over its line from 07:02Z until the owner ordered its
+rotation by hand (release-v3, 2026-10-01).*
 
 ## Anti-patterns seen
 
