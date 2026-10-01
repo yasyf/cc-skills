@@ -114,6 +114,16 @@ def test_inbox_orders_p0_before_rulings_before_reports_before_idles(capsys):
     assert len(capsys.readouterr().out.splitlines()) == 4
 
 
+def test_a_hand_keyed_message_row_does_not_break_the_next_key():
+    shell = desk_shell()
+    stray = {"kind": "report", "pr": PR, "head": HEAD, "lane": "bg-pulumi", "state": "ready", "text": "READY"}
+    shell.stores[LEDGER]["rows"].append({"key": "msg/bg-pulumi-28510-open", "fields": stray, "position": "z"})
+
+    assert run(shell, "enqueue", "--ledger", LEDGER, "--kind", "idle", "--pr", "0", "--head", "-", "--lane", LANE, "--text", "still here") == 0
+
+    assert messages(shell) == ["msg/bg-pulumi-28510-open", "msg/000001"]
+
+
 def test_duplicate_idle_notice_is_recorded_once_and_answered_never(capsys):
     shell = desk_shell()
     argv = ["enqueue", "--ledger", LEDGER, "--kind", "idle", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "done"]
