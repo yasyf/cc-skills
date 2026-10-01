@@ -816,6 +816,54 @@ def test_reconcile_dry_run_writes_nothing(capsys):
     assert "would settle closed #28302 with no squash on dev" in out
 
 
+def rate_limited_shell() -> FakeShell:
+    shell = reconcile_shell()
+    shell.quota_resets_at = 1790000000
+    shell.fields("28349")["last_refresh"] = stamp(-timedelta(minutes=12))
+    return shell
+
+
+def test_reconcile_under_an_exhausted_quota_lands_the_squashed_rows_and_names_the_cache(capsys):
+    shell = rate_limited_shell()
+
+    assert reconcile(shell) == 0
+
+    assert shell.fields("28100")["state"] == "landed"
+    assert shell.fields("28302")["state"] == "open", "a closed row the cache cannot read stays unsettled"
+    out = capsys.readouterr().out
+    assert "pr states: cached 12m (GraphQL quota exhausted, resets 2026-09-21T14:13:20Z)" in out
+    assert "reconciled 4 non-terminal rows: 2 landed by squash, 0 of 0 closed settled, 2 unread" in out
+    assert len(shell.state_calls()) == 1, "a rate-limited read is never retried"
+
+
+def test_summary_under_an_exhausted_quota_renders_from_the_cached_rows(capsys):
+    shell = rate_limited_shell()
+
+    assert run(shell, "summary", "--ledger", LEDGER, "--repo", REPO, "--checkout", "/checkout") == 0
+
+    out = capsys.readouterr().out
+    assert out.index("pr states: cached 12m (GraphQL quota exhausted") < out.index("desk 2")
+    assert "open 2 |" in out
+
+
+def test_reconcile_under_an_exhausted_quota_with_no_recorded_refresh_says_so(capsys):
+    shell = reconcile_shell()
+    shell.quota_resets_at = 1790000000
+
+    assert reconcile(shell) == 0
+
+    assert "pr states: cached age unknown (GraphQL quota exhausted" in capsys.readouterr().out
+
+
+def test_a_pr_state_failure_that_is_not_the_quota_still_refuses(capsys):
+    shell = reconcile_shell()
+    shell.pr_state_error = "ccx: no such repo"
+
+    assert reconcile(shell) == 1
+
+    assert "forge unreachable, wrote nothing: ccx vcs pr state: ccx: no such repo" in capsys.readouterr().err
+
+
 def test_reconcile_with_nothing_open_touches_neither_git_nor_the_forge(capsys):
     shell = FakeShell(rows=[{"key": "27887", "fields": {"state": "landed"}}])
 

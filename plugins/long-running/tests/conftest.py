@@ -64,6 +64,8 @@ class FakeShell(ledger.Shell):
         self.routes = dict(routes or {})
         self.pages = pages or {1: "pulls-page-1.json", 2: "pulls-page-2.json"}
         self.fail_gh: str | None = None
+        self.quota_resets_at: int | None = None
+        self.pr_state_error = ""
         self.orca: dict[tuple[str, ...], dict] = {}
         self.calls: list[list[str]] = []
 
@@ -96,6 +98,8 @@ class FakeShell(ledger.Shell):
 
     def _gh(self, argv, stdin):
         endpoint = argv[2]
+        if endpoint == "rate_limit":
+            return json.dumps({"resources": {"graphql": {"reset": self.quota_resets_at}}})
         if self.fail_gh and self.fail_gh in endpoint:
             raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr="gh: connection refused")
         path, _, query = endpoint.partition("?")
@@ -154,6 +158,10 @@ class FakeShell(ledger.Shell):
 
     def _pr_state(self, argv):
         """Answer ``ccx vcs pr state`` in its JSON shape, off the same REST tables ``_gh`` serves."""
+        if self.quota_resets_at is not None:
+            raise subprocess.CalledProcessError(1, argv, stderr="graphql: API rate limit already exceeded for user ID 709645\n")
+        if self.pr_state_error:
+            raise subprocess.CalledProcessError(1, argv, stderr=self.pr_state_error)
         repo = argv[argv.index("--repo") + 1]
         prefixes = [argv[index + 1] for index, value in enumerate(argv) if value == "--lane-prefix"]
         lanes = {
