@@ -78,19 +78,22 @@ fix it" means the executor's fix lane plus its evidence lane, not a verdict gate
   crash or a timeout leaves the action `unverifiable`, and only a read of external
   state settles it: the rebuild's `rebuilt_from`, the comms post on the bus, the
   launch receipt, or the sync dry run. An action is retried only after that read
-  proves the effect absent.
-- `recovered` needs the activation receipt and accounting for every rebuild: re-run,
+  proves the effect absent, at most three attempts in all. A lost launch with no
+  receipt goes to the root, because a second launch could start a second worker.
+- `recovered` waits for every build in the outage window to finish, then needs the
+  activation receipt and accounting for every rebuild: re-run,
   green, red with PR links, and skipped. `closed` needs the posted ts of the final
   reply.
 - A worker's completion settles its assignment, not the incident.
 - Reassignment is `actions.py transfer --expect-generation <n> --to <owner>`,
   followed by the new owner's `actions.py ack`. The former owner's next write fails
-  on the generation and its runner exits. Nothing stops or signals a session.
+  on the generation and its runner exits. A runner started as the former owner
+  refuses to start. Nothing stops or signals a session.
 
 ## Comms lane contract
 
 The comms lane comes from [slack-lane-brief.md](slack-lane-brief.md#incident-comms-lane).
-The executor posts each event to it as a bus `decision` from
+The executor posts each event to it as a bus `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes

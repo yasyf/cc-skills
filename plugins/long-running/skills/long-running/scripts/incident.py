@@ -6,7 +6,7 @@
                         [--grant NAME=REF]... [--expect-config TEXT] [--repair-pr N] [--orca-run ID --orca-repo ID] [--common PATH]
     incident.py note    --incident ID [--pr N] [--mechanism TEXT] [--live TEXT]
     incident.py grant   --incident ID --name thread|channel|sync|rebuild --ref REF
-    incident.py run     --incident ID [--interval S] [--once]
+    incident.py run     --incident ID [--owner NAME] [--interval S] [--once]
     incident.py status  --incident ID [--json]
 
 STDLIB ONLY. ``open`` records the incident in the :mod:`actions` store; ``run`` owns it.
@@ -65,6 +65,8 @@ INTERVAL = 30
 TERMINAL_BUILDS = ("passed", "failed", "canceled", "skipped", "not_run")
 TERMINAL_JOBS = (*TERMINAL_BUILDS, "broken", "timed_out", "expired")
 RECONCILED = "reconciled:"
+MAX_ATTEMPTS = 3
+UNFINISHED_BUILDS = ("creating", "scheduled", "running", "failing", "canceling", "blocked")
 GREEN = "passed"
 PROFILES = {
     "pr-review": {"pipeline": "pr-review", "canary_job": "Prepare PR evidence", "human_review": True, "review_surface": "channel"},
@@ -145,11 +147,11 @@ class Orca:
 
     def receipt(self, lane: str) -> dict | None:
         state = Path(os.environ.get("ORCA_LAUNCH_STATE") or Path.home() / ".claude" / "scratch" / "orca-launch" / str(self.run_id))
-        path = state / f"{lane}.json"
-        if not path.exists():
-            return None
-        result = json.loads(path.read_text()).get("result", {})
-        return {"lane": lane, "state": result.get("state"), "task": result["taskId"], "dispatch": result["dispatchId"]}
+        for path in (state / f"{lane}.json", state / f"{lane}.json.new"):
+            result = json.loads(path.read_text()).get("result", {}) if path.exists() and path.stat().st_size else {}
+            if result.get("taskId") and result.get("dispatchId"):
+                return {"lane": lane, "state": result.get("state"), "task": result["taskId"], "dispatch": result["dispatchId"]}
+        return None
 
 
 @dataclass
@@ -169,12 +171,13 @@ class GitHub:
         return {pr["number"]: {"state": pr["state"], "head": pr["headRefOid"], "url": pr["url"]} for pr in data.values() if pr}
 
     def landed(self, pr: int) -> str | None:
-        view = json.loads(self.shell.run(["gh", "pr", "view", str(pr), "--repo", self.repo, "--json", "state,mergedAt,mergeCommit"]))
+        view = json.loads(self.shell.run(["gh", "pr", "view", str(pr), "--repo", self.repo, "--json", "state,mergedAt,mergeCommit,closedAt"]))
         if view["state"] == "MERGED":
             return view["mergeCommit"]["oid"]
         if view["state"] != "CLOSED":
             return None
-        commits = json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}/commits?sha={self.trunk}&per_page=100"]))
+        since = stamp(parse_stamp(view["closedAt"]) - timedelta(minutes=10))
+        commits = json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}/commits?sha={self.trunk}&since={since}&per_page=100"]))
         suffix = f"(#{pr})"
         return next((commit["sha"] for commit in commits if commit["commit"]["message"].splitlines()[0].endswith(suffix)), None)
 
@@ -201,6 +204,10 @@ class Buildkite:
 
     def failed(self, since: str, until: str) -> list[dict]:
         return self.builds(f"state[]=failed&state[]=canceled&created_from={since}&created_to={until}")
+
+    def unfinished(self, since: str, until: str) -> list[dict]:
+        states = "&".join(f"state[]={state}" for state in UNFINISHED_BUILDS)
+        return self.builds(f"{states}&created_from={since}&created_to={until}")
 
     def since(self, since: str) -> list[dict]:
         return self.builds(f"created_from={since}")
@@ -259,11 +266,12 @@ class Comms:
         return int(out.split()[0].lstrip("#"))
 
     def event(self, event: str, facts: dict, grant: str) -> int:
-        return self.post("decision", json.dumps({"event": event, "grant": grant, **facts}), self.comms_lane)
+        return self.post("ask", json.dumps({"event": event, "grant": grant, **facts}), self.comms_lane)
 
     def find(self, event: str) -> int | None:
         entries = json.loads(self.bus_cli("read", "--lane", self.comms_lane, "--all", "--peek", "--json"))
-        return next((entry["seq"] for entry in entries if entry["from"] == self.sender and json.loads(entry["text"]).get("event") == event), None)
+        mine = (entry for entry in entries if entry["from"] == self.sender and entry["kind"] == "ask" and self.comms_lane in entry["to"])
+        return next((entry["seq"] for entry in mine if json.loads(entry["text"]).get("event") == event), None)
 
     def posted(self, seq: int) -> str | None:
         entries = json.loads(self.bus_cli("read", "--lane", self.sender, "--kind", "answer", "--all", "--peek", "--json"))
@@ -323,7 +331,7 @@ def latest(incident: Incident, base: str) -> Action | None:
 
 
 def retryable(action: Action | None) -> bool:
-    return action is None or (action.status == "failed" and (action.reason or "").startswith(RECONCILED))
+    return action is None or (action.status == "failed" and (action.reason or "").startswith(RECONCILED) and not action.action_id.endswith(f"#{MAX_ATTEMPTS}"))
 
 
 def next_id(incident: Incident, base: str) -> str:
@@ -356,6 +364,7 @@ class Runner:
         self.confirm_live()
         self.recover()
         self.settle_comms()
+        self.exhausted()
         self.deadlines()
         self.finish()
         return self.store.load(self.incident_id)
@@ -375,9 +384,11 @@ class Runner:
         with self.owned() as incident:
             incident.resolve(key, self.now())
 
-    def milestone(self, name: str, text: str) -> bool:
+    def milestone(self, name: str, text: str, status: str | None = None, facts: dict | None = None) -> bool:
         with self.owned() as incident:
             fresh = incident.milestone(name, text, self.now())
+            incident.status = status or incident.status
+            incident.facts |= facts or {}
         if fresh:
             self.world.comms.report(f"{self.incident_id} {name} at {pacific(self.now())}: {text}")
         return fresh
@@ -400,6 +411,12 @@ class Runner:
         with self.owned() as incident:
             incident.complete(action_id, response, dispatch_id=str(response.get("dispatch") or response.get("seq") or "") or None)
         return response
+
+    def exhausted(self) -> None:
+        incident = self.store.load(self.incident_id)
+        for action in incident.actions.values():
+            if action.status == "failed" and action.action_id.endswith(f"#{MAX_ATTEMPTS}"):
+                self.decide(f"exhausted:{action.action_id}", f"{action.kind} {action.target} failed {MAX_ATTEMPTS} times: {action.reason}")
 
     def mark_lost(self) -> None:
         with self.owned() as incident:
@@ -444,13 +461,17 @@ class Runner:
         current = latest(self.store.load(self.incident_id), base)
         if current and current.status == "unverifiable":
             receipt = self.world.orca.receipt(lane)
+            if not receipt:
+                self.decide(f"launch:{current.action_id}", f"launch of {lane} lost its response and left no receipt; check Orca, then `incident.py note` its outcome")
+                return
             with self.owned() as incident:
-                if receipt:
-                    incident.complete(current.action_id, receipt, dispatch_id=receipt["dispatch"])
-                    incident.verify(current.action_id, receipt)
-                else:
-                    incident.fail(current.action_id, f"{RECONCILED} no launch receipt for {lane}")
-            current = latest(self.store.load(self.incident_id), base)
+                incident.complete(current.action_id, receipt, dispatch_id=receipt["dispatch"])
+                incident.verify(current.action_id, receipt)
+            return
+        if current and current.status == "completed":
+            with self.owned() as incident:
+                incident.verify(current.action_id, current.response)
+            return
         if not retryable(current):
             return
         incident = self.store.load(self.incident_id)
@@ -537,6 +558,9 @@ class Runner:
         try:
             tree = self.world.activation.prepare(sha)
             current = latest(incident, base)
+            if current and current.status == "verified":
+                self.activated(current.action_id, current.authority_ref, current.verification_receipt)
+                return
             if current and current.status in ("completed", "unverifiable"):
                 self.read_back(current, tree)
                 return
@@ -564,14 +588,23 @@ class Runner:
 
     def activated(self, action_id: str, authority: str | None, receipt: dict) -> None:
         with self.owned() as incident:
-            incident.accept(action_id, "sync", incident.facts["pipeline"], authority, self.now())
-            incident.verify(action_id, receipt)
+            if incident.accept(action_id, "sync", incident.facts["pipeline"], authority, self.now()).status != "verified":
+                incident.verify(action_id, receipt)
             incident.status = "recovering"
-        self.milestone("activated", f"{incident.facts['pipeline']} configuration matches the landed tree (sha256 {receipt['digest'][:12]})")
+            incident.facts.setdefault("activated_at", receipt["at"])
+            text = f"{incident.facts['pipeline']} configuration matches the landed tree (sha256 {receipt['digest'][:12]})"
+            fresh = incident.milestone("activated", text, self.now())
+        if fresh:
+            self.world.comms.report(f"{self.incident_id} activated at {pacific(self.now())}: {text}")
+
+    def unfinished(self) -> list[int]:
+        incident = self.store.load(self.incident_id)
+        window = (incident.facts["onset"], incident.facts["activated_at"])
+        return [build["number"] for build in self.world.buildkite.unfinished(*window)]
 
     def inventory(self) -> list[dict]:
         incident = self.store.load(self.incident_id)
-        until = incident.reached("activated")["at"]
+        until = incident.facts["activated_at"]
         failed = [build for build in self.world.buildkite.failed(incident.facts["onset"], until) if build.get("pull_request")]
         by_pr: dict[int, list[dict]] = {}
         for build in failed:
@@ -598,18 +631,30 @@ class Runner:
         entries = self.inventory()
         self.reconcile_rebuilds()
         incident = self.store.load(self.incident_id)
-        pending = [entry for entry in entries if entry["account"] == "candidate" and retryable(latest(incident, rebuild_key(entry)))]
-        if (canary := incident.facts.get("canary")) is None:
-            if pending:
+        candidates = {rebuild_key(entry): entry for entry in entries if entry["account"] == "candidate"}
+        pending = [entry for key, entry in candidates.items() if retryable(latest(incident, key))]
+        canary = incident.facts.get("canary")
+        if canary and canary not in candidates and retryable(latest(incident, canary)):
+            canary = None
+        if canary is None:
+            if pending and self.grant("rebuild"):
                 with self.owned() as incident:
                     incident.facts["canary"] = rebuild_key(pending[0])
                 self.rebuild(pending[0])
+            elif not pending and not self.unfinished():
+                self.milestone("live", f"{incident.facts['pipeline']} configuration verified; no failed work to re-run")
+                self.comms("live", {"canary": None, "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
+                self.account(entries)
+            return
+        if retryable(latest(incident, canary)):
+            self.rebuild(candidates[canary])
             return
         if not self.canary_passed(canary):
             return
         for entry in pending:
             self.rebuild(entry)
-        self.account(entries)
+        if not self.unfinished():
+            self.account(entries)
 
     def rebuild(self, entry: dict) -> None:
         if not (ref := self.grant("rebuild")):
@@ -630,7 +675,7 @@ class Runner:
         open_rebuilds = [action for action in incident.of_kind("rebuild") if action.status in ("completed", "unverifiable")]
         if not open_rebuilds:
             return
-        builds = self.world.buildkite.since(incident.reached("activated")["at"])
+        builds = self.world.buildkite.since(incident.facts["activated_at"])
         by_number = {build["number"]: build for build in builds}
         by_source: dict[int, dict] = {}
         for build in sorted(builds, key=lambda build: build["number"]):
@@ -659,6 +704,9 @@ class Runner:
             return False
         build = self.find_build(action.response["build"])
         job = next((job for job in build["jobs"] if incident.facts["canary_job"] in (job.get("name") or "")), None)
+        if job is None and build["state"] in TERMINAL_BUILDS:
+            self.decide(f"canary:{key}", f"canary build {build['number']} finished {build['state']} without a {incident.facts['canary_job']} job")
+            return False
         if job is None or job["state"] not in TERMINAL_JOBS:
             return False
         if job["state"] != GREEN:
@@ -672,16 +720,13 @@ class Runner:
         incident = self.store.load(self.incident_id)
         if incident.facts["pipeline"] or not (evidence := incident.facts.get("live")):
             return
-        if self.milestone("live", evidence):
-            with self.owned() as incident:
-                incident.facts["accounting"] = {"live": evidence}
-                incident.status = "recovered"
-            self.milestone("recovered", evidence)
+        self.milestone("live", evidence)
+        self.milestone("recovered", evidence, status="recovered", facts={"accounting": {"live": evidence}})
         self.comms("live", {"evidence": evidence, "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
 
     def find_build(self, number: int) -> dict:
         incident = self.store.load(self.incident_id)
-        return next(build for build in self.world.buildkite.since(incident.reached("activated")["at"]) if build["number"] == number)
+        return next(build for build in self.world.buildkite.since(incident.facts["activated_at"]) if build["number"] == number)
 
     def account(self, entries: list[dict]) -> None:
         incident = self.store.load(self.incident_id)
@@ -701,10 +746,7 @@ class Runner:
             "unlaunched": [{"key": action.action_id, "reason": action.reason} for action in failed],
             "skipped": [{"pr": entry["pr"], "account": entry["account"]} for entry in entries if entry["account"] != "candidate"],
         }
-        with self.owned() as incident:
-            incident.facts["accounting"] = accounting
-            incident.status = "recovered"
-        self.milestone("recovered", f"re-run {accounting['rerun']}, green {accounting['green']}, red {len(accounting['red'])}")
+        self.milestone("recovered", f"re-run {accounting['rerun']}, green {accounting['green']}, red {len(accounting['red'])}", status="recovered", facts={"accounting": accounting})
 
     def settle_comms(self) -> None:
         incident = self.store.load(self.incident_id)
@@ -813,7 +855,11 @@ def cmd_run(args: argparse.Namespace, store: Store, shell: Shell) -> int:
         except BlockingIOError:
             print(f"{args.incident} already has a runner", file=sys.stderr)
             return 2
-        runner = Runner(store, args.incident, World.live(store.load(args.incident), shell), shell)
+        record = store.load(args.incident)
+        if record.owner != (args.owner or sender(args.incident)):
+            print(f"{args.incident} is owned by {record.owner} at generation {record.owner_generation}; run with --owner {record.owner} only as that owner", file=sys.stderr)
+            return 3
+        runner = Runner(store, args.incident, World.live(record, shell), shell)
         try:
             incident = runner.tick() if args.once else runner.run(args.interval)
         except StaleGeneration as stale:
@@ -877,6 +923,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="own the incident until its final reply posts")
     run.add_argument("--incident", required=True)
     run.add_argument("--interval", type=float, default=INTERVAL)
+    run.add_argument("--owner", help="the owner this runner acts as; default the executor that opened the incident")
     run.add_argument("--once", action="store_true")
     run.set_defaults(handler=cmd_run)
 

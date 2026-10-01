@@ -112,6 +112,10 @@ class Replay:
             if low <= source["created"] <= high and self.source_state(source) == "failed"
         ]
 
+    def unfinished(self, since: str, until: str) -> list[dict]:
+        low, high = parse_stamp(since), parse_stamp(until)
+        return [{"number": source["number"], "state": "running"} for source in self.sources if low <= source["created"] <= high and self.source_state(source) == "running"]
+
     def since(self, since: str) -> list[dict]:
         low = parse_stamp(since)
         return [self.view(build) for build in self.created.values() if build["created"] >= low]
@@ -187,7 +191,7 @@ def world_of(fake: Replay) -> World:
     return World(
         orca=Adapter(fake, launch=fake.launch, receipt=fake.receipt),
         github=Adapter(fake, prs=fake.gh_prs, landed=fake.landed),
-        buildkite=Adapter(fake, configuration=fake.configuration, failed=fake.failed, since=fake.since, rebuild=fake.rebuild),
+        buildkite=Adapter(fake, configuration=fake.configuration, failed=fake.failed, unfinished=fake.unfinished, since=fake.since, rebuild=fake.rebuild),
         activation=Adapter(fake, prepare=fake.prepare, drifted=fake.drifted, apply=fake.apply),
         comms=Adapter(fake, event=fake.event, find=fake.find, posted=fake.posted, ask_root=fake.ask_root, report=fake.report, fence=fake.fence),
     )
@@ -478,12 +482,13 @@ def test_buildkite_reads_the_stored_configuration_and_pages_builds():
 def test_github_reads_pr_heads_in_one_query_and_finds_a_queue_landing():
     graph = {"data": {"repository": {"p28345": {"number": 28345, "state": "OPEN", "headRefOid": "4813", "url": "u"}, "p28841": {"number": 28841, "state": "CLOSED", "headRefOid": "8152", "url": "v"}}}}
     commits = [{"sha": "aaaa", "commit": {"message": "other (#1)"}}, {"sha": REPAIR["sha"], "commit": {"message": "ci: 🐛 pr-review generates the infra graphs (#28998)\n\nbody"}}]
-    shell = Shell({("gh", "api", "graphql"): json.dumps(graph), ("gh", "pr", "view"): json.dumps({"state": "CLOSED", "mergedAt": None, "mergeCommit": None}), ("gh", "api", "repos/"): json.dumps(commits)})
+    shell = Shell({("gh", "api", "graphql"): json.dumps(graph), ("gh", "pr", "view"): json.dumps({"state": "CLOSED", "mergedAt": None, "mergeCommit": None, "closedAt": "2026-10-01T17:45:48Z"}), ("gh", "api", "repos/"): json.dumps(commits)})
     github = incident.GitHub(shell, "Forge-AI/monorepo", "dev")
 
     assert github.prs([28345, 28841]) == {28345: {"state": "OPEN", "head": "4813", "url": "u"}, 28841: {"state": "CLOSED", "head": "8152", "url": "v"}}
     assert len([call for call in shell.calls if call[:3] == ["gh", "api", "graphql"]]) == 1
     assert github.landed(28998) == REPAIR["sha"]
+    assert "since=2026-10-01T17:35:48Z" in shell.calls[-1][2]
 
 
 def test_orca_parses_the_launch_line():
@@ -516,11 +521,12 @@ def test_activation_refuses_an_unreadable_dry_run():
 
 def test_comms_posts_to_the_lane_and_reads_its_posted_ts():
     answers = [{"seq": 9, "re": 7, "from": "incident-comms", "text": "posted ts=1790877617.443359"}]
-    shell = Shell({("post",): "#7 decision incident:x incident-x -> incident-comms\n", ("read",): json.dumps(answers)})
+    shell = Shell({("post",): "#7 ask incident:x incident-x -> incident-comms\n", ("read",): json.dumps(answers)})
     comms = incident.Comms(shell, "bus1", Path("/m"), "incident-x", "incident-comms", "release-v3", "incident:x")
 
     assert comms.event("ack", {"reaction": "eyes"}, "g-thread") == 7
     post = shell.calls[0]
+    assert post[post.index("--kind") + 1] == "ask"
     assert post[post.index("--to") + 1] == "incident-comms" and json.loads(post[post.index("--text") + 1])["grant"] == "g-thread"
     assert comms.posted(7) == "1790877617.443359"
     assert comms.posted(8) is None
@@ -537,3 +543,98 @@ def test_an_alert_with_no_pipeline_closes_on_live_evidence(store, clock, fake):
     assert fake.asks == [] and fake.applies == [] and fake.rebuilds == []
     assert fake.fences == ["fence api from applies and deploys except incident-pr-review-1001-fix"]
     assert [post["event"] for post in fake.posts] == ["ack", "live", "recovered"]
+
+
+def test_comms_find_skips_the_fence_broadcast():
+    entries = [
+        {"seq": 1, "kind": "decision", "from": "incident-x", "to": [], "text": "fence api from applies and deploys except incident-x-fix"},
+        {"seq": 2, "kind": "ask", "from": "incident-x", "to": ["incident-comms"], "text": json.dumps({"event": "ack"})},
+    ]
+    comms = incident.Comms(Shell({("read",): json.dumps(entries)}), "bus1", Path("/m"), "incident-x", "incident-comms", "release-v3", "incident:x")
+    assert comms.find("ack") == 2
+    assert comms.find("pr") is None
+
+
+def test_orca_receipt_reads_a_receipt_left_before_its_rename(tmp_path, monkeypatch):
+    monkeypatch.setenv("ORCA_LAUNCH_STATE", str(tmp_path))
+    (tmp_path / "incident-x-fix.json.new").write_text(json.dumps({"result": {"taskId": "t1", "dispatchId": "d1", "state": "ready"}}))
+    assert incident.Orca(Shell({}), "run1", "repo1").receipt("incident-x-fix")["dispatch"] == "d1"
+    assert incident.Orca(Shell({}), "run1", "repo1").receipt("incident-x-evidence") is None
+
+
+def test_a_lost_launch_without_a_receipt_asks_instead_of_relaunching(store, clock, fake):
+    incident_id = open_incident(store, clock)
+    launch = fake.launch
+
+    def lost(lane, model, effort, brief):
+        if lane.endswith("-fix") and not any(name.endswith("-fix") for name, _, _ in fake.launches):
+            fake.launches.append((lane, model, effort))
+            raise ResponseLost("worker-start timed out")
+        return launch(lane, model, effort, brief)
+
+    world = world_of(fake)
+    world.orca.launch = lost
+    drive(Runner(store, incident_id, world, clock), store, clock, INTAKE + timedelta(minutes=3), worker=lambda *_: None)
+
+    assert [lane for lane, _, _ in fake.launches].count(f"incident-{incident_id}-fix") == 1
+    assert any("left no receipt" in ask for ask in fake.asks)
+
+
+def test_a_canary_waiting_on_its_grant_launches_once_granted(store, clock, fake):
+    incident_id = open_incident(store, clock, grants={key: value for key, value in GRANTS.items() if key != "rebuild"})
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, parse_stamp(REPAIR["landed_at"]) + timedelta(minutes=10))
+    assert fake.rebuilds == [] and "canary" not in store.load(incident_id).facts
+
+    incident.main(["grant", "--incident", incident_id, "--name", "rebuild", "--ref", "g-rebuild"], store, clock)
+    record = drive(runner, store, clock, clock.at + timedelta(hours=1))
+    assert record.status == "closed" and fake.rebuilds[0] == 72867
+
+
+def test_a_crash_after_verifying_the_sync_resumes_without_a_second_apply(store, clock, fake):
+    incident_id = open_incident(store, clock)
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, parse_stamp(REPAIR["landed_at"]) + timedelta(seconds=40))
+    with store.owned(incident_id, 1) as record:
+        record.milestones = [entry for entry in record.milestones if entry["name"] != "activated"]
+        record.status = "activation_pending"
+    record = drive(runner, store, clock, clock.at + timedelta(hours=1))
+
+    assert record.status == "closed" and len(fake.applies) == 1
+
+
+def test_a_rebuild_that_keeps_failing_to_reach_buildkite_stops_at_the_attempt_cap(store, clock, fake):
+    real = fake.rebuild
+
+    def never(number):
+        if number == 72860:
+            fake.rebuilds.append(number)
+            raise ResponseLost("timed out")
+        return real(number)
+
+    world = world_of(fake)
+    world.buildkite.rebuild = never
+    incident_id = open_incident(store, clock)
+    record = drive(Runner(store, incident_id, world, clock), store, clock, INTAKE + timedelta(hours=2))
+
+    assert rebuild_counts(fake)[72860] == incident.MAX_ATTEMPTS
+    assert len([ask for ask in fake.asks if "failed 3 times" in ask]) == 1
+    assert record.status == "closed"
+    assert [entry["key"] for entry in record.facts["accounting"]["unlaunched"]][-1].endswith("#3")
+
+
+def test_no_failed_work_still_reaches_the_final_reply(store, clock, fake):
+    for view in fake.prs.values():
+        view["state"] = "CLOSED"
+    incident_id = open_incident(store, clock)
+    record = drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(hours=2))
+
+    assert record.status == "closed" and fake.rebuilds == []
+    assert record.facts["accounting"]["rerun"] == 0
+
+
+def test_a_runner_for_a_former_owner_refuses_to_start(store, clock):
+    incident_id = open_incident(store, clock)
+    store.transfer(incident_id, 1, "runner-b")
+    store.ack(incident_id, "runner-b")
+    assert incident.main(["run", "--incident", incident_id, "--once"], store, clock) == 3
