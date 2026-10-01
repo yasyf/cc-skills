@@ -1828,6 +1828,11 @@ If generation failed, `SessionStart` gives the reason and asks the root to write
 progress record now. If the root wrote no narrative before compaction, it adds that
 the root should write one when convenient. The skill stays active across compaction.
 
+On `SessionStart` with source `resume`, an active drive's newest progress record, by
+`ccn doc list --label progress:<program>` or the newest file in the progress folder,
+is injected under the same 2,000-byte budget: a line naming `ccn doc show <id7>` and
+the plan, then the head of the record's body.
+
 ### Lane rotation
 
 Every turn a lane takes re-reads its whole history. A desk at 400k tokens pays about

@@ -52,6 +52,8 @@ TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
 COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
+RESTORE_BUDGET = 2000
+SHORT = 7
 
 
 @workflow_state("long_running_compaction")
@@ -142,6 +144,31 @@ def resume_steps(state: CompactionState) -> str:
     if state.store == "folder":
         return f"then the newest file in `{progress_folder(plan)}/`"
     return f"then the progress doc: `ccn doc list --label progress:{state.slug}`, then `ccn doc show <id>`"
+
+
+def newest_record(state: CompactionState, cwd: str) -> tuple[str, str] | None:
+    if state.store == "folder":
+        files = progress_folder(Path(state.plan_path or "")).glob("*.md")
+        if not (path := max(files, key=lambda path: path.stat().st_mtime, default=None)):
+            return None
+        return f"`{path}`", path.read_text()
+    if not (doc := max(progress_docs(state, cwd) or [], key=lambda doc: doc["updated_at"], default=None)):
+        return None
+    shown = ccn(cwd, "doc", "show", doc["id"], "--json")
+    return f"`ccn doc show {doc['id'][:SHORT]}`", json.loads(shown.stdout)["body"] if shown.returncode == 0 else ""
+
+
+def resume_restore(state: CompactionState, cwd: str) -> str:
+    if not (newest := newest_record(state, cwd)):
+        return f"Read `{state.plan_path}` before anything else, {resume_steps(state)}; they supersede the conversation so far."
+    pointer, body = newest
+    head = (
+        f"Resumed long-running drive `{state.slug}`. Before acting, read the progress record {pointer} "
+        f"(it supersedes the conversation so far), then `{state.plan_path}`. "
+        "Reload Skill `long-running` if its rules are gone."
+    )
+    room = RESTORE_BUDGET - len(head.encode()) - 1
+    return f"{head}\n{body.encode()[:room].decode(errors='ignore')}".rstrip()
 
 
 def compact_instructions(state: CompactionState) -> str:
@@ -361,6 +388,11 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             source="compact", state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
+        Input(source="resume", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]): Allow(),
+        Input(
+            source="resume",
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", store="folder")],
+        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the newest file in `/p/brook-progress/`; "),
         Input(
             source="compact",
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
@@ -371,10 +403,13 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
     },
 )
-def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
+def reground(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
         if model := evt._raw.get("model"):
             state.model = model
+        if evt.source == "resume" and state.active and state.plan_path:
+            resolve_record(state, evt.cwd)
+            return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
         pending = (
