@@ -1,0 +1,4 @@
+{
+ "slug": "pr-review",
+ "configuration": "name: pr-review\nsteps:\n  - agents:\n      queue: small\n    commands:\n      - bun install --cwd infra --frozen-lockfile\n      - bun infra/generate.ts\n      - bun tools/pr-reviewer/src/prepare.ts\n    key: prepare-review-evidence\n    label: ':robot_face: Prepare PR evidence'\n"
+}

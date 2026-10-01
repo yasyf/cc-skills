@@ -1,0 +1,366 @@
+{
+ "source": "release-v3 incidents/pr-review rekick-result.md and rekick-build receipts, 2026-10-01",
+ "onset": "2026-10-01T16:45:36Z",
+ "intake": "2026-10-01T17:25:46Z",
+ "repair": {
+  "pr": 28998,
+  "sha": "29041022bbe4da098f9f210673e715c720efc990",
+  "landed_at": "2026-10-01T17:45:48Z"
+ },
+ "canary_jobs": [
+  {
+   "name": ":robot_face: Prepare PR evidence",
+   "state": "passed"
+  },
+  {
+   "name": ":wastebasket: Cancel reviews of older heads",
+   "state": "passed"
+  },
+  {
+   "name": ":robot_face: AI code review",
+   "state": "passed"
+  },
+  {
+   "name": ":robot_face: AI code review",
+   "state": "broken"
+  },
+  {
+   "name": ":left_speech_bubble: PR companion",
+   "state": "passed"
+  },
+  {
+   "name": ":robot_face: AI review finalize",
+   "state": "passed"
+  }
+ ],
+ "builds": [
+  {
+   "pr": 28345,
+   "source": 72867,
+   "rebuild": 72959,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "96f8125b6e892a01ae9cefade3df8e8c577704db"
+  },
+  {
+   "pr": 28349,
+   "source": 72860,
+   "rebuild": 72978,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "1420d8ab7411a3f92383c0bb77e24e8eeab6664f"
+  },
+  {
+   "pr": 28356,
+   "source": 72865,
+   "rebuild": 72987,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "d1c14455fd802554c22568dce1e316e1d1719d4a"
+  },
+  {
+   "pr": 28383,
+   "source": 72866,
+   "rebuild": 72988,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "9c5b73ea383cb06b32ce19a4985d8587d79969cd"
+  },
+  {
+   "pr": 28841,
+   "source": 72910,
+   "rebuild": 72961,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "81520e2b0f4ffbea5c547919a4864849375b031e"
+  },
+  {
+   "pr": 28853,
+   "source": 72912,
+   "rebuild": 72963,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "3306b2803ce5ffe5311a50a42ac5ec9b9bb35c4d"
+  },
+  {
+   "pr": 28857,
+   "source": 72915,
+   "rebuild": 72964,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "002780e9553da9e039ba92758ad3e68ba94430fe"
+  },
+  {
+   "pr": 28862,
+   "source": 72905,
+   "rebuild": 72965,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "0be92696adc1ba70745acb00d6d3e54958bd05e3"
+  },
+  {
+   "pr": 28865,
+   "source": 72909,
+   "rebuild": 72966,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "d188d0de29caaaa9537af2bc087f05674943fefb"
+  },
+  {
+   "pr": 28867,
+   "source": 72899,
+   "rebuild": 72968,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "b1def7f6f6f186efafdcfc2296f4b005099e4321"
+  },
+  {
+   "pr": 28876,
+   "source": 72914,
+   "rebuild": 72969,
+   "outcome": "canceled",
+   "final_pr_state": "closed",
+   "commit": "2ca46aa28d3d4870a37ff5a704f4eb914750bde3"
+  },
+  {
+   "pr": 28880,
+   "source": 72906,
+   "rebuild": 72970,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "003b2b97e339192de91cca541b561991b3fb009a"
+  },
+  {
+   "pr": 28884,
+   "source": 72911,
+   "rebuild": 72971,
+   "outcome": "canceled",
+   "final_pr_state": "closed",
+   "commit": "76c1779b736bbc1032fdbad62ae64ee95da658f3"
+  },
+  {
+   "pr": 28894,
+   "source": 72901,
+   "rebuild": 72972,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "8c2d7f896ddfabbf7e5ac3c9aaa7885ab87736ae"
+  },
+  {
+   "pr": 28913,
+   "source": 72922,
+   "rebuild": 72973,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "f9a5ff132f88a206b8d3dd7cedf3ac6c8ebb4e1b"
+  },
+  {
+   "pr": 28936,
+   "source": 72929,
+   "rebuild": 72975,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "cec7b3ef9d62b017583a9120c44f0e452ebd3ad5"
+  },
+  {
+   "pr": 28945,
+   "source": 72928,
+   "rebuild": 72976,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "fc9ddefa13854535bb27ff050af6caa44ec25bca"
+  },
+  {
+   "pr": 28954,
+   "source": 72900,
+   "rebuild": 72977,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "8fe492fbed311f5aa1341b0cac454a906fa9d93b"
+  },
+  {
+   "pr": 28955,
+   "source": 72902,
+   "rebuild": 73001,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "66ef7082278c74539142e99de88a0437cdc81a06"
+  },
+  {
+   "pr": 28956,
+   "source": 72903,
+   "rebuild": 73002,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "5400302a5c173a0f70eedf86207261e6e80b33ec"
+  },
+  {
+   "pr": 28957,
+   "source": 72908,
+   "rebuild": 73003,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "e14493380ceafe80c949da2c55ea7df2b43d58bb"
+  },
+  {
+   "pr": 28974,
+   "source": 72904,
+   "rebuild": 73010,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "2366428824bc5027c055bea43fd0d37012f23247"
+  },
+  {
+   "pr": 28979,
+   "source": 72913,
+   "rebuild": 73011,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "37318f3a3bcccba0c356dae30dfe7dccaac2f03f"
+  },
+  {
+   "pr": 28982,
+   "source": 72930,
+   "rebuild": 73012,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "5ef71e2d2d4a85cd69d30ae02a0be4f5b064bb2c"
+  },
+  {
+   "pr": 28984,
+   "source": 72877,
+   "rebuild": 73013,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "f730f5882e4da6df5b6368fd6c547fb24d6a44df"
+  },
+  {
+   "pr": 28985,
+   "source": 72879,
+   "rebuild": 73014,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "7ce9f00d24056886ac767f5181f426bb677b3ae8"
+  },
+  {
+   "pr": 28986,
+   "source": 72868,
+   "rebuild": 73015,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "4d38fa428f4fccace2c5c6e02eae608efeff0ea3"
+  },
+  {
+   "pr": 28987,
+   "source": 72882,
+   "rebuild": 73016,
+   "outcome": "canceled",
+   "final_pr_state": "open",
+   "commit": "813ac2f21da21e06534da9a11e99a192e1cd4fca"
+  },
+  {
+   "pr": 28988,
+   "source": 72885,
+   "rebuild": 73017,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "a4c279ca0f11865bcb35287099fa93a60f8055e6"
+  },
+  {
+   "pr": 28994,
+   "source": 72831,
+   "rebuild": 73018,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "023039224a45cb982652f1aab6223ecd21614c75"
+  },
+  {
+   "pr": 28997,
+   "source": 72863,
+   "rebuild": 72960,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "4c808d2cf96f26c247bd03a369843842d3713144"
+  },
+  {
+   "pr": 28999,
+   "source": 72920,
+   "rebuild": 73020,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "a67a18c647690981a1c4866989d5eb89aa2e4f75"
+  },
+  {
+   "pr": 29000,
+   "source": 72926,
+   "rebuild": 73021,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "23542ad14fcdb012b3e900c6aab53fec49288ff4"
+  },
+  {
+   "pr": 29001,
+   "source": 72893,
+   "rebuild": 73022,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "6dbcf723ed661ef9c4bada0a1ca6eb575fb57f6e"
+  },
+  {
+   "pr": 29003,
+   "source": 72925,
+   "rebuild": 73023,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "2fa237f4b300560a5bf1b1a2c1744cc7a1b900f8"
+  },
+  {
+   "pr": 29004,
+   "source": 72924,
+   "rebuild": 73024,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "44b15ad0eda0da97ba21a96dd0dac13074a8758f"
+  },
+  {
+   "pr": 29008,
+   "source": 72923,
+   "rebuild": 73025,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "724ae75fd334f0892d8f6dd0e7fbb2931beafd4c"
+  },
+  {
+   "pr": 29008,
+   "source": 72943,
+   "rebuild": 73031,
+   "outcome": "passed",
+   "final_pr_state": "open",
+   "commit": "5d2f30ae3e2f7149ea848898554faf21785e720c"
+  },
+  {
+   "pr": 29013,
+   "source": 72927,
+   "rebuild": 73026,
+   "outcome": "failed",
+   "final_pr_state": "closed",
+   "commit": "bbcb7ffd9fb0a85337493187f2ffec927bafd9aa"
+  },
+  {
+   "pr": 29014,
+   "source": 72931,
+   "rebuild": 73027,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "7364a2637ded146a74bde0a7c18710ff8df96dee"
+  },
+  {
+   "pr": 29015,
+   "source": 72932,
+   "rebuild": 73028,
+   "outcome": "passed",
+   "final_pr_state": "closed",
+   "commit": "5d5847f7e02e13d40f40aaf0d6f963ec1607c6ae"
+  }
+ ]
+}
