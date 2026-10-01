@@ -1,0 +1,1 @@
+{"type": "user", "uuid": "00000000-0000-4000-8000-000000000001", "parentUuid": null, "sessionId": "sess", "timestamp": "2026-10-01T00:00:00.000Z", "isSidechain": false, "userType": "external", "cwd": "/", "version": "2.1.0", "message": {"role": "user", "content": "hi"}}
