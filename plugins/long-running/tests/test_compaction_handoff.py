@@ -238,6 +238,35 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
     )
 
 
+def test_a_launch_whose_activation_event_was_lost_activates_from_the_transcript(home: Path, docs: Path) -> None:
+    session = home / "session"
+    transcript = home / "t.jsonl"
+    transcript.write_bytes((FIXTURES / "usage-460k.jsonl").read_bytes())
+
+    handoff.nudge_at_threshold(bash(session, transcript_path=str(transcript)))
+    saved = state(session)
+    assert (saved.active, saved.scanned, pending(session)) == (False, transcript.stat().st_size, [])
+
+    with transcript.open("ab") as file:
+        file.write((FIXTURES / "launched-460k.jsonl").read_bytes())
+    handoff.nudge_at_threshold(bash(session, transcript_path=str(transcript)))
+    assert (state(session).active, state(session).scanned) == (True, transcript.stat().st_size)
+    [nudge] = pending(session)
+    assert nudge.startswith("Context is at 460,000 of the 567,000-token auto-compaction threshold (81%). ")
+
+
+def test_a_partial_launch_line_is_rescanned_once_it_lands(home: Path) -> None:
+    session = home / "session"
+    transcript = home / "t.jsonl"
+    launch = (FIXTURES / "launched-460k.jsonl").read_bytes().splitlines(keepends=True)[1]
+    transcript.write_bytes(launch[:40])
+
+    assert not handoff.launched(saved := handoff.CompactionState(), transcript)
+    assert saved.scanned == 0
+    transcript.write_bytes(launch)
+    assert handoff.launched(saved, transcript)
+
+
 def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> None:
     session = home / "session"
     handoff.CompactionState(active=True, model="claude-fable-5-1").save(bash(session))
