@@ -3,6 +3,7 @@ from __future__ import annotations
 from captain_hook import (
     Allow,
     Event,
+    FromSubagent,
     Input,
     Signal,
     Signals,
@@ -99,18 +100,9 @@ too small a pick to nag onto a surface, so plain chat fits.
 When uncertain, return fire=false. A missed wall of text costs one scroll; a false alarm on
 a legitimate prose answer teaches the agent to ignore this nudge. Put your reasoning (under
 50 words, naming the deliverable and the surface it wanted) in `reasoning`.""",
-    message=lambda r: (
-        "This deliverable wanted a surface, not a wall of text. "
-        f"{r.reasoning} "
-        "If the human must decide or give per-item feedback, compose a cc-present board "
-        "(the cc-present:present skill). If it is read-only, render an Artifact page (load "
-        "artifact-design first). If it is a single pick among four or fewer simple options, "
-        "use AskUserQuestion. You can still present the same content now — see /show:show."
-    ),
+    message="This deliverable wanted a surface, not a wall of text. Run `/show:show` to pick the board, Artifact page, or question.",
     events=Event.UserPromptSubmit | Event.PostToolUse,
-    # Sidechains can't present surfaces, and HookState is keyed by session_id alone,
-    # so a subagent fire would drain the main session's budget.
-    when=lambda evt: not evt.is_subagent,
+    skip_if=[FromSubagent()],
     max_fires=2,
     signals=Signals(
         [
@@ -144,7 +136,7 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
                     },
                 }
             ],
-        ): Warn(pattern="cc-present"),
+        ): Warn(pattern="show:show"),
         Input(
             file="review.md",
             content="# Review findings\n\n1. Missing await on the fetch\n2. Unbounded retry loop\n",
@@ -161,7 +153,7 @@ a legitimate prose answer teaches the agent to ignore this nudge. Put your reaso
                     },
                 }
             ],
-        ): Warn(pattern="Artifact"),
+        ): Warn(pattern="show:show"),
         Input(
             prompt="thanks",
             transcript=[

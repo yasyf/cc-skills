@@ -22,40 +22,18 @@ def agent_start(evt: BaseHookEvent) -> None:
 def agent_inject(evt: BaseHookEvent) -> HookResult | None:
     if not common.directive_pending(evt):
         return None
-    out = common.call_bin(evt, "agent-inject", timeout=5)
-    if not out:
+    if not (out := common.call_bin(evt, "agent-inject", timeout=5)):
         return None
-    try:
-        envelope = json.loads(out)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(envelope, dict):
-        return None
-    specific = envelope.get("hookSpecificOutput")
-    if not isinstance(specific, dict) or specific.get("hookEventName") != "PreToolUse":
-        return None
-    text = specific.get("additionalContext")
-    if not isinstance(text, str) or not text:
-        return None
-    return evt.context(text)
+    return evt.context(json.loads(out)["hookSpecificOutput"]["additionalContext"])
 
 
 @on(Event.SubagentStop, skip_planning_agents=False)
 def agent_stop(evt: BaseHookEvent) -> HookResult | None:
     if not common.subject_in_scope(evt):
         return None
-    out = common.call_bin(evt, "agent-stop", timeout=15)
-    if not out:
+    if not (out := common.call_bin(evt, "agent-stop", timeout=15)):
         return None
-    try:
-        decision = json.loads(out)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(decision, dict):
-        return None
-    if decision.get("decision") != "block" or not isinstance(decision.get("reason"), str):
-        return None
-    return evt.block(decision["reason"])
+    return evt.block(json.loads(out)["reason"])
 
 
 @on(Event.PostToolUse, only_if=[Tool("Task", "Agent")], async_=True)

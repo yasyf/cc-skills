@@ -1,267 +1,105 @@
 from __future__ import annotations
 
-import re
+from dataclasses import dataclass
 from pathlib import Path
-
-from cc_transcript.command import Command, parse_command_line
 
 from captain_hook import (
     Allow,
     Block,
     BaseHookEvent,
-    CustomCommandLineCondition,
+    CommandSchema,
+    CustomCondition,
     Event,
     Input,
+    Operand,
+    Option,
     Or,
     Tool,
     ToolInput,
     Warn,
     hook,
 )
-from captain_hook.util.shell import normalize_executable
+from captain_hook.command_schema import Arguments
+from captain_hook.types import TOOL_EVENTS, Command as CommandCondition
 
-# Backstop for natural agent-written forms only. Launchers that detach with no shell `&` on the
-# command line (screen/tmux/coproc) and wrapper scripts that hide the codex call are out of scope.
+from .shell import Detached, Invokes, InvokesProseWrapper, LaneSelected, expanded_calls, head_name, runs_prose_wrapper
 
 PLUGIN_BIN = str(Path(__file__).resolve().parents[2] / "bin" / "codex-ask")
 
-DETACH_WRAPPERS = frozenset({"nohup", "setsid"})
-EXEC_SUBCOMMANDS = frozenset({"exec", "e"})  # `e` is codex's documented alias for `exec`.
-# codex global flags taking a separate value token; skipped so `codex -c model=x exec …` still
-# resolves `exec` as the subcommand (`-i/--image` is nargs and omitted — skipping one errs to allow).
-CODEX_VALUE_FLAGS = frozenset(
-    {
-        "-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
-        "-m", "--model", "--local-provider", "-p", "--profile", "-s", "--sandbox",
-        "-C", "--cd", "--add-dir", "-a", "--ask-for-approval",
-    }
-)
-SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "ash", "fish", "csh", "tcsh"})
-NESTED_DEPTH = 3
-# Literal openers of a hand-rolled reply contract, deliberately narrow: a false nudge on every
-# codex-ask call costs more than a missed paraphrase.
-HANDROLLED_FORMAT = re.compile(
-    r"reply as a finding list"
+EXEC_SUBCOMMANDS = frozenset({"exec", "e"})
+HANDROLLED_FORMAT = (
+    r"(?i)reply as a finding list"
     r"|verdict\s*\(\s*lgtm"
     r"|answer each with a verdict"
     r"|verdict \+ file:line"
     r"|report\s+(?:the\s+)?findings\s+as\b[^\n]{0,40}\bjson"
-    r"|output format\s*:",
-    re.IGNORECASE,
+    r"|output format\s*:"
 )
-WRAPPERS = {"retro.py": "prose", "design.py": "plainify"}
-INTERPRETER = re.compile(r"python[0-9.]*|uv|uvx")
-ASSIGNMENT = re.compile(r"""(?:^|[;&|(\s])(?:export\s+)?([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|]*)""")
-EXPANSION = re.compile(r"\$\{?([A-Za-z_]\w*)\}?")
-HEREDOC_OPENER = re.compile(r"""<<[-~]?[ \t]*(?P<q>['"]?)(?P<word>[A-Za-z_][A-Za-z0-9_]*)(?P=q)""")
+CODEX = CommandSchema(
+    "codex",
+    operands=(Operand("subcommand"), Operand("rest", count="*")),
+    options=(
+        Option(
+            "value",
+            (
+                "-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
+                "-m", "--model", "--local-provider", "-p", "--profile", "-s", "--sandbox",
+                "-C", "--cd", "--add-dir", "-a", "--ask-for-approval",
+            ),
+        ),
+        Option(
+            "flag",
+            (
+                "--oss", "--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--search", "--no-alt-screen",
+                "--strict-config", "--approve-for-me", "--dangerously-bypass-hook-trust", "--worktree",
+            ),
+            bool,
+        ),
+    ),
+    operands_end_options=True,
+)
+
+RETRO = "/p/incident-retro/scripts/retro.py"
+DESIGN = "/p/design-doc/scripts/design.py"
 
 
-def safe_parse(text: str):
-    try:
-        return parse_command_line(text)
-    except RecursionError:
-        return None
+@dataclass(frozen=True)
+class SubcommandIn:
+    names: frozenset[str]
+
+    def __call__(self, arguments: Arguments) -> bool:
+        return bool(subcommand := arguments.values["subcommand"]) and subcommand[0] in self.names
 
 
-def nested_payload(program: str, args: tuple[str, ...]) -> str | None:
-    """The command string from a shell ``-c``/``-…c`` cluster or ``eval …`` join, else ``None``."""
-    if program in SHELLS:
-        return next((args[i + 1] for i, a in enumerate(args) if i + 1 < len(args) and re.fullmatch(r"-[a-z]*c", a)), None)
-    if program == "eval":
-        return " ".join(args) or None
-    return None
+@dataclass(frozen=True)
+class CodexExecDirect(CustomCondition):
+    valid_events = TOOL_EVENTS
 
-
-def unwrapped_argv(cmd: Command) -> tuple[str, ...]:
-    """``cmd.unwrapped.argv`` (env/timeout/nohup/sudo/xargs stripped natively), also unwrapping a
-    path-qualified/quoted wrapper head and ``setsid`` (which cc_transcript's .unwrapped leaves)."""
-    while True:
-        argv = cmd.unwrapped.argv
-        if not argv:
-            return argv
-        head = normalize_executable(argv[0])
-        if head != argv[0]:
-            cmd = Command(cmd.raw, head, argv[1:])
-        elif head == "setsid" and (rest := argv[1:]):
-            i = next((k for k, a in enumerate(rest) if not a.startswith("-")), len(rest))
-            if i == len(rest):
-                return argv
-            cmd = Command(cmd.raw, rest[i], rest[i + 1 :])
-        else:
-            return argv
-
-
-def head_program(cmd: Command) -> str:
-    return normalize_executable(argv[0]) if (argv := unwrapped_argv(cmd)) else ""
-
-
-def walk_occurrences(cl, depth=NESTED_DEPTH):
-    """Yield every command occurrence, descending into ``sh -c '…'``/``eval …`` payloads."""
-    for occ in cl.occurrences:
-        yield occ
-        argv = unwrapped_argv(occ.command)
-        if depth > 0 and argv:
-            nested = nested_payload(normalize_executable(argv[0]), argv[1:])
-            if nested is not None and (inner := safe_parse(nested)) is not None:
-                yield from walk_occurrences(inner, depth - 1)
-
-
-def without_heredoc_bodies(gap: str) -> str:
-    """``gap`` with every heredoc body elided, opener and terminator line kept. A command's span
-    ends at its last argv token, so the body of a ``codex-ask … - <<'Q'`` prompt lands in the gap
-    the ``&`` scan reads; prose saying ``Option<&Foo>`` or ``grow & shed`` is not a control
-    operator. An unterminated heredoc keeps its body: the terminator is what proves where the
-    prompt stops, and ``Q &`` is a background of the whole command, not a terminator."""
-    kept, pos = [], 0
-    while (opener := HEREDOC_OPENER.search(gap, pos)) is not None:
-        body = gap.find("\n", opener.end())
-        if body == -1:
-            break
-        kept.append(gap[pos:body])
-        terminator = re.compile(rf"^[ \t]*{re.escape(opener.group('word'))}[ \t]*$", re.MULTILINE)
-        if (end := terminator.search(gap, body + 1)) is None:
-            kept.append(gap[body:])
-            return "".join(kept)
-        pos = end.end()
-    kept.append(gap[pos:])
-    return "".join(kept)
-
-
-def is_background_amp(occ) -> bool:
-    """True when a bare ``&`` (not ``&&``, not a ``2>&1``/``&>`` redirect, not a quoted arg, not
-    heredoc prose) backgrounds this occurrence's command — detected in the raw byte-gap after the
-    command's span up to the next command's span (or line end), so a quoted ``&`` inside the span
-    never counts."""
-    cmd = occ.command
-    if cmd.span is None:
-        return False
-    occs = occ.line.occurrences
-    nxt = occs[occ.index + 1] if occ.index + 1 < len(occs) else None
-    end = nxt.command.span[0] if nxt is not None and nxt.command.span is not None else len(occ.line.raw)
-    gap = without_heredoc_bodies(occ.line.raw[cmd.span[1] : end])
-    return re.search(r"(?<![>&])&(?![>&])", gap) is not None
-
-
-def expand_assignments(raw: str) -> str:
-    values = {name: value.strip("\"'") for name, value in ASSIGNMENT.findall(raw)}
-    return EXPANSION.sub(lambda m: values.get(m[1], m[0]), raw)
-
-
-def invokes_wrapper(argv: tuple[str, ...]) -> bool:
-    for i, token in enumerate(argv[:-1]):
-        if WRAPPERS.get(Path(token).name) == argv[i + 1]:
-            return i == 0 or INTERPRETER.fullmatch(normalize_executable(argv[0])) is not None
-    return False
-
-
-def wrapper_occurrences(cl):
-    if (expanded := safe_parse(expand_assignments(cl.raw))) is None:
-        return
-    for occ in walk_occurrences(expanded):
-        if invokes_wrapper(unwrapped_argv(occ.command)):
-            yield occ
-
-
-def codex_subcommand(args: tuple[str, ...]) -> str | None:
-    tokens = iter(args)
-    for token in tokens:
-        if token.startswith("-"):
-            if token in CODEX_VALUE_FLAGS and "=" not in token:
-                next(tokens, None)
-            continue
-        return token
-    return None
-
-
-class CodexAskInvoked(CustomCommandLineCondition):
-    """A ``codex-ask`` invocation sits in executable position (basename-normalized, wrappers and
-    ``sh -c``/``eval`` payloads unwrapped) — so it is being run, not merely named as an argument."""
-
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return any(head_program(occ.command) == "codex-ask" for occ in walk_occurrences(cl))
-
-
-class CodexAskDetached(CustomCommandLineCondition):
-    """A ``codex-ask`` invocation is backgrounded by a bare ``&`` associated with its own span, or
-    wrapped in a ``nohup``/``setsid`` detacher (``& disown`` is caught by the ``&``)."""
-
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
+    def check(self, evt: BaseHookEvent) -> bool:
         return any(
-            head_program(occ.command) == "codex-ask"
-            and (is_background_amp(occ) or normalize_executable(occ.command.executable) in DETACH_WRAPPERS)
-            for occ in walk_occurrences(cl)
+            SubcommandIn(EXEC_SUBCOMMANDS)(CODEX.bind(call))
+            for call, _ in expanded_calls(evt.command)
+            if call.name == "codex"
         )
 
 
-class CodexWrapperInvoked(CustomCommandLineCondition):
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return any(True for _ in wrapper_occurrences(cl))
-
-
-class CodexWrapperDetached(CustomCommandLineCondition):
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return any(
-            is_background_amp(occ) or normalize_executable(occ.command.executable) in DETACH_WRAPPERS
-            for occ in wrapper_occurrences(cl)
-        )
-
-
-class CodexExecDirect(CustomCommandLineCondition):
-    """The ``codex`` CLI runs an ``exec``-style dispatch directly (not ``codex-ask``): basename
-    normalized, global value-flags skipped to reach the subcommand, wrappers and ``sh -c``/``eval``
-    payloads unwrapped. ``codex-ask``'s program basename is ``codex-ask`` (≠ ``codex``), so it is
-    excluded; ``codex login``/``resume``/``--version`` resolve to a non-exec subcommand or none."""
-
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return any(
-            head_program(occ.command) == "codex" and codex_subcommand(unwrapped_argv(occ.command)[1:]) in EXEC_SUBCOMMANDS
-            for occ in walk_occurrences(cl)
-        )
-
-
-class HandRolledReplyFormat(CustomCommandLineCondition):
-    """The command text (a heredoc body included) states a reply format the shipped contract
-    already covers — matched on literal openers only, never inferred from the prompt's shape."""
-
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return HANDROLLED_FORMAT.search(cl.raw) is not None
-
-
-class LaneSelected(CustomCommandLineCondition):
-    """A ``codex-ask`` invocation passes ``--lane``, so the caller already picked a sharpened
-    contract and whatever format text rides along is deliberate. Any occurrence suppresses the
-    whole command: cc_transcript gives a heredoc body no owning occurrence, so a command mixing
-    a laned and an unlaned call resolves to one verdict. Advisory-only, so the cost is a stray
-    nudge or a missed one, never a block."""
-
-    def check_command_line(self, evt: BaseHookEvent, cl) -> bool:
-        return any(
-            head_program(occ.command) == "codex-ask" and "--lane" in unwrapped_argv(occ.command)
-            for occ in walk_occurrences(cl)
-        )
-
+codex_ask_detached = Detached(lambda call: head_name(call) == "codex-ask")
+wrapper_detached = Detached(runs_prose_wrapper)
 
 hook(
     Event.PreToolUse,
     only_if=[
         Tool("Bash"),
-        CodexAskInvoked(),
-        Or(ToolInput(run_in_background="true"), CodexAskDetached()),
+        Invokes("codex-ask"),
+        Or(ToolInput(run_in_background="true"), codex_ask_detached),
     ],
     message=(
-        "codex-ask must run in the FOREGROUND — backgrounding it (run_in_background, a trailing "
-        "&, or nohup/setsid/disown) strands the finished reply on disk: background Bash "
-        "completion never wakes an in-process subagent (anthropics/claude-code#78782). Async is "
-        f"sanctioned, but routed: an owner subagent runs `{PLUGIN_BIN} --dispatch --owner "
-        "<agent-id>` foreground (returns at once) and parks on the await tool; a top-level "
-        f"session runs `--dispatch` and arms Monitor on `{PLUGIN_BIN} --watch <run-dir>`. A "
-        "blocking call already survives a Bash-tool timeout — rerun the printed AWAIT: line "
-        "foreground with timeout: 600000 to recover. Parallelism comes from parallel wrapper "
-        "agents or a workflow fan-out, never from backgrounding."
+        "Run `codex-ask` in the foreground, never with `&`, `nohup`, `setsid`, or `run_in_background`. "
+        f"For async work run `{PLUGIN_BIN} --dispatch --owner <agent-id>` and park on the await tool."
     ),
     block=True,
     tests={
-        Input(command="codex-ask x & echo launched"): Block(pattern="FOREGROUND"),
+        Input(command="codex-ask x & echo launched"): Block(pattern="foreground"),
         Input(command="(codex-ask x >log 2>&1 &)"): Block(),
         Input(
             command="codex-ask -s /tmp/x/lane review",
@@ -273,6 +111,8 @@ hook(
         Input(command="codex-ask -s /tmp/x/lane review &"): Block(),
         Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ &"): Block(),
         Input(command="bash -c 'codex-ask x &'"): Block(),
+        Input(command="setsid nohup codex-ask review"): Block(),
+        Input(command="setsid bash -c 'codex-ask x &'"): Block(),
         Input(command="codex-ask x; sleep 5 &"): Allow(),
         Input(command='echo "codex-ask &"'): Allow(),
         Input(command="codex-ask 'compare foo &'"): Allow(),
@@ -295,25 +135,17 @@ hook(
     },
 )
 
-RETRO = "/p/incident-retro/scripts/retro.py"
-DESIGN = "/p/design-doc/scripts/design.py"
-
-
 hook(
     Event.PreToolUse,
     only_if=[
         Tool("Bash"),
-        CodexWrapperInvoked(),
-        Or(ToolInput(run_in_background="true"), CodexWrapperDetached()),
+        InvokesProseWrapper(),
+        Or(ToolInput(run_in_background="true"), wrapper_detached),
     ],
     message=(
-        "`retro.py prose` and `design.py plainify` call codex inside, so they run in the FOREGROUND "
-        "like codex-ask itself: background Bash completion never wakes an in-process subagent "
-        "(anthropics/claude-code#78782), and the finished run sits on disk. A prose run longer than "
-        "the Bash tool's 10 minutes starts with `retro.py prose <dir> --detach`, which returns at "
-        "once and prints an AWAIT: line; rerun that `retro.py prose <dir> --await` in the foreground "
-        "with timeout: 600000 until it reports the exit. `design.py plainify` runs in the foreground "
-        "with timeout: 600000."
+        "Run `retro.py prose` and `design.py plainify` in the foreground, never with `&`, `nohup`, "
+        "`setsid`, or `run_in_background`. For a long prose run use `retro.py prose <dir> --detach`, "
+        "then rerun `retro.py prose <dir> --await` in the foreground."
     ),
     block=True,
     tests={
@@ -347,12 +179,8 @@ hook(
     Event.PreToolUse,
     only_if=[Tool("Bash"), CodexExecDirect()],
     message=(
-        "Don't call `codex exec` directly — route every codex dispatch through codex-ask. It "
-        "pins the model, reasoning effort, service tier, and OAuth auth, feeds "
-        "developer_instructions from the plugin AGENTS.md, mounts no MCP server unless --mcp "
-        "names one, runs --disable plugins (invalid plugin MCP config fails before -c overrides apply), "
-        "and owns the disk protocol (absolute scratch, staged reply on rc 0, and --await/--collect "
-        f"recovery). Rerun as `{PLUGIN_BIN} [-s <lane>] - <<'Q' … Q` in the foreground."
+        "Route every codex dispatch through `codex-ask`, never `codex exec`. "
+        f"Rerun as `{PLUGIN_BIN} [-s <lane>] - <<'Q'` in the foreground."
     ),
     block=True,
     tests={
@@ -360,6 +188,9 @@ hook(
             pattern="codex-ask"
         ),
         Input(command="codex -c model=y exec review"): Block(),
+        Input(command="codex --oss e review"): Block(),
+        Input(command="codex --strict-config exec review"): Block(),
+        Input(command="setsid codex exec review"): Block(),
         Input(command="/opt/homebrew/bin/codex exec review"): Block(),
         Input(command="env X=1 codex exec review"): Block(),
         Input(command="timeout 600 codex exec review"): Block(),
@@ -375,15 +206,11 @@ hook(
 
 hook(
     Event.PreToolUse,
-    only_if=[Tool("Bash"), CodexAskInvoked(), HandRolledReplyFormat()],
+    only_if=[Tool("Bash"), Invokes("codex-ask"), CommandCondition(HANDROLLED_FORMAT)],
     skip_if=[LaneSelected()],
     message=(
-        "This prompt hand-rolls a reply format the plugin already ships: the reply contract "
-        "lives in the codex plugin's AGENTS.md and reaches every run as developer_instructions, "
-        "so restating the verdict/severity/cite/fix shape here is redundant and can fight it. To "
-        "sharpen the shape instead, pass `--lane <name>` — review, refute, security, diagnose, "
-        "implement, or recon — and for a machine-checkable JSON reply, `--schema "
-        "verdict|findings|refutations`."
+        "This prompt restates a reply format the plugin already ships. "
+        "Pass `--lane <name>` (review, refute, security, diagnose, implement, recon) to sharpen it."
     ),
     tests={
         Input(
@@ -402,8 +229,6 @@ hook(
         Input(command="codex-ask -s /tmp/x/lane - <<'Q'\nreview this diff\nQ"): Allow(),
         Input(command="codex-ask 'why does the retry loop hang?'"): Allow(),
         Input(command="grep 'output format:' notes.md"): Allow(),
-        # AGENTS.md § Replies defers to a caller who asks for a bare artifact, so naming one
-        # is the contract working, not a hand-rolled format to nudge away.
         Input(
             command="codex-ask -s /tmp/x/lane - <<'Q'\nFix the parser. Reply with ONLY the "
             "edited function.\nQ"

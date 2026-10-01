@@ -3,13 +3,34 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from captain_hook.app import _state
+from captain_hook.conditions import matches_conditions
+from captain_hook.dispatch import execute_hook
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context
 
 from hooks import nudges, root_context
 from hooks.compaction_handoff import CompactionState
+from hooks.tests.root_fixtures import LONG
 
-LONG = "line\n" * 400
+RULE_NUDGE = (
+    "A standing rule stated by the owner must be recorded. "
+    "Run `answer_add` with `scope:durable`."
+)
+COMMITMENT_NUDGE = (
+    "A commitment approved for Slack must be recorded. Run `answer_add` with `scope:durable` and the permalink."
+)
+
+
+def fire(evt) -> list:
+    return [
+        result
+        for entry in _state.hooks
+        if Path(str(entry.source_file)) == Path(root_context.__file__)
+        and evt.event in entry.spec.events
+        and matches_conditions(entry.spec, evt)
+        and (result := execute_hook(entry, evt))
+    ]
 
 
 class Root:
@@ -34,8 +55,8 @@ class Root:
         return path
 
     def pre(self, tool: str, tool_input: dict) -> str | None:
-        result = root_context.keep_lane_reads_out_of_root(self.event(PreToolUseEvent, tool_name=tool, tool_input=tool_input))
-        return result.message if result else None
+        results = fire(self.event(PreToolUseEvent, tool_name=tool, tool_input=tool_input))
+        return results[0].message if results else None
 
     def read(self, path: Path, **window) -> str | None:
         return self.pre("Read", {"file_path": str(path)} | window)
@@ -44,17 +65,15 @@ class Root:
         return self.pre("Bash", {"command": command})
 
     def post(self, tool: str, tool_input: dict, response: object = "") -> str | None:
-        evt = self.event(PostToolUseEvent, tool_name=tool, tool_input=tool_input, tool_response=response)
-        root_context.nudge_unrecorded_standing_rule(evt)
-        result = root_context.learn_oversized_mcp(evt)
-        return result.message if result else None
+        results = fire(self.event(PostToolUseEvent, tool_name=tool, tool_input=tool_input, tool_response=response))
+        return results[0].message if results else None
 
     def say(self, prompt: str) -> None:
-        root_context.nudge_unrecorded_standing_rule(self.event(UserPromptSubmitEvent, prompt=prompt))
+        fire(self.event(UserPromptSubmitEvent, prompt=prompt))
 
     def stop(self) -> list[str]:
         evt = self.event(StopEvent)
-        root_context.nudge_unrecorded_standing_rule(evt)
+        fire(evt)
         with nudges.NudgeState.mutate(evt) as state:
             pending, state.pending = state.pending, []
         return pending
@@ -73,7 +92,7 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
 def test_lane_artifacts_block_at_any_size(root: Root, relative: str) -> None:
     message = root.read(root.file(relative, "one line\n"))
 
-    assert message is not None and message.startswith("delegate to a lane: Explore (model: sonnet) — reading lane artifact")
+    assert message is not None and message.startswith("Lane artifacts are read by a lane")
 
 
 def test_the_plan_and_progress_folder_read_in_full(root: Root) -> None:
@@ -85,7 +104,7 @@ def test_an_inbox_tail_passes_and_a_full_inbox_read_blocks(root: Root) -> None:
     inbox = root.file("scratch/inbox/orca-desk.md")
 
     assert root.read(inbox, offset=380) is None
-    assert "400-line read" in (root.read(inbox) or "")
+    assert "A read this large" in (root.read(inbox) or "")
 
 
 def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,11 +119,11 @@ def test_reads_of_inbox_files_pass_and_repo_files_block(root: Root) -> None:
 
     assert root.bash("tail -n 20 scratch/inbox/orca-desk.md") is None
     assert root.bash("rg -n R57 scratch/inbox/orca-desk.md") is None
-    assert "`cat` read" in (root.bash("cat src/app.py") or "")
-    assert "`rg` search" in (root.bash("rg -n R57 scratch/inbox/orca-desk.md src") or "")
+    assert "File reads" in (root.bash("cat src/app.py") or "")
+    assert "Searches" in (root.bash("rg -n R57 scratch/inbox/orca-desk.md src") or "")
     assert root.bash("sed -i '' 's/a/b/' src/app.py") is None
-    assert "`grep` read" in (root.bash("grep -i from src/app.py") or "")
-    assert "`cat` read" in (root.bash("cat src/*.py") or "")
+    assert "File reads" in (root.bash("grep -i from src/app.py") or "")
+    assert "File reads" in (root.bash("cat src/*.py") or "")
 
 
 @pytest.mark.parametrize("command", ["ccx vcs status | grep src", "ccx vcs status | jq .", "echo x | sed -n 1p"])
@@ -119,15 +138,15 @@ def test_oversized_mcp_response_blocks_its_next_call(root: Root) -> None:
 
     warning = root.post("mcp__linear__get_issue", {"id": "ENG-1"}, [{"type": "text", "text": "x" * 9000}])
 
-    assert warning is not None and "its next call blocks" in warning
-    assert "`mcp__linear__get_issue` fetch" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
+    assert warning is not None and "overflowed the drive root" in warning
+    assert "fetch is too large" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
 
 
 def test_unrecorded_standing_rule_nudges_at_stop(root: Root) -> None:
     root.say("From now on, release everything as it merges.")
     root.post("Bash", {"command": "date"})
 
-    assert root.stop() == [f"{root_context.UNRECORDED} — From now on, release everything as it merges."]
+    assert root.stop() == [RULE_NUDGE]
     assert root.stop() == []
 
 
@@ -166,7 +185,7 @@ def test_an_answer_from_an_interrupted_turn_does_not_cover_the_next_rule(root: R
     root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes"})
     root.say("never skip review")
 
-    assert root.stop() == [f"{root_context.UNRECORDED} — never skip review"]
+    assert root.stop() == [RULE_NUDGE]
 
 
 def approval(*previews: str) -> dict:
@@ -181,7 +200,7 @@ def approval(*previews: str) -> dict:
 def test_unrecorded_slack_commitment_nudges_at_stop(root: Root, preview: str) -> None:
     root.post("AskUserQuestion", approval(preview))
 
-    assert root.stop() == [root_context.UNRECORDED_COMMITMENT]
+    assert root.stop() == [COMMITMENT_NUDGE]
     assert root.stop() == []
 
 
@@ -207,22 +226,22 @@ def test_slack_posts_without_commitments_are_quiet(root: Root, tool: str, tool_i
 
 
 @pytest.mark.parametrize(
-    ("tool", "tool_input", "named"),
+    ("tool", "tool_input"),
     [
-        ("mcp__slack__slack_send_message", {"channel_id": "C0B", "text": "_(Yasyf's Claude)_ On it"}, "`mcp__slack__slack_send_message`"),
-        ("mcp__slack__slack_add_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}, "`mcp__slack__slack_add_reaction`"),
-        ("mcp__slack__slack_remove_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}, "`mcp__slack__slack_remove_reaction`"),
-        ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"channel_id": "C0B", "thread_ts": "1.2", "text": "On it"}, "`mcp__plugin_cc-slack_cc-slack__slack_reply`"),
-        ("mcp__plugin_cc-slack_cc-slack__slack_react", {"channel_id": "C0B", "ts": "1.2", "name": "eyes"}, "`mcp__plugin_cc-slack_cc-slack__slack_react`"),
-        ("Bash", {"command": "~/.claude/plugins/cache/forge/cc-slack/0.2.11/bin/cc-slack react --url C0B/p1 --name eyes"}, "`cc-slack react`"),
-        ("Bash", {"command": "cc-slack reply --url C0B/p1 --text 'On it' # root:raw"}, "`cc-slack reply`"),
+        ("mcp__slack__slack_send_message", {"channel_id": "C0B", "text": "_(Yasyf's Claude)_ On it"}),
+        ("mcp__slack__slack_add_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}),
+        ("mcp__slack__slack_remove_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}),
+        ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"channel_id": "C0B", "thread_ts": "1.2", "text": "On it"}),
+        ("mcp__plugin_cc-slack_cc-slack__slack_react", {"channel_id": "C0B", "ts": "1.2", "name": "eyes"}),
+        ("Bash", {"command": "~/.claude/plugins/cache/forge/cc-slack/0.2.11/bin/cc-slack react --url C0B/p1 --name eyes"}),
+        ("Bash", {"command": "cc-slack reply --url C0B/p1 --text 'On it' # root:raw"}),
     ],
 )
-def test_the_root_never_writes_to_slack(root: Root, tool: str, tool_input: dict, named: str) -> None:
+def test_the_root_never_writes_to_slack(root: Root, tool: str, tool_input: dict) -> None:
     message = root.pre(tool, tool_input) or ""
 
-    assert message.startswith(f"delegate to a lane: {root_context.SLACK_LANE}")
-    assert named in message and "R20" in message
+    assert message.startswith("The drive root never writes to Slack.")
+    assert "long-running:lane-ship" in message
 
 
 @pytest.mark.parametrize(
@@ -231,3 +250,11 @@ def test_the_root_never_writes_to_slack(root: Root, tool: str, tool_input: dict,
 )
 def test_the_root_keeps_its_own_dm_status_and_identity_checks(root: Root, command: str) -> None:
     assert root.bash(command) is None
+
+
+def test_a_new_standing_rule_reopens_a_recorded_slack_commitment(root: Root) -> None:
+    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Earlier", "body": "yes"})
+    root.say("from now on, release as merged")
+    root.post("AskUserQuestion", approval("From now on we release as merged."))
+
+    assert root.stop() == [RULE_NUDGE, COMMITMENT_NUDGE]

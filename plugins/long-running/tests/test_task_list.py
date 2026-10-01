@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cc_transcript import Session
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 
+from fire import fire
 from hooks import nudges, task_list
 from hooks.compaction_handoff import CompactionState
 
 SESSION = "0123456789abcdef"
+ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
 TEAM = "session-root"
 NOW = datetime.now(UTC)
 
@@ -20,12 +24,29 @@ def stamp(at: datetime) -> str:
     return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def envelope(kind: str, at: datetime | None = None, *, sidechain: bool = False) -> dict:
+    return {
+        "type": kind,
+        "isSidechain": sidechain,
+        "timestamp": stamp(at or datetime.now(UTC)),
+        "uuid": str(uuid.uuid4()),
+        "parentUuid": None,
+        "sessionId": SESSION,
+    }
+
+
+def user_row(content: object, at: datetime | None = None, *, sidechain: bool = False) -> dict:
+    return envelope("user", at, sidechain=sidechain) | {"message": {"role": "user", "content": content}}
+
+
+
+
 class Drive:
     def __init__(self, home: Path) -> None:
         self.claude = home / ".claude"
         self.root = self.claude / "projects" / "p" / "root.jsonl"
         self.root.parent.mkdir(parents=True)
-        self.root.write_text(json.dumps({"type": "user", "message": {"content": "/long-running go"}}) + "\n")
+        self.root.write_text(json.dumps(user_row("/long-running go")) + "\n")
         self.tasks = self.claude / "tasks" / TEAM
         self.tasks.mkdir(parents=True)
         self.session_dir = home / "state"
@@ -42,14 +63,11 @@ class Drive:
         meta = {"name": name, "description": f"{name} lane", "teamName": TEAM, "taskKind": "in_process_teammate"}
         (subagents / f"agent-a{name}.meta.json").write_text(json.dumps(meta))
         at = NOW - behind
+        usage = {"input_tokens": 1, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1}
+        reply = {"role": "assistant", "model": "claude-opus-5-5", "usage": usage, "content": [{"type": "text", "text": "ok"}]}
         rows = [
-            {"type": "user", "isSidechain": True, "timestamp": stamp(at - timedelta(hours=1)), "message": {"content": "go"}},
-            {
-                "type": "assistant",
-                "isSidechain": True,
-                "timestamp": stamp(at),
-                "message": {"model": "claude-opus-5-5", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1}},
-            },
+            user_row("go", at - timedelta(hours=1), sidechain=True),
+            envelope("assistant", at, sidechain=True) | {"message": reply},
         ]
         (subagents / f"agent-a{name}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
         roster = self.claude / "teams" / TEAM / "config.json"
@@ -68,25 +86,27 @@ class Drive:
             transcript.writelines(json.dumps(entry) + "\n" for entry in entries)
 
     def say(self, text: str) -> None:
-        self.append({"type": "user", "message": {"role": "user", "content": text}})
+        self.append(user_row(text))
 
     def queue(self, text: str) -> None:
-        self.append({"type": "attachment", "attachment": {"type": "queued_command", "prompt": text}})
+        self.append(envelope("attachment") | {"attachment": {"type": "queued_command", "prompt": text}})
 
     def event(self, cls, **raw):
         payload = {"session_id": SESSION, "transcript_path": str(self.root), "cwd": str(self.claude.parent)} | raw
-        return cls(_raw=payload, ctx=build_context(session_dir=self.session_dir))
+        ctx = build_context(transcript=Session.from_path(self.root), session_dir=self.session_dir)
+        return cls(_raw=payload, ctx=ctx)
 
     def tool(self, name: str, tool_input: dict, **raw) -> str | None:
-        result = task_list.track_task_list(self.event(PostToolUseEvent, tool_name=name, tool_input=tool_input, **raw))
-        return result.message if result else None
+        evt = self.event(PostToolUseEvent, tool_name=name, tool_input=tool_input, **raw)
+        messages = [result.message for result in fire(task_list, evt)]
+        return "\n".join(messages) or None
 
     def bash(self, command: str = "ls") -> str | None:
         return self.tool("Bash", {"command": command})
 
     def stop(self) -> list[str]:
         evt = self.event(StopEvent, background_tasks=list(self.lanes.values()))
-        task_list.track_task_list(evt)
+        assert fire(task_list, evt) == []
         with nudges.NudgeState.mutate(evt) as state:
             pending, state.pending = state.pending, []
         return pending
@@ -104,7 +124,7 @@ def drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Drive:
 def test_spawn_without_a_task_is_named_at_turn_end(drive: Drive) -> None:
     drive.tool("Agent", {"name": "ledger-fix", "description": "fix ledger", "prompt": "go", "team_name": TEAM})
 
-    assert drive.stop() == ["lane ledger-fix has no task: TaskCreate one now with owner=ledger-fix"]
+    assert drive.stop() == ["Lane `ledger-fix` has no task. Run `TaskCreate` with `owner=ledger-fix`."]
     assert drive.stop() == []
 
 
@@ -134,7 +154,7 @@ def test_task_created_before_the_spawn_covers_it(drive: Drive) -> None:
 def test_orca_launch_counts_as_a_spawn(drive: Drive, command: str) -> None:
     drive.bash(command)
 
-    assert drive.stop() == ["lane alert-fix has no task: TaskCreate one now with owner=alert-fix"]
+    assert drive.stop() == ["Lane `alert-fix` has no task. Run `TaskCreate` with `owner=alert-fix`."]
 
 
 def test_unnamed_subagent_needs_no_task(drive: Drive) -> None:
@@ -148,10 +168,7 @@ def test_done_message_from_the_owning_lane_flags_its_task_once(drive: Drive) -> 
     drive.task("13", "Other work", owner="other-lane")
     drive.say('<teammate-message teammate_id="stack-lander" summary="landed">\n#28398 landed on dev\n</teammate-message>')
 
-    assert drive.bash() == (
-        "task #12 (stack-lander) may be complete: TaskUpdate it once you have consumed the deliverable "
-        "(PR routed, ruling recorded), never on the lane's word alone"
-    )
+    assert drive.bash() == "Lane `stack-lander` reported its task done. Consume its deliverable, then run `TaskUpdate`."
     drive.say('<teammate-message teammate_id="stack-lander" summary="done">\nall done\n</teammate-message>')
     assert drive.bash() is None
 
@@ -163,7 +180,7 @@ def test_lane_named_in_the_subject_owns_the_task(drive: Drive) -> None:
         "PR #41 GREEN, READY\n</teammate-message>"
     )
 
-    assert drive.bash().startswith("task #62 (ledger-auto-register) may be complete")
+    assert drive.bash().startswith("Lane `ledger-auto-register` reported its task done")
 
 
 def test_desk_relay_flags_the_lane_it_names_not_the_desk(drive: Drive) -> None:
@@ -172,7 +189,7 @@ def test_desk_relay_flags_the_lane_it_names_not_the_desk(drive: Drive) -> None:
     drive.say('<teammate-message teammate_id="landing-desk-2">\nR384 is done: incident-sandsql-handoff applied all three, orca-desk relayed\n</teammate-message>')
 
     [line] = drive.bash().splitlines()
-    assert line.startswith("task #68 (incident-sandsql-handoff) may be complete")
+    assert line.startswith("Lane `incident-sandsql-handoff` reported its task done")
     drive.say('<teammate-message teammate_id="orca-desk">\nR385 done, #28562 LANDED\n</teammate-message>')
     assert drive.bash() is None
 
@@ -182,7 +199,7 @@ def test_lane_with_several_tasks_flags_only_the_one_its_report_names(drive: Driv
     drive.task("60", "G37: force a TenantSmoke re-run", owner="deploy-experience")
     drive.say('<teammate-message teammate_id="deploy-experience">\nREADY #28608 — G37 TenantSmoke re-run\n</teammate-message>')
 
-    assert drive.bash().startswith("task #60 (deploy-experience) may be complete")
+    assert drive.bash().startswith("Lane `deploy-experience` reported its task done")
     drive.say('<teammate-message teammate_id="deploy-experience">\nGREEN #28599 — G38 handoff read\n</teammate-message>')
     assert drive.bash() is None
 
@@ -202,7 +219,7 @@ def test_worker_done_notification_flags_the_named_lane(drive: Drive) -> None:
         '"worker": "incident-sandsql-handoff"}</event>\n</task-notification>'
     )
 
-    assert drive.bash().startswith("task #68 (incident-sandsql-handoff) may be complete")
+    assert drive.bash().startswith("Lane `incident-sandsql-handoff` reported its task done")
 
 
 def test_owner_ask_without_a_task_is_flagged_on_the_third_call(drive: Drive) -> None:
@@ -211,8 +228,7 @@ def test_owner_ask_without_a_task_is_flagged_on_the_third_call(drive: Drive) -> 
     assert [drive.bash(), drive.bash(), drive.bash()] == [
         None,
         None,
-        "owner ask has no task: TaskCreate one per ask this turn, owner = the lane you dispatch — "
-        "\"fix the long running ledger so you're not guessing https://github.com/x/y/pull/1\"",
+        ASK_LINE,
     ]
 
 
@@ -227,10 +243,7 @@ def test_owner_ask_answered_with_a_task_is_quiet(drive: Drive) -> None:
 def test_mid_turn_owner_ask_is_flagged_at_turn_end(drive: Drive) -> None:
     drive.queue("also sweep every monitor so only outages page")
 
-    assert drive.stop() == [
-        "owner ask has no task: TaskCreate one per ask this turn, owner = the lane you dispatch — "
-        '"also sweep every monitor so only outages page"'
-    ]
+    assert drive.stop() == [ASK_LINE]
 
 
 @pytest.mark.parametrize(
@@ -264,8 +277,7 @@ def test_reconciliation_lists_stale_tasks_and_untracked_lanes(drive: Drive) -> N
 
     assert turns[:-1] == [[]] * (task_list.RECONCILE_TURNS - 1)
     assert turns[-1] == [
-        "task list drift — in_progress with no working lane: #2 (quiet-lane), #3 (gone-lane); "
-        "running lanes with no open task: loose-lane. Complete what you consumed, re-own or delete the rest."
+        "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
     ]
 
 
@@ -274,13 +286,13 @@ def test_completing_an_unrelated_task_leaves_the_ask_pending(drive: Drive) -> No
     drive.tool("TaskUpdate", {"taskId": "3", "status": "deleted"})
 
     assert drive.bash() is None
-    assert drive.bash().startswith("owner ask has no task")
+    assert drive.bash() == ASK_LINE
 
 
 def test_owner_ask_with_an_image_is_read_from_its_text_block(drive: Drive) -> None:
-    drive.append({"type": "user", "message": {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "fix this"}]}})
+    drive.append(user_row([{"type": "image"}, {"type": "text", "text": "fix this"}]))
 
-    assert drive.stop()[0].startswith("owner ask has no task")
+    assert drive.stop() == [ASK_LINE]
 
 
 def test_explicit_task_list_id_wins(drive: Drive, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -298,7 +310,7 @@ def test_named_task_and_negative_status(drive: Drive) -> None:
     drive.say('<teammate-message teammate_id="deploy-experience">\n#28608 NOT-READY: smoke red\n</teammate-message>')
     assert drive.bash() is None
     drive.say('<teammate-message teammate_id="deploy-experience">\ntask #60 done\n</teammate-message>')
-    assert drive.bash().startswith("task #60 (deploy-experience) may be complete")
+    assert drive.bash().startswith("Lane `deploy-experience` reported its task done")
 
 
 def test_orca_lane_is_never_called_missing(drive: Drive) -> None:

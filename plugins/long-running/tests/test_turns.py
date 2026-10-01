@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from cc_transcript import parse
 
 from hooks import turns
 
@@ -77,3 +78,20 @@ def test_threshold(
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     assert turns.threshold(model, hint, FIXTURES / project if project else None) == limit
+
+
+@pytest.mark.parametrize("sidechain", [False, True])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "usage-170k-synthetic-tail.jsonl",
+        "usage-170k-sonnet-4-6.jsonl",
+        "usage-262k-fable-5-1.jsonl",
+        "usage-460k.jsonl",
+        "usage-800k.jsonl",
+    ],
+)
+def test_turn_of_events_matches_latest_turn_of_the_file(name: str, sidechain: bool) -> None:
+    transcript = FIXTURES / name
+
+    assert turns.turn_of(parse(transcript).events, sidechain=sidechain) == turns.latest_turn(transcript, sidechain=sidechain)
