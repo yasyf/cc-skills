@@ -139,3 +139,29 @@ def test_a_provenance_parenthetical_ending_in_standing_is_a_standing_line() -> N
 
     assert inbox.live() == {"R575": line}
     assert inbox.violations == []
+
+
+def test_a_later_supersede_clears_an_earlier_done_mark() -> None:
+    lines = ["R312 (standing) deploy every landing", "R348 receiver live — R312 done", "- R591 R312 superseded by G122"]
+
+    inbox = standing.read_inbox(lines)
+
+    assert inbox.live() == {}
+    assert inbox.violations == []
+
+
+def test_a_done_mark_after_the_supersede_is_still_flagged() -> None:
+    lines = ["R312 (standing) deploy every landing", "R591 R312 superseded by G122", "R600 R312 done"]
+
+    assert standing.read_inbox(lines).violations == [
+        "3: standing rule R312 is marked done; it ends only with `R312 superseded by <id>`"
+    ]
+
+
+def test_a_tag_quoted_in_prose_is_not_a_misplaced_tag() -> None:
+    line = "- R575 (root, 14:50Z, standing) → all desks: standing rules get their own `(standing)` ID line"
+
+    inbox = standing.read_inbox([line, "R576 note: a line tagged (standing) never shares its id"])
+
+    assert inbox.live() == {"R575": line}
+    assert inbox.violations == []

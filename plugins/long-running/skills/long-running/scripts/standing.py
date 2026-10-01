@@ -26,8 +26,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
-STANDING_TAG = "(standing)"
-STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+\((?:[^()]*,\s*)?standing\):?\s+\S")
+STANDING_TAG = r"\((?:[^()]*,\s*)?standing\)"
+STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+{STANDING_TAG}:?\s+\S")
+MISPLACED_TAG = re.compile(rf"\b{ID}`?[\s/]*{STANDING_TAG}")
 SUPERSEDED = re.compile(rf"\b({ID}|[0-9a-f]{{7,40}})`?\s+(?:is\s+)?superseded by\s+`?({ID}|[0-9a-f]{{7,40}})\b")
 DONE = re.compile(rf"\b({ID})`?\s*(?:[:=—–-]\s*|is\s+)?(?:done|completed?|closed|finished|retired)\b", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
@@ -54,20 +55,24 @@ class Inbox:
 
 def read_inbox(lines: list[str], source: str = "") -> Inbox:
     inbox = Inbox()
+    done: list[tuple[int, str, str]] = []
+    superseded_at: dict[str, int] = {}
     for number, line in enumerate(lines, 1):
         where = f"{source}:{number}" if source else str(number)
         if match := STANDING_LINE.match(line):
             inbox.rules[match[1]] = line.strip()
             continue
-        if STANDING_TAG in line:
+        if MISPLACED_TAG.search(line):
             inbox.violations.append(f"{where}: `(standing)` must follow the line's own single id: {line.strip()}")
         for old, new in SUPERSEDED.findall(line):
             inbox.superseded[old] = new
-        inbox.violations += [
-            f"{where}: standing rule {rid} is marked done; it ends only with `{rid} superseded by <id>`"
-            for rid in DONE.findall(line)
-            if rid in inbox.rules
-        ]
+            superseded_at[old] = number
+        done += [(number, where, rid) for rid in DONE.findall(line) if rid in inbox.rules]
+    inbox.violations += [
+        f"{where}: standing rule {rid} is marked done; it ends only with `{rid} superseded by <id>`"
+        for number, where, rid in done
+        if superseded_at.get(rid, 0) <= number
+    ]
     return inbox
 
 
