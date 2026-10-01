@@ -116,9 +116,11 @@ def test_shim_stays_put_when_no_live_sibling_exists(tmp_path: Path):
     assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun vcs pr status"
 
 
-def test_shim_ignores_newer_siblings_when_its_own_dir_is_live(tmp_path: Path):
-    cache = plugin_cache(tmp_path, {"0.61.0": False, "0.64.1": False})
-    assert run_shim(tmp_path, cache, "0.61.0") == "0.61.0 tool.binrun vcs pr status"
+def test_shim_hops_from_a_live_dir_to_a_newer_live_sibling(tmp_path: Path):
+    cache = plugin_cache(
+        tmp_path, {"0.61.0": False, "0.64.1": False, "0.70.0": True}
+    )
+    assert run_shim(tmp_path, cache, "0.61.0") == "0.64.1 tool.binrun vcs pr status"
 
 
 def test_shim_never_hops_down(tmp_path: Path):
