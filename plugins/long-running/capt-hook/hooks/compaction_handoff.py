@@ -37,8 +37,13 @@ LAUNCH = re.compile(rb'"skill":\s*"(?:long-running:)?long-running"|<command-name
 PLAN_ARG =re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
-DOC_SECTIONS = "how the drive runs; owner asks and state; lanes and binding rulings; landed; waiting on the owner; root's next actions"
+DOC_SECTIONS = (
+    "how the drive runs; standing owner rules; owner asks and state; lanes and binding rulings; landed; "
+    "waiting on the owner; root's next actions"
+)
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
+STANDING = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "standing.py"
+VIOLATIONS = 3
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 FIRE_FRACTION = 0.8
 CCN_TIMEOUT_SECONDS = 20
@@ -107,6 +112,14 @@ def records(state: CompactionState, cwd: str) -> list[str]:
     return [doc["id"] for doc in progress_docs(state, cwd) or []]
 
 
+def standing(state: CompactionState, cwd: str, verb: str, *args: str) -> subprocess.CompletedProcess[str]:
+    argv = [sys.executable, str(STANDING), verb, "--program", state.slug or "", "--repo", cwd, *args]
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", "timed out")
+
+
 def resume_steps(state: CompactionState) -> str:
     plan = Path(state.plan_path or "")
     if state.store == "folder":
@@ -152,11 +165,20 @@ def point_plan(plan: Path, line: str) -> None:
     plan.write_text("\n".join(lines) + "\n")
 
 
-def record_doc(state: CompactionState, cwd: str) -> bool:
+def record_doc(state: CompactionState, cwd: str) -> bool | str:
     docs = progress_docs(state, cwd)
     if not (fresh := [doc for doc in docs or [] if doc["id"] not in state.prior]):
         return False
     newest = max(fresh, key=lambda doc: doc["updated_at"])
+    previous = max((doc for doc in docs or [] if doc["id"] != newest["id"]), key=lambda doc: doc["updated_at"], default=None)
+    lint = standing(state, cwd, "lint", "--doc", newest["id"], *(["--previous-doc", previous["id"]] if previous else []))
+    if lint.returncode == VIOLATIONS:
+        return (
+            f"Progress doc `{newest['id'][:8]}` fails the standing-rules lint (long-running Write the progress doc); "
+            f"fix it with `ccn doc edit {newest['id'][:8]} --body -`, then stop again:\n{lint.stdout.strip()}"
+        )
+    if lint.returncode:
+        return False
     for doc in docs or []:
         if doc["id"] != newest["id"] and ccn(cwd, "doc", "supersede", doc["id"], "--by", newest["id"]).returncode:
             return False
@@ -367,9 +389,13 @@ def send_compact(handle: str, instructions: str, transcript: Path) -> None:
     )
 
 
-def compact_due(state: CompactionState, cwd: str) -> bool:
-    if state.phase == "due" and (record_file(state) if state.store == "folder" else record_doc(state, cwd)):
-        state.phase = "written"
+def compact_due(state: CompactionState, cwd: str) -> bool | str:
+    if state.phase == "due":
+        recorded = record_file(state) if state.store == "folder" else record_doc(state, cwd)
+        if isinstance(recorded, str):
+            return recorded
+        if recorded:
+            state.phase = "written"
     if state.phase == "written":
         return True
     return (
@@ -399,8 +425,10 @@ def compact_due(state: CompactionState, cwd: str) -> bool:
 )
 def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if not state.active or not state.plan_path or not compact_due(state, evt.cwd):
+        if not state.active or not state.plan_path or not (due := compact_due(state, evt.cwd)):
             return None
+        if isinstance(due, str):
+            return evt.block(due)
         state.phase = "compacting"
         if not (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
             state.compacting_since = None
@@ -417,14 +445,26 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreCompact,
     tests={
-        Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]): Warn(
+        Input(
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")],
+            commands={f"{sys.executable} {STANDING} titles": ""},
+        ): Warn(
             pattern=r"^Long-running compaction handoff\. `/p/brook\.md` and its progress record are the "
             r"authoritative restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
             r"`ccn doc show <id>`\. Keep only in-flight details from the last turn that they lack\.$"
         ),
+        Input(
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")],
+            commands={f"{sys.executable} {STANDING} titles": "- 4ffc9a5 When does a merged change get released?\n"},
+        ): Warn(
+            pattern=r"(?s)they lack\.\nStanding owner rules \(scope:durable answers; keep every title verbatim in the "
+            r"summary\):\n- 4ffc9a5 When does a merged change get released\?$"
+        ),
         Input(transcript=FIXTURES / "usage-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
         Input(
-            transcript=FIXTURES / "launched-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]
+            transcript=FIXTURES / "launched-460k.jsonl",
+            state=[CompactionState(plan_path="/p/brook.md", slug="brook")],
+            commands={f"{sys.executable} {STANDING} titles": ""},
         ): Warn(pattern=r"^Long-running compaction handoff\. `/p/brook\.md` and its progress record"),
     },
 )
@@ -433,4 +473,6 @@ def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
         if not (launched(state, evt.transcript_path) and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-    return evt.context(compact_instructions(state))
+        titles = standing(state, evt.cwd, "titles").stdout.strip() if state.store == "ccn" else ""
+    rules = f"\nStanding owner rules (scope:durable answers; keep every title verbatim in the summary):\n{titles}" if titles else ""
+    return evt.context(compact_instructions(state) + rules)

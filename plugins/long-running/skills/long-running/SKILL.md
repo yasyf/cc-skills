@@ -758,6 +758,21 @@ same identity.
 **I5. Keep about 15 lanes per desk.** Split early into a second desk or a priority
 desk.
 
+**I6. A standing rule is its own tagged line, and it is never done.** An owner rule
+that holds until replaced ("from now on", "for the remainder", "every landing")
+gets its own id and line: `R<n> (standing) <rule>`. It never shares a line or an id
+with a one-off: "deploy everything now" and "deploy every landing from now on" are
+two lines. No line marks it done, complete, or closed. Only a later line
+`R<k> R<n> superseded by <id>` ends it. A desk brief names its standing rules as an
+id list, `standing: R40, R312`, plus the plan's Decisions, never as a range like
+"L65–L107 are standing". `standing.py inbox <inbox file>` prints the live ids and
+every line that breaks this rule; the desk appends its output to every summary.
+
+*Prevents the release-v3 "release everything as it merges" rule being lost three
+times on 2026-09-30 and 10-01: R312 shared a line with the one-off R311, the
+landing-desk-2 brief declared only "L65–L107 standing" and dropped L40, and R348
+marked "R312 done".*
+
 ## The lane bus
 
 `SendMessage` is fire-and-forget into an inbox. A message lands while its reader is
@@ -1405,6 +1420,10 @@ obligation accounted for under these sections:
 ## How the drive runs
 <root role, lane contracts, desks, ledger and rulings-log ids>
 
+## Standing owner rules
+<`standing.py titles --program <slug>` output, verbatim; then each live id from
+`standing.py inbox <inbox files>`; then `- <id> superseded by <id>` for each one dropped>
+
 ## Owner asks and state
 <every ask, its current state, evidence, and next gate>
 
@@ -1420,6 +1439,21 @@ obligation accounted for under these sections:
 ## Root's next actions
 <ordered actions, dependencies, and owed follow-ups>
 ```
+
+**Standing owner rules are copied, never summarized.** `standing.py titles` prints
+the program's `scope:durable` answers (`ccn answer list --label scope:durable --label
+<slug>`) as `- <id> <title>`; paste them as printed. Diff the section against the
+previous progress doc: every id it carried is carried again, or gets
+`- <id> superseded by <id>`. Every line anywhere in the doc that gates on the owner
+("owner's word", "owner approval", "owner sign-off", "owner GO", "reserved for the
+owner") cites a live answer id; otherwise delete the line or ask the owner. Before
+superseding, the `Stop` hook runs `standing.py lint` on the new doc against the
+previous one. On a failure it blocks the stop with the violations until
+`ccn doc edit <id> --body -` fixes them.
+
+*Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
+vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
+word)" plan lines re-imposed the gate it withdrew (2026-10-01).*
 
 Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the same
 record as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
@@ -1453,8 +1487,9 @@ by hand and blocks nothing.
 **Resume.** After compaction, `SessionStart` says to read the plan before anything
 else, then `ccn doc list --label progress:<slug>` and `ccn doc show <id>`. With the
 file fallback, read the newest file in the progress folder after the plan. The plan
-and progress record supersede the summary. `PreCompact` carries the same read order
-and keeps only in-flight details from the last turn that those records lack.
+and progress record supersede the summary. `PreCompact` carries the same read order,
+keeps only in-flight details from the last turn that those records lack, and appends
+`standing.py titles` so every standing owner rule survives into the summary verbatim.
 Claude Code's own auto-compaction can fire before the progress record is written;
 `SessionStart` says so and asks the root to write it when convenient. The skill stays
 active; reload `long-running` if its rules are no longer in context.
@@ -1660,6 +1695,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
+19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; handoffs paste `standing.py titles` verbatim.
 
-Apply D3 to priority PRs before delegating. A call that survives all eighteen decides
+Apply D3 to priority PRs before delegating. A call that survives all nineteen decides
 something no lane can decide for you; everything else is a lane.
