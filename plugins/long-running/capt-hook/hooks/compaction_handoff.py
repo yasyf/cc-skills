@@ -238,14 +238,12 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
         docs = progress_docs(state, evt.cwd) or []
         if not (fresh := [doc for doc in docs if doc["id"] not in state.prior and not doc["title"].endswith(GENERATED_TITLE)]):
             return False
-        newest = max(fresh, key=lambda doc: doc["updated_at"])["id"]
-        narrative = ["--narrative-doc", newest]
+        narrative = ["--narrative-doc", max(fresh, key=lambda doc: doc["updated_at"])["id"]]
     generated = generate(evt, state, *narrative, "--strict")
     if generated.returncode == VIOLATIONS:
-        fix = f"`ccn doc edit {newest[:8]} --body -`" if state.store == "ccn" else f"`{narrative[1]}`"
         return (
-            "Your progress record fails the standing-rules lint (long-running Compaction handoff); "
-            f"fix it with {fix}, then stop again:\n{generated.stdout.strip()}"
+            "The drive's handoff fails the standing-rules lint (long-running Compaction handoff); "
+            f"make the edit each finding names at its file and line, then stop again:\n{generated.stdout.strip()}"
         )
     adopt(state, generated)
     return generated.returncode == 0

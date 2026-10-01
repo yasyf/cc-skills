@@ -165,3 +165,25 @@ def test_a_tag_quoted_in_prose_is_not_a_misplaced_tag() -> None:
 
     assert inbox.live() == {"R575": line}
     assert inbox.violations == []
+
+
+def test_a_later_standing_line_that_supersedes_a_rule_ends_it() -> None:
+    lines = [
+        "- G115 (root, 14:30Z, binding, standing) release everything as we merge it, on the owner's word",
+        "- G138 (standing) supersedes G115 as the cited form: no owner-word gate on any release, answer 4ffc9a5",
+    ]
+
+    inbox = standing.read_inbox(lines)
+
+    assert inbox.live() == {"G138": lines[1].strip()}
+    assert inbox.at == {"G115": 1, "G138": 2}
+    assert inbox.violations == []
+
+
+def test_restating_a_standing_rule_under_its_own_id_replaces_it() -> None:
+    lines = ["- R576 (standing) no PR waits for an owner click", "- R576 (standing) no PR waits for an owner click (answer 104926a)"]
+
+    inbox = standing.read_inbox(lines)
+
+    assert inbox.live() == {"R576": lines[1]}
+    assert inbox.at == {"R576": 2}

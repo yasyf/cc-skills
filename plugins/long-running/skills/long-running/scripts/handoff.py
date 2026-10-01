@@ -17,9 +17,10 @@ carries. ``--folder`` skips cc-notes and writes the file alone. ``--session`` is
 
 A rule the previous handoff carried and the sources no longer hold is written once as
 ``<id> superseded by ...``, so :func:`standing.lint` passes on every generated doc. Its other
-findings, owner-gate lines in the narrative that cite no live answer, and the plan's own
-uncited owner-gate lines go under ``## Lint findings``; with ``--strict`` a narrative finding
-writes nothing and exits :data:`standing.VIOLATIONS`.
+findings, owner-gate lines in the narrative or a live inbox rule that cite no live answer, each
+named by its file and line, and the plan's own uncited owner-gate lines go under
+``## Lint findings``; with ``--strict`` a narrative or inbox finding writes nothing and exits
+:data:`standing.VIOLATIONS`.
 
 It prints ``{"id", "file", "digest"}``. ``digest`` is the post-compaction restore, at most
 :data:`DIGEST_BUDGET` UTF-8 bytes: Claude Code injects SessionStart context past 10,000
@@ -74,6 +75,7 @@ class Handoff:
     registry: dict | None = None
     durable: list[dict] = field(default_factory=list)
     standing: dict[str, str] = field(default_factory=dict)
+    sources: dict[str, str] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
     retired: list[str] = field(default_factory=list)
     asks: list[str] = field(default_factory=list)
@@ -85,6 +87,7 @@ class Handoff:
     plan_findings: list[str] = field(default_factory=list)
     narrative: str = ""
     narrative_from: str = ""
+    narrative_edit: str = "in your next progress record"
 
     @property
     def stamp(self) -> str:
@@ -133,6 +136,7 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
         lines = path.read_text(errors="replace").splitlines()
         inbox = standing.read_inbox(lines, path.name)
         handoff.standing |= {rid: f"{text.lstrip('-* ')} [{path.name}]" for rid, text in inbox.live().items()}
+        handoff.sources |= {rid: f"{path}:{inbox.at[rid]}" for rid in inbox.live()}
         handoff.superseded |= inbox.superseded
         rulings = [line.strip() for line in lines if RULING.match(line)]
         cursor = path.with_name(f"{path.name}.cursor")
@@ -233,9 +237,29 @@ def retire(handoff: Handoff, previous: str | None) -> None:
             handoff.retired.append(f"{rid} superseded by {successor}")
 
 
+def uncited_inbox_rules(handoff: Handoff, live: set[str]) -> list[str]:
+    return [
+        f"{handoff.sources[rid]}: standing rule {rid} is an owner-gate line that cites no live answer id: "
+        f"{clip(text, RULING_CHARS)}; end that line with `(answer <id>)`, or append `- <new id> (standing) supersedes {rid} "
+        "…, answer <id>` to the inbox"
+        for rid, text in handoff.standing.items()
+        if standing.gated(text, live)
+    ]
+
+
+def uncited_narrative_lines(handoff: Handoff, live: set[str]) -> list[str]:
+    return [
+        f"narrative ({handoff.narrative_from}) line {number}: owner-gate line cites no live answer id: "
+        f"{clip(line, RULING_CHARS)}; end that line with `(answer <id>)` {handoff.narrative_edit}"
+        for number, line in enumerate(handoff.narrative.splitlines(), 1)
+        if standing.gated(line, live)
+    ]
+
+
 def check(handoff: Handoff, previous: str | None, live: set[str]) -> None:
     retire(handoff, previous)
-    handoff.findings = standing.lint(lint_view(render(handoff)), previous, handoff.durable, live)
+    handoff.findings = standing.rule_findings(render(handoff), previous, handoff.durable)
+    handoff.findings += uncited_inbox_rules(handoff, live) + uncited_narrative_lines(handoff, live)
     handoff.plan_findings = uncited_plan_lines(Path(handoff.plan), live)
 
 
@@ -289,6 +313,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
         read_inboxes(handoff, inbox_dir)
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
+        handoff.narrative_edit = f"in `{args.narrative_file}`"
     if args.folder:
         files = sorted(progress_folder(plan).glob("*-generated.md"), key=lambda path: path.stat().st_mtime)
         previous = files[-1].read_text() if files else None
@@ -303,6 +328,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     previous = doc_body(shell, args.repo, max(active, key=lambda doc: doc["updated_at"])["id"]) if active else None
     if args.narrative_doc:
         handoff.narrative, handoff.narrative_from = doc_body(shell, args.repo, args.narrative_doc).strip(), f"doc {args.narrative_doc[:SHORT]}"
+        handoff.narrative_edit = f"via `ccn doc edit {args.narrative_doc[:8]} --body -`"
     elif previous and not args.narrative_file:
         newest = max(active, key=lambda doc: doc["updated_at"])
         handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"doc {newest['id'][:SHORT]}")

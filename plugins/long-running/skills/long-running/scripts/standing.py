@@ -7,7 +7,8 @@
 
 STDLIB ONLY. A standing rule is one inbox line, ``R<n> (standing) <rule>`` or
 ``R<n> (<who, when>, standing) <rule>``, carrying no other ruling; it is never done, and
-only a later line ``R<k> R<n> superseded by <id>`` ends it.
+only a later line ``R<k> R<n> superseded by <id>``, or a later standing line saying
+``supersedes R<n>``, ends it.
 ``inbox`` prints the live standing ids with their text and exits 3 on any line that breaks the
 convention. ``titles`` prints the program's ``scope:durable`` answers as ``- <id> <title>``, the
 verbatim body of a handoff's Standing owner rules section. ``lint`` exits 3 when a progress doc
@@ -30,6 +31,7 @@ STANDING_TAG = r"\((?:[^()]*,\s*)?standing\)"
 STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+{STANDING_TAG}:?\s+\S")
 MISPLACED_TAG = re.compile(rf"\b{ID}`?[\s/]*{STANDING_TAG}")
 SUPERSEDED = re.compile(rf"\b({ID}|[0-9a-f]{{7,40}})`?\s+(?:is\s+)?superseded by\s+`?({ID}|[0-9a-f]{{7,40}})\b")
+SUPERSEDES = re.compile(rf"\bsupersedes\s+`?({ID})\b", re.IGNORECASE)
 DONE = re.compile(rf"\b({ID})`?\s*(?:[:=—–-]\s*|is\s+)?(?:done|completed?|closed|finished|retired)\b", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
 NEXT_SECTION = re.compile(r"^#{1,2}\s", re.MULTILINE)
@@ -46,6 +48,7 @@ VIOLATIONS = 3
 @dataclass
 class Inbox:
     rules: dict[str, str] = field(default_factory=dict)
+    at: dict[str, int] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
     violations: list[str] = field(default_factory=list)
 
@@ -61,6 +64,10 @@ def read_inbox(lines: list[str], source: str = "") -> Inbox:
         where = f"{source}:{number}" if source else str(number)
         if match := STANDING_LINE.match(line):
             inbox.rules[match[1]] = line.strip()
+            inbox.at[match[1]] = number
+            for old in SUPERSEDES.findall(line):
+                inbox.superseded[old] = match[1]
+                superseded_at[old] = number
             continue
         if MISPLACED_TAG.search(line):
             inbox.violations.append(f"{where}: `(standing)` must follow the line's own single id: {line.strip()}")
@@ -91,7 +98,11 @@ def cites(line: str, live: set[str]) -> bool:
     return any(any(answer.startswith(token) for answer in live) for token in HEX.findall(line))
 
 
-def lint(body: str, previous: str | None, required: list[dict], live: set[str]) -> list[str]:
+def gated(line: str, live: set[str]) -> bool:
+    return OWNER_GATE.search(line) is not None and not cites(line, live)
+
+
+def rule_findings(body: str, previous: str | None, required: list[dict]) -> list[str]:
     problems = []
     if (lines := section(body)) is None:
         problems.append(
@@ -112,12 +123,13 @@ def lint(body: str, previous: str | None, required: list[dict], live: set[str]) 
             for rid, line in carried(section(previous) or []).items()
             if rid not in now and "superseded by" not in line
         ]
-    problems += [
-        f"owner-gate line cites no live answer id: {line.strip()[:200]}"
-        for line in body.splitlines()
-        if OWNER_GATE.search(line) and not cites(line, live)
-    ]
     return problems
+
+
+def lint(body: str, previous: str | None, required: list[dict], live: set[str]) -> list[str]:
+    return rule_findings(body, previous, required) + [
+        f"owner-gate line cites no live answer id: {line.strip()[:200]}" for line in body.splitlines() if gated(line, live)
+    ]
 
 
 def ccn(repo: str, *args: str) -> str:
