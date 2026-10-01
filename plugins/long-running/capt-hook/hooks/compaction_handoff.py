@@ -33,7 +33,8 @@ from .nudges import queue_nudge
 from .turns import latest_turn, threshold
 
 SKILL_NAMES = ("long-running",)
-PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
+LAUNCH = re.compile(rb'"skill":\s*"(?:long-running:)?long-running"|<command-name>/(?:long-running:)?long-running</command-name>')
+PLAN_ARG =re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
 DOC_SECTIONS = "how the drive runs; owner asks and state; lanes and binding rulings; landed; waiting on the owner; root's next actions"
@@ -54,6 +55,17 @@ class CompactionState(WorkflowState):
     slug: str | None = None
     prior: list[str] = []
     compacting_since: float | None = None
+    scanned: int = 0
+
+
+def launched(state: CompactionState, transcript: Path) -> bool:
+    if not state.active:
+        with transcript.open("rb") as file:
+            file.seek(state.scanned)
+            tail = file.read()
+        state.scanned += tail.rfind(b"\n") + 1
+        state.active = LAUNCH.search(tail) is not None
+    return state.active
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -269,7 +281,11 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
 )
 def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if not state.active or state.phase != "idle" or not (root := latest_turn(evt.transcript_path)):
+        if (
+            not launched(state, evt.transcript_path)
+            or state.phase != "idle"
+            or not (root := latest_turn(evt.transcript_path))
+        ):
             return None
         limit = threshold(root.model, state.model, evt.cwd)
         if root.tokens < FIRE_FRACTION * limit:
@@ -305,7 +321,14 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             pattern=r"^Compacted long-running session\. .* The progress record was not written before compaction; "
             r"write it when convenient\.$"
         ),
-        Input(source="compact", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
+        Input(
+            source="compact", transcript=FIXTURES / "usage-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md")]
+        ): Allow(),
+        Input(
+            source="compact",
+            transcript=FIXTURES / "launched-460k.jsonl",
+            state=[CompactionState(plan_path="/p/brook.md", slug="brook")],
+        ): Warn(pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
     },
 )
@@ -322,7 +345,7 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         )
         state.phase = "idle"
         state.compacting_since = None
-        if not (state.active and state.plan_path):
+        if not (launched(state, evt.transcript_path) and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
     return evt.context(
@@ -399,12 +422,15 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             r"authoritative restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
             r"`ccn doc show <id>`\. Keep only in-flight details from the last turn that they lack\.$"
         ),
-        Input(state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
+        Input(transcript=FIXTURES / "usage-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
+        Input(
+            transcript=FIXTURES / "launched-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]
+        ): Warn(pattern=r"^Long-running compaction handoff\. `/p/brook\.md` and its progress record"),
     },
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if not (state.active and state.plan_path):
+        if not (launched(state, evt.transcript_path) and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
     return evt.context(compact_instructions(state))
