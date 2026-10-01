@@ -57,6 +57,33 @@ rulings, dispatch, and the handoff record.
 *Prevents the root filling its window with PR bodies and diffs it read to answer one
 question: "stop polluting your main context by reading PRs etc" (release-v3, 2026-09-30).*
 
+The pack's `root_context` hook enforces R1-R2 in a drive's root, and lanes and subagents
+pass it. It blocks each of these with `delegate to a lane: <agent> — <what> belongs to a
+lane, not the drive root`.
+- A Read whose window passes 150 lines.
+- A Read of a lane artifact: anything under `audits/`, `briefs/`, `handoffs/`,
+  `tool-results/`, `subagents/`, or `transcripts/`, a `matrix.md`, or a `.jsonl` transcript.
+- A search with `rg` or `ag`, and `cat`, `head`, `tail`, `sed`, `awk`, `grep`, or `jq`
+  over a file outside an `inbox/` directory.
+- A history or PR read: `git log`, `show`, `diff`, `blame`, or `grep`; `gh pr view`,
+  `gh pr diff`, `gh run view`, or `gh issue view`; `ccx code`, `repo`, or `web`;
+  `ccx vcs diff`, `show`, `history`, or `reviews`.
+- The Grep tool and the ccx MCP read tools.
+- A Slack thread, history, or search read, through the Slack MCP or `cc-slack thread`.
+- A Claude Docs, Datadog notebook, Linear document, or Capacities fetch, and any MCP
+  tool after one of its responses passed 8000 characters.
+
+These pass: the plan and its progress folder, an inbox tail, a filter over piped output
+such as `ccx vcs status | grep`, heredoc appends, `ls`, `date`, `ccn`, `ccx vcs status`,
+`ccx vcs pr status`, `cc-present`, `Agent`, `SendMessage`, the task tools, and `Monitor`.
+A trailing `# root:raw` on a Bash command runs it as written. Set
+`LONG_RUNNING_ROOT_READ_LINES`, `LONG_RUNNING_ROOT_MCP_CHARS`, or
+`LONG_RUNNING_ROOT_ARTIFACT_DIRS`, a comma list, in the session's environment to change
+the thresholds.
+
+*Prevents the root of 2026-10-01 reading audits, briefs, and PR state inline: "you again
+spammed your main context with stuff you didn't need to."*
+
 **R3. One lane per wait→do chain, and no lane ever parks.** "When X lands, do Y" is one
 sequencer lane that polls X, does Y, and sends one message. Never a per-step Bash
 watcher, never a Monitor per build, never a root-context poll. A lane that ends its turn
@@ -320,6 +347,12 @@ Only a question nothing settles goes to the owner. Each card names which authori
 
 The pack's `settled_questions` hook blocks the root's first asking call in a burst (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) while a drive is active and quotes the tracked plan's Decisions section.
 Re-issue the call after filtering; asking calls then pass for ten minutes.
+
+An owner message that states a standing rule, with "from now on", "always", "never", "I
+told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
+`scope:durable` and a line in the plan's Decisions section. When a turn ends without an `answer_add` or
+`answer_edit`, the `root_context` hook queues `owner standing rule not recorded:
+answer_add it (scope:durable) + a plan Decisions line` for the next turn.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
