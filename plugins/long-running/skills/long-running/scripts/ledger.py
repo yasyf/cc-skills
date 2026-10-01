@@ -615,7 +615,7 @@ def priority(item: tuple[str, dict[str, str]]) -> tuple[int, str]:
 
 
 def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
-    seq = max((int(key[len(prefix):]) for key in rows), default=0) + 1
+    seq = max((int(suffix) for suffix in (key[len(prefix):] for key in rows) if suffix.isdigit()), default=0) + 1
     return f"{prefix}{seq:06d}"
 
 
