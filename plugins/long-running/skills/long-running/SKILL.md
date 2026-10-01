@@ -195,8 +195,18 @@ This includes a new desk, a new landing model, and a new rule relayed to lanes.
 A change that lives only in scratch inbox files or a desk's brief is lost at the
 next drive.
 
+Tool improvements are automatic. When a lane or the root hits a tooling defect, a
+refusal, a `# ccx:raw` fallback, or a repeated chore that could be a verb, it
+spawns a tooling lane in the same turn to fix or build the tool, and keeps going.
+That lane carries the fix through PR, merge, release, and install. Nobody waits for
+the owner to ask. A lane that cannot spawn records a `ccn papercut` and names the
+defect in its report, and the root dispatches the tooling lane on reading it. The
+capt-hook `tooling_nudge` hook flags these signals; the rule holds without it.
+
 *Prevents the release-v3 R137 and R138 rulings of 2026-09-30 living only in the
-drive's inbox files until this skill change.*
+drive's inbox files until this skill change.* *Also prevents the owner asking three
+times on 2026-10-01 for tool fixes the root had worked around: the ccx submodule
+refusal, Orca message delivery, and the ledger gap.*
 
 **R15. CI is the verifier, never the box.** A lane never runs a whole-package build or
 suite locally: no `buck2 build`, `cargo build`, `yarn tsc:*`, `bun test`, jest, or
@@ -1418,6 +1428,7 @@ release-v3 drive (2026-09-30).*
 11. Am I about to relay one lane's head, contract, or decision to another? → it goes on the bus, and the other lane reads it.
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
+14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 
-Apply D3 to priority PRs before delegating. A call that survives all thirteen decides
+Apply D3 to priority PRs before delegating. A call that survives all fourteen decides
 something no lane can decide for you; everything else is a lane.
