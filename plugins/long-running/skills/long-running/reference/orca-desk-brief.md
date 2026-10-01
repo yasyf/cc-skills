@@ -67,7 +67,7 @@ environment. Set the accepted prefix policy's revision to #28601's revision.
       "ORCA_LAUNCH_STATE": "/absolute/drive/receipts",
       "ORCA_LAUNCH_CLAUDE_ARGS": "",
       "ORCA_LAUNCH_RETRY_SECONDS": "30",
-      "ORCA_LAUNCH_BOOT_SECONDS": "8"
+      "ORCA_LAUNCH_BOOT_SECONDS": "180"
     }
   },
   "deadlines": {
