@@ -148,6 +148,10 @@ Verified facts, do not re-derive:
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
+Design rulings on this subsystem, verbatim; the fix calls their entry point:
+  <design rulings>
+  entry point: <entry point>
+
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
 Do:
@@ -158,11 +162,19 @@ Do:
      A muted monitor still gets fixed; use the mute window.
   3. The moment you know the mechanism, record it for the executor:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
-  4. Open the PR through <submit skill>, then record it:
+  4. Design check, when the brief quotes design rulings. Before the PR opens,
+     record the entry point your change calls and how it meets each ruling:
+     `incident.py note --incident <incident id> --design-check "<symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>"`.
+     Open the PR once `incident.py status --incident <incident id>` shows the
+     design confirmed; a redirect arrives on the bus. A durable fix ships the
+     agreed design whole. A first PR that leaves out part of a ruling (its
+     footers, its judge, its entry point) changes what the code means, so it is
+     a hold, never a "static first" split; mitigate through the apply instead.
+  5. Open the PR through <submit skill>, then record it:
      `incident.py note --incident <incident id> --pr <PR number>`.
      The executor reports it, asks for human review when the broken surface is
      the reviewer, watches the landing, activates, and re-runs the failed work.
-  5. For a fix that needs a production apply, plan through <break-glass skill>,
+  6. For a fix that needs a production apply, plan through <break-glass skill>,
      apply under the authority above, log the apply in <runbook>, and verify it
      against the alert's metric. Then record the evidence:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.

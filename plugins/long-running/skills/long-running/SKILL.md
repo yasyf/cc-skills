@@ -33,7 +33,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The twenty-one hard rules
+## The twenty-two hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -528,6 +528,26 @@ your last reply in Pacific` when it carries a UTC clock time (`17:35Z`, `17:3xZ`
 Slack-copy rule; it delegated the owner's 'why did you…' to a lane instead of
 answering; and it described a 10-minute delay its own staged dispatches caused as
 'mixed signals': 'no one gave you mixed signals about responding to him, don't lie.'*
+
+**R22. Quote the owner's design verbatim. Ship that design or hold.**
+
+- In every brief or ruling on a subsystem, quote each owner design ruling verbatim
+  with its id and the required entry point as a symbol at `file:line`. Have a reader
+  lane find the symbol before dispatch. A package list is not an entry point:
+  importing every package still permits a second implementation.
+- Before READY-FOR-SHIP, name the entry point the diff calls, each ruling it meets,
+  and anything it leaves out. The root confirms this design check against the
+  rulings before any ship lane launches. Incident fix lanes record it with
+  `incident.py note --design-check`; the executor asks the root to confirm.
+- Never ship a "static first" split that changes the durable fix's agreed semantics,
+  such as dropping footers, the judge, or the entry point. Ship the design whole or
+  hold the PR; mitigate through the apply. If a lane says the full fix exceeds its
+  role, re-route it to a lane that can build it. Never narrow the design to fit the lane.
+
+*Prevents the C09G failure of 2026-10-01: R693 named packages instead of
+`releaseDAG`; R699 deferred footers and baseline; R704 sent READY-FOR-SHIP straight
+to a ship lane. #29109 added a second closure without footers, and the owner caught
+the mismatch in the diff.*
 
 ## The landing desk and its ledger
 
@@ -1104,6 +1124,10 @@ message.
 ```
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
+Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
+  with its id, and the entry point (symbol at file:line) it makes the change call; or
+  "none">. Before READY, state which entry point your diff calls, each ruling it meets,
+  and anything it leaves out; the root confirms before a ship lane launches (R22).
 Do:
   1. <step>
   2. <step>
@@ -2009,6 +2033,10 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner? → times in Pacific with no zone label; a
     'why did you…' answered in this turn in my own words; a delay I caused named as mine.
+22. Before briefing, ruling on, or shipping a subsystem change, quote the owner's
+    rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
+    lane's design check against those rulings before launching any ship lane.
+    Ship the whole design or hold.
 
-Apply D3 to priority PRs before delegating. A call that survives all twenty-one decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty-two decides
 something no lane can decide for you; everything else is a lane.

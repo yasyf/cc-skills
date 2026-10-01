@@ -185,6 +185,8 @@ Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
+Design rulings, verbatim: <each owner ruling on this subsystem, quoted with its id, and the entry point (symbol at file:line) it makes the change call; or "none">.
+Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">; completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
@@ -195,6 +197,8 @@ long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Fi
 
 ## Checks before launch
 
+- A lane that touches a subsystem the owner has ruled on quotes each ruling verbatim
+  and names its entry point as a symbol at file:line, never as a package list.
 - Each lane's Ownership excludes every other lane's files. If two lanes edit a shared
   file, the second is a stacked child of the first.
 - Every command in `common.md` runs as written from a lane's worktree.
