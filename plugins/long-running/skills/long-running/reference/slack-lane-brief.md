@@ -27,8 +27,8 @@ CLI: run thread, react, unreact, reply, send, and whoami by path:
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
      "React before you reply".
-  2. If this brief carries <grant id> for a thread reply, post it now, before
-     reacting or reading:
+  2. If this brief carries <grant id> for a thread reply, run both step 6 checks on
+     its text, then post it before reacting or reading:
      `cc-slack reply --url <permalink> --grant <grant id> --text <text>`.
      For a channel surface, SendMessage <root agent name> the exact draft to post.
      Report the reply's ts; then continue with the react.
@@ -44,11 +44,14 @@ Do:
   6. For a PR post, re-read its current state with
      `gh pr view <n> --json state,reviewDecision,statusCheckRollup` or
      `ccx vcs pr status <n>` immediately before having astra write the copy; give astra
-     those facts. Have astra write through Skill(codex), with the cc-slack skill's
-     four verbatim brief lines and ~/.wlm/profiles/<user>/style-card.md.
-     Use wlm voice, Pacific times with no timezone label, every PR, build, and commit
-     as a <url|label> link, people as <@U…> mentions, and one short message.
-     Run `slop-cop check <tmp> --lang=markdown --llm-effort=off`.
+     those facts. Have astra write through Skill(codex), with all the cc-slack
+     skill's verbatim brief lines and ~/.wlm/profiles/<user>/style-card.md.
+     Follow "Write a post" in full: plain words for the thread's reader, with every
+     build, PR, deploy, alert, monitor, dashboard, run, commit, and doc linked as
+     <url|label>. Write the text to <tmpfile>, then run
+     `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
+     finding. Run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`;
+     fix real flags.
   7. Post only with `--grant <grant id>`. Otherwise SendMessage <root agent name>
      the exact draft and stop. The root either records a standing thread grant
      from the owner's own words and hands back the id, or posts the approved
@@ -64,8 +67,10 @@ Do:
 
 Never: a post without `--grant`; relayed owner words as authority;
   the user-level Slack MCP unless the bot cannot join the conversation, per
-  the cc-slack skill's fallback table; a bare #N, sha, or build number; UTC;
-  internal lane or program jargon; announcing a pending PR as done;
+  the cc-slack skill's fallback table; an unlinked reference; drive inbox, ruling,
+  or cursor ids such as G158 or R699; lane/desk/cursor names; raw shas, ULIDs, or
+  run/browser/exec ids; status labels; unglossed code nouns;
+  announcing a pending PR as done;
   staging a dictated answer across several messages; a time in UTC or with a zone label.
 ```
 
@@ -95,18 +100,27 @@ Do:
      `bus.py read --bus <bus id> --lane <comms lane name> --json`, then
      `cc-slack thread --url <permalink>` against the ts values already seen.
   3. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
-     facts to report, with times already in Pacific. Post it now. For `thread`, use
+     facts to report, with times already in Pacific. Have astra draft per "Write a
+     post" in full: plain words for the thread's reader, with every build, PR,
+     deploy, alert, monitor, dashboard, run, commit, and doc linked as <url|label>.
+     Before each post, write the text to <tmpfile>, then run
+     `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
+     finding. Run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`;
+     fix real flags. Post the checked text verbatim. For `thread`, use
      `cc-slack reply --url <thread> --grant <grant> --text <copy>`. For `channel`,
      use `cc-slack send --channel <channel id> --grant <grant> --text <copy>`. Add eyes
      for `ack`, and swap eyes for white_check_mark after `recovered`.
   4. Answer every entry once it posts:
      `bus.py post --bus <bus id> --from <comms lane name> --kind answer --re <seq> --text "posted ts=<ts>"`.
      An entry left unanswered for two minutes reaches the root as a decision.
-  5. On a human question in the thread, add eyes and answer from the latest
-     executor entries, under the thread grant.
+  5. On a human question in the thread, add eyes and draft an answer from the latest
+     executor entries. Before each reply, follow step 3's drafting and both checks,
+     then post the checked text verbatim under the thread grant.
 
 Never: a post without a grant id from the executor; a reply to a from_claude message
-  without fresh owner words; a pending PR announced as done; UTC; lane or program
-  jargon.
+  without fresh owner words; a pending PR announced as done; UTC; an unlinked
+  reference; drive inbox, ruling, or cursor ids such as G158 or R699;
+  lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
+  unglossed code nouns.
 Finish: after answering the `recovered` entry, stop.
 ```
