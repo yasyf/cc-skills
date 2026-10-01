@@ -2216,7 +2216,7 @@ def test_go_goreleaser_notarize_block(go_var_pairs):
 
 def test_release_secret_setup_is_fail_closed():
     script = (Path(__file__).parents[1] / "skills/repo-bootstrap/scripts/set-release-secrets.sh").read_text()
-    assert 'die "1Password CLI unavailable or not signed in' in script
+    assert 'die "1Password CLI cannot list vaults' in script
     assert 'die "missing required release secrets in 1Password' in script
     assert "release will run unsigned" not in script
 
@@ -2237,7 +2237,6 @@ def test_release_secret_setup_validates_every_secret_before_writing(tmp_path):
     )
     (bin_dir / "op").write_text(
         "#!/bin/sh\n"
-        '[ "$1" = whoami ] && exit 0\n'
         'case "$2" in *MACOS_NOTARY_KEY/credential) exit 1 ;; esac\n'
         "printf secret\n"
     )
@@ -2253,6 +2252,70 @@ def test_release_secret_setup_validates_every_secret_before_writing(tmp_path):
     assert "MACOS_NOTARY_KEY" in result.stderr
     assert not log.exists(), "a repo secret was changed before the complete set was validated"
 
+
+
+def _release_secrets_stubs(tmp_path: Path, op_body: str) -> dict[str, str]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        '  "auth status") exit 0 ;;\n'
+        '  "repo view") echo repo; exit 0 ;;\n'
+        '  "secret set") echo "$*" >> "$GH_LOG"; cat >/dev/null; exit 0 ;;\n'
+        "esac\n"
+        "exit 1\n"
+    )
+    (bin_dir / "op").write_text("#!/bin/sh\n" 'echo "$*" >> "$OP_LOG"\n' + op_body)
+    for stub in (bin_dir / "gh", bin_dir / "op"):
+        stub.chmod(0o755)
+    return os.environ | {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "GH_LOG": str(tmp_path / "gh.log"),
+        "OP_LOG": str(tmp_path / "op.log"),
+        "TMPDIR": str(tmp_path),
+    }
+
+
+APP_INTEGRATION_OP = (
+    'case "$*" in\n'
+    '  *whoami*) echo "[ERROR] account is not signed in" >&2; exit 1 ;;\n'
+    '  *"vault list"*) echo "[]"; exit 0 ;;\n'
+    '  *" read op://"*|"read op://"*) printf S3CRET-VALUE; exit 0 ;;\n'
+    "esac\n"
+    "exit 1\n"
+)
+
+
+@pytest.mark.parametrize("account", [None, "my.example.com"])
+def test_release_secret_setup_trusts_vault_access_over_whoami(tmp_path, account):
+    script = Path(__file__).parents[1] / "skills/repo-bootstrap/scripts/set-release-secrets.sh"
+    env = _release_secrets_stubs(tmp_path, APP_INTEGRATION_OP)
+    env.pop("OP_ACCOUNT", None)
+    if account:
+        env["OP_ACCOUNT"] = account
+    result = subprocess.run([script, "yasyf/example"], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    writes = (tmp_path / "gh.log").read_text().splitlines()
+    assert [w.split()[2] for w in writes] == [
+        "HOMEBREW_TAP_TOKEN", "MACOS_SIGN_P12", "MACOS_SIGN_PASSWORD",
+        "MACOS_NOTARY_ISSUER_ID", "MACOS_NOTARY_KEY_ID", "MACOS_NOTARY_KEY",
+    ]
+    assert "S3CRET-VALUE" not in result.stdout + result.stderr
+    op_calls = (tmp_path / "op.log").read_text().splitlines()
+    assert not any("whoami" in call for call in op_calls)
+    if account:
+        assert all(call.startswith(f"--account {account} ") for call in op_calls), op_calls
+
+
+def test_release_secret_setup_refuses_when_vaults_are_unreadable(tmp_path):
+    script = Path(__file__).parents[1] / "skills/repo-bootstrap/scripts/set-release-secrets.sh"
+    env = _release_secrets_stubs(tmp_path, "exit 1\n")
+    result = subprocess.run([script, "yasyf/example"], env=env, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "cannot list vaults" in result.stderr
+    assert not (tmp_path / "gh.log").exists()
+    assert (tmp_path / "op.log").read_text().splitlines() == ["vault list --format json"]
 
 def test_go_release_workflow_uses_reusable_workflow(go_var_pairs):
     # release.yml is a one-liner that forwards to the shared reusable workflow and inherits

@@ -24,6 +24,10 @@
 #   -n,--dry-run  report which secrets would be set without setting any; still
 #                 reads from 1Password (so presence is real — may prompt for Touch ID)
 #
+# Env:
+#   OP_ACCOUNT    1Password account (shorthand, sign-in address, or ID) every `op` call
+#                 uses; default: op's own default account
+#
 # Needs authenticated `gh` and `op`. The first `op read` may prompt for Touch ID.
 # Any missing prerequisite or secret exits non-zero before a repo is changed.
 set -euo pipefail
@@ -52,9 +56,11 @@ if [ -z "$REPOS" ]; then
     || die "could not infer repo — pass OWNER/REPO (create the repo first?)"
 fi
 
-if ! command -v op >/dev/null 2>&1 || ! op whoami >/dev/null 2>&1; then
-  die "1Password CLI unavailable or not signed in; refusing incomplete release configuration"
-fi
+command -v op >/dev/null 2>&1 || die "1Password CLI not found on PATH"
+# `op whoami` reports "not signed in" under the desktop-app integration even when the
+# vault is readable, so prove access with a non-secret read instead.
+op ${OP_ACCOUNT:+--account "$OP_ACCOUNT"} vault list --format json >/dev/null 2>&1 \
+  || die "1Password CLI cannot list vaults${OP_ACCOUNT:+ for account $OP_ACCOUNT}; refusing incomplete release configuration"
 
 echo "set-release-secrets.sh: reading release secrets from 1Password (vault $VAULT) — may prompt for Touch ID" >&2
 
@@ -66,7 +72,7 @@ trap 'rm -rf "$SECRETS_DIR"' EXIT
 
 absent=""
 for name in $SECRETS; do
-  if ! op read "op://$VAULT/$name/credential" >"$SECRETS_DIR/$name" 2>/dev/null \
+  if ! op ${OP_ACCOUNT:+--account "$OP_ACCOUNT"} read "op://$VAULT/$name/credential" >"$SECRETS_DIR/$name" 2>/dev/null \
       || [ ! -s "$SECRETS_DIR/$name" ]; then
     absent="${absent:+$absent }$name"
   fi
