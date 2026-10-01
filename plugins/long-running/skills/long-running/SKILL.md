@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The twenty hard rules
+## The twenty-one hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -269,10 +269,11 @@ and starts no build.
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill.*
 
-**R16. An active production alert gets its fix lane in the same turn.** A Datadog
-monitor in Alert, a Sentry alert, an `#outage` report, an on-call page, or an alert
-link from the owner is P0 from the moment it is seen. Run this checklist that turn,
-before anything else.
+**R16. An active production alert gets its fix lane in the same turn.** An active alert
+or outage on any surface: a Datadog monitor, a Sentry alert, an `#outage` report, an
+on-call page, a broken CI or review pipeline, or an alert or breakage link from the
+owner is P0 from the moment it is seen. Run this checklist that turn, before anything
+else.
 
 - (a) Spawn the fix lane with apply authority in its brief. PR through the repo's
   submit skill; break-glass or hand apply pre-authorized at `0 deletes` / `0 replaces`,
@@ -306,6 +307,9 @@ before anything else.
 - An `AskUserQuestion`
 - Treating a mute as resolution
 
+The fix lane's route is the surface-independent one in (a). A CI or tooling breakage
+is not a reason to spawn a Claude Agent fix lane.
+
 Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real,
 fix it" means fix lane plus evidence lane, not a verdict gate.
 
@@ -314,10 +318,17 @@ a second lane on a different model in parallel (Opus 5.5 after sol); keep the fi
 running. `reference/active-alert-brief.md` holds both briefs; O15 and
 `reference/orca-workers.md` hold launch mechanics.
 
+The pack's `owner_facing` hook blocks the root's `Agent` spawn whose name starts with
+`incident-` or `outage-`, or whose brief's first line says incident or outage, unless
+the name carries a support role (`evidence`, `export`, `ship`, `comms`, `intake`, `retro`,
+`watch`, `handoff`) or is the Opus 5.5 `-backup` lane.
+
 *Prevents the 2026-10-01 release-v3 failures, when the fix lane started 5.6 min late
-behind a verdict gate and the owner's sol routing was applied 6.4 min late, and three
+behind a verdict gate and the owner's sol routing was applied 6.4 min late; three
 owner-approved incident posts then waited 15 minutes on root turns while the root
-compacted and the Slack waiter parked in ten-minute polls.*
+compacted and the Slack waiter parked in ten-minute polls; and the pr-review outage's
+fix lane was spawned as a Claude opus Agent (`pr-review-pipeline-fix`) instead of a sol
+worker through the orca-desk.*
 
 **R17. Owner routing applies to the next spawn and to every live lane on that problem.**
 An owner's routing or process instruction applies in the turn it arrives.
@@ -420,6 +431,20 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
   and the Slack tools of `cc-slack:slack-waiter` and `cc-slack:slack-triage` are absent.
   The root's `ToolSearch` finding no cc-slack tool never licenses the user-level MCP;
   the Slack lane's CLI works in every session.
+- Urgency never licenses the root to write Slack. When a Slack lane stalls, the root
+  spawns a fresh sender lane whose brief carries the grant and the exact approved or
+  dictated text; it posts first, then watches. The root tells the owner "posting via
+  a lane" and checks the post's ts on disk within 2 minutes. A lane that is mid-watch
+  is never the channel for a new post.
+- An answer the owner dictated goes out as one message with the grant in the dispatch,
+  never staged across several instructions.
+- The owner's surface word is literal: "channel" means a top-level channel post,
+  "thread" a thread reply, "DM" a direct message.
+- A post about a PR re-reads the PR's state (approvals, CI, landed) immediately before
+  posting; the writer lane does that read itself, never the root from memory.
+- An incident's comms lane and fix lane get the owner's grant and each other's names
+  in their briefs and act on thread events without a root turn; the root is told,
+  not asked (`reference/active-alert-brief.md`).
 
 The pack's `root_context` hook blocks every Slack write in a drive's root with
 `delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
@@ -435,7 +460,36 @@ replied itself through the user-level Slack MCP (`17:29:25Z`, `17:29:59Z`), with
 times, bare `#28934` and build numbers, a pending-PR ETA, and no cc-slack skill loaded,
 because the session predated the install and its permission gate skipped on transcript
 size: "you shouldn't be doing that slack response inline, you should be delegating
-response and triage to a lane".*
+response and triage to a lane". The same day the root posted inline a second time at
+10:44am Pacific (through the user-level MCP, before the hook shipped), saying #28998
+still needed approval 3 minutes after Anubhav had approved it; it staged the dictated
+answer across three instructions to a waiter parked in a 590-second watch, so Anubhav
+waited about 10 minutes; and it posted a thread reply where the owner said 'send it in
+the channel'.*
+
+**R21. Talk to the owner in the owner's terms, and own the root's delays.**
+
+- Every time shown to the owner — chat replies, boards, Slack, and the owner-facing
+  lines of handoffs and progress docs — is Pacific with no zone label (`10:35am`,
+  `Oct 1 at 9:52am`). Inbox, runbook, and ledger stamps may stay UTC; any owner-facing
+  summary of them converts.
+- An owner "why did you…" gets a direct answer from the root in that same turn: the
+  cause in the root's own words, then the lane that fixes it. Delegating the answer to
+  a lane is not answering.
+- A delay the root's own dispatching caused is reported as the root's. Never attribute
+  it to the owner ("mixed signals", "conflicting instructions") when the owner said it
+  once.
+
+The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive and
+queues `owner-facing times are Pacific with no zone label (R21): restate <times> from
+your last reply in Pacific` when it carries a UTC clock time (`17:35Z`, `17:3xZ`,
+`16:52 UTC`).
+
+*Prevents release-v3, 2026-10-01: the root reported every time to the owner in UTC
+(`17:35Z`) although the owner had asked for Pacific, because the rule lived only as a
+Slack-copy rule; it delegated the owner's 'why did you…' to a lane instead of
+answering; and it described a 10-minute delay its own staged dispatches caused as
+'mixed signals': 'no one gave you mixed signals about responding to him, don't lie.'*
 
 ## The landing desk and its ledger
 
@@ -1869,6 +1923,8 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
+21. Am I about to reply to the owner? → times in Pacific with no zone label; a
+    'why did you…' answered in this turn in my own words; a delay I caused named as mine.
 
-Apply D3 to priority PRs before delegating. A call that survives all twenty decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty-one decides
 something no lane can decide for you; everything else is a lane.

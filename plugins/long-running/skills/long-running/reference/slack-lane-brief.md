@@ -12,34 +12,45 @@ Authority: reactions eyes, white_check_mark, and pray carry the owner's standing
   preview>. Without either, return the exact draft to <root agent name> and stop.
 
 Thread: <permalink>; channel <channel id>; ask message ts <message ts>.
+Surface: <channel | thread | DM> — the owner's word, literal: channel = top-level
+  post, thread = thread reply.
   React on the message that asks, not the thread root unless the root is the ask.
 Doing lane: <doing lane name>; result: <named disk file or bus entry>.
-CLI: run thread, react, unreact, reply, and whoami by path:
+CLI: run thread, react, unreact, reply, send, and whoami by path:
   ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack
   Every cc-slack command below uses that path. Lanes carry no mcp__* tools and
   no ToolSearch.
 
 Do:
-  1. Call Skill(cc-slack:slack) first. Follow "React before you reply" and
-     "Write a post".
-  2. Add eyes within one minute on the message that asks:
+  1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
+     "React before you reply".
+  2. If this brief carries approved or dictated text, post it now, before reacting or
+     reading (it is the reply the react-first rule exists to promise):
+     `cc-slack reply --url <permalink> --text <text>`, or
+     `cc-slack send --channel <id> --text <text>` for a top-level channel post;
+     report the ts; then continue with the react.
+  3. Add eyes within one minute on the message that asks:
      `cc-slack react --url <permalink> --name eyes`.
-  3. Read `cc-slack thread --url <permalink>` and SendMessage <root agent name>
+  4. Read `cc-slack thread --url <permalink>` and SendMessage <root agent name>
      ≤5 lines: who asks, what they ask, what fixes it, and links in the thread.
      An owner link always asks the root to act, whoever wrote the message.
      The owner's "Looking", "on it", or "checking" hands it to the drive.
      Never ask "what, if anything, it asks of the root".
-  4. Wait for <doing lane name>'s result (cause, PR, ETA) by polling <named disk file
+  5. Wait for <doing lane name>'s result (cause, PR, ETA) by polling <named disk file
      or bus entry> in a foreground loop. Never end the turn waiting.
-  5. Have astra write the copy through Skill(codex), with the cc-slack skill's four
-     verbatim brief lines and ~/.wlm/profiles/<user>/style-card.md.
+  6. For a PR post, re-read its current state with
+     `gh pr view <n> --json state,reviewDecision,statusCheckRollup` or
+     `ccx vcs pr status <n>` immediately before having astra write the copy; give astra
+     those facts. Have astra write through Skill(codex), with the cc-slack skill's
+     four verbatim brief lines and ~/.wlm/profiles/<user>/style-card.md.
      Use wlm voice, Pacific times with no timezone label, every PR, build, and commit
      as a <url|label> link, people as <@U…> mentions, and one short message.
      Run `slop-cop check <tmp> --lang=markdown --llm-effort=off`.
-  6. Post only with the grant above. Otherwise SendMessage <root agent name> the
+  7. Post only with the grant above. Otherwise SendMessage <root agent name> the
      exact draft and stop. The root shows it verbatim in an AskUserQuestion Send
      preview and hands the approved text back to this lane.
-  7. Post `cc-slack reply --url <permalink> --text <copy>` as the cc-slack bot.
+  8. Post on Surface as the cc-slack bot: `cc-slack reply --url <permalink> --text <copy>`
+     for a thread, or `cc-slack send --channel <id> --text <copy>` for a top-level post.
      Once the ask is done, swap eyes for white_check_mark:
      `cc-slack unreact --url <permalink> --name eyes`, then
      `cc-slack react --url <permalink> --name white_check_mark`.
@@ -48,7 +59,8 @@ Do:
 
 Never: the user-level Slack MCP unless the bot cannot join the conversation, per
   the cc-slack skill's fallback table; a bare #N, sha, or build number; UTC;
-  internal lane or program jargon; announcing a pending PR as done.
+  internal lane or program jargon; announcing a pending PR as done;
+  staging a dictated answer across several messages; a time in UTC or with a zone label.
 ```
 
 ## Incident comms lane
