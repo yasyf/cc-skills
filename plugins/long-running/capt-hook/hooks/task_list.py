@@ -34,6 +34,7 @@ from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE
 ASK_CALLS = 3
 ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
 RECONCILE_TURNS = 20
+LISTED_LANES = 5
 DONE_COOLDOWN_SECONDS = 30 * 60
 IDLE_SECONDS = 30 * 60
 ROOT_NAMES = frozenset({"team-lead", "main"})
@@ -75,6 +76,11 @@ class DoneState(WorkflowState):
 
 @workflow_state("long_running_task_drift")
 class DriftState(WorkflowState):
+    turns: int = 0
+
+
+@workflow_state("long_running_task_untracked")
+class UntrackedState(WorkflowState):
     turns: int = 0
 
 
@@ -176,14 +182,25 @@ def finished(evt: BaseHookEvent, state: DoneState, text: str, now: float) -> lis
 def drift_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
     lanes = {lane.name: lane for lane in live_lanes(evt)}
     known = spawned_names(evt)
-    stale = any(
+    if not any(
         (lane := lane_of(task)) in known and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
         for task in tasks.in_progress
-    )
-    untracked = any(not covered(tasks, name) for name in lanes)
-    if not (stale or untracked):
+    ):
         return None
     return "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+
+
+def untracked_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
+    names = [
+        lane.name
+        for lane in live_lanes(evt)
+        if now - lane.turn.at.timestamp() <= IDLE_SECONDS and not covered(tasks, lane.name)
+    ]
+    if not names:
+        return None
+    shown = ", ".join(f"`{name}`" for name in names[:LISTED_LANES])
+    more = f" (+{len(names) - LISTED_LANES} more)" if len(names) > LISTED_LANES else ""
+    return f"Busy lanes have no open task: {shown}{more}. Run `TaskCreate` with `owner=<lane>` for each."
 
 
 def deliver(evt: BaseHookEvent, lines: list[str]) -> HookResult | None:
@@ -285,6 +302,22 @@ def flag_task_list_drift(evt: BaseHookEvent) -> HookResult | None:
         queue_nudge(evt, line)
     return None
 
+
+@on(
+    Event.Stop,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={Input(tool="Bash", tool_input={"command": "ls"}): Allow()},
+)
+def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
+    with UntrackedState.mutate(evt) as state:
+        state.turns += 1
+        if state.turns < RECONCILE_TURNS:
+            return None
+        state.turns = 0
+    if line := untracked_line(evt, evt.tasks, time.time()):
+        queue_nudge(evt, line)
+    return None
 
 
 @on(

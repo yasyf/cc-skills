@@ -263,22 +263,52 @@ def test_status_questions_and_relayed_messages_are_not_asks(drive: Drive, text: 
     assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, None]
 
 
-def test_reconciliation_lists_stale_tasks_and_untracked_lanes(drive: Drive) -> None:
+DRIFT_LINE = "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+
+
+def reconcile(drive: Drive) -> list[str]:
+    turns = [drive.stop() for _ in range(task_list.RECONCILE_TURNS)]
+    assert turns[:-1] == [[]] * (task_list.RECONCILE_TURNS - 1)
+    return turns[-1]
+
+
+def test_reconciliation_flags_stale_tasks(drive: Drive) -> None:
     drive.lane("busy-lane")
     drive.lane("quiet-lane", behind=timedelta(hours=2))
-    drive.lane("loose-lane")
     drive.lane("gone-lane", busy=False)
     drive.task("1", "Busy work", owner="busy-lane")
     drive.task("2", "Quiet work", owner="quiet-lane")
     drive.task("3", "Gone work — lane gone-lane")
     drive.task("4", "Root-held decision")
 
-    turns = [drive.stop() for _ in range(task_list.RECONCILE_TURNS)]
+    assert reconcile(drive) == [DRIFT_LINE]
 
-    assert turns[:-1] == [[]] * (task_list.RECONCILE_TURNS - 1)
-    assert turns[-1] == [
-        "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+
+def test_busy_lane_without_a_task_is_flagged(drive: Drive) -> None:
+    drive.lane("busy-lane")
+    drive.lane("loose-lane")
+    drive.task("1", "Busy work", owner="busy-lane")
+
+    assert reconcile(drive) == [
+        "Busy lanes have no open task: `loose-lane`. Run `TaskCreate` with `owner=<lane>` for each."
     ]
+
+
+def test_idle_and_finished_lanes_without_a_task_stay_silent(drive: Drive) -> None:
+    drive.lane("idle-lane", behind=timedelta(hours=2))
+    drive.lane("finished-lane", busy=False)
+
+    assert reconcile(drive) == []
+
+
+def test_untracked_lane_list_is_capped(drive: Drive) -> None:
+    for index in range(task_list.LISTED_LANES + 3):
+        drive.lane(f"lane-{index}")
+
+    [line] = reconcile(drive)
+
+    assert line.count("`lane-") == task_list.LISTED_LANES
+    assert "(+3 more)" in line
 
 
 def test_completing_an_unrelated_task_leaves_the_ask_pending(drive: Drive) -> None:
