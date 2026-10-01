@@ -28,9 +28,16 @@ receipt reads ready and the terminal's screen shows bypass permissions on.
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
 already bypass approvals, so there is no custom command and no screen check.
+Orca's codex runtime config sets the service tier, since worker-start cannot.
+When Orca times out at agent_readiness on a codex worker whose terminal is up,
+the script types the spec pointer into that terminal itself and prints the
+lane as unsupervised: it runs, but Orca carries no worker_done for it.
 
-<model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), or a
-gpt-* model id. <effort> is low, medium,
+sol is the incident lane: gpt-6.1-sol on Orca's codex agent in a top-level
+worktree.
+
+<model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), sol
+(gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Worktree and terminal creation retry after
 ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
 
@@ -70,6 +77,7 @@ fail() {
 AGENT=claude
 case $MODEL in
   codex) AGENT=codex MODEL_ID=gpt-6-astra ;;
+  sol) AGENT=codex MODEL_ID=gpt-6.1-sol ;;
   gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
@@ -94,12 +102,15 @@ SPEC=$(spec)
 
 mkdir -p "$STATE"
 
+set -- --parent-worktree "path:$PARENT"
+[ "$MODEL" != sol ] || set -- --no-parent
+
 attempt=0
 until [ -d "$WT" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 4 ] || fail "worktree create: $(head -c 300 "$STATE/$LANE.worktree.json")"
   if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
-    --parent-worktree "path:$PARENT" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1; then
+    "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1; then
     WT=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json")
   else
     sleep "$RETRY"
@@ -129,13 +140,22 @@ if [ "$AGENT" = codex ]; then
 else
   set -- "$@" --terminal "$TERMINAL"
 fi
+TIMEOUT=600000
+[ "$AGENT" != codex ] || TIMEOUT=90000
 STARTED=0
 orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
-  --timeout-ms 600000 --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
+  --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
 if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
   mv "$RECEIPT.new" "$RECEIPT"
   [ "$AGENT" = claude ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
+fi
+if [ "$AGENT" = codex ] && [ -n "$TERMINAL" ] &&
+  [ "$(jq -r '.result.failedStage // empty' "$RECEIPT")" = agent_readiness ]; then
+  orca terminal send --terminal "$TERMINAL" --text "$SPEC" --enter --json >/dev/null ||
+    fail "spec send terminal=$TERMINAL after agent_readiness timeout"
+  echo "$LANE unsupervised task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"
+  exit 0
 fi
 [ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL: $(head -c 300 "$STATE/$LANE.worker.err")"
 READY=$(jq -r '.result.state' "$RECEIPT")

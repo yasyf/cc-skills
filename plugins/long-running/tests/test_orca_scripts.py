@@ -142,6 +142,33 @@ def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
+def test_a_sol_lane_starts_on_the_codex_agent_in_a_top_level_worktree(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
+    [worktree] = orca.calls("worktree create")
+    assert "--no-parent" in worktree and "--parent-worktree" not in worktree
+    assert orca.calls("terminal create") == []
+    [start] = orca.calls("orchestration worker-start")
+    assert flag(start, "--agent") == "codex"
+    assert flag(start, "--model") == "gpt-6.1-sol"
+    assert flag(start, "--effort") == "xhigh"
+
+
+def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    orca.reply("terminal send", {"rc": 0, "out": {"ok": True}})
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_codex worktree={orca.worktree}"
+    [send] = orca.calls("terminal send")
+    assert flag(send, "--terminal") == "term_codex"
+    assert str(orca.brief) in flag(send, "--text") and "--enter" in send
+
+
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     orca.healthy()
     orca.worktree.mkdir()

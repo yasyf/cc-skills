@@ -56,7 +56,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 `claude` command. Shift-tab is a fallback only before the worker opens a plan.
 The launch script checks the terminal screen for `bypass permissions on`.
 
-Every worktree is created with `--parent-worktree path:<coordinator worktree>`.
+Except for sol incident lanes below, worktrees use `--parent-worktree path:<coordinator worktree>`.
 The script reuses an existing directory; re-tag an existing worktree before launch
 when it does not carry that parent:
 
@@ -91,16 +91,48 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<
 `--agent` makes Orca create the terminal, and Orca's `agentDefaultArgs.codex` carries
 `--dangerously-bypass-approvals-and-sandbox`, so there is no custom command and no
 screen check. The script reads the terminal handle from the receipt's agent-terminal
-effect and counts the launch once `.result.state` reads `ready`. `--terminal` refuses
+effect and counts a `ready` or `unsupervised` result as launched. `--terminal` refuses
 `--agent`, so a custom codex terminal cannot name its agent.
 
-Orca's readiness check does not yet recognise codex. Both launch shapes left codex idle
+On 2026-09-30, both launch shapes left codex idle
 at its prompt until `worker-start` failed with `failedStage: agent_readiness` and
 `lastError: timeout`: dispatch `ctx_43637c1c2b7b` through `--agent codex`, and
 `ctx_4aa6ac245439` through a terminal created with
 `--command "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=xhigh"`.
-Leave a failed launch's terminal open, as R195 requires, and report the dispatch to
-the root.
+The script now delivers the spec after a readiness timeout; see [Incident lanes](#incident-lanes-gpt-61-sol-on-the-fast-tier).
+Leave the terminal open, as R195 requires, and report the dispatch to the root.
+
+### Incident lanes: gpt-6.1-sol on the fast tier
+
+Launch both incident lanes with `scripts/orca-launch.sh <lane> sol xhigh <brief>`.
+The preferred path is supervised, with `worker-start --agent codex --model gpt-6.1-sol --effort xhigh` in a top-level (`--no-parent`) worktree.
+The probe used `--timeout-ms 180000`; the script uses `600000`.
+
+`worker-start` has no service-tier flag. Before an incident launch, set `service_tier = "fast"` in `~/Library/Application Support/orca/codex-runtime-home/home/config.toml`.
+It changed from `"default"` on 2026-10-01; Orca's settings baseline does not manage that key.
+If it reads anything else, set it back. Dispatch `ctx_a1c0260ecb02` verified fast when `/fast` switched it to `"default"`.
+
+Orca's readiness check does not recognize codex. That dispatch and the root's two hand-launched sol workers
+ended `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` with codex at its prompt and
+the spec undelivered. On that timeout with a live codex terminal, the script types the
+spec pointer itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
+Count it as launched; it reports through its inbox/bus file, with no Orca `worker_done` or escalation plumbing.
+The desk starts the script asynchronously and never waits on readiness.
+
+If the runtime config cannot carry the tier, use the custom-terminal fallback verified on `ctx_e6b256d5c0c8`.
+
+```sh
+orca terminal create --worktree "path:<wt>" --json \
+  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+orca orchestration worker-start --run "<run>" --spec "<pointer>" \
+  --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 180000 --json
+```
+
+That earlier dispatch read `ready`. `--skip-git-repo-check` is exec-only and breaks interactive codex.
+Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at twice the speed.
+`worker-release` returns `retained` (`external_terminal`) for a terminal you created; closing it requires `orca terminal close --terminal <handle>`, subject to R195's session protection.
+
+### Worker messages
 
 `send --type` accepts only
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
@@ -183,14 +215,17 @@ Set the run and repo ids before calling it. The remaining variables have default
 | `ORCA_LAUNCH_RETRY_SECONDS` | Wait before a retry; default `30`. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Wait for Claude to start and between screen checks; default `8`. |
 
-A successful launch prints one receipt line in this shape:
+A successful launch prints one of these result lines:
 
 ```text
 <lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>
+<lane> unsupervised task=<id> dispatch=<id> terminal=<handle> worktree=<path>
 ```
 
-Count the launch only after that line. The worker-start result must read `ready`,
-and the screen must show bypass permissions on. A failed launch prints
+Count the launch only after one of those lines. A supervised result reads `ready`;
+Claude's screen must also show `bypass permissions on`. An `unsupervised` codex
+result means the script sent the spec after the readiness timeout; report it to
+the root and use the lane's inbox/bus file. A failed launch prints
 `<lane> failed <step and reason>` and exits 1; invalid usage exits 2.
 
 The receipt is `<receipt dir>/<lane>.json`; `<lane>.terminal` holds the handle that

@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The fifteen hard rules
+## The eighteen hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -168,6 +168,7 @@ watch, or re-cut a release or deploy unless the owner asked for it in that turn.
 option the root described earlier is not permission, and no script re-cuts on its
 own. No cut goes out while a known fix for the last failure is still open: land the
 fix first.
+R16's pre-authorized active-alert fix apply is exempt from this rule.
 
 *Prevents cuts 377, 378, 388, 390, 396, and 413 each failing on the next open bug on
 09-29, and the root override-approving 413 unasked: "no one asked you to do anything
@@ -218,6 +219,66 @@ and starts no build.
 
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
 2026-09-30, until the 12:35Z mass kill.*
+
+**R16. An active production alert gets its fix lane in the same turn.** A Datadog
+monitor in Alert, a Sentry alert, an `#outage` report, an on-call page, or an alert
+link from the owner is P0 from the moment it is seen. Run this checklist that turn,
+before anything else.
+
+- (a) Spawn the fix lane with apply authority in its brief. PR through the repo's
+  submit skill; break-glass or hand apply pre-authorized at `0 deletes` / `0 replaces`,
+  counts reported first, runbook-logged. Any delete or replace goes to the owner.
+  Start at the code path the alert names. Inside a drive, append
+  `orca-desk: launch <name> NOW` to the desk's inbox; the desk runs
+  `scripts/orca-launch.sh <name> sol xhigh <brief>` for an Orca codex worker on
+  `gpt-6.1-sol`, fast tier, `xhigh`. Outside a drive, use an inline background
+  `codex:codex-wrapper` (`codex-ask -m sol`) on the same model, tier, and effort.
+  On a miss, use Claude Opus 5.5 (`claude-opus-5-5`). Never fable or astra.
+- (b) Spawn an evidence lane for telemetry, logs, and the deploy timeline, feeding
+  the fix lane by name. It gates nothing.
+- (c) Fence the target from further applies and deploys in the same inbox line as
+  both launches. The fence exempts the fix lane's apply under (a).
+- (d) Send a one-line owner report at spawn with the alert, both lane names, and authority given.
+  Send one line at mechanism and one at fix-live. Never inside a status wall.
+
+**Never between the alert and (a).**
+
+- A "real-or-not" or "ours-or-not" verdict
+- A mechanism-depth mandate
+- An `AskUserQuestion`
+- Treating a mute as resolution
+
+Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real,
+fix it" means fix lane plus evidence lane, not a verdict gate.
+
+Check each incident lane every 10 minutes. At 15 minutes without a mechanism, start
+a second lane on a different model in parallel (Opus 5.5 after sol); keep the first
+running. `reference/active-alert-brief.md` holds both briefs; O15 and
+`reference/orca-workers.md` hold launch mechanics.
+
+*Prevents the 2026-10-01 release-v3 failures, when the fix lane started 5.6 min late
+behind a verdict gate and the owner's sol routing was applied 6.4 min late.*
+
+**R17. Owner routing applies to the next spawn and to every live lane on that problem.**
+An owner's routing or process instruction applies in the turn it arrives.
+Both "use Orca sol for incident response" and "pass the fast tier flag" count.
+Stand down every live lane on that problem and relaunch on the named route.
+Never record it for "new lanes" only or weigh it against the routing table.
+Never keep a lane because it is "already deep in the code" or defer the ruling to
+the lane editing the skill.
+
+*Prevents the 2026-10-01 instruction at `04:14:42Z` taking until `04:21:03Z` to apply,
+with three lanes and two PRs (#28594, #28598) for one fix.*
+
+**R18. A ruling reaches a lane the way it reads.** A desk looping on an inbox file
+gets the ruling as a line in that file with the verb it keys on
+(`orca-desk: launch`), never a policy sentence or `SendMessage` alone. A running
+Agent lane gets a `SendMessage` AND the handoff line in the file it hands off
+through. The root confirms the handoff on disk before treating the lane as stood
+down; a running copy never sees the `SendMessage`.
+
+*Prevents R365 at `04:16:03Z` launching nothing until R370, and sandsql-handoff-fix
+opening #28594 29 s after its stand-down (2026-10-01).*
 
 ## The landing desk and its ledger
 
@@ -441,9 +502,9 @@ dispatches the lane's brief and rules on exceptions.
 
 *Prevents the root relaunching 33 lanes inline (release v3, 2026-09-30).*
 
-**O2. Count only a `ready` receipt.** Every launch must print
+**O2. Count a `ready` receipt or O15's `unsupervised` result.** A supervised launch prints
 `<lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>`.
-The terminal must run the custom `claude` command in bypass-permissions mode; the
+For Claude, the terminal runs the custom command in bypass-permissions mode; the
 script checks its screen for `bypass permissions on` before printing that line.
 Anything else is a failed launch.
 
@@ -519,18 +580,28 @@ launch until it falls. This is a standing rule, not a per-drive ruling.
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 
 **O15. A codex Orca lane runs on Orca's codex agent.** Launch it with
-`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex` or `gpt-*` model runs
+`scripts/orca-launch.sh <lane> codex xhigh <brief>`; a `codex`, `sol`, or `gpt-*` model runs
 `worker-start --agent codex --model <id> --effort <level>` with no custom terminal,
 since Orca's codex default arguments already skip approvals. Never launch a claude
 worker whose brief calls the codex skill. An inline lane, an Agent-tool subagent or
 the root's own turn, still uses `Skill(codex)` or `codex:codex-wrapper`, and a one-off
 question still goes to `codex-ask`.
 
-Orca does not yet detect a ready codex agent. On 2026-09-30 both `--agent codex`
-(dispatch `ctx_43637c1c2b7b`) and a custom `codex` terminal passed as `--terminal`
-(dispatch `ctx_4aa6ac245439`) left codex idle at its prompt until `worker-start`
-failed at `agent_readiness` with `timeout`; the spec never arrived. Until Orca fixes
-that, the desk reports each failed codex launch to the root, which rules on the lane.
+Incident lanes use `scripts/orca-launch.sh <lane> sol xhigh <brief>` on the supervised
+codex agent, model `gpt-6.1-sol`, in a top-level (`--no-parent`) worktree. The fast
+tier comes from Orca's codex runtime config; `worker-start` has no service-tier flag.
+`reference/orca-workers.md` gives the config line and the custom-terminal fallback
+when that config cannot carry the tier.
+
+On 2026-10-01, supervised dispatch `ctx_a1c0260ecb02` started on fast but failed at
+`agent_readiness` with `timeout`, as did the root's two hand-launched sol workers;
+codex was at its prompt and the spec never arrived. Earlier custom-terminal
+dispatch `ctx_e6b256d5c0c8` did read `ready`. On a readiness timeout with a live codex
+terminal, the script delivers the spec pointer itself and prints
+`<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
+Count it as launched and report it to the root. It has no Orca `worker_done` or
+escalation plumbing; the lane reports through its inbox/bus file. The desk starts
+the script asynchronously and never waits on the `agent_readiness` timeout.
 
 ## The alerts desk
 
@@ -538,15 +609,19 @@ Production monitor traffic belongs to one long-lived `long-running:lane`, `alert
 model sonnet, effort low. Spawn it beside the landing-desk whenever the drive deploys,
 applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and the
 dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
+`reference/active-alert-brief.md` holds the fix and diagnosis lane briefs.
 
 **A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
 `monitor-watch.py watch` over the drive's monitors, by tag glob such as
 `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
 one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
-and posts nothing to Slack. Each alert is P0 for the root: one triage lane per alert,
-ours or not ours, and the monitor's targets stay fenced from deploys, applies, and
-enqueues until it recovers or triage clears it.
+and posts nothing to Slack.
+
+Each alert is P0 for the root. Spawn a fix lane and a diagnosis lane in parallel
+that turn under R16, with no verdict gate. The monitor's
+targets stay fenced from deploys, applies, and enqueues until it recovers or diagnosis
+clears the alert; the fence never blocks the fix lane's own apply under R16.
 
 ## The priority desk
 
@@ -859,8 +934,8 @@ subscription is in overage.
 
 ### Shared API budgets
 
-The GitHub REST and GraphQL limits and the Buildkite REST limit are each one budget
-for the whole org, shared by every lane, the desk, and every watcher at once. A lane that
+The GitHub REST and GraphQL limits and the Buildkite REST limit are each shared
+by every lane, the desk, and every watcher at once. A lane that
 reads right up to its own rate-limit header can still starve the desk and every
 release watch running beside it.
 
@@ -875,10 +950,12 @@ as starting a second one, and restarting a poller from scratch resets whatever
 backoff it was holding. A 429 or 403 mid-poll gets a fixed wait and a retry, never
 an immediate one and never a fresh loop.
 
-Read GitHub PR state only through `ccx vcs pr watch`, `ccx vcs pr status`, and
-`ccx vcs pr state`, called by `ledger.py refresh` and `ledger.py watch`; they share
-one machine-wide poll per repository at most every 30 seconds and one rate-limit
-backoff probing every two minutes, so never hand-roll `gh` PR loops.
+GitHub GraphQL costs 1 point per call, 5000/hr shared by the whole account. Watch a
+PR with `ccx vcs pr watch --state` or REST through
+`gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, never more often than every
+60 s. No `gh pr view --json statusCheckRollup` or `gh pr checks` loops; no `rateLimit`
+probes more often than every five minutes. The shared GitHub budget ran dry at 04:39Z
+on 2026-10-01.
 
 **GitHub budget.** GraphQL is one 5000-point hourly budget for the whole account, and
 every call costs 1 point whatever its shape. Steady polling by Orca cards, PR
@@ -1429,6 +1506,7 @@ release-v3 drive (2026-09-30).*
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
+15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
 
-Apply D3 to priority PRs before delegating. A call that survives all fourteen decides
+Apply D3 to priority PRs before delegating. A call that survives all fifteen decides
 something no lane can decide for you; everything else is a lane.

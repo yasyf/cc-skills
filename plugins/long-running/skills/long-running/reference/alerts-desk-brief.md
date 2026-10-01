@@ -7,12 +7,28 @@ Fill the angle brackets and paste the brief.
 
 ## Root discipline
 
-Every transition to Alert, Warn, or No Data is P0. In the turn it arrives, the root
-dispatches one triage lane per alert. The lane answers "ours or not ours": it
-correlates the monitor's `at` time with the drive's landings, deploys, and applies in
-the window before it. While the alert is unresolved, the monitor's targets are fenced:
-no lane deploys, applies, releases, or enqueues into its `release-target:*` targets.
-A recovery line, or a triage verdict of not ours, lifts the fence.
+**Run the incident checklist before anything else.** Every transition to Alert,
+Warn, or No Data is P0. In the turn it arrives, follow R16 and `active-alert-brief.md`.
+
+- (a) Spawn the fix lane at the code path the alert names, with PR and apply
+  authority in its brief at `0 deletes` / `0 replaces`, counts first, runbook-logged.
+- (b) Spawn the evidence lane for telemetry, logs, and the deploy timeline,
+  feeding the fix lane by name. It gates nothing.
+- (c) Fence the target. Both sol Orca lanes and the fence go in one orca-desk inbox
+  line using `orca-desk: launch <fix lane> NOW sol xhigh; orca-desk: launch <evidence lane> NOW sol xhigh; fence <target>`.
+- (d) Send one line to the owner at spawn with the alert, both lane names, and authority given.
+  Send one line at mechanism and one at fix-live. Never inside a status wall.
+
+Never put a "real-or-not" or "ours-or-not" verdict, a mechanism-depth mandate,
+an `AskUserQuestion`, or treating a mute as resolution before (a). Diagnosis redirects the fix
+lane; it never precedes it. "If it is real, fix it" means both lanes, no verdict gate.
+Check each lane every 10 minutes; at 15 without a mechanism, add a different-model
+lane (Opus 5.5 after sol) in parallel and keep the first running.
+
+While the alert is unresolved, the monitor's targets stay fenced from deploys,
+applies, releases, and enqueues into its `release-target:*`
+targets. The fence never blocks the fix lane's own apply under R16. A recovery line,
+or a diagnosis that clears the alert, lifts the fence. A mute does not resolve it.
 
 The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
 monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
@@ -27,7 +43,8 @@ On release-v3, 2026-09-30, the watch's first read over `release-target:*` printe
 ```
 
 The desk's report carries that line's id, name, states, and `at` time, plus its first
-read of the monitor's query. The root's answer is one triage lane for 324525079.
+read of the monitor's query. The root's answer is a fix lane, an evidence lane,
+and a target fence for 324525079 in one inbox line that turn.
 
 ## Spawn brief
 
@@ -65,7 +82,8 @@ On each printed line, in the same turn:
 Rules:
   - Never message on an unchanged state, a timer tick, or a re-arm.
   - Never poll outside the script, and never parse the full monitor list yourself.
-  - Never triage past the first read. The root dispatches a triage lane per alert.
+  - Never triage past the first read. The root spawns a fix lane and an evidence
+    lane per alert in the same turn, under R16.
 
 Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
 Worktree: none.
