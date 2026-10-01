@@ -5,4 +5,4 @@ artifacts = [".claude/settings.json", ".gitignore", ".mcp.json", ".pre-commit-co
 
 [sources.cc-skills]
 spec = "github:yasyf/cc-skills@main"
-commit = "5f5c68e7fb10a2ece23c2f16c56d100638fb2da2"
+commit = "c51ef48ed41fdb4e32a1c591a42162f29d848752"
