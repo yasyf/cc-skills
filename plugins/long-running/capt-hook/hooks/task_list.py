@@ -21,6 +21,7 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.tasks import Task, Tasks
+from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
 from .lane_rotation import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, UNSAFE_NAME, entries_after, live_lanes
@@ -37,7 +38,9 @@ NAME_FLAGS = ("--display-name", "--name", "--task-title")
 LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
 DESK = re.compile(r"(?:^|-)desk(?:-|$)")
 REF = re.compile(r"#\d+|\b[A-Z]\d+\b")
-DONE = re.compile(r"\b(?:worker_done|READY|GREEN)\b|(?i:\b(?:landed|merged|done|shipped|finished|completed?)\b)")
+TASK_REF = re.compile(r"\btask #(\d+)", re.IGNORECASE)
+STATUS_QUESTION = re.compile(r"\bstatus\b[^?]*\?\s*$", re.IGNORECASE)
+DONE = re.compile(r"(?<![\w-])(?:worker_done|READY|GREEN)\b|(?i:\b(?:landed|merged|done|shipped|finished|completed?)\b)")
 ASK = re.compile(
     r"https?://|\b(?:fix|make sure|do an?|(?<!status )update|sweep|add|remove|ship|land|merge|deploy|release|"
     r"investigate|look into|figure out|find out|build|change|rename|delete|retire|write|stop|start|"
@@ -58,10 +61,17 @@ class TaskListState(WorkflowState):
 
 
 def root_tasks(evt: BaseHookEvent) -> Tasks:
+    if list_id := reqenv.getenv("CLAUDE_CODE_TASK_LIST_ID"):
+        return Tasks.for_session(list_id)
     for meta in (evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json"):
         if team := json.loads(meta.read_text()).get("teamName"):
             return Tasks.for_session(UNSAFE_NAME.sub("-", team))
     return evt.tasks
+
+
+def spawned_names(evt: BaseHookEvent) -> set[str]:
+    metas = (evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json")
+    return {name for meta in metas if (name := json.loads(meta.read_text()).get("name"))}
 
 
 def lane_of(task: Task) -> str | None:
@@ -107,7 +117,9 @@ def prompts(entries: list[dict]) -> Iterator[str]:
             content = entry["attachment"]["prompt"]
         else:
             continue
-        if isinstance(content, str):
+        if isinstance(content, list):
+            content = "\n".join(block["text"] for block in content if block.get("type") == "text")
+        if content:
             yield content
 
 
@@ -121,6 +133,7 @@ def is_ask(text: str) -> bool:
     return (
         not stripped.startswith(SYSTEM_PREFIXES)
         and not TEAMMATE_MESSAGE.search(stripped)
+        and not STATUS_QUESTION.search(stripped)
         and ASK.search(stripped) is not None
     )
 
@@ -139,6 +152,8 @@ def reported(tasks: tuple[Task, ...], lane: str, body: str) -> list[Task]:
     owned = [task for task in tasks if lane_of(task) == lane]
     if len(owned) == 1:
         return owned
+    if named := set(TASK_REF.findall(body)):
+        return [task for task in owned if task.id in named]
     refs = set(REF.findall(body))
     return [task for task in owned if refs & set(REF.findall(task.subject))]
 
@@ -172,10 +187,11 @@ def spawn_line(name: str) -> str:
 
 def reconcile_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
     lanes = {lane.name: lane for lane in live_lanes(evt)}
+    known = spawned_names(evt)
     stale = [
         f"#{task.id} ({lane})"
         for task in tasks.in_progress
-        if (lane := lane_of(task))
+        if (lane := lane_of(task)) in known
         and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
     ]
     untracked = sorted(name for name in lanes if not covered(tasks, name))
@@ -228,7 +244,8 @@ def track_task_list(evt: BaseHookEvent) -> HookResult | None:
             return None
         if evt.tool_name in TASK_TOOLS:
             tasks = root_tasks(evt)
-            state.asks = []
+            if not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted"):
+                state.asks = []
             state.unowned = [name for name in state.unowned if not covered(tasks, name)]
         elif name := spawned_lane(evt):
             state.unowned.append(name)

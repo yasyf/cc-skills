@@ -233,6 +233,7 @@ def test_mid_turn_owner_ask_is_flagged_at_turn_end(drive: Drive) -> None:
     "text",
     [
         "overall status update?",
+        "can you give me a status update?",
         "so whats left and how are we doing",
         '<teammate-message teammate_id="x">\nplease fix y\n</teammate-message>',
         "<task-notification>\n<summary>fix landed</summary>\n</task-notification>",
@@ -249,6 +250,7 @@ def test_reconciliation_lists_stale_tasks_and_untracked_lanes(drive: Drive) -> N
     drive.lane("busy-lane")
     drive.lane("quiet-lane", behind=timedelta(hours=2))
     drive.lane("loose-lane")
+    drive.lane("gone-lane", busy=False)
     drive.task("1", "Busy work", owner="busy-lane")
     drive.task("2", "Quiet work", owner="quiet-lane")
     drive.task("3", "Gone work — lane gone-lane")
@@ -261,6 +263,44 @@ def test_reconciliation_lists_stale_tasks_and_untracked_lanes(drive: Drive) -> N
         "task list drift — in_progress with no working lane: #2 (quiet-lane), #3 (gone-lane); "
         "running lanes with no open task: loose-lane. Complete what you consumed, re-own or delete the rest."
     ]
+
+
+def test_completing_an_unrelated_task_leaves_the_ask_pending(drive: Drive) -> None:
+    drive.say("fix the ledger hook")
+    drive.tool("TaskUpdate", {"taskId": "3", "status": "deleted"})
+
+    assert drive.bash() is None
+    assert drive.bash().startswith("owner ask has no task")
+
+
+def test_owner_ask_with_an_image_is_read_from_its_text_block(drive: Drive) -> None:
+    drive.append({"type": "user", "message": {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "fix this"}]}})
+
+    assert drive.stop()[0].startswith("owner ask has no task")
+
+
+def test_explicit_task_list_id_wins(drive: Drive, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared = drive.claude / "tasks" / "shared-list"
+    shared.mkdir()
+    (shared / "5.json").write_text(json.dumps({"id": "5", "subject": "x", "status": "in_progress", "owner": "ledger-fix"}))
+    monkeypatch.setenv("CLAUDE_CODE_TASK_LIST_ID", "shared-list")
+
+    assert gate(drive, "5").startswith("Task #5 is the root's record of lane ledger-fix")
+
+
+def test_named_task_and_negative_status(drive: Drive) -> None:
+    drive.task("29", "Umbrella", owner="deploy-experience")
+    drive.task("60", "Smoke re-run", owner="deploy-experience")
+    drive.say('<teammate-message teammate_id="deploy-experience">\n#28608 NOT-READY: smoke red\n</teammate-message>')
+    assert drive.bash() is None
+    drive.say('<teammate-message teammate_id="deploy-experience">\ntask #60 done\n</teammate-message>')
+    assert drive.bash().startswith("task #60 (deploy-experience) may be complete")
+
+
+def test_orca_lane_is_never_called_missing(drive: Drive) -> None:
+    drive.task("68", "Apply the fix", owner="incident-orca-worker")
+
+    assert [drive.stop() for _ in range(task_list.RECONCILE_TURNS)][-1] == []
 
 
 def test_inactive_drive_is_ignored(drive: Drive) -> None:
