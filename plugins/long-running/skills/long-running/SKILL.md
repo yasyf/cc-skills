@@ -341,6 +341,11 @@ asks are `ask/<seq>` rows beside the PR rows. cc-notes finds the ledger through 
 working directory's repository, so a lane outside that checkout passes
 `ledger.py -C <checkout> <verb>`.
 
+Every script in `scripts/` is on PATH by name through the plugin's `bin/`, which Claude
+Code adds for the installed version, so briefs call `ledger.py`, `bus.py`, or
+`orca-launch.sh` and never a path. `orca-launch.sh` puts the same `bin/` on PATH for a
+sol worker's codex terminal.
+
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
 a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
 `reference/landing-desk-brief.md` is the desk's brief, ready to paste;
@@ -818,7 +823,7 @@ Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
-Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <drive checkout>.
+Bus: <id>; script bus.py, on PATH by name; --repo <drive checkout>.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
     `bus.py read --bus <id> --lane <name> <subscription>`; a message is acted on only after it.

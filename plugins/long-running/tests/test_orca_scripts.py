@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/long-running/scripts"
+BIN = Path(__file__).resolve().parents[1] / "bin"
 
 ORCA = """#!/usr/bin/env python3
 import json, os, sys
@@ -161,7 +162,7 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+        f"env PATH={BIN}:{orca.env['PATH']} codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
     )
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--terminal") == "term_a"
@@ -428,3 +429,19 @@ def test_stale_reports_an_orca_error(orca):
 
 def test_inbox_needs_stale(orca):
     assert orca.run("orca-check.sh", "--inbox", "x").returncode == 2
+
+
+
+def test_the_plugin_bin_launches_every_script_by_name():
+    assert sorted(path.name for path in BIN.iterdir()) == sorted(path.name for path in SCRIPTS.iterdir() if path.suffix in (".py", ".sh"))
+    for launcher in BIN.iterdir():
+        assert os.access(launcher, os.X_OK)
+        assert launcher.read_text().endswith(f'"$(dirname "$0")/../skills/long-running/scripts/{launcher.name}" "$@"\n')
+
+
+@pytest.mark.parametrize("script", ["ledger.py", "bus.py", "drive.py"])
+def test_a_cli_runs_by_name_from_any_directory_with_the_plugin_bin_on_path(script, tmp_path):
+    env = {**os.environ, "PATH": f"{BIN}:{os.environ['PATH']}"}
+    result = subprocess.run([script, "--help"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith(f"usage: {script}")

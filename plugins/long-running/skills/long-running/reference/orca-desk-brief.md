@@ -54,7 +54,7 @@ Verified facts, do not re-derive:
   root inbox <inbox file>; cursor <inbox file>.cursor
   priority desks <owned lanes and inbox paths, or "none">
   cc-notes log <cc-notes log id>; landing-desk ledger <ledger id>
-  scripts <plugin root>/skills/long-running/scripts
+  scripts on PATH by name (ledger.py, bus.py, orca-launch.sh, orca-check.sh)
   lane roster <lane, model, effort, brief file; one per line>
   worktree prefix <prefix>; worktree root <worktree root>; base <base ref>
   other Claude default arguments <args excluding --permission-mode plan>
@@ -63,7 +63,6 @@ Run from the coordinator terminal. A worker terminal cannot consume the run's
   mailbox: it must check --terminal <its handle>, or --run fails consumer_fenced.
 
 Set these once, preserving them after compaction:
-  SCRIPTS='<plugin root>/skills/long-running/scripts'
   SPEC_DIR='<spec dir>'
   INBOX='<inbox file>'
   LOG='<cc-notes log id>'
@@ -130,7 +129,7 @@ Do, in this order, forever:
      Never report an item as waiting on the root before checking this inbox for
      the answer.
   2. Stale mail and prompt sweep, every pass. Run
-       "$SCRIPTS/orca-check.sh" --stale --inbox "$INBOX"
+       orca-check.sh --stale --inbox "$INBOX"
      Act on every STALE line in this pass. Forward a priority desk's lines to its
      inbox. For your lanes, wake a live dispatch with unread mail through step 1's
      terminal send --enter. For completed or failed, start a new dispatch through
@@ -155,7 +154,7 @@ Do, in this order, forever:
   3. Launch any newly assigned lane once through the script. Its full brief is
      the shared contract followed by its lane section:
        cat "$SPEC_DIR/common.md" "$SPEC_DIR/<lane>.md" > "$SPEC_DIR/<lane>.full.md"
-       "$SCRIPTS/orca-launch.sh" '<lane>' '<model>' '<effort>' "$SPEC_DIR/<lane>.full.md"
+       orca-launch.sh '<lane>' '<model>' '<effort>' "$SPEC_DIR/<lane>.full.md"
      The script caps a codex launch's agent_readiness wait at 90 s, then delivers
      the spec itself; never wait on readiness past that. Accept either result line
      as launched:
@@ -186,9 +185,9 @@ Do, in this order, forever:
      Record the sweep in the log. Read output when needed with
        orca orchestration worker-read --dispatch '<dispatch id>'
   5. One blocking check. With no processed delivery awaiting acknowledgement:
-       "$SCRIPTS/orca-check.sh" -- --run "$ORCA_LAUNCH_RUN"
+       orca-check.sh -- --run "$ORCA_LAUNCH_RUN"
      Otherwise acknowledge that delivery on the next call:
-       "$SCRIPTS/orca-check.sh" --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
+       orca-check.sh --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
      The script runs one check --wait --types worker_done,escalation,question.
      Each wait is at most 60000 ms. It prints messages as
        <msg id> <type> <lane> <subject>: <body on one line>
