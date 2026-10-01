@@ -29,7 +29,11 @@ pointer must stay within 300 characters, so a brief path that pushes it over is
 replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca detects
 its agent, the script polls orca terminal list every 4 seconds until the terminal's
-agentIdentity reads claude, or codex for sol, up to ORCA_LAUNCH_BOOT_SECONDS. The
+agentIdentity reads claude, or codex for sol, up to ORCA_LAUNCH_BOOT_SECONDS.
+Every list is scoped to the lane's worktree, since an unscoped list stops at 200
+terminals. A terminal create whose output names no handle is followed by a list
+of the worktree, and a terminal that was not there before the create is adopted;
+the script creates again only when that list shows none. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
@@ -142,13 +146,28 @@ done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
 spec
 
+listed() {
+  listing=0
+  until orca terminal list --worktree "path:$WT" --json >"$STATE/$LANE.terminals.json" 2>&1 &&
+    LISTED=$(jq -ce '[.result.terminals[].handle]' "$STATE/$LANE.terminals.json"); do
+    listing=$((listing + 1))
+    [ "$listing" -lt 3 ] || fail "terminal list: $(head -c 300 "$STATE/$LANE.terminals.json")"
+    sleep "$RETRY"
+  done
+}
+
 attempt=0 TERMINAL=''
+[ "$AGENT" = codex ] || { listed && BEFORE=$LISTED; }
 until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   attempt=$((attempt + 1))
-  [ "$attempt" -le 3 ] || fail "terminal create: $(head -c 300 "$STATE/$LANE.terminal.err")"
-  TERMINAL=$(orca terminal create --worktree "path:$WT" --title "$NAME" --command "$COMMAND" --json \
-    2>"$STATE/$LANE.terminal.err" | jq -r '.result.terminal.handle // empty') || TERMINAL=
-  [ -n "$TERMINAL" ] || sleep "$RETRY"
+  [ "$attempt" -le 3 ] || fail "terminal create: $(cat "$STATE/$LANE.terminal.json" "$STATE/$LANE.terminal.err" | head -c 300)"
+  orca terminal create --worktree "path:$WT" --title "$NAME" --command "$COMMAND" --json \
+    >"$STATE/$LANE.terminal.json" 2>"$STATE/$LANE.terminal.err" || :
+  TERMINAL=$(jq -r '.result.terminal.handle // empty' "$STATE/$LANE.terminal.json" 2>/dev/null) || TERMINAL=
+  [ -z "$TERMINAL" ] || break
+  sleep "$RETRY"
+  listed
+  TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
 done
 IDENTITY=claude
 [ "$AGENT" = claude ] || IDENTITY=codex
@@ -158,7 +177,7 @@ until [ "$AGENT" = codex ] || [ "$DETECTED" = "$IDENTITY" ]; do
   [ "$attempt" -le $(((BOOT + POLL - 1) / POLL)) ] ||
     fail "boot terminal=$TERMINAL: orca terminal list shows agentIdentity=${DETECTED:-none}, not $IDENTITY, after ${BOOT}s"
   sleep "$POLL"
-  DETECTED=$(orca terminal list --json | jq -r --arg t "$TERMINAL" '.result.terminals[] | select(.handle == $t) | .agentIdentity // empty') || DETECTED=
+  DETECTED=$(orca terminal list --worktree "path:$WT" --json | jq -r --arg t "$TERMINAL" '.result.terminals[] | select(.handle == $t) | .agentIdentity // empty') || DETECTED=
 done
 
 if [ -s "$RECEIPT" ]; then
