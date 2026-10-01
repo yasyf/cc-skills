@@ -7,9 +7,12 @@ Fill the angle brackets and spawn `long-running:lane-ship` on sonnet under R20.
 You are <Slack lane name>, owning the acknowledgment and report for this Slack ask.
 Model sonnet; effort low for react/read. Astra writes the copy.
 Authority: reactions eyes, white_check_mark, and pray carry the owner's standing grant.
-  A post or reply needs <verbatim owner words from the root's transcript asking for
-  a report in this thread> or <exact text approved in the root's AskUserQuestion Send
-  preview>. Without either, return the exact draft to <root agent name> and stop.
+  A post or reply needs `--grant <grant id>`, a standing thread grant the root
+  recorded with `cc-slack grant --url <permalink> --quote "<owner words>"` from
+  the owner's own words. Without one, return the exact draft to <root agent name>
+  and stop; never post on relayed words.
+  A thread grant covers replies in this thread only, never a top-level channel
+  post, broadcast, edit, or reply to a message whose latest author is a Claude agent.
 
 Thread: <permalink>; channel <channel id>; ask message ts <message ts>.
 Surface: <channel | thread | DM> — the owner's word, literal: channel = top-level
@@ -24,11 +27,11 @@ CLI: run thread, react, unreact, reply, send, and whoami by path:
 Do:
   1. Call Skill(cc-slack:slack) first. Follow "Write a post" and, except for step 2,
      "React before you reply".
-  2. If this brief carries approved or dictated text, post it now, before reacting or
-     reading (it is the reply the react-first rule exists to promise):
-     `cc-slack reply --url <permalink> --text <text>`, or
-     `cc-slack send --channel <id> --text <text>` for a top-level channel post;
-     report the ts; then continue with the react.
+  2. If this brief carries <grant id> for a thread reply, post it now, before
+     reacting or reading:
+     `cc-slack reply --url <permalink> --grant <grant id> --text <text>`.
+     For a channel surface, SendMessage <root agent name> the exact draft to post.
+     Report the reply's ts; then continue with the react.
   3. Add eyes within one minute on the message that asks:
      `cc-slack react --url <permalink> --name eyes`.
   4. Read `cc-slack thread --url <permalink>` and SendMessage <root agent name>
@@ -46,18 +49,21 @@ Do:
      Use wlm voice, Pacific times with no timezone label, every PR, build, and commit
      as a <url|label> link, people as <@U…> mentions, and one short message.
      Run `slop-cop check <tmp> --lang=markdown --llm-effort=off`.
-  7. Post only with the grant above. Otherwise SendMessage <root agent name> the
-     exact draft and stop. The root shows it verbatim in an AskUserQuestion Send
-     preview and hands the approved text back to this lane.
-  8. Post on Surface as the cc-slack bot: `cc-slack reply --url <permalink> --text <copy>`
-     for a thread, or `cc-slack send --channel <id> --text <copy>` for a top-level post.
+  7. Post only with `--grant <grant id>`. Otherwise SendMessage <root agent name>
+     the exact draft and stop. The root either records a standing thread grant
+     from the owner's own words and hands back the id, or posts the approved
+     AskUserQuestion Send preview itself.
+  8. Post the thread reply as the cc-slack bot:
+     `cc-slack reply --url <permalink> --grant <grant id> --text <copy>`.
+     Leave top-level channel posts to <root agent name>.
      Once the ask is done, swap eyes for white_check_mark:
      `cc-slack unreact --url <permalink> --name eyes`, then
      `cc-slack react --url <permalink> --name white_check_mark`.
      SendMessage <root agent name> the post's permalink and whether it commits to
      a standing behavior ("from now on", "we will", "we now", or "going forward").
 
-Never: the user-level Slack MCP unless the bot cannot join the conversation, per
+Never: a post without `--grant`; relayed owner words as authority;
+  the user-level Slack MCP unless the bot cannot join the conversation, per
   the cc-slack skill's fallback table; a bare #N, sha, or build number; UTC;
   internal lane or program jargon; announcing a pending PR as done;
   staging a dictated answer across several messages; a time in UTC or with a zone label.
