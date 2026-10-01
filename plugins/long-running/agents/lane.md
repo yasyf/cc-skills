@@ -15,8 +15,9 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Your last action is one `SendMessage` to the name your brief gives. Bare final text is
   never delivered.
 - On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
-  `flushed <ids>`, and keep working. Your own compaction resumes you from the ledger
-  and your cursor; nothing stops or respawns you.
+  `flushed <ids>` within 10 minutes, and keep working. Without that reply, the root
+  rotates you by hand. It spawns a numbered successor from your brief and handoff,
+  then stops you once the successor reports.
 - You have no Skill tool. When the work needs a skill, tell your orchestrator,
   which gives that operation to a separately named `long-running:lane-ship` with a
   scoped brief while you keep working on the rest. Never duplicate its work and
