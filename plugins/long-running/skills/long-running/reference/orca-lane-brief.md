@@ -49,6 +49,16 @@ orca-desk treats those messages exactly like an ask.
 Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
 take the brief's default, log it with `ccn log append <drive log id>`, and report it.
 
+Never end a turn without a Monitor on your own messages. Re-arm it after compaction.
+  Poll `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json`
+  every 60 s; dedupe on message id in a seen file and print
+  `NEW <id> <type> <subject>` for each new id. Create the seen file once; keep it
+  across compaction. Run:
+
+  while :; do orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json 2>/dev/null | jq -r '.result.messages[]? | "\(.id) \(.type) \(.subject)"' | while read -r id rest; do grep -qx "$id" <seen file> || { echo "$id" >> <seen file>; echo "NEW $id $rest"; }; done; sleep 60; done
+
+Orca messages are pull-only; idle sessions wake only on terminal input or Monitor events.
+
 Binding rules (owner):
 - <one rule per bullet, each as the owner stated it>
 

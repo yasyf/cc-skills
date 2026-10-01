@@ -109,13 +109,22 @@ Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
 working on everything that does not depend on the answer. The desk treats either
 message like an ask.
 
-**R56. Reply to the original question id.** A worker blocked on
-`orca orchestration ask` wakes only on
-`orca orchestration reply --id <its question message id>`. A plain
-`send --type dispatch` can sit unread in a background wait. Desks must reply to the
-original question id and may add a send for context.
+**R56. Reply to the original question id.** Before every relay, run
+`orca orchestration worker-show --dispatch '<dispatch id>' --json`.
+If `.result.dispatch.status` is `completed`, start a new dispatch with a
+self-contained brief; never reply or send to the completed dispatch (`dispatch_inactive`).
+For an active dispatch, only `orca orchestration reply --id <its question message id>`
+wakes an `orca orchestration ask` wait. Keep the reply or send as the record; neither
+wakes an idle Claude session. After every reply or send, the desk always wakes the worker.
 
-*Prevents a worker staying blocked after the desk sent its ruling as a dispatch.*
+```sh
+orca terminal send --terminal '<handle>' --text 'R<n>: <one line>; brief <path>' --enter
+```
+
+`orca orchestration worker-release` releases only a settled
+worker's terminal; it never stops a live worker.
+
+*Prevents a worker staying blocked after the desk sent its ruling as a dispatch, and b2-data / phase0b-aig sitting idle for about an hour with unread messages (2026-10-01).*
 
 Finish with `send --type worker_done --outcome succeeded|failed`
 and the preamble's `--task-id <taskId>` and `--dispatch-id <dispatchId>`.

@@ -195,8 +195,12 @@ Do, in this order, forever:
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
      prints to the bus first, `bus.py post --bus <bus> --from landing-desk --kind blocker
-     --topic <pr> --to <lane> --text "<the line>"`, then send exactly that text by
-     SendMessage, only to a live lane. When a lane finishes or sends
+     --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, append
+     the route or ruling as one line to the orca-desk's inbox file,
+     inbox/orca-desk.md in the drive, the only input orca-desk reads. Never use a
+     separate routes file or SendMessage; neither reaches orca-desk or the worker.
+     Orca lanes are separate sessions that SendMessage cannot reach. For other
+     live lanes, send exactly that text by SendMessage. When a lane finishes or sends
      `HANDOFF #N <sha> <state>`, record it with `ledger.py gone --lane <name>`;
      `route` never addresses it again. Sweep with `route --train merge-train --paths
      <hot-set globs> --fallback red-desk`: every hot-set conflict and a gone lane's
