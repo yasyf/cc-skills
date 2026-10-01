@@ -25,6 +25,10 @@ Pass that full brief to `orca-launch.sh`. It generates this pointer spec, at mos
 Lane <lane>: read <brief> in full first and execute it exactly; Orca truncates specs. Worktree <wt>, bypass-permissions mode; the brief's Escalate rules hold.
 ```
 
+When the pointer would pass 300 characters, the script links the brief at
+`~/.claude/<8 hex>` and points there instead; only a worktree path long enough to
+overflow on its own fails the launch.
+
 The Orca preamble above the task carries the worker's handle, dispatch capability,
 and exact `send`, `ask`, and `check` commands. The brief tells the worker to copy these
 commands verbatim. It never restates them.

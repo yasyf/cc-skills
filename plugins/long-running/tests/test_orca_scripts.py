@@ -245,12 +245,32 @@ def test_launch_retries_a_dropped_worktree_create(orca):
     assert orca.sleeps()[0] == "30"
 
 
-def test_launch_refuses_a_spec_pointer_over_300_characters(orca):
+def test_launch_links_a_brief_whose_pointer_passes_300_characters(orca):
     orca.healthy()
     brief = orca.root / ("x" * 200) / "lane-a.full.md"
     brief.parent.mkdir()
     brief.write_text("# brief\n")
     result = orca.launch("lane-a", "opus", "high", str(brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    link = Path(spec.split("read ")[1].split(" in full")[0])
+    assert len(spec) <= 300
+    assert link.parent == Path(orca.env["HOME"]) / ".claude"
+    assert len(link.name) == 8
+    assert link.is_symlink()
+    assert link.resolve() == brief.resolve()
+
+
+def test_launch_leaves_a_short_pointer_unlinked(orca):
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    assert not (Path(orca.env["HOME"]) / ".claude").exists()
+
+
+def test_launch_refuses_a_worktree_path_that_alone_passes_300_characters(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_ROOT"] = str(orca.root / ("x" * 300))
+    result = orca.launch()
     assert result.returncode == 1
     assert "over 300" in result.stdout
     assert orca.calls() == []
