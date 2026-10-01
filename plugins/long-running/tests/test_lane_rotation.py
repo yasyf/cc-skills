@@ -543,15 +543,6 @@ def test_fork_transcript_without_a_leading_timestamp_is_live(tree: Tree, clock: 
     assert [lane.name for lane in lane_rotation.live_lanes(stop(tree, [task]).evt())] == ["fork"]
 
 
-def test_half_written_last_line_is_skipped(tmp_path: Path) -> None:
-    transcript = tmp_path / "lane.jsonl"
-    write_jsonl(transcript, [assistant(ROOT_AT, 120_000, sidechain=True)])
-    with transcript.open("a") as partial:
-        partial.write('{"type": "assistant", "isSide')
-
-    assert turns.latest_turn(transcript, sidechain=True).tokens == 120_000
-
-
 @pytest.mark.parametrize(
     ("model", "hint", "env", "line"),
     [
@@ -584,11 +575,9 @@ def test_compact_boundary_after_the_last_turn_reports_post_compact_tokens(tmp_pa
     }
     write_jsonl(transcript, [assistant(ROOT_AT - timedelta(minutes=1), 568_591, sidechain=True), boundary])
 
-    assert turns.latest_turn(transcript, sidechain=True) == turns.Turn("claude-opus-5-5", 18_816, ROOT_AT)
     assert turns.turn_of(parse(transcript).events, sidechain=True) == turns.Turn("claude-opus-5-5", 18_816, ROOT_AT)
 
     write_jsonl(transcript, [boundary, assistant(ROOT_AT + timedelta(minutes=1), 24_000, sidechain=True)])
-    assert turns.latest_turn(transcript, sidechain=True).tokens == 24_000
     assert turns.turn_of(parse(transcript).events, sidechain=True).tokens == 24_000
 
 

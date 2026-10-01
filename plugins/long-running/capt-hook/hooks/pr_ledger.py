@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
@@ -10,8 +9,10 @@ from pathlib import Path
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
+from .session_tree import own_name
+from .tests.ledger_fixtures import FIXTURES
+
 DRIVE = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
-FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "pr_ledger"
 OPENERS = (
     ("ccx", "vcs", "ship"),
     ("ccx", "vcs", "stack", "submit"),
@@ -68,18 +69,12 @@ def opener_cwd(evt: BaseHookEvent) -> Path | None:
 
 
 def lane_name(evt: BaseHookEvent) -> str:
-    if evt.agent_id and evt.transcript_path:
-        meta = evt.transcript_path.with_suffix("") / "subagents" / f"agent-{evt.agent_id}.meta.json"
-        if meta.is_file() and (name := json.loads(meta.read_text()).get("name")):
-            return name
-    return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
+    named = evt.agent_id and own_name(evt)
+    return named or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
-def unrecorded(evt: BaseHookEvent, prs: list[OpenedPr], reason: str) -> HookResult:
-    return evt.context(
-        f"PRs {', '.join('#' + pr.number for pr in prs)} were not recorded in the drive ledger: {reason} — "
-        "run `ledger.py register` for each by hand."
-    )
+RECORDED = "The opened PRs are recorded in the drive ledger."
+UNRECORDED = "The opened PRs were not recorded in the drive ledger. Run `ledger.py register` for each by hand."
 
 
 @on(
@@ -95,7 +90,7 @@ def unrecorded(evt: BaseHookEvent, prs: list[OpenedPr], reason: str) -> HookResu
             session_id="900424b6-0000",
             cwd="/",
             commands={f"{sys.executable} {DRIVE} record": "registered deploy-experience #28534"},
-        ): Warn(pattern=r"^Drive ledger: registered deploy-experience #28534$"),
+        ): Warn(pattern=r"^The opened PRs are recorded in the drive ledger\.$"),
         Input(
             command="ccx vcs stack submit",
             output=(FIXTURES / "ccx-stack-submit.txt").read_text(),
@@ -116,11 +111,8 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
         argv += ["--pr", pr.spec]
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        return unrecorded(evt, prs, f"drive.py record timed out after {RECORD_TIMEOUT_SECONDS}s")
-    except OSError as failure:
-        return unrecorded(evt, prs, f"drive.py record could not start ({failure.strerror})")
+    except (subprocess.TimeoutExpired, OSError):
+        return evt.context(UNRECORDED)
     if done.returncode:
-        reason = done.stderr.strip().splitlines()[-1:] or [f"drive.py record exited {done.returncode}"]
-        return evt.context(reason[0])
-    return evt.context(f"Drive ledger: {done.stdout.strip()}") if done.stdout.strip() else None
+        return evt.context(UNRECORDED)
+    return evt.context(RECORDED) if done.stdout.strip() else None

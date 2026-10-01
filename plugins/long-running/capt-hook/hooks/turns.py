@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +22,6 @@ WINDOW_CEILING = 1_000_000
 DEFAULT_WINDOW = 200_000
 OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
-TAIL_BLOCK = 1 << 16
 ROTATE_PERCENT = 70
 
 
@@ -32,46 +30,6 @@ class Turn:
     model: str
     tokens: int
     at: datetime
-
-
-def reversed_lines(path: Path) -> Iterator[bytes]:
-    with path.open("rb") as file:
-        end = file.seek(0, os.SEEK_END)
-        head = b""
-        while end > 0:
-            start = max(0, end - TAIL_BLOCK)
-            file.seek(start)
-            head, *lines = (file.read(end - start) + head).split(b"\n")
-            yield from reversed(lines)
-            end = start
-        yield head
-
-
-def reversed_entries(path: Path) -> Iterator[dict]:
-    lines = reversed_lines(path)
-    next(lines)
-    for line in lines:
-        if line.strip():
-            yield json.loads(line)
-
-
-def latest_turn(transcript: Path, *, sidechain: bool = False) -> Turn | None:
-    compacted: Turn | None = None
-    for entry in reversed_entries(transcript):
-        if entry.get("isSidechain", False) != sidechain:
-            continue
-        if compacted is None and entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
-            compacted = Turn("", entry["compactMetadata"]["postTokens"], datetime.fromisoformat(entry["timestamp"]))
-        elif (
-            entry.get("type") == "assistant"
-            and (model := entry["message"].get("model")) != SYNTHETIC_MODEL
-            and (usage := entry["message"].get("usage"))
-        ):
-            if compacted:
-                return replace(compacted, model=model)
-            tokens = usage["input_tokens"] + usage["cache_creation_input_tokens"] + usage["cache_read_input_tokens"]
-            return Turn(model, tokens, datetime.fromisoformat(entry["timestamp"]))
-    return None
 
 
 def turn_of(events: Iterable[TranscriptEvent], *, sidechain: bool = False) -> Turn | None:

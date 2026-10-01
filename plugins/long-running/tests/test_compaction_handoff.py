@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from cc_transcript import Session
 from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
@@ -18,13 +19,17 @@ FIXTURES = Path(handoff.__file__).parent / "tests" / "fixtures"
 SESSION = "0123456789abcdef"
 
 
+def context(session_dir: Path, raw: dict):
+    return build_context(transcript=Session.from_path(Path(raw["transcript_path"])), session_dir=session_dir)
+
+
 def stop_event(session_dir: Path, **raw) -> StopEvent:
     payload = {
         "session_id": SESSION,
         "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
         "cwd": str(FIXTURES / "project-600k"),
     } | raw
-    return StopEvent(_raw=payload, ctx=build_context(session_dir=session_dir))
+    return StopEvent(_raw=payload, ctx=context(session_dir, payload))
 
 
 def tool_event(session_dir: Path, tool_name: str, tool_input: dict, **raw) -> PostToolUseEvent:
@@ -35,7 +40,7 @@ def tool_event(session_dir: Path, tool_name: str, tool_input: dict, **raw) -> Po
         "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
         "cwd": str(FIXTURES / "project-600k"),
     } | raw
-    return PostToolUseEvent(_raw=payload, ctx=build_context(session_dir=session_dir))
+    return PostToolUseEvent(_raw=payload, ctx=context(session_dir, payload))
 
 
 def bash(session_dir: Path, **raw) -> PostToolUseEvent:
@@ -162,14 +167,9 @@ def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, pl
     saved = state(session)
     assert (saved.phase, saved.store, saved.slug) == ("due", "ccn", "brook")
     [nudge] = pending(session)
-    assert nudge.startswith(
-        "Context is at 460,000 of the 567,000-token auto-compaction threshold (81%). When convenient, write the "
-        'drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress '
-    )
+    assert nudge.startswith('Context is near the auto-compaction threshold. Write the drive\'s execution state with `ccn doc add "<drive>: progress" ')
     assert "--label progress:brook" in nudge
-    assert "with sections: how the drive runs; owner asks and their state; landed; waiting on the owner; root's next actions. " in nudge
-    assert "The hook generates standing owner rules, durable answers, open asks, open tasks, lanes and monitors" in nudge
-    assert f"Never rewrite `{plan}`." in nudge
+    assert len(nudge) <= 300
     assert nudges.deliver_nudge(bash(session)).message == nudge
     assert pending(session) == []
 
@@ -200,7 +200,7 @@ def test_a_new_doc_is_folded_into_a_generated_doc_that_supersedes_both(home: Pat
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. land l11\n")
     result = handoff.compact_when_idle(stop_event(session, background_tasks=[{"id": "t1", "type": "teammate", "status": "running", "description": "orca-desk-6"}]))
 
-    assert result.system_message.startswith("Long-running progress for ")
+    assert result.system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
     assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
     generated = (docs / ("d" * 40 + ".md")).read_text()
@@ -258,7 +258,7 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
     saved = state(session)
     assert saved.store == "folder"
     folder = plan.with_name("brook-progress")
-    assert f"to a new file `{folder}/" in pending(session)[0]
+    assert f"to a new file in `{folder}/" in pending(session)[0]
     folder.mkdir()
     (folder / "2026-09-30T0544Z.md").write_text("# state\n")
 
@@ -273,33 +273,35 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
     )
 
 
-def test_a_launch_whose_activation_event_was_lost_activates_from_the_transcript(home: Path, docs: Path) -> None:
+def test_an_inactive_drive_is_not_nudged_whatever_the_transcript_holds(home: Path, docs: Path) -> None:
     session = home / "session"
-    transcript = home / "t.jsonl"
-    transcript.write_bytes((FIXTURES / "usage-460k.jsonl").read_bytes())
 
-    handoff.nudge_at_threshold(bash(session, transcript_path=str(transcript)))
-    saved = state(session)
-    assert (saved.active, saved.scanned, pending(session)) == (False, transcript.stat().st_size, [])
+    handoff.nudge_at_threshold(bash(session))
 
-    with transcript.open("ab") as file:
-        file.write((FIXTURES / "launched-460k.jsonl").read_bytes())
-    handoff.nudge_at_threshold(bash(session, transcript_path=str(transcript)))
-    assert (state(session).active, state(session).scanned) == (True, transcript.stat().st_size)
+    assert (state(session).active, pending(session)) == (False, [])
+
+
+def test_nudge_fires_from_a_tail_window_of_an_oversized_transcript(home: Path, docs: Path) -> None:
+    session = home / "session"
+    source = FIXTURES / "usage-460k.jsonl"
+    padding = (json.dumps({"type": "queue-operation", "operation": "enqueue", "padding": "x" * 4096}) + "\n").encode()
+    big = home / "big.jsonl"
+    big.write_bytes(padding * 4500 + source.read_bytes())
+    assert big.stat().st_size > 16 * 1024 * 1024
+    handoff.CompactionState(active=True).save(bash(session))
+
+    entry = next(h for h in _state.hooks if h.handler is handoff.nudge_at_threshold)
+    assert entry.spec.transcript_events == handoff.TURN_WINDOW
+    tail = Session.from_path(source)
+    evt = PostToolUseEvent(
+        _raw={"session_id": SESSION, "tool_name": "Bash", "tool_input": {"command": "ls"}, "transcript_path": str(big),
+              "cwd": str(FIXTURES / "project-600k")},
+        ctx=build_context(transcript=tail, session_dir=session),
+    )
+    handoff.nudge_at_threshold(evt)
+
     [nudge] = pending(session)
-    assert nudge.startswith("Context is at 460,000 of the 567,000-token auto-compaction threshold (81%). ")
-
-
-def test_a_partial_launch_line_is_rescanned_once_it_lands(home: Path) -> None:
-    session = home / "session"
-    transcript = home / "t.jsonl"
-    launch = (FIXTURES / "launched-460k.jsonl").read_bytes().splitlines(keepends=True)[1]
-    transcript.write_bytes(launch[:40])
-
-    assert not handoff.launched(saved := handoff.CompactionState(), transcript)
-    assert saved.scanned == 0
-    transcript.write_bytes(launch)
-    assert handoff.launched(saved, transcript)
+    assert nudge.startswith("Context is near the auto-compaction threshold. ")
 
 
 def test_fable_without_suffix_uses_the_configured_600k_window(home: Path) -> None:
@@ -321,7 +323,7 @@ def test_legacy_model_fires_at_the_200k_window(home: Path, docs: Path) -> None:
     assert (saved.phase, saved.plan_path) == ("due", str(home / ".claude/plans/long-running-01234567.md"))
     assert saved.slug == "long-running-01234567"
     [nudge] = pending(session)
-    assert nudge.startswith("Context is at 170,000 of the 167,000-token auto-compaction threshold (102%). ")
+    assert nudge.startswith("Context is near the auto-compaction threshold. ")
 
 
 def test_plan_write_only_tracks_the_path(home: Path, plan: Path) -> None:
@@ -359,9 +361,9 @@ def test_stop_after_the_record_spawns_one_compact_job_and_retries_after_30_minut
         sys.executable,
         str(handoff.COMPACT_JOB),
         "term-7",
-        "/compact Long-running compaction handoff. `/p/brook.md` and its progress record are the authoritative "
-        "restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
-        "`ccn doc show <id>`. Keep only in-flight details from the last turn that they lack.",
+        "/compact Resume the drive from `/p/brook.md` and its progress record: read the plan, "
+        "then the progress doc: `ccn doc list --label progress:brook`, then "
+        "`ccn doc show <id>`. Keep only in-flight details they lack.",
         str(FIXTURES / "usage-460k.jsonl"),
     ]
     assert kw["env"]["ORCA_USER_DATA_PATH"] == "/orca/data"
@@ -376,7 +378,7 @@ def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
 
     first = handoff.compact_when_idle(stop_event(session))
 
-    assert (first.action, first.system_message.startswith("Long-running progress for `/p/brook.md` is recorded")) == (
+    assert (first.action, first.system_message.startswith("The handoff is recorded")) == (
         "allow",
         True,
     )
@@ -385,9 +387,13 @@ def test_stop_without_orca_tells_the_owner_once(home: Path) -> None:
 
 @pytest.mark.parametrize("phase", ["due", "written", "compacting", "idle"])
 def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
-    evt = SessionStartEvent(
-        _raw={"session_id": SESSION, "source": "compact", "cwd": str(FIXTURES / "project-600k")}, ctx=build_context(session_dir=tmp_path / "session")
-    )
+    raw = {
+        "session_id": SESSION,
+        "source": "compact",
+        "cwd": str(FIXTURES / "project-600k"),
+        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
+    }
+    evt = SessionStartEvent(_raw=raw, ctx=context(tmp_path / "session", raw))
     handoff.CompactionState(
         active=True, plan_path="/p/brook.md", phase=phase, compacting_since=1.0 if phase == "compacting" else None
     ).save(evt)
@@ -453,7 +459,7 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
     assert not any(call[:2] in (["doc", "supersede"], ["doc", "add"]) for call in ccn_calls(docs))
 
     (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n")
-    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("Long-running progress for ")
+    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
     assert "- 4ffc9a5 When does a merged change get released?" in (docs / ("d" * 40 + ".md")).read_text()
 
@@ -476,12 +482,13 @@ def test_an_uncited_inbox_rule_blocks_the_stop_at_its_inbox_line_not_the_doc(hom
     assert "ccn doc edit" not in blocked.message
 
     inbox.write_text(inbox.read_text() + "- G138 (standing) supersedes G115: every merged PR is released as it merges (answer 4ffc9a5)\n")
-    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("Long-running progress for ")
+    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
 
 
 def precompact(session: Path, **raw) -> PreCompactEvent:
     payload = {"session_id": SESSION, "transcript_path": str(FIXTURES / "usage-460k.jsonl"), "cwd": str(FIXTURES / "project-600k")}
-    return PreCompactEvent(_raw=payload | raw, ctx=build_context(session_dir=session))
+    payload |= raw
+    return PreCompactEvent(_raw=payload, ctx=context(session, payload))
 
 
 def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Path, plan: Path, docs: Path) -> None:
@@ -500,7 +507,13 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
     assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
 
-    evt = SessionStartEvent(_raw={"session_id": SESSION, "source": "compact", "cwd": str(FIXTURES / "project-600k")}, ctx=build_context(session_dir=session))
+    raw = {
+        "session_id": SESSION,
+        "source": "compact",
+        "cwd": str(FIXTURES / "project-600k"),
+        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
+    }
+    evt = SessionStartEvent(_raw=raw, ctx=context(session, raw))
     restored = handoff.reground_after_compact(evt).message
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show ddddddd`")

@@ -42,8 +42,10 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def event(home: Path, tool_name: str, tool_input: dict) -> PreToolUseEvent:
     transcript = home / ".claude" / "projects" / "-repo" / f"{SESSION}.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("")
     payload = {"session_id": SESSION, "tool_name": tool_name, "tool_input": tool_input, "transcript_path": str(transcript), "cwd": str(home)}
-    evt = PreToolUseEvent(_raw=payload, ctx=build_context(session_dir=home / "session"))
+    evt = PreToolUseEvent(_raw=payload, ctx=build_context(transcript_path=transcript, session_dir=home / "session"))
     CompactionState(active=True, plan_path=str(home / ".claude/plans/brook.md")).save(evt)
     return evt
 
@@ -59,11 +61,7 @@ def test_an_unsettled_question_passes_silently(home: Path) -> None:
 def test_a_re_asked_durable_answer_blocks_with_its_id_and_no_plan_dump(home: Path) -> None:
     blocked = settled.check_settled_before_asking(ask(home, UNSETTLED, RELEASE))
 
-    lines = blocked.message.splitlines()
-    assert lines[0].startswith("Owner-question gate (long-running R19): 1 question(s) match a settled ruling")
-    assert lines[1].startswith("- “When does a merged change get released") and "→ answer 4ffc9a5: " in lines[1]
-    assert len(lines) == 3
-    assert "Decision 0" not in blocked.message and "Checks" not in blocked.message
+    assert blocked.message == settled.GATE_MESSAGE
     assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
 
 
@@ -79,11 +77,4 @@ def test_a_board_question_settled_by_a_feedback_memory_blocks(home: Path) -> Non
 
     blocked = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
 
-    assert "→ memory owner-clicks.md: the owner never owes a review or approval click on a program PR" in blocked.message
-
-
-def test_the_block_names_at_most_ten_questions(home: Path) -> None:
-    blocked = settled.check_settled_before_asking(ask(home, *[f"{RELEASE} ({n})" for n in range(14)]))
-
-    assert len(blocked.message.splitlines()) == 1 + settled.SHOWN + 2
-    assert "- +4 more" in blocked.message
+    assert blocked.message == settled.GATE_MESSAGE
