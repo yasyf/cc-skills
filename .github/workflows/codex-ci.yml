@@ -62,7 +62,7 @@ jobs:
       - name: codex capt-hook helpers
         run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests/test_codex_hooks.py -q
       - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.72.0' pack test plugins/codex
+        run: uvx --isolated 'capt-hook>=12.74.0' pack test plugins/codex
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

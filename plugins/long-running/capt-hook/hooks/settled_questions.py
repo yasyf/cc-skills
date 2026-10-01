@@ -38,8 +38,6 @@ STOPWORDS = frozenset(
 )
 SHARED_WORDS = 4
 OVERLAP = 0.6
-SHOWN = 10
-CLIP = 140
 FEEDBACK = re.compile(r"^\s*type:\s*feedback\s*$", re.MULTILINE)
 DESCRIPTION = re.compile(r"^description:\s*(.+)$", re.MULTILINE)
 PLAN = (
@@ -58,7 +56,6 @@ class SettledState(WorkflowState):
 
 @dataclass(frozen=True)
 class Settled:
-    cite: str
     text: str
 
 
@@ -108,7 +105,7 @@ def plan_decisions(plan_path: str | None) -> list[Settled]:
         if following.match(line):
             break
         if line.strip():
-            settled.append(Settled(f"plan {plan.name}:{number}", line.strip()))
+            settled.append(Settled(line.strip()))
     return settled
 
 
@@ -118,11 +115,11 @@ def durable_answers(cwd: str) -> list[Settled]:
     listed = ccn(cwd, "answer", "list", "--label", "scope:durable", "--limit", "0", "--json")
     if listed.returncode:
         return []
-    return [Settled(f"answer {answer['id'][:7]}", answer["title"]) for answer in json.loads(listed.stdout or "[]")]
+    return [Settled(answer["title"]) for answer in json.loads(listed.stdout or "[]")]
 
 
 def memory_dirs(evt: BaseHookEvent) -> set[Path]:
-    dirs = {evt.transcript_path.parent / "memory"} if evt.transcript_path else set()
+    dirs = {evt.ctx.t.path.parent / "memory"} if evt.ctx.t.path else set()
     common = subprocess.run(
         ["git", "-C", str(evt.cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True
     )
@@ -137,7 +134,7 @@ def feedback_memories(evt: BaseHookEvent) -> list[Settled]:
     for path in sorted(path for memory in memory_dirs(evt) for path in memory.glob("*.md")):
         text = path.read_text()
         if FEEDBACK.search(text) and (description := DESCRIPTION.search(text)):
-            settled.append(Settled(f"memory {path.name}", description[1].strip()))
+            settled.append(Settled(description[1].strip()))
     return settled
 
 
@@ -167,24 +164,10 @@ def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Set
     return found
 
 
-def clip(text: str) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= CLIP else text[: CLIP - 1] + "…"
-
-
-def gate_message(found: list[tuple[str, Settled]]) -> str:
-    lines = [
-        f"Owner-question gate (long-running R19): {len(found)} question(s) match a settled ruling; apply and log "
-        "the ruling instead of asking."
-    ]
-    lines += [f"- “{clip(question)}” → {item.cite}: {clip(item.text)}" for question, item in found[:SHOWN]]
-    if len(found) > SHOWN:
-        lines.append(f"- +{len(found) - SHOWN} more")
-    lines.append(
-        f"Re-issue the call without them. If a match is wrong, re-issue it unchanged: asking calls pass for the next "
-        f"{BURST_SECONDS // 60} minutes."
-    )
-    return "\n".join(lines)
+GATE_MESSAGE = (
+    "This question matches a settled plan decision, owner answer, or feedback memory. "
+    "Apply it and re-issue the call without the question."
+)
 
 
 @on(
@@ -197,7 +180,7 @@ def gate_message(found: list[tuple[str, Settled]]) -> str:
             tool_input=SETTLED_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Block(pattern=r"(?s)R19.*plan brook\.md:4: - Every side-feature carries over"),
+        ): Block(pattern=r"settled plan decision"),
         Input(
             tool="AskUserQuestion",
             tool_input=OPEN_ASK,
@@ -242,4 +225,4 @@ def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
         if not (found := matches(questions, plan_decisions(drive.plan_path) + durable_answers(str(evt.cwd)) + feedback_memories(evt))):
             return None
         state.blocked_at = now
-    return evt.block(gate_message(found))
+    return evt.block(GATE_MESSAGE)

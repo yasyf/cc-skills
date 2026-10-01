@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
+from cc_transcript.query import Session
 from captain_hook.events import PostToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 
@@ -12,19 +14,34 @@ from hooks.compaction_handoff import CompactionState
 
 
 def entry(kind: str, text: str, *, sidechain: bool = False) -> dict:
-    return {"type": kind, "isSidechain": sidechain, "message": {"content": [{"type": "text", "text": text}]}}
+    message = {"role": kind, "content": [{"type": "text", "text": text}]}
+    if kind == "assistant":
+        usage = {"input_tokens": 2, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        message |= {"model": "claude-opus-5-5", "usage": usage}
+    return {
+        "type": kind,
+        "isSidechain": sidechain,
+        "timestamp": "2026-10-01T12:00:00.000Z",
+        "uuid": str(uuid.uuid4()),
+        "parentUuid": None,
+        "sessionId": "0123456789abcdef",
+        "message": message,
+    }
 
 
 class Root:
     def __init__(self, home: Path, *, active: bool = True) -> None:
         self.transcript = home / "root.jsonl"
-        self.transcript.write_text("")
         self.session_dir = home / "state"
-        CompactionState(active=active).save(self.event(PostToolUseEvent, tool_name="Bash"))
+        seed = PostToolUseEvent(
+            _raw={"session_id": "0123456789abcdef", "tool_name": "Bash"}, ctx=build_context(session_dir=self.session_dir)
+        )
+        CompactionState(active=active).save(seed)
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
-        return cls(_raw=payload | raw, ctx=build_context(session_dir=self.session_dir))
+        transcript = Session.from_path(self.transcript)
+        return cls(_raw=payload | raw, ctx=build_context(transcript=transcript, session_dir=self.session_dir))
 
     def reply(self, *entries: dict) -> list[str]:
         self.transcript.write_text("".join(json.dumps(item) + "\n" for item in entries))
@@ -41,15 +58,11 @@ def root(tmp_path: Path) -> Root:
 
 
 @pytest.mark.parametrize(
-    ("text", "times"),
-    [
-        ("Fix lane spawned at 17:35Z; mechanism by 17:45Z.", "17:35Z, 17:45Z"),
-        ("Owner asks landed 17:3xZ.", "17:3xZ"),
-        ("Red since 16:52 UTC.", "16:52 UTC"),
-    ],
+    "text",
+    ["Fix lane spawned at 17:35Z; mechanism by 17:45Z.", "Owner asks landed 17:3xZ.", "Red since 16:52 UTC."],
 )
-def test_utc_times_in_the_last_reply_nudge(root: Root, text: str, times: str) -> None:
-    assert root.reply(entry("user", "status?"), entry("assistant", text)) == [owner_facing.UTC_IN_REPLY.format(times=times)]
+def test_utc_times_in_the_last_reply_nudge(root: Root, text: str) -> None:
+    assert root.reply(entry("user", "status?"), entry("assistant", text)) == [owner_facing.UTC_IN_REPLY]
 
 
 @pytest.mark.parametrize("text", ["Fix lane spawned at 10:35am; mechanism by 10:45.", "Build 72755 is red."])

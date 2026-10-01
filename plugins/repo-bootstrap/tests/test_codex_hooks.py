@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import pwd
 import re
@@ -265,29 +266,36 @@ def test_absent_store_admits_every_spawn(common, plane):
     assert_admits(common)
 
 
-def test_store_without_tables_admits_every_spawn(common, plane):
+def assert_faults(common) -> None:
+    with pytest.raises(sqlite3.DatabaseError):
+        common.directive_pending(plane_event())
+    with pytest.raises(sqlite3.DatabaseError):
+        common.subject_in_scope(plane_event())
+
+
+def test_store_without_tables_faults(common, plane):
     plane.parent.mkdir(parents=True)
     plane.touch()
-    assert_admits(common)
+    assert_faults(common)
 
 
-def test_torn_store_admits_every_spawn(common, plane):
+def test_torn_store_faults(common, plane):
     plane.parent.mkdir(parents=True)
     plane.write_bytes(b"SQLite format 3\x00" + b"\xff" * 84)
-    assert_admits(common)
+    assert_faults(common)
 
 
-def test_unreadable_store_admits_every_spawn(common, plane):
+def test_unreadable_store_faults(common, plane):
     seed_plane(plane)
     plane.chmod(0)
     try:
-        assert_admits(common)
+        assert_faults(common)
     finally:
         plane.chmod(0o600)
 
 
 @pytest.mark.parametrize("journal", ["DELETE", "WAL"])
-def test_locked_store_admits_without_waiting(common, plane, journal):
+def test_locked_store_does_not_wait(common, plane, journal):
     seed_plane(plane)
     with closing(sqlite3.connect(plane, isolation_level=None)) as holder:
         holder.execute(f"PRAGMA journal_mode={journal}")
@@ -295,7 +303,8 @@ def test_locked_store_admits_without_waiting(common, plane, journal):
         holder.execute("BEGIN EXCLUSIVE")
         holder.execute("INSERT INTO subjects VALUES ('held', 's', '/elsewhere')")
         started = time.monotonic()
-        assert_admits(common)
+        with pytest.raises(sqlite3.DatabaseError):
+            common.directive_pending(plane_event())
         assert time.monotonic() - started < 5
         holder.execute("ROLLBACK")
 
@@ -381,9 +390,13 @@ def test_plain_background_subagent_is_not_a_teammate(common, session):
     assert common.in_process_teammate(lane_event(session, "a266d86820f8d3efd")) is False
 
 
-def test_missing_or_torn_meta_fails_open(common, session):
+def test_missing_meta_is_not_a_teammate(common, session):
     assert common.in_process_teammate(lane_event(session, "anever")) is False
-    assert common.in_process_teammate(lane_event(session, "atorn")) is False
+
+
+def test_torn_meta_faults(common, session):
+    with pytest.raises(json.JSONDecodeError):
+        common.in_process_teammate(lane_event(session, "atorn"))
 
 
 def test_main_thread_is_never_a_teammate(common, session):

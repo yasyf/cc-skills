@@ -54,6 +54,11 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
     ]
 
 
+def own_name(evt: BaseHookEvent) -> str | None:
+    meta = evt.ctx.t.path.with_suffix(".meta.json")
+    return json.loads(meta.read_text()).get("name") if meta.is_file() else None
+
+
 def team_dir(evt: BaseHookEvent, team: str) -> Path:
     return evt.ctx.t.path.parents[2] / "teams" / UNSAFE_NAME.sub("-", team)
 

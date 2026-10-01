@@ -45,11 +45,10 @@ def daemon_is_down() -> bool:
 
 
 def plane_may_match(query: str, *params: str) -> bool:
-    try:
-        with closing(sqlite3.connect(f"{state_db().as_uri()}?mode=ro", uri=True, timeout=0)) as conn:
-            return bool(conn.execute(query, params).fetchone()[0])
-    except sqlite3.DatabaseError:
+    if not state_db().is_file():
         return True
+    with closing(sqlite3.connect(f"{state_db().as_uri()}?mode=ro", uri=True, timeout=0)) as conn:
+        return bool(conn.execute(query, params).fetchone()[0])
 
 
 def scope(evt: BaseHookEvent) -> str:
@@ -69,10 +68,7 @@ def in_process_teammate(evt: BaseHookEvent) -> bool:
     if not agent_id or not transcript:
         return False
     meta = Path(transcript).with_suffix("") / "subagents" / f"agent-{agent_id}.meta.json"
-    try:
-        return json.loads(meta.read_text()).get("taskKind") == TEAMMATE
-    except (OSError, json.JSONDecodeError):
-        return False
+    return meta.is_file() and json.loads(meta.read_text()).get("taskKind") == TEAMMATE
 
 
 def runner_home() -> Path:
@@ -102,13 +98,10 @@ def call_bin(evt: BaseHookEvent, sub: str, *, timeout: int = 10) -> str | None:
     argv = codex_ask_argv()
     if argv is None:
         return None
-    try:
-        return evt.ctx.call_cli(
-            [*argv, sub],
-            input=json.dumps(evt._raw),
-            env={"BINRUN_PLUGIN_ROOT": str(PLUGIN_ROOT)},
-            timeout=timeout,
-            throw=False,
-        )
-    except UnicodeDecodeError:
-        return None
+    return evt.ctx.call_cli(
+        [*argv, sub],
+        input=json.dumps(evt._raw),
+        env={"BINRUN_PLUGIN_ROOT": str(PLUGIN_ROOT)},
+        timeout=timeout,
+        throw=False,
+    )

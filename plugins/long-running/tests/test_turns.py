@@ -33,23 +33,6 @@ def test_model_window(model: str, hint: str | None, window: int) -> None:
     assert turns.model_window(model, hint) == window
 
 
-def test_reversed_lines_crosses_block_boundaries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(turns, "TAIL_BLOCK", 7)
-    path = tmp_path / "t.jsonl"
-    lines = [b"first", b"", b"a much longer second line", b"3"]
-    path.write_bytes(b"\n".join(lines) + b"\n")
-
-    assert list(turns.reversed_lines(path)) == [b"", *reversed(lines)]
-
-
-def test_latest_turn_skips_synthetic_and_sidechain_entries() -> None:
-    assert turns.latest_turn(FIXTURES / "usage-170k-synthetic-tail.jsonl") == turns.Turn(
-        "claude-sonnet-4-6", 170_000, datetime(2026, 9, 24, 16, 3, tzinfo=UTC)
-    )
-    assert turns.latest_turn(FIXTURES / "usage-460k.jsonl").tokens == 460_000
-    assert turns.latest_turn(FIXTURES / "usage-460k.jsonl", sidechain=True).tokens == 5_000
-
-
 @pytest.mark.parametrize(
     ("env", "project", "model", "hint", "limit"),
     [
@@ -80,18 +63,9 @@ def test_threshold(
     assert turns.threshold(model, hint, FIXTURES / project if project else None) == limit
 
 
-@pytest.mark.parametrize("sidechain", [False, True])
-@pytest.mark.parametrize(
-    "name",
-    [
-        "usage-170k-synthetic-tail.jsonl",
-        "usage-170k-sonnet-4-6.jsonl",
-        "usage-262k-fable-5-1.jsonl",
-        "usage-460k.jsonl",
-        "usage-800k.jsonl",
-    ],
-)
-def test_turn_of_events_matches_latest_turn_of_the_file(name: str, sidechain: bool) -> None:
-    transcript = FIXTURES / name
-
-    assert turns.turn_of(parse(transcript).events, sidechain=sidechain) == turns.latest_turn(transcript, sidechain=sidechain)
+def test_turn_of_skips_synthetic_and_sidechain_events() -> None:
+    synthetic = turns.turn_of(parse(FIXTURES / "usage-170k-synthetic-tail.jsonl").events)
+    assert synthetic == turns.Turn("claude-sonnet-4-6", 170_000, datetime(2026, 9, 24, 16, 3, tzinfo=UTC))
+    events = parse(FIXTURES / "usage-460k.jsonl").events
+    assert turns.turn_of(events).tokens == 460_000
+    assert turns.turn_of(events, sidechain=True).tokens == 5_000

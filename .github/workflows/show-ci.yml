@@ -21,4 +21,4 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
       - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.72.0' pack test plugins/show
+        run: uvx --isolated 'capt-hook>=12.74.0' pack test plugins/show

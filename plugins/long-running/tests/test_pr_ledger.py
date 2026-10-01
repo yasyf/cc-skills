@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from captain_hook.events import PostToolUseEvent
 from captain_hook.testing.helpers import build_context
-from hooks.pr_ledger import FIXTURES, OpenedPr, lane_name, opened_prs, opener_cwd, response_text
+
+from hooks.tests.ledger_fixtures import FIXTURES
+from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text
 
 SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 
@@ -41,14 +43,18 @@ def test_response_text_reads_a_bash_result_and_its_stderr():
 def event(tmp_path: Path, agent_id: str | None = None, command: str = "ccx vcs ship") -> PostToolUseEvent:
     transcript = tmp_path / f"{SESSION}.jsonl"
     transcript.write_text("")
+    lane = tmp_path / SESSION / "subagents" / f"agent-{agent_id}.jsonl" if agent_id else transcript
+    lane.parent.mkdir(parents=True, exist_ok=True)
+    lane.touch()
     raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path)}
-    return PostToolUseEvent(_raw=raw | ({"agent_id": agent_id} if agent_id else {}), ctx=build_context(None, transcript, tmp_path, tmp_path))
+    return PostToolUseEvent(_raw=raw | ({"agent_id": agent_id} if agent_id else {}), ctx=build_context(None, lane, tmp_path, tmp_path))
 
 
 def test_a_named_subagent_records_under_its_own_name(tmp_path):
     meta = tmp_path / SESSION / "subagents" / "agent-adeploy-1a2b.meta.json"
     meta.parent.mkdir(parents=True)
     meta.write_text(json.dumps({"name": "deploy-experience", "agentType": "deploy-experience"}))
+    meta.with_name("agent-adeploy-1a2b.jsonl").write_text("")
 
     assert lane_name(event(tmp_path, "adeploy-1a2b")) == "deploy-experience"
 
@@ -80,7 +86,4 @@ def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, mo
     result = pr_ledger.record_opened_prs(evt)
 
     assert result is not None
-    assert result.message == (
-        "PRs #28534 were not recorded in the drive ledger: drive.py record could not start "
-        "(Resource temporarily unavailable) — run `ledger.py register` for each by hand."
-    )
+    assert result.message == pr_ledger.UNRECORDED

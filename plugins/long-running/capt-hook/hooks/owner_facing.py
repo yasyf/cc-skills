@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
+from cc_transcript.models import AssistantEvent
 from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, on
 
 from .compaction_handoff import CompactionState
 from .nudges import queue_nudge
-from .turns import reversed_entries
+from .tests.handoff_fixtures import reply_transcript
 
 ACTIVE = [CompactionState(active=True)]
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 SUPPORT_ROLES = ("evidence", "export", "ship", "comms", "intake", "retro", "watch", "handoff", "backup")
 INCIDENT_ROUTE = (
-    "route the incident fix lane through the orca-desk (R16): append `orca-desk: launch <name> NOW` to its inbox for "
-    "a codex `gpt-6.1-sol` worker, fast tier, `xhigh`, whatever the surface (CI, Slack report, Sentry, Datadog). "
-    "An Agent spawn on an incident is an -evidence, -export, -ship, -comms, -intake, -retro, -watch, or -handoff "
-    "lane, or the Opus 5.5 `-backup` lane after sol misses."
+    "Route the incident fix lane through the orca-desk. Append `orca-desk: launch <name> NOW` to its inbox; Agent "
+    "spawns on an incident are only -evidence, -export, -ship, -comms, -intake, -retro, -watch, -handoff, or -backup lanes."
 )
+REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
-UTC_IN_REPLY = "owner-facing times are Pacific with no zone label (R21): restate {times} from your last reply in Pacific"
+UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
 
 
 def incident_spawn(call: TaskCall) -> bool:
@@ -55,21 +54,28 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
     return evt.block(INCIDENT_ROUTE)
 
 
-def last_reply(transcript: Path) -> str:
-    for entry in reversed_entries(transcript):
-        if entry.get("isSidechain") or entry.get("type") != "assistant":
-            continue
-        content = entry["message"].get("content")
-        texts = [block["text"] for block in content if block.get("type") == "text"] if isinstance(content, list) else []
-        if texts:
-            return "\n".join(texts)
-    return ""
+def last_reply(evt: BaseHookEvent) -> str:
+    replies = (
+        event.text
+        for event in reversed(evt.ctx.t.events)
+        if isinstance(event, AssistantEvent) and not event.meta.is_sidechain and event.text
+    )
+    return next(replies, "")
 
 
-@on(Event.Stop, skip_if=[FromSubagent()])
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), state=ACTIVE): Allow(),
+        Input(transcript=reply_transcript("Fix lane spawned at 10:35am."), state=ACTIVE): Allow(),
+        Input(transcript=reply_transcript("Lane at 17:35Z.", sidechain=True), state=ACTIVE): Allow(),
+        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z.")): Allow(),
+        Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), agent_id="a1b2c3", state=ACTIVE): Allow(),
+    },
+)
 def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active or not evt.transcript_path.is_file():
-        return None
-    if times := sorted(set(UTC_CLOCK.findall(last_reply(evt.transcript_path)))):
-        queue_nudge(evt, UTC_IN_REPLY.format(times=", ".join(times)))
+    if CompactionState.load(evt).active and UTC_CLOCK.search(last_reply(evt)):
+        queue_nudge(evt, UTC_IN_REPLY)
     return None

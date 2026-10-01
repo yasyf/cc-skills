@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -30,18 +29,13 @@ from captain_hook.util import reqenv
 
 from .compact_job import MAX_LIFETIME_SECONDS
 from .nudges import queue_nudge
-from .turns import latest_turn, threshold
+from .tests.handoff_fixtures import USAGE_262K_FABLE, USAGE_460K, USAGE_800K
+from .turns import threshold, turn_of
 
 SKILL_NAMES = ("long-running",)
-LAUNCH = re.compile(rb'"skill":\s*"(?:long-running:)?long-running"|<command-name>/(?:long-running:)?long-running</command-name>')
-PLAN_ARG =re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
+PLAN_ARG = re.compile(r"[^\s`'\"]*\.claude/plans/[^\s/`'\"]+\.md")
 POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
-DOC_SECTIONS = "how the drive runs; owner asks and their state; landed; waiting on the owner; root's next actions"
-GENERATED = (
-    "standing owner rules, durable answers, open asks, open tasks, lanes and monitors, inbox heads and cursors, "
-    "and lint findings"
-)
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
 STANDING = SCRIPTS / "standing.py"
@@ -54,6 +48,8 @@ FRESH_SECONDS = 300
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 GENERATED_STUB = json.dumps({"id": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."})
 FIRE_FRACTION = 0.8
+TURN_WINDOW = 256
+ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
 COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 
@@ -68,29 +64,15 @@ class CompactionState(WorkflowState):
     slug: str | None = None
     prior: list[str] = []
     compacting_since: float | None = None
-    scanned: int = 0
     background: list[dict] = []
     digest: str | None = None
     failure: str | None = None
     generated_at: float | None = None
 
 
-def launched(state: CompactionState, transcript: Path) -> bool:
-    if not state.active:
-        with transcript.open("rb") as file:
-            file.seek(state.scanned)
-            tail = file.read()
-        state.scanned += tail.rfind(b"\n") + 1
-        state.active = LAUNCH.search(tail) is not None
-    return state.active
-
-
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
     argv = ["ccn", "-R", cwd, *args]
-    try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, 124, "", "timed out")
+    return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
 
 
 def has_cc_notes(cwd: str) -> bool:
@@ -126,10 +108,7 @@ def records(state: CompactionState, cwd: str) -> list[str]:
 
 def standing(state: CompactionState, cwd: str, verb: str, *args: str) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(STANDING), verb, "--program", state.slug or "", "--repo", cwd, *args]
-    try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, 124, "", "timed out")
+    return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
 
 
 def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
@@ -140,12 +119,9 @@ def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
 def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(HANDOFF), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
-    try:
-        return subprocess.run(
-            argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
-        )
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, 124, "", "timed out")
+    return subprocess.run(
+        argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
+    )
 
 
 def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -> None:
@@ -170,31 +146,21 @@ def resume_steps(state: CompactionState) -> str:
 
 def compact_instructions(state: CompactionState) -> str:
     return (
-        f"Long-running compaction handoff. `{state.plan_path}` and its progress record are the authoritative "
-        f"restart state: read the plan, {resume_steps(state)}. Keep only in-flight details from the last turn "
-        "that they lack."
+        f"Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
+        f"{resume_steps(state)}. Keep only in-flight details they lack."
     )
 
 
-def handoff_nudge(*, used: int, limit: int, state: CompactionState) -> str:
-    plan = Path(state.plan_path or "")
-    now = f"{datetime.now(UTC):%Y-%m-%dT%H%MZ}"
+def handoff_nudge(state: CompactionState) -> str:
     if state.store == "folder":
-        write = f"write the drive's whole execution state to a new file `{progress_folder(plan)}/{now}.md`"
+        write = f"Write the drive's execution state to a new file in `{progress_folder(Path(state.plan_path or ''))}/`."
     else:
         write = (
-            f'write the drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress {now}" '
-            f'--label progress:{state.slug} --when "Resuming or compacting the <drive> drive: read before anything '
-            f'else, after the plan" --body -`'
+            "Write the drive's execution state with "
+            f'`ccn doc add "<drive>: progress" --label progress:{state.slug} --when "Resuming the <drive> drive: '
+            'read after the plan" --body -`.'
         )
-    return (
-        f"Context is at {used:,} of the {limit:,}-token auto-compaction threshold ({round(100 * used / limit)}%). "
-        f"When convenient, {write}, with sections: {DOC_SECTIONS}. The hook generates {GENERATED} from their "
-        "sources and files your record beneath them as the root narrative, so write only what the sources lack. "
-        f"Never rewrite `{plan}`. "
-        "The hook supersedes the previous progress record, points the plan's one progress line at the generated "
-        "one, and runs /compact once the input line is empty."
-    )
+    return f"Context is near the auto-compaction threshold. {write}"
 
 
 def point_plan(plan: Path, line: str) -> None:
@@ -242,8 +208,8 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
     generated = generate(evt, state, *narrative, "--strict")
     if generated.returncode == VIOLATIONS:
         return (
-            "The drive's handoff fails the standing-rules lint (long-running Compaction handoff); "
-            f"make the edit each finding names at its file and line, then stop again:\n{generated.stdout.strip()}"
+            "The drive's handoff fails the standing-rules lint. "
+            f"Fix each finding at its file and line, then stop again:\n{generated.stdout.strip()}"
         )
     adopt(state, generated)
     return generated.returncode == 0
@@ -319,12 +285,13 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     skip_if=[FromSubagent()],
+    transcript_events=TURN_WINDOW,
     tests={
-        Input(tool="Bash", tool_input={"command": "ls"}, transcript=FIXTURES / "usage-460k.jsonl"): Allow(),
+        Input(tool="Bash", tool_input={"command": "ls"}, transcript=USAGE_460K): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
-            transcript=FIXTURES / "usage-262k-fable-5-1.jsonl",
+            transcript=USAGE_262K_FABLE,
             cwd=str(FIXTURES / "project-600k"),
             state=[CompactionState(active=True, model="claude-fable-5-1")],
         ): Allow(),
@@ -332,14 +299,14 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
             tool="Bash",
             tool_input={"command": "ls"},
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            transcript=FIXTURES / "usage-460k.jsonl",
+            transcript=USAGE_460K,
             cwd=str(FIXTURES / "project-600k"),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
         ): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
-            transcript=FIXTURES / "usage-800k.jsonl",
+            transcript=USAGE_800K,
             agent_id="a1b2c3",
             state=[CompactionState(active=True)],
         ): Allow(),
@@ -348,9 +315,9 @@ def track_plan(evt: BaseHookEvent) -> HookResult | None:
 def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
         if (
-            not launched(state, evt.transcript_path)
+            not state.active
             or state.phase != "idle"
-            or not (root := latest_turn(evt.transcript_path))
+            or not (root := turn_of(evt.ctx.t.events))
         ):
             return None
         limit = threshold(root.model, state.model, evt.cwd)
@@ -366,7 +333,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         resolve_record(state, evt.cwd)
         state.prior = records(state, evt.cwd)
         state.phase = "due"
-        queue_nudge(evt, handoff_nudge(used=root.tokens, limit=limit, state=state))
+        queue_nudge(evt, handoff_nudge(state))
     return None
 
 
@@ -377,24 +344,22 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             source="compact",
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
         ): Warn(
-            pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else, then the progress "
-            r"doc: `ccn doc list --label progress:brook`, then `ccn doc show <id>`; .*context\.$"
+            pattern=r"^Read `/p/brook\.md` before anything else, then the progress "
+            r"doc: `ccn doc list --label progress:brook`, then `ccn doc show <id>`; .*Skill `long-running` .*context\.$"
         ),
         Input(
             source="compact",
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="due")],
         ): Warn(
-            pattern=r"^Compacted long-running session\. .* Your narrative was not written before compaction; "
+            pattern=r"^Read `/p/brook\.md` .* Your narrative was not written before compaction; "
             r"write a progress record when convenient\.$"
         ),
         Input(
-            source="compact", transcript=FIXTURES / "usage-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md")]
+            source="compact", transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]
         ): Allow(),
         Input(
-            source="compact",
-            transcript=FIXTURES / "launched-460k.jsonl",
-            state=[CompactionState(plan_path="/p/brook.md", slug="brook")],
-        ): Warn(pattern=r"^Compacted long-running session\. Read `/p/brook\.md` before anything else"),
+            source="compact", state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
+        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
         Input(
             source="compact",
@@ -403,7 +368,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         Input(
             source="compact",
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
-        ): Warn(pattern=r"The generated handoff failed before compaction \(ccn: timed out\); write the progress record now\.$"),
+        ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
     },
 )
 def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
@@ -421,17 +386,19 @@ def reground_after_compact(evt: BaseHookEvent) -> HookResult | None:
         state.phase = "idle"
         state.compacting_since = None
         state.digest = state.failure = None
-        if not (launched(state, evt.transcript_path) and state.plan_path):
+        if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
     if digest:
         return evt.context(digest + pending)
-    failed = f" The generated handoff failed before compaction ({failure}); write the progress record now." if failure else ""
+    follow_up = (
+        " The generated handoff failed; write the progress record now."
+        if failure
+        else pending or " Reload the long-running rules with Skill `long-running` if they are not in context."
+    )
     return evt.context(
-        f"Compacted long-running session. Read `{state.plan_path}` before anything else, {resume_steps(state)}; "
-        "they supersede the summary. "
-        "The long-running skill stays active — reload its rules (Skill `long-running`) if they are not in context."
-        + (failed or pending)
+        f"Read `{state.plan_path}` before anything else, {resume_steps(state)}; they supersede the compaction summary."
+        + follow_up
     )
 
 
@@ -465,12 +432,11 @@ def compact_due(state: CompactionState, evt: BaseHookEvent) -> bool | str:
 @on(
     Event.Stop,
     skip_if=[FromSubagent()],
+    transcript_events=1,
     tests={
-        Input(transcript=FIXTURES / "usage-800k.jsonl", state=[CompactionState(active=True)]): Allow(),
+        Input(transcript=USAGE_800K, state=[CompactionState(active=True)]): Allow(),
         Input(state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="written")]): Allow(
-            system_message=r"^Long-running progress for `/p/brook\.md` is recorded for compaction, but "
-            r"ORCA_TERMINAL_HANDLE is unset so the hook cannot type it\. Run: /compact Long-running compaction "
-            r"handoff\. `/p/brook\.md` and its progress record are the authoritative restart state: .*$"
+            system_message=r"^The handoff is recorded, but the hook cannot type `/compact` here\. Run `/compact` now\.$"
         ),
         Input(
             state=[CompactionState(active=True, plan_path="/p/brook.md", phase="compacting", compacting_since=None)]
@@ -492,13 +458,9 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
         state.phase = "compacting"
         if not (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
             state.compacting_since = None
-            return evt.allow(
-                system_message=f"Long-running progress for `{state.plan_path}` is recorded for compaction, but "
-                "ORCA_TERMINAL_HANDLE is unset so the hook cannot type it. "
-                f"Run: /compact {compact_instructions(state)}"
-            )
+            return evt.allow(system_message=ORCA_UNSET)
         state.compacting_since = time.time()
-        send_compact(handle, compact_instructions(state), evt.transcript_path)
+        send_compact(handle, compact_instructions(state), evt.ctx.t.path)
     return None
 
 
@@ -512,9 +474,9 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
         ): Warn(
-            pattern=r"^Long-running compaction handoff\. `~/brook\.md` and its progress record are the "
-            r"authoritative restart state: read the plan, then the progress doc: `ccn doc list --label progress:brook`, then "
-            r"`ccn doc show <id>`\. Keep only in-flight details from the last turn that they lack\.$"
+            pattern=r"^Resume the drive from `~/brook\.md` and its progress record: read the plan, "
+            r"then the progress doc: `ccn doc list --label progress:brook`, then "
+            r"`ccn doc show <id>`\. Keep only in-flight details they lack\.$"
         ),
         Input(
             session_id="s1",
@@ -525,26 +487,27 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
                 f"{sys.executable} {HANDOFF} generate": GENERATED_STUB,
             },
         ): Warn(
-            pattern=r"(?s)they lack\.\nStanding owner rules \(scope:durable answers; keep every title verbatim in the "
-            r"summary\):\n- 4ffc9a5 When does a merged change get released\?$"
+            pattern=r"(?s)they lack, and keep these titles verbatim: "
+            r"`- 4ffc9a5 When does a merged change get released\?`\.$"
         ),
-        Input(transcript=FIXTURES / "usage-460k.jsonl", state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
+        Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
         Input(
-            transcript=FIXTURES / "launched-460k.jsonl",
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            state=[CompactionState(plan_path="~/brook.md", slug="brook")],
+            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
-        ): Warn(pattern=r"^Long-running compaction handoff\. `~/brook\.md` and its progress record"),
+        ): Warn(pattern=r"^Resume the drive from `~/brook\.md` and its progress record"),
     },
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
     with CompactionState.mutate(evt) as state:
-        if not (launched(state, evt.transcript_path) and state.plan_path):
+        if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
         if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
             adopt(state, generate(evt, state))
         titles = standing(state, evt.cwd, "titles").stdout.strip() if state.store == "ccn" else ""
-    rules = f"\nStanding owner rules (scope:durable answers; keep every title verbatim in the summary):\n{titles}" if titles else ""
-    return evt.context(compact_instructions(state) + rules)
+    instructions = compact_instructions(state)
+    if titles:
+        instructions = f"{instructions.removesuffix('.')}, and keep these titles verbatim: `{titles}`."
+    return evt.context(instructions)
