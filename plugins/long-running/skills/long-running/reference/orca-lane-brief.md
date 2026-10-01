@@ -49,6 +49,11 @@ orca-desk treats those messages exactly like an ask.
 Never end a turn waiting and never park. AskUserQuestion is unavailable; on a decision,
 take the brief's default, log it with `ccn log append <drive log id>`, and report it.
 
+A question the plan or a recorded owner ruling already answers is not a question:
+apply the answer, cite it, and never put it in an ask or in an owner-question list.
+An owner-question list you write marks, for every item, which authorities you checked
+(plan section, durable answer id, memory) and holds only items none of them settles.
+
 Never end a turn without a Monitor on your own messages. Re-arm it after compaction.
   Poll `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json`
   every 60 s; dedupe on message id in a seen file and print

@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The eighteen hard rules
+## The nineteen hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -301,6 +301,27 @@ down; a running copy never sees the `SendMessage`.
 
 *Prevents R365 at `04:16:03Z` launching nothing until R370, and sandsql-handoff-fix
 opening #28594 29 s after its stand-down (2026-10-01).*
+
+**R19. A settled question is applied, never asked.**
+Before an owner question reaches `AskUserQuestion` or a cc-present board (`cc-present start --doc`, `push`, `update-block`), the root checks each question against the authorities.
+First read the owner's plan and every plan it names as source of truth, including each plan's Decisions section and the section the question touches. Then check `ccn answer list --label scope:durable` plus the drive's answer labels. Last check the project's feedback memories.
+A question any of them answers is applied: the root writes the ruling to the lanes (R18) and logs it. The question never reaches the owner. "Confirm or override" cards for items settled by the plan count as asking.
+
+A lane's question list is input, not output. The root never forwards a lane's owner-question file verbatim; it filters every item first. Choose board or `AskUserQuestion` only after the filter.
+
+An absolute owner instruction ("nothing is dropped", "every side-feature carries") stays absolute in every brief, ruling, and memory the root writes.
+Never add "unless the owner explicitly drops it" or "or an explicit owner drop": an exit turns the ruling into a decision surface, and audit lanes manufacture questions from it.
+
+An audit or parity lane's brief says the same: grade a row the owner's rulings cover against those rulings (carry, or the plan mechanism that carries it); never queue it as an owner question.
+A prior root or PR decision that contradicts an owner ruling is a defect to revert, not a question.
+Where a landed PR or a refining plan line conflicts with the owner's plan, the owner's plan wins and the conflict becomes a revert lane.
+
+Only a question nothing settles goes to the owner. Each card names which authorities were checked.
+
+The pack's `settled_questions` hook blocks the root's first asking call in a burst (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) while a drive is active and quotes the tracked plan's Decisions section.
+Re-issue the call after filtering; asking calls then pass for ten minutes.
+
+*Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
 ## The landing desk and its ledger
 
@@ -1576,6 +1597,7 @@ rotation by hand (release-v3, 2026-10-01).*
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
 15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
+17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 
-Apply D3 to priority PRs before delegating. A call that survives all sixteen decides
+Apply D3 to priority PRs before delegating. A call that survives all seventeen decides
 something no lane can decide for you; everything else is a lane.
