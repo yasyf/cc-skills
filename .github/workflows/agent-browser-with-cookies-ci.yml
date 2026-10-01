@@ -1,0 +1,24 @@
+name: agent-browser-with-cookies CI
+
+on:
+  push:
+    paths:
+      - "plugins/agent-browser-with-cookies/**"
+      - ".github/workflows/agent-browser-with-cookies-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/agent-browser-with-cookies/**"
+      - ".github/workflows/agent-browser-with-cookies-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: pytest
+        run: uvx pytest plugins/agent-browser-with-cookies/tests -q
