@@ -78,8 +78,10 @@ Do, in this order, every iteration:
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
        the reasons, and expiries under D6; lift holds when the root removes them.
        Where the checkout carries an enqueue script, call it directly: one
-       `stack-enqueue --hold <held file> <prefix top>` per prefix in one Bash call,
-       each backgrounded with `&`, then `wait` and collect each output. Report
+       `stack-enqueue <prefix top> --hold $(cat <held file>)` per prefix in one Bash call,
+       each backgrounded with `&`, then `wait` and collect each output. Drop
+       `--hold` when the numeric file is empty; it takes one or more PR numbers,
+       never a filename. Argparse exit 2 otherwise reads as unsettled. Report
        each enqueue with `ledger.py report`; refresh records it as labelled
        outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
@@ -90,7 +92,8 @@ Do, in this order, every iteration:
        stacks in one sequential call and is the fallback only where the repo has
        no enqueue script.
        Never wait for the PRs above the prefix. After it lands, route a restack of
-       the first PR above it to its owning lane; Orca routes go to inbox/orca-desk.md.
+       the first PR above it to its owning lane; Orca routes use
+       `desk-runner.py relay --config C --key R<n> --lane L --text T`.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
        fixes the blocker, and re-enqueues when the gates and holds file permit.
        Relaunch a dead lane in this iteration.

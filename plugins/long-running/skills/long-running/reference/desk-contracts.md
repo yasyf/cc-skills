@@ -190,7 +190,9 @@ dispatch=<id> via <source>: <reason>` line precedes the ask lines for every
 in-progress Orca worker whose `worker-show` `observation.agentWait` has stood five
 minutes or more; a wait with no `since` prints `?m`. The lane is the registered lane
 whose branch prefix holds the worker's branch, else that branch. Forward each line
-unchanged; the orca-desk answers or escalates it in the same pass.
+unchanged; the runner emits `PROMPT` in the sweep that sees it. Submit any
+worker-directed ruling with `desk-runner.py relay --config C --key R<n> --lane L
+--text T`; never send it to an orca-desk lane.
 
 `ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
 `--repo` and `--checkout` and settles landings before printing. The `waiting:` line
@@ -243,8 +245,11 @@ root's holds file and rebuild a fresh numeric held file at every enqueue under
 D1/D3, including all open PR rows of held lanes from
 `ledger.py show --ledger <id> --json`. A clean report's largest ready, unheld,
 unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
-`stack-enqueue --hold <held file> <prefix top>` per ready prefix together
+`stack-enqueue <prefix top> --hold $(cat <held file>)` per ready prefix together
 in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
+Drop `--hold` when the numeric file is empty; it requires at least one PR number,
+never a filename. Argparse exit 2 otherwise reads as unsettled.
+
 Report enqueues with `ledger.py report`; where the repo has no script, use
 `ledger.py label --pr <prefix top> --expect-head <sha> --checkout <path>` with mirrored
 ledger holds as the guard. Priority desks and shards use the whole ledger's held
@@ -437,7 +442,8 @@ still absent from the trunk.
 the prefix as one entry with one `merge` label on its top. The desk re-reads every PR
 in the prefix and runs every guard before adding the label. A repository that carries
 `.agents/skills/submit-pr/scripts/stack-enqueue` uses
-`stack-enqueue --hold <held file> <prefix top>` instead; its gate can refuse the prefix too.
+`stack-enqueue <prefix top> --hold $(cat <held file>)` instead; omit `--hold` when
+the numeric file is empty. Its gate can refuse the prefix too.
 
 An open child above it does not block the label when a lane tracks its ledger row
 and its head carries `Graphite / mergeability_check`. Graphite's stack record
@@ -446,7 +452,8 @@ child or one missing that check. Restack it through Graphite or retarget it to t
 trunk BEFORE adding the label, or branch deletion closes it.
 
 Never wait for the top to go green. After the prefix lands, route a restack of the
-first PR above it to its owning lane; Orca routes go to `inbox/orca-desk.md`. The
+first PR above it to its owning lane; Orca routes use
+`desk-runner.py relay --config C --key R<n> --lane L --text T`. The
 lane restacks the remaining PRs with `ccx vcs stack submit`.
 
 Retargeting alone does not rebase a child; it still carries its
@@ -995,8 +1002,8 @@ dev` so it has a real stack record. Before enqueueing a green bottom prefix, eve
 open child outside it must have a tracked ledger row and a
 `Graphite / mergeability_check` check run. Restack a child outside that record through
 Graphite or retarget it to the trunk BEFORE adding the label. After the prefix lands,
-route the PR immediately above it to its lane to restack the rest; Orca routes go to
-`inbox/orca-desk.md`.
+route the PR immediately above it to its lane to restack the rest; Orca routes use
+`desk-runner.py relay --config C --key R<n> --lane L --text T`.
 
 ## A docs-only diff can carry a live security defect
 
@@ -1419,7 +1426,8 @@ allowed when a lane tracks its ledger row and its head carries
 it to the trunk BEFORE adding the label. Never wait for the top of the stack.
 
 After the prefix lands, route the first PR above it to its owning lane to restack the rest
-with `ccx vcs stack submit`; Orca routes go to `inbox/orca-desk.md`.
+with `ccx vcs stack submit`; Orca routes use
+`desk-runner.py relay --config C --key R<n> --lane L --text T`.
 
 Graphite takes the prefix as one entry. Forge-AI/monorepo #17257 and #17258 merged
 together through draft [#17578](https://github.com/Forge-AI/monorepo/pull/17578),

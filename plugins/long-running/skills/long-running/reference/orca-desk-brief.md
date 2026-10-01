@@ -1,265 +1,273 @@
-# The orca-desk lane
+# The orca desk runner
 
-Spawn one `orca-desk` as `long-running:lane` beside the landing-desk, before the first
-Orca worker, whenever a drive runs Orca workers. It owns worker lifecycle and inbox
-traffic for the whole drive. The root receives only ≤5-line ruling requests and
-`worker_done` outcomes that need action. Fill the angle brackets and paste the brief.
+`desk-runner.py` owns Orca worker traffic and ready-prefix landing. Run two detached
+processes against one config and store: `run --desk orca` and `run --desk landing`.
+No model-operated orca-desk sits between the root and Orca. Where the checkout
+carries `stack-enqueue`, the landing runner runs D3, D14, and D16; the
+landing-desk lane keeps the duties in [its brief](landing-desk-brief.md).
+
+*Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 going to a
+superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3 and
+ranked fix 3).*
 
 ## Root discipline
 
-The root holds decisions, owner asks, and rulings. Append every Orca-lane route or
-ruling from any source to `inbox/orca-desk.md` in the drive, the desk's inbox file.
-Include root stand-downs and landing-desk routes. Use one numbered line per item.
-Neither a separate routes file nor `SendMessage` reaches a desk that never ends its
-turn. Keep the lines in order; never truncate or rewrite the file:
-
-```sh
-printf '%s\n' 'R<n> <msg id> <lane>: <ruling>' >> '<inbox file>'
-```
-
-Follow [Desk inboxes](../SKILL.md#desk-inboxes). The desk reads from its saved cursor
-at the top of every iteration, advances it every iteration, and names `cursor R<n>`
-in every report. Every inbox wait is at most 60 seconds. If reports show a cursor
-more than one iteration behind the root's last line, the root appends one inbox
-line naming the unread range and records the stall in its progress record; it never
-`SendMessage`s the running desk.
-A standing rule goes in as its own `R<n> (standing) <rule>` line, never beside a
-one-off, and a successor desk's brief lists the live standing ids, never a range
-([I6](../SKILL.md#desk-inboxes)).
-Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
-
-*Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
-
-*Prevents two restack routes in a separate routes file and a root stand-down by `SendMessage` missing orca-desk while two workers sat idle for over an hour (2026-10-01).*
-
-## Spawn brief
+Issue commands with the drive's R/L numbering. Submit a key once per action;
+submitting it again in the same lane returns the existing action. Never append
+Orca rulings to `inbox/orca-desk.md`, and never `SendMessage` a desk.
 
 ```text
-You are orca-desk: the worker lifecycle and inbox lane for this drive.
-You run for the whole drive and never end a turn waiting.
-
-Authority: launch claude and codex workers through orca-launch.sh (O15);
-  answer routine questions from
-  their brief files; answer or escalate every prompt a worker is parked on; relay
-  root rulings; acknowledge delivered batches; record every ruling in the drive's
-  cc-notes log. Report a worker with no heartbeat for 30 minutes with its current
-  dispatch and terminal state; resume its existing session in place.
-  Scope, owner asks, and decisions the briefs do not settle go to the
-  root with the message id, lane, and 2-4 options in ≤5 lines.
-  Before every launch or relaunch, read the 1-minute load; while it exceeds the core
-  count, start no new worker (O14).
-
-Verified facts, do not re-derive:
-  run <run id>; Orca repo <repo id>
-  coordinator worktree <coordinator worktree>
-  spec directory <spec dir>; one complete brief at <spec dir>/<lane>.full.md
-  receipt directory <receipt dir>
-  root inbox <inbox file>; cursor <inbox file>.cursor
-  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
-    plus the plan's Decisions; an id list, never a range>
-  priority desks <owned lanes and inbox paths, or "none">
-  cc-notes log <cc-notes log id>; landing-desk ledger <ledger id>
-  scripts on PATH by name (ledger.py, bus.py, standing.py, orca-launch.sh, orca-check.sh)
-  lane roster <lane, model, effort, brief file; one per line>
-  worktree prefix <prefix>; worktree root <worktree root>; base <base ref>
-  other Claude default arguments <args excluding --permission-mode plan>
-
-Run from the coordinator terminal. A worker terminal cannot consume the run's
-  mailbox: it must check --terminal <its handle>, or --run fails consumer_fenced.
-
-Set these once, preserving them after compaction:
-  SPEC_DIR='<spec dir>'
-  INBOX='<inbox file>'
-  LOG='<cc-notes log id>'
-  LEDGER='<ledger id>'
-  export ORCA_LAUNCH_RUN='<run id>'
-  export ORCA_LAUNCH_REPO='<repo id>'
-  export ORCA_LAUNCH_PARENT='<coordinator worktree>'
-  export ORCA_LAUNCH_PREFIX='<prefix>'
-  export ORCA_LAUNCH_ROOT='<worktree root>'
-  export ORCA_LAUNCH_BASE='<base ref>'
-  export ORCA_LAUNCH_STATE='<receipt dir>'
-  export ORCA_LAUNCH_CLAUDE_ARGS='<args excluding --permission-mode plan>'
-  export ORCA_LAUNCH_RETRY_SECONDS=30 ORCA_LAUNCH_BOOT_SECONDS=8
-  export ORCA_CHECK_STATE="$ORCA_LAUNCH_STATE"
-  export ORCA_CHECK_TIMEOUT_MS=60000 ORCA_CHECK_RETRY_SECONDS=30
-
-On first spawn, `touch "$INBOX"` without truncating it. Start a new cursor at 0
-  only when no cursor exists. After compaction, read the saved cursor, launch receipts,
-  and log: unresolved questions, the last processed delivery awaiting --ack,
-  relayed rulings, prompt answers, and the last liveness sweep. Never ask the root
-  to reconstruct them, and never relaunch the roster because you compacted.
-
-Do, in this order, forever:
-  1. Root inbox, at the TOP of every iteration before any other work.
-     Read "$INBOX.cursor" as the last completed R number, then read
-     every later line of "$INBOX". First act on `orca-desk: launch <name> NOW`:
-     launch that lane at once from "$SPEC_DIR/<name>.full.md", ahead of everything
-     else in the pass, using step 3. Use the model and effort the line names, or
-     sol xhigh for an incident lane. One line can name both lanes and the target
-     fence; launch both without a verdict gate. Record each launch before resuming
-     the remaining lines in order; never launch it twice or skip an unfinished
-     earlier line when advancing the cursor.
-     Each source appends exactly one line per number:
-     R<n> <msg id> <lane>: <ruling>, or R<n> (standing) <rule>.
-     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
-     never report it done. Append `standing.py inbox "$INBOX"` output to every
-     report and forward its `violation` lines to the root. If it belongs to a priority desk's
-     lane, append it to that desk's inbox and record it as forwarded. Stop handling
-     that lane, including its questions and relaunches. For your lanes, check that
-     each ruling still addresses the lane's current dispatch before relaying it:
-       orca orchestration worker-show --dispatch '<dispatch id>' --json
-     If .result.dispatch.status is completed or failed, never reply or send
-     (dispatch_inactive).
-     Start a new dispatch through step 3 with a self-contained brief. For an active
-     dispatch, reply to a current question with
-       orca orchestration reply --id "<msg id>" --body "<ruling>"
-     Only a reply to the original question message id wakes an orchestration ask
-     wait (R56); neither reply nor send wakes an idle Claude session.
-     A line whose msg id is `prompt` rules on an escalated prompt; apply it
-     through step 2's terminal send.
-     Send other guidance or added context to its current dispatch with
-       orca orchestration send --to "dispatch:<dispatch id>" --type dispatch --subject "<subject>" --body "<ruling or brief-file pointer>"
-     Keep every reply or send as the record, then always wake the worker with
-       orca terminal send --terminal '<handle>' --text 'R<n>: <one line>; brief <path>' --enter
-     A stand-down also needs both: send as the record, terminal send as the wake.
-     orca orchestration worker-release releases only a settled worker's terminal;
-     it never stops a live worker.
-     Record every relayed ruling before advancing the cursor:
-       ccn --repo "$ORCA_LAUNCH_PARENT" log append "$LOG" --entry "R<n> <msg id> <lane> dispatch=<id>: <ruling>"
-     A ruling for a stopped or superseded dispatch is recorded as stale, never
-     answered or sent to the replacement. After the relay and log entry, or the
-     stale entry, save that R number with
-       printf '%s\n' '<n>' > "$INBOX.cursor"
-     Never advance past an unfinished line. A saved log entry proves a ruling
-     already relayed if compaction happened before its cursor write.
-     Advance the cursor every iteration and include `cursor R<n>` in every report.
-     Never report an item as waiting on the root before checking this inbox for
-     the answer.
-  2. Stale mail and prompt sweep, every pass. Run
-       orca-check.sh --stale --inbox "$INBOX"
-     Act on every STALE line in this pass. Forward a priority desk's lines to its
-     inbox. For your lanes, wake a live dispatch with unread mail through step 1's
-     terminal send --enter. For completed or failed, start a new dispatch through
-     step 3 with a self-contained brief carrying the unread message or inbox line.
-     Never filter sweep or STALE lines: no rg -v or grep -v over the loop's output.
-     List every worker, following the page cursor
-     until result.page.hasMore is false:
-       orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --json
-       orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --cursor '<page.nextCursor>' --json
-     For each row whose projection.outcome is "in_progress", run
-       orca orchestration worker-show --dispatch '<dispatch id>' --json
-     A non-null result.observation.agentWait is a worker parked on a prompt only a
-     human can answer; its source, reason, and since say how Orca proved it. In
-     this same pass, answer it from the lane's brief by typing into
-     result.terminal.handle:
-       orca terminal send --terminal '<handle>' --text '<keys>' --enter
-     or escalate it to the root as `prompt <lane> dispatch=<id> terminal=<handle>`
-     with 2-4 options in ≤5 lines, and record it in the log. The root's ruling
-     arrives as an inbox line with msg id `prompt`; apply it with the same
-     terminal send only while worker-show still shows that wait, never with
-     reply --id. A lane stuck on a prompt is a desk bug.
-  3. Launch any newly assigned lane once through the script. Its full brief is
-     the shared contract followed by its lane section:
-       cat "$SPEC_DIR/common.md" "$SPEC_DIR/<lane>.md" > "$SPEC_DIR/<lane>.full.md"
-       orca-launch.sh '<lane>' '<model>' '<effort>' "$SPEC_DIR/<lane>.full.md"
-     The script caps a codex launch's agent_readiness wait at 90 s, then delivers
-     the spec itself; never wait on readiness past that. Accept either result line
-     as launched:
-       <lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>
-       <lane> unsupervised task=<id> dispatch=<id> terminal=<handle> worktree=<path>
-     For Claude, the script checks the custom command's bypass-permissions screen.
-     For codex, it uses --agent codex. For sol, it creates the terminal running
-     codex with -c service_tier=fast and starts the worker on it. On an
-     agent_readiness timeout for either, it sends the spec pointer itself. Report an unsupervised result to the root; the lane
-     reports through its inbox/bus file, without Orca worker_done or escalation.
-     Keep that lane active despite its failed dispatch; steps 1 and 2 must not
-     relaunch it. Deliver its rulings through the file and wake its terminal.
-     Anything else is a failed launch. Keep each receipt in the named
-     directory. Retry a failed dispatch only after confirming its session has
-     ended, on a STALE line or the root's ruling. Use the same command and directory;
-     the script retries the recorded task and dispatch with --task/--retry-of.
-     Never stop the old session or duplicate its active work.
-     Working workers have no cap. The one throttle is load: before each launch
-     read `uptime`, and while the 1-minute load average is above the core count
-     (`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
-  4. Liveness, hourly. Run
-       orca orchestration task-list --run "$ORCA_LAUNCH_RUN"
-     and, for each active dispatch,
-       orca orchestration worker-show --dispatch '<dispatch id>'
-     A worker with no heartbeat for 30 minutes gets a report to the root with the
-     lane, dispatch, terminal state, last heartbeat, and 2-4 options in ≤5 lines.
-     A stale heartbeat never authorizes a relaunch; keep the session in place.
-     Record the sweep in the log. Read output when needed with
-       orca orchestration worker-read --dispatch '<dispatch id>'
-  5. One blocking check. With no processed delivery awaiting acknowledgement:
-       orca-check.sh -- --run "$ORCA_LAUNCH_RUN"
-     Otherwise acknowledge that delivery on the next call:
-       orca-check.sh --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
-     The script runs one check --wait --types worker_done,escalation,question.
-     Each wait is at most 60000 ms. It prints messages as
-       <msg id> <type> <lane> <subject>: <body on one line>
-     then
-       delivery <delivery id> heartbeats=<n>
-     The printed delivery id is result.deliveryId. A message id acknowledges
-     nothing, and an unacknowledged batch replays. Process the whole batch,
-     including messages outside the wake types. Forward a priority desk's lanes'
-     messages to its inbox; do not handle them in steps 6 or 7.
-     On timeout, go to step 1.
-     The script retries a lost connection once, after 30 seconds. If it
-     prints connection-lost or error <code>: <message>, record the failure and
-     return to step 1 before another check. Never restart Orca.
-  6. Questions and escalations. Check the sender's dispatch against the current
-     one. A stale question from a stopped or superseded dispatch is recorded and
-     acknowledged with its batch, never answered. For a current question, read
-     the lane's full brief file and answer only what it settles. Forward the
-     rest to the root with msg id + lane + 2-4 options, ≤5 lines. Record the
-     pending question in the log before acknowledging its batch; do not wait
-     for a root ruling to acknowledge it. Send routine replies with reply --id
-     <original question message id> and log the message id, lane, dispatch, and
-     answer with ccn log append; those replies do not advance the root inbox
-     cursor. If orchestration ask
-     returns "capacity reached", workers fall back
-     to send --type question or --type escalation and keep working on everything
-     independent of the answer. Treat those messages exactly like an ask.
-  7. Outcomes. For worker_done, verify the taskId, dispatchId, and settled state
-     with worker-show. Record the outcome and forward only outcomes that need
-     root action. A finished lane's terminal stays open and idle: never release
-     a dispatch, close a terminal, or end a session.
-     Workers register prefixes and report verdicts to landing-desk through ledger.py
-     themselves; the hook records opened PRs, with hand registration as the fallback.
-     They never SendMessage a subagent.
-  8. Record the processed delivery id and each message's disposition in the log.
-     Keep that delivery id for --ack on the next call, then return to step 1.
-     Never answer a replayed message whose reply is already recorded.
-
-Never re-brief. Edit the lane's brief file, then send --type dispatch pointing
-  to that file at its current dispatch. Rebuild <lane>.full.md when its common
-  contract or lane section changes. Never paste the whole brief into a message.
-
-Escalate early, do not improvise: an unreadable or overlong brief pointer, a launch
-  that prints neither ready nor unsupervised, an auth or approval gate, a scope question the brief
-  does not settle, or two failed approaches. Return msg id (or "none" for a launch
-  failure) + lane + findings + 2-4 options in ≤5 lines. The root's answer comes
-  through the inbox file. Continue everything that does not depend on it.
-
-Do NOT touch: a worker's files or branch; another lane's worktree; PR grading,
-  labels, or merges; production; Orca's interactive plan-mode default; the Orca
-  runtime process. Never restart Orca. Claude and Codex sessions, Orca, terminal
-  hosts, PTY daemons, and their supervisors are protected: never stop, signal,
-  suspend, restart, release, or close one, singly or in bulk, for cleanup, load,
-  or a finished lane. Remove a worktree only when it is clean, fully pushed, and
-  no terminal in `orca terminal list` is attached to it. After a restart, re-list workers and
-  terminals, update the recorded handles, and continue with the replacements.
-Worktree: <coordinator worktree> for commands only. Brief files, receipts, the
-  inbox cursor, and cc-notes are your state; implementation belongs to the workers.
-
-Finish: never while the drive runs. When the root ends it, record every pending
-  question, ruling, and delivery, send one ≤5-line outcome report
-  with the log and ledger ids, and stop.
-Rotate: flush the same state and the cursor, reply `flushed <cc-notes log id>` to
-  the root, and keep working. After your own compaction, resume in place from the
-  files and log with the same identity.
+desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
+desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH
+desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision REV --source TEXT --supersedes <current revision>
+desk-runner.py show --config C
 ```
 
-*Prevents the 2026-10-01 desk loop that filtered `SWEEP phase0b-aig` out with `rg -v`, leaving the lane with eight unread messages for over an hour.*
+Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
+question message id as its key; answer with `relay --reply-to <msg id>`. Other
+relays carry guidance or a brief-file pointer. Keep briefs complete on disk.
+
+Read runner traffic only from the config's `escalations` file, under the drive's
+`inbox/`, through one Monitor on `tail -n 0 -F <file>`. Re-arm on expiry and after
+compaction. `show` and the config's `view` file render action state. Runner-owned
+`inbox/` files are views, never command authority. Keep existing history; do not
+mirror runner actions into `TaskCreate`/`TaskUpdate` or complete shadow tasks for them.
+
+Only the orca runner calls `check --run`. To cut over from a running orca-desk,
+let it finish its current pass and acknowledge its delivered batch, then end its
+loop before starting the runner. Keep its session open. Carry unresolved work into
+runner commands with its existing keys. Never run two consumers of the Run mailbox.
+Run the orca process with the Run's coordinator identity; a worker terminal's
+`check --run` fails `consumer_fenced`.
+
+## Config and startup
+
+Fill the paths and ids in this JSON and use the same file for both processes.
+`store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
+holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
+owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
+environment. Set the accepted prefix policy's revision to #28601's revision.
+
+```json
+{
+  "store": "/absolute/drive/actions",
+  "escalations": "/absolute/drive/inbox/runner.md",
+  "view": "/absolute/drive/inbox/runner-state.md",
+  "orca": {
+    "run": "<run id>",
+    "receipts": "/absolute/drive/receipts",
+    "briefs": "/absolute/drive/briefs",
+    "launch_env": {
+      "ORCA_LAUNCH_RUN": "<run id>",
+      "ORCA_LAUNCH_REPO": "<Orca repo id>",
+      "ORCA_LAUNCH_PARENT": "/absolute/coordinator/worktree",
+      "ORCA_LAUNCH_PREFIX": "<drive prefix>",
+      "ORCA_LAUNCH_ROOT": "/absolute/worktrees",
+      "ORCA_LAUNCH_BASE": "origin/dev",
+      "ORCA_LAUNCH_STATE": "/absolute/drive/receipts",
+      "ORCA_LAUNCH_CLAUDE_ARGS": "",
+      "ORCA_LAUNCH_RETRY_SECONDS": "30",
+      "ORCA_LAUNCH_BOOT_SECONDS": "8"
+    }
+  },
+  "deadlines": {
+    "start_minutes": 10,
+    "launch_minutes": 15,
+    "enqueue_minutes": 15
+  },
+  "judge_model": "claude-sonnet-5-5",
+  "landing": {
+    "repo": "Forge-AI/monorepo",
+    "ledger": "<ledger id>",
+    "checkout": "/absolute/monorepo/worktree",
+    "holds": "/absolute/drive/holds.md",
+    "bus": "<bus id>",
+    "interval_seconds": 180,
+    "policy": {
+      "rule": "prefix",
+      "revision": "<#28601 revision>",
+      "source": "Forge-AI/monorepo #28601, accepted prefix rule"
+    }
+  }
+}
+```
+
+Start each process detached so it survives the root's compaction, in a dedicated
+Orca terminal with coordinator identity or with `nohup`. After filling the config,
+start both and arm the root's Monitor on the last command:
+
+```sh
+DRIVE='/absolute/drive'
+CONFIG="$DRIVE/runner.json"
+mkdir -p "$DRIVE/inbox"
+touch "$DRIVE/inbox/runner.md"
+export ORCA_CHECK_TIMEOUT_MS=60000
+nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
+nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
+tail -n 0 -F "$DRIVE/inbox/runner.md"
+```
+
+Restarting either process uses the same records and is idempotent. Keep one process
+per desk. Restarting a runner never means relaunching its workers.
+
+## Actions and acknowledgements
+
+Actions move from `accepted` to `started`, `completed`, and `verified`; `failed`
+and `unverifiable` record failure or missing proof. For guidance relays, a send is
+delivery evidence only. Question-reply actions currently complete on send and
+carry no started/done instructions. Before acting on a guidance relay, the worker
+sends a status on the thread named in the message; after acting it sends the
+result, using its own dispatch:
+
+```text
+orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "started <key>"
+orca orchestration send --type status --thread-id <thread> --dispatch-id <its dispatch> --subject "done <key>: <result>"
+```
+
+Carry the addressing and capability arguments from the worker's Orca preamble.
+A relaunch offers the lane's container to the new dispatch. Its first ack takes
+ownership at the next generation. Until that ack the old owner still owns the
+container; after it, another dispatch's ack gets a stand-down reply and cannot
+move the original action. A transfer changes logical ownership, never a session.
+A done reply records completion; verification needs the action's external receipt.
+
+The runner settles an `unverifiable` send through Orca `request-show` and
+`--retry-request`, or the recipient's mailbox. Without either proof it remains
+`unverifiable` and emits `UNVERIFIABLE`; never resend it blindly. An unparseable
+CLI response currently becomes `failed` and enters the send retry path, so that
+response shape lacks this guarantee. A launch with neither a launch line nor a
+new receipt is `UNVERIFIABLE`, never relaunched automatically.
+
+## Orca passes and standing rules
+
+Each pass settles detached launches, delivers accepted relays and launches,
+reconciles lost sends, consumes a Run delivery, checks start and launch deadlines,
+and writes changed views and escalation lines. A quiet pass writes nothing.
+Stale mail, prompts, and liveness are swept every five minutes.
+
+**O1. Launch through the runner.** It starts `orca-launch.sh` detached; the root
+submits `launch` and never runs lifecycle helpers inline.
+
+**O2. Settle launches from receipts.** Count a `ready` or `unsupervised` launch
+line, or a new dispatch receipt when the log is empty. Other output fails the
+launch. No output and no new receipt leaves it unverifiable.
+
+**O3. Keep one mailbox consumer.** The orca runner calls `orca-check.sh --json`,
+processes the whole batch, and acknowledges its delivery id on the next check.
+The wrapper emits one JSON object per non-heartbeat message, then `delivery
+<id> heartbeats=<n>` or `timeout`.
+
+**O4. Judge questions from the brief.** A Sonnet-low `claude -p` call with no
+tools reads the lane's brief for each question or escalation. It answers what
+the brief settles; otherwise, it emits `DECIDE` with the question and options.
+
+**O5. Address the current dispatch.** Relays use the current receipt and
+`worker-show`; completed or failed dispatches receive no new relay. Replies
+address the original question id through `--reply-to`.
+
+**O6. Never end a session.** The runner never stops, signals, releases, or closes
+Claude, Codex, Orca, a terminal, a PTY daemon, or a supervisor. Finished sessions
+stay open. An `OUTCOME` line does not authorize cleanup.
+
+**O7. Keep action records.** The action record carries acceptance,
+delivery, start, result, and verification. Neither a sent message nor a moved
+inbox cursor proves the lane acted.
+
+**O8. A stale heartbeat never authorizes a relaunch.** The sweep escalates a
+non-live dispatch as `LIVENESS`; resume its existing session in place. The
+runner does not infer that missing liveness means the session ended.
+
+**O9. Never re-brief.** Edit the brief file, rebuild `<lane>.full.md` when needed,
+and submit its pointer through `relay`.
+
+**O10. Never answer a stale dispatch's question to its replacement.** Preserve
+the original question id. The current judge path does not fence stale senders;
+do not treat it as proof that this rule is enforced.
+
+**O11. Treat a capacity fallback like an ask.** Workers send `question` or
+`escalation` when `ask` returns `capacity reached`; both reach the same judge.
+
+**O12. Bound each mailbox wait to 60 seconds.** Keep
+`ORCA_CHECK_TIMEOUT_MS=60000`. The wrapper's retry can extend the call, and the
+landing process sleeps for its configured interval; this is not a pass deadline.
+
+**O13. A prompt is a desk bug.** The sweep reads `observation.agentWait` and
+emits `PROMPT` in the pass that sees it. It never types a guessed answer.
+Stale unread mail gets one terminal wake per message; completed or failed
+dispatch mail emits `STALE-MAIL`.
+
+**O14. Hold launches under load.** Before each launch, the runner reads the
+1-minute load average. Above the core count it leaves the launch accepted;
+its deadline still applies. It never kills a worker to lower load.
+
+**O15. Preserve codex and sol routes.** `codex` and `gpt-*` use Orca's codex
+agent. `sol xhigh` uses `gpt-6.1-sol`, a `--no-parent` worktree, and a terminal
+command with `--dangerously-bypass-approvals-and-sandbox` and
+`-c service_tier=fast`. An `unsupervised` result escalates; it is not a failed
+launch to repeat. Leave Orca's runtime defaults unchanged.
+
+## Landing passes
+
+Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
+reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
+on the base, and routes restacks. It gates every tracked open stack tip in
+parallel with `stack-enqueue <tip> --check [--whole] [--hold <n>...]`.
+
+Each exact set of prefix heads gets one enqueue action. Only attempts proven to
+have enqueued nothing permit another attempt for those heads. Accepted enqueues
+run in parallel, each with a fresh read of the holds file and held lanes' open
+rows. Held PR numbers follow the tip:
+`stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
+numeric file is empty. `--hold` takes one or more numbers, never a filename;
+argparse's exit 2 otherwise reads as `unsettled`.
+
+After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
+first PR above it. Orca lanes receive a relay; other lanes receive
+`bus.py post --kind blocker`. It verifies a restack route when the child's head
+moves or the child lands. The landing-desk lane never enqueues or duplicates
+these restack routes beside the runner.
+
+A `BLOCKED` head other than `held` routes once per head and blocker. The runner
+re-runs the gate immediately before creating the route, suppressing a blocker
+that has already cleared. Orca delivery can occur later; the gate is not re-read
+at that later send. The landing desk retains `ledger.py route` for red CI and
+conflicts, but does not repeat the runner's per-head gate messages.
+
+The first landing run seeds the policy from config. Each later `policy` command
+must name the current revision with `--supersedes`; another predecessor fails
+with `STALE-POLICY`. A stale-checkout ruling such as L260 cannot replace #28601's
+accepted prefix rule by omitting that edge. The root changes policy by command,
+never by editing a rendered inbox view.
+
+## Escalations
+
+Each line uses `<HH:MM Pacific> <KIND> <key> <lane>: <text>`, with Pacific `HH:MM`
+and no zone label. The lane slot can name `landing`, `runner`, or a PR. Keys
+identify the cause; `DECIDE` uses the question id.
+
+| Kind | Root action |
+|---|---|
+| `DECIDE` | Resolve the question the brief does not settle; answer with `relay --reply-to <msg id>`. |
+| `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
+| `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
+| `OUTCOME` | Consume the worker's `worker_done` result. |
+| `PROMPT` | Resolve the prompt on the named dispatch and terminal. |
+| `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
+| `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
+| `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
+| `LAUNCH-FAILED` | Read the named launch failure before issuing any new action. |
+| `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |
+| `SEND-FAILED` | Resolve a send that failed three explicit attempts. |
+| `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
+| `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
+| `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
+| `ORCA-CHECK` | Resolve the mailbox error without restarting Orca. |
+
+The store deduplicates escalation keys. Liveness keys include the hour;
+`ORCA-CHECK` keys include a time bucket, so an unchanged fault can recur. Missing
+briefs and failed judge calls can emit `DECIDE` without options. Routine quiet
+polls do not wake a model.
+
+The runner never edits worker code, mutates production, writes Slack, invents
+scope, or derives authority from a branch prefix or a display name. The root
+owns decisions and the holds file; lanes own their worktrees.
