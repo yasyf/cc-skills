@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 import time
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import (
@@ -19,13 +24,31 @@ from captain_hook import (
     workflow_state,
 )
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, ccn
 
 BURST_SECONDS = 10 * 60
-DECISIONS_CHARS = 3000
-DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE | re.MULTILINE)
+DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
-PLAN = "# brook\n\n## Decisions (owner, binding)\n- Every side-feature carries with the same UX.\n\n## Context\nprose\n"
+WORD = re.compile(r"[a-z0-9][a-z0-9-]*")
+SUFFIX = re.compile(r"(?:ies|s|ed|ing)$")
+STOPWORDS = frozenset(
+    "about after also because been before being both could does each either every from have here into just like make "
+    "more most much need needs only over should some still such than that their them then there these they this those "
+    "under were what when where whether which while will with would your".split()
+)
+SHARED_WORDS = 4
+OVERLAP = 0.6
+SHOWN = 10
+CLIP = 140
+FEEDBACK = re.compile(r"^\s*type:\s*feedback\s*$", re.MULTILINE)
+DESCRIPTION = re.compile(r"^description:\s*(.+)$", re.MULTILINE)
+PLAN = (
+    "# brook\n\n## Decisions (owner, binding)\n"
+    "- Every side-feature carries over to the Go release with the same hard-fought UX; nothing is dropped.\n\n"
+    "## Context\nprose\n"
+)
+SETTLED_ASK = {"questions": [{"question": "Does every side-feature carry over to the Go release, or are some dropped?"}]}
+OPEN_ASK = {"questions": [{"question": "Which GitHub App gets read-only Checks and Commit statuses for the quota fix?"}]}
 
 
 @workflow_state("long_running_settled_questions")
@@ -33,43 +56,134 @@ class SettledState(WorkflowState):
     blocked_at: float | None = None
 
 
-def asks_owner(evt: BaseHookEvent) -> bool:
+@dataclass(frozen=True)
+class Settled:
+    cite: str
+    text: str
+
+
+def strings(value: object) -> Iterator[str]:
+    match value:
+        case str():
+            yield value
+        case dict():
+            for item in value.values():
+                yield from strings(item)
+        case list():
+            for item in value:
+                yield from strings(item)
+
+
+def board_questions(args: list[str], cwd: str) -> list[str]:
+    found = []
+    for arg in args:
+        path = Path(cwd, Path(arg.split("=")[-1]).expanduser())
+        if path.suffix == ".json" and path.is_file():
+            found += [text for text in strings(json.loads(path.read_text())) if text.rstrip().endswith("?")]
+    return found
+
+
+def asked(evt: BaseHookEvent) -> list[str]:
     if evt.tool_name == "AskUserQuestion":
-        return True
+        return [question["question"] for question in evt._tool_input["questions"]]
+    found = []
     for call in evt.command.calls():
         if Path(call.name).name != "cc-present" or not call.args or "--dry-run" in call.args:
             continue
         verb, *rest = call.args
         if verb in BOARD_VERBS or (verb == "start" and any(arg.split("=")[0] == "--doc" for arg in rest)):
-            return True
-    return False
+            found += board_questions(rest, str(evt.cwd))
+    return found
 
 
-def decisions(plan_path: str | None) -> str | None:
+def plan_decisions(plan_path: str | None) -> list[Settled]:
     if not plan_path or not (plan := Path(plan_path).expanduser()).is_file():
-        return None
-    text = plan.read_text()
-    if not (heading := DECISIONS.search(text)):
-        return None
-    following = re.compile(rf"^#{{1,{len(heading[1])}}} ", re.MULTILINE).search(text, heading.end())
-    section = text[heading.start() : following.start() if following else len(text)].strip()
-    return section[:DECISIONS_CHARS]
+        return []
+    lines = plan.read_text().splitlines()
+    if (start := next((i for i, line in enumerate(lines) if DECISIONS.match(line)), None)) is None:
+        return []
+    following = re.compile(rf"#{{1,{len(DECISIONS.match(lines[start])[1])}}} ")
+    settled = []
+    for number, line in enumerate(lines[start + 1 :], start + 2):
+        if following.match(line):
+            break
+        if line.strip():
+            settled.append(Settled(f"plan {plan.name}:{number}", line.strip()))
+    return settled
 
 
-def gate_message(plan_path: str | None) -> str:
-    settled = decisions(plan_path)
+def durable_answers(cwd: str) -> list[Settled]:
+    if shutil.which("ccn") is None:
+        return []
+    listed = ccn(cwd, "answer", "list", "--label", "scope:durable", "--limit", "0", "--json")
+    if listed.returncode:
+        return []
+    return [Settled(f"answer {answer['id'][:7]}", answer["title"]) for answer in json.loads(listed.stdout or "[]")]
+
+
+def memory_dirs(evt: BaseHookEvent) -> set[Path]:
+    dirs = {evt.transcript_path.parent / "memory"} if evt.transcript_path else set()
+    common = subprocess.run(
+        ["git", "-C", str(evt.cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True
+    )
+    if common.returncode == 0:
+        main = re.sub(r"[^A-Za-z0-9]", "-", str(Path(common.stdout.strip()).parent))
+        dirs.add(Path.home() / ".claude" / "projects" / main / "memory")
+    return dirs
+
+
+def feedback_memories(evt: BaseHookEvent) -> list[Settled]:
+    settled = []
+    for path in sorted(path for memory in memory_dirs(evt) for path in memory.glob("*.md")):
+        text = path.read_text()
+        if FEEDBACK.search(text) and (description := DESCRIPTION.search(text)):
+            settled.append(Settled(f"memory {path.name}", description[1].strip()))
+    return settled
+
+
+def stem(word: str) -> str:
+    if len(word) <= 4:
+        return word
+    word = SUFFIX.sub(lambda suffix: "y" if suffix[0] == "ies" else "", word)
+    return word.removesuffix("e")
+
+
+def words(text: str) -> set[str]:
+    return {stem(word) for word in WORD.findall(text.lower()) if len(word) > 3 and word not in STOPWORDS}
+
+
+def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Settled]]:
+    indexed = [(item, words(item.text)) for item in settled]
+    found = []
+    for question in questions:
+        asking = words(question)
+        hits = [
+            (shared, item)
+            for item, known in indexed
+            if (shared := len(asking & known)) >= SHARED_WORDS and shared >= OVERLAP * min(len(asking), len(known))
+        ]
+        if hits:
+            found.append((question, max(hits, key=lambda hit: hit[0])[1]))
+    return found
+
+
+def clip(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= CLIP else text[: CLIP - 1] + "…"
+
+
+def gate_message(found: list[tuple[str, Settled]]) -> str:
     lines = [
-        "Owner-question gate (long-running R19): before this reaches the owner, check every question "
-        "against what is already settled. A question the plan, a durable answer, or a memory already "
-        "answers is applied and logged, never asked, and never offered as a confirm-or-override card.",
-        f"- the plan's decisions{f' ({plan_path})' if plan_path else ''}{', quoted below' if settled else ''}",
-        "- `ccn answer list --label scope:durable` and the drive's own answer labels",
-        "- this project's feedback memories",
-        "Drop or apply every settled question, then re-issue the call with the rest; "
-        f"asking calls pass for the next {BURST_SECONDS // 60} minutes.",
+        f"Owner-question gate (long-running R19): {len(found)} question(s) match a settled ruling; apply and log "
+        "the ruling instead of asking."
     ]
-    if settled:
-        lines.append(settled)
+    lines += [f"- “{clip(question)}” → {item.cite}: {clip(item.text)}" for question, item in found[:SHOWN]]
+    if len(found) > SHOWN:
+        lines.append(f"- +{len(found) - SHOWN} more")
+    lines.append(
+        f"Re-issue the call without them. If a match is wrong, re-issue it unchanged: asking calls pass for the next "
+        f"{BURST_SECONDS // 60} minutes."
+    )
     return "\n".join(lines)
 
 
@@ -80,56 +194,52 @@ def gate_message(plan_path: str | None) -> str:
     tests={
         Input(
             tool="AskUserQuestion",
-            tool_input={"questions": [{"question": "Keep the drops?"}]},
+            tool_input=SETTLED_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Block(pattern=r"(?s)R19.*~/brook\.md.*Every side-feature carries"),
-        Input(
-            tool="Bash",
-            tool_input={"command": "cc-present start --session s --doc owner-board.json --new"},
-            state=[CompactionState(active=True)],
-        ): Block(pattern=r"scope:durable"),
-        Input(
-            tool="Bash",
-            tool_input={"command": "cc-present update-block card.json --after sec-open --session s"},
-            state=[CompactionState(active=True)],
-        ): Block(),
+        ): Block(pattern=r"(?s)R19.*plan brook\.md:4: - Every side-feature carries over"),
         Input(
             tool="AskUserQuestion",
-            tool_input={"questions": [{"question": "Keep the drops?"}]},
-            state=[CompactionState(active=True), SettledState(blocked_at=time.time())],
+            tool_input=OPEN_ASK,
+            file=FileFixture(home=True, name="brook.md", content=PLAN),
+            state=[CompactionState(active=True, plan_path="~/brook.md")],
         ): Allow(),
-        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Which?"}]}): Allow(),
+        Input(
+            tool="Bash",
+            tool_input={"command": "cc-present start --session s --doc ~/owner-board.json --new"},
+            file=FileFixture(home=True, name="owner-board.json", content=json.dumps({"blocks": [{"title": SETTLED_ASK["questions"][0]["question"]}]})),
+            state=[CompactionState(active=True)],
+        ): Allow(),
+        Input(
+            tool="AskUserQuestion",
+            tool_input=SETTLED_ASK,
+            file=FileFixture(home=True, name="brook.md", content=PLAN),
+            state=[CompactionState(active=True, plan_path="~/brook.md"), SettledState(blocked_at=time.time())],
+        ): Allow(),
+        Input(tool="AskUserQuestion", tool_input=SETTLED_ASK): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "cc-present remove-block o1-card --session s"},
             state=[CompactionState(active=True)],
         ): Allow(),
         Input(
-            tool="Bash",
-            tool_input={"command": "cc-present push --dry-run owner-board.json"},
-            state=[CompactionState(active=True)],
-        ): Allow(),
-        Input(
-            tool="Bash",
-            tool_input={"command": "cc-present start --session s"},
-            state=[CompactionState(active=True)],
-        ): Allow(),
-        Input(
             tool="AskUserQuestion",
-            tool_input={"questions": [{"question": "Keep the drops?"}]},
+            tool_input=SETTLED_ASK,
             agent_id="a1b2c3",
-            state=[CompactionState(active=True)],
+            file=FileFixture(home=True, name="brook.md", content=PLAN),
+            state=[CompactionState(active=True, plan_path="~/brook.md")],
         ): Allow(),
     },
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
     drive = CompactionState.load(evt)
-    if not drive.active or not asks_owner(evt):
+    if not drive.active or not (questions := asked(evt)):
         return None
     now = time.time()
     with SettledState.mutate(evt) as state:
         if state.blocked_at is not None and now - state.blocked_at < BURST_SECONDS:
             return None
+        if not (found := matches(questions, plan_decisions(drive.plan_path) + durable_answers(str(evt.cwd)) + feedback_memories(evt))):
+            return None
         state.blocked_at = now
-    return evt.block(gate_message(drive.plan_path))
+    return evt.block(gate_message(found))

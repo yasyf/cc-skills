@@ -244,3 +244,48 @@ def test_a_rule_the_sources_dropped_is_carried_once_as_superseded(drive_home: Pa
     assert "## Lint findings\n- plan owner-gate line" in body
     assert "superseded by" not in "\n".join(handoff.standing.section(shell.docs[third["id"]]))
     assert first["id"] != second["id"] != third["id"]
+
+
+def strict(home: Path, shell: FakeCcn) -> int:
+    argv = ["generate", "--program", "brook", "--plan", str(home / ".claude/plans/brook.md"), "--repo", REPO, "--narrative-doc", "b" * 40, "--strict"]
+    return handoff.main(argv, shell)
+
+
+@pytest.mark.parametrize(
+    "fix",
+    [
+        "- R9 (standing) supersedes R8 as the cited form: no release waits on the owner's word (answer 4ffc9a5)\n",
+        "- R8 (standing) every release ships on the owner's word only once (answer 4ffc9a5)\n",
+    ],
+)
+def test_strict_names_an_uncited_inbox_rule_by_file_and_line_until_a_cited_line_supersedes_it(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], fix: str
+) -> None:
+    shell = shell_with()
+    shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
+    shell.active.append("b" * 40)
+    inbox = drive_home / ".claude/scratch/brook/inbox/orca-desk.md"
+    inbox.write_text(inbox.read_text() + "- R8 (standing) every release ships on the owner's word only once\n")
+
+    assert strict(drive_home, shell) == 3
+
+    [finding] = capsys.readouterr().out.splitlines()
+    assert finding.startswith(f"{inbox}:4: standing rule R8 is an owner-gate line that cites no live answer id: ")
+    assert "supersedes R8" in finding and "ccn doc edit" not in finding
+
+    inbox.write_text(inbox.read_text() + fix)
+
+    assert strict(drive_home, shell) == 0
+
+
+def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.docs["b" * 40] = "## Root's next actions\n1. land l11\n2. ship sanddb on SoFi on the owner's word"
+    shell.active.append("b" * 40)
+
+    assert strict(drive_home, shell) == 3
+
+    assert capsys.readouterr().out.strip() == (
+        "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on SoFi on the owner's "
+        "word; end that line with `(answer <id>)` via `ccn doc edit bbbbbbbb --body -`"
+    )

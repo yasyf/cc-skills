@@ -356,8 +356,8 @@ Where a landed PR or a refining plan line conflicts with the owner's plan, the o
 
 Only a question nothing settles goes to the owner. Each card names which authorities were checked.
 
-The pack's `settled_questions` hook blocks the root's first asking call in a burst (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) while a drive is active and quotes the tracked plan's Decisions section.
-Re-issue the call after filtering; asking calls then pass for ten minutes.
+The pack's `settled_questions` hook matches each question in an asking call (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) against the tracked plan's Decisions lines, the `scope:durable` answers, and the feedback memories while a drive is active.
+It blocks only on a match and quotes the matching plan line, answer id, or memory; drop those questions and re-issue the rest. A wrong match passes when re-issued, since asking calls then pass for ten minutes.
 
 An owner message that states a standing rule, with "from now on", "always", "never", "I
 told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
@@ -877,7 +877,8 @@ that holds until replaced ("from now on", "for the remainder", "every landing")
 gets its own id and line: `R<n> (standing) <rule>`. It never shares a line or an id
 with a one-off: "deploy everything now" and "deploy every landing from now on" are
 two lines. No line marks it done, complete, or closed. Only a later line
-`R<k> R<n> superseded by <id>` ends it. A desk brief names its standing rules as an
+`R<k> R<n> superseded by <id>`, or a later standing line `R<k> (standing) supersedes R<n> ...`,
+ends it. A desk brief names its standing rules as an
 id list, `standing: R40, R312`, plus the plan's Decisions, never as a range like
 "L65–L107 are standing". `standing.py inbox <inbox file>` prints the live ids and
 every line that breaks this rule; the desk appends its output to every summary.
@@ -1607,12 +1608,15 @@ as answers or `(standing)` inbox lines.
 
 **Lint.** Generation runs `standing.lint` over the generated rules and the narrative,
 excluding inbox quotes, tasks, and asks. Durable titles and carried ids pass by
-construction. A narrative line that gates on `owner's word`, `owner approval`,
-`owner sign-off`, `owner GO`, or `reserved for the owner` needs a live answer id;
-a missing citation is a finding.
+construction. A narrative line or live `(standing)` inbox rule that gates on `owner's word`,
+`owner approval`, `owner sign-off`, `owner GO`, or `reserved for the owner` needs a live
+answer id; a missing citation is a finding. Each finding names its source: the inbox file and
+line, or the narrative doc and line.
 
-The Stop path runs with `--strict`. On a narrative finding it writes nothing and blocks
-the `Stop` with the findings and `ccn doc edit <id> --body -` until fixed. The plan's own
+The Stop path runs with `--strict`. On a narrative or inbox finding it writes nothing and
+blocks the `Stop` with each finding and its edit until fixed: end the line with
+`(answer <id>)`, or for an inbox rule append a standing line that supersedes it and cites
+the answer. The plan's own
 owner-gate lines without live answer ids appear under `## Lint findings` and count in the
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.

@@ -458,6 +458,27 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
     assert "- 4ffc9a5 When does a merged change get released?" in (docs / ("d" * 40 + ".md")).read_text()
 
 
+def test_an_uncited_inbox_rule_blocks_the_stop_at_its_inbox_line_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
+    (docs / "answers.json").write_text(json.dumps([rule]))
+    (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
+    inbox = home / ".claude" / "scratch" / "brook" / "inbox" / "deploy-go.md"
+    inbox.parent.mkdir(parents=True)
+    inbox.write_text("- G114 (root) → desk: roll api\n- G115 (root, 14:30Z, binding, standing) release on the owner's word\n")
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+
+    blocked = handoff.compact_when_idle(stop_event(session))
+
+    assert blocked.action.name == "block"
+    assert f"\n{inbox}:2: standing rule G115 is an owner-gate line that cites no live answer id: " in blocked.message
+    assert "ccn doc edit" not in blocked.message
+
+    inbox.write_text(inbox.read_text() + "- G138 (standing) supersedes G115: every merged PR is released as it merges (answer 4ffc9a5)\n")
+    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("Long-running progress for ")
+
+
 def precompact(session: Path, **raw) -> PreCompactEvent:
     payload = {"session_id": SESSION, "transcript_path": str(FIXTURES / "usage-460k.jsonl"), "cwd": str(FIXTURES / "project-600k")}
     return PreCompactEvent(_raw=payload | raw, ctx=build_context(session_dir=session))
