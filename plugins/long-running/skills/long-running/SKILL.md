@@ -415,9 +415,15 @@ A reader or Slack-lane brief asks "what is asked, by whom, and what fixes it", n
 "what, if anything, it asks of the root". An owner link always asks the root to act.
 On the doing lane's result (cause, PR, ETA), the Slack lane posts the in-thread report
 and swaps `eyes` for `white_check_mark` once the ask is done. Follow the cc-slack
-skill's "Write a post": astra writes it, wlm voice, Pacific times with no timezone
-label, every PR, build, and commit as a `<url|label>` link, people as `<@U…>` mentions,
-no internal lane or program jargon, one short message.
+skill's "Write a post" in full: plain words for the thread's reader, with every
+build, PR, deploy, alert, monitor, dashboard, run, commit, and doc linked as
+`<url|label>`. Omit internal ids, lane/desk/cursor names, raw shas, ULIDs, run ids,
+status labels, and unglossed code nouns.
+
+Before each post, write the text to a temp file, run
+`<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`, and fix every
+finding. Then run
+`slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags.
 
 Permission follows the cc-slack skill. The owner's own words in the root's transcript
 asking for a report in that thread grant it. Otherwise the lane returns the exact
