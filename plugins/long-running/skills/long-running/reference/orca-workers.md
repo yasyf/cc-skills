@@ -222,7 +222,7 @@ Set the run and repo ids before calling it. The remaining variables have default
 | `ORCA_LAUNCH_STATE` | Receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Further arguments from Orca's agent defaults; default none. Leave out the plan-mode argument. |
 | `ORCA_LAUNCH_RETRY_SECONDS` | Wait before a retry; default `30`. |
-| `ORCA_LAUNCH_BOOT_SECONDS` | Wait for Claude to start and between screen checks; default `8`. |
+| `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling on the wait for Orca to detect the terminal's agent; default `180`. |
 
 A successful launch prints one of these result lines:
 
@@ -253,8 +253,13 @@ duplicate its active work. A follow-up alone is not a relaunch: edit the brief f
 then send its pointer with `send --type dispatch` to the current dispatch.
 
 Worktree creation gets four attempts; terminal creation gets three, separated by
-`ORCA_LAUNCH_RETRY_SECONDS`. The script waits `ORCA_LAUNCH_BOOT_SECONDS` for startup
-and checks the screen up to five times. A failed `worker-start` returns immediately;
+`ORCA_LAUNCH_RETRY_SECONDS`. Before `worker-start`, which refuses a terminal whose
+agent Orca has not detected with `agent_unconfigured`, the script polls
+`orca terminal list` every 4 seconds until the terminal's `agentIdentity` reads
+`claude`, or `codex` for sol, and fails with
+`boot terminal=<handle>: orca terminal list shows agentIdentity=<seen>` once
+`ORCA_LAUNCH_BOOT_SECONDS` passes. After a claude start it checks the screen for
+`bypass permissions on` up to ten times, 4 seconds apart. A failed `worker-start` returns immediately;
 it is not one of those retry loops.
 
 ### `orca-check.sh`

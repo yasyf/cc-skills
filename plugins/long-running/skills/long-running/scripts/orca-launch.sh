@@ -26,7 +26,10 @@ CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the wo
 opens in the drive's ledger under the lane's name. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
 pointer must stay within 300 characters, so a brief path that pushes it over is
-replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. The
+replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. Before
+worker-start, which refuses a terminal with agent_unconfigured until Orca detects
+its agent, the script polls orca terminal list every 4 seconds until the terminal's
+agentIdentity reads claude, or codex for sol, up to ORCA_LAUNCH_BOOT_SECONDS. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
@@ -57,7 +60,7 @@ ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
   ORCA_LAUNCH_STATE          receipt directory, default ~/.claude/scratch/orca-launch/<run>
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
-  ORCA_LAUNCH_BOOT_SECONDS   wait for claude to start, default 8
+  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
 EOF
   exit 2
 }
@@ -72,7 +75,8 @@ WORKTREE_NAME=$NAME-base
 ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
 STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
 RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
-BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-8}
+BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
+POLL=4
 RECEIPT=$STATE/$LANE.json
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
@@ -145,7 +149,16 @@ until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
     2>"$STATE/$LANE.terminal.err" | jq -r '.result.terminal.handle // empty') || TERMINAL=
   [ -n "$TERMINAL" ] || sleep "$RETRY"
 done
-[ "$AGENT" = codex ] || sleep "$BOOT"
+IDENTITY=claude
+[ "$AGENT" = claude ] || IDENTITY=codex
+attempt=0 DETECTED=''
+until [ "$AGENT" = codex ] || [ "$DETECTED" = "$IDENTITY" ]; do
+  attempt=$((attempt + 1))
+  [ "$attempt" -le $(((BOOT + POLL - 1) / POLL)) ] ||
+    fail "boot terminal=$TERMINAL: orca terminal list shows agentIdentity=${DETECTED:-none}, not $IDENTITY, after ${BOOT}s"
+  sleep "$POLL"
+  DETECTED=$(orca terminal list --json | jq -r --arg t "$TERMINAL" '.result.terminals[] | select(.handle == $t) | .agentIdentity // empty') || DETECTED=
+done
 
 if [ -s "$RECEIPT" ]; then
   set -- --task "$(jq -r '.result.taskId' "$RECEIPT")" --retry-of "$(jq -r '.result.dispatchId' "$RECEIPT")"
@@ -182,8 +195,8 @@ attempt=0
 until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --screen --json |
   jq -e '.result.terminal.tail | tostring | contains("bypass permissions on")' >/dev/null; do
   attempt=$((attempt + 1))
-  [ "$attempt" -lt 5 ] || fail "terminal=$TERMINAL does not show bypass permissions on; shift-tab it before the worker opens a plan"
-  sleep "$BOOT"
+  [ "$attempt" -lt 10 ] || fail "terminal=$TERMINAL does not show bypass permissions on; shift-tab it before the worker opens a plan"
+  sleep "$POLL"
 done
 
 echo "$LANE ready task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"

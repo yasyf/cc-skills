@@ -85,14 +85,20 @@ class Orca:
     def run(self, script: str, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([str(SCRIPTS / script), *args], env=self.env, capture_output=True, text=True)
 
-    def healthy(self, state: str = "ready", screen: str = "⏵⏵ bypass permissions on (shift+tab to cycle)") -> None:
+    def healthy(self, state: str = "ready", screen: str = "⏵⏵ bypass permissions on (shift+tab to cycle)", agent: str = "claude") -> None:
         self.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(self.worktree)}}}, "mkdir": str(self.worktree)})
         self.reply("terminal create", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_a"}}}})
         self.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}}})
         self.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": ["❯", screen]}}}})
+        self.reply("terminal list", listing(agent))
 
     def launch(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
+
+
+def listing(agent: str | None) -> dict:
+    terminals = [{"handle": "term_other", "agentIdentity": "claude"}, {"handle": "term_a", "agentIdentity": agent}]
+    return {"rc": 0, "out": {"ok": True, "result": {"terminals": terminals}}}
 
 
 @pytest.fixture
@@ -154,7 +160,7 @@ def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
 
 
 def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_level_worktree(orca):
-    orca.healthy()
+    orca.healthy(agent="codex")
     result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
@@ -173,7 +179,7 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
 
 @pytest.mark.parametrize("model", ["sol", "opus"])
 def test_a_terminal_command_never_inlines_the_callers_path(orca, model):
-    orca.healthy()
+    orca.healthy(agent="codex" if model == "sol" else "claude")
     orca.env["PATH"] = f"{orca.env['PATH']}:/{'p' * 6000}"
     assert orca.launch("lane-a", model, "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
@@ -181,7 +187,7 @@ def test_a_terminal_command_never_inlines_the_callers_path(orca, model):
 
 
 def test_a_sol_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orca):
-    orca.healthy()
+    orca.healthy(agent="codex")
     assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     codex = orca.root / "bin" / "codex"
@@ -208,7 +214,7 @@ def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
 
 
 def test_a_sol_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
-    orca.healthy()
+    orca.healthy(agent="codex")
     orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a"}}})
     orca.reply("terminal send", {"rc": 0, "out": {"ok": True}})
     result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
@@ -288,7 +294,35 @@ def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
     result = orca.launch()
     assert result.returncode == 1
     assert "shift-tab" in result.stdout
-    assert len(orca.calls("terminal read")) == 5
+    assert len(orca.calls("terminal read")) == 10
+
+
+def test_launch_starts_the_worker_once_orca_detects_claude_in_its_terminal(orca):
+    orca.healthy()
+    orca.reply("terminal list", {"rc": 1, "out": "connection lost"}, listing(None), listing("claude"))
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(orca.calls("terminal list")) == 3
+    assert orca.sleeps() == ["4", "4", "4"]
+    assert [" ".join(call[:2]) for call in orca.calls()][-3:] == ["terminal list", "orchestration worker-start", "terminal read"]
+
+
+def test_launch_fails_when_orca_never_detects_the_agent_within_the_boot_ceiling(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "10"
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s"
+    assert len(orca.calls("terminal list")) == 3
+    assert orca.calls("orchestration worker-start") == []
+
+
+def test_a_sol_lane_waits_for_orca_to_detect_codex(orca):
+    orca.healthy(agent="claude")
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 1
+    assert "not codex" in result.stdout
 
 
 def test_a_failed_start_keeps_its_dispatch_for_the_relaunch(orca):
