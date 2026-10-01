@@ -37,7 +37,7 @@ Authority: rebase, reorder, and restack the cars with `ccx vcs stack rebase`; re
 
 Verified facts, do not re-derive:
   repo <owner/name>; trunk <dev>; checkout <absolute path>
-  ledger <id>; desk landing-desk; script <plugin root>/skills/long-running/scripts/ledger.py
+  ledger <id>; desk landing-desk; script ledger.py, on PATH by name
   hot set: <globs, one per line>
   log: <absolute path>/log.md
   cars already reported: <#n lane head, one per line, or "none">

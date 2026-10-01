@@ -83,7 +83,7 @@ Worktree and VCS:
   say so in the PR body; never copy their diff.
 
 Landing desk (records over cc-notes refs, shared by every checkout):
-- Ledger `<id>`; script `<plugin root>/skills/long-running/scripts/ledger.py`; repo
+- Ledger `<id>`; script `ledger.py`, on PATH by name; repo
   `<owner/name>`; base `<base>`.
 - Holds file `<path>`, root-owned; #<n> names a held PR, lane:<name> a held lane,
   followed by the reason. Only the root edits it.

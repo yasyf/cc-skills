@@ -315,7 +315,6 @@ directory already holds `common.md` and `ci-fix.md`; the inbox file is append-on
 Replace the channel argument with the other arguments in Orca's defaults.
 
 ```sh
-SCRIPTS='<plugin root>/skills/long-running/scripts'
 SPEC_DIR='<spec dir>'
 INBOX='<inbox file>'
 export ORCA_LAUNCH_RUN='<run id>'
@@ -329,15 +328,15 @@ export ORCA_CHECK_STATE="$ORCA_LAUNCH_STATE"
 export ORCA_CHECK_TIMEOUT_MS=60000 ORCA_CHECK_RETRY_SECONDS=30
 touch "$INBOX"
 cat "$SPEC_DIR/common.md" "$SPEC_DIR/ci-fix.md" > "$SPEC_DIR/ci-fix.full.md"
-"$SCRIPTS/orca-launch.sh" ci-fix opus xhigh "$SPEC_DIR/ci-fix.full.md"
-"$SCRIPTS/orca-check.sh" -- --run "$ORCA_LAUNCH_RUN"
+orca-launch.sh ci-fix opus xhigh "$SPEC_DIR/ci-fix.full.md"
+orca-check.sh -- --run "$ORCA_LAUNCH_RUN"
 ```
 
 After processing that batch and reading new inbox-file lines, acknowledge its
 printed delivery on the next wait:
 
 ```sh
-"$SCRIPTS/orca-check.sh" --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
+orca-check.sh --ack '<delivery id>' -- --run "$ORCA_LAUNCH_RUN"
 ```
 
 The root appends each ruling as one numbered line. It never sends a ruling by

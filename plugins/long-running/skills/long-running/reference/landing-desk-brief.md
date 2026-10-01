@@ -78,7 +78,7 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
   holds file <path>, root-owned; root inbox <path>; cursor <path>
-  scripts: <plugin root>/skills/long-running/scripts/ledger.py and bus.py
+  scripts: ledger.py and bus.py, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 

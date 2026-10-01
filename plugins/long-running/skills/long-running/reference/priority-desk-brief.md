@@ -33,7 +33,7 @@ Authority: drive only the named lanes; enqueue their green, approved, unheld
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
-  ledger <id>; bus <id>; scripts <plugin root>/skills/long-running/scripts
+  ledger <id>; bus <id>; scripts ledger.py and bus.py, on PATH by name
   holds file <path>, root-owned
   inbox file <path>, append-only; cursor <path>
   lanes you own <lane, brief path, branch prefix, worktree; one per line>
