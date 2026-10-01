@@ -351,7 +351,7 @@ def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
     assert shell.fields(PR)["state"] == "landed"
-    assert not [argv for argv in shell.calls if "--grep" in argv], "the base log is never searched by number"
+    assert not [argv for argv in shell.calls if argv[-1] == "--format=%x00%H %cI%n%B"], "the base log is never searched by number"
 
 
 def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
@@ -370,7 +370,7 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
     shell = desk_shell(state="closed")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
-    shell.base_squash = f"{SQUASH} 2026-09-17T03:04:05+02:00"
+    shell.base_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00\nci: 🐛 retry buildkite reads (#{PR})"]
 
     run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
@@ -386,7 +386,7 @@ def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the
     shell.deleted_refs.add(f"refs/heads/{parent}")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "base": parent}})
     shell.pr_files[PR] = ["infra/rows/escape-hatch/dns.ts"]
-    shell.base_squash = f"{SQUASH} 2026-09-30T05:10:00+00:00"
+    shell.base_log = [f"{SQUASH} 2026-09-30T05:10:00+00:00\nescape-hatch: ✨ dns into the box (#{PR})"]
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
 
@@ -757,11 +757,50 @@ def test_reconcile_reads_the_trunk_once_and_the_forge_only_for_closed_unsquashed
 
     reconcile(shell)
 
-    logs = [argv for argv in shell.calls if argv[:4] == ["git", "-C", "/checkout", "log"] and "--grep" not in " ".join(argv)]
+    logs = [argv for argv in shell.calls if argv[:4] == ["git", "-C", "/checkout", "log"] and argv[-1] == "--format=%H %cI %s"]
     assert len(logs) == 1
     assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "28302", "28349"]]
     pulled = {argv[2].split("/")[4] for argv in shell.calls if argv[:2] == ["gh", "api"] and "/pulls/" in argv[2]}
     assert pulled == {"28302"}
+
+
+def closed_board(count: int) -> FakeShell:
+    shell = FakeShell(rows=[{"key": str(28400 + index), "fields": {"lane": LANE, "state": "open"}} for index in range(count)])
+    for index in range(count):
+        pr, head = str(28400 + index), f"{index:040x}"
+        shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": head, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pull_heads[pr] = head
+        shell.pr_files[pr] = [f"infra/rows/{pr}.ts"]
+    return shell
+
+
+def test_reconcile_settles_a_closed_board_in_one_message_read_one_object_check_and_one_write(capsys):
+    shell = closed_board(40)
+    shell.objects = {pull["head"]["sha"] for pull in shell.pulls.values()}
+    shell.delivered["0" * 40] = (SQUASH, "2026-10-01T05:10:00+00:00")
+    shell.base_log = [f"{SQUASH} 2026-10-01T05:10:00+00:00\nb2: 🚚 move (#28401)"]
+
+    assert reconcile(shell) == 0
+
+    assert shell.fields("28400")["state"] == "landed"
+    assert shell.fields("28401")["state"] == "landed"
+    assert {shell.fields(str(pr))["state"] for pr in range(28402, 28440)} == {"closed-without-squash"}
+    assert "40 of 40 closed settled" in capsys.readouterr().out
+    assert len([argv for argv in shell.calls if argv[-1] == "--format=%x00%H %cI%n%B"]) == 1
+    assert len([argv for argv in shell.calls if argv[3:4] == ["cat-file"]]) == 1
+    assert not [argv for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]]
+    assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "row"]]
+    assert len([argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "sync"]]) == 1
+    assert not [endpoint for endpoint in shell.endpoints() if endpoint.split("?")[0].count("/") == 4 and "/pulls/" in endpoint]
+
+
+def test_settle_fetches_only_the_heads_the_clone_lacks():
+    shell = closed_board(3)
+    shell.objects = {shell.pulls["28400"]["head"]["sha"], shell.pulls["28402"]["head"]["sha"]}
+
+    assert reconcile(shell) == 0
+
+    assert [argv[-1] for argv in shell.calls if argv[3:4] == ["fetch"] and "refs/pull/" in argv[-1]] == ["+refs/pull/28401/head:refs/desk/pr28401"]
 
 
 def test_reconcile_dry_run_writes_nothing(capsys):

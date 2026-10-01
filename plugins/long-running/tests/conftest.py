@@ -38,13 +38,14 @@ class FakeShell(ledger.Shell):
         self.pr_files: dict[str, list[str]] = {}
         self.reviews: dict[str, list[dict]] = {}
         self.delivered: dict[str, tuple[str, str]] = {}
-        self.diffed_head = ""
+        self.diffed: dict[tuple[str, ...], str] = {}
+        self.objects: set[str] = set()
         self.closed_by: dict[str, str] = {}
         self.shallow = False
         self.broken_checkout = False
         self.fetch_fails = ""
         self.deleted_refs: set[str] = set()
-        self.base_squash = ""
+        self.base_log: list[str] = []
         self.trunk_log: list[str] = []
         self.children: dict[str, list[dict]] = {}
         self.trunk = "dev"
@@ -75,7 +76,7 @@ class FakeShell(ledger.Shell):
         if argv[0] == "ccn":
             return self._ccn(argv, stdin)
         if argv[0] == "git":
-            return self._git(argv)
+            return self._git(argv, stdin)
         if argv[0] == "ccx" and argv[1:4] == ["vcs", "pr", "state"]:
             return self._pr_state(argv)
         if argv[0] == "ccx":
@@ -237,7 +238,7 @@ class FakeShell(ledger.Shell):
             raise subprocess.CalledProcessError(self.stack_enqueue_exit, argv, output=self.stack_enqueue_out, stderr="")
         return self.stack_enqueue_out
 
-    def _git(self, argv):
+    def _git(self, argv, stdin=None):
         verb = argv[3]
         if verb == "fetch":
             if self.fetch_fails:
@@ -247,6 +248,8 @@ class FakeShell(ledger.Shell):
                 raise subprocess.CalledProcessError(128, argv, stderr=f"fatal: couldn't find remote ref {ref}")
             self.fetched = self.pull_heads[ref.split("/")[2]] if ref.startswith("refs/pull/") else "base-tip"
             return ""
+        if verb == "cat-file":
+            return "".join(f"{head} commit 1\n" if head in self.objects else f"{head} missing\n" for head in stdin.split())
         if verb == "rev-parse" and "--is-shallow-repository" in argv and self.broken_checkout:
             raise subprocess.CalledProcessError(128, argv, stderr="fatal: not a git repository")
         if verb == "rev-parse" and "--is-shallow-repository" in argv:
@@ -261,18 +264,19 @@ class FakeShell(ledger.Shell):
         if verb == "diff" and "--numstat" in argv:
             left, right = self._resolve(argv[5]), self._resolve(argv[6])
             assert left != right, f"diffed {argv[5]} against {argv[6]}: both resolve to {left}"
-            self.diffed_head = right
+            self.diffed[tuple(argv[argv.index("--") + 1 :])] = right
             if right in self.delivered:
                 return ""
             return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
         if verb == "log" and argv[-1] == "--format=%H %cI %s":
             assert self._resolve(argv[4]) == "base-tip", f"read squashes from {argv[4]}"
             return "".join(f"{line}\n" for line in self.trunk_log)
-        if verb == "log" and "--grep" in " ".join(argv):
-            return self.base_squash + ("\n" if self.base_squash else "")
+        if verb == "log" and argv[-1] == "--format=%x00%H %cI%n%B":
+            assert self._resolve(argv[4]) == "base-tip", f"read messages from {argv[4]}"
+            return "".join(f"\0{entry}\n" for entry in self.base_log)
         if verb == "log" and argv[5] == "-1":
             assert self._resolve(argv[4]) == "base-tip", f"named the landing commit from {argv[4]}"
-            sha, when = self.delivered[self.diffed_head]
+            sha, when = self.delivered[self.diffed[tuple(argv[argv.index("--") + 1 :])]]
             return f"{sha} {when}\n"
         raise AssertionError(f"unexpected git call: {argv}")
 

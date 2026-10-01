@@ -64,6 +64,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -120,6 +121,7 @@ LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 SQUASH_DEPTH = 3000
+SETTLE_WORKERS = 8
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
@@ -716,7 +718,7 @@ def route_message(pr: str, head: str, lane: str, job: str, verdict: str) -> str:
     return f"to {lane}:\n{body}\n{ROUTE_TEXT}"
 
 
-def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str, head: str) -> tuple[str, str] | None:
+def landed_on_base(shell: Shell, gh: Github, checkout: Path, tip: str, pr: str, head: str) -> tuple[str, str] | None:
     """Does the base tree hold this PR's payload right now?
 
     Tree equality proves a landing. A difference proves nothing, so this returns None
@@ -737,14 +739,9 @@ def landed_on_base(shell: Shell, gh: Github, checkout: Path, base: str, pr: str,
     making every row diff against itself and read as landed.
     """
     git = ["git", "-C", str(checkout)]
-    if is_shallow(shell, checkout):
-        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
     files = [row["filename"] for row in gh.api(f"pulls/{pr}/files?per_page=100")]
     if not files:
         return None
-    tip = f"refs/desk/base/{base}"
-    fetch(shell, checkout, f"+refs/heads/{base}:{tip}")
-    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
     if shell.run(git + ["diff", "--numstat", tip, head, "--"] + files).strip():
         return None
     delivered = shell.run(git + ["log", tip, "-1", "--format=%H %cI", "--"] + files).split()
@@ -1433,7 +1430,38 @@ def cmd_unlabel(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[str, str] | None:
+def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> None:
+    if is_shallow(shell, checkout):
+        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=checkout))
+    fetch(shell, checkout, f"+refs/heads/{trunk}:refs/desk/base/{trunk}")
+
+
+def absent_heads(shell: Shell, checkout: Path, heads: list[str]) -> frozenset[str]:
+    out = shell.run(["git", "-C", str(checkout), "cat-file", "--batch-check"], stdin="".join(f"{head}\n" for head in heads))
+    return frozenset(line.split()[0] for line in out.splitlines() if line.endswith(" missing"))
+
+
+def trunk_messages(shell: Shell, checkout: Path, trunk: str) -> list[tuple[str, str, str]]:
+    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", "-400", "--format=%x00%H %cI%n%B"])
+    messages = []
+    for entry in log.split("\0")[1:]:
+        header, _, message = entry.partition("\n")
+        sha, committed = header.split(" ")
+        messages.append((sha, committed, message))
+    return messages
+
+
+def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
+    """Each PR's REST read in the ccx record's shape, so settling a landing never waits on the GraphQL quota."""
+    try:
+        with ThreadPoolExecutor(SETTLE_WORKERS) as pool:
+            pulls = list(pool.map(lambda pr: gh.api(f"pulls/{pr}"), prs))
+    except subprocess.CalledProcessError as failure:
+        raise ForgeUnreachable(f"gh api pulls: {(failure.stderr or '').strip() or failure}") from failure
+    return {pr: {"state": pull["state"].upper(), "headRefOid": pull["head"]["sha"], "baseRefName": pull["base"]["ref"]} for pr, pull in zip(prs, pulls, strict=True)}
+
+
+def squash_on_base(messages: list[tuple[str, str, str]], pr: str) -> tuple[str, str] | None:
     """The squash the base log names for this PR, if there is one.
 
     Asked only when content cannot tell, which is whenever the base moved on one of the
@@ -1446,48 +1474,78 @@ def squash_on_base(shell: Shell, checkout: Path, base: str, pr: str) -> tuple[st
     two carried it while their trees still differed and no commit named them. Only the
     trunk answers, through its tree or through a commit it names.
     """
-    git = ["git", "-C", str(checkout)]
-    log = shell.run(git + ["log", f"refs/desk/base/{base}", "--format=%H %cI", "-400", "--fixed-strings", f"--grep=(#{pr})"]).split()
-    return (log[0], stamp(parse_iso(log[1]).astimezone(timezone.utc))) if log else None
+    needle = f"(#{pr})"
+    return next(((sha, stamp(parse_iso(committed).astimezone(timezone.utc))) for sha, committed, message in messages if needle in message), None)
 
 
-def settle_row(shell: Shell, gh: Github, notes: Notes, checkout: Path, trunk: str, pr: str) -> bool:
-    """Settle one closed row against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone."""
-    pull = gh.api(f"pulls/{pr}")
-    if pull["state"] == "open":
-        ejected = queue_ejected(gh, pr)
-        if ejected:
-            notes.set_fields(pr, {"ejected_at": ejected})
-            print(f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it")
-        return False
+def settle_row(shell: Shell, checkout: Path, trunk: str, pr: str, record: dict, read: Future, messages: list) -> tuple[dict[str, str], str]:
+    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone."""
+    if record["state"] == "OPEN":
+        ejected = read.result()
+        if not ejected:
+            return {}, ""
+        return {"ejected_at": ejected}, f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it"
     cleared = {"settle_error": "", "settle_failed_at": ""}
-    delivered = landed_on_base(shell, gh, checkout, trunk, pr, pull["head"]["sha"])
-    if delivered:
-        sha, landed_at = delivered
-        notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared})
-        print(f"landed #{pr}, payload delivered by {sha[:9]} on {trunk} at {landed_at}")
-    elif (squash := squash_on_base(shell, checkout, trunk, pr)):
+    if (payload := read.result()):
+        sha, landed_at = payload
+        return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr}, payload delivered by {sha[:9]} on {trunk} at {landed_at}"
+    if not messages:
+        messages += trunk_messages(shell, checkout, trunk)
+    if (squash := squash_on_base(messages, pr)):
         sha, landed_at = squash
-        notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared})
-        print(f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since")
-    else:
-        notes.set_fields(pr, {"state": CLOSED_WITHOUT_SQUASH, "base": pull["base"]["ref"], **cleared})
-        print(f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: a human closed it and its payload is absent, so the row stays until its lane answers")
-    return True
+        return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since"
+    return (
+        {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared},
+        f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: a human closed it and its payload is absent, so the row stays until its lane answers",
+    )
 
 
-def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, prs: list[str]) -> int:
-    if not prs:
+def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict[str, dict]) -> int:
+    """Settle every row in one trunk fetch, one object check, one ledger write, and the per-PR forge reads in parallel.
+
+    A head this clone lacks is fetched before any diff, one at a time, so no two fetches race for the clone's locks.
+    """
+    if not records:
         return 0
     trunk = gh.default_branch()
+    git = ["git", "-C", str(checkout)]
+    closed = {pr: record for pr, record in records.items() if record["state"] != "OPEN"}
+    failures: dict[str, subprocess.CalledProcessError] = {}
+    if closed:
+        sync_trunk(shell, checkout, trunk)
+        absent = absent_heads(shell, checkout, [record["headRefOid"] for record in closed.values()])
+        for pr, record in closed.items():
+            if record["headRefOid"] in absent:
+                try:
+                    shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
+                except subprocess.CalledProcessError as failure:
+                    failures[pr] = failure
+    updates: dict[str, dict[str, str]] = {}
+    messages: list[tuple[str, str, str]] = []
     moved = 0
-    for pr in prs:
-        try:
-            moved += settle_row(shell, gh, notes, checkout, trunk, pr)
-        except subprocess.CalledProcessError as failure:
-            reason = (failure.stderr or str(failure)).strip()
-            notes.set_fields(pr, {"settle_error": reason, "settle_failed_at": utc_stamp()})
-            print(f"#{pr} NOT SETTLED, recorded on its row and the pass continues: {reason}")
+    with ThreadPoolExecutor(SETTLE_WORKERS) as pool:
+        reads = {
+            pr: pool.submit(landed_on_base, shell, gh, checkout, f"refs/desk/base/{trunk}", pr, record["headRefOid"]) if pr in closed else pool.submit(queue_ejected, gh, pr)
+            for pr, record in records.items()
+            if pr not in failures
+        }
+        for pr in sorted(records, key=int):
+            try:
+                if pr in failures:
+                    raise failures[pr]
+                fields, line = settle_row(shell, checkout, trunk, pr, records[pr], reads[pr], messages)
+            except subprocess.CalledProcessError as failure:
+                reason = (failure.stderr or str(failure)).strip()
+                updates[pr] = {"settle_error": reason, "settle_failed_at": utc_stamp()}
+                print(f"#{pr} NOT SETTLED, recorded on its row and the pass continues: {reason}")
+                continue
+            if fields:
+                updates[pr] = fields
+            if line:
+                print(line)
+            moved += pr in closed
+    if updates:
+        notes.sync([{"key": pr, "fields": fields} for pr, fields in updates.items()])
     return moved
 
 
@@ -1496,7 +1554,7 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
     rows = sharded(notes.pr_rows(), args.shard)
     prs = [args.pr] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
-    settle(shell, gh, notes, args.checkout, prs)
+    settle(shell, gh, notes, args.checkout, pull_records(gh, prs))
     return 0
 
 
@@ -1585,7 +1643,7 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
         notes.set_fields(pr, changes)
     if settled:
         with redirect_stdout(sys.stderr):
-            settle(shell, gh, notes, checkout, settled)
+            settle(shell, gh, notes, checkout, pull_records(gh, settled))
     if pending.exists():
         pending.replace(state)
 
@@ -1620,11 +1678,11 @@ def trunk_squashes(shell: Shell, checkout: Path, trunk: str) -> dict[str, tuple[
 
 
 def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
-    """Settle the whole board in one trunk fetch, one log read, and one ccx cache read.
+    """Settle the whole board in one log read, one ccx cache read, and one ledger write.
 
     A squash subject ending ``(#n)`` lands its row outright. Only a row with no squash
-    whose PR the cache reads closed costs per-PR forge calls, through ``settle``, because
-    a payload a stacked child carried shows up in the tree under no number of its own.
+    whose PR the cache reads closed costs a forge call, its file list, through ``settle``,
+    because a payload a stacked child carried shows up in the tree under no number of its own.
     """
     notes = Notes(shell, args.ledger)
     gh = Github(shell, args.repo)
@@ -1634,9 +1692,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
         print("reconciled 0 non-terminal rows")
         return 0
     trunk = gh.default_branch()
-    if is_shallow(shell, args.checkout):
-        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=args.checkout))
-    fetch(shell, args.checkout, f"+refs/heads/{trunk}:refs/desk/base/{trunk}")
+    sync_trunk(shell, args.checkout, trunk)
     squashes = trunk_squashes(shell, args.checkout, trunk)
     landed = [pr for pr in pending if pr in squashes]
     unsquashed = [pr for pr in pending if pr not in squashes]
@@ -1648,14 +1704,14 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     verb = "would land" if args.dry_run else "landed"
     for pr in landed:
         sha, landed_at = squashes[pr]
-        if not args.dry_run:
-            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, "settle_error": "", "settle_failed_at": ""})
         print(f"{verb} #{pr} as {sha[:9]} on {trunk} at {landed_at}")
     if args.dry_run:
         print("".join(f"would settle closed #{pr} with no squash on {trunk}\n" for pr in closed), end="")
         settled = 0
     else:
-        settled = settle(shell, gh, notes, args.checkout, closed)
+        if landed:
+            notes.sync([{"key": pr, "fields": {"state": LANDED, "landed_sha": squashes[pr][0], "landed_at": squashes[pr][1], "base": trunk, "settle_error": "", "settle_failed_at": ""}} for pr in landed])
+        settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed})
     print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {len(unsquashed) - len(closed)} open")
     return 0
 
