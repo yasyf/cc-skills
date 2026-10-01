@@ -36,7 +36,8 @@ no tier flag.
 
 sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
-fast tier never depends on Orca's runtime config. When Orca times out at
+fast tier never depends on Orca's runtime config. The command prepends the
+plugin bin to the terminal's own PATH, never the caller's expanded PATH. When Orca times out at
 agent_readiness on a codex or sol worker whose terminal is up, the script types
 the spec pointer into that terminal itself and prints the lane as unsupervised:
 it runs, but Orca carries no worker_done for it.
@@ -101,7 +102,7 @@ BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/or
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
-[ "$AGENT" != sol ] || COMMAND="env PATH=$BIN:$PATH codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT"
+[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT'"
 spec() {
   printf '%s' "Lane $LANE: read $BRIEF in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
