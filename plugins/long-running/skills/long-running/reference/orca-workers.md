@@ -56,7 +56,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 `claude` command. Shift-tab is a fallback only before the worker opens a plan.
 The launch script checks the terminal screen for `bypass permissions on`.
 
-Every worktree is created with `--parent-worktree path:<coordinator worktree>`.
+Except for sol incident lanes below, worktrees use `--parent-worktree path:<coordinator worktree>`.
 The script reuses an existing directory; re-tag an existing worktree before launch
 when it does not carry that parent:
 
@@ -94,13 +94,46 @@ screen check. The script reads the terminal handle from the receipt's agent-term
 effect and counts the launch once `.result.state` reads `ready`. `--terminal` refuses
 `--agent`, so a custom codex terminal cannot name its agent.
 
-Orca's readiness check does not yet recognise codex. Both launch shapes left codex idle
+On 2026-09-30, both launch shapes left codex idle
 at its prompt until `worker-start` failed with `failedStage: agent_readiness` and
 `lastError: timeout`: dispatch `ctx_43637c1c2b7b` through `--agent codex`, and
 `ctx_4aa6ac245439` through a terminal created with
 `--command "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=xhigh"`.
 Leave a failed launch's terminal open, as R195 requires, and report the dispatch to
 the root.
+
+### Incident lanes: gpt-6.1-sol on the fast tier
+
+Launch both incident lanes with `scripts/orca-launch.sh <lane> sol xhigh <brief>`.
+The script creates a top-level worktree (`--no-parent`) and a custom codex terminal.
+The verified 2026-10-01 launch used these commands:
+
+```sh
+orca terminal create --worktree "path:<wt>" --json \
+  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+orca orchestration worker-start --run <run> --spec "<pointer>" \
+  --worktree "path:<wt>" --terminal <handle> --timeout-ms 180000 --json
+```
+
+`worker-start` has no service-tier flag; its `--agent codex --model` path cannot set
+the tier. Codex accepts `service_tier=fast`; `codex debug models` calls that tier
+`priority`, labeled Fast at twice the speed. In interactive codex, `/fast` switched
+from fast to `default` and back to `priority`.
+
+`--skip-git-repo-check` is exec-only; interactive codex exits with
+`unexpected argument '--skip-git-repo-check'`. Because `--sandbox danger-full-access`
+alone still prompts for approvals, use `--dangerously-bypass-approvals-and-sandbox`,
+which is also Orca's codex default.
+
+The worker reached `ready` in 2 s on dispatch `ctx_e6b256d5c0c8` and answered
+`probe ok: model=gpt-6.1-sol`. This pre-created terminal succeeded where the
+2026-09-30 launches above failed; it is one sample. The script waits for `YOLO mode`
+on the screen before printing its ready line.
+
+`worker-release` returns `retained` (`external_terminal`) for a terminal you created.
+Close it yourself with `orca terminal close --terminal <handle>`.
+
+### Worker messages
 
 `send --type` accepts only
 `status|dispatch|worker_done|merge_ready|escalation|handoff|decision_gate|question|heartbeat`.
@@ -190,7 +223,8 @@ A successful launch prints one receipt line in this shape:
 ```
 
 Count the launch only after that line. The worker-start result must read `ready`,
-and the screen must show bypass permissions on. A failed launch prints
+and a custom terminal's screen must show `YOLO mode` for sol or `bypass permissions on`
+for Claude. A failed launch prints
 `<lane> failed <step and reason>` and exits 1; invalid usage exits 2.
 
 The receipt is `<receipt dir>/<lane>.json`; `<lane>.terminal` holds the handle that

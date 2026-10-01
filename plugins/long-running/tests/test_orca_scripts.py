@@ -142,6 +142,24 @@ def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
+def test_a_sol_lane_runs_codex_on_the_fast_tier_in_a_top_level_worktree(orca):
+    orca.healthy(screen="permissions: YOLO mode")
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    [worktree] = orca.calls("worktree create")
+    assert "--no-parent" in worktree and "--parent-worktree" not in worktree
+    [terminal] = orca.calls("terminal create")
+    assert flag(terminal, "--command") == (
+        "codex --dangerously-bypass-approvals-and-sandbox"
+        " -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+    )
+    [start] = orca.calls("orchestration worker-start")
+    assert flag(start, "--terminal") == "term_a"
+    assert "--agent" not in start and "--model" not in start
+    assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
+
+
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     orca.healthy()
     orca.worktree.mkdir()

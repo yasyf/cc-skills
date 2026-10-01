@@ -224,14 +224,21 @@ and starts no build.
 monitor in Alert, a Sentry alert, an `#outage` report, an on-call page, or an alert
 link from the owner is P0 from the moment it is seen. The root spawns a fix lane and
 a telemetry/diagnosis lane in parallel that turn. The fix lane has implementation
-authority and runs as `long-running:lane-ship`. Use model fable for concurrency or
-data paths; use opus otherwise.
+authority.
+
+Both run as Orca codex workers on `gpt-6.1-sol`, `xhigh`, fast tier, through
+`scripts/orca-launch.sh <lane> sol xhigh <brief>`. Sol is faster and wastes less time
+than Claude on incident work. Only in a session with no Orca run, use an inline
+background `codex:codex-wrapper` (`codex-ask -m sol`) on the same model, effort, and tier.
+
+When sol's fix misses, the root starts a Claude Opus 5.5 (`claude-opus-5-5`) lane with
+`scripts/orca-launch.sh <lane> opus xhigh <brief>`. Never use fable or astra on the
+incident path; both are too slow. Fable stays astra's fallback elsewhere.
 
 The fix lane starts at the code path the alert's runbook or metric names while
-evidence is still arriving. Never diagnosis-then-fix, and never a "real or not" or
-"ours or not ours" gate before the fix lane exists. A diagnosis that clears the alert
-redirects the fix lane to work such as a monitor fix; it does not decide whether the
-fix lane exists.
+evidence is still arriving. No `AskUserQuestion`, "real or not" or "ours or not ours"
+verdict, or owner round-trip before the fix lane exists. Diagnosis redirects it,
+including to a monitor fix; it never gates its existence.
 
 While the alert is active, a break-glass or hand apply of the fix to production is
 pre-authorized when the plan counts are reported, the plan shows `0 deletes` and
@@ -240,6 +247,9 @@ the root never asks the owner for apply permission. It reports. Any delete or re
 goes to the owner. A muted monitor is not resolved; the mute is the window to fix.
 
 The root reports to the owner at spawn with what is running, and again at fix-live.
+It checks each incident lane's status every 10 minutes. If a lane has no mechanism
+15 minutes after spawn, the root starts a second lane on a different model in
+parallel (Opus 5.5 after sol) and keeps the first running.
 It never ends a turn on an active alert with only a question or a wait. The alert
 takes its lanes in the same turn whatever else is running, consistent with R6.
 `reference/active-alert-brief.md` holds both briefs.
@@ -560,6 +570,12 @@ Orca does not yet detect a ready codex agent. On 2026-09-30 both `--agent codex`
 (dispatch `ctx_4aa6ac245439`) left codex idle at its prompt until `worker-start`
 failed at `agent_readiness` with `timeout`; the spec never arrived. Until Orca fixes
 that, the desk reports each failed codex launch to the root, which rules on the lane.
+
+Incident lanes under R16 are the exception. `scripts/orca-launch.sh <lane> sol xhigh <brief>`
+creates a custom codex terminal on the fast tier because `worker-start` cannot set
+the tier. The 2026-10-01 launch reached `ready` in 2 s through a pre-created codex
+terminal on dispatch `ctx_e6b256d5c0c8`. That is one sample after the
+2026-09-30 readiness failures.
 
 ## The alerts desk
 
@@ -1462,7 +1478,7 @@ release-v3 drive (2026-09-30).*
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → the orca-desk does it; append root rulings to its inbox file, never `SendMessage` its running loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
-15. Is a production alert active? → spawn its fix lane and diagnosis lane this turn from reference/active-alert-brief.md; never gate the fix lane on a verdict.
+15. Is a production alert active? Spawn its fix and diagnosis lanes this turn as sol Orca workers through `scripts/orca-launch.sh <lane> sol xhigh <brief>`, using `reference/active-alert-brief.md`. Check each every 10 minutes; at 15 minutes without a mechanism, start a second lane on a different model (Opus 5.5 after sol) and keep the first running. Never gate the fix lane on a verdict.
 
 Apply D3 to priority PRs before delegating. A call that survives all fifteen decides
 something no lane can decide for you; everything else is a lane.

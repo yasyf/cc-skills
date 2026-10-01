@@ -8,7 +8,7 @@ Fill the angle brackets and paste the brief.
 ## Root discipline
 
 Every transition to Alert, Warn, or No Data is P0. In the turn it arrives, the root
-spawns a fix lane and a diagnosis lane in parallel from `active-alert-brief.md`,
+spawns a fix lane and a diagnosis lane as sol Orca workers in parallel from `active-alert-brief.md`,
 under R16. Never put a "real or not" or "ours or not ours" gate before the fix lane.
 Diagnosis findings redirect the fix lane, including to a monitor fix; they do not
 decide whether it exists.
