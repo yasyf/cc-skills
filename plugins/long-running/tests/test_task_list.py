@@ -52,6 +52,10 @@ class Drive:
             },
         ]
         (subagents / f"agent-a{name}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+        roster = self.claude / "teams" / TEAM / "config.json"
+        roster.parent.mkdir(parents=True, exist_ok=True)
+        members = json.loads(roster.read_text())["members"] if roster.exists() else []
+        roster.write_text(json.dumps({"name": TEAM, "members": [*members, {"agentId": f"{name}@{TEAM}", "name": name}]}))
         if busy:
             self.lanes[name] = {"id": f"t-{name}", "type": "teammate", "status": "running", "description": meta["description"]}
 

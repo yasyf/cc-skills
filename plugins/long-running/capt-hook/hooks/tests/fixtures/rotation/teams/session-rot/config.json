@@ -3,15 +3,18 @@
   "members": [
     {
       "name": "team-lead",
-      "tmuxPaneId": "leader"
+      "tmuxPaneId": "leader",
+      "agentId": "team-lead@session-rot"
     },
     {
       "name": "landing-desk",
-      "tmuxPaneId": "in-process"
+      "tmuxPaneId": "in-process",
+      "agentId": "landing-desk@session-rot"
     },
     {
       "name": "sleepy",
-      "tmuxPaneId": "in-process"
+      "tmuxPaneId": "in-process",
+      "agentId": "sleepy@session-rot"
     }
   ]
 }

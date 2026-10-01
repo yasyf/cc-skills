@@ -39,7 +39,7 @@ class Tree:
         self.root = self.claude / "projects" / "p" / "root.jsonl"
         write_jsonl(self.root, [assistant(ROOT_AT, 300_000, sidechain=False)])
         (self.claude / "teams" / TEAM / "inboxes").mkdir(parents=True)
-        self.members: list[str] = []
+        self.members: dict[str, list[str]] = {}
 
     def lane(
         self,
@@ -60,11 +60,9 @@ class Tree:
         meta |= {"model": hint or (f"{model}[1m]" if model.startswith("claude-opus") else model)}
         if team:
             meta |= {"taskKind": "in_process_teammate", "teamName": team}
-        if team == TEAM:
-            self.members.append(name)
-            (self.claude / "teams" / team / "config.json").write_text(
-                json.dumps({"name": team, "members": [{"name": member} for member in self.members]})
-            )
+        if team:
+            self.members.setdefault(team, []).append(name)
+            self.roster(team)
         subagents.mkdir(parents=True, exist_ok=True)
         (subagents / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
         content = f'<teammate-message teammate_id="team-lead" summary="{meta["description"]}">\n{prompt}\n</teammate-message>' if prompt else "go"
@@ -72,6 +70,21 @@ class Tree:
         write_jsonl(subagents / f"agent-{agent_id}.jsonl", [first, assistant(ROOT_AT - behind, tokens, sidechain=True, model=model)])
         label = (prompt[:50] + "..." if len(prompt) > 50 else prompt) if prompt else meta["description"]
         return {"id": f"t-{name}" if team else agent_id, "type": "teammate" if team else "subagent", "status": "running", "description": label}
+
+    def roster(self, team: str) -> None:
+        members = [{"agentId": f"{member}@{team}", "name": member} for member in self.members[team]]
+        (self.claude / "teams" / team).mkdir(parents=True, exist_ok=True)
+        (self.claude / "teams" / team / "config.json").write_text(json.dumps({"name": team, "members": members}))
+
+    def read(self, *names: str) -> None:
+        for name in names:
+            transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
+            with transcript.open("a") as lane:
+                lane.write(json.dumps({"type": "user", "isSidechain": True, "timestamp": stamp(ROOT_AT), "message": {"content": "ROTATE"}}) + "\n")
+
+    def kill(self, name: str, team: str = TEAM) -> None:
+        self.members[team].remove(name)
+        self.roster(team)
 
     def inbox(self, name: str) -> list[dict]:
         path = self.claude / "teams" / TEAM / "inboxes" / f"{name}.json"
@@ -183,6 +196,7 @@ def test_unacked_lane_is_asked_again_every_thirty_minutes(tree: Tree, clock: lis
     for minutes in (0, 20, 11, 60):
         clock[0] += minutes * 60
         lane_rotation.rotate_lanes(evt)
+        tree.read("desk")
         counts.append(len(tree.inbox("desk")))
     assert counts == [1, 1, 2, 3]
 
@@ -223,6 +237,7 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
     task = tree.lane("alerts-watch", 512_340, spawned=ROOT_AT - timedelta(hours=5, minutes=12))
     evt = stop(tree, [task])
     lane_rotation.rotate_lanes(evt)
+    tree.read("alerts-watch")
 
     clock[0] += lane_rotation.ACK_WINDOW_SECONDS - 1
     lane_rotation.rotate_lanes(evt)
@@ -234,7 +249,7 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
     assert line.startswith("ROOT-ACTION `alerts-watch`: rotate it by hand now. It holds 512,340 tokens against its 396,900 line ")
     assert "running 5h22m) and has not replied `flushed` to 1 ROTATE ask(s) since 21:35Z." in line
     assert "1. Spawn `alerts-watch-2` from `alerts-watch`'s brief" in line
-    assert "2. Once `alerts-watch-2` reports, TaskStop `t-alerts-watch` to stop `alerts-watch`." in line
+    assert "2. Once `alerts-watch-2` reports, TaskStop `alerts-watch@session-rot` to stop `alerts-watch`." in line
     assert timeline(evt)[-1] | {"agent_id": None} == {
         "at": "2026-09-25T21:45:00Z",
         "lane": "alerts-watch",
@@ -249,6 +264,7 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
 def test_escalation_repeats_every_firing_without_piling_up(tree: Tree, clock: list[float]) -> None:
     evt = stop(tree, [tree.lane("desk-3", 450_000)])
     lane_rotation.rotate_lanes(evt)
+    tree.read("desk-3")
     clock[0] += lane_rotation.ACK_WINDOW_SECONDS
     for _ in range(3):
         lane_rotation.rotate_lanes(evt)
@@ -265,6 +281,7 @@ def test_escalation_repeats_every_firing_without_piling_up(tree: Tree, clock: li
 def test_flushed_reply_ends_the_escalation(tree: Tree, clock: list[float]) -> None:
     evt = stop(tree, [tree.lane("landing-desk", 450_000)])
     lane_rotation.rotate_lanes(evt)
+    tree.read("landing-desk")
     clock[0] += lane_rotation.ACK_WINDOW_SECONDS
     lane_rotation.rotate_lanes(evt)
     nudges.NudgeState(pending=[]).save(evt)
@@ -305,6 +322,67 @@ def test_compacted_lane_starts_a_fresh_cycle(tree: Tree, clock: list[float]) -> 
     assert pending(evt) == []
     assert [(entry["event"], entry.get("tokens")) for entry in timeline(evt)] == [("ask", 450_000), ("compacted", 30_000)]
     assert lane_rotation.RotationState.load(evt).asks == {}
+
+
+def test_lanes_sharing_a_description_each_name_their_own_stop_id(tree: Tree, clock: list[float]) -> None:
+    shared = "Lane brief (long-running drive release-v3, root = s"
+    tasks = [
+        tree.lane("ccx-guard-eperm", 480_000, description=shared, behind=timedelta(minutes=1)),
+        tree.lane("landing-desk-2", 440_000, description=shared, behind=timedelta(minutes=2)),
+    ]
+    evt = stop(tree, [tasks[1], tasks[1]])
+    lane_rotation.rotate_lanes(evt)
+    tree.read("ccx-guard-eperm", "landing-desk-2")
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    lane_rotation.rotate_lanes(evt)
+
+    lines = {line.split("`")[1]: line for line in pending(evt)}
+    assert "TaskStop `ccx-guard-eperm@session-rot` to stop `ccx-guard-eperm`." in lines["ccx-guard-eperm"]
+    assert "TaskStop `landing-desk-2@session-rot` to stop `landing-desk-2`." in lines["landing-desk-2"]
+
+
+def test_stopped_lane_sharing_a_description_is_gone_not_matched_to_a_live_task(tree: Tree, clock: list[float]) -> None:
+    shared = "Lane brief (long-running drive release-v3, root = s"
+    tree.lane("ccx-guard-eperm", 513_462, description=shared, behind=timedelta(minutes=1))
+    live = tree.lane("landing-desk-2", 440_000, description=shared, behind=timedelta(minutes=2))
+    evt = stop(tree, [live, live])
+    lane_rotation.rotate_lanes(evt)
+    tree.read("landing-desk-2")
+
+    tree.kill("ccx-guard-eperm")
+    evt = stop(tree, [live])
+    assert [(lane.name, lane.stop_id) for lane in lane_rotation.live_lanes(evt)] == [("landing-desk-2", "landing-desk-2@session-rot")]
+
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    lane_rotation.rotate_lanes(evt)
+    assert [line.split("`")[1] for line in pending(evt)] == ["landing-desk-2"]
+    assert ("ccx-guard-eperm", "gone") in [(entry["lane"], entry["event"]) for entry in timeline(evt)]
+
+
+def test_lane_that_never_reads_its_ask_is_gone_until_its_transcript_moves(tree: Tree, clock: list[float]) -> None:
+    shared = "Lane brief (long-running drive release-v3, root = s"
+    stopped = tree.lane("ccx-guard-eperm", 513_462, description=shared, behind=timedelta(minutes=1))
+    evt = stop(tree, [stopped])
+    lane_rotation.rotate_lanes(evt)
+
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    lane_rotation.rotate_lanes(evt)
+    assert pending(evt) == []
+    assert timeline(evt)[-1] | {"agent_id": None} == {
+        "at": "2026-09-25T21:45:00Z",
+        "lane": "ccx-guard-eperm",
+        "agent_id": None,
+        "event": "gone",
+        "reason": "transcript unchanged since the ROTATE ask",
+    }
+
+    clock[0] += lane_rotation.ASK_GAP_SECONDS
+    lane_rotation.rotate_lanes(evt)
+    assert (len(tree.inbox("ccx-guard-eperm")), pending(evt)) == (1, [])
+
+    tree.read("ccx-guard-eperm")
+    lane_rotation.rotate_lanes(evt)
+    assert len(tree.inbox("ccx-guard-eperm")) == 2
 
 
 @pytest.mark.parametrize(("name", "next_name"), [("alerts-watch", "alerts-watch-2"), ("incident-slack-watch-4", "incident-slack-watch-5")])

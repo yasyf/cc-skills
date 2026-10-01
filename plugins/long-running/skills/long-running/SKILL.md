@@ -1444,9 +1444,15 @@ never blocks it.
 **Liveness.** A lane is live only while it appears as a running teammate or subagent in
 the `Stop` payload's `background_tasks`. A subagent matches by id. Claude Code labels
 an in-process teammate by its prompt's first 50 characters plus `...`, not by the
-`description` in its meta, so a teammate matches on either one. Membership in a team config never counts, so a dead or stopped lane is never asked. A
-lane whose newest turn is more than an hour behind the root's is dormant: its cache is
-cold, it costs nothing until it wakes, and the hook skips it.
+`description` in its meta, so a teammate matches on either one. Many lanes share one
+label, so a label match only counts a running task and never names one.
+
+A teammate must also still be on its team's roster,
+`~/.claude/teams/<team>/config.json`; membership alone never counts. A live teammate
+always reads its inbox, so a lane whose transcript has not moved in the 10 minutes
+after an inbox ask is gone until it moves again. A lane whose newest turn is more than
+an hour behind the root's is dormant. Its cache is cold, it costs nothing until it
+wakes, and the hook skips it.
 
 **Delivery.** The hook asks the lane itself, appending the request to the lane's
 teammate inbox, `~/.claude/teams/<team>/inboxes/<name>.json`, in Claude Code's own
@@ -1483,7 +1489,10 @@ with two steps:
 1. Spawn `<lane>-N+1` from the old lane's brief plus its handoff of ledger rows,
    cc-notes, and cursor. `alerts-watch` becomes `alerts-watch-2`; `desk-3` becomes
    `desk-4`.
-2. Once the successor reports, `TaskStop` the old lane's task id named in the line.
+2. Once the successor reports, `TaskStop` the old lane by the id named in the line:
+   `<name>@<team>` for a teammate, which `TaskStop` resolves by name, or the agent id
+   for a subagent. Never pass a `t…` task id from the label match; it can belong to
+   any lane sharing that label.
 
 Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
 adding another. The root acts on it in the turn it arrives. This is the one case
@@ -1502,6 +1511,10 @@ release-v3 drive (2026-09-30).*
 
 *Prevents alerts-watch sitting over its line from 07:02Z until the owner ordered its
 rotation by hand (release-v3, 2026-10-01).*
+
+*Prevents a `ROOT-ACTION` for ccx-guard-eperm naming four different task ids
+across four firings, three of which stopped other lanes sharing its label
+(release-v3, 2026-10-01).*
 
 ## Anti-patterns seen
 
