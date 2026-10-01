@@ -5,8 +5,9 @@
     standing.py titles --program SLUG [--repo PATH]
     standing.py lint   (--doc ID | --file PATH) --program SLUG [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-STDLIB ONLY. A standing rule is one inbox line, ``R<n> (standing) <rule>``, carrying no other
-ruling; it is never done, and only a later line ``R<k> R<n> superseded by <id>`` ends it.
+STDLIB ONLY. A standing rule is one inbox line, ``R<n> (standing) <rule>`` or
+``R<n> (<who, when>, standing) <rule>``, carrying no other ruling; it is never done, and
+only a later line ``R<k> R<n> superseded by <id>`` ends it.
 ``inbox`` prints the live standing ids with their text and exits 3 on any line that breaks the
 convention. ``titles`` prints the program's ``scope:durable`` answers as ``- <id> <title>``, the
 verbatim body of a handoff's Standing owner rules section. ``lint`` exits 3 when a progress doc
@@ -26,7 +27,7 @@ from pathlib import Path
 
 ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
 STANDING_TAG = "(standing)"
-STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+\(standing\):?\s+\S")
+STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+\((?:[^()]*,\s*)?standing\):?\s+\S")
 SUPERSEDED = re.compile(rf"\b({ID}|[0-9a-f]{{7,40}})`?\s+(?:is\s+)?superseded by\s+`?({ID}|[0-9a-f]{{7,40}})\b")
 DONE = re.compile(rf"\b({ID})`?\s*(?:[:=—–-]\s*|is\s+)?(?:done|completed?|closed|finished|retired)\b", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)

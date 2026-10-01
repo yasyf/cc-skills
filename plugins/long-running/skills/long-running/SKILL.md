@@ -807,10 +807,15 @@ id list, `standing: R40, R312`, plus the plan's Decisions, never as a range like
 "L65–L107 are standing". `standing.py inbox <inbox file>` prints the live ids and
 every line that breaks this rule; the desk appends its output to every summary.
 
+A standing rule handed to a lane as a deliverable still gets its own `(standing)`
+line and its own `scope:durable` answer first. The lane's task cites that id, and
+completing the task never retires the rule.
+
 *Prevents the release-v3 "release everything as it merges" rule being lost three
 times on 2026-09-30 and 10-01: R312 shared a line with the one-off R311, the
 landing-desk-2 brief declared only "L65–L107 standing" and dropped L40, and R348
-marked "R312 done".*
+marked "R312 done" once deploy-experience's `tools/deploy --since` task built
+toward it.*
 
 ## The lane bus
 
@@ -882,6 +887,8 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
+Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
+  them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
   PR, stack on that PR instead of racing it. Never commit a generated output; the build
