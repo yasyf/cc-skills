@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from bootstrap.common import PLACEHOLDER
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUIDES_JSON = REPO_ROOT / "plugin" / "guides" / "json"
@@ -32,6 +33,16 @@ def test_json_fragment_has_no_hook_wiring(fragment: Path):
     data = json.loads(raw)  # every fragment must be valid JSON
     assert "hooks" not in data, f"{fragment.name} must not carry a hooks key"
     assert "capt-hook" not in raw, f"{fragment.name} must not reference capt-hook"
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    sorted(p for p in (REPO_ROOT / "plugin" / "guides").rglob("*") if p.is_file()),
+    ids=lambda p: str(p.relative_to(REPO_ROOT / "plugin" / "guides")),
+)
+def test_shared_fragment_has_no_placeholder_shaped_text(fragment: Path):
+    hits = [line for line in fragment.read_text().splitlines() if PLACEHOLDER.search(line)]
+    assert not hits, f"{fragment.name} renders placeholder-shaped text: {hits}"
 
 
 def test_mcp_fragments_are_exact():
