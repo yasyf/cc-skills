@@ -103,6 +103,15 @@ def test_reads_of_inbox_files_pass_and_repo_files_block(root: Root) -> None:
     assert "`cat` read" in (root.bash("cat src/app.py") or "")
     assert "`rg` search" in (root.bash("rg -n R57 scratch/inbox/orca-desk.md src") or "")
     assert root.bash("sed -i '' 's/a/b/' src/app.py") is None
+    assert "`grep` read" in (root.bash("grep -i from src/app.py") or "")
+    assert "`cat` read" in (root.bash("cat src/*.py") or "")
+
+
+@pytest.mark.parametrize("command", ["ccx vcs status | grep src", "ccx vcs status | jq .", "echo x | sed -n 1p"])
+def test_filters_over_piped_output_pass_even_when_the_pattern_names_a_path(root: Root, command: str) -> None:
+    root.file("src/app.py")
+
+    assert root.bash(command) is None
 
 
 def test_oversized_mcp_response_blocks_its_next_call(root: Root) -> None:
@@ -128,6 +137,7 @@ def test_unrecorded_standing_rule_nudges_at_stop(root: Root) -> None:
         ("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes"}),
         ("mcp__plugin_cc-notes_cc-notes__answer_edit", {"id": "4ffc9a5", "body": "yes"}),
         ("Bash", {"command": "ccn answer add 'Release as merged?' --body yes --label scope:durable"}),
+        ("Bash", {"command": "ccn -R ~/Code/monorepo answer edit 4ffc9a5 --body yes"}),
     ],
 )
 def test_recorded_standing_rule_is_quiet(root: Root, tool: str, tool_input: dict) -> None:
@@ -149,3 +159,11 @@ def test_non_owner_or_non_rule_prompts_are_quiet(root: Root, prompt: str) -> Non
     root.say(prompt)
 
     assert root.stop() == []
+
+
+def test_an_answer_from_an_interrupted_turn_does_not_cover_the_next_rule(root: Root) -> None:
+    root.say("from now on, release as merged")
+    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes"})
+    root.say("never skip review")
+
+    assert root.stop() == [f"{root_context.UNRECORDED} — never skip review"]

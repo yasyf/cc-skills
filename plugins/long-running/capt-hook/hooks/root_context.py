@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from collections.abc import Container, Iterator
 from pathlib import Path
 
 from captain_hook import (
@@ -20,7 +22,7 @@ from captain_hook import (
     on,
     workflow_state,
 )
-from captain_hook.cmd import Call
+from captain_hook.cmd import Call, Target
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, progress_folder
@@ -33,7 +35,7 @@ MCP_CHARS = 8000
 ARTIFACT_DIRS = "audits,briefs,handoffs,tool-results,subagents,transcripts"
 ARTIFACT_FILES = frozenset({"matrix.md"})
 READ_DEFAULT_LIMIT = 2000
-RAW_MARKER = re.compile(r"#\s*root:raw\b")
+RAW_MARKER = re.compile(r"#\s*root:raw\s*$")
 RAW_ESCAPE = "Bypass: append `# root:raw` to a Bash command."
 READ_ESCAPE = "Read a window with offset/limit instead, or bypass with a Bash read ending `# root:raw`."
 NO_ESCAPE = "No bypass for this tool."
@@ -47,6 +49,8 @@ SLACK_TRIAGE = "cc-slack:slack-triage"
 
 FILE_READERS = frozenset({"cat", "head", "tail", "sed", "awk", "grep", "egrep", "fgrep", "less", "more", "bat", "jq", "yq"})
 SEARCHERS = frozenset({"rg", "ag", "ack"})
+SCRIPT_FIRST = SEARCHERS | {"grep", "egrep", "fgrep", "sed", "awk", "jq", "yq"}
+SCRIPT_FLAGS = frozenset({"-e", "-f", "--regexp", "--file", "--expression"})
 GIT_READS = frozenset({"log", "show", "diff", "blame", "grep", "reflog"})
 GH_READS = {
     ("pr", "view"): PR_TRIAGE,
@@ -82,6 +86,7 @@ DOC_TOOLS = frozenset(
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 ANSWER_TOOLS = frozenset({"mcp__plugin_cc-notes_cc-notes__answer_add", "mcp__plugin_cc-notes_cc-notes__answer_edit"})
 CCN = frozenset({"ccn", "cc-notes"})
+ANSWER_VERBS = frozenset({("answer", "add"), ("answer", "edit")})
 STANDING = re.compile(r"\b(?:from now on|always|never|I told you|the plan is)\b", re.IGNORECASE)
 UNRECORDED = "owner standing rule not recorded: answer_add it (scope:durable) + a plan Decisions line"
 LONG = "line\n" * 400
@@ -126,13 +131,27 @@ def operands(call: Call) -> tuple[str, ...]:
     return tuple(target.value or "" for target in call.targets)
 
 
+def candidates(target: Target) -> Iterator[Path]:
+    if not target.has_glob:
+        yield from filter(None, [target.path])
+        return
+    yield from (target.cwd / match if target.cwd else Path(match) for match in target.expand())
+
+
 def paths(call: Call) -> list[Path]:
-    return [target.path for target in call.targets if target.path and target.path.exists()]
+    targets = list(call.targets)
+    if call.name in SCRIPT_FIRST and not any(flag.split("=")[0] in SCRIPT_FLAGS for flag in call.flags):
+        targets = targets[1:]
+    return [path for target in targets for path in candidates(target) if path.exists()]
+
+
+def pair_in(words: tuple[str, ...], pairs: Container[tuple[str, str]]) -> tuple[str, str] | None:
+    return next((pair for pair in zip(words, words[1:]) if pair in pairs), None)
 
 
 def read_verdict(call: ReadCall, plan: Path | None) -> Verdict | None:
     path = Path(call.file_path).expanduser()
-    if not path.is_file() or pinned(path, plan):
+    if not path.is_file() or not os.access(path, os.R_OK) or pinned(path, plan):
         return None
     if artifact(path) and "inbox" not in path.parts:
         return EXPLORE, f"reading lane artifact `{path.name}`", READ_ESCAPE
@@ -148,13 +167,13 @@ def bash_verdict(call: Call, plan: Path | None) -> Verdict | None:
         found = paths(call)
         if not found or not all(exempt(path, plan) for path in found):
             return EXPLORE, f"a `{call.name}` search", RAW_ESCAPE
-    elif call.name in FILE_READERS and "-i" not in call.flags:
+    elif call.name in FILE_READERS and not (call.name == "sed" and "-i" in call.flags):
         if not all(exempt(path, plan) for path in paths(call)):
             return EXPLORE, f"a `{call.name}` read of repo or lane files", RAW_ESCAPE
     elif call.name == "git" and words[:1] and words[0] in GIT_READS:
         return EXPLORE, f"`git {words[0]}`", RAW_ESCAPE
-    elif call.name == "gh" and (agent := GH_READS.get(words[:2])):
-        return agent, f"`gh {' '.join(words[:2])}`", RAW_ESCAPE
+    elif call.name == "gh" and (pair := pair_in(words, GH_READS)):
+        return GH_READS[pair], f"`gh {' '.join(pair)}`", RAW_ESCAPE
     elif call.name == "ccx" and words[:1] and (agent := CCX_READS.get(words[0])):
         return agent, f"`ccx {words[0]}`", RAW_ESCAPE
     elif call.name == "ccx" and words[:1] == ("vcs",) and (agent := CCX_VCS_READS.get(words[1] if len(words) > 1 else "")):
@@ -169,7 +188,7 @@ def tool_verdict(evt: BaseHookEvent, plan: Path | None) -> Verdict | None:
     if read := evt.as_input(ReadCall):
         return read_verdict(read, plan)
     if name == "Bash":
-        if RAW_MARKER.search(evt.command.raw):
+        if RAW_MARKER.search(evt.command.raw.rstrip()):
             return None
         return next((verdict for call in evt.command.calls() if (verdict := bash_verdict(call, plan))), None)
     if grep := evt.as_input(GrepCall):
@@ -204,6 +223,9 @@ def delegate(verdict: Verdict) -> str:
         Input(command="ccx vcs diff", state=ACTIVE): Block(pattern=r"`ccx vcs diff`"),
         Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE): Block(pattern=r"cc-slack:slack-triage"),
         Input(command="rg -n LAUNCH plugins # root:raw", state=ACTIVE): Allow(),
+        Input(command="rg -n '# root:raw' plugins", state=ACTIVE): Block(),
+        Input(command="gh -R yasyf/cc-skills pr view 148", state=ACTIVE): Block(pattern=r"`gh pr view`"),
+        Input(command="ccx vcs status | jq .", state=ACTIVE): Allow(),
         Input(command="ccx vcs status", state=ACTIVE): Allow(),
         Input(command="ccx vcs pr status 28797 28756", state=ACTIVE): Allow(),
         Input(command="date -u +%H:%MZ && ls ~/scratch", state=ACTIVE): Allow(),
@@ -281,7 +303,7 @@ def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
 def records_answer(evt: BaseHookEvent) -> bool:
     if evt.tool_name in ANSWER_TOOLS:
         return True
-    return any(call.name in CCN and operands(call)[:2] in (("answer", "add"), ("answer", "edit")) for call in evt.command.calls())
+    return any(call.name in CCN and pair_in(operands(call), ANSWER_VERBS) for call in evt.command.calls())
 
 
 def standing_rule(prompt: str) -> bool:
@@ -304,7 +326,7 @@ def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> HookResult | None:
     if evt.event == Event.UserPromptSubmit:
         if standing_rule(prompt := evt.user_prompt or ""):
             with RootContextState.mutate(evt) as state:
-                state.standing = excerpt(prompt)
+                state.standing, state.recorded = excerpt(prompt), False
     elif evt.event == Event.PostToolUse:
         if records_answer(evt):
             with RootContextState.mutate(evt) as state:
