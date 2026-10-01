@@ -27,8 +27,12 @@ incident.py run --incident <id>
 Start `run` as a background command. It exits only when the final reply posts or
 another owner takes the incident.
 
-- Each grant is the owner's authority for one kind of side effect. `thread` and
-  `channel` are cc-slack grant ids the comms lane passes as `--grant <id>`. `sync`
+- Each grant is the owner's authority for one kind of side effect. The root
+  records the two Slack grants from the owner's words, and the comms lane passes
+  each id as `--grant <id>`. `thread` comes from `cc-slack grant --url <permalink>
+  --quote "<owner's words>"` and covers replies in that thread. `channel` comes
+  from `cc-slack grant --channel <channel id> --quote "<owner's words>"` and covers
+  top-level posts in that one channel, never a reply, broadcast, or edit. `sync`
   and `rebuild` cite the owner's words or the standing rule that authorizes the
   pipeline sync and the re-kick. A missing grant pauses only the step that needs it.
   The executor asks the root once, and `incident.py grant` lets the next pass
@@ -103,8 +107,10 @@ The executor posts each event to it as a bus `ask` from
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
 the copy through astra and posts it with
-`cc-slack reply --url <thread> --grant <grant> --text <copy>`, or as a channel post
-for the `channel` surface. It then answers the entry:
+`cc-slack reply --url <thread> --grant <grant> --text <copy>`. For the `channel`
+surface it posts with `cc-slack send --channel <channel id> --grant <grant> --text
+<copy>`. Consecutive replies under one thread grant need no human message between
+them. It then answers the entry:
 
 ```sh
 bus.py post --bus <bus id> --from <comms lane name> --kind answer --re <seq> --text "posted ts=<ts>"
