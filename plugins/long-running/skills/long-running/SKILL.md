@@ -1489,10 +1489,14 @@ If a lane has not replied `flushed <ids>` within 10 minutes of its first ask and
 still live, awake, and over its line, every later main-session `Stop` queues a
 ``ROOT-ACTION `<lane>`: rotate it by hand now.`` line. It names the lane's tokens
 against its line, transcript size, running time, ask count, and first-ask time,
-with two steps:
+with three steps:
 
-1. Spawn `<lane>-N+1` from the old lane's brief plus its handoff of ledger rows,
-   cc-notes, and cursor. `alerts-watch` becomes `alerts-watch-2`; `desk-3` becomes
+0. Spawn `<lane>-handoff` as a subagent from
+   [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
+   `<drive scratch>/handoffs/<lane>.md`. It returns the path, plus at most three
+   lines on what it could not reconstruct.
+1. Spawn `<lane>-N+1` from the old lane's brief plus that handoff file and the
+   cursor it names. `alerts-watch` becomes `alerts-watch-2`; `desk-3` becomes
    `desk-4`.
 2. Once the successor reports, `TaskStop` the old lane by the id named in the line:
    `<name>@<team>` for a teammate, which `TaskStop` resolves by name, or the agent id
@@ -1503,6 +1507,12 @@ Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
 adding another. The root acts on it in the turn it arrives. This is the one case
 where the root stops a lane, and it stops it only after the successor has reported.
 A `flushed <ids>` reply cancels the rotation.
+
+The same swap applies to a lane that died or outgrew its line before any ask. The
+root never reconstructs a handoff inline. It never opens a lane's transcript, its
+receipts, its cursor files, or a runtime listing such as `orca orchestration
+task-list` for a rotation. The handoff subagent reads all of them in its own
+context; the root holds only the path it returns.
 
 The session's hook state directory holds `rotation_state.json` with a `timeline`
 list. It records one entry per `ask`, `flushed`, `compacted`, or `gone` event. An
@@ -1520,6 +1530,10 @@ rotation by hand (release-v3, 2026-10-01).*
 *Prevents a `ROOT-ACTION` for ccx-guard-eperm naming four different task ids
 across four firings, three of which stopped other lanes sharing its label
 (release-v3, 2026-10-01).*
+
+*Prevents the root rebuilding orca-desk's handoff inline, in about 15 tool calls
+over its 44 MB transcript, spawn brief, cursor files, receipts, and Orca task list,
+until the owner said it was polluting its context (release-v3, 2026-10-01).*
 
 ## Anti-patterns seen
 
@@ -1617,6 +1631,7 @@ across four firings, three of which stopped other lanes sharing its label
 15. Is a production alert active? This turn, (a) fix lane with apply authority, (b) evidence lane feeding it by name, (c) target fence, both launches and fence in one inbox line using `orca-desk: launch <name> NOW`, (d) one-line owner reports at spawn, mechanism, and fix-live; no verdict gate. Check each lane every 10 minutes; at 15 without a mechanism, add a different-model lane (Opus 5.5 after sol) and keep the first running.
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
+18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 
-Apply D3 to priority PRs before delegating. A call that survives all seventeen decides
+Apply D3 to priority PRs before delegating. A call that survives all eighteen decides
 something no lane can decide for you; everything else is a lane.

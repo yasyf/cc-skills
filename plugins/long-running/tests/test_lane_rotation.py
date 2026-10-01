@@ -248,7 +248,13 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
     [line] = pending(evt)
     assert line.startswith("ROOT-ACTION `alerts-watch`: rotate it by hand now. It holds 512,340 tokens against its 396,900 line ")
     assert "running 5h22m) and has not replied `flushed` to 1 ROTATE ask(s) since 21:35Z." in line
-    assert "1. Spawn `alerts-watch-2` from `alerts-watch`'s brief" in line
+    assert (
+        f"0. Spawn `alerts-watch-handoff` as a subagent from {lane_rotation.HANDOFF_BRIEF} to write "
+        "`<drive scratch>/handoffs/alerts-watch.md`; it returns the path only. "
+        "Never open `alerts-watch`'s transcript, receipts, or runtime listings yourself. "
+        "1. Spawn `alerts-watch-2` from `alerts-watch`'s brief plus that handoff file and its cursor. "
+    ) in line
+    assert lane_rotation.HANDOFF_BRIEF.is_file()
     assert "2. Once `alerts-watch-2` reports, TaskStop `alerts-watch@session-rot` to stop `alerts-watch`." in line
     assert timeline(evt)[-1] | {"agent_id": None} == {
         "at": "2026-09-25T21:45:00Z",

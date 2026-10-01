@@ -34,6 +34,7 @@ ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
 ROOT_ACTION = "ROOT-ACTION"
+HANDOFF_BRIEF = Path(__file__).parents[2] / "skills" / "long-running" / "reference" / "handoff-subagent-brief.md"
 DORMANT = timedelta(hours=1)
 PACE_SECONDS = 15 * 60
 PACE_LIMIT = 3
@@ -234,7 +235,10 @@ def escalation(lane: Lane, state: RotationState, now: float) -> str:
         f"rotate it by hand now. It holds {lane.turn.tokens:,} tokens against its {lane.line:,} line "
         f"(transcript {megabytes:.1f} MB, running {span(now - lane.spawned.timestamp())}) and has not replied "
         f"`flushed` to {len(asks)} ROTATE ask(s) since {since}. "
-        f"1. Spawn `{successor(lane.name)}` from `{lane.name}`'s brief plus its handoff (ledger rows, cc-notes, cursor). "
+        f"0. Spawn `{lane.name}-handoff` as a subagent from {HANDOFF_BRIEF} to write "
+        f"`<drive scratch>/handoffs/{lane.name}.md`; it returns the path only. "
+        f"Never open `{lane.name}`'s transcript, receipts, or runtime listings yourself. "
+        f"1. Spawn `{successor(lane.name)}` from `{lane.name}`'s brief plus that handoff file and its cursor. "
         f"2. Once `{successor(lane.name)}` reports, TaskStop `{lane.stop_id}` to stop `{lane.name}`. "
         f"A `flushed <ids>` reply from `{lane.name}` cancels this."
     )
