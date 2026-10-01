@@ -67,8 +67,8 @@ Do, in this order, every iteration:
      Never make one REST status call per PR. Check landed claims against the
      `(#N)` squash on the freshly fetched base branch under R7.
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
-     - Enqueue each ready, unqueued stack at once, whole. Lanes also
-       self-enqueue under D1; never a stack holding a held PR or any PR of a held lane.
+     - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes also
+       self-enqueue under D1; never above a held PR or any PR of a held lane.
        They report `held` on the tip, name the held PR, and leave release to the root.
        Before every enqueue, re-read the root's holds file. Each line names held
        PRs as #<n> and whole lanes as lane:<name>, then the reason. Build a fresh
@@ -78,20 +78,19 @@ Do, in this order, every iteration:
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
        the reasons, and expiries under D6; lift holds when the root removes them.
        Where the checkout carries an enqueue script, call it directly: one
-       `stack-enqueue --hold <held file> <stack top>` per stack in one Bash call,
+       `stack-enqueue --hold <held file> <prefix top>` per prefix in one Bash call,
        each backgrounded with `&`, then `wait` and collect each output. Report
        each enqueue with `ledger.py report`; refresh records it as labelled
        outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
-       --pr <stack top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
+       --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
        are the guard. A `held` refusal is not a red and is not routed; it waits
        for the root. Never enqueue one stack per iteration, and never hold a ready
        stack for another stack's landing under D19. `label --all-clean` grades
        stacks in one sequential call and is the fallback only where the repo has
        no enqueue script.
-       A green bottom under an open top waits for its top. Route the slow top to its
-       owning lane to make it green or restack it onto another base; Orca routes go
-       to inbox/orca-desk.md. Never label around `stack-enqueue`'s refusal.
+       Never wait for the PRs above the prefix. After it lands, route a restack of
+       the first PR above it to its owning lane; Orca routes go to inbox/orca-desk.md.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
        fixes the blocker, and re-enqueues when the gates and holds file permit.
        Relaunch a dead lane in this iteration.

@@ -444,15 +444,15 @@ def stack(forge, **kwargs):
         forge.pull(i, sha, base=f"pr{i - 1}" if i > 1 else "dev", state="blocked" if i > 1 else "clean", **kwargs.get(str(i), {}))
 
 
-def test_a_green_bottom_waits_for_the_top_above_it(forge):
+def test_the_green_bottom_prefix_of_a_stack_goes_in_while_the_top_waits(forge):
     stack(forge, **{"3": {"approvers": "poetic-svc"}})
 
     assert forge.run("once", "1") == [
-        f"1 NOT-READY {forge.stacked[0][:10]} upstack #3",
-        f"2 NOT-READY {forge.stacked[1][:10]} upstack #3",
-        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
+        "1 SKIP covered-by #2",
+        f"2 ENQUEUED {forge.stacked[1][:10]} prefix",
+        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot] restack-after #2",
     ]
-    assert forge.enqueues == []
+    assert forge.enqueues == [[1, 2]]
 
 
 def test_a_listed_mid_stack_pr_enqueues_the_whole_stack_when_it_is_green(forge):
@@ -510,6 +510,18 @@ def test_a_queued_downstack_pr_holds_the_stack_above_it(forge):
     assert forge.enqueues == []
 
 
+def test_dry_run_marks_a_prefix_enqueue(forge):
+    stack(forge, **{"2": {"statuses": [("buildkite/test", "failure")]}})
+    forge.env["LABEL_WATCH_DRY_RUN"] = "1"
+
+    assert forge.run("once", "3") == [
+        f"1 ENQUEUED {forge.stacked[0][:10]} prefix dry-run",
+        f"2 NOT-READY {forge.stacked[1][:10]} red buildkite/test restack-after #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #2 restack-after #1",
+    ]
+    assert forge.enqueues == []
+
+
 def test_dry_run_prints_the_enqueue_without_making_it(forge):
     stack(forge)
     forge.env["LABEL_WATCH_DRY_RUN"] = "1"
@@ -530,25 +542,25 @@ def test_watch_keeps_the_rest_of_the_stack_on_the_list(forge):
     lines = [line.split(" ", 1)[1] for line in forge.run("watch", str(list_file))]
 
     assert lines == [
-        f"1 NOT-READY {forge.stacked[0][:10]} upstack #3",
-        f"2 NOT-READY {forge.stacked[1][:10]} upstack #3",
-        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot]",
+        "1 SKIP covered-by #2",
+        f"2 ENQUEUED {forge.stacked[1][:10]} prefix",
+        f"3 NOT-READY {forge.stacked[2][:10]} awaiting forge-pr-reviewer[bot] restack-after #2",
     ]
-    assert (forge.state / "list.1").read_text() == "1\n2\n3\n"
+    assert (forge.state / "list.1").read_text() == "3\n"
 
 
-def test_a_held_pr_keeps_the_stack_below_it_out_of_the_queue(forge):
+def test_a_held_pr_ends_the_prefix_below_it(forge):
     stack(forge)
     hold = forge.state / "hold"
     hold.write_text("2\n")
     forge.env["LABEL_WATCH_HOLD"] = str(hold)
 
     assert forge.run("once", "1") == [
-        f"1 NOT-READY {forge.stacked[0][:10]} upstack #2",
-        f"2 NOT-READY {forge.stacked[1][:10]} held",
-        f"3 NOT-READY {forge.stacked[2][:10]} downstack #2",
+        f"1 ENQUEUED {forge.stacked[0][:10]} prefix",
+        f"2 NOT-READY {forge.stacked[1][:10]} held restack-after #1",
+        f"3 NOT-READY {forge.stacked[2][:10]} downstack #2 restack-after #1",
     ]
-    assert forge.enqueues == []
+    assert forge.enqueues == [[1]]
     assert not any(call.startswith(("GET repos/o/r/pulls/2", "GET repos/o/r/pulls/3/")) for call in forge.calls)
 
 
