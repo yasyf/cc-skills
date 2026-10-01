@@ -90,8 +90,9 @@ At spawn:
   - Arm `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
     under Monitor at its maximum timeout (at most 30 minutes); re-arm on every expiry.
     Pass each priority PR the root names with `--priority`. Send every `P0 #n ...`
-    line to the root the moment it prints. The watch is the detector; the 3-minute
-    pass (refresh, landed, route, label) is reconciliation.
+    line to the root the moment it prints. A `REPORT msg/<n> ...` line is a lane's
+    own `ledger.py report`: run step 1 on it at once. The watch is the detector; the
+    3-minute pass (inbox, refresh, landed, route, label) is reconciliation.
   - Stagger desks and shards by a minute at :00, :01, and :02. Each pass reads every
     PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build
     list. Never make one REST status call per PR.
@@ -111,15 +112,20 @@ Do, in this order, forever:
      the mirrored ledger can lag the holds file.
      Never edit the holds file. Forward a priority desk's lane traffic to its inbox
      and stop handling those lanes.
-  1. Inbox. Each inbound message is typed in as it arrives: a 3-line report as
+  1. Inbox. Lanes and Orca workers write their own reports into the ledger with
+     `ledger.py report`; none reaches you as a message. Run
+     `ledger.py inbox --ledger <id> --take` every iteration, right after step 0,
+     and act on every line it prints. A message that does arrive is typed in first:
+     a 3-line report as
      `ledger.py report`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
      `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`,
      with opened PRs recorded by the hook and hand registration as the fallback;
      a question as `ledger.py ruling`, an idle notice as
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
-     duplicates; you answer none of them. `ledger.py inbox --take` is your work
-     list, P0 first, then rulings, reports, idles. After typing in a `clean` report,
+     duplicates; you answer none of them. The inbox lists P0 first, then rulings,
+     reports, idles, and takes without listing any report a newer one on the same PR
+     or the PR's landing made moot. On every `clean` report, including READY,
      enqueue its stack's largest ready, unheld, unqueued bottom prefix in the same
      turn through step 3's path. Start all such prefixes together.
      Use the prefix top as the tip. Never defer a clean

@@ -674,10 +674,25 @@ def enqueue(notes: Notes, fields: dict[str, str]) -> str:
     notes.set_fields(key, dict(fields, at=utc_stamp(), state="pending"))
     if fields["kind"] == "report":
         for earlier, existing in messages.items():
-            if existing["state"] == "pending" and same_report(existing, fields):
+            if existing["state"] == "pending" and (existing.get("kind"), existing.get("pr")) == ("report", fields["pr"]):
                 notes.set_fields(earlier, {"state": "acked", "acked_at": utc_stamp(), "superseded_by": key})
     print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
     return key
+
+
+def moot_reports(messages: dict[str, dict[str, str]], rows: dict[str, dict[str, str]]) -> frozenset[str]:
+    latest: dict[str, str] = {}
+    moot: set[str] = set()
+    for key, fields in sorted(messages.items()):
+        if fields["kind"] != "report" or fields["state"] != "pending":
+            continue
+        if rows.get(fields["pr"], {}).get("state") in TERMINAL_STATES:
+            moot.add(key)
+            continue
+        if fields["pr"] in latest:
+            moot.add(latest[fields["pr"]])
+        latest[fields["pr"]] = key
+    return frozenset(moot)
 
 
 def message_line(key: str, fields: dict[str, str]) -> str:
@@ -971,7 +986,10 @@ def cmd_ruling(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_inbox(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger)
-    messages = sorted(((key, fields) for key, fields in sharded(notes.messages(), args.shard).items() if args.all or fields["state"] == "pending"), key=priority)
+    rows = notes.rows()
+    inbox = sharded({key: fields for key, fields in rows.items() if key.startswith(MESSAGE_PREFIX)}, args.shard)
+    moot = frozenset() if args.all else moot_reports(inbox, rows)
+    messages = sorted(((key, fields) for key, fields in inbox.items() if key not in moot and (args.all or fields["state"] == "pending")), key=priority)
     if args.json:
         print(json.dumps([dict(fields, key=key) for key, fields in messages]))
     else:
@@ -979,6 +997,8 @@ def cmd_inbox(args: argparse.Namespace, shell: Shell) -> int:
             print(ruling_line(fields) if fields["kind"] == "ruling" else message_line(key, fields))
     if args.take:
         taken = utc_stamp()
+        for key in sorted(moot):
+            notes.set_fields(key, {"state": "acked", "acked_at": taken, "moot": "true"})
         for key, fields in messages:
             if fields["state"] == "pending":
                 notes.set_fields(key, {"state": "acked", "acked_at": taken})
@@ -1503,8 +1523,19 @@ def is_watch_p0(event: dict, fields: dict[str, str], priority: frozenset[str]) -
     return event["event"] in WATCH_P0_EVENTS and (str(event["pr"]) in priority or carries_label(fields) or fields.get("watch_queued") == "true")
 
 
+def announce_reports(notes: Notes, rows: dict[str, dict[str, str]], shard: frozenset[str] | None) -> None:
+    inbox = sharded({key: fields for key, fields in rows.items() if key.startswith(MESSAGE_PREFIX)}, shard)
+    moot = moot_reports(inbox, rows)
+    for key, fields in sorted(inbox.items()):
+        if fields["kind"] == "report" and fields["state"] == "pending" and key not in moot and not fields.get("announced_at"):
+            print(f"REPORT {message_line(key, fields)}", flush=True)
+            notes.set_fields(key, {"announced_at": utc_stamp()})
+
+
 def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str], shard: frozenset[str] | None) -> None:
-    rows = sharded(notes.pr_rows(), shard)
+    ledger_rows = notes.rows()
+    announce_reports(notes, ledger_rows, shard)
+    rows = sharded({key: fields for key, fields in ledger_rows.items() if key.isdigit()}, shard)
     watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
     if not watched:
         return

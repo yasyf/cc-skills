@@ -96,6 +96,18 @@ def test_each_pass_rereads_the_rows_so_new_prs_join_and_settled_ones_leave(tmp_p
     assert {"--once", "--json"} <= set(first)
 
 
+def test_a_report_a_lane_wrote_itself_wakes_the_desk_once(capsys, tmp_path):
+    shell = row_shell()
+    report = {"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY", "state": "pending"}
+    shell.stores[LEDGER]["rows"].append({"key": "msg/000007", "fields": report})
+
+    watch(shell, tmp_path)
+    watch(shell, tmp_path)
+
+    assert capsys.readouterr().out.splitlines() == [f"REPORT msg/000007 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
+    assert shell.fields("msg/000007")["state"] == "pending"
+
+
 def arm(tmp_path, *prs: str) -> None:
     (tmp_path / "watch.json").write_text(json.dumps({"prs": {pr: {"state": "OPEN"} for pr in prs}}))
 

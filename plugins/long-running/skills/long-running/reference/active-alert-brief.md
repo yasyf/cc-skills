@@ -77,6 +77,8 @@ Do:
      Redirect with the evidence, including to a monitor fix for a monitor defect.
      A muted monitor still gets fixed; use the mute window.
   3. Open the PR through <submit skill>; plan through <break-glass skill>.
+     On open, every push, and READY, record it for the landing desk:
+     `ledger.py report --ledger <ledger id> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   4. Report the plan counts, apply under the authority above, and log the apply
      in <runbook>. Verify the fix is live against the alert's metric.
 
