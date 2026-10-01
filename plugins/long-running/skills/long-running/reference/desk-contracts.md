@@ -104,7 +104,10 @@ question on the same PR are one ruling.
 ## Reconcile before reporting, over every row
 
 `ledger.py reconcile --repo --ledger --checkout` settles **every non-terminal row** against the
-trunk and the forge, and `ledger.py summary` requires `--repo` and `--checkout` and
+trunk and the forge in one batch: one trunk fetch, one `git log` read that lands every row a
+squash subject ending `(#n)` names, and one `ccx vcs pr state` read over the rest, with
+per-PR forge calls only for a closed row no squash names. `--dry-run` prints the changes
+and writes nothing. `ledger.py summary` requires `--repo` and `--checkout` and
 runs it first. A row nobody has touched for an hour is exactly the one that has gone stale, so the
 sweep's input is the whole board rather than the rows the desk just changed.
 

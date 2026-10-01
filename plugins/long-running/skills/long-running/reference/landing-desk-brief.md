@@ -130,8 +130,9 @@ Do, in this order, forever:
      This pass no longer has to catch ejections; the watch forwards them immediately.
      `ledger.py refresh` over the rows the ledger already holds and every open PR
      on a registered lane's branches, then
-     `ledger.py landed --checkout <path>` to settle closed rows by the squash on the
-     trunk, never the PR's own base, which the queue deletes when a stack lands; a row
+     `ledger.py reconcile --checkout <path>` to land every row whose squash is on the
+     trunk and settle the closed rest, in one trunk fetch, one log read, and one ccx
+     cache read; it never fetches the PR's own base, which the queue deletes when a stack lands; a row
      the forge cannot answer records `settle_error` and the pass settles the rest. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Refresh makes one `ccx vcs pr state --repo <repo> <PR numbers>`
      call with every tracked or explicitly supplied PR number and one

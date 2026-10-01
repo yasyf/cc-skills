@@ -316,7 +316,9 @@ It receives P0 lines immediately and a summary every 30 minutes.
 which polls each repository at most once every 30 seconds. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
 and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
-asks are `ask/<seq>` rows beside the PR rows.
+asks are `ask/<seq>` rows beside the PR rows. cc-notes finds the ledger through the
+working directory's repository, so a lane outside that checkout passes
+`ledger.py -C <checkout> <verb>`.
 
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
 a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
@@ -363,9 +365,9 @@ For priority PRs, the root reads their gates itself in one batched `ccx vcs pr s
 
 *Prevents a green tip enqueueing a red parent, an ejected head entering the queue again unchanged, and a green priority PR waiting for the owner to queue it by hand.*
 
-**D4. Landed means the squash is on the base branch.** `ledger.py landed` fetches the
-trunk (the repo's default branch) and settles a closed row by tree equality, then
-`git log` for a subject ending `(#n)`. The queue deletes a stacked PR's base when
+**D4. Landed means the squash is on the base branch.** `ledger.py reconcile` fetches the
+trunk (the repo's default branch) once, lands every row a squash subject ending `(#n)`
+names, and settles each closed row left by tree equality. The queue deletes a stacked PR's base when
 the stack lands, so the tool never fetches that base. It never settles a row by
 the PR's `merged` field, which a squash-merging queue leaves false on every PR it lands.
 A closed row with neither match becomes `closed-without-squash`, a name that cannot be read
@@ -1030,7 +1032,7 @@ ledger.py register --ledger "$LEDGER" --lane lightning-eh --branch-prefix lightn
 
 # every 3 minutes, staggered :00/:01/:02: reconcile every tracked current head
 ledger.py refresh --repo "$REPO" --ledger "$LEDGER"
-ledger.py landed  --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
+ledger.py reconcile --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
 ledger.py route   --repo "$REPO" --ledger "$LEDGER"
 for TIP in "<tip-a>" "<tip-b>"; do
   (

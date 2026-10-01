@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The landing desk's ledger over cc-notes — one row per PR our lanes shipped.
 
+    ledger.py [-C DIR] VERB ...
     ledger.py init    --title TEXT
     ledger.py ask     --ledger ID --text VERBATIM --lane NAME --accept CHECK
     ledger.py drop    --ledger ID --ask ID --reason ...
@@ -20,6 +21,7 @@
     ledger.py label   --repo owner/name --ledger ID (--pr TIP [--expect-head SHA] | --all-clean) [--checkout DIR] [--dry-run] [--shard LANES]
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N] [--shard LANES]
+    ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
     ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
@@ -32,9 +34,9 @@ branch under a lane's registered prefix, or because refresh was handed its numbe
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
-lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by the
-base branch's tree in ``--checkout`` holding the PR's own files, never by the PR's
-merged field and never by searching the base log for its number. Buildkite
+lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by a
+trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
+the PR's own files, never by the PR's merged field. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
 
@@ -116,6 +118,8 @@ UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
 QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
+SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
+SQUASH_DEPTH = 3000
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
@@ -1561,12 +1565,55 @@ def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
         time.sleep(args.interval)
 
 
+def trunk_squashes(shell: Shell, checkout: Path, trunk: str) -> dict[str, tuple[str, str]]:
+    """Every squash in the trunk's recent history, keyed by the PR number its subject ends with."""
+    log = shell.run(["git", "-C", str(checkout), "log", f"refs/desk/base/{trunk}", f"-{SQUASH_DEPTH}", "--format=%H %cI %s"])
+    squashes: dict[str, tuple[str, str]] = {}
+    for line in log.splitlines():
+        sha, committed, subject = line.split(" ", 2)
+        if match := SQUASH_SUBJECT.search(subject):
+            squashes.setdefault(match[1], (sha, stamp(parse_iso(committed).astimezone(timezone.utc))))
+    return squashes
+
+
 def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
+    """Settle the whole board in one trunk fetch, one log read, and one ccx cache read.
+
+    A squash subject ending ``(#n)`` lands its row outright. Only a row with no squash
+    whose PR the cache reads closed costs per-PR forge calls, through ``settle``, because
+    a payload a stacked child carried shows up in the tree under no number of its own.
+    """
     notes = Notes(shell, args.ledger)
+    gh = Github(shell, args.repo)
     rows = sharded(notes.pr_rows(), args.shard)
-    open_rows = [pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES]
-    moved = settle(shell, Github(shell, args.repo), notes, args.checkout, sorted(open_rows, key=int))
-    print(f"reconciled {len(open_rows)} non-terminal rows, {moved} moved")
+    pending = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
+    if not pending:
+        print("reconciled 0 non-terminal rows")
+        return 0
+    trunk = gh.default_branch()
+    if is_shallow(shell, args.checkout):
+        raise ForgeUnreachable(REFUSAL["shallow"].format(checkout=args.checkout))
+    fetch(shell, args.checkout, f"+refs/heads/{trunk}:refs/desk/base/{trunk}")
+    squashes = trunk_squashes(shell, args.checkout, trunk)
+    landed = [pr for pr in pending if pr in squashes]
+    unsquashed = [pr for pr in pending if pr not in squashes]
+    try:
+        records = pr_state(shell, args.ccx, args.repo, unsquashed, [])["prs"]
+    except subprocess.CalledProcessError as failure:
+        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+    closed = [pr for pr in unsquashed if records[pr]["state"] != "OPEN"]
+    verb = "would land" if args.dry_run else "landed"
+    for pr in landed:
+        sha, landed_at = squashes[pr]
+        if not args.dry_run:
+            notes.set_fields(pr, {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, "settle_error": "", "settle_failed_at": ""})
+        print(f"{verb} #{pr} as {sha[:9]} on {trunk} at {landed_at}")
+    if args.dry_run:
+        print("".join(f"would settle closed #{pr} with no squash on {trunk}\n" for pr in closed), end="")
+        settled = 0
+    else:
+        settled = settle(shell, gh, notes, args.checkout, closed)
+    print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {len(unsquashed) - len(closed)} open")
     return 0
 
 
@@ -1641,6 +1688,7 @@ def add_shard(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ledger.py", description=__doc__.splitlines()[0])
+    parser.add_argument("-C", dest="directory", type=Path, help="run as if started in this directory, which ccn reads the ledger's repository from")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="create the ledger and print its id")
@@ -1807,9 +1855,11 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--ccx", default="ccx", help="the ccx binary")
     watch.set_defaults(handler=cmd_watch)
 
-    reconcile = subparsers.add_parser("reconcile", help="settle every non-terminal row against the trunk and the forge")
+    reconcile = subparsers.add_parser("reconcile", help="land every non-terminal row whose squash is on the trunk, and settle the closed rest, in one batch")
     add_ledger(reconcile, repo=True)
-    reconcile.add_argument("--checkout", type=Path, required=True)
+    reconcile.add_argument("--checkout", type=Path, default=Path("."), help="a full clone of the repo (default: the working directory)")
+    reconcile.add_argument("--dry-run", action="store_true", help="print what would change and write nothing")
+    reconcile.add_argument("--ccx", default="ccx", help="the ccx binary")
     add_shard(reconcile)
     reconcile.set_defaults(handler=cmd_reconcile)
 
@@ -1819,8 +1869,9 @@ def build_parser() -> argparse.ArgumentParser:
     summary.add_argument("--checkout", type=Path, required=True)
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
     summary.add_argument("--stale-minutes", type=int, default=STALE_MINUTES)
+    summary.add_argument("--ccx", default="ccx", help="the ccx binary")
     add_shard(summary)
-    summary.set_defaults(handler=cmd_summary)
+    summary.set_defaults(handler=cmd_summary, dry_run=False)
 
     stale = subparsers.add_parser("stale", help="every open row reported clean at least --minutes ago, with its blocker")
     add_ledger(stale)
@@ -1849,6 +1900,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.directory:
+        os.chdir(args.directory)
     try:
         return args.handler(args, shell or Shell())
     except ForgeUnreachable as unreachable:

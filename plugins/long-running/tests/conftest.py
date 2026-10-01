@@ -45,6 +45,7 @@ class FakeShell(ledger.Shell):
         self.fetch_fails = ""
         self.deleted_refs: set[str] = set()
         self.base_squash = ""
+        self.trunk_log: list[str] = []
         self.children: dict[str, list[dict]] = {}
         self.trunk = "dev"
         self.ejected: dict[str, tuple[str, str]] = {}
@@ -171,14 +172,14 @@ class FakeShell(ledger.Shell):
         return {
             "number": int(number),
             "state": pull["state"].upper(),
-            "title": pull["title"],
-            "author": pull["user"]["login"],
-            "createdAt": pull["created_at"],
+            "title": pull.get("title", ""),
+            "author": pull.get("user", {}).get("login", ""),
+            "createdAt": pull.get("created_at", ""),
             "baseRefName": pull["base"]["ref"],
             "headRefName": pull["head"]["ref"],
             "headRefOid": head,
-            "mergeStateStatus": pull["mergeable_state"].upper(),
-            "changedFiles": pull["changed_files"],
+            "mergeStateStatus": pull.get("mergeable_state", "unknown").upper(),
+            "changedFiles": pull.get("changed_files", 0),
             "labels": [label["name"] for label in read(f"issues/{number}/labels")],
             "status": read(f"commits/{head}/status")["state"].upper(),
             "rollup": {
@@ -264,6 +265,9 @@ class FakeShell(ledger.Shell):
             if right in self.delivered:
                 return ""
             return "".join(f"1\t0\t{path}\n" for path in argv[argv.index("--") + 1 :])
+        if verb == "log" and argv[-1] == "--format=%H %cI %s":
+            assert self._resolve(argv[4]) == "base-tip", f"read squashes from {argv[4]}"
+            return "".join(f"{line}\n" for line in self.trunk_log)
         if verb == "log" and "--grep" in " ".join(argv):
             return self.base_squash + ("\n" if self.base_squash else "")
         if verb == "log" and argv[5] == "-1":

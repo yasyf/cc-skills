@@ -541,7 +541,7 @@ def test_reconcile_settles_a_row_nobody_touched(capsys, tmp_path):
 
     assert shell.fields(PR)["state"] == "landed"
     assert shell.fields(PR)["landed_sha"] == SQUASH
-    assert "reconciled 1 non-terminal rows, 1 moved" in capsys.readouterr().out
+    assert "reconciled 1 non-terminal rows: 0 landed by squash, 1 of 1 closed settled, 0 open" in capsys.readouterr().out
 
 
 def test_reconcile_rereads_no_terminal_row(tmp_path):
@@ -692,16 +692,90 @@ def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(ca
     assert shell.fields(PR).get("state") is None
 
 
-def test_reconcile_reports_a_queue_ejection_on_a_row_that_still_reads_open(capsys, tmp_path):
-    """An ejection and a landing both end with the queue's bot removing the label."""
-    shell = desk_shell()
-    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
-    shell.ejected[PR] = ("2026-09-17T02:04:29Z", "2026-09-17T02:09:24Z")
+def reconcile_shell() -> FakeShell:
+    """A drive ledger whose rows drifted: two squashed on dev but read open or blank, one closed unsquashed, one still open."""
+    shell = FakeShell(rows=json.loads((FIXTURES / "ledger-reconcile.json").read_text()))
+    shell.trunk_log = [
+        f"{SQUASH} 2026-10-01T05:10:00+00:00 b2: 🚚 move the data stacks (#28100)",
+        "0c9e7654c0000000000000000000000000000000 2026-10-01T04:00:00+00:00 escape-hatch: ✨ orca vm bootstrap (#28230)",
+        "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a 2026-10-01T03:00:00+00:00 Revert \"c2: 🔥 cleanup (#28302)\" (#28999)",
+        "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b 2026-10-01T02:00:00+00:00 docs: mention #28349 in passing",
+    ]
+    for pr, state in (("28302", "closed"), ("28349", "open")):
+        shell.pulls[pr] = {"number": int(pr), "state": state, "head": {"sha": f"{pr[-1]}" * 40, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pull_heads[pr] = f"{pr[-1]}" * 40
+    shell.pr_files["28302"] = ["infra/rows/c2.ts"]
+    return shell
 
-    run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
 
-    assert "EJECTED by the queue at 2026-09-17T02:09:24Z" in capsys.readouterr().out
-    assert shell.fields(PR)["ejected_at"] == "2026-09-17T02:09:24Z"
+def reconcile(shell, *extra) -> int:
+    return run(shell, "reconcile", "--repo", REPO, "--ledger", LEDGER, "--checkout", "/checkout", *extra)
+
+
+def test_reconcile_lands_every_row_whose_squash_is_on_the_trunk_in_one_batch(capsys):
+    shell = reconcile_shell()
+
+    assert reconcile(shell) == 0
+
+    assert {"state": "landed", "landed_sha": SQUASH, "landed_at": "2026-10-01T05:10:00Z", "base": "dev"}.items() <= shell.fields("28100").items()
+    assert shell.fields("28230")["state"] == "landed"
+    assert shell.fields("28230")["landed_sha"].startswith("0c9e7654c")
+    assert shell.fields("28302")["state"] == "closed-without-squash", "a revert naming the PR inside its subject is not its squash"
+    assert shell.fields("28349")["state"] == "open"
+    assert "landed_at" not in shell.fields("28349"), "a number mentioned mid-subject is not a squash"
+    out = capsys.readouterr().out
+    assert "reconciled 4 non-terminal rows: 2 landed by squash, 1 of 1 closed settled, 1 open" in out
+
+
+def test_reconcile_reads_the_trunk_once_and_the_forge_only_for_closed_unsquashed_rows():
+    shell = reconcile_shell()
+
+    reconcile(shell)
+
+    logs = [argv for argv in shell.calls if argv[:4] == ["git", "-C", "/checkout", "log"] and "--grep" not in " ".join(argv)]
+    assert len(logs) == 1
+    assert [argv[4:] for argv in shell.state_calls()] == [["--repo", REPO, "28302", "28349"]]
+    pulled = {argv[2].split("/")[4] for argv in shell.calls if argv[:2] == ["gh", "api"] and "/pulls/" in argv[2]}
+    assert pulled == {"28302"}
+
+
+def test_reconcile_dry_run_writes_nothing(capsys):
+    shell = reconcile_shell()
+    before = json.dumps(shell.store, sort_keys=True)
+
+    assert reconcile(shell, "--dry-run") == 0
+
+    assert json.dumps(shell.store, sort_keys=True) == before
+    assert not [argv for argv in shell.calls if argv[:3] == ["ccn", "ledger", "row"]]
+    out = capsys.readouterr().out
+    assert f"would land #28100 as {SQUASH[:9]} on dev at 2026-10-01T05:10:00Z" in out
+    assert "would settle closed #28302 with no squash on dev" in out
+
+
+def test_reconcile_with_nothing_open_touches_neither_git_nor_the_forge(capsys):
+    shell = FakeShell(rows=[{"key": "27887", "fields": {"state": "landed"}}])
+
+    assert reconcile(shell) == 0
+
+    assert [argv[0] for argv in shell.calls] == ["ccn"]
+    assert "reconciled 0 non-terminal rows" in capsys.readouterr().out
+
+
+def test_every_verb_runs_from_any_directory_against_the_named_one(tmp_path, monkeypatch):
+    monkeypatch.chdir(Path.home())
+    shell = reconcile_shell()
+
+    assert run(shell, "-C", str(tmp_path), "list", "--ledger", LEDGER, "--open") == 0
+
+    assert Path.cwd() == tmp_path.resolve()
+
+
+def test_list_open_names_only_rows_still_open(capsys):
+    shell = reconcile_shell()
+
+    run(shell, "list", "--ledger", LEDGER, "--open")
+
+    assert [line.split()[0] for line in capsys.readouterr().out.splitlines()] == ["#28100", "#28230", "#28302", "#28349"]
 
 
 STACK = ("24001", "24002", "24003")
