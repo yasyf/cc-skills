@@ -156,7 +156,7 @@ if [[ "$use_bridge" == 1 ]]; then
     # A loopback bridge url attaches via AGENT_BROWSER_CDP, never `connect` (which
     # relaunches a cookieless browser on loopback); the probe establishes the session,
     # run's exec reuses it (no env, like the daemon_has_session path above).
-    AGENT_BROWSER_CDP="$url" agent-browser --session "$SLUG" title >/dev/null 2>&1 || {
+    AGENT_BROWSER_CDP="$url" agent-browser --session "$SLUG" get title >/dev/null 2>&1 || {
       echo "ab: could not attach to the cookiesync bridge" >&2
       exit 1
     }
