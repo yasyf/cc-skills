@@ -126,6 +126,12 @@ hook(
         Input(command="cd /tmp && codex-ask -l r - <<'Q'\ngrow & shed\nQ"): Allow(),
         Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ\ncodex-ask -l s - <<'R'\nfoo & bar\nR"): Allow(),
         Input(command="codex-ask -l r - <<'Q'\ngrow & shed\nQ &"): Block(),
+        Input(
+            command="cat > /n/ask.md <<'EOF'\nSubject `stack: 🐛 <what>`\nEOF\n"
+            "cd /w && codex-ask -m astra /n/ask.md 2>&1 | grep AWAIT"
+        ): Allow(),
+        Input(command="echo 🐛 && codex-ask -m astra /n/ask.md 2>&1 | grep AWAIT"): Allow(),
+        Input(command="echo 🐛 && codex-ask -m astra /n/ask.md >log 2>&1 &"): Block(),
         Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff'"): Allow(),
         Input(command="codex-ask --watch --all"): Allow(),
         Input(command="codex-ask --dispatch --owner agent-1 'summarize the diff' &"): Block(),
