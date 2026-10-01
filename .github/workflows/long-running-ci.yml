@@ -23,4 +23,4 @@ jobs:
       - name: pytest
         run: uv run --project plugins/long-running pytest plugins/long-running/tests -q
       - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.56.0' pack test plugins/long-running
+        run: uvx --isolated 'capt-hook>=12.67.1' pack test plugins/long-running

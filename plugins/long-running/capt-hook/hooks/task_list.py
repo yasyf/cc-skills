@@ -21,10 +21,9 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.tasks import Task, Tasks
-from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
-from .lane_rotation import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, UNSAFE_NAME, entries_after, live_lanes
+from .lane_rotation import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, entries_after, live_lanes
 from .nudges import queue_nudge
 
 ASK_CALLS = 3
@@ -58,15 +57,6 @@ class TaskListState(WorkflowState):
     nudged: dict[str, float] = {}
     turns: int = 0
     scanned: int | None = None
-
-
-def root_tasks(evt: BaseHookEvent) -> Tasks:
-    if list_id := reqenv.getenv("CLAUDE_CODE_TASK_LIST_ID"):
-        return Tasks.for_session(list_id)
-    for meta in (evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json"):
-        if team := json.loads(meta.read_text()).get("teamName"):
-            return Tasks.for_session(UNSAFE_NAME.sub("-", team))
-    return evt.tasks
 
 
 def spawned_names(evt: BaseHookEvent) -> set[str]:
@@ -161,7 +151,7 @@ def reported(tasks: tuple[Task, ...], lane: str, body: str) -> list[Task]:
 def finished(evt: BaseHookEvent, state: TaskListState, text: str, now: float) -> list[str]:
     if not (reports := done_reports(text)):
         return []
-    tasks = root_tasks(evt).in_progress
+    tasks = evt.tasks.in_progress
     lanes = {lane for task in tasks if (lane := lane_of(task)) and not DESK.search(lane)}
     lines = []
     for sender, body in reports:
@@ -228,7 +218,7 @@ def track_task_list(evt: BaseHookEvent) -> HookResult | None:
                 state.asks.append(excerpt(text))
                 state.ask_calls = 0
         if evt.event == Event.Stop:
-            tasks = root_tasks(evt)
+            tasks = evt.tasks
             lines += [spawn_line(name) for name in state.unowned if not covered(tasks, name)]
             state.unowned = []
             if state.asks:
@@ -243,7 +233,7 @@ def track_task_list(evt: BaseHookEvent) -> HookResult | None:
                 queue_nudge(evt, line)
             return None
         if evt.tool_name in TASK_TOOLS:
-            tasks = root_tasks(evt)
+            tasks = evt.tasks
             if not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted"):
                 state.asks = []
             state.unowned = [name for name in state.unowned if not covered(tasks, name)]
@@ -269,7 +259,7 @@ def lanes_leave_root_tasks_open(evt: BaseHookEvent) -> HookResult | None:
     call = evt.as_input(TaskUpdateCall)
     if call.status != "completed" or not CompactionState.load(evt).active:
         return None
-    if (task := root_tasks(evt).get(call.task_id)) and (lane := lane_of(task)):
+    if (task := evt.tasks.get(call.task_id)) and (lane := lane_of(task)):
         return evt.block(
             f"Task #{task.id} is the root's record of lane {lane}; the root completes it once it has consumed "
             "your deliverable. SendMessage team-lead the deliverable instead and leave the task open."
