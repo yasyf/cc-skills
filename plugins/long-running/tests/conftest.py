@@ -98,8 +98,9 @@ class FakeShell(ledger.Shell):
 
     def _gh(self, argv, stdin):
         endpoint = argv[2]
-        if endpoint == "rate_limit":
-            return json.dumps({"resources": {"graphql": {"reset": self.quota_resets_at}}})
+        if endpoint == "graphql":
+            headers = f"HTTP/2.0 200 OK\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: {self.quota_resets_at}\n\n"
+            raise subprocess.CalledProcessError(1, argv, output=headers + '{"errors":[{"type":"RATE_LIMIT"}]}', stderr="gh: API rate limit already exceeded")
         if self.fail_gh and self.fail_gh in endpoint:
             raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr="gh: connection refused")
         path, _, query = endpoint.partition("?")

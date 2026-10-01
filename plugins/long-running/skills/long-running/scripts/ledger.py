@@ -53,7 +53,7 @@ Orca's own ``agentWait`` shows parked on a prompt for five minutes or more.
 
 When the shared GraphQL quota is spent, ``reconcile`` and ``summary`` skip the PR-state read
 once, land the squashed rows from git alone, and open with a ``pr states: cached`` banner
-naming the age of the last refresh and the reset time; the report then renders from the rows
+naming the age of the last refresh and the reset time from a rejected GraphQL call's headers; the report then renders from the rows
 as last graded.
 """
 
@@ -136,6 +136,7 @@ WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
+RATE_LIMIT_RESET = re.compile(r"^X-RateLimit-Reset: (\d+)", re.IGNORECASE | re.MULTILINE)
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
 BK_SECTION = re.compile(r"^(~~~|---|\+\+\+|\^\^\^|\$ |# )")
@@ -459,12 +460,16 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
 
 
 def quota_resets(shell: Shell) -> str:
-    """When the GraphQL quota refills, off the REST ``rate_limit`` endpoint, which costs none of it."""
+    """When the GraphQL quota refills, off the headers of one GraphQL call the forge rejects at no cost.
+
+    The REST ``rate_limit`` endpoint reports a fresh bucket while the user's GraphQL calls still fail, so it is not asked.
+    """
     try:
-        reset = json.loads(shell.run(["gh", "api", "rate_limit"]))["resources"]["graphql"]["reset"]
-    except subprocess.CalledProcessError:
-        return "at an unknown time"
-    return stamp(datetime.fromtimestamp(reset, timezone.utc))
+        headers = shell.run(["gh", "api", "graphql", "-i", "-f", "query={viewer{login}}"])
+    except subprocess.CalledProcessError as failure:
+        headers = failure.stdout or ""
+    reset = RATE_LIMIT_RESET.search(headers)
+    return stamp(datetime.fromtimestamp(int(reset[1]), timezone.utc)) if reset else "at an unknown time"
 
 
 def cache_banner(shell: Shell, rows: dict[str, dict[str, str]], moment: datetime) -> str:
