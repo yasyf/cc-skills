@@ -13,7 +13,7 @@ import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote_plus
 
 import ledger
 import pytest
@@ -97,7 +97,7 @@ class FakeShell(ledger.Shell):
         if self.fail_gh and self.fail_gh in endpoint:
             raise subprocess.CalledProcessError(1, ["gh", "api", endpoint], stderr="gh: connection refused")
         path, _, query = endpoint.partition("?")
-        params = {name: unquote(value) for name, value in (pair.split("=", 1) for pair in query.split("&") if pair)}
+        params = {name: unquote_plus(value) for name, value in (pair.split("=", 1) for pair in query.split("&") if pair)}
         parts = path.split("/")[3:]
         if not parts:
             return json.dumps({"default_branch": self.trunk})

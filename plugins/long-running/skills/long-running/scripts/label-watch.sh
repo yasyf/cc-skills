@@ -8,10 +8,11 @@ usage: label-watch.sh once <pr>...
 
 Enqueues each stack whose every pull request passes the gate and prints one
 line per pull request. A listed pull request brings in its stack: every open PR
-below it down to the trunk and every open PR stacked above it. A stack goes into
-the Graphite merge queue whole, through the API call gt merge makes, and only
-when every PR in it passes; a green lower part never goes in alone, and a stack
-that forks never goes in.
+below it down to the trunk and every open PR stacked above it. The largest bottom
+prefix of a stack whose every PR passes goes into the Graphite merge queue as one
+batch, through the API call gt merge makes; the PRs above it wait for their own
+gates and are restacked by their lane once the prefix lands. A stack that forks
+never goes in.
 
   <pr> SKIP <queue>               Graphite reads it queued or landed, the trunk carries
                                   its squash, or it closed
@@ -22,13 +23,13 @@ that forks never goes in.
   <pr> NOT-READY <sha> <reason>   base, mergeability, checks, or approval not there
                                   yet, conflicts-with #<queued pr> <files>,
                                   downstack #<pr> when a PR below it fails the gate or
-                                  is queued, upstack #<pr> when a PR above it fails,
-                                  fork at #<pr> when two PRs stack on one,
-                                  or held when LABEL_WATCH_HOLD lists it
+                                  is queued, fork at #<pr> when two PRs stack on one,
+                                  or held when LABEL_WATCH_HOLD lists it; above an
+                                  enqueued prefix the line ends restack-after #<top>
   <pr> API-FAIL <read>            a GitHub, Graphite, or git fetch failed
-  <pr> ENQUEUED <sha>             the top PR; Graphite took it and its whole
-                                  downstack; dry-run follows it when
-                                  LABEL_WATCH_DRY_RUN is set
+  <pr> ENQUEUED <sha> [prefix]    the top PR of the passing prefix; Graphite took it
+                                  and its whole downstack; prefix when open PRs stay
+                                  above it, dry-run when LABEL_WATCH_DRY_RUN is set
   <pr> EVICTED <sha> <reason> <time>
                                   the queue dropped it; the gate runs on it again
 
@@ -326,54 +327,61 @@ climb() {
     eval "verdict_$v=\$verdict blocker_$v=\$blocker line_$v=\$line"
   done
 
-  why=
+  fork=
   tip=
   for v in $order; do
     eval "set -- \$kids_$v"
     if [ $# -gt 1 ]; then
-      why="fork at #$v"
+      fork="fork at #$v"
       break
     fi
     [ $# -gt 0 ] || tip=$v
   done
-  if [ -z "$why" ]; then
+  prefix=
+  top=
+  if [ -z "$fork" ]; then
     for v in $order; do
       eval "verdict=\$verdict_$v"
-      case $verdict in
-        pass | through) ;;
-        *)
-          why="upstack #$v"
-          break
-          ;;
-      esac
+      case $verdict in pass | through) ;; *) break ;; esac
+      prefix="$prefix $v" top=$v
     done
   fi
 
-  eval "tv=\${verdict_$tip-}"
-  if [ -z "$why" ] && [ "$tv" = pass ]; then
-    eval "set -- \$line_$tip"
+  failed=
+  eval "tv=\${verdict_$top-}"
+  if [ "$tv" = pass ]; then
+    eval "set -- \$line_$top"
     short=$(printf %.10s "$1")
+    [ "$top" = "$tip" ] || short="$short prefix"
     if [ -n "$DRY_RUN" ]; then
-      eval "line_$tip=\"\$tip ENQUEUED \$short dry-run\""
-    elif enqueue $order; then
-      eval "line_$tip=\"\$tip ENQUEUED \$short\""
-      QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$tip" "$(onto_trunk "$2" "$1" "$tip")" | sed '/^$/d')
+      eval "line_$top=\"\$top ENQUEUED \$short dry-run\""
+    elif enqueue $prefix; then
+      eval "line_$top=\"\$top ENQUEUED \$short\""
+      QUEUED=$(printf '%s\n%s %s' "$QUEUED" "$top" "$(onto_trunk "$2" "$1" "$top")" | sed '/^$/d')
     else
-      eval "line_$tip=\"\$tip API-FAIL enqueue\""
-      why="API-FAIL enqueue"
+      eval "line_$top=\"\$top API-FAIL enqueue\""
+      failed="API-FAIL enqueue"
     fi
   fi
 
   for v in $order; do
     eval "verdict=\$verdict_$v sha=\$sha_$v"
-    [ "$verdict" = pass ] || continue
-    if [ "$v" = "$tip" ]; then
-      case $why in '' | API-FAIL*) continue ;; esac
-    fi
-    case $why in
-      '') eval "line_$v=\"\$v SKIP covered-by #\$tip\"" ;;
-      API-FAIL*) eval "line_$v=\"\$v \$why\"" ;;
-      *) eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") \$why\"" ;;
+    case " $prefix " in
+      *" $v "*)
+        [ "$verdict" = pass ] && [ "$v" != "$top" ] || continue
+        if [ -n "$failed" ]; then
+          eval "line_$v=\"\$v \$failed\""
+        else
+          eval "line_$v=\"\$v SKIP covered-by #\$top\""
+        fi
+        ;;
+      *)
+        if [ -n "$fork" ]; then
+          [ "$verdict" != pass ] || eval "line_$v=\"\$v NOT-READY \$(printf %.10s \"\$sha\") \$fork\""
+        elif [ "$tv" = pass ] && [ -z "$failed" ]; then
+          eval "line_$v=\"\$line_$v restack-after #\$top\""
+        fi
+        ;;
     esac
   done
   for v in $order; do eval "printf '%s\n' \"\$line_$v\""; done

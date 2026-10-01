@@ -236,13 +236,13 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. Lanes enqueue their own stacks; the root owns holds and priority PRs.** The moment every PR in its stack is green and approved, the owning lane re-reads the root's holds file. Before every enqueue it writes the held PR numbers to a fresh file, digits only, with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`; never cache the held set. Extend it with the open PRs of held lanes under D3.
+**D1. Lanes enqueue their own green bottom prefixes; the root owns holds and priority PRs.** The moment its stack has a green, approved bottom prefix, the owning lane re-reads the root's holds file. Before every enqueue it writes the held PR numbers to a fresh file, digits only, with `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`; never cache the held set. Extend it with the open PRs of held lanes under D3.
 
-Where the checkout carries an enqueue script, call it directly as `stack-enqueue --hold <held file> <tip>`, then `ledger.py report` the enqueue. The desk records it on refresh as `in the queue, labelled outside the desk`. `ledger.py label` cannot pass `--hold` yet. Where the repo has no enqueue script, run `ledger.py label --repo <repo> --ledger <id> --pr <tip> --expect-head <tip-sha> --checkout <its worktree>`; the holds the desk has mirrored into the ledger are the guard.
+Where the checkout carries an enqueue script, call it directly as `stack-enqueue --hold <held file> <prefix top>`, then `ledger.py report` the enqueue. The desk records it on refresh as `in the queue, labelled outside the desk`. `ledger.py label` cannot pass `--hold` yet. Where the repo has no enqueue script, run `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <its worktree>`; the holds the desk has mirrored into the ledger are the guard.
 
-The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases and re-enqueues at once. It is not finished until its squash `(#N)` is on the base branch, and never ends a turn with a green, approved, unheld PR unenqueued. If an open child is not ready and blocks the enqueue, the lane closes it, keeps its branch, enqueues the stack, and reopens the child after landing. No ruling is needed.
+The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases and re-enqueues at once. It is not finished until its squash `(#N)` is on the base branch, and never ends a turn with a green, approved, unheld bottom prefix unenqueued. After the prefix lands, the lane restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
-Only the root appends or edits the holds file. Each line names held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is held, so a reason names another PR without the `#`. A lane never self-enqueues a stack containing or sitting above a held PR, including any PR of a held lane. It reports `held` on its tip, names the held PR, and leaves the stack to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
+Only the root appends or edits the holds file. Each line names held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is held, so a reason names another PR without the `#`. A lane never self-enqueues a prefix containing or sitting above a held PR, including any PR of a held lane. It reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
 
 Lanes send the desk the three-line report of PR, full head sha, and verdict. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
 
@@ -252,13 +252,15 @@ Lanes send the desk the three-line report of PR, full head sha, and verdict. The
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
-**D3. Enqueue every ready stack in parallel after every PR passes.** `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
+**D3. Enqueue every ready bottom prefix in parallel.** `<tip>` is the top of the largest contiguous bottom prefix whose PRs pass. `ledger.py label --pr <tip> --expect-head <tip-sha> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR in that prefix. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
 
-Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR, an orphaned base, or an open child outside the stack refuses the whole attempt. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
+Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR or an orphaned base refuses the whole attempt.
 
-When all pass, the tip goes into the queue with its whole downstack as one entry through `.agents/skills/submit-pr/scripts/stack-enqueue --hold <held file> <tip>` when the checkout carries it, which is the monorepo's rule, and otherwise through `ledger.py label` with one `merge` label on the tip. Report a direct enqueue with `ledger.py report`; the desk records it on refresh as `in the queue, labelled outside the desk`. `stack-enqueue` applies its own gate first; when it names a blocker, the whole stack is refused with its per-PR lines. `stack-enqueue --check --hold <held file> <tip>` gates without enqueueing. A queue that drops part of the stack after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment.
+An open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run. Restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
-The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues every open tracked stack that is green, approved, unheld, and not yet queued. It starts one `stack-enqueue --hold <held file> <tip>` per ready stack together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass.
+When the prefix passes, its top goes into the queue with every PR below it as one Graphite batch through `.agents/skills/submit-pr/scripts/stack-enqueue --hold <held file> <prefix top>` when the checkout carries it, which is the monorepo's rule, and otherwise through `ledger.py label` with one `merge` label on the prefix top. Report a direct enqueue with `ledger.py report`; the desk records it on refresh as `in the queue, labelled outside the desk`. `stack-enqueue` applies its own gate first; when it names a blocker, the requested prefix is refused with its per-PR lines. `stack-enqueue --check --hold <held file> <prefix top>` gates without enqueueing. A queue that drops part of the prefix after the enqueue counts as enqueued, so the same heads are never queued twice; read each PR's Merge activity comment.
+
+The lane enqueues first under D1, the desk reconciles, and the root enqueues priority PRs. Each pass the desk enqueues the largest green, approved, unheld, unqueued bottom prefix of every open tracked stack. It starts one `stack-enqueue --hold <held file> <prefix top>` per ready prefix together in one Bash call, each backgrounded with `&`, then `wait`, collecting each call's output. Never enqueue one stack per pass.
 
 Each call re-reads the root's holds file and builds a fresh numeric held file under D1, extended with every open ledger row whose lane is named as `lane:<name>` in the holds file. Read those rows with `ledger.py show --ledger <id> --json`, across the whole ledger even for a shard. Priority desks and shards use the same held set. A stack refused as `held` waits for the root; never treat it as a red or route it.
 
@@ -323,13 +325,15 @@ stacks and the movers in the grade and labels anyway. The landing plans the tree
 actually applies and refuses its own op classes there, so the gate that matters sits
 where the tree is real. Any class the desk would refuse on a plan belongs in the
 landing's admission rule, not in a pre-merge staleness check. A rebase is owed for a
-merge conflict and for nothing else. *Prevents the bounce where a green PR is refused
+merge conflict or after a bottom prefix lands under D16.
+
+*Prevents the bounce where a green PR is refused
 because an unrelated stack moved and then spends half an hour in a rebase and a CI
 re-run that change nothing about what the landing does.*
 
-**D10. Enqueue on the report, and reconcile every three minutes.** When a lane reports `clean`, enqueue its stack's tip in the same turn if it is ready, unheld, and unqueued. Every three-minute pass reads every PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build list, never one REST call per PR. Desks and shards stagger their reads by a minute at `:00`, `:01`, and `:02`.
+**D10. Enqueue on the report, and reconcile every three minutes.** When a lane reports `clean`, enqueue its stack's largest ready, unheld, unqueued bottom prefix in the same turn. Every three-minute pass reads every PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build list, never one REST call per PR. Desks and shards stagger their reads by a minute at `:00`, `:01`, and `:02`.
 
-Enqueue all ready stacks together under D3. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused stack does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
+Enqueue all ready prefixes together under D3. A report is not required, and a lane's `red` or `conflicting` verdict does not refuse a head the forge passes. One refused prefix does not stop the rest; its refusal is recorded on each of its rows and routed under D14.
 
 *Prevents clean PRs waiting for a 20-minute pass that labels one report at a time, until the owner enqueues one in Graphite by hand.*
 
@@ -370,9 +374,9 @@ growing with the board until its pass takes 20 minutes.*
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
-**D16. A stack lands whole.** When the ledger holds several PRs in one stack, never label a lower PR as its tip while any PR above it is open. A red, conflicting, or held PR anywhere holds the whole stack. Route the blocker under D5 and label the tip once every PR passes on its final head. A stack whose root is ruled out by retargeting to the base branch or closing is still one stack. Retarget the next PR to the base branch and label the remaining tip, never each survivor alone.
+**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`. For Orca lanes, append the route to `inbox/orca-desk.md` under D5.
 
-*Prevents landing the root alone in six stacked PRs, #25188 through #25199 in Forge-AI/monorepo on 2026-09-25, which would have rebased five children onto a moving base and re-run CI on each for nothing; the owner ruled "merge the whole stack at once but first fix the failing CI on it".*
+*Prevents the wait for unfinished PRs above a green bottom that the owner ruled out on 2026-10-01. Restacking children and rerunning their CI after the prefix lands is an accepted cost.*
 
 **D17. An owner-visible change needs its render approved before the label.** A PR that changes something the owner sees rendered, such as a UI, message, or generated document, holds under D6. Use the reason "render not approved" until the owner has approved that exact render at the head being labelled, unless the owner has granted ship-then-fix for that lane. A re-render at a new head needs a fresh approval; the old one covered a different head.
 
@@ -417,6 +421,7 @@ need action.
 Spawn it beside the landing-desk before the first Orca worker, whenever a drive runs
 Orca workers. `scripts/orca-launch.sh` owns launches and relaunches;
 `scripts/orca-check.sh` owns each blocking inbox check.
+Its `--stale --inbox <inbox file>` mode flags aged unread worker messages and unread work for completed or failed dispatches on every pass.
 `reference/orca-desk-brief.md` is the desk's brief, ready to paste;
 `reference/orca-workers.md` holds the launch recipe and script interfaces.
 
@@ -553,7 +558,7 @@ release-v3 on 2026-09-30.*
 
 **P3. Drive every owned lane in the same iteration.** Act on all owed items in
 parallel, one dispatch per lane per iteration. Lanes self-enqueue under D1.
-The priority desk enqueues any of their stacks that is green, approved, and unheld
+The priority desk enqueues each stack's largest green, approved, unheld bottom prefix
 as soon as it sees it, using D3's parallel calls. It routes ejections, conflicts,
 and reds to the owning lane at once.
 
@@ -667,15 +672,15 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Holds file: <path>, root-owned; rebuild a fresh numeric held file before every
   enqueue from its #<n> entries and held lanes' open PRs under D3.
-Self-enqueue: green + approved + unheld means run
-  `stack-enqueue --hold <held file> <tip>` at once, then `ledger.py report` the
+Self-enqueue: take the largest green, approved, unheld bottom prefix and run
+  `stack-enqueue --hold <held file> <prefix top>` at once, then `ledger.py report` the
   enqueue. Where the repo has no enqueue script, use
-  `ledger.py label --repo <repo> --ledger <id> --pr <tip> --expect-head <sha> --checkout <worktree>`.
+  `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <worktree>`.
   Never self-enqueue above a held PR or any PR of a held lane. Report `held` on
   your tip, name the held PR, and leave release to the root.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and
-  re-enqueue. Close a not-ready blocking child, keep its branch, enqueue, and reopen
-  it after the stack lands. Never end a turn with a ready, unheld stack unenqueued.
+  re-enqueue. After the prefix lands, restack the PRs above it with
+  `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
 Register your branch prefix with landing-desk when spawned and whenever you open a PR.
 For an owner ask, report each PR to landing-desk with its ask id for `report --ask <id>`.
 Bus: <id>; script <plugin root>/skills/long-running/scripts/bus.py; --repo <drive checkout>.
@@ -947,14 +952,14 @@ landed or closed emits nothing and settles nothing; `landed` settles it. A stand
 `label --dry-run` runs every guard, prints the stack it would enqueue, and writes
 nothing; run it once on a repo before the first live label.
 
-The parallel example starts one call per ready stack in the same Bash call and collects each output
-after `wait`; include every ready stack in the pass, or run it immediately for ready
+The parallel example uses each ready prefix's top as `TIP` and collects each output
+after `wait`; include every ready prefix in the pass, or run it immediately for ready
 reports. Each shard does the same for its lanes, using held rows from the whole
 ledger. Report each successful enqueue with `ledger.py report`; refresh records it
 as `in the queue, labelled outside the desk`. A `held` refusal waits for the root and is not routed.
 
 Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <sha>`
-for each ready stack; mirrored ledger holds are the guard. `label --all-clean` is
+for each ready prefix's top; mirrored ledger holds are the guard. `label --all-clean` is
 the fallback sweep there because it enqueues stacks one at a time.
 It supports `--dry-run` and prints each stack to enqueue. It considers every tracked open row whose
 current head has never carried the label and is not held, and re-reads each tip before
@@ -1056,24 +1061,31 @@ holds prints `SKIP queued`, and every PR above it waits as `NOT-READY <sha> down
 until it lands. The first PR to fail stops the walk, and every PR above it prints
 `NOT-READY <sha> downstack #N` without reading its checks.
 
-A stack goes into the queue whole or not at all. When every PR in it passes, one
-`POST /v1/graphite/merge`, the call `gt merge` makes, sends the stack's PR numbers
-bottom first. Graphite queues them as one batch. The top PR prints `ENQUEUED <sha>`
-and the PRs below it `SKIP covered-by #<top>`. While a PR above fails, the passing PRs
-below it print `NOT-READY <sha> upstack #N` and stay on the list; a green lower part
-never goes in alone. A stack that forks never goes in: every passing PR prints
+A stack's largest passing bottom prefix goes into the queue now. One
+`POST /v1/graphite/merge`, the call `gt merge` makes, sends the prefix's PR numbers
+bottom first. Graphite queues them as one batch.
+
+When open PRs remain above it, the prefix top prints `<top> ENQUEUED <sha> prefix`
+and the PRs below it `SKIP covered-by #<top>`. Each PR above keeps its `NOT-READY` reason with
+`restack-after #<top>` appended. If the prefix reaches the stack's top, that PR
+prints `ENQUEUED <sha>` without `prefix`.
+
+After the prefix lands, route the first PR above it to its owning lane to restack
+the rest with `ccx vcs stack submit`; Orca routes go to `inbox/orca-desk.md`.
+A stack that forks never goes in. Every passing PR prints
 `NOT-READY <sha> fork at #N` until the stack is linearized.
-*Prevents #27616 and #27617 landing without #27520 above them, which then sat on a stale
-`graphite-base` branch in conflict with nobody acting.*
+*Prevents #27520 sitting on a stale `graphite-base` branch after #27616 and #27617
+land; the desk routes that PR to its lane for a restack.*
 
 The call reads gt's token from `LABEL_WATCH_GRAPHITE_AUTH`, default
 `~/.config/graphite/auth`, and hands it to curl on stdin, never on the command line.
 A REST label can go unseen by Graphite; the API call is answered. A failed call prints
 `API-FAIL enqueue`.
-`LABEL_WATCH_DRY_RUN=1` prints `ENQUEUED <sha> dry-run` and enqueues nothing.
+
+`LABEL_WATCH_DRY_RUN=1` appends `dry-run` to the `ENQUEUED` line and enqueues nothing.
 `LABEL_WATCH_HOLD=<file>` names PRs, one per line, that fail the gate as
 `NOT-READY <sha> held`. The watch re-reads the file every sweep, never enqueues or
-appends a held PR, and holds its whole stack.
+appends a held PR, and holds that PR and every PR above it. A passing prefix below it lands.
 
 ```sh
 export LABEL_WATCH_APPROVERS='forge-pr-reviewer[bot],poetic-svc' LABEL_WATCH_CHECKOUT=~/Code/monorepo

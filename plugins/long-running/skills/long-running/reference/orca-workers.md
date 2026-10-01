@@ -109,13 +109,22 @@ Workers use the preamble's `orca orchestration ask` for a ruling. If it returns
 working on everything that does not depend on the answer. The desk treats either
 message like an ask.
 
-**R56. Reply to the original question id.** A worker blocked on
-`orca orchestration ask` wakes only on
-`orca orchestration reply --id <its question message id>`. A plain
-`send --type dispatch` can sit unread in a background wait. Desks must reply to the
-original question id and may add a send for context.
+**R56. Reply to the original question id.** Before every relay, run
+`orca orchestration worker-show --dispatch '<dispatch id>' --json`.
+If `.result.dispatch.status` is `completed`, start a new dispatch with a
+self-contained brief; never reply or send to the completed dispatch (`dispatch_inactive`).
+For an active dispatch, only `orca orchestration reply --id <its question message id>`
+wakes an `orca orchestration ask` wait. Keep the reply or send as the record; neither
+wakes an idle Claude session. After every reply or send, the desk always wakes the worker.
 
-*Prevents a worker staying blocked after the desk sent its ruling as a dispatch.*
+```sh
+orca terminal send --terminal '<handle>' --text 'R<n>: <one line>; brief <path>' --enter
+```
+
+`orca orchestration worker-release` releases only a settled
+worker's terminal; it never stops a live worker.
+
+*Prevents a worker staying blocked after the desk sent its ruling as a dispatch, and b2-data / phase0b-aig sitting idle for about an hour with unread messages (2026-10-01).*
 
 Finish with `send --type worker_done --outcome succeeded|failed`
 and the preamble's `--task-id <taskId>` and `--dispatch-id <dispatchId>`.
@@ -210,9 +219,10 @@ The script runs one check, not the desk's whole loop:
 
 ```text
 usage: orca-check.sh [--ack <delivery-id>] [--peek] [-- <orca check args>...]
+       orca-check.sh --stale [--inbox <inbox file>]
 ```
 
-Without `--peek`, it calls
+Without `--peek` or `--stale`, it calls
 `orca orchestration check --wait --types worker_done,escalation,question`.
 The types select what wakes the wait; the returned delivery is the whole batch.
 Each non-heartbeat message prints on one line, followed by the delivery to acknowledge:
@@ -240,8 +250,17 @@ acknowledge a batch, even if `--ack` is supplied beside it. Arguments after `--`
 pass through to `orca orchestration check`. Use `--run <id>` for the desk and
 `--terminal <handle>` for a worker.
 
+`--stale` reads every launch receipt's dispatch with `worker-show` and peeks the
+worker terminal's unread messages. It prints `STALE <lane> <age>m unread <msg id>`
+for an in-progress dispatch's messages unread for at least `ORCA_CHECK_STALE_MINUTES`
+minutes (default `10`), `STALE <lane> <age>m <completed|failed> <msg id>` for unread messages
+on a completed or failed dispatch, and `STALE <lane> <age>m <completed|failed> R<n>`
+for a line in `--inbox` past `<inbox file>.cursor` addressed to that lane. Message
+age starts at creation; an inbox line's age starts at dispatch completion.
+
 | Variable | Meaning and default |
 |---|---|
+| `ORCA_CHECK_STALE_MINUTES` | Unread age that flags an in-progress dispatch; default `10`. |
 | `ORCA_CHECK_TIMEOUT_MS` | Longest wait; default `60000`. Keep it at most 60000 so the desk reads its inbox file every minute. |
 | `ORCA_CHECK_STATE` | Launch receipt directory; default `~/.claude/scratch/orca-launch/<run>`. |
 | `ORCA_CHECK_RETRY_SECONDS` | Wait before a connection retry; default `30`. |

@@ -7,9 +7,11 @@ traffic for the whole drive. The root receives only ≤5-line ruling requests an
 
 ## Root discipline
 
-The root holds decisions, owner asks, and rulings. It appends one numbered line per
-ruling to the desk's inbox file. Keep the lines in order; never truncate or rewrite
-the file:
+The root holds decisions, owner asks, and rulings. Append every Orca-lane route or
+ruling from any source to `inbox/orca-desk.md` in the drive, the desk's inbox file.
+Include root stand-downs and landing-desk routes. Use one numbered line per item.
+Neither a separate routes file nor `SendMessage` reaches a desk that never ends its
+turn. Keep the lines in order; never truncate or rewrite the file:
 
 ```sh
 printf '%s\n' 'R<n> <msg id> <lane>: <ruling>' >> '<inbox file>'
@@ -24,6 +26,8 @@ line naming the unread range and records the stall in its progress record; it ne
 Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
+
+*Prevents two restack routes in a separate routes file and a root stand-down by `SendMessage` missing orca-desk while two workers sat idle for over an hour (2026-10-01).*
 
 ## Spawn brief
 
@@ -85,19 +89,28 @@ On first spawn, `touch "$INBOX"` without truncating it. Start a new cursor at 0
 Do, in this order, forever:
   1. Root inbox, at the TOP of every iteration before any other work.
      Read "$INBOX.cursor" as the last completed R number, then read
-     every later line of "$INBOX", in order. The root appends exactly one line
+     every later line of "$INBOX", in order. Each source appends exactly one line
      per number: R<n> <msg id> <lane>: <ruling>. If it belongs to a priority desk's
      lane, append it to that desk's inbox and record it as forwarded. Stop handling
-     that lane, including its questions and relaunches. For your lanes, check that each ruling still
-     addresses the lane's current dispatch before relaying it. Reply to a current
-     question with
+     that lane, including its questions and relaunches. For your lanes, check that
+     each ruling still addresses the lane's current dispatch before relaying it:
+       orca orchestration worker-show --dispatch '<dispatch id>' --json
+     If .result.dispatch.status is completed or failed, never reply or send
+     (dispatch_inactive).
+     Start a new dispatch through step 3 with a self-contained brief. For an active
+     dispatch, reply to a current question with
        orca orchestration reply --id "<msg id>" --body "<ruling>"
      Only a reply to the original question message id wakes an orchestration ask
-     wait (R56); send --type dispatch can sit unread in a background wait.
+     wait (R56); neither reply nor send wakes an idle Claude session.
      A line whose msg id is `prompt` rules on an escalated prompt; apply it
      through step 2's terminal send.
      Send other guidance or added context to its current dispatch with
        orca orchestration send --to "dispatch:<dispatch id>" --type dispatch --subject "<subject>" --body "<ruling or brief-file pointer>"
+     Keep every reply or send as the record, then always wake the worker with
+       orca terminal send --terminal '<handle>' --text 'R<n>: <one line>; brief <path>' --enter
+     A stand-down also needs both: send as the record, terminal send as the wake.
+     orca orchestration worker-release releases only a settled worker's terminal;
+     it never stops a live worker.
      Record every relayed ruling before advancing the cursor:
        ccn --repo "$ORCA_LAUNCH_PARENT" log append "$LOG" --entry "R<n> <msg id> <lane> dispatch=<id>: <ruling>"
      A ruling for a stopped or superseded dispatch is recorded as stale, never
@@ -109,7 +122,14 @@ Do, in this order, forever:
      Advance the cursor every iteration and include `cursor R<n>` in every report.
      Never report an item as waiting on the root before checking this inbox for
      the answer.
-  2. Prompt sweep, every pass. List every worker, following the page cursor
+  2. Stale mail and prompt sweep, every pass. Run
+       "$SCRIPTS/orca-check.sh" --stale --inbox "$INBOX"
+     Act on every STALE line in this pass. Forward a priority desk's lines to its
+     inbox. For your lanes, wake a live dispatch with unread mail through step 1's
+     terminal send --enter. For completed or failed, start a new dispatch through
+     step 3 with a self-contained brief carrying the unread message or inbox line.
+     Never filter sweep or STALE lines: no rg -v or grep -v over the loop's output.
+     List every worker, following the page cursor
      until result.page.hasMore is false:
        orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --json
        orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --cursor '<page.nextCursor>' --json
@@ -135,7 +155,7 @@ Do, in this order, forever:
      checks the screen for `bypass permissions on`. Anything other than ready
      is a failed launch, never an active lane. Keep each receipt in the named
      directory. Retry a failed dispatch only after confirming its session has
-     ended, with the root's ruling. Use the same command and directory;
+     ended, on a STALE line or the root's ruling. Use the same command and directory;
      the script retries the recorded task and dispatch with --task/--retry-of.
      Never stop the old session or duplicate its active work.
      Working workers have no cap. The one throttle is load: before each launch
@@ -218,3 +238,5 @@ Rotate: flush the same state and the cursor, reply `flushed <cc-notes log id>` t
   the root, and keep working. After your own compaction, resume in place from the
   files and log with the same identity.
 ```
+
+*Prevents the 2026-10-01 desk loop that filtered `SWEEP phase0b-aig` out with `rg -v`, leaving the lane with eight unread messages for over an hour.*

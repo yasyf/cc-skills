@@ -74,10 +74,9 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
      A red that is the car's own goes to its lane to fix forward; a red whose step is
      also red on the trunk's latest build is `DEV-RED`, held by the desk, not the
      lane's. The train never waits on either.
-  7. Enqueue the whole train. A stack lands whole (D16), and `ledger.py label`
-     refuses a car with open cars above it, so no green lower part ever goes in
-     alone. Eject every red car (step 6), poll the rest until every car is green,
-     then label the top car:
+  7. Enqueue the whole train. A train lands whole: its cars are one batch by design.
+     Eject every red car (step 6), poll the rest until every car is green,
+     then label the top car for that batch:
      ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>
      The queue takes the train as one entry. Ejected cars ride the next train.
      Within three minutes, `ccx vcs pr status <top-car>` must read `queued`;
