@@ -50,6 +50,11 @@ on a stacked follow-up PR instead.
 
 Run inside an Orca terminal, ``summary`` also names every in-progress Orca worker that
 Orca's own ``agentWait`` shows parked on a prompt for five minutes or more.
+
+When the shared GraphQL quota is spent, ``reconcile`` and ``summary`` skip the PR-state read
+once, land the squashed rows from git alone, and open with a ``pr states: cached`` banner
+naming the age of the last refresh and the reset time from a rejected GraphQL call's headers; the report then renders from the rows
+as last graded.
 """
 
 from __future__ import annotations
@@ -130,6 +135,8 @@ TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})
 HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
+RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
+RATE_LIMIT_RESET = re.compile(r"^X-RateLimit-Reset: (\d+)", re.IGNORECASE | re.MULTILINE)
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
 BK_SECTION = re.compile(r"^(~~~|---|\+\+\+|\^\^\^|\$ |# )")
@@ -239,6 +246,10 @@ class Shell:
 
 class ForgeUnreachable(RuntimeError):
     """The forge did not answer, so this pass has graded nothing worth writing."""
+
+
+class QuotaExhausted(ForgeUnreachable):
+    """The shared GraphQL quota is spent; PR states cannot be read until it resets."""
 
 
 class Refused(Exception):
@@ -433,7 +444,31 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
     argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
     for prefix in prefixes:
         argv += ["--lane-prefix", prefix]
-    return json.loads(shell.run(argv))
+    try:
+        return json.loads(shell.run(argv))
+    except subprocess.CalledProcessError as failure:
+        if RATE_LIMITED.search(failure.stderr or ""):
+            raise QuotaExhausted(f"ccx vcs pr state: {failure.stderr.strip()}") from failure
+        raise
+
+
+def quota_resets(shell: Shell) -> str:
+    """When the GraphQL quota refills, off the headers of one GraphQL call the forge rejects at no cost.
+
+    The REST ``rate_limit`` endpoint reports a fresh bucket while the user's GraphQL calls still fail, so it is not asked.
+    """
+    try:
+        headers = shell.run(["gh", "api", "graphql", "-i", "-f", "query={viewer{login}}"])
+    except subprocess.CalledProcessError as failure:
+        headers = failure.stdout or ""
+    reset = RATE_LIMIT_RESET.search(headers)
+    return stamp(datetime.fromtimestamp(int(reset[1]), timezone.utc)) if reset else "at an unknown time"
+
+
+def cache_banner(shell: Shell, rows: dict[str, dict[str, str]], moment: datetime) -> str:
+    refreshed = max((fields["last_refresh"] for fields in rows.values() if fields.get("last_refresh")), default="")
+    age = f"{age_minutes(refreshed, moment)}m" if refreshed else "age unknown"
+    return f"pr states: cached {age} (GraphQL quota exhausted, resets {quota_resets(shell)})"
 
 
 def grade(record: dict) -> dict[str, str]:
@@ -1712,11 +1747,15 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     squashes = trunk_squashes(shell, args.checkout, trunk)
     landed = [pr for pr in pending if pr in squashes]
     unsquashed = [pr for pr in pending if pr not in squashes]
+    records: dict[str, dict] | None
     try:
         records = pr_state(shell, args.ccx, args.repo, unsquashed, [])["prs"]
+    except QuotaExhausted:
+        print(cache_banner(shell, {pr: rows[pr] for pr in unsquashed}, now()))
+        records = None
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
-    closed = [pr for pr in unsquashed if records[pr]["state"] != "OPEN"]
+    closed = [] if records is None else [pr for pr in unsquashed if records[pr]["state"] != "OPEN"]
     verb = "would land" if args.dry_run else "landed"
     for pr in landed:
         sha, landed_at = squashes[pr]
@@ -1728,7 +1767,8 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
         if landed:
             notes.sync([{"key": pr, "fields": {"state": LANDED, "landed_sha": squashes[pr][0], "landed_at": squashes[pr][1], "base": trunk, "settle_error": "", "settle_failed_at": ""}} for pr in landed])
         settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed})
-    print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {len(unsquashed) - len(closed)} open")
+    unsettled = f"{len(unsquashed)} unread" if records is None else f"{len(unsquashed) - len(closed)} open"
+    print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {unsettled}")
     return 0
 
 
