@@ -1,0 +1,26 @@
+name: repo-bootstrap CI
+
+on:
+  push:
+    paths:
+      - "plugins/repo-bootstrap/**"
+      - "plugin/guides/**"
+      - ".github/workflows/repo-bootstrap-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/repo-bootstrap/**"
+      - "plugin/guides/**"
+      - ".github/workflows/repo-bootstrap-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: pytest
+        run: uv run --project plugins/repo-bootstrap pytest plugins/repo-bootstrap/tests -q -m "not xcode"
