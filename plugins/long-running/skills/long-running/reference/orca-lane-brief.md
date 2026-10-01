@@ -103,23 +103,22 @@ Landing desk (records over cc-notes refs, shared by every checkout):
 - On every PR open, push, and READY: `ledger.py report --ledger <id> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   READY is `--verdict clean --text "READY ..."`; the desk reads only this row.
-- The moment every PR in your stack is green, approved, and unheld, re-read the holds file.
+- The moment your stack has a green, approved bottom prefix, re-read the holds file.
   Before each enqueue, write a fresh digits-only file with
   `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
   PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
-  Never cache the held set or self-enqueue a stack holding a held PR or any PR of a held
+  Never cache the held set or self-enqueue above a held PR or any PR of a held
   lane. Report `held` on your tip with the held PR named and leave release to
   the root. Where the checkout carries an enqueue script, call it directly as
-  `stack-enqueue --hold <held file> <stack top>`, then report the enqueue with
+  `stack-enqueue --hold <held file> <prefix top>`, then report the enqueue with
   `ledger.py report`; refresh records it as labelled outside the desk.
   `ledger.py label` cannot pass `--hold` yet. Where the repo has no script, run
-  `ledger.py label --repo <owner/name> --ledger <id> --pr <stack top>
+  `ledger.py label --repo <owner/name> --ledger <id> --pr <prefix top>
   --expect-head <sha> --checkout <worktree>`; mirrored ledger holds are the guard.
-  Enqueue the stack whole, as one batch, once every PR in it is green. A green
-  bottom under an open top waits for its top; make a slow top green by fixing or
-  accepting its reviewer findings, or restack it onto another base, and never label
-  around `stack-enqueue`'s refusal. Never end a turn with a ready, unheld stack
-  unenqueued. No ruling needed.
+  Enqueue the largest contiguous green, approved, unheld bottom prefix as one batch.
+  Never wait for the PRs above it. After it lands, restack the rest with
+  `ccx vcs stack submit`. Never end a turn with a ready, unheld prefix unenqueued.
+  No ruling needed.
 - After opening or enqueueing a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor
   (re-arm on expiry) or in a foreground loop instead of ad-hoc polling. `ejected` or
