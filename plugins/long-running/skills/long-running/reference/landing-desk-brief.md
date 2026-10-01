@@ -115,6 +115,7 @@ Do, in this order, forever:
      `ledger.py report`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
      `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`,
+     with opened PRs recorded by the hook and hand registration as the fallback;
      a question as `ledger.py ruling`, an idle notice as
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. `ledger.py inbox --take` is your work

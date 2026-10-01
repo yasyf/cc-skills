@@ -1,0 +1,10 @@
+plan · trunk dev@da7ebc8838cd
+yasyf/v3-deploy-experience/tenant-branch · drop (#28545 landed) · #28545 "api: 🐛 admit the deploy pipeline's --stack branches on the tenant routes"
+yasyf/v3-deploy-experience/tenant-branch-lists · onto dev (was yasyf/v3-deploy-experience/tenant-branch) · from bbafb17a0b11 · #28557 "api: 🐛 the tenant routes admit any deploy selection in the branch, lists and hashes included"
+yasyf/v3-deploy-experience/since · onto yasyf/v3-deploy-experience/tenant-branch-lists · from 8559e695a459 · #28558 "ci: ✨ tools/deploy --since deploys exactly the stacks a landed range reaches"
+pushes yasyf/v3-deploy-experience/tenant-branch-lists, yasyf/v3-deploy-experience/since
+published 2 branches
+proposing 2 commit(s), 4 file(s)
+yasyf/v3-deploy-experience/tenant-branch-lists · #28557 · head 03afab1d4802 · parent dev · mergeable
+yasyf/v3-deploy-experience/since · #28558 · head af664caed71b · parent yasyf/v3-deploy-experience/tenant-branch-lists · mergeable
+moved yasyf/v3-deploy-experience/tenant-branch-lists, yasyf/v3-deploy-experience/since onto the published heads

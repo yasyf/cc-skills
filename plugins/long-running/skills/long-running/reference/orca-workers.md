@@ -161,9 +161,9 @@ worker's terminal; it never stops a live worker.
 Finish with `send --type worker_done --outcome succeeded|failed`
 and the preamble's `--task-id <taskId>` and `--dispatch-id <dispatchId>`.
 
-Orca workers are separate sessions. They run `ledger.py register/report` themselves
-to report to the landing desk and never `SendMessage` a subagent. Read a worker's
-output by dispatch:
+Orca workers are separate sessions. They register their prefixes and report verdicts
+through `ledger.py` themselves; the hook records opened PRs, with hand registration
+as the fallback. They never `SendMessage` a subagent. Read a worker's output by dispatch:
 
 ```sh
 orca orchestration worker-read --dispatch "<id>"

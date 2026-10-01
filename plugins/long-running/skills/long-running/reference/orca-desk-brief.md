@@ -218,8 +218,9 @@ Do, in this order, forever:
      with worker-show. Record the outcome and forward only outcomes that need
      root action. A finished lane's terminal stays open and idle: never release
      a dispatch, close a terminal, or end a session.
-     Workers report their PRs to landing-desk through ledger.py register/report
-     themselves; they never SendMessage a subagent.
+     Workers register prefixes and report verdicts to landing-desk through ledger.py
+     themselves; the hook records opened PRs, with hand registration as the fallback.
+     They never SendMessage a subagent.
   8. Record the processed delivery id and each message's disposition in the log.
      Keep that delivery id for --ack on the next call, then return to step 1.
      Never answer a replayed message whose reply is already recorded.
