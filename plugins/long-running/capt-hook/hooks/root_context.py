@@ -89,6 +89,16 @@ CCN = frozenset({"ccn", "cc-notes"})
 ANSWER_VERBS = frozenset({("answer", "add"), ("answer", "edit")})
 STANDING = re.compile(r"\b(?:from now on|always|never|I told you|the plan is)\b", re.IGNORECASE)
 UNRECORDED = "owner standing rule not recorded: answer_add it (scope:durable) + a plan Decisions line"
+COMMITMENT = re.compile(r"\b(?:from now on|we will|we now|going forward)\b", re.IGNORECASE)
+SLACK_WRITES = frozenset(
+    {
+        "mcp__plugin_cc-slack_cc-slack__slack_send",
+        "mcp__plugin_cc-slack_cc-slack__slack_reply",
+        "mcp__slack__slack_send_message",
+    }
+)
+CC_SLACK_WRITES = frozenset({"send", "reply"})
+UNRECORDED_COMMITMENT = "standing commitment posted to Slack and not recorded: answer_add it (scope:durable) with the permalink"
 LONG = "line\n" * 400
 ACTIVE = [CompactionState(active=True)]
 
@@ -99,6 +109,7 @@ type Verdict = tuple[str, str, str]
 class RootContextState(WorkflowState):
     oversized: dict[str, int] = {}
     standing: str | None = None
+    committed: bool = False
     recorded: bool = False
 
 
@@ -306,6 +317,15 @@ def records_answer(evt: BaseHookEvent) -> bool:
     return any(call.name in CCN and pair_in(operands(call), ANSWER_VERBS) for call in evt.command.calls())
 
 
+def posts_commitment(evt: BaseHookEvent) -> bool:
+    if evt.tool_name in SLACK_WRITES:
+        return COMMITMENT.search(json.dumps(evt.input.raw)) is not None
+    return any(
+        call.name == "cc-slack" and set(operands(call)[:1]) & CC_SLACK_WRITES and COMMITMENT.search(" ".join(call.args))
+        for call in evt.command.calls()
+    )
+
+
 def standing_rule(prompt: str) -> bool:
     text = prompt.strip()
     return not text.startswith(SYSTEM_PREFIXES) and not TEAMMATE_MESSAGE.search(text) and STANDING.search(text) is not None
@@ -318,6 +338,11 @@ def standing_rule(prompt: str) -> bool:
         Input(prompt="from now on, release everything as it merges", state=ACTIVE): Allow(),
         Input(command="ccn answer add 'Release as merged?' --body yes", state=ACTIVE): Allow(),
         Input(prompt="from now on, release everything as it merges"): Allow(),
+        Input(
+            tool="mcp__plugin_cc-slack_cc-slack__slack_reply",
+            tool_input={"thread": "C0B/p1790815593712039", "text": "Going forward we release as merged."},
+            state=ACTIVE,
+        ): Allow(),
     },
 )
 def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> HookResult | None:
@@ -331,9 +356,14 @@ def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> HookResult | None:
         if records_answer(evt):
             with RootContextState.mutate(evt) as state:
                 state.recorded = True
+        elif posts_commitment(evt):
+            with RootContextState.mutate(evt) as state:
+                state.committed = True
     else:
         with RootContextState.mutate(evt) as state:
             if state.standing and not state.recorded:
                 queue_nudge(evt, f"{UNRECORDED} — {state.standing}")
-            state.standing, state.recorded = None, False
+            if state.committed and not state.recorded:
+                queue_nudge(evt, UNRECORDED_COMMITMENT)
+            state.standing, state.committed, state.recorded = None, False, False
     return None
