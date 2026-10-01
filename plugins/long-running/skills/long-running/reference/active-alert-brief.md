@@ -19,6 +19,14 @@ into `worker-start`.
   both launches. The fix lane's apply under (a) is exempt.
 - (d) Send one line to the owner at spawn with the alert, both lane names, and authority given.
   Send one line at mechanism and one at fix-live. Never inside a status wall.
+- (e) When the alert has a Slack thread, spawn the comms lane from
+  [slack-lane-brief.md](slack-lane-brief.md#incident-comms-lane) in the same turn as an
+  Agent lane, briefed with the owner's standing grant for that thread, quoted verbatim,
+  and both incident lane names. Both briefs below name it. The comms lane posts lane
+  events and thread answers without a root turn and tells the root each posted ts.
+  On any owner order to respond, the root sends it to the comms lane and confirms the
+  posted ts within 2 minutes; with no ts by then, it spawns a replacement comms lane
+  from the same brief.
 
 Inside a drive, append one line to the orca-desk inbox.
 
@@ -50,7 +58,8 @@ a second lane on a different model in parallel (Opus 5.5 after sol); keep the fi
 running.
 
 *Prevents the 2026-10-01 release-v3 failures, when the fix lane started 5.6 min late
-behind a verdict gate and the owner's sol routing was applied 6.4 min late.*
+behind a verdict gate and the owner's sol routing was applied 6.4 min late, and three
+owner-approved incident posts then waited 15 minutes on root turns while the root compacted.*
 
 ## Fix lane brief
 
@@ -67,6 +76,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; evidence lane <evidence lane name>
+  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
 
 If you were launched unsupervised, report through the inbox/bus file; Orca carries no worker_done for you.
 
@@ -81,6 +91,9 @@ Do:
      `ledger.py report --ledger <ledger id> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`.
   4. Report the plan counts, apply under the authority above, and log the apply
      in <runbook>. Verify the fix is live against the alert's metric.
+  5. Post each event to <comms lane name> the moment it happens, never through the
+     root: PR opened, plan counts, apply started and finished, landing, fix live.
+     `bus.py post --bus <bus id> --from <fix lane name> --kind decision --topic <incident topic> --to <comms lane name> --text "<one line with links>"`.
 
 Escalate: the root checks your status every 10 minutes. If you have no mechanism
   15 minutes after spawn, the root starts a second lane on a different model
@@ -91,8 +104,8 @@ Escalate: the root checks your status every 10 minutes. If you have no mechanism
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
 Worktree: <absolute path, exclusive to this lane>.
-Finish: report "fix live" to <root agent name> with PR, head, apply counts, and
-  runbook entry. Use the inbox/bus file when unsupervised, otherwise the preamble's
+Finish: report "fix live" to <root agent name> and <comms lane name> with PR, head,
+  apply counts, and runbook entry. Use the inbox/bus file when unsupervised, otherwise the preamble's
   Orca worker_done command.
   Never report live from a mute.
 ```
@@ -109,6 +122,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; fix lane <fix lane name>
+  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
 
 If you were launched unsupervised, report through the inbox/bus file; Orca carries no worker_done for you.
 
@@ -117,7 +131,7 @@ Do:
   2. Date onset on an independent counter; do not infer it from alert time alone.
   3. Read the named metric and runbook; separate affected and healthy targets.
      Correlate onset with the drive's landings, deploys, and applies.
-  4. Send findings as they land to <fix lane name> and <root agent name>
+  4. Send findings as they land to <fix lane name>, <comms lane name>, and <root agent name>
      by bus or the preamble's Orca send command, with query, time window,
      and evidence pointers.
   5. If the alert is a monitor defect, send the evidence to redirect the fix lane
