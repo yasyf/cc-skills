@@ -167,3 +167,39 @@ def test_an_answer_from_an_interrupted_turn_does_not_cover_the_next_rule(root: R
     root.say("never skip review")
 
     assert root.stop() == [f"{root_context.UNRECORDED} — never skip review"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "From now on we release as merged."}),
+        ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"thread": "C0B/p1", "text": "Going forward, every PR lands whole."}),
+        ("mcp__slack__slack_send_message", {"channel_id": "C0B", "text": "_(Yasyf's Claude)_ we now enqueue stacks whole"}),
+        ("Bash", {"command": "cc-slack reply C0B/p1 'We will release as merged.'"}),
+    ],
+)
+def test_unrecorded_slack_commitment_nudges_at_stop(root: Root, tool: str, tool_input: dict) -> None:
+    root.post(tool, tool_input)
+
+    assert root.stop() == [root_context.UNRECORDED_COMMITMENT]
+    assert root.stop() == []
+
+
+def test_recorded_slack_commitment_is_quiet(root: Root) -> None:
+    root.post("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "From now on we release as merged."})
+    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes, <permalink>"})
+
+    assert root.stop() == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "#28797 landed."}),
+        ("Bash", {"command": "cc-slack thread C0B/p1 # we will see"}),
+    ],
+)
+def test_slack_posts_without_commitments_are_quiet(root: Root, tool: str, tool_input: dict) -> None:
+    root.post(tool, tool_input)
+
+    assert root.stop() == []
