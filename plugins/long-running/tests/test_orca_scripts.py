@@ -372,6 +372,20 @@ def test_check_prints_each_non_heartbeat_message_and_the_delivery(orca):
     assert "--wait" in check
 
 
+def test_check_json_prints_each_message_whole_with_its_lane(orca):
+    orca.receipts.mkdir()
+    (orca.receipts / "lane-a.terminal").write_text("term_a\n")
+    done = message("msg_2", "status", "term_a", "started R625", "")
+    orca.reply(
+        "orchestration check",
+        {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "deliveryId": "delivery_2", "messages": [message("msg_1", "heartbeat", "term_a", "alive", ""), done]}}},
+    )
+    result = orca.run("orca-check.sh", "--json")
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert [json.loads(lines[0]), lines[1]] == [done | {"lane": "lane-a"}, "delivery delivery_2 heartbeats=1"]
+
+
 def test_check_prints_timeout_for_an_empty_wait(orca):
     orca.reply("orchestration check", {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "messages": [], "timedOut": True}}})
     result = orca.run("orca-check.sh")

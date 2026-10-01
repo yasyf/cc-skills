@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat >&2 <<'EOF'
-usage: orca-check.sh [--ack <delivery-id>] [--peek] [-- <orca check args>...]
+usage: orca-check.sh [--ack <delivery-id>] [--peek] [--json] [-- <orca check args>...]
        orca-check.sh --stale [--inbox <inbox file>]
 
 Runs one blocking `orca orchestration check --wait` that wakes on worker_done,
@@ -13,7 +13,9 @@ except heartbeats, one per line, then the delivery to acknowledge:
   <msg id> <type> <lane> <subject>: <body on one line>
   delivery <delivery id> heartbeats=<n>
 
-A wait that ends empty prints `timeout`. --ack <delivery-id> acknowledges the
+--json prints each of those messages as one compact JSON object instead, the
+message as Orca returned it plus its "lane", for desk-runner.py. A wait that ends
+empty prints `timeout`. --ack <delivery-id> acknowledges the
 previous batch before waiting; pass result.deliveryId, since a message id
 acknowledges nothing and the Run replays an unacknowledged batch. --peek prints
 the unread messages without waiting or marking them read. Arguments after --
@@ -45,11 +47,12 @@ EOF
   exit 2
 }
 
-ACK='' PEEK='' STALE='' INBOX=''
+ACK='' PEEK='' STALE='' INBOX='' JSON=''
 while [ $# -gt 0 ]; do
   case $1 in
     --ack) [ $# -ge 2 ] || usage; ACK=$2; shift 2 ;;
     --peek) PEEK=1; shift ;;
+    --json) JSON=1; shift ;;
     --stale) STALE=1; shift ;;
     --inbox) [ $# -ge 2 ] || usage; INBOX=$2; shift 2 ;;
     --) shift; break ;;
@@ -122,11 +125,12 @@ for receipt in "$STATE"/*.terminal; do
   LANES=$(printf '%s' "$LANES" | jq -c --arg handle "$(cat "$receipt")" --arg lane "$(basename "$receipt" .terminal)" '. + {($handle): $lane}')
 done
 
-printf '%s' "$OUT" | jq -r --argjson lanes "$LANES" '
+printf '%s' "$OUT" | jq -r --argjson lanes "$LANES" --arg json "$JSON" '
   .result as $r
   | ($r.messages // []) as $all
   | ($all | map(select(.type != "heartbeat"))[]
-      | "\(.id) \(.type) \($lanes[.from_handle] // .from_handle) \(.subject): \(.body // "" | gsub("\\s+"; " "))"),
+      | if $json == "1" then . + {lane: ($lanes[.from_handle] // .from_handle)} | tojson
+        else "\(.id) \(.type) \($lanes[.from_handle] // .from_handle) \(.subject): \(.body // "" | gsub("\\s+"; " "))" end),
     if $r.deliveryId then "delivery \($r.deliveryId) heartbeats=\($all | map(select(.type == "heartbeat")) | length)"
     elif ($all | length) == 0 and ($r.timedOut // false) then "timeout"
     else empty end'

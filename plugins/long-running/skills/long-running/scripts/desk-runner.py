@@ -1,0 +1,938 @@
+#!/usr/bin/env python3
+"""The scripted desk: root commands become durable actions addressed to a lane's current Orca dispatch, the Run mailbox is consumed and acknowledged, ready bottom prefixes enqueue, and deadlines are checked, all without a model turn.
+
+    desk-runner.py relay  --config PATH --key KEY --lane LANE --text TEXT [--reply-to MSG] [--deadline-minutes N]
+    desk-runner.py launch --config PATH --key KEY --lane LANE --model M --effort E --brief PATH
+    desk-runner.py policy --config PATH --key KEY --landing prefix|whole --revision REV --source TEXT [--supersedes REV]
+    desk-runner.py run    --config PATH --desk orca|landing [--once]
+    desk-runner.py show   --config PATH
+
+STDLIB ONLY. Every action lives in the store `actions.py` owns: one container per lane,
+`desk-lane-<lane>`, whose owner is the lane's current Orca dispatch, plus `desk-landing`
+and `desk-runner`. An action id is the command's key, so a command submitted twice
+yields one action. A relaunch offers the lane's container to the new dispatch, and that
+dispatch's first `started` reply takes it at the next owner generation, so a stale
+dispatch can never start or finish an action.
+
+A relay is accepted, then started and completed by the lane itself: it replies
+`started <key>` and `done <key>: <result>` on the action's thread. The send is its own
+`send:` action, delivery evidence only. A send whose response is lost becomes
+`unverifiable` and is settled from Orca's request receipt or the recipient's mailbox,
+never resent blindly.
+
+`run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
+prompts, and checks relay deadlines; `run --desk landing` gates and enqueues ready
+prefixes under the accepted landing policy, verifies landings by squash, and routes
+blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
+brief, which answers it or escalates it with options. Escalations append one line each
+to the config's escalations file, once per cause, with Pacific times and no zone label;
+a quiet pass writes nothing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import actions
+
+SCRIPTS = Path(__file__).resolve().parent
+PACIFIC = ZoneInfo("America/Los_Angeles")
+LANE_PREFIX = "desk-lane-"
+LANDING = "desk-landing"
+RUNNER = "desk-runner"
+UNLAUNCHED = "unlaunched"
+STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
+ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
+INACTIVE = frozenset({"completed", "failed"})
+QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
+SWEEP_EVERY = timedelta(minutes=5)
+ORPHANED_SEND = timedelta(minutes=2)
+ORPHANED_JUDGE = timedelta(minutes=5)
+SEND_ATTEMPTS = 3
+VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
+WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
+STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
+ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
+HELD_PR = re.compile(r"#(\d+)")
+HELD_LANE = re.compile(r"\blane:(\S+)")
+LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=\S+ worktree=\S+$", re.MULTILINE)
+LANDING_POLICIES = ("prefix", "whole")
+JUDGE_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "properties": {"verdict": {"enum": ["answer", "escalate"]}, "text": {"type": "string"}},
+        "required": ["verdict", "text"],
+    }
+)
+JUDGE_PROMPT = """You answer one routine question from an Orca worker for its coordinator.
+Answer only when the lane's brief below settles the question; quote the brief's rule in the answer.
+When the brief does not settle it, or the answer changes scope, touches production, or needs the owner,
+return verdict "escalate" with the question restated in one line and 2-4 concrete options.
+
+<brief lane="{lane}">
+{brief}
+</brief>
+
+<question id="{msg}" type="{type}">
+{subject}
+{body}
+</question>
+"""
+
+
+@dataclass
+class Done:
+    code: int
+    out: str
+    err: str
+
+
+class Shell:
+    """The single side-effect boundary: every subprocess, the clock, and the load average pass through here."""
+
+    def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
+        proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, env={**os.environ, **env} if env else None)
+        return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def spawn(self, argv: list[str], out: Path, env: dict[str, str]) -> subprocess.Popen:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w") as sink:
+            return subprocess.Popen(argv, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+
+    def now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
+
+    def load(self) -> float:
+        return os.getloadavg()[0]
+
+    def cores(self) -> int:
+        return os.cpu_count() or 1
+
+
+def pacific(moment: datetime) -> str:
+    return moment.astimezone(PACIFIC).strftime("%H:%M")
+
+
+def lane_container(lane: str) -> str:
+    return f"{LANE_PREFIX}{lane}"
+
+
+@dataclass
+class Config:
+    store: Path | None
+    escalations: Path
+    view: Path
+    run: str
+    receipts: Path
+    briefs: Path
+    launch_env: dict[str, str]
+    start_minutes: int
+    launch_minutes: int
+    enqueue_minutes: int
+    judge_model: str
+    landing: dict | None
+
+    @classmethod
+    def load(cls, path: Path) -> Config:
+        raw = json.loads(path.read_text())
+        orca = raw["orca"]
+        deadlines = raw.get("deadlines", {})
+        return cls(
+            store=Path(raw["store"]).expanduser() if raw.get("store") else None,
+            escalations=Path(raw["escalations"]).expanduser(),
+            view=Path(raw["view"]).expanduser(),
+            run=orca["run"],
+            receipts=Path(orca["receipts"]).expanduser(),
+            briefs=Path(orca["briefs"]).expanduser(),
+            launch_env=orca.get("launch_env", {}),
+            start_minutes=deadlines.get("start_minutes", 10),
+            launch_minutes=deadlines.get("launch_minutes", 15),
+            enqueue_minutes=deadlines.get("enqueue_minutes", 15),
+            judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
+            landing=raw.get("landing"),
+        )
+
+
+class Book:
+    """Generation-checked edits over the actions store; a change raising ValueError writes nothing."""
+
+    def __init__(self, store: actions.Store, shell: Shell):
+        self.store = store
+        self.shell = shell
+
+    def stamp(self) -> str:
+        return actions.stamp(self.shell.now())
+
+    def ensure(self, container: str, owner: str) -> actions.Incident:
+        return self.store.create(actions.Incident(container, owner, 0, self.stamp(), {}))
+
+    def load(self, container: str) -> actions.Incident:
+        return self.store.load(container)
+
+    def containers(self, prefix: str) -> list[str]:
+        return [name for name in self.store.ids() if name.startswith(prefix)]
+
+    def edit(self, container: str, change: Callable[[actions.Incident], object]) -> object:
+        while True:
+            generation = self.store.load(container).owner_generation
+            try:
+                with self.store.owned(container, generation) as incident:
+                    return change(incident)
+            except actions.StaleGeneration:
+                continue
+
+    def attempt(self, container: str, change: Callable[[actions.Incident], object]) -> bool:
+        try:
+            self.edit(container, change)
+        except (ValueError, actions.UnknownAction):
+            return False
+        return True
+
+    def as_owner(self, container: str, owner: str, change: Callable[[actions.Incident], object]) -> bool:
+        """Apply `change` only while `owner` holds the container at the generation read; a transfer in between refuses it."""
+        incident = self.store.load(container)
+        if incident.owner != owner:
+            return False
+        try:
+            with self.store.owned(container, incident.owner_generation) as live:
+                change(live)
+        except (actions.StaleGeneration, ValueError, actions.UnknownAction):
+            return False
+        return True
+
+    def accept(self, container: str, action_id: str, kind: str, target: str, authority: str, deadline: datetime | None) -> tuple[actions.Action, bool]:
+        def change(incident: actions.Incident) -> tuple[actions.Action, bool]:
+            created = action_id not in incident.actions
+            action = incident.accept(action_id, kind, target, authority, self.shell.now())
+            if created and deadline:
+                action.deadline = actions.stamp(deadline)
+            return action, created
+
+        return self.edit(container, change)
+
+    def actions(self, container: str, kind: str | None = None, status: str | None = None) -> list[actions.Action]:
+        return [action for action in self.store.load(container).actions.values() if (kind is None or action.kind == kind) and (status is None or action.status == status)]
+
+
+@dataclass
+class Dispatch:
+    lane: str
+    id: str
+    terminal: str
+    status: str
+    live: bool
+    wait: dict | None
+
+
+class Orca:
+    def __init__(self, shell: Shell, config: Config):
+        self.shell = shell
+        self.config = config
+
+    def call(self, *argv: str) -> dict:
+        done = self.shell.run(["orca", *argv, "--json"])
+        try:
+            return json.loads(done.out)
+        except json.JSONDecodeError:
+            return {"ok": False, "error": {"code": "unparseable", "message": (done.out or done.err).strip()[:300]}}
+
+    def receipt(self, lane: str) -> str:
+        path = self.config.receipts / f"{lane}.json"
+        return json.loads(path.read_text())["result"]["dispatchId"] if path.is_file() else ""
+
+    def terminal(self, lane: str) -> str:
+        path = self.config.receipts / f"{lane}.terminal"
+        return path.read_text().strip() if path.is_file() else ""
+
+    def lanes(self) -> list[str]:
+        return sorted(path.stem for path in self.config.receipts.glob("*.terminal"))
+
+    def lane_of(self, handle: str) -> str:
+        return next((lane for lane in self.lanes() if self.terminal(lane) == handle), handle)
+
+    def show(self, lane: str) -> Dispatch | None:
+        dispatch = self.receipt(lane)
+        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        if not shown.get("ok"):
+            return None
+        result = shown["result"]
+        observation = result.get("observation") or {}
+        return Dispatch(
+            lane=lane,
+            id=dispatch,
+            terminal=(result.get("terminal") or {}).get("handle") or self.terminal(lane),
+            status=result["dispatch"]["status"],
+            live=observation.get("status") == "live",
+            wait=observation.get("agentWait"),
+        )
+
+    def thread_message(self, terminal: str, thread: str) -> dict | None:
+        listed = self.call("orchestration", "check", "--terminal", terminal, "--all")
+        return next((message for message in (listed.get("result") or {}).get("messages") or [] if message.get("thread_id") == thread), None)
+
+    def request_state(self, request: str) -> str:
+        return (self.call("orchestration", "request-show", "--request", request).get("result") or {}).get("state", "absent")
+
+    def wake(self, terminal: str, text: str) -> None:
+        self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
+
+
+def request_id(reply: dict) -> str:
+    return ((reply.get("error") or {}).get("data") or {}).get("orchestrationRequestId", "")
+
+
+def thread_of(container: str, key: str) -> str:
+    return f"{container}/{key}"
+
+
+class Runner:
+    def __init__(self, shell: Shell, config: Config, store: actions.Store):
+        self.shell = shell
+        self.config = config
+        self.book = Book(store, shell)
+        self.orca = Orca(shell, config)
+        self.launching: dict[str, subprocess.Popen] = {}
+        self.book.ensure(RUNNER, RUNNER)
+
+    def now(self) -> datetime:
+        return self.shell.now()
+
+    def escalate(self, key: str, kind: str, about: str, text: str) -> None:
+        """Record one escalation per key; `flush` appends it to the escalations file."""
+        line = f"{kind} {key} {about}: {' '.join(text.split())}"
+        self.book.accept(RUNNER, f"escalation:{key}", "escalation", line, "runner", None)
+
+    def flush(self) -> None:
+        for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
+            self.config.escalations.parent.mkdir(parents=True, exist_ok=True)
+            with self.config.escalations.open("a") as out:
+                out.write(f"{pacific(actions.parse_stamp(action.accepted_at))} {action.target}\n")
+            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp()})))
+
+    def lane(self, lane: str) -> str:
+        container = lane_container(lane)
+        self.book.ensure(container, self.orca.receipt(lane) or UNLAUNCHED)
+        return container
+
+    def accept_relay(self, key: str, lane: str, text: str, reply_to: str, minutes: int) -> tuple[actions.Action, bool]:
+        target = json.dumps({"text": text, "reply_to": reply_to})
+        return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
+
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str) -> tuple[actions.Action, bool]:
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane)})
+        return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
+
+    def landing_policy(self) -> actions.Action | None:
+        self.book.ensure(LANDING, LANDING)
+        verified = self.book.actions(LANDING, kind="policy", status="verified")
+        superseded = {json.loads(action.target)["supersedes"] for action in verified}
+        return next((action for action in verified if json.loads(action.target)["revision"] not in superseded), None)
+
+    def accept_policy(self, key: str, rule: str, revision: str, source: str, supersedes: str) -> tuple[actions.Action, bool]:
+        current = self.landing_policy()
+        target = json.dumps({"rule": rule, "revision": revision, "supersedes": supersedes})
+        action, created = self.book.accept(LANDING, key, "policy", target, source, None)
+        if not created:
+            return action, created
+        if current and supersedes != json.loads(current.target)["revision"]:
+            held = json.loads(current.target)
+            reason = f"names {supersedes or 'no'} predecessor; the accepted landing policy is {held['rule']} at {held['revision']} ({current.authority_ref})"
+            self.book.attempt(LANDING, lambda incident: incident.fail(key, reason))
+            self.escalate(key, "STALE-POLICY", "landing", f"{rule} at {revision} from {source} rejected: {reason}")
+        else:
+            self.book.attempt(LANDING, lambda incident: incident.verify(key, {"at": self.book.stamp(), "supersedes": supersedes}))
+        return self.book.load(LANDING).actions[key], created
+
+    def transfer(self, lane: str) -> None:
+        """Offer the container to the lane's receipt dispatch when it moved; ownership changes only on that dispatch's ack."""
+        container = self.lane(lane)
+        incident = self.book.load(container)
+        dispatch = self.orca.receipt(lane)
+        if dispatch and dispatch not in (incident.owner, incident.pending_owner):
+            try:
+                self.book.store.transfer(container, incident.owner_generation, dispatch)
+            except actions.StaleGeneration:
+                return
+
+    def deliver(self) -> None:
+        for container in self.book.containers(LANE_PREFIX):
+            lane = container.removeprefix(LANE_PREFIX)
+            self.transfer(lane)
+            pending = self.book.actions(container, status="accepted")
+            relays = [action for action in pending if action.kind in ("relay", "reply")]
+            for action in pending:
+                if action.kind == "launch":
+                    self.launch(container, lane, action)
+            if relays and (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
+                for action in relays:
+                    self.send(container, dispatch, action)
+            self.reconcile_sends(container, lane)
+
+    def sends(self, container: str, key: str, dispatch: str) -> list[actions.Action]:
+        prefix = f"send:{key}:{dispatch}"
+        return [action for action in self.book.actions(container, kind="send") if action.action_id.split("#")[0] == prefix]
+
+    def send(self, container: str, dispatch: Dispatch, action: actions.Action) -> None:
+        tries = self.sends(container, action.action_id, dispatch.id)
+        if any(attempt.status != "failed" for attempt in tries):
+            return
+        if len(tries) >= SEND_ATTEMPTS:
+            self.escalate(f"{container}/send:{action.action_id}:{dispatch.id}", "SEND-FAILED", dispatch.lane, f"{action.authority_ref} to {dispatch.id} failed {len(tries)} times: {tries[-1].reason}")
+            return
+        send_id = f"send:{action.action_id}:{dispatch.id}#{len(tries) + 1}"
+        self.book.accept(container, send_id, "send", dispatch.id, action.action_id, None)
+        if not self.book.attempt(container, lambda incident: incident.start(send_id, self.now(), dispatch_id=dispatch.id)):
+            return
+        self.post(container, dispatch, action, send_id, "")
+
+    def post(self, container: str, dispatch: Dispatch, action: actions.Action, send_id: str, retry: str) -> None:
+        spec = json.loads(action.target)
+        thread = thread_of(container, action.action_id)
+        if action.kind == "reply":
+            argv = ["orchestration", "reply", "--id", spec["reply_to"], "--body", f"{spec['text']}\n\n({action.authority_ref})"]
+        else:
+            body = f"{spec['text']}\n\nReply on thread {thread}: subject `started {action.action_id}` before acting, then `done {action.action_id}: <result>`."
+            argv = [
+                "orchestration", "send", "--to", f"dispatch:{dispatch.id}", "--type", "dispatch", "--subject", f"{action.authority_ref}: act {action.action_id}",
+                "--body", body, "--thread-id", thread, "--payload", json.dumps({"action": thread}),
+            ]
+        reply = self.orca.call(*argv, *(["--retry-request", retry] if retry else []))
+        if reply.get("ok"):
+            message = ((reply.get("result") or {}).get("message") or {}).get("id", "sent")
+            self.book.attempt(container, lambda incident: incident.complete(send_id, {"message": message, "at": self.book.stamp()}))
+            if action.kind == "reply":
+                self.book.attempt(container, lambda incident: (incident.start(action.action_id, self.now()), incident.complete(action.action_id, {"message": message, "at": self.book.stamp()})))
+            else:
+                self.orca.wake(dispatch.terminal, f"{action.authority_ref}: read Orca message on thread {thread} now")
+        elif request := request_id(reply):
+            self.book.attempt(container, lambda incident: lost(incident, send_id, {"request_id": request}))
+        else:
+            self.book.attempt(container, lambda incident: incident.fail(send_id, json.dumps(reply.get("error"))[:300]))
+
+    def reconcile_sends(self, container: str, lane: str) -> None:
+        """Settle every send whose response was lost from Orca's request receipt or the recipient's mailbox; absent both, escalate once and never resend."""
+        cutoff = self.now() - ORPHANED_SEND
+        for send in self.book.actions(container, kind="send", status="started"):
+            if actions.parse_stamp(send.started_at) < cutoff:
+                self.book.attempt(container, lambda incident, key=send.action_id: incident.lose(key))
+        for send in self.book.actions(container, kind="send", status="unverifiable"):
+            action = self.book.load(container).actions[send.authority_ref]
+            request = (send.response or {}).get("request_id", "")
+            state = self.orca.request_state(request) if request else "absent"
+            if state == "pending":
+                continue
+            dispatch = self.orca.show(lane)
+            if state == "completed" and dispatch and dispatch.id == send.target:
+                self.post(container, dispatch, action, send.action_id, request)
+                continue
+            terminal = dispatch.terminal if dispatch and dispatch.id == send.target else ""
+            found = self.orca.thread_message(terminal, thread_of(container, action.action_id)) if terminal else None
+            if found:
+                self.book.attempt(container, lambda incident, key=send.action_id: incident.complete(key, {"message": found["id"], "at": found.get("created_at", self.book.stamp()), "reconciled": True}))
+            else:
+                self.escalate(f"{container}/{send.action_id}", "UNVERIFIABLE", lane, f"{action.authority_ref} send to {send.target} lost its response; Orca holds no receipt and no message on its thread; it was not resent")
+
+    def launch_log(self, container: str, key: str) -> Path:
+        return (self.config.store or actions.incidents_dir()).parent / "desk-runner-launches" / f"{container}-{key}.out"
+
+    def launch(self, container: str, lane: str, action: actions.Action) -> None:
+        """Start orca-launch.sh detached, so a readiness wait never holds a relay; `reap` records its printed line."""
+        if self.shell.load() > self.shell.cores():
+            return
+        if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
+            return
+        spec = json.loads(action.target)
+        argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
+        self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), self.config.launch_env)
+
+    def reap(self) -> None:
+        """Settle each started launch from its printed line; a launch with neither a line nor a new receipt is unverifiable, never relaunched."""
+        for container in self.book.containers(LANE_PREFIX):
+            lane = container.removeprefix(LANE_PREFIX)
+            for action in self.book.actions(container, kind="launch", status="started"):
+                process = self.launching.get(f"{container}/{action.action_id}")
+                if process and process.poll() is None:
+                    continue
+                self.launching.pop(f"{container}/{action.action_id}", None)
+                self.settle_launch(container, lane, action)
+
+    def settle_launch(self, container: str, lane: str, action: actions.Action) -> None:
+        log = self.launch_log(container, action.action_id)
+        out = log.read_text().strip() if log.is_file() else ""
+        launched = LAUNCHED.search(out)
+        prior = json.loads(action.target)["prior"]
+        receipt = self.orca.receipt(lane)
+        key = action.action_id
+        if launched and launched["lane"] == lane:
+            proof = {"line": launched.group(0), "dispatch": launched["dispatch"], "at": self.book.stamp()}
+        elif not out and receipt and receipt != prior:
+            proof = {"line": f"receipt dispatch {receipt}", "dispatch": receipt, "at": self.book.stamp()}
+        elif out:
+            self.book.attempt(container, lambda incident: incident.fail(key, out[-300:]))
+            self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, out.splitlines()[-1])
+            return
+        else:
+            self.book.attempt(container, lambda incident: incident.lose(key))
+            self.escalate(f"{container}/{key}", "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched")
+            return
+        self.book.attempt(container, lambda incident: (incident.complete(key, proof, dispatch_id=proof["dispatch"]), incident.verify(key, proof)))
+        self.transfer(lane)
+        if launched and launched["how"] == "unsupervised":
+            self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
+
+    def check(self, delivery: str) -> str:
+        argv = [str(SCRIPTS / "orca-check.sh"), "--json", *(["--ack", delivery] if delivery else []), "--", "--run", self.config.run]
+        done = self.shell.run(argv, env={"ORCA_CHECK_STATE": str(self.config.receipts)})
+        following = ""
+        for line in done.out.splitlines():
+            if line.startswith("delivery "):
+                following = line.split()[1]
+            elif line.startswith("{"):
+                self.message(json.loads(line))
+            elif line.startswith(("connection-lost", "error ")):
+                self.escalate(f"orca-check:{actions.stamp(self.now())[:15]}", "ORCA-CHECK", "runner", line)
+                return delivery
+        return following
+
+    def message(self, message: dict) -> None:
+        payload = json.loads(message.get("payload") or "{}")
+        lane = message.get("lane") or self.orca.lane_of(message.get("from_handle", ""))
+        sender = payload.get("dispatchId") or (self.orca.receipt(lane) if self.orca.terminal(lane) == message.get("from_handle") else "")
+        acked = ACK.match(message.get("subject") or "")
+        thread = message.get("thread_id") or ""
+        if acked and "/" in thread:
+            container, key = thread.split("/", 1)
+            result = acked["rest"].removeprefix(key).lstrip(": ").strip()
+            self.acknowledge(container, key, sender, acked["verb"], result or (message.get("body") or "").strip(), message["id"])
+        elif message["type"] in ("question", "escalation"):
+            self.judge(message, lane)
+        elif message["type"] == "worker_done":
+            self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
+        elif message["type"] in ("decision_gate", "handoff"):
+            self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
+
+    def acknowledge(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
+        """Apply a lane's started/done reply only from the dispatch that owns the container; a pending dispatch's first ack takes ownership first."""
+        if container not in self.book.store.ids() or key not in self.book.load(container).actions:
+            return
+        incident = self.book.load(container)
+        if sender and sender == incident.pending_owner:
+            self.book.store.ack(container, sender)
+        moved = verb == "started" and self.book.as_owner(container, sender, lambda live: live.start(key, self.now(), dispatch_id=sender))
+        if verb == "done":
+            response = {"text": text[:500], "message": message, "at": self.book.stamp()}
+            moved = self.book.as_owner(container, sender, lambda live: finish(live, key, response, sender))
+        if not moved and sender and sender != self.book.load(container).owner:
+            self.stand_down(container, key, sender, message)
+
+    def stand_down(self, container: str, key: str, sender: str, message: str) -> None:
+        incident = self.book.load(container)
+        notice = f"stand-down:{key}:{sender}"
+        text = f"Do not execute {key}: dispatch {incident.owner} owns {container} at generation {incident.owner_generation}."
+        action, created = self.book.accept(container, notice, "reply", json.dumps({"text": text, "reply_to": message}), notice, None)
+        dispatch = self.orca.show(container.removeprefix(LANE_PREFIX))
+        if created and dispatch:
+            self.send(container, Dispatch(dispatch.lane, sender, dispatch.terminal, dispatch.status, dispatch.live, None), action)
+
+    def brief_for(self, lane: str) -> Path | None:
+        container = lane_container(lane)
+        launched = [json.loads(action.target)["brief"] for action in self.book.actions(container, kind="launch", status="verified")] if container in self.book.store.ids() else []
+        candidates = [Path(path) for path in launched[-1:]] + [self.config.briefs / f"{lane}.full.md", self.config.briefs / f"{lane}.md"]
+        return next((path for path in candidates if path.is_file()), None)
+
+    def judge(self, message: dict, lane: str) -> None:
+        """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""
+        key = f"judge:{message['id']}"
+        question = f"{message.get('subject', '')}: {(message.get('body') or '')[:300]}"
+        judged, created = self.book.accept(RUNNER, key, "judge", message.get("subject", ""), lane, None)
+        if not created:
+            if judged.status == "started" and actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
+                self.escalate(message["id"], "DECIDE", lane, f"{question} (the judge never returned)")
+            return
+        self.book.attempt(RUNNER, lambda incident: incident.start(key, self.now()))
+        brief = self.brief_for(lane)
+        if not brief:
+            self.book.attempt(RUNNER, lambda incident: incident.complete(key, {"verdict": "escalate", "text": "no brief", "at": self.book.stamp()}))
+            self.escalate(message["id"], "DECIDE", lane, f"{question} (no brief file for {lane})")
+            return
+        prompt = JUDGE_PROMPT.format(lane=lane, brief=brief.read_text(), msg=message["id"], type=message["type"], subject=message.get("subject", ""), body=message.get("body", ""))
+        argv = ["claude", "-p", "--model", self.config.judge_model, "--effort", "low", "--no-session-persistence", "--strict-mcp-config", "--tools", "", "--output-format", "json", "--json-schema", JUDGE_SCHEMA]
+        verdict = judge_verdict(self.shell.run(argv, stdin=prompt))
+        self.book.attempt(RUNNER, lambda incident: incident.complete(key, {**verdict, "at": self.book.stamp()}))
+        if verdict["verdict"] == "answer":
+            reply, _ = self.accept_relay(f"answer:{message['id']}", lane, verdict["text"], message["id"], self.config.start_minutes)
+            if (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
+                self.send(lane_container(lane), dispatch, reply)
+        else:
+            self.escalate(message["id"], "DECIDE", lane, f"{question} | {verdict['text']}")
+
+    def sweep(self) -> None:
+        """Unread mail on a live dispatch gets one wake; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
+        done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
+        for line in done.out.splitlines():
+            parts = line.split()
+            if len(parts) < 5 or parts[0] != "STALE":
+                continue
+            lane, status, item = parts[1], parts[3], parts[4]
+            if status != "unread":
+                self.escalate(f"stale:{item}", "STALE-MAIL", lane, f"{item} unread by a {status} dispatch")
+                continue
+            _, created = self.book.accept(RUNNER, f"wake:{item}", "wake", item, lane, None)
+            if created and (terminal := self.orca.terminal(lane)):
+                self.orca.wake(terminal, f"unread Orca message {item}; read it now")
+        hour = actions.stamp(self.now())[:13]
+        for lane in self.orca.lanes():
+            dispatch = self.orca.show(lane)
+            if not dispatch or dispatch.status in INACTIVE:
+                continue
+            if dispatch.wait:
+                self.escalate(f"prompt:{dispatch.id}:{dispatch.wait.get('since', '')}", "PROMPT", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} parked on {dispatch.wait.get('reason', 'a prompt')}")
+            elif not dispatch.live:
+                self.escalate(f"liveness:{dispatch.id}:{hour}", "LIVENESS", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} is not live; resume it in place, never relaunch on this alone")
+
+    def overdue(self, container: str, about: str) -> None:
+        moment = self.now()
+        for action in self.book.load(container).actions.values():
+            if action.kind not in ("relay", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
+                continue
+            if action.kind == "relay" and action.status == "started":
+                continue
+            sent = [send for send in self.book.actions(container, kind="send") if send.authority_ref == action.action_id]
+            missing = {
+                "relay": f"delivered to {sent[-1].target}, no started reply" if sent and sent[-1].status == "completed" else "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
+                "launch": "launch never finished" if action.status == "started" else "launch held: load above the core count",
+                "enqueue": "stack-enqueue never returned" if action.status == "started" else "enqueue never ran",
+            }[action.kind]
+            self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
+
+    def deadlines_orca(self) -> None:
+        for container in self.book.containers(LANE_PREFIX):
+            self.overdue(container, container.removeprefix(LANE_PREFIX))
+
+    def render(self) -> str:
+        lines = [f"# desk-runner {pacific(self.now())}"]
+        if policy := self.landing_policy():
+            held = json.loads(policy.target)
+            lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
+        for container in [*self.book.containers(LANE_PREFIX), LANDING]:
+            incident = self.book.load(container)
+            lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
+            for action in sorted(incident.actions.values(), key=lambda action: action.accepted_at):
+                if action.kind in ("send", "policy"):
+                    continue
+                at = [f"accepted {pacific(actions.parse_stamp(action.accepted_at))}"]
+                at += [f"started {pacific(actions.parse_stamp(action.started_at))}"] if action.started_at else []
+                at += [f"{action.status} {pacific(actions.parse_stamp(receipt['at']))}"] if (receipt := action.verification_receipt or action.response) and "at" in receipt else []
+                lines.append(f"- {action.action_id} {action.kind} [{action.status}] {' '.join(at)}")
+        return "\n".join(lines) + "\n"
+
+    def write_view(self) -> None:
+        text = self.render()
+        current = self.config.view.read_text() if self.config.view.is_file() else ""
+        if current.split("\n", 1)[1:] != text.split("\n", 1)[1:]:
+            self.config.view.parent.mkdir(parents=True, exist_ok=True)
+            self.config.view.write_text(text)
+
+
+def lost(incident: actions.Incident, key: str, response: dict) -> None:
+    incident.lose(key)
+    incident.action(key).response = response
+
+
+def finish(incident: actions.Incident, key: str, response: dict, dispatch: str) -> None:
+    if incident.action(key).status == "accepted":
+        incident.start(key, actions.parse_stamp(response["at"]), dispatch_id=dispatch)
+    incident.complete(key, response, dispatch_id=dispatch)
+
+
+def judge_verdict(done: Done) -> dict:
+    if done.code != 0:
+        return {"verdict": "escalate", "text": f"the judge failed: {(done.err or done.out).strip()[-200:]}"}
+    payload = json.loads(done.out)
+    return (payload[-1] if isinstance(payload, list) else payload)["structured_output"]
+
+
+class Landing:
+    """The ready-prefix workflow: gate every tracked stack read-only, enqueue each ready prefix once per set of heads, verify by squash, and route the restack above it."""
+
+    def __init__(self, runner: Runner, config: dict):
+        self.runner = runner
+        self.shell = runner.shell
+        self.book = runner.book
+        self.repo = config["repo"]
+        self.ledger = config["ledger"]
+        self.checkout = Path(config["checkout"]).expanduser()
+        self.holds = Path(config["holds"]).expanduser()
+        self.bus = config.get("bus", "")
+        self.book.ensure(LANDING, LANDING)
+
+    def ledger_py(self, *argv: str) -> Done:
+        return self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv])
+
+    def rows(self) -> dict[str, dict]:
+        done = self.ledger_py("list", "--ledger", self.ledger, "--json")
+        return {row["pr"]: row for row in json.loads(done.out)} if done.code == 0 else {}
+
+    def held(self, rows: dict[str, dict]) -> list[str]:
+        text = self.holds.read_text() if self.holds.is_file() else ""
+        lanes = set(HELD_LANE.findall(text))
+        numbers = set(HELD_PR.findall(text)) | {pr for pr, row in rows.items() if row.get("lane") in lanes and row.get("state", "open") == "open"}
+        return sorted(numbers, key=int)
+
+    def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:
+        policy = self.runner.landing_policy()
+        whole = ["--whole"] if policy and json.loads(policy.target)["rule"] == "whole" else []
+        return [str(self.checkout / STACK_ENQUEUE), tip, *(["--check"] if check else []), *whole, *(["--hold", *held] if held else [])]
+
+    def tips(self, rows: dict[str, dict]) -> list[str]:
+        tracked = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and (row.get("reported_head") or row.get("registered"))}
+        bases = {row.get("base") for row in tracked.values()}
+        return sorted((pr for pr, row in tracked.items() if row.get("branch") not in bases), key=int)
+
+    def gate(self, rows: dict[str, dict], held: list[str]) -> None:
+        tips = self.tips(rows)
+        with ThreadPoolExecutor(max(1, len(tips))) as pool:
+            gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
+        for tip, done in gated.items():
+            verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
+            if would := WOULD_ENQUEUE.search(done.out):
+                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts)
+            for pr, match in verdicts.items():
+                if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
+                    self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tip, held)
+
+    def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match]) -> None:
+        """One enqueue per exact set of prefix heads; a fresh attempt only after every earlier one enqueued nothing."""
+        base = "enqueue:" + ",".join(f"{pr}@{verdicts[pr]['sha'] if pr in verdicts else ''}" for pr in prefix)
+        attempts = [action for action in self.book.actions(LANDING, kind="enqueue") if action.action_id.split("#")[0] == base]
+        if any(action.status != "completed" or action.response["outcome"] != "blocked" for action in attempts):
+            return
+        policy = self.runner.landing_policy()
+        authority = f"{policy.authority_ref} {json.loads(policy.target)['revision']}" if policy else ""
+        self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), authority, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+
+    def enqueue(self) -> None:
+        accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
+        with ThreadPoolExecutor(max(1, len(accepted))) as pool:
+            list(pool.map(self.enqueue_one, accepted))
+
+    def enqueue_one(self, action: actions.Action) -> None:
+        key = action.action_id
+        if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=actions.parse_stamp(action.deadline))):
+            return
+        prefix = action.target.split(",")
+        done = self.shell.run(self.enqueue_argv(prefix[-1], self.held(self.rows()), check=False))
+        outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
+        if outcome == "enqueued" and "enqueue #" not in done.out:
+            outcome = "noop"
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": done.out[-1500:], "at": self.book.stamp()}))
+        if outcome in ("stranded", "failed", "unsettled"):
+            last = (done.out or done.err).strip().splitlines()
+            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", f"#{prefix[-1]}", last[-1] if last else f"exit {done.code}")
+
+    def reconcile(self) -> None:
+        """An enqueue whose response was lost: Graphite's own status decides; a partial queue is unverifiable and nothing is re-enqueued."""
+        cutoff = self.runner.now() - timedelta(minutes=self.runner.config.enqueue_minutes)
+        for action in self.book.actions(LANDING, kind="enqueue", status="started"):
+            if actions.parse_stamp(action.started_at) < cutoff:
+                self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.lose(key))
+        for action in self.book.actions(LANDING, kind="enqueue", status="unverifiable"):
+            prefix = action.target.split(",")
+            done = self.shell.run([str(self.checkout / STACK_ENQUEUE), *prefix, "--status"])
+            statuses = {match["pr"]: match["status"] for match in STATUS_LINE.finditer(done.out)}
+            if done.code != 0 or set(statuses) != set(prefix):
+                continue
+            queued = [pr for pr in prefix if statuses[pr] in QUEUED]
+            key = action.action_id
+            if len(queued) == len(prefix):
+                self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "enqueued", "out": "reconciled from Graphite status", "at": self.book.stamp()}))
+            elif not queued:
+                self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": "reconciled: Graphite holds none of the prefix", "at": self.book.stamp()}))
+            else:
+                self.runner.escalate(key, "UNVERIFIABLE", f"#{prefix[-1]}", f"Graphite holds {', '.join('#' + pr for pr in queued)} of {', '.join('#' + pr for pr in prefix)}; nothing was re-enqueued")
+
+    def verify(self, rows: dict[str, dict]) -> None:
+        for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
+            prefix = action.target.split(",")
+            if action.response["outcome"] not in ("enqueued", "noop") or not all(rows.get(pr, {}).get("state") == "landed" for pr in prefix):
+                continue
+            receipt = {"landed": {pr: rows[pr].get("landed_sha", "") for pr in prefix}, "at": self.book.stamp()}
+            self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.verify(key, receipt))
+        for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
+            top = action.target.split(",")[-1]
+            self.restack(top, rows)
+
+    def restack(self, landed_pr: str, rows: dict[str, dict]) -> None:
+        landed = rows.get(landed_pr, {})
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            if row.get("state", "open") != "open" or row.get("base") != landed.get("branch"):
+                continue
+            text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
+            self.route(f"restack:{pr}:{landed_pr}", row.get("lane", ""), text, pr)
+
+    def route_blocker(self, pr: str, sha: str, blocker: str, row: dict, tip: str, held: list[str]) -> None:
+        """Tell the lane once per head and blocker, re-reading the gate just before the send so an approval or fix that already arrived is never asked for."""
+        key = f"blocker:{pr}:{sha}:{hashlib.sha1(blocker.encode()).hexdigest()[:8]}"
+        if self.routed(key, row.get("lane", "")):
+            return
+        fresh = {match["pr"]: match for match in VERDICT_LINE.finditer(self.shell.run(self.enqueue_argv(tip, held, check=True)).out)}
+        current = fresh.get(pr)
+        if current and current["verdict"] == "BLOCKED" and current["detail"] == blocker:
+            self.route(key, row.get("lane", ""), f"#{pr} {sha}: {blocker}", pr)
+
+    def routed(self, key: str, lane: str) -> bool:
+        container = lane_container(lane)
+        return key in self.book.load(LANDING).actions or (container in self.book.store.ids() and key in self.book.load(container).actions)
+
+    def route(self, key: str, lane: str, text: str, pr: str) -> None:
+        if self.routed(key, lane):
+            return
+        if not lane:
+            self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
+        elif self.runner.orca.receipt(lane):
+            relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
+            if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
+                self.runner.send(lane_container(lane), dispatch, relay)
+        elif self.bus:
+            self.book.accept(LANDING, key, "bus", json.dumps({"lane": lane, "pr": pr, "text": text}), key, None)
+            self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
+            done = self.shell.run([sys.executable, str(SCRIPTS / "bus.py"), "post", "--bus", self.bus, "--from", "desk-runner", "--kind", "blocker", "--topic", pr, "--to", lane, "--text", text])
+            if done.code == 0:
+                self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
+            else:
+                self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
+        else:
+            self.runner.escalate(key, "ROUTE", lane, text)
+
+    def verify_restacks(self, rows: dict[str, dict]) -> None:
+        """A restack route is verified once its PR's head moves or the PR lands."""
+        routes = [(LANDING, action) for action in self.book.actions(LANDING, kind="bus")]
+        routes += [(name, action) for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay")]
+        for container, action in routes:
+            if not action.action_id.startswith("restack:") or action.status in ("verified", "failed"):
+                continue
+            pr = action.action_id.split(":")[1]
+            row = rows.get(pr, {})
+            if row.get("state") == "landed" or (row.get("head") and row["head"][:10] not in action.target):
+                receipt = {"head": row.get("head", ""), "state": row.get("state", ""), "at": self.book.stamp()}
+                self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
+
+    def run(self) -> None:
+        self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+        self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
+        rows = self.rows()
+        if not rows:
+            return
+        self.reconcile()
+        self.verify(rows)
+        self.verify_restacks(rows)
+        self.gate(rows, self.held(rows))
+        self.enqueue()
+        self.runner.overdue(LANDING, "landing")
+
+
+def seed_policy(runner: Runner) -> None:
+    landing = runner.config.landing
+    if landing and not runner.landing_policy():
+        policy = landing["policy"]
+        runner.accept_policy(f"policy:{policy['revision']}", policy["rule"], policy["revision"], policy["source"], "")
+
+
+def run_orca(runner: Runner, once: bool) -> int:
+    delivery = ""
+    swept = datetime.min.replace(tzinfo=timezone.utc)
+    while True:
+        runner.reap()
+        runner.deliver()
+        if runner.now() - swept >= SWEEP_EVERY:
+            runner.sweep()
+            swept = runner.now()
+        delivery = runner.check(delivery)
+        runner.deadlines_orca()
+        runner.flush()
+        runner.write_view()
+        if once:
+            return 0
+
+
+def run_landing(runner: Runner, once: bool) -> int:
+    seed_policy(runner)
+    landing = Landing(runner, runner.config.landing)
+    interval = runner.config.landing.get("interval_seconds", 180)
+    while True:
+        started = runner.now()
+        landing.run()
+        runner.flush()
+        if once:
+            return 0
+        runner.shell.sleep(max(0.0, interval - (runner.now() - started).total_seconds()))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="desk-runner.py", description=__doc__.split("\n", 1)[0])
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    relay = verbs.add_parser("relay")
+    relay.add_argument("--key", required=True)
+    relay.add_argument("--lane", required=True)
+    relay.add_argument("--text", required=True)
+    relay.add_argument("--reply-to", default="")
+    relay.add_argument("--deadline-minutes", type=int)
+    launch = verbs.add_parser("launch")
+    launch.add_argument("--key", required=True)
+    launch.add_argument("--lane", required=True)
+    launch.add_argument("--model", required=True)
+    launch.add_argument("--effort", required=True)
+    launch.add_argument("--brief", required=True, type=Path)
+    policy = verbs.add_parser("policy")
+    policy.add_argument("--key", required=True)
+    policy.add_argument("--landing", choices=LANDING_POLICIES, required=True)
+    policy.add_argument("--revision", required=True)
+    policy.add_argument("--source", required=True)
+    policy.add_argument("--supersedes", default="")
+    loop = verbs.add_parser("run")
+    loop.add_argument("--desk", choices=("orca", "landing"), required=True)
+    loop.add_argument("--once", action="store_true")
+    show = verbs.add_parser("show")
+    for sub in (relay, launch, policy, loop, show):
+        sub.add_argument("--config", type=Path, required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    config = Config.load(args.config)
+    runner = Runner(shell or Shell(), config, actions.Store(config.store))
+    if args.verb == "run":
+        return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
+    if args.verb == "show":
+        sys.stdout.write(runner.render())
+        return 0
+    if args.verb == "relay":
+        action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
+    elif args.verb == "launch":
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()))
+    else:
+        action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
+    runner.flush()
+    print(f"{action.action_id} {action.kind} {action.status}{'' if created else ' (already accepted)'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
