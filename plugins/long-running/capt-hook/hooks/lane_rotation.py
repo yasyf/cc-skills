@@ -43,6 +43,7 @@ LOCK_RETRIES = 10
 LOCK_MIN_DELAY = 0.005
 LOCK_MAX_DELAY = 0.1
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+TASK_LABEL_CHARS = 50
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 IDLE_NOTIFICATION = '{"type":"idle_notification"'
 FLUSHED = re.compile(r"flushed:?((?:[ ,]+[0-9a-f]{6,40}\b)+)", re.IGNORECASE)
@@ -75,6 +76,16 @@ def spawned_at(transcript: Path) -> str | None:
         return next((stamp for line in lines if (stamp := json.loads(line).get("timestamp"))), None)
 
 
+def task_label(transcript: Path) -> str | None:
+    with transcript.open() as lines:
+        prompt = next((entry["message"]["content"] for line in lines if (entry := json.loads(line)).get("type") == "user"), None)
+    if not isinstance(prompt, str):
+        return None
+    if message := TEAMMATE_MESSAGE.match(prompt):
+        prompt = message[2]
+    return prompt[:TASK_LABEL_CHARS] + "..." if len(prompt) > TASK_LABEL_CHARS else prompt
+
+
 def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
     teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
@@ -96,9 +107,9 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     lanes = []
     for name, transcript, meta, turn in active:
         if meta.get("teamName"):
-            if not teammate_tasks[meta["description"]]:
+            if not (label := next((key for key in (meta["description"], task_label(transcript)) if teammate_tasks[key]), None)):
                 continue
-            teammate_tasks[meta["description"]] -= 1
+            teammate_tasks[label] -= 1
         if turn:
             lanes.append(
                 Lane(

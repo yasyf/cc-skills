@@ -1280,8 +1280,9 @@ invoked, the same capt-hook pack checks the lanes on every main-session `Stop`, 
 never blocks it.
 
 **Liveness.** A lane is live only while it appears as a running teammate or subagent in
-the `Stop` payload's `background_tasks`, matched by the `description` in its meta.
-Membership in a team config never counts, so a dead or stopped lane is never asked. A
+the `Stop` payload's `background_tasks`. A subagent matches by id. Claude Code labels
+an in-process teammate by its prompt's first 50 characters plus `...`, not by the
+`description` in its meta, so a teammate matches on either one. Membership in a team config never counts, so a dead or stopped lane is never asked. A
 lane whose newest turn is more than an hour behind the root's is dormant: its cache is
 cold, it costs nothing until it wakes, and the hook skips it.
 

@@ -51,6 +51,7 @@ class Tree:
         model: str = "claude-opus-5-5",
         hint: str | None = None,
         description: str | None = None,
+        prompt: str | None = None,
         spawned: datetime = ROOT_AT - timedelta(hours=3),
     ) -> dict:
         agent_id = f"a{name}-{hashlib.sha1(f'{name}{spawned}'.encode()).hexdigest()[:16]}"
@@ -66,9 +67,11 @@ class Tree:
             )
         subagents.mkdir(parents=True, exist_ok=True)
         (subagents / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta))
-        first = {"type": "user", "isSidechain": True, "timestamp": stamp(spawned), "message": {"content": "go"}}
+        content = f'<teammate-message teammate_id="team-lead" summary="{meta["description"]}">\n{prompt}\n</teammate-message>' if prompt else "go"
+        first = {"type": "user", "isSidechain": True, "timestamp": stamp(spawned), "message": {"content": content}}
         write_jsonl(subagents / f"agent-{agent_id}.jsonl", [first, assistant(ROOT_AT - behind, tokens, sidechain=True, model=model)])
-        return {"id": f"t-{name}" if team else agent_id, "type": "teammate" if team else "subagent", "status": "running", "description": meta["description"]}
+        label = (prompt[:50] + "..." if len(prompt) > 50 else prompt) if prompt else meta["description"]
+        return {"id": f"t-{name}" if team else agent_id, "type": "teammate" if team else "subagent", "status": "running", "description": label}
 
     def inbox(self, name: str) -> list[dict]:
         path = self.claude / "teams" / TEAM / "inboxes" / f"{name}.json"
@@ -145,6 +148,21 @@ def test_team_config_only_lane_is_never_touched(tree: Tree, clock: list[float]) 
     lane_rotation.rotate_lanes(stop(tree, []))
 
     assert tree.inbox("stopped") == []
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "You are lane `alerts-watch` for the release v3 drive (respawned after all sessions were killed).",
+        "You are lane `alerts-watch`.",
+    ],
+)
+def test_teammate_labelled_by_its_prompt_is_live(tree: Tree, clock: list[float], prompt: str) -> None:
+    task = tree.lane("alerts-watch", 550_000, description="Alerts watch after restart", prompt=prompt)
+
+    lane_rotation.rotate_lanes(stop(tree, [task]))
+
+    assert len(tree.inbox("alerts-watch")) == 1
 
 
 def test_dormant_lane_is_skipped(tree: Tree, clock: list[float]) -> None:
