@@ -398,7 +398,7 @@ def test_compaction_resets_the_handoff(tmp_path: Path, phase: str) -> None:
         active=True, plan_path="/p/brook.md", phase=phase, compacting_since=1.0 if phase == "compacting" else None
     ).save(evt)
 
-    handoff.reground_after_compact(evt)
+    handoff.reground(evt)
 
     saved = handoff.CompactionState.load(evt)
     assert (saved.phase, saved.compacting_since) == ("idle", None)
@@ -507,19 +507,49 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
     assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
 
-    raw = {
-        "session_id": SESSION,
-        "source": "compact",
-        "cwd": str(FIXTURES / "project-600k"),
-        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
-    }
-    evt = SessionStartEvent(_raw=raw, ctx=context(session, raw))
-    restored = handoff.reground_after_compact(evt).message
+    restored = handoff.reground(session_start(session, "compact")).message
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show ddddddd`")
     assert "\nLive standing inbox rules: R7.\nR7 (standing) release every landing as it merges [orca-desk.md]\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
+
+
+def session_start(session: Path, source: str) -> SessionStartEvent:
+    raw = {
+        "session_id": SESSION,
+        "source": source,
+        "cwd": str(FIXTURES / "project-600k"),
+        "transcript_path": str(FIXTURES / "usage-460k.jsonl"),
+    }
+    return SessionStartEvent(_raw=raw, ctx=context(session, raw))
+
+
+def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:00:00Z")]))
+    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. stale\n")
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n" + "- lane row\n" * 400)
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    restored = handoff.reground(session_start(session, "resume")).message
+
+    assert restored.startswith("Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`")
+    assert "\n## Root's next actions\n1. watch SoFi\n- lane row\n" in restored
+    assert "stale" not in restored
+    assert len(restored.encode()) <= handoff.RESTORE_BUDGET
+
+
+def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    restored = handoff.reground(session_start(session, "resume")).message
+
+    assert restored == (
+        f"Read `{plan}` before anything else, then the progress doc: `ccn doc list --label progress:brook`, "
+        "then `ccn doc show <id>`; they supersede the conversation so far."
+    )
 
 
 def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, plan: Path, docs: Path) -> None:
