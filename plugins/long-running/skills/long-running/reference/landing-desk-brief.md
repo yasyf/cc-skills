@@ -119,9 +119,9 @@ Do, in this order, forever:
      `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. `ledger.py inbox --take` is your work
      list, P0 first, then rulings, reports, idles. After typing in a `clean` report,
-     if its stack is ready, unheld, and unqueued, enqueue its tip in the same
-     turn through step 3's path. Start all such stacks together.
-     The reported PR is the tip when it has no open child. Never defer a clean
+     enqueue its stack's largest ready, unheld, unqueued bottom prefix in the same
+     turn through step 3's path. Start all such prefixes together.
+     Use the prefix top as the tip. Never defer a clean
      report to the next pass. Reports open rows,
      carry the lane's text, and feed stale and p50; they are not required to label.
      A lane's red or conflicting verdict does not overrule the forge's state.
@@ -141,10 +141,11 @@ Do, in this order, forever:
      Record labels added by the root on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
-  3. Grade stacks. Every pass enqueues ALL tracked open stacks that are green,
-     approved, unheld, and not yet queued. Where the checkout carries an enqueue
-     script, call it directly: one `stack-enqueue --hold <held file> <tip>` per
-     ready stack together in one Bash call. Before each call, re-read the root's
+  3. Grade stacks. Every pass enqueues the largest contiguous green, approved,
+     unheld, unqueued bottom prefix of EVERY tracked open stack as one Graphite
+     batch. Where the checkout carries an enqueue script, call it directly: one
+     `stack-enqueue --hold <held file> <prefix top>` per ready prefix together
+     in one Bash call. Before each call, re-read the root's
      holds file and write a fresh digits-only file with
      `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>`.
      Append every open PR number whose ledger row's lane is named as lane:<name>
@@ -153,7 +154,7 @@ Do, in this order, forever:
      each call with `&`, capture its output, then `wait` and collect all outputs.
      Report each enqueue with `ledger.py report`; refresh records it as labelled
      outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the repo
-     has no script, use `ledger.py label --pr <tip> --expect-head <tip-sha>
+     has no script, use `ledger.py label --pr <prefix top> --expect-head <sha>
      --checkout <path>` and the holds mirrored into the ledger. Never enqueue
      one stack per pass. `label --all-clean` walks stacks one at a time; use it
      only as the fallback sweep where the repo has no enqueue script.
@@ -162,12 +163,14 @@ Do, in this order, forever:
      `new head <sha9>: <blocker>` line once per head and blocker. If the head moved
      since the refresh, the next pass grades the new head without a route; red CI
      and conflicts go through `route`, without a duplicate message from the batch.
-     Never label a lower PR of a tracked stack as a tip. Leave the whole stack
-     unlabelled while any PR is red, conflicting, or held. Label the tip only when
-     every PR passes on its final head.
+     Never wait for the top of a stack to go green before landing a green bottom.
+     PRs above the prefix wait on CI, review, or a hold. After the prefix lands,
+     route a restack of the first PR above it to its owning lane under step 4;
+     for an Orca lane, append one line to inbox/orca-desk.md. The lane restacks
+     the remaining PRs with `ccx vcs stack submit`.
      When the root is retargeted to the base branch or closed, retarget the next PR
-     to the base branch and label the remaining tip. Never label each survivor alone.
-     In the ledger path, `--expect-head` pins the tip you graded. The tool walks base
+     to the base branch and enqueue the remaining green bottom prefix as one batch.
+     In the ledger path, `--expect-head` pins the prefix top. The tool walks base
      refs to the repo's default branch, re-reads every PR, and runs every guard on
      each. It refuses a closed PR, a desk hold or lane `held` verdict on that head,
      a head that moved since the refresh in the batch or differs from
@@ -176,19 +179,21 @@ Do, in this order, forever:
      (any commit counts; a dismissed or withdrawn approval does not). Each PR needs
      `mergeable_state` of clean/behind/has_hooks; a PR above the bottom may read
      unstable while Graphite's mergeability_check is its only unfinished check.
-     `--expect-head` accepts a 7 to 40 character lowercase hex prefix of the tip's
+     `--expect-head` accepts a 7 to 40 character lowercase hex prefix of the top's
      sha. Each PR needs a completed, successful latest `ai-review` and no conflict
-     with its base. An untracked downstack PR, an
-     orphaned base, or an open child outside the enqueued stack also refuses the
-     whole stack; nothing is labelled. When every PR passes, the tip enqueues the stack
-     as one entry by one label on the tip, and every row
-     records `label_head`,
+     with its base. An untracked downstack PR or an orphaned base refuses the
+     prefix. An open child outside it is allowed only when a lane tracks its ledger
+     row and its head carries `Graphite / mergeability_check`; Graphite retargets
+     it when the parent lands. Otherwise restack it through Graphite or retarget it
+     to the trunk BEFORE labelling, or branch deletion closes it. When every PR
+     in the prefix passes, one label on its top enqueues the prefix as one entry,
+     and every row in the prefix records `label_head`,
      `labelled_at`, `approved_by`, and `label_stack`. Where the drive carries a bar
      beyond CI (a plan comment, a grader's verdict), read it for every PR before
      labelling and hold the PR with that reason when it is missing for this head.
      A plan the base has moved under is not such a reason: print the stale stacks
      and the movers, label anyway, and let the landing grade the tree it applies.
-     A rebase is asked for on a merge conflict and for nothing else.
+     A rebase is asked for on a merge conflict or after a bottom prefix lands.
   4. Route ejections and conflicts to the owning lane at once when the watch or
      a pass shows them. The lane rebases and re-enqueues from its own watch under D1.
      `ledger.py route` after every refresh sends each red or conflicting head
@@ -268,10 +273,13 @@ Rules that are not the tool's to enforce:
   - A `merge` label that disappears means the queue took the PR or ejected it. Read
     the PR's Merge activity comment; never infer either from the label event, and
     never re-label the same head.
-  - A stacked PR whose parent is landing outside the queue is retargeted to the base
-    branch first (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`); inside the
-    queue the whole stack goes as one entry, with one label on its tip. All its PRs
-    close together, so a parent's branch deletion cannot strand a child.
+  - A green bottom prefix goes as one entry, with one label on its top. An open
+    child outside the prefix must have a tracked ledger row and a
+    `Graphite / mergeability_check` check run so Graphite retargets it when its
+    parent lands. Otherwise restack it through Graphite or retarget it to the base
+    branch BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
+    After the prefix lands, route the first PR above it to its lane for a restack
+    under step 4; Orca routes go to inbox/orca-desk.md.
   - A closed PR still based on one of our branches keeps the stack graph and reds the
     queue with conflicts on a clean stack; retarget it to the base branch.
   - Write findings to cc-notes from here (`ccn note add`, `ccn log append`), never

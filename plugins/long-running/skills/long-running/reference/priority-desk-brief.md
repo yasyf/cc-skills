@@ -58,7 +58,7 @@ Do, in this order, every iteration:
      Never make one REST status call per PR. Check landed claims against the
      `(#N)` squash on the freshly fetched base branch under R7.
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
-     - Enqueue every ready, unqueued stack as soon as you see it. Lanes also
+     - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes also
        self-enqueue under D1; never above a held PR or any PR of a held lane.
        They report `held` on the tip, name the held PR, and leave release to the root.
        Before every enqueue, re-read the root's holds file. Each line names held
@@ -69,16 +69,18 @@ Do, in this order, every iteration:
        for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
        the reasons, and expiries under D6; lift holds when the root removes them.
        Where the checkout carries an enqueue script, call it directly: one
-       `stack-enqueue --hold <held file> <tip>` per ready stack in one Bash call,
+       `stack-enqueue --hold <held file> <prefix top>` per prefix in one Bash call,
        each backgrounded with `&`, then `wait` and collect each output. Report
        each enqueue with `ledger.py report`; refresh records it as labelled
        outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
-       --pr <tip> --expect-head <sha> --checkout <path>`; mirrored ledger holds
+       --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds
        are the guard. A `held` refusal is not a red and is not routed; it waits
        for the root. Never enqueue one stack per iteration. `label --all-clean`
        walks stacks one at a time and is the fallback only where the repo has
        no enqueue script.
+       Never wait for the PRs above the prefix. After it lands, route a restack of
+       the first PR above it to its owning lane; Orca routes go to inbox/orca-desk.md.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
        fixes the blocker, and re-enqueues when the gates and holds file permit.
        Relaunch a dead lane in this iteration.

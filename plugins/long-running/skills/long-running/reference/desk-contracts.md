@@ -200,12 +200,12 @@ hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphit
 **Lanes self-enqueue under D1; the desk reconciles every three minutes.** Read the
 root's holds file and rebuild a fresh numeric held file at every enqueue under
 D1/D3, including all open PR rows of held lanes from
-`ledger.py show --ledger <id> --json`. A clean report's ready, unheld, unqueued
-stack enqueues in the turn it arrives. Each pass starts one
-`stack-enqueue --hold <held file> <tip>` per ready stack together
+`ledger.py show --ledger <id> --json`. A clean report's largest ready, unheld,
+unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
+`stack-enqueue --hold <held file> <prefix top>` per ready prefix together
 in one Bash call, each backgrounded with `&`, then `wait` and collect each output.
 Report enqueues with `ledger.py report`; where the repo has no script, use
-`ledger.py label --pr <tip> --expect-head <sha> --checkout <path>` with mirrored
+`ledger.py label --pr <prefix top> --expect-head <sha> --checkout <path>` with mirrored
 ledger holds as the guard. Priority desks and shards use the whole ledger's held
 set under D3 and leave `held` refusals unrouted for the root. Never enqueue one
 stack per pass.
@@ -231,8 +231,9 @@ that never came.
 
 **Grade every tracked moved or unreported head under D14.** `label --all-clean`
 checks D3's objective gates, including approval, `ai-review`, CI, mergeability,
-conflicts, holds, label history, and the whole stack. Label every passing head
-without a re-report.
+conflicts, holds, label history, and the downstack. Enqueue the largest passing
+bottom prefix with `label --pr <prefix top>` without a re-report; never wait for
+the PRs above it.
 
 For each refused head, send the lane `new head <sha9>: <blocker>` once per head and
 blocker. If the head moved since the refresh, the next pass grades the new head
@@ -376,10 +377,10 @@ parent's payload, where the parent merges as a no-op and its own page shows only
 the queue closed something. Neither source is sufficient alone, and the order matters,
 because the tree is cheap and certain when it agrees.
 
-## Enqueue the whole stack before any parent branch is deleted
+## Enqueue the green bottom prefix and keep children in Graphite's stack record
 
-When a parent lands without its child in the same queue entry, the queue deletes its
-branch and the forge closes the child. Reopening is refused outright:
+When a parent lands with an open child Graphite did not submit, the queue deletes
+its branch and the forge closes the child. Reopening is refused outright:
 
 ```
 state cannot be changed. The <branch> branch has been deleted.
@@ -390,17 +391,24 @@ measured in seconds, and a poll does not win it: one desk watched at thirty-seco
 intervals, got `HTTP 422` on its retarget, and lost a pull request whose one-line fix was
 still absent from the trunk.
 
-**Enqueue the whole stack with one `merge` label on its tip.** Graphite
-[propagates that label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
-the stack as one entry. The desk re-reads every PR and runs every guard before adding the
-label; one refusal refuses the whole stack. A repository that carries
-`.agents/skills/submit-pr/scripts/stack-enqueue` enqueues the tip through it instead of the
-label, and the script's own gate can refuse the stack too. The tool refuses to label a PR whose branch
-is the base of an open PR outside the enqueued stack, naming the children left exposed
-to branch deletion.
+**Enqueue the largest green, approved, unheld bottom prefix as one batch.** Graphite
+[propagates the top PR's label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
+the prefix as one entry with one `merge` label on its top. The desk re-reads every PR
+in the prefix and runs every guard before adding the label. A repository that carries
+`.agents/skills/submit-pr/scripts/stack-enqueue` uses
+`stack-enqueue --hold <held file> <prefix top>` instead; its gate can refuse the prefix too.
 
-A parent landing outside that queue entry still requires the child to move off its branch
-first. Retargeting alone does not rebase: a child moved onto the trunk still carries its
+An open child above it does not block the label when a lane tracks its ledger row
+and its head carries `Graphite / mergeability_check`. Graphite's stack record
+retargets that child when the parent lands. The tool still refuses an untracked
+child or one missing that check. Restack it through Graphite or retarget it to the
+trunk BEFORE adding the label, or branch deletion closes it.
+
+Never wait for the top to go green. After the prefix lands, route a restack of the
+first PR above it to its owning lane; Orca routes go to `inbox/orca-desk.md`. The
+lane restacks the remaining PRs with `ccx vcs stack submit`.
+
+Retargeting alone does not rebase a child; it still carries its
 parent's commits until it is rebased, so check the file count before labelling.
 
 ## A neutral check is a held finding, not an abstention
@@ -935,16 +943,19 @@ immediately before grading it.
 
 ## A child whose base branch is squashed away cannot be recovered
 
-When a parent lands without its child in the same queue entry, its branch is deleted,
+When a parent lands with a child outside Graphite's stack record, its branch is deleted,
 and GitHub auto-closes the child. `gh pr reopen` is refused outright — the child is
 dead, not stale. Retargeting is not available either, because there is no base to
 retarget from.
 
 The only move is a replacement PR: rebase the branch onto the trunk, where git drops
 the parent's commit as already-applied, and open a new one with `gt track --parent
-dev` so it has a real stack record. Prevent this by enqueueing the whole stack with
-one label on its tip. If the parent lands outside that queue entry, move the child
-off its branch before it lands.
+dev` so it has a real stack record. Before enqueueing a green bottom prefix, every
+open child outside it must have a tracked ledger row and a
+`Graphite / mergeability_check` check run. Restack a child outside that record through
+Graphite or retarget it to the trunk BEFORE adding the label. After the prefix lands,
+route the PR immediately above it to its lane to restack the rest; Orca routes go to
+`inbox/orca-desk.md`.
 
 ## A docs-only diff can carry a live security defect
 
@@ -1346,7 +1357,7 @@ current tip is an observation and costs one field read, because the artifact alr
 records the sha it was planned on. Turning that observation into a gate is the
 remaining work, and it is the path intersection rather than the read.
 
-## Enqueue a stack as one entry, never a PR at a time
+## Enqueue a green bottom prefix as one entry
 
 I labelled a parent and its child three minutes apart. The parent landed, which
 deleted its branch, and the forge auto-closed the child whose base that branch was.
@@ -1354,13 +1365,20 @@ Retarget refused, reopen refused. The child's work survived on its branch and th
 pull request did not — it needs a replacement number, which loses its review history
 and its CI record.
 
-The desk already had the rule that a held child dies when its base lands separately.
+An open child outside Graphite's stack record dies when its base lands separately.
 **Labelling is what makes the base land**, so the desk caused the deletion by
 enqueueing the parent on its own.
 
-Grade the whole stack, then label its tip once. Every PR must pass every guard; one
-red PR refuses the stack, and any open child outside the stack blocks the label.
-Graphite takes the stack as one entry: Forge-AI/monorepo #17257 and #17258 merged
+Grade from the bottom and label the largest green, approved, unheld prefix's top
+once. Every PR in that prefix must pass every guard. An open child above it is
+allowed when a lane tracks its ledger row and its head carries
+`Graphite / mergeability_check`. Restack any other child through Graphite or retarget
+it to the trunk BEFORE adding the label. Never wait for the top of the stack.
+
+After the prefix lands, route the first PR above it to its owning lane to restack the rest
+with `ccx vcs stack submit`; Orca routes go to `inbox/orca-desk.md`.
+
+Graphite takes the prefix as one entry. Forge-AI/monorepo #17257 and #17258 merged
 together through draft [#17578](https://github.com/Forge-AI/monorepo/pull/17578),
 `[Graphite MQ] Draft PR GROUP:spec_357e12 (PRs 17257, 17258)`.
 The trunk fast-forwarded to the draft head and both PRs closed together, so the child

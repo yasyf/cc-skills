@@ -95,7 +95,8 @@ Do, in this order, forever:
      that lane, including its questions and relaunches. For your lanes, check that
      each ruling still addresses the lane's current dispatch before relaying it:
        orca orchestration worker-show --dispatch '<dispatch id>' --json
-     If .result.dispatch.status is completed, never reply or send (dispatch_inactive).
+     If .result.dispatch.status is completed or failed, never reply or send
+     (dispatch_inactive).
      Start a new dispatch through step 3 with a self-contained brief. For an active
      dispatch, reply to a current question with
        orca orchestration reply --id "<msg id>" --body "<ruling>"
@@ -121,7 +122,14 @@ Do, in this order, forever:
      Advance the cursor every iteration and include `cursor R<n>` in every report.
      Never report an item as waiting on the root before checking this inbox for
      the answer.
-  2. Prompt sweep, every pass. List every worker, following the page cursor
+  2. Stale mail and prompt sweep, every pass. Run
+       "$SCRIPTS/orca-check.sh" --stale --inbox "$INBOX"
+     Act on every STALE line in this pass. Forward a priority desk's lines to its
+     inbox. For your lanes, wake a live dispatch with unread mail through step 1's
+     terminal send --enter. For completed or failed, start a new dispatch through
+     step 3 with a self-contained brief carrying the unread message or inbox line.
+     Never filter sweep or STALE lines: no rg -v or grep -v over the loop's output.
+     List every worker, following the page cursor
      until result.page.hasMore is false:
        orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --json
        orca orchestration worker-list --run "$ORCA_LAUNCH_RUN" --cursor '<page.nextCursor>' --json
@@ -147,7 +155,7 @@ Do, in this order, forever:
      checks the screen for `bypass permissions on`. Anything other than ready
      is a failed launch, never an active lane. Keep each receipt in the named
      directory. Retry a failed dispatch only after confirming its session has
-     ended, with the root's ruling. Use the same command and directory;
+     ended, on a STALE line or the root's ruling. Use the same command and directory;
      the script retries the recorded task and dispatch with --task/--retry-of.
      Never stop the old session or duplicate its active work.
      Working workers have no cap. The one throttle is load: before each launch
@@ -230,3 +238,5 @@ Rotate: flush the same state and the cursor, reply `flushed <cc-notes log id>` t
   the root, and keep working. After your own compaction, resume in place from the
   files and log with the same identity.
 ```
+
+*Prevents the 2026-10-01 desk loop that filtered `SWEEP phase0b-aig` out with `rg -v`, leaving the lane with eight unread messages for over an hour.*
