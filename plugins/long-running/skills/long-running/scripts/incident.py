@@ -395,6 +395,7 @@ class Runner:
         self.intake()
         self.mechanism()
         self.dispatch()
+        self.design()
         self.review()
         self.landing()
         self.not_ours()
@@ -586,6 +587,8 @@ class Runner:
             "runbook": facts.get("runbook") or "n/a",
             "submit skill": "submit-pr",
             "break-glass skill": "break-glass",
+            "design rulings": "\n  ".join(facts.get("rulings") or ["none recorded for this subsystem"]),
+            "entry point": facts.get("entry_point") or "none named",
         }
         self.briefs.mkdir(parents=True, exist_ok=True)
         path = self.briefs / f"{lane_name(self.incident_id, role)}.full.md"
@@ -606,6 +609,21 @@ class Runner:
         quiet = not any(incident.facts.get(fact) for fact in ("mechanism", "repair_pr", "not_ours"))
         if fix and fix.status == "verified" and quiet and self.now() - parse_stamp(fix.started_at) >= BACKUP_AFTER:
             self.launch("backup", "Fix lane brief")
+
+    def design(self) -> None:
+        facts = self.store.load(self.incident_id).facts
+        if not facts.get("rulings"):
+            return
+        check = facts.get("design_check")
+        if facts.get("design_ok"):
+            self.resolve("design")
+            self.milestone("design", f"confirmed: {check or f'#{facts['repair_pr']} as opened'}")
+            return
+        confirm = f"confirm it calls {facts.get('entry_point') or 'the agreed entry point'} and meets {'; '.join(facts['rulings'])} with `incident.py note --incident {self.incident_id} --design-ok`, or redirect the fix lane"
+        if check:
+            self.decide("design", f"design check before the PR: {check}; {confirm}")
+        elif pr := facts.get("repair_pr"):
+            self.decide("design", f"#{pr} opened with no design check; hold it, then {confirm}")
 
     def review(self) -> None:
         incident = self.store.load(self.incident_id)
@@ -931,6 +949,8 @@ def cmd_open(args: argparse.Namespace, store: Store, shell: Shell) -> int:
         "orca_run": args.orca_run,
         "orca_repo": args.orca_repo,
         "common": str(args.common.resolve()) if args.common else None,
+        "rulings": args.ruling,
+        "entry_point": args.entry_point,
         "sources": {},
     }
     incident = store.create(Incident(incident_id, sender(incident_id), 1, stamp(now), facts))
@@ -948,6 +968,10 @@ def cmd_note(args: argparse.Namespace, store: Store, shell: Shell) -> int:
             incident.facts["live"] = args.live
         if args.not_ours:
             incident.facts["not_ours"] = args.not_ours
+        if args.design_check:
+            incident.facts["design_check"] = args.design_check
+        if args.design_ok:
+            incident.facts["design_ok"] = True
     print(f"noted on {args.incident} at input revision {incident.input_revision}")
     return 0
 
@@ -1021,6 +1045,8 @@ def build_parser() -> argparse.ArgumentParser:
     open_cmd.add_argument("--orca-run")
     open_cmd.add_argument("--orca-repo")
     open_cmd.add_argument("--common", type=Path, help="the drive's common.md lane contract, prepended to both briefs")
+    open_cmd.add_argument("--ruling", action="append", default=[], help="an owner design ruling on the touched subsystem, verbatim with its id; the fix brief quotes it")
+    open_cmd.add_argument("--entry-point", help="the symbol, at file:line, that the rulings make the fix call")
     open_cmd.set_defaults(handler=cmd_open)
 
     note = subparsers.add_parser("note", help="a worker reports the repair PR or the mechanism")
@@ -1029,6 +1055,8 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--mechanism")
     note.add_argument("--live", help="evidence the fix is live, for an incident with no pipeline to activate")
     note.add_argument("--not-ours", help="the evidence that the alert is not ours; the incident closes with no fix")
+    note.add_argument("--design-check", help="the entry point the fix calls and how it meets each ruling, recorded before the PR opens")
+    note.add_argument("--design-ok", action="store_true", help="the root confirms the design check")
     note.set_defaults(handler=cmd_note)
 
     grant = subparsers.add_parser("grant", help="add the authority a decision asked for")

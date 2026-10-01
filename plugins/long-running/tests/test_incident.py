@@ -734,3 +734,53 @@ def test_records_reuse_an_investigation_and_log_already_labelled_for_the_inciden
     assert incident.Records(shell, Path("/m")).open("x1", "t", "p") == {"investigation": "abcdef0", "log": "abcdef0"}
     assert [call[3:5] for call in shell.calls] == [["investigation", "list"], ["log", "list"]]
     assert all("incident:x1" in call for call in shell.calls)
+
+
+RULING = "379b70a: deploy ordering calls the release pipeline's own resolver, never a second implementation"
+ENTRY_POINT = "releaseDAG at go/ci/release.go:170"
+
+
+def test_open_records_the_rulings_and_entry_point_the_fix_brief_quotes(store, clock, fake):
+    assert incident.main(["open", "--kind", "alert", "--incident", "x3", "--target", "api", "--thread", "t", "--onset", REPLAY["onset"], "--bus", "b", "--comms-lane", "c", "--root-lane", "r", "--checkout", "/m", "--ruling", RULING, "--entry-point", ENTRY_POINT], store, clock) == 0
+    assert (store.load("x3").facts["rulings"], store.load("x3").facts["entry_point"]) == ([RULING], ENTRY_POINT)
+    drive(Runner(store, "x3", world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+
+    brief = (store.root / "x3" / "incident-x3-fix.full.md").read_text()
+    assert f"  {RULING}\n  entry point: {ENTRY_POINT}\n" in brief
+    assert '--design-check "<symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>"' in brief
+
+
+def test_a_brief_with_no_rulings_says_so_and_asks_nothing(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert")
+    drive(Runner(store, incident_id, world_of(fake), clock), store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+
+    brief = (store.root / incident_id / f"incident-{incident_id}-fix.full.md").read_text()
+    assert "  none recorded for this subsystem\n  entry point: none named\n" in brief
+    assert fake.asks == []
+
+
+def test_a_design_check_reaches_the_root_once_and_its_confirmation_is_a_milestone(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert", rulings=[RULING], entry_point=ENTRY_POINT)
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+    assert fake.asks == []
+
+    check = f"{ENTRY_POINT} called from deploy.planned; 379b70a met; leaves out: none"
+    incident.main(["note", "--incident", incident_id, "--design-check", check], store, clock)
+    drive(runner, store, clock, clock.at + timedelta(minutes=2), worker=lambda *_: None)
+    assert fake.asks == [f"{incident_id}: design check before the PR: {check}; confirm it calls {ENTRY_POINT} and meets {RULING} with `incident.py note --incident {incident_id} --design-ok`, or redirect the fix lane"]
+
+    incident.main(["note", "--incident", incident_id, "--design-ok"], store, clock)
+    record = drive(runner, store, clock, clock.at + timedelta(minutes=1), worker=lambda *_: None)
+    assert record.reached("design")["text"] == f"confirmed: {check}"
+    assert record.open_decisions() == []
+    assert len(fake.asks) == 1
+
+
+def test_a_pr_on_a_ruled_subsystem_with_no_design_check_asks_the_root_to_hold_it(store, clock, fake):
+    incident_id = open_incident(store, clock, kind="alert", rulings=[RULING], entry_point=ENTRY_POINT)
+    runner = Runner(store, incident_id, world_of(fake), clock)
+    incident.main(["note", "--incident", incident_id, "--pr", str(REPAIR["pr"])], store, clock)
+    drive(runner, store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
+
+    assert [ask for ask in fake.asks if "design" in ask] == [f"{incident_id}: #{REPAIR['pr']} opened with no design check; hold it, then confirm it calls {ENTRY_POINT} and meets {RULING} with `incident.py note --incident {incident_id} --design-ok`, or redirect the fix lane"]
