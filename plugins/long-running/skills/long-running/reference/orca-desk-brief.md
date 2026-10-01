@@ -23,6 +23,9 @@ in every report. Every inbox wait is at most 60 seconds. If reports show a curso
 more than one iteration behind the root's last line, the root appends one inbox
 line naming the unread range and records the stall in its progress record; it never
 `SendMessage`s the running desk.
+A standing rule goes in as its own `R<n> (standing) <rule>` line, never beside a
+one-off, and a successor desk's brief lists the live standing ids, never a range
+([I6](../SKILL.md#desk-inboxes)).
 Forward a priority desk's lanes' traffic to its inbox and stop handling those lanes.
 
 *Prevents 26 rulings sitting undelivered for over an hour in `SendMessage` to a looping desk (2026-09-30).*
@@ -52,9 +55,11 @@ Verified facts, do not re-derive:
   spec directory <spec dir>; one complete brief at <spec dir>/<lane>.full.md
   receipt directory <receipt dir>
   root inbox <inbox file>; cursor <inbox file>.cursor
+  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
+    plus the plan's Decisions; an id list, never a range>
   priority desks <owned lanes and inbox paths, or "none">
   cc-notes log <cc-notes log id>; landing-desk ledger <ledger id>
-  scripts on PATH by name (ledger.py, bus.py, orca-launch.sh, orca-check.sh)
+  scripts on PATH by name (ledger.py, bus.py, standing.py, orca-launch.sh, orca-check.sh)
   lane roster <lane, model, effort, brief file; one per line>
   worktree prefix <prefix>; worktree root <worktree root>; base <base ref>
   other Claude default arguments <args excluding --permission-mode plan>
@@ -96,7 +101,10 @@ Do, in this order, forever:
      the remaining lines in order; never launch it twice or skip an unfinished
      earlier line when advancing the cursor.
      Each source appends exactly one line per number:
-     R<n> <msg id> <lane>: <ruling>. If it belongs to a priority desk's
+     R<n> <msg id> <lane>: <ruling>, or R<n> (standing) <rule>.
+     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
+     never report it done. Append `standing.py inbox "$INBOX"` output to every
+     report and forward its `violation` lines to the root. If it belongs to a priority desk's
      lane, append it to that desk's inbox and record it as forwarded. Stop handling
      that lane, including its questions and relaunches. For your lanes, check that
      each ruling still addresses the lane's current dispatch before relaying it:

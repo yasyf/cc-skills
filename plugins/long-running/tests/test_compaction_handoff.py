@@ -107,6 +107,12 @@ with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 if args[:2] == ["doc", "list"]:
     print(open(os.path.join(state, "docs.json")).read())
+if args[:2] == ["doc", "show"]:
+    body = os.path.join(state, args[2] + ".md")
+    print(json.dumps({"id": args[2], "body": open(body).read() if os.path.exists(body) else "## Standing owner rules\\n- none\\n"}))
+if args[:2] == ["answer", "list"]:
+    answers = json.load(open(os.path.join(state, "answers.json")))
+    print(json.dumps([a for a in answers if all(l in a["tags"] for l in args[3:-3:2])]))
 """
 
 
@@ -119,6 +125,7 @@ def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (bin_dir / "ccn").write_text(FAKE_CCN)
     (bin_dir / "ccn").chmod(0o755)
     (state_dir / "docs.json").write_text("[]")
+    (state_dir / "answers.json").write_text("[]")
     monkeypatch.setenv("FAKE_CCN", str(state_dir))
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return state_dir
@@ -151,7 +158,7 @@ def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, pl
         'drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress '
     )
     assert "--label progress:brook" in nudge
-    assert "with sections: how the drive runs; owner asks and state; lanes and binding rulings; landed; " in nudge
+    assert "with sections: how the drive runs; standing owner rules; owner asks and state; lanes and binding rulings; " in nudge
     assert f"Never rewrite `{plan}`." in nudge
     assert nudges.deliver_nudge(bash(session)).message == nudge
     assert pending(session) == []
@@ -396,3 +403,29 @@ def test_compact_job_stops_once_the_session_compacts(tmp_path: Path) -> None:
 
 def test_retry_outlives_the_previous_job() -> None:
     assert handoff.COMPACT_RETRY_SECONDS > compact_job.MAX_LIFETIME_SECONDS
+
+
+def test_a_doc_that_drops_a_durable_rule_blocks_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
+    (docs / "answers.json").write_text(json.dumps([rule]))
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
+    (docs / ("b" * 40 + ".md")).write_text("## Standing owner rules\n- none\n\n## Owner asks\nSoFi release on the owner's word\n")
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
+        bash(session)
+    )
+
+    blocked = handoff.compact_when_idle(stop_event(session))
+
+    assert blocked.action.name == "block"
+    assert "Progress doc `bbbbbbbb` fails the standing-rules lint" in blocked.message
+    assert "missing durable rule `- 4ffc9a5 When does a merged change get released?`" in blocked.message
+    assert "owner-gate line cites no live answer id: SoFi release on the owner's word" in blocked.message
+    assert state(session).phase == "due"
+    assert not any(call[:2] == ["doc", "supersede"] for call in ccn_calls(docs))
+
+    (docs / ("b" * 40 + ".md")).write_text(
+        "## Standing owner rules\n- 4ffc9a5 When does a merged change get released?\n\n## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n"
+    )
+    assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("Long-running progress for ")
+    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)

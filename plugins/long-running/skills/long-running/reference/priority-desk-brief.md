@@ -13,7 +13,9 @@ branch, queued, open PRs, pushed heads with no PR, and the lanes that own them.
 
 Append P2 with root-verified truth and a timestamp. It directs the desk to act
 on all items in parallel, one dispatch per lane in the same iteration.
-Append numbered `R<n> ...` rulings after that. Never rewrite or truncate the inbox.
+Append numbered `R<n> ...` rulings after that, each standing rule as its own
+`R<n> (standing) <rule>` line ([I6](../SKILL.md#desk-inboxes)). Never rewrite or
+truncate the inbox.
 
 Other desks forward these lanes' traffic to this inbox and stop handling them.
 The root owns the holds file. Read the desk's 15-minute reports and read priority
@@ -33,9 +35,11 @@ Authority: drive only the named lanes; enqueue their green, approved, unheld
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
-  ledger <id>; bus <id>; scripts ledger.py and bus.py, on PATH by name
+  ledger <id>; bus <id>; scripts ledger.py, bus.py, and standing.py, on PATH by name
   holds file <path>, root-owned
   inbox file <path>, append-only; cursor <path>
+  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
+    plus the plan's Decisions; an id list, never a range>
   lanes you own <lane, brief path, branch prefix, worktree; one per line>
   owed list: P1 in your inbox
   root-verified truth: P2 in your inbox, timestamp <UTC>
@@ -50,6 +54,9 @@ Do, in this order, every iteration:
      act on it, and advance the cursor every iteration. Include `cursor R<n>`
      in every report. Never report "waiting on the root" before reading the
      inbox for its answer. Never rewrite or truncate the inbox.
+     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
+     never report it done. Append `standing.py inbox <inbox file>` output to every
+     report and forward its `violation` lines to the root.
      Your lanes report and register with you, not with landing-desk. Type each
      3-line report in with `ledger.py report` and each registration with
      `ledger.py register`, exactly as landing-desk does, so the ledger stays whole.

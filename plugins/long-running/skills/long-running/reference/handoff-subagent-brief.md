@@ -26,6 +26,7 @@ Verified facts, do not re-derive:
   transcript <~/.claude/projects/<project>/<root session>/subagents/agent-<lane>-*.jsonl>
   reference brief <path, or "first user message of the transcript">
   inbox file <path>, last relayed line <R<n> or line number>; cursor files <paths>
+  program <slug of the drive's `progress:<slug>` label>; previous handoff <path, or "none">
   lane state <ledger id, bus id, cc-notes log id, receipts dir, scripts it runs>
   runtime commands <e.g. orca orchestration task-list --run <run>; worker-show --dispatch <id>>
   output path <drive scratch>/handoffs/<lane>.md
@@ -43,10 +44,19 @@ Do, in this order:
      - Live work: one table row per worker, PR, or dispatch it owns, with its ids
        and state as the runtime reported it.
      - Next actions, in order, with the gate each one waits on.
-     - Standing rulings every relay must honor, by number.
+     - `## Standing owner rules`: `standing.py titles --program <slug>` output pasted
+       verbatim, then the `live standing:` ids of `standing.py inbox <inbox file>`
+       read over the whole file, not only from the last relayed line. Never
+       re-summarize a title or name the rules as a range. Every id the previous
+       handoff carried is carried again or written `- <id> superseded by <id>`.
      - Pending items the old lane was holding, and where to look for traffic
        after its last turn at <UTC>.
      Name every value you could not verify as unverified.
+     Every line that gates on the owner ("owner's word", "owner approval", "owner
+     sign-off", "owner GO", "reserved for the owner") cites a live answer id;
+     otherwise drop it and list it in your reply.
+  5. Run `standing.py lint --file <output path> --program <slug>
+     [--previous-file <previous handoff>]` and fix the file until it exits 0.
 
 Return exactly this, nothing else:
   line 1: the output path

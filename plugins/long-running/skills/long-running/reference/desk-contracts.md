@@ -110,6 +110,31 @@ RULING NEEDED: <the question, one line>; options: A <..> / B <..> / C <..>
 prints the line to forward. The root answers with the letter. Two rulings with the same
 question on the same PR are one ruling.
 
+## A standing rule is one tagged line, listed by id
+
+A root inbox line that holds until replaced reads `R<n> (standing) <rule>`: its own id,
+the tag right after it, and no other ruling on the line. A one-off and a standing rule
+spoken in the same breath are two lines. Nothing marks a standing rule done, complete,
+or closed; a later line `R<k> R<n> superseded by <id>` is its only end. A desk brief
+lists the standing rules it inherits by id, `standing: R40, R312`, never as a range.
+
+```
+standing.py inbox <inbox file>...
+live standing: R40, R312
+R40 (standing) hand-apply every landing through the deploy skill
+R312 (standing) every landed PR that changes a deployable target is deployed in the same pass
+violation <file>:<line>: standing rule R312 is marked done; it ends only with `R312 superseded by <id>`
+```
+
+The desk appends this output, unchanged, to every summary it sends, and it forwards
+each `violation` line to the root as it would a `RULING NEEDED`. The command exits 3 on
+any violation. A successor desk's brief carries the `live standing:` line verbatim.
+
+A rule that lives only in a range or a "done" line is gone at the next handoff. The
+landing-desk-2 brief declared "rulings L65–L107 are standing" eleven minutes after
+R312 restated L40, which dropped it; R348 then read "R312 done", and the rule became a
+task that later handoffs could close.
+
 ## Reconcile before reporting, over every row
 
 `ledger.py reconcile --repo --ledger --checkout` settles **every non-terminal row** against the
@@ -129,8 +154,9 @@ earlier. A lane closing its own pull request never reaches the desk as an event,
 
 ## The desk to root summary, every 30 minutes
 
-`ledger.py summary` prints it; the desk sends it unchanged. Line one is always the
-counts; the lines after it exist only when they carry something.
+`ledger.py summary` prints it; the desk sends it unchanged, followed by the
+`standing.py inbox` output from "A standing rule is one tagged line". Line one is always the counts; the lines after it
+exist only when they carry something.
 
 ```
 desk <stamp> | open N | merged/h N | labelled N | held N | rulings N | p0 N | routed N | stale N | p50 report→landed Nm | lost N | landed-not-live N

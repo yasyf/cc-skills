@@ -29,6 +29,8 @@ running desk. If reports show a cursor more than one iteration behind the root's
 last line, the root appends one inbox line naming the unread range and records the
 stall in its progress record; the desk reads it at the top of its next iteration.
 Traffic from a priority desk's lanes goes to that desk's inbox.
+A standing rule goes in as its own `R<n> (standing)` line, and a successor desk's
+brief lists the live standing ids, never a range ([I6](../SKILL.md#desk-inboxes)).
 
 The root records every owner ask with `ledger.py ask` in the turn it arrives, before
 or with dispatch to its own lane. An ask is done only at `LIVE`. Before then, the root
@@ -78,7 +80,9 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
   holds file <path>, root-owned; root inbox <path>; cursor <path>
-  scripts: ledger.py and bus.py, on PATH by name
+  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
+    plus the plan's Decisions; an id list, never a range>
+  scripts: ledger.py, bus.py, and standing.py, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -102,6 +106,9 @@ Do, in this order, forever:
      read every line after your saved cursor and act on each ruling. Advance the
      cursor every iteration and name `cursor R<n>` in every report. Never report
      "waiting on the root" before checking the inbox for the answer.
+     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
+     never report it done. Append `standing.py inbox <inbox file>` output to every
+     report and forward its `violation` lines to the root.
      The root appends rulings there, because a SendMessage to a looping desk is
      not delivered mid-turn. No wait in this
      loop runs longer than 60 seconds before you read the file again.
