@@ -5,6 +5,7 @@ import re
 import secrets
 import time
 import uuid
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -60,13 +61,15 @@ class RotationState(WorkflowState):
     flushed: list[str] = []
     scanned: int | None = None
     timeline: list[dict] = []
+    asked_size: dict[str, int] = {}
+    frozen: dict[str, int] = {}
 
 
 @dataclass(frozen=True)
 class Lane:
     name: str
     agent_id: str
-    task_id: str
+    stop_id: str
     team: str | None
     turn: Turn
     line: int
@@ -91,12 +94,21 @@ def task_label(transcript: Path) -> str | None:
     return prompt[:TASK_LABEL_CHARS] + "..." if len(prompt) > TASK_LABEL_CHARS else prompt
 
 
+def team_dir(evt: BaseHookEvent, team: str) -> Path:
+    return evt.transcript_path.parents[2] / "teams" / UNSAFE_NAME.sub("-", team)
+
+
+def team_members(evt: BaseHookEvent, team: str) -> dict[str, str]:
+    config = team_dir(evt, team) / "config.json"
+    if not config.is_file():
+        return {}
+    return {member["name"]: member["agentId"] for member in json.loads(config.read_text())["members"]}
+
+
 def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
-    teammate_tasks: dict[str, list[str]] = {}
-    for task in evt.background_tasks:
-        if task.type == "teammate":
-            teammate_tasks.setdefault(task.description, []).append(task.id)
+    teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
+    rosters: dict[str, dict[str, str]] = {}
     newest: dict[str, tuple[str, Path, dict]] = {}
     for meta_path in sorted((evt.transcript_path.with_suffix("") / "subagents").glob("agent-*.meta.json")):
         meta = json.loads(meta_path.read_text())
@@ -115,17 +127,21 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     lanes = []
     for name, transcript, meta, turn in active:
         agent_id = transcript.stem.removeprefix("agent-")
-        task_id = agent_id
-        if meta.get("teamName"):
-            if not (label := next((key for key in (meta["description"], task_label(transcript)) if teammate_tasks.get(key)), None)):
+        stop_id = agent_id
+        if team := meta.get("teamName"):
+            roster = rosters.setdefault(team, team_members(evt, team))
+            if name not in roster:
                 continue
-            task_id = teammate_tasks[label].pop(0)
+            if not (label := next((key for key in (meta["description"], task_label(transcript)) if teammate_tasks[key]), None)):
+                continue
+            teammate_tasks[label] -= 1
+            stop_id = roster[name]
         if turn:
             lanes.append(
                 Lane(
                     name=name,
                     agent_id=agent_id,
-                    task_id=task_id,
+                    stop_id=stop_id,
                     team=meta.get("teamName"),
                     turn=turn,
                     line=rotation_line(turn.model, meta.get("model"), evt.cwd),
@@ -166,18 +182,37 @@ def record_escalation(state: RotationState, lane: Lane, now: float) -> None:
         record(state, lane.name, lane.agent_id, "escalate", now, last=iso(now), count=1, tokens=lane.turn.tokens)
 
 
+def unread(lane: Lane, state: RotationState, now: float) -> bool:
+    return (
+        lane.agent_id in state.asked_size
+        and now - state.asks[lane.agent_id][-1] >= ACK_WINDOW_SECONDS
+        and lane.transcript.stat().st_size == state.asked_size[lane.agent_id]
+    )
+
+
+def awake(lanes: list[Lane], state: RotationState) -> list[Lane]:
+    for lane in lanes:
+        if lane.agent_id in state.frozen and lane.transcript.stat().st_size != state.frozen[lane.agent_id]:
+            del state.frozen[lane.agent_id]
+    return [lane for lane in lanes if lane.agent_id not in state.frozen]
+
+
 def settle(state: RotationState, lanes: list[Lane], now: float) -> None:
     live = {lane.agent_id: lane for lane in lanes}
     for agent_id in [agent_id for agent_id in state.asks if agent_id not in state.flushed]:
         lane = live.get(agent_id)
-        if lane and lane.turn.tokens >= lane.line:
+        if lane and lane.turn.tokens >= lane.line and not unread(lane, state, now):
             continue
         name = state.names.pop(agent_id)
         del state.asks[agent_id]
-        if lane:
+        size = state.asked_size.pop(agent_id, None)
+        if not lane:
+            record(state, name, agent_id, "gone", now)
+        elif lane.turn.tokens < lane.line:
             record(state, name, agent_id, "compacted", now, tokens=lane.turn.tokens)
         else:
-            record(state, name, agent_id, "gone", now)
+            state.frozen[agent_id] = size
+            record(state, name, agent_id, "gone", now, reason="transcript unchanged since the ROTATE ask")
 
 
 def successor(name: str) -> str:
@@ -200,7 +235,7 @@ def escalation(lane: Lane, state: RotationState, now: float) -> str:
         f"(transcript {megabytes:.1f} MB, running {span(now - lane.spawned.timestamp())}) and has not replied "
         f"`flushed` to {len(asks)} ROTATE ask(s) since {since}. "
         f"1. Spawn `{successor(lane.name)}` from `{lane.name}`'s brief plus its handoff (ledger rows, cc-notes, cursor). "
-        f"2. Once `{successor(lane.name)}` reports, TaskStop `{lane.task_id}` to stop `{lane.name}`. "
+        f"2. Once `{successor(lane.name)}` reports, TaskStop `{lane.stop_id}` to stop `{lane.name}`. "
         f"A `flushed <ids>` reply from `{lane.name}` cancels this."
     )
 
@@ -212,8 +247,7 @@ def queue_root_action(evt: BaseHookEvent, lane: Lane, text: str) -> None:
 
 
 def inbox_path(evt: BaseHookEvent, lane: Lane) -> Path:
-    team_dir = evt.transcript_path.parents[2] / "teams" / UNSAFE_NAME.sub("-", lane.team)
-    return team_dir / "inboxes" / f"{UNSAFE_NAME.sub('-', lane.name)}.json"
+    return team_dir(evt, lane.team) / "inboxes" / f"{UNSAFE_NAME.sub('-', lane.name)}.json"
 
 
 def rotate_message() -> dict:
@@ -347,8 +381,9 @@ def rotate_lanes(evt: BaseHookEvent) -> HookResult | None:
     now = time.time()
     state = RotationState.load(evt)
     nudge_flushed(evt, state, now)
-    lanes = live_lanes(evt)
+    lanes = awake(live_lanes(evt), state)
     settle(state, lanes, now)
+    lanes = [lane for lane in lanes if lane.agent_id not in state.frozen]
     state.save(evt)
     recent = sum(now - asks[0] < PACE_SECONDS for asks in state.asks.values())
     fresh = sorted(
@@ -362,7 +397,9 @@ def rotate_lanes(evt: BaseHookEvent) -> HookResult | None:
             queue_root_action(
                 evt, lane, f"SendMessage it now; it has no teammate inbox and holds {lane.turn.tokens:,} tokens: `{ROTATE}`"
             )
-        elif not append_inbox(inbox_path(evt, lane), rotate_message()):
+        elif append_inbox(inbox_path(evt, lane), rotate_message()):
+            state.asked_size[lane.agent_id] = lane.transcript.stat().st_size
+        else:
             continue
         state.asks.setdefault(lane.agent_id, []).append(now)
         state.names[lane.agent_id] = lane.name
