@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from captain_hook.app import _state
-from captain_hook.events import PostToolUseEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
+from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
 from captain_hook.testing.helpers import build_context, matches_conditions
 
 from hooks import compact_job, nudges
@@ -105,8 +105,17 @@ state = os.environ["FAKE_CCN"]
 args = sys.argv[3:]
 with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
+listed = os.path.join(state, "docs.json")
 if args[:2] == ["doc", "list"]:
-    print(open(os.path.join(state, "docs.json")).read())
+    print(open(listed).read())
+if args[:2] == ["doc", "add"]:
+    docs = json.load(open(listed))
+    added = "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
+    open(os.path.join(state, added + ".md"), "w").write(sys.stdin.read())
+    json.dump(docs + [{"id": added, "title": args[2], "tags": ["progress:brook"], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
+    print(json.dumps({"id": added}))
+if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != "fail":
+    json.dump([d for d in json.load(open(listed)) if d["id"] != args[2]], open(listed, "w"))
 if args[:2] == ["doc", "show"]:
     body = os.path.join(state, args[2] + ".md")
     print(json.dumps({"id": args[2], "body": open(body).read() if os.path.exists(body) else "## Standing owner rules\\n- none\\n"}))
@@ -158,7 +167,8 @@ def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, pl
         'drive\'s whole execution state as a new cc-notes doc: `ccn doc add "<drive>: progress '
     )
     assert "--label progress:brook" in nudge
-    assert "with sections: how the drive runs; standing owner rules; owner asks and state; lanes and binding rulings; " in nudge
+    assert "with sections: how the drive runs; owner asks and their state; landed; waiting on the owner; root's next actions. " in nudge
+    assert "The hook generates standing owner rules, durable answers, open asks, open tasks, lanes and monitors" in nudge
     assert f"Never rewrite `{plan}`." in nudge
     assert nudges.deliver_nudge(bash(session)).message == nudge
     assert pending(session) == []
@@ -175,7 +185,7 @@ def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, doc
     assert "--label progress:release-v3" in pending(session)[0]
 
 
-def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(home: Path, plan: Path, docs: Path) -> None:
+def test_a_new_doc_is_folded_into_a_generated_doc_that_supersedes_both(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
@@ -187,27 +197,41 @@ def test_a_new_doc_supersedes_the_old_one_and_repoints_the_plan_once(home: Path,
     assert plan.read_text() == "# brook\n"
 
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    result = handoff.compact_when_idle(stop_event(session))
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. land l11\n")
+    result = handoff.compact_when_idle(stop_event(session, background_tasks=[{"id": "t1", "type": "teammate", "status": "running", "description": "orca-desk-6"}]))
 
     assert result.system_message.startswith("Long-running progress for ")
-    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
-    assert pending(session)
+    assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    generated = (docs / ("d" * 40 + ".md")).read_text()
+    assert generated.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert "- teammate: orca-desk-6 (running)" in generated
+    assert state(session).digest.startswith("Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show ddddddd`")
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
-    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
+    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `dddddddd`" in lines[2]
 
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["b" * 40]).save(
-        bash(session)
-    )
-    (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z"), doc("c" * 40, "2026-09-30T07:00:00Z")]))
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["d" * 40]).save(bash(session))
+    (docs / "docs.json").write_text(json.dumps([doc("d" * 40, "2026-09-30T06:00:00Z") | {"title": "brook: progress (generated)"}, doc("c" * 40, "2026-09-30T07:00:00Z")]))
     handoff.compact_when_idle(stop_event(session))
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `cccccccc`" in pointer
-    assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
+    assert "now `eeeeeeee`" in pointer
+    assert ["doc", "supersede", "c" * 40, "--by", "e" * 40] in ccn_calls(docs)
     assert plan.read_text().startswith("# brook\n\n")
 
 
-def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path) -> None:
+def test_a_generated_doc_is_never_taken_for_the_roots_narrative(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    (docs / "docs.json").write_text(json.dumps([doc("d" * 40, "2026-09-30T06:00:00Z") | {"title": "brook: progress (generated)"}]))
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
+
+    assert handoff.compact_when_idle(stop_event(session)) is None
+
+    assert state(session).phase == "due"
+    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+
+
+def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session = home / "session"
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
         bash(session)
@@ -215,10 +239,12 @@ def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: 
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
     ccn = Path(os.environ["PATH"].split(":")[0]) / "ccn"
     ccn.write_text(ccn.read_text() + 'sys.exit(1 if args[:2] == ["doc", "supersede"] else 0)\n')
+    monkeypatch.setenv("FAKE_CCN_SUPERSEDE", "fail")
 
     assert handoff.compact_when_idle(stop_event(session)) is None
 
     assert state(session).phase == "due"
+    assert state(session).failure
     assert plan.read_text() == "# brook\n"
 
 
@@ -239,9 +265,11 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
     handoff.compact_when_idle(stop_event(session))
 
     assert state(session).phase == "compacting"
+    [generated] = folder.glob("*-generated.md")
+    assert generated.read_text().endswith("_From file 2026-09-30T0544Z.md._\n\n# state\n")
     assert plan.read_text().splitlines()[-1] == (
         f"{handoff.POINTER_PREFIX} the latest execution state is the newest file in `{folder}/`, now "
-        "`2026-09-30T0544Z.md`; only this line's name changes."
+        f"`{generated.name}`; only this line's name changes."
     )
 
 
@@ -405,12 +433,12 @@ def test_retry_outlives_the_previous_job() -> None:
     assert handoff.COMPACT_RETRY_SECONDS > compact_job.MAX_LIFETIME_SECONDS
 
 
-def test_a_doc_that_drops_a_durable_rule_blocks_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
+def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:44:08Z")]))
-    (docs / ("b" * 40 + ".md")).write_text("## Standing owner rules\n- none\n\n## Owner asks\nSoFi release on the owner's word\n")
+    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi release on the owner's word\n")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["a" * 40]).save(
         bash(session)
     )
@@ -418,14 +446,58 @@ def test_a_doc_that_drops_a_durable_rule_blocks_the_stop_until_fixed(home: Path,
     blocked = handoff.compact_when_idle(stop_event(session))
 
     assert blocked.action.name == "block"
-    assert "Progress doc `bbbbbbbb` fails the standing-rules lint" in blocked.message
-    assert "missing durable rule `- 4ffc9a5 When does a merged change get released?`" in blocked.message
+    assert "fails the standing-rules lint" in blocked.message and "`ccn doc edit bbbbbbbb --body -`" in blocked.message
     assert "owner-gate line cites no live answer id: SoFi release on the owner's word" in blocked.message
+    assert "missing durable rule" not in blocked.message
     assert state(session).phase == "due"
-    assert not any(call[:2] == ["doc", "supersede"] for call in ccn_calls(docs))
+    assert not any(call[:2] in (["doc", "supersede"], ["doc", "add"]) for call in ccn_calls(docs))
 
-    (docs / ("b" * 40 + ".md")).write_text(
-        "## Standing owner rules\n- 4ffc9a5 When does a merged change get released?\n\n## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n"
-    )
+    (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n")
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("Long-running progress for ")
-    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
+    assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    assert "- 4ffc9a5 When does a merged change get released?" in (docs / ("d" * 40 + ".md")).read_text()
+
+
+def precompact(session: Path, **raw) -> PreCompactEvent:
+    payload = {"session_id": SESSION, "transcript_path": str(FIXTURES / "usage-460k.jsonl"), "cwd": str(FIXTURES / "project-600k")}
+    return PreCompactEvent(_raw=payload | raw, ctx=build_context(session_dir=session))
+
+
+def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    inbox = home / ".claude" / "scratch" / "brook" / "inbox"
+    inbox.mkdir(parents=True)
+    (inbox / "orca-desk.md").write_text("- R7 (standing) release every landing as it merges\n")
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
+    (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+
+    generated = (docs / ("d" * 40 + ".md")).read_text()
+    assert "- R7 (standing) release every landing as it merges [orca-desk.md]" in generated
+    assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
+    assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
+
+    evt = SessionStartEvent(_raw={"session_id": SESSION, "source": "compact", "cwd": str(FIXTURES / "project-600k")}, ctx=build_context(session_dir=session))
+    restored = handoff.reground_after_compact(evt).message
+
+    assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show ddddddd`")
+    assert "\nLive standing inbox rules: R7.\nR7 (standing) release every landing as it merges [orca-desk.md]\n" in restored
+    assert len(restored.encode()) <= 2000
+    assert state(session).digest is None
+
+
+def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", generated_at=handoff.time.time(), digest="kept").save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+
+    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert state(session).digest == "kept"
+
+
+def test_a_subagent_compaction_generates_nothing(tmp_path: Path) -> None:
+    entry = next(h for h in _state.hooks if h.handler is handoff.compaction_instructions)
+    assert not matches_conditions(entry.spec, precompact(tmp_path, agent_id="a1b2c3"))

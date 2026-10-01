@@ -1424,17 +1424,17 @@ asked whether anything else was stuck the same way. Also prevents seven reds sit
 
 ### Compaction handoff
 
-Once `long-running` is invoked — the Skill call itself, or a `/long-running` prompt —
+Once the Skill call or a `/long-running` prompt invokes `long-running`,
 this plugin's capt-hook pack runs the session's compaction handoff for the rest of the
 session, compactions included. Nothing inside the session clears it early. The hook
-never blocks a turn. It does the mechanical steps itself and sends the root one nudge.
+writes the handoff record and sends the root one nudge for the narrative.
 
 **Threshold.** The hook reads the live model at every check, from the transcript's
 newest non-synthetic assistant turn, never from the model the session started on. The
 window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env, else the `autoCompactWindow` setting,
-else the model default, and never more than the model's own window. That is 1M for a
-`[1m]` suffix and for the native-1M models: sonnet-5, opus-5 and 5-5, fable-5 and 5-1,
-and mythos-5 and 5-1. Every other model is 200k, including haiku-4-5, sonnet-4-x,
+else the model default, and never more than the model's own window. A `[1m]` suffix
+uses 1M, as do the native-1M models sonnet-5, opus-5 and 5-5, fable-5 and 5-1, and
+mythos-5 and 5-1. Every other model is 200k, including haiku-4-5, sonnet-4-x,
 opus-4-0 through 4-6, and every claude-3 model.
 
 `threshold = window − 33k`, and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only lower it
@@ -1443,12 +1443,15 @@ once used tokens cross 80% of that threshold.
 
 **Nudge.** At 80% of the threshold, the hook sends the root one nudge, as context
 on its next tool call or prompt. It gives used tokens against the threshold and asks
-for the drive's whole execution state in a new progress doc when convenient. The
-slug comes from `progress:<slug>` in the plan's existing progress pointer line, or
-from the plan's file stem if that line has no slug. The nudge is not repeated, and
-the turn is never held.
+for a new progress doc with the root's narrative when convenient. The hook generates
+standing owner rules, durable answers, open asks, open tasks, lanes and monitors,
+inbox heads and cursors, and lint findings; the root writes only what those sources
+lack. The slug comes from `progress:<slug>` in the plan's existing progress pointer
+line, or from the plan's file stem if that line has no slug. The nudge is not repeated,
+and the nudge never holds the turn.
 
-**Write the progress doc.** Create a new cc-notes doc for each handoff:
+**Root narrative.** At the nudge, create a new cc-notes progress doc with only the
+narrative:
 
 ```sh
 ccn doc add "<drive>: progress <UTC>" --label progress:<slug> --when "Resuming or compacting the <drive> drive: read before anything else, after the plan" --body -
@@ -1457,8 +1460,7 @@ ccn doc add "<drive>: progress <UTC>" --label progress:<slug> --when "Resuming o
 Use the nudge's UTC timestamp (`YYYY-MM-DDTHHMMZ`) and pass the body on stdin.
 The progress doc is living guidance with a `when` trigger and supersede edges.
 Never rewrite the plan; it remains the stable mandate and decisions document.
-Carry the whole execution state into the new doc, with every owner ask and
-obligation accounted for under these sections:
+Use these sections:
 
 ```md
 # <drive>: progress <UTC>
@@ -1466,15 +1468,8 @@ obligation accounted for under these sections:
 ## How the drive runs
 <root role, lane contracts, desks, ledger and rulings-log ids>
 
-## Standing owner rules
-<`standing.py titles --program <slug>` output, verbatim; then each live id from
-`standing.py inbox <inbox files>`; then `- <id> superseded by <id>` for each one dropped>
-
 ## Owner asks and state
 <every ask, its current state, evidence, and next gate>
-
-## Lanes and binding rulings
-<current agents, dispatches, briefs, ownership, and rulings still in force>
 
 ## Landed
 <completed work and evidence>
@@ -1486,41 +1481,76 @@ obligation accounted for under these sections:
 <ordered actions, dependencies, and owed follow-ups>
 ```
 
-**Standing owner rules are copied, never summarized.** `standing.py titles` prints
-the program's `scope:durable` answers (`ccn answer list --label scope:durable --label
-<slug>`) as `- <id> <title>`; paste them as printed. Diff the section against the
-previous progress doc: every id it carried is carried again, or gets
-`- <id> superseded by <id>`. Every line anywhere in the doc that gates on the owner
-("owner's word", "owner approval", "owner sign-off", "owner GO", "reserved for the
-owner") cites a live answer id; otherwise delete the line or ask the owner. Before
-superseding, the `Stop` hook runs `standing.py lint` on the new doc against the
-previous one. On a failure it blocks the stop with the violations until
-`ccn doc edit <id> --body -` fixes them.
+Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the
+narrative as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
+use a progress doc; a note, a log, or a loose file does not replace it.
+
+**Generated handoff.** The hook writes the handoff with `scripts/handoff.py`, through
+the `bin/handoff.py` wrapper. The script uses only the standard library and has two
+verbs:
+
+```text
+handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--strict] [--folder] [--repo PATH]
+handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH]
+```
+
+`generate` builds `<slug>: progress <UTC> (generated)` under `progress:<slug>`.
+It copies every `scope:durable` answer labeled `<slug>` or `progress:<slug>` as
+`- <id7> <title>`, verbatim, and every live `(standing)` inbox rule from `standing.py`'s
+parser, with its inbox filename. Each rule the previous handoff carried that the
+sources no longer hold appears once as `- <id> superseded by <successor id>`, or
+`- <id> superseded by nothing: the sources dropped it ...`.
 
 *Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
 vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
 word)" plan lines re-imposed the gate it withdrew (2026-10-01).*
 
-Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the same
-record as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
-use a progress doc; a note, a log, or a loose file does not replace it.
+The record carries open owner asks from the drive's ledger as `ledger.py` ask rows
+that are not dropped, answered, or `LIVE`, with their state. It also carries the
+root's open tasks, lanes and monitors from the background tasks at the root's last
+`Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
+root sessions.
 
-**Supersede and point.** At the next main-session `Stop` after a doc appears under
-the label that was not active at the nudge, the hook selects the newest such doc and
-runs `ccn doc supersede OLD --by NEW` for every other active doc under that label.
-Exactly one doc stays active; history is the supersede chain. A failed supersede
-leaves the handoff pending, and the next `Stop` retries it; each `ccn` call is capped
-at 20 seconds.
+For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head id,
+its `<file>.cursor` value, and its last five ruling lines. Sections run in this order:
+`Read first`, `Standing owner rules`, `Open owner asks`, `Open tasks`, `Lanes and
+monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
+
+The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
+without cc-notes, `--folder` writes only that file. Each generation run is capped at
+120 seconds and prints JSON `{id, file, digest}`.
+
+At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
+<the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
+becomes the last section, `## Root narrative`, under `_From doc <id>._`. A generated
+doc is never taken as the root's narrative. With no fresh narrative, the newest
+progress record's narrative carries forward with one provenance line.
+
+The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
+prompts the root to record standing rules, since the handoff reads only rules recorded
+as answers or `(standing)` inbox lines.
+
+**Lint.** Generation runs `standing.lint` over the generated rules and the narrative,
+excluding inbox quotes, tasks, and asks. Durable titles and carried ids pass by
+construction. A narrative line that gates on `owner's word`, `owner approval`,
+`owner sign-off`, `owner GO`, or `reserved for the owner` needs a live answer id;
+a missing citation is a finding.
+
+The Stop path runs with `--strict`. On a narrative finding it writes nothing and blocks
+the `Stop` with the findings and `ccn doc edit <id> --body -` until fixed. The plan's own
+owner-gate lines without live answer ids appear under `## Lint findings` and count in the
+restore, but never block generation. `handoff.py lint` runs the same checks on any doc
+or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
+
+**Supersede and point.** The hook supersedes the root's narrative doc and every other
+active `progress:<slug>` doc with the generated doc's id. Exactly one doc stays active;
+history is the supersede chain.
 
 The hook adds one pointer line to the plan the first time. It starts with
-`- **Progress (read first after any compaction):**` and names the label and current
-doc id. Later handoffs change only that line's id. The handoff never restructures
-the plan. Let the hook do the superseding and pointer edit.
-
-For the file fallback, the hook waits for a file that did not exist at the nudge and points the
-same line at the newest file in the folder; later handoffs change only its filename.
-In the release-v3 example, the plan's last line names
-`progress:release-v3` and doc `d473abdd`.
+`- **Progress (read first after any compaction):**` and names the label and generated
+doc id, or the generated filename for the file fallback. Later handoffs change only
+that id or name. The handoff never restructures the plan. Let the hook do the
+superseding and pointer edit.
 
 **`/compact`.** Once the progress record and pointer are ready, the hook starts a
 detached background job at that main-session `Stop` and lets the stop through. The
@@ -1530,15 +1560,32 @@ rechecks every 30 seconds and gives up silently after 30 minutes. With
 `ORCA_TERMINAL_HANDLE` unset, the hook sends the owner one message to run `/compact`
 by hand and blocks nothing.
 
-**Resume.** After compaction, `SessionStart` says to read the plan before anything
-else, then `ccn doc list --label progress:<slug>` and `ccn doc show <id>`. With the
-file fallback, read the newest file in the progress folder after the plan. The plan
-and progress record supersede the summary. `PreCompact` carries the same read order,
-keeps only in-flight details from the last turn that those records lack, and appends
-`standing.py titles` so every standing owner rule survives into the summary verbatim.
-Claude Code's own auto-compaction can fire before the progress record is written;
-`SessionStart` says so and asks the root to write it when convenient. The skill stays
-active; reload `long-running` if its rules are no longer in context.
+**`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
+`generate` again unless the hook generated a handoff in the last five minutes. It
+carries the narrative forward, so every compaction has a fresh generated record,
+including Claude Code's own auto-compaction before the root writes anything. It
+still appends `standing.py titles` to the compaction instructions.
+
+**Resume.** On `SessionStart` with source `compact`, the hook injects the digest
+`generate` printed, at most 2,000 UTF-8 bytes. Its first line names the program and
+says to read the generated handoff with `ccn doc show <id7>` or the file path before
+acting, then the plan, then reload Skill `long-running` if its rules are gone. The
+plan and progress record supersede the summary.
+
+The next line lists every live standing inbox rule id. Standing rule texts, clipped
+to 160 characters, and durable answer titles, clipped to 100 characters, follow while
+they fit, then `+N more in the handoff.`. The closing line counts owner asks, tasks,
+lanes, monitors, and lint findings.
+
+Claude Code moves `SessionStart` context over 10,000 characters to a file and injects
+a 2 KB preview. capt-hook merges every pack's `SessionStart` context into one output;
+cc-notes' compact restores take 7,500 of it, split between 4,500 for answers and 3,000
+for touched records. At `2026-10-01 13:55Z`, the root's merged restore was 20,596 bytes.
+The long-running pointer, printed last, never reached context.
+
+If generation failed, `SessionStart` gives the reason and asks the root to write the
+progress record now. If the root wrote no narrative before compaction, it adds that
+the root should write one when convenient. The skill stays active across compaction.
 
 ### Lane rotation
 
@@ -1741,7 +1788,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 16. Did I just spawn a lane, take an owner ask, or consume a deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
-19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; handoffs paste `standing.py titles` verbatim.
+19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
 
 Apply D3 to priority PRs before delegating. A call that survives all nineteen decides
 something no lane can decide for you; everything else is a lane.
