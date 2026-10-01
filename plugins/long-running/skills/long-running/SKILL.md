@@ -31,7 +31,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The nineteen hard rules
+## The twenty hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -353,14 +353,76 @@ told you", or "the plan is", is recorded the turn it arrives, as an `answer_add`
 `scope:durable` and a line in the plan's Decisions section. When a turn ends without an `answer_add` or
 `answer_edit`, the `root_context` hook queues `owner standing rule not recorded:
 answer_add it (scope:durable) + a plan Decisions line` for the next turn.
-A root post to Slack that commits to a standing behavior, with "from now on", "we will",
-"we now", or "going forward", is recorded the same turn as an `answer_add` with
-`scope:durable` that carries the post's permalink. A turn that sends one through
-`slack_send`, `slack_reply`, the Slack MCP, or `cc-slack send|reply` and records no answer
-queues `standing commitment posted to Slack and not recorded: answer_add it
+A Slack post the root approves (a Slack lane's draft shown verbatim in an
+`AskUserQuestion` `Send` preview) that commits to a standing behavior, with "from now
+on", "we will", "we now", or "going forward", is recorded the same turn as an
+`answer_add` with `scope:durable` that carries the post's permalink once the lane
+returns it. A turn whose `AskUserQuestion` carries such a preview and records no answer
+queues `standing commitment approved for Slack and not recorded: answer_add it
 (scope:durable) with the permalink`.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
+
+**R20. A Slack link from the owner is an assignment, and every Slack write is a lane.**
+A Slack permalink the owner pastes, bare or with words, is the root's to own, whoever
+wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
+handed it to the drive, never "the owner has it". It is never informational.
+
+That turn, before anything except the R16 alert checklist:
+
+- (a) Spawn `long-running:lane-ship` on sonnet from `reference/slack-lane-brief.md`.
+  It adds `eyes` within one minute on the message that asks, through the cc-slack CLI,
+  reads the thread, and returns the ask in ≤5 lines.
+- (b) Spawn the doing lane (fix, investigation, or answer) from the link itself,
+  without waiting for the Slack lane's read. An alert is R16.
+- (c) Send one owner line naming both lanes.
+- (d) `TaskCreate` for both.
+
+A reader or Slack-lane brief asks "what is asked, by whom, and what fixes it", never
+"what, if anything, it asks of the root". An owner link always asks the root to act.
+On the doing lane's result (cause, PR, ETA), the Slack lane posts the in-thread report
+and swaps `eyes` for `white_check_mark` once the ask is done. Follow the cc-slack
+skill's "Write a post": astra writes it, wlm voice, Pacific times with no timezone
+label, every PR, build, and commit as a `<url|label>` link, people as `<@U…>` mentions,
+no internal lane or program jargon, one short message.
+
+Permission follows the cc-slack skill. The owner's own words in the root's transcript
+asking for a report in that thread grant it. Otherwise the lane returns the exact
+draft; the root shows it verbatim in an `AskUserQuestion` `Send` preview and hands the
+approved text back to the lane.
+
+The root never writes to Slack or composes Slack copy: no cc-slack MCP writes
+(`slack_send`, `slack_reply`, `slack_edit`, `slack_unreact`, or reactions), no
+`cc-slack send|reply|edit|react|unreact`, and no user-level MCP
+`mcp__slack__slack_send_message`, `slack_add_reaction`, or `slack_remove_reaction`.
+`cc-slack dm-status` to the user's own DM stays the root's. The lane posts as the
+cc-slack bot; the user-level Slack MCP is only the cc-slack skill's fallback for a
+conversation the bot cannot join.
+
+The Slack lane runs the CLI by path for `thread`, `react`, `unreact`, `reply`, and `whoami`:
+`~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`.
+Lanes carry no `mcp__*` tools and no `ToolSearch`.
+
+- In sessions started before cc-slack was installed, `mcp__plugin_cc-slack_*` tools
+  and the Slack tools of `cc-slack:slack-waiter` and `cc-slack:slack-triage` are absent.
+  The root's `ToolSearch` finding no cc-slack tool never licenses the user-level MCP;
+  the Slack lane's CLI works in every session.
+
+The pack's `root_context` hook blocks every Slack write in a drive's root with
+`delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
+reference/slack-lane-brief.md — ... (R20: the drive root never writes to Slack)`;
+`# root:raw` does not bypass it; lanes pass.
+
+*Prevents the release-v3 failure of 2026-10-01: the owner pasted Anubhav Jain's
+"PR reviewer broken" thread at `17:25:46Z` after replying "Looking". The root briefed
+a reader to say "what, if anything, it asks of the release-v3 root", took back "nothing
+directly … yasyf is investigating", and left the ack and report undone until the owner
+wrote "i said im looking at PR reviewer bc i sent it to you". The root then reacted and
+replied itself through the user-level Slack MCP (`17:29:25Z`, `17:29:59Z`), with UTC
+times, bare `#28934` and build numbers, a pending-PR ETA, and no cc-slack skill loaded,
+because the session predated the install and its permission gate skipped on transcript
+size: "you shouldn't be doing that slack response inline, you should be delegating
+response and triage to a lane".*
 
 ## The landing desk and its ledger
 
@@ -1785,6 +1847,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane (unanswered `ROTATE`, over its line, dead)? → spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the path, then spawn the successor and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
+20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 
-Apply D3 to priority PRs before delegating. A call that survives all nineteen decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty decides
 something no lane can decide for you; everything else is a lane.

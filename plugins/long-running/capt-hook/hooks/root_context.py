@@ -90,15 +90,21 @@ ANSWER_VERBS = frozenset({("answer", "add"), ("answer", "edit")})
 STANDING = re.compile(r"\b(?:from now on|always|never|I told you|the plan is)\b", re.IGNORECASE)
 UNRECORDED = "owner standing rule not recorded: answer_add it (scope:durable) + a plan Decisions line"
 COMMITMENT = re.compile(r"\b(?:from now on|we will|we now|going forward)\b", re.IGNORECASE)
+SLACK_LANE = "long-running:lane-ship (model: sonnet) briefed from reference/slack-lane-brief.md"
 SLACK_WRITES = frozenset(
     {
         "mcp__plugin_cc-slack_cc-slack__slack_send",
         "mcp__plugin_cc-slack_cc-slack__slack_reply",
+        "mcp__plugin_cc-slack_cc-slack__slack_edit",
+        "mcp__plugin_cc-slack_cc-slack__slack_react",
+        "mcp__plugin_cc-slack_cc-slack__slack_unreact",
         "mcp__slack__slack_send_message",
+        "mcp__slack__slack_add_reaction",
+        "mcp__slack__slack_remove_reaction",
     }
 )
-CC_SLACK_WRITES = frozenset({"send", "reply"})
-UNRECORDED_COMMITMENT = "standing commitment posted to Slack and not recorded: answer_add it (scope:durable) with the permalink"
+CC_SLACK_WRITES = frozenset({"send", "reply", "edit", "react", "unreact"})
+UNRECORDED_COMMITMENT = "standing commitment approved for Slack and not recorded: answer_add it (scope:durable) with the permalink"
 LONG = "line\n" * 400
 ACTIVE = [CompactionState(active=True)]
 
@@ -194,19 +200,35 @@ def bash_verdict(call: Call, plan: Path | None) -> Verdict | None:
     return None
 
 
+def slack_write(what: str) -> Verdict:
+    return SLACK_LANE, f"{what} (R20: the drive root never writes to Slack)", NO_ESCAPE
+
+
+def cc_slack_write(call: Call) -> Verdict | None:
+    words = operands(call)
+    if call.name == "cc-slack" and words[:1] and words[0] in CC_SLACK_WRITES:
+        return slack_write(f"`cc-slack {words[0]}`")
+    return None
+
+
 def tool_verdict(evt: BaseHookEvent, plan: Path | None) -> Verdict | None:
     name = evt.tool_name or ""
     if read := evt.as_input(ReadCall):
         return read_verdict(read, plan)
     if name == "Bash":
+        calls = evt.command.calls()
+        if verdict := next(filter(None, map(cc_slack_write, calls)), None):
+            return verdict
         if RAW_MARKER.search(evt.command.raw.rstrip()):
             return None
-        return next((verdict for call in evt.command.calls() if (verdict := bash_verdict(call, plan))), None)
+        return next((verdict for call in calls if (verdict := bash_verdict(call, plan))), None)
     if grep := evt.as_input(GrepCall):
         root = Path(grep.path).expanduser() if grep.path else None
         return None if root and exempt(root, plan) else (EXPLORE, "a Grep search", NO_ESCAPE)
     if name in SLACK_TOOLS:
         return SLACK_TRIAGE, "a Slack thread or history read", NO_ESCAPE
+    if name in SLACK_WRITES:
+        return slack_write(f"the Slack write `{name}`")
     if name.startswith(CCX_MCP) and name.removeprefix(CCX_MCP).startswith(CCX_MCP_READS):
         return EXPLORE, f"`{name.removeprefix(CCX_MCP)}`", NO_ESCAPE
     if name in DOC_TOOLS or name in RootContextState.load(evt).oversized:
@@ -233,6 +255,16 @@ def delegate(verdict: Verdict) -> str:
         Input(command="ccx code read hooks/x.py --section 1-90", state=ACTIVE): Block(pattern=r"`ccx code`"),
         Input(command="ccx vcs diff", state=ACTIVE): Block(pattern=r"`ccx vcs diff`"),
         Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE): Block(pattern=r"cc-slack:slack-triage"),
+        Input(command="cc-slack react --url C0B/p1 --name eyes # root:raw", state=ACTIVE): Block(pattern=r"R20.*No bypass"),
+        Input(
+            tool="mcp__slack__slack_send_message", tool_input={"channel_id": "C0B", "text": "On it"}, state=ACTIVE
+        ): Block(pattern=r"^delegate to a lane: long-running:lane-ship"),
+        Input(
+            tool="mcp__slack__slack_add_reaction", tool_input={"channel_id": "C0B", "reaction": "eyes"}, state=ACTIVE
+        ): Block(pattern=r"`mcp__slack__slack_add_reaction`"),
+        Input(tool="mcp__slack__slack_send_message", tool_input={"channel_id": "C0B", "text": "On it"}): Allow(),
+        Input(command="cc-slack reply --url C0B/p1 --text 'On it'", agent_id="a1b2c3", state=ACTIVE): Allow(),
+        Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
         Input(command="rg -n LAUNCH plugins # root:raw", state=ACTIVE): Allow(),
         Input(command="rg -n '# root:raw' plugins", state=ACTIVE): Block(),
         Input(command="gh -R yasyf/cc-skills pr view 148", state=ACTIVE): Block(pattern=r"`gh pr view`"),
@@ -317,13 +349,11 @@ def records_answer(evt: BaseHookEvent) -> bool:
     return any(call.name in CCN and pair_in(operands(call), ANSWER_VERBS) for call in evt.command.calls())
 
 
-def posts_commitment(evt: BaseHookEvent) -> bool:
-    if evt.tool_name in SLACK_WRITES:
-        return COMMITMENT.search(json.dumps(evt.input.raw)) is not None
-    return any(
-        call.name == "cc-slack" and set(operands(call)[:1]) & CC_SLACK_WRITES and COMMITMENT.search(" ".join(call.args))
-        for call in evt.command.calls()
-    )
+def approves_commitment(evt: BaseHookEvent) -> bool:
+    if evt.tool_name != "AskUserQuestion" or not isinstance(raw := evt.input.raw, dict):
+        return False
+    previews = (option.get("preview") for question in raw.get("questions", []) for option in question.get("options", []))
+    return any(isinstance(preview, str) and COMMITMENT.search(preview) for preview in previews)
 
 
 def standing_rule(prompt: str) -> bool:
@@ -339,8 +369,8 @@ def standing_rule(prompt: str) -> bool:
         Input(command="ccn answer add 'Release as merged?' --body yes", state=ACTIVE): Allow(),
         Input(prompt="from now on, release everything as it merges"): Allow(),
         Input(
-            tool="mcp__plugin_cc-slack_cc-slack__slack_reply",
-            tool_input={"thread": "C0B/p1790815593712039", "text": "Going forward we release as merged."},
+            tool="AskUserQuestion",
+            tool_input={"questions": [{"question": "Post?", "options": [{"label": "Send", "preview": "Going forward we release as merged."}]}]},
             state=ACTIVE,
         ): Allow(),
     },
@@ -356,7 +386,7 @@ def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> HookResult | None:
         if records_answer(evt):
             with RootContextState.mutate(evt) as state:
                 state.recorded = True
-        elif posts_commitment(evt):
+        elif approves_commitment(evt):
             with RootContextState.mutate(evt) as state:
                 state.committed = True
     else:

@@ -169,24 +169,24 @@ def test_an_answer_from_an_interrupted_turn_does_not_cover_the_next_rule(root: R
     assert root.stop() == [f"{root_context.UNRECORDED} — never skip review"]
 
 
+def approval(*previews: str) -> dict:
+    options = [{"label": f"Send {n}", "preview": preview} for n, preview in enumerate(previews)]
+    return {"questions": [{"question": "Post the Slack lane's reply?", "options": [*options, {"label": "Hold"}]}]}
+
+
 @pytest.mark.parametrize(
-    ("tool", "tool_input"),
-    [
-        ("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "From now on we release as merged."}),
-        ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"thread": "C0B/p1", "text": "Going forward, every PR lands whole."}),
-        ("mcp__slack__slack_send_message", {"channel_id": "C0B", "text": "_(Yasyf's Claude)_ we now enqueue stacks whole"}),
-        ("Bash", {"command": "cc-slack reply C0B/p1 'We will release as merged.'"}),
-    ],
+    "preview",
+    ["From now on we release as merged.", "Going forward, every PR lands whole.", "we now enqueue stacks whole"],
 )
-def test_unrecorded_slack_commitment_nudges_at_stop(root: Root, tool: str, tool_input: dict) -> None:
-    root.post(tool, tool_input)
+def test_unrecorded_slack_commitment_nudges_at_stop(root: Root, preview: str) -> None:
+    root.post("AskUserQuestion", approval(preview))
 
     assert root.stop() == [root_context.UNRECORDED_COMMITMENT]
     assert root.stop() == []
 
 
 def test_recorded_slack_commitment_is_quiet(root: Root) -> None:
-    root.post("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "From now on we release as merged."})
+    root.post("AskUserQuestion", approval("From now on we release as merged."))
     root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes, <permalink>"})
 
     assert root.stop() == []
@@ -195,7 +195,8 @@ def test_recorded_slack_commitment_is_quiet(root: Root) -> None:
 @pytest.mark.parametrize(
     ("tool", "tool_input"),
     [
-        ("mcp__plugin_cc-slack_cc-slack__slack_send", {"channel": "C0B", "text": "#28797 landed."}),
+        ("AskUserQuestion", approval("#28797 landed.")),
+        ("AskUserQuestion", {"questions": [{"question": "We will ship l17 next?", "options": [{"label": "Yes"}]}]}),
         ("Bash", {"command": "cc-slack thread C0B/p1 # we will see"}),
     ],
 )
@@ -203,3 +204,30 @@ def test_slack_posts_without_commitments_are_quiet(root: Root, tool: str, tool_i
     root.post(tool, tool_input)
 
     assert root.stop() == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input", "named"),
+    [
+        ("mcp__slack__slack_send_message", {"channel_id": "C0B", "text": "_(Yasyf's Claude)_ On it"}, "`mcp__slack__slack_send_message`"),
+        ("mcp__slack__slack_add_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}, "`mcp__slack__slack_add_reaction`"),
+        ("mcp__slack__slack_remove_reaction", {"channel_id": "C0B", "timestamp": "1.2", "reaction": "eyes"}, "`mcp__slack__slack_remove_reaction`"),
+        ("mcp__plugin_cc-slack_cc-slack__slack_reply", {"channel_id": "C0B", "thread_ts": "1.2", "text": "On it"}, "`mcp__plugin_cc-slack_cc-slack__slack_reply`"),
+        ("mcp__plugin_cc-slack_cc-slack__slack_react", {"channel_id": "C0B", "ts": "1.2", "name": "eyes"}, "`mcp__plugin_cc-slack_cc-slack__slack_react`"),
+        ("Bash", {"command": "~/.claude/plugins/cache/forge/cc-slack/0.2.11/bin/cc-slack react --url C0B/p1 --name eyes"}, "`cc-slack react`"),
+        ("Bash", {"command": "cc-slack reply --url C0B/p1 --text 'On it' # root:raw"}, "`cc-slack reply`"),
+    ],
+)
+def test_the_root_never_writes_to_slack(root: Root, tool: str, tool_input: dict, named: str) -> None:
+    message = root.pre(tool, tool_input) or ""
+
+    assert message.startswith(f"delegate to a lane: {root_context.SLACK_LANE}")
+    assert named in message and "R20" in message
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["cc-slack dm-status --text 'parity wave 3 landed'", "cc-slack whoami", "cc-slack status"],
+)
+def test_the_root_keeps_its_own_dm_status_and_identity_checks(root: Root, command: str) -> None:
+    assert root.bash(command) is None
