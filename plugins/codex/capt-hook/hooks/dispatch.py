@@ -178,6 +178,27 @@ hook(
         Input(command=f"grep -n prose {RETRO} &"): Allow(),
         Input(command=f"sed -n 1,40p {RETRO} prose &"): Allow(),
         Input(command=f"python3 {DESIGN} render /d/x &"): Allow(),
+        Input(
+            command=f"uv run {DESIGN} plainify /d/x",
+            tool_input={"command": f"uv run {DESIGN} plainify /d/x", "run_in_background": True},
+        ): Block(),
+        Input(command="python3 $SKILL/scripts/retro.py prose /r/x > log 2>&1 &"): Block(),
+        Input(
+            command='UV_NO_CACHE=1 timeout 600 "$H" package-install > /tmp/x.log 2>&1',
+            tool_input={
+                "command": 'UV_NO_CACHE=1 timeout 600 "$H" package-install > /tmp/x.log 2>&1',
+                "run_in_background": True,
+            },
+        ): Allow(),
+        Input(command='(UV_NO_CACHE=1 timeout 600 "$H" package-install > /tmp/x.log 2>&1) &'): Allow(),
+        Input(
+            command="uv run pytest -q > /s/pytest.log 2>&1; echo EXIT=$? >> /s/pytest.log",
+            tool_input={
+                "command": "uv run pytest -q > /s/pytest.log 2>&1; echo EXIT=$? >> /s/pytest.log",
+                "run_in_background": True,
+            },
+        ): Allow(),
+        Input(command='(uv run pytest -q > $LOG 2>&1; echo "EXIT=$?" >> $LOG) & echo started'): Allow(),
     },
 )
 

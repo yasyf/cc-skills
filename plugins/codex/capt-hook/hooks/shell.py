@@ -41,9 +41,9 @@ def runs_prose_wrapper(call: Call) -> bool:
     words = call.command.words
     for word, following in zip(words, words[1:]):
         script = word.value or word.raw
-        if (
+        if following.value in WRAPPER_SUBCOMMANDS.values() and (
             WRAPPER_SUBCOMMANDS.get(Path(script).name) == following.value
-            or (word.value is None and script.startswith("$") and following.value in WRAPPER_SUBCOMMANDS.values())
+            or (word.value is None and script.startswith("$"))
         ):
             return word is words[0] or INTERPRETER.fullmatch(head_name(call)) is not None
     return False
