@@ -30,6 +30,11 @@ replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca detects
 its agent, the script polls orca terminal list every 4 seconds until the terminal's
 agentIdentity reads claude, or codex for sol, up to ORCA_LAUNCH_BOOT_SECONDS.
+Orca drops a terminal's startup command under load, leaving a shell prompt, so
+once a third of that ceiling has passed with no agent detected, the script reads
+the screen and, when it shows neither the command line nor the agent's own UI,
+types the command into the terminal once. A launch that still has no agent at
+the ceiling fails, and never reaches worker-start.
 Every list is scoped to the lane's worktree, since an unscoped list stops at 200
 terminals. A terminal create whose output names no handle is followed by a list
 of the worktree, and a terminal that was not there before the create is adopted;
@@ -52,8 +57,10 @@ it runs, but Orca carries no worker_done for it.
 
 <model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), sol
 (gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
-high, xhigh, or max. Worktree and terminal creation retry after
-ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
+high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
+because the runtime drops connections under load. A worktree create that fails
+may still have created the worktree, so the script polls orca worktree show for
+up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
@@ -66,6 +73,7 @@ ORCA_LAUNCH_RETRY_SECONDS, because the runtime drops connections under load.
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
+  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
 EOF
   exit 2
 }
@@ -81,6 +89,7 @@ ROOT=${ORCA_LAUNCH_ROOT:-$(dirname "$PARENT")}
 STATE=${ORCA_LAUNCH_STATE:-$HOME/.claude/scratch/orca-launch/$RUN}
 RETRY=${ORCA_LAUNCH_RETRY_SECONDS:-30}
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
+WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 POLL=4
 RECEIPT=$STATE/$LANE.json
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
@@ -132,17 +141,26 @@ mkdir -p "$STATE"
 set -- --parent-worktree "path:$PARENT"
 [ "$AGENT" != sol ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
 
+registered() {
+  FOUND=$(orca worktree show --worktree "path:$WT" --json | jq -er '.result.worktree.path') || return 1
+}
+
 attempt=0
-until [ -d "$WT" ]; do
+while ! registered; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 4 ] || fail "worktree create: $(head -c 300 "$STATE/$LANE.worktree.json")"
   if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
-    "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1; then
-    WT=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json")
-  else
-    sleep "$RETRY"
+    "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1 &&
+    FOUND=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json"); then
+    break
   fi
+  waited=0
+  until registered || [ "$waited" -ge "$WORKTREE_WAIT" ]; do
+    sleep "$POLL"
+    waited=$((waited + POLL))
+  done
 done
+WT=$FOUND
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
 spec
 
@@ -169,15 +187,27 @@ until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   listed
   TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
 done
-IDENTITY=claude
-[ "$AGENT" = claude ] || IDENTITY=codex
-attempt=0 DETECTED=''
+IDENTITY=claude MARKER=CLAUDE_LONG_RUNNING_LANE=$LANE
+[ "$AGENT" = claude ] || IDENTITY=codex MARKER=$MODEL_ID
+screen_lacks_agent() {
+  SCREEN=$(orca terminal read --terminal "$TERMINAL" --screen --json |
+    jq -er '.result.terminal | select(.source != "screen-unavailable") | .tail | join("")') || return 1
+  case $SCREEN in
+    *"$MARKER"* | *"bypass permissions on"*) return 1 ;;
+  esac
+}
+attempt=0 DETECTED='' TYPED=''
 until [ "$AGENT" = codex ] || [ "$DETECTED" = "$IDENTITY" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le $(((BOOT + POLL - 1) / POLL)) ] ||
-    fail "boot terminal=$TERMINAL: orca terminal list shows agentIdentity=${DETECTED:-none}, not $IDENTITY, after ${BOOT}s"
+    fail "boot terminal=$TERMINAL: orca terminal list shows agentIdentity=${DETECTED:-none}, not $IDENTITY, after ${BOOT}s${TYPED:+; the command was typed into the terminal once}"
   sleep "$POLL"
   DETECTED=$(orca terminal list --worktree "path:$WT" --json | jq -r --arg t "$TERMINAL" '.result.terminals[] | select(.handle == $t) | .agentIdentity // empty') || DETECTED=
+  if [ "$DETECTED" != "$IDENTITY" ] && [ -z "$TYPED" ] && [ $((attempt * POLL * 3)) -ge "$BOOT" ] && screen_lacks_agent; then
+    orca terminal send --terminal "$TERMINAL" --text "$COMMAND" --enter --json >/dev/null ||
+      fail "command send terminal=$TERMINAL after Orca dropped the startup command"
+    TYPED=1
+  fi
 done
 
 if [ -s "$RECEIPT" ]; then

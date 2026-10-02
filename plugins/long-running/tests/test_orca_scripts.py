@@ -13,6 +13,9 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/long-running/scripts"
 BIN = Path(__file__).resolve().parents[1] / "bin"
 
+SENT = {"rc": 0, "out": {"ok": True, "result": {}}}
+TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for terminal handle after creation"}}}
+
 ORCA = """#!/usr/bin/env python3
 import json, os, sys
 state = os.environ["FAKE_STATE"]
@@ -20,6 +23,11 @@ with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 key = "_".join(sys.argv[1:3])
 queue = os.path.join(state, key)
+if key == "worktree_show" and not os.path.exists(queue):
+    path = sys.argv[sys.argv.index("--worktree") + 1].removeprefix("path:")
+    found = os.path.isdir(path)
+    sys.stdout.write(json.dumps({"ok": True, "result": {"worktree": {"path": path}}}) if found else "")
+    sys.exit(0 if found else 1)
 replies = json.load(open(queue)) if os.path.exists(queue) else [{"rc": 1, "out": ""}]
 reply = replies.pop(0) if len(replies) > 1 else replies[0]
 json.dump(replies, open(queue, "w"))
@@ -251,8 +259,9 @@ def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     assert "--spec" not in start
 
 
-def test_launch_retries_a_dropped_worktree_create(orca):
+def test_a_dropped_worktree_create_that_never_registers_is_created_again_after_the_wait(orca):
     orca.healthy()
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
     orca.reply(
         "worktree create",
         {"rc": 1, "out": "connection lost"},
@@ -261,7 +270,37 @@ def test_launch_retries_a_dropped_worktree_create(orca):
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(orca.calls("worktree create")) == 2
-    assert orca.sleeps()[0] == "30"
+    assert orca.sleeps()[:2] == ["4", "4"]
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_unavailable", "message": "The Orca runtime closed the connection before responding."}}},
+        {"rc": 0, "out": "Error: socket hang up"},
+    ],
+)
+def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(orca, lost):
+    orca.healthy()
+    miss = {"rc": 1, "out": ""}
+    orca.reply("worktree create", {**lost, "mkdir": str(orca.worktree)})
+    orca.reply("worktree show", miss, miss, miss, {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}})
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(orca.calls("worktree create")) == 1
+    assert orca.sleeps()[:2] == ["4", "4"]
+    assert result.stdout.strip().endswith(f"worktree={orca.worktree}")
+
+
+def test_a_worktree_that_never_registers_fails_the_launch_after_four_creates(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "4"
+    orca.reply("worktree create", {"rc": 1, "out": "runtime_unavailable"})
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed worktree create: runtime_unavailable"
+    assert len(orca.calls("worktree create")) == 4
+    assert orca.calls("terminal create") == []
 
 
 def test_launch_links_a_brief_whose_pointer_passes_300_characters(orca):
@@ -328,6 +367,84 @@ def test_launch_fails_when_orca_never_detects_the_agent_within_the_boot_ceiling(
     assert result.stdout.strip() == "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s"
     assert len(orca.calls("terminal list")) == 4
     assert orca.calls("orchestration worker-start") == []
+    assert orca.calls("terminal send") == []
+
+
+def screen(*lines: str, source: str = "screen") -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"terminal": {"source": source, "tail": list(lines)}}}}
+
+
+@pytest.mark.parametrize(("model", "agent"), [("opus", "claude"), ("sol", "codex")])
+def test_a_startup_command_orca_dropped_is_typed_into_the_terminal_once(orca, model, agent):
+    orca.healthy(agent=agent)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "40"
+    orca.reply("terminal create", TIMED_OUT)
+    orca.reply("terminal list", bare(), *[listing(None)] * 5, listing(agent))
+    orca.reply("terminal read", screen("Welcome to fish", "yasyf@mac ~/v3-lane-a-base>"), screen("❯", "⏵⏵ bypass permissions on (shift+tab to cycle)"))
+    orca.reply("terminal send", SENT)
+    result = orca.launch("lane-a", model, "high", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    [create] = orca.calls("terminal create")
+    [send] = orca.calls("terminal send")
+    assert flag(send, "--terminal") == "term_a"
+    assert flag(send, "--text") == flag(create, "--command")
+    assert "--enter" in send
+    steps = [" ".join(call[:2]) for call in orca.calls()]
+    assert steps.index("terminal send") < steps.index("orchestration worker-start")
+
+
+def test_a_typed_command_that_starts_no_agent_fails_the_launch_before_worker_start(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
+    orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base>"))
+    orca.reply("terminal send", SENT)
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == (
+        "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 12s; the command was typed into the terminal once"
+    )
+    assert len(orca.calls("terminal send")) == 1
+    assert orca.calls("orchestration worker-start") == []
+
+
+def test_a_failed_command_send_fails_the_launch_before_worker_start(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
+    orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base>"))
+    orca.reply("terminal send", {"rc": 1, "out": "runtime_unavailable"})
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed command send terminal=term_a after Orca dropped the startup command"
+    assert orca.calls("orchestration worker-start") == []
+
+
+def test_a_command_line_wrapped_across_screen_rows_is_not_typed_again(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
+    orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNN", "ING_LANE=lane-a claude --model claude-opus-5-5"))
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.strip().endswith("after 12s")
+    assert orca.calls("terminal send") == []
+
+
+@pytest.mark.parametrize("read", [{"rc": 1, "out": ""}, screen("yasyf@mac ~/v3-lane-a-base>", source="screen-unavailable")])
+def test_no_command_is_typed_when_the_screen_cannot_be_read(orca, read):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "12"
+    orca.reply("terminal read", read)
+    result = orca.launch()
+    assert result.returncode == 1
+    assert orca.calls("terminal send") == []
+
+
+def test_no_command_is_typed_before_a_third_of_the_boot_ceiling_has_passed(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "180"
+    orca.reply("terminal list", bare(), listing(None), listing(None), listing("claude"))
+    assert orca.launch().returncode == 0
+    assert len(orca.calls("terminal read")) == 1
+    assert orca.calls("terminal send") == []
 
 
 def test_every_terminal_list_is_scoped_to_the_lanes_worktree(orca):
