@@ -2,7 +2,7 @@
 """The scripted desk: root commands become durable actions addressed to a lane's current Orca dispatch, the Run mailbox is consumed and acknowledged, ready bottom prefixes enqueue, and deadlines are checked, all without a model turn.
 
     desk-runner.py relay  --config PATH --key KEY --lane LANE --text TEXT [--reply-to MSG] [--deadline-minutes N]
-    desk-runner.py launch --config PATH --key KEY --lane LANE --model M --effort E --brief PATH
+    desk-runner.py launch --config PATH --key KEY --lane LANE --model M --effort E --brief PATH [--owner-directed]
     desk-runner.py policy --config PATH --key KEY --landing prefix|whole --revision REV --source TEXT [--supersedes REV]
     desk-runner.py run    --config PATH --desk orca|landing [--once]
     desk-runner.py show   --config PATH
@@ -21,7 +21,10 @@ A relay is accepted, then started and completed by the lane itself: it replies
 never resent blindly.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
-prompts, and checks relay deadlines; `run --desk landing` gates and enqueues ready
+prompts, and checks relay deadlines. A sol or `--owner-directed` launch starts whatever
+the load; any other launch waits while the 1-minute load is above the core count, for
+at most `deadlines.load_hold_minutes`, then fails into the escalations file and the Run
+mailbox. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options. Escalations append one line each
@@ -147,6 +150,7 @@ class Config:
     launch_env: dict[str, str]
     start_minutes: int
     launch_minutes: int
+    load_hold_minutes: int
     enqueue_minutes: int
     judge_model: str
     landing: dict | None
@@ -167,6 +171,7 @@ class Config:
             launch_env=orca.get("launch_env", {}),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
+            load_hold_minutes=deadlines.get("load_hold_minutes", 5),
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
@@ -342,8 +347,9 @@ class Runner:
         target = json.dumps({"text": text, "reply_to": reply_to})
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
-    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str) -> tuple[actions.Action, bool]:
-        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane)})
+    def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool) -> tuple[actions.Action, bool]:
+        urgent = owner_directed or model == "sol"
+        target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
@@ -461,13 +467,30 @@ class Runner:
 
     def launch(self, container: str, lane: str, action: actions.Action) -> None:
         """Start orca-launch.sh detached, so a readiness wait never holds a relay; `reap` records its printed line."""
-        if self.shell.load() > self.shell.cores():
+        spec = json.loads(action.target)
+        if held := self.load_hold(action):
+            if self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
+                self.expire_launch(container, lane, action, held)
             return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
-        spec = json.loads(action.target)
         argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), self.config.launch_env)
+
+    def load_hold(self, action: actions.Action) -> str:
+        """Why an accepted launch is waiting on load, or empty when it may start; sol and owner-directed launches never wait."""
+        load, cores = self.shell.load(), self.shell.cores()
+        if json.loads(action.target)["urgent"] or load <= cores:
+            return ""
+        return f"load {load:.0f} above {cores} cores"
+
+    def expire_launch(self, container: str, lane: str, action: actions.Action, held: str) -> None:
+        key = action.action_id
+        text = f"{key} launch failed after {self.config.load_hold_minutes}m held, {held}; submit it under a new key with --owner-directed to start it now"
+        if not self.book.attempt(container, lambda incident: incident.fail(key, text)):
+            return
+        self.escalate(f"{container}/{key}", "LAUNCH-HELD", lane, text)
+        self.orca.call("orchestration", "send", "--to", f"run:{self.config.run}", "--run", self.config.run, "--type", "status", "--subject", f"LAUNCH-HELD {lane}", "--body", text)
 
     def reap(self) -> None:
         """Settle each started launch from its printed line; a launch with neither a line nor a new receipt is unverifiable, never relaunched."""
@@ -637,7 +660,7 @@ class Runner:
             missing = {
                 "relay": f"delivered to {sent[-1].target}, no started reply" if sent and sent[-1].status == "completed" else "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
                 "reply": "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
-                "launch": "launch never finished" if action.status == "started" else "launch held: load above the core count",
+                "launch": "launch never finished" if action.status == "started" else "launch never started",
                 "enqueue": "stack-enqueue never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
             self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
@@ -660,7 +683,10 @@ class Runner:
                 at = [f"accepted {pacific(actions.parse_stamp(action.accepted_at))}"]
                 at += [f"started {pacific(actions.parse_stamp(action.started_at))}"] if action.started_at else []
                 at += [f"{action.status} {pacific(actions.parse_stamp(receipt['at']))}"] if (receipt := action.verification_receipt or action.response) and "at" in receipt else []
-                lines.append(f"- {action.action_id} {action.kind} [{action.status}] {' '.join(at)}")
+                status = action.status
+                if action.kind == "launch" and status == "accepted" and (held := self.load_hold(action)):
+                    status = f"HELD {held} for {int((self.now() - actions.parse_stamp(action.accepted_at)).total_seconds() // 60)}m"
+                lines.append(f"- {action.action_id} {action.kind} [{status}] {' '.join(at)}")
         return "\n".join(lines) + "\n"
 
     def write_view(self) -> None:
@@ -930,6 +956,7 @@ def build_parser() -> argparse.ArgumentParser:
     launch.add_argument("--model", required=True)
     launch.add_argument("--effort", required=True)
     launch.add_argument("--brief", required=True, type=Path)
+    launch.add_argument("--owner-directed", action="store_true")
     policy = verbs.add_parser("policy")
     policy.add_argument("--key", required=True)
     policy.add_argument("--landing", choices=LANDING_POLICIES, required=True)
@@ -957,7 +984,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":
-        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()))
+        action, created = runner.accept_launch(args.key, args.lane, args.model, args.effort, str(args.brief.expanduser().resolve()), args.owner_directed)
     else:
         action, created = runner.accept_policy(args.key, args.landing, args.revision, args.source, args.supersedes)
     runner.flush()

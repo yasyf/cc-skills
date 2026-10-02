@@ -960,9 +960,12 @@ relaunches a worker or guesses an answer to its prompt.
 *Prevents lanes sitting for hours on a prompt only their own terminal showed
 (release v3, 2026-09-30).*
 
-**O14. Hold launches while load exceeds the core count.** The runner reads the
-1-minute load before each launch. Above the core count it leaves the action
-accepted; its deadline still applies. It never kills a worker to lower load.
+**O14. Hold launches while load exceeds the core count, for a bounded time.** The
+runner reads the 1-minute load before each launch. A sol launch or one submitted with
+`--owner-directed` starts whatever the load. Above the core count any other launch
+stays accepted, `show` marks it `HELD` with the load and its age, and after
+`deadlines.load_hold_minutes` (default 5) it fails with a `LAUNCH-HELD` escalation and
+a Run mailbox message. It never kills a worker to lower load.
 
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 

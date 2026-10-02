@@ -18,7 +18,7 @@ Orca rulings to `inbox/orca-desk.md`, and never `SendMessage` a desk.
 
 ```text
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
-desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH
+desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH [--owner-directed]
 desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision REV --source TEXT --supersedes <current revision>
 desk-runner.py show --config C
 ```
@@ -74,6 +74,7 @@ environment. Set the accepted prefix policy's revision to #28601's revision.
   "deadlines": {
     "start_minutes": 10,
     "launch_minutes": 15,
+    "load_hold_minutes": 5,
     "enqueue_minutes": 15
   },
   "judge_model": "claude-sonnet-5-5",
@@ -199,9 +200,11 @@ emits `PROMPT` in the pass that sees it. It never types a guessed answer.
 Stale unread mail gets one terminal wake per message; completed or failed
 dispatch mail emits `STALE-MAIL`.
 
-**O14. Hold launches under load.** Before each launch, the runner reads the
-1-minute load average. Above the core count it leaves the launch accepted;
-its deadline still applies. It never kills a worker to lower load.
+**O14. Hold launches under load, for a bounded time.** Before each launch, the
+runner reads the 1-minute load average. Sol and `--owner-directed` launches never
+wait. Above the core count any other launch stays accepted and `show` marks it
+`HELD`; after `deadlines.load_hold_minutes` it fails with a `LAUNCH-HELD`
+escalation and a Run mailbox message. It never kills a worker to lower load.
 
 **O15. Preserve codex and sol routes.** `codex` and `gpt-*` use Orca's codex
 agent. `sol xhigh` uses `gpt-6.1-sol`, a `--no-parent` worktree, and a terminal
