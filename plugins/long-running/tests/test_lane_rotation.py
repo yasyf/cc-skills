@@ -11,11 +11,13 @@ from pathlib import Path
 
 import pytest
 from cc_transcript import Session, parse
+from captain_hook.app import _state
 from captain_hook.events import StopEvent
 from captain_hook.testing.helpers import build_context
+from captain_hook.transcripts import lift_session
 from fire import fire
-from hooks import lane_rotation, nudges, session_tree, turns
-from hooks.compaction_handoff import CompactionState
+from hooks import lane_rotation, nudges, session_tree, task_list, turns
+from hooks.compaction_handoff import TURN_WINDOW, CompactionState
 
 ROOT_AT = datetime(2026, 9, 25, 21, 35, tzinfo=UTC)
 TEAM = "session-rot"
@@ -126,10 +128,14 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 class Stop:
     tree: Tree
     tasks: list[dict]
+    window: int | None = None
 
     def evt(self) -> StopEvent:
         raw = {"session_id": "0123456789abcdef", "transcript_path": str(self.tree.root), "cwd": str(self.tree.claude.parent)}
-        ctx = build_context(transcript=Session.from_path(self.tree.root), session_dir=self.tree.claude / "session")
+        transcript = Session.from_path(self.tree.root)
+        if self.window:
+            transcript = lift_session(transcript.events[-self.window :], path=self.tree.root)
+        ctx = build_context(transcript=transcript, session_dir=self.tree.claude / "session")
         return StopEvent(_raw=raw | {"background_tasks": self.tasks}, ctx=ctx)
 
 
@@ -666,3 +672,45 @@ def test_hooks_sharing_rotation_state_cannot_lose_an_ask(tree: Tree, clock: list
     lane_rotation.escalate_unrotated_lanes(evt.evt())
     assert len(lane_rotation.RotationState.load(evt.evt()).asks) == 1
     assert len(tree.inbox("desk")) == 1
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        lane_rotation.note_flushed_lanes,
+        lane_rotation.ask_lanes_to_rotate,
+        lane_rotation.escalate_unrotated_lanes,
+        task_list.require_task_for_owner_ask,
+        task_list.flag_lane_done_reports,
+    ],
+)
+def test_root_transcript_hooks_read_a_tail_window(handler) -> None:
+    entry = next(hook for hook in _state.hooks if hook.handler is handler)
+    assert entry.spec.transcript_events == TURN_WINDOW
+
+
+def test_flushed_reply_is_found_after_the_cursor_leaves_the_window(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("landing-desk", 450_000)])
+    evt.window = TURN_WINDOW
+    rotate_lanes(evt)
+    with tree.root.open("a") as transcript:
+        for second in range(TURN_WINDOW):
+            transcript.write(json.dumps(user(ROOT_AT + timedelta(seconds=second), "status")) + "\n")
+    deliver(tree, '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT + timedelta(minutes=5))
+
+    clock[0] += 60
+    rotate_lanes(evt)
+
+    assert pending(evt) == ["Lane `landing-desk` flushed its context. Leave it running; do not `TaskStop` it."]
+
+
+def test_unflushed_lane_escalates_from_a_tail_window(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("landing-desk", 450_000)])
+    evt.window = TURN_WINDOW
+    rotate_lanes(evt)
+    tree.read("landing-desk")
+
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    rotate_lanes(evt)
+
+    assert [line.split(":")[0] for line in pending(evt)] == ["ROOT-ACTION `landing-desk`"]
