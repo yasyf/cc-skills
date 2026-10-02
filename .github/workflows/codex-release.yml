@@ -37,7 +37,7 @@ jobs:
 
   release:
     needs: [verify-signing-secrets]
-    uses: yasyf/homebrew-tap/.github/workflows/release-go.yml@41f8de6765b3b833ef333b0b98f5683f0e46685b
+    uses: yasyf/homebrew-tap/.github/workflows/release-go.yml@28367ec611b0463b43b3c0fc8e984efddfe7379c
     secrets: inherit
     with:
       runner: macos-latest
