@@ -51,20 +51,37 @@ The single canonical agent-conventions doc. Section by section:
   edits), inline every comment verbatim with anchors, cluster >5 comments into
   themes, end with a `# | file:line | verbatim | cluster` mapping table, and never
   implement before `ExitPlanMode`.
-- **Parallelize Independent Work.** Keep verbatim. Stance: the main session is an
-  orchestrator, not an executor — sequential is the exception, saturation is
-  required (every lane whose inputs are ready is in flight); when unsure, fan
-  out. Dispatch ladder, cheapest first: batch independent tool calls in one
+- **Parallelize Independent Work.** Keep verbatim. Stance: cheap independent
+  reads, greps, outlines, network calls, and source edits in separate worktrees
+  or lanes batch and fan out; a single message with independent tool calls
+  comes first. Local builds, test suites, repo-wide scans or indexing,
+  benchmarks, and similar compiler- or IO-heavy jobs share a host budget: one
+  local job at a time across a root coordinator and every descendant lane,
+  including workers and nested coordinators, with the root coordinator recording
+  who holds the slot, and at most two compiler or test workers on the host at
+  once. Right before starting one, check load average against core count, idle
+  CPU, and free memory; when the host is saturated, defer every optional job and
+  let CI grade the work; a necessary local reproduction waits for real headroom.
+  CI grades tests; run a suite locally only to reproduce a red CI run or for a
+  check no pipeline grades. Use no timed retry loops around git or stack writes
+  and no separate fetch, rebase, or restack before a ship or submit that already
+  does it; read a refusal and retry only when its cause changes. Queue
+  resource-intensive lanes when budget is unavailable and continue cheap work;
+  waiting on host budget is correct scheduling. Never stop, restart, suspend,
+  signal, or reprioritize existing sessions, their processes, or anyone else's
+  jobs to free capacity; lower priority (`nice`, background QoS) applies only
+  to disposable local jobs you create yourself in this task. Dispatch ladder,
+  cheapest first: batch independent tool calls in one
   message, parallel subagent calls for ad-hoc investigations, dynamic workflow as
   the default for substantive multi-step work (detailed in CLAUDE.md § Plan
   Execution & Orchestration), `TeamCreate` for long-running peers; the
-  single-step exception still routes through one subagent call, never the
-  orchestrator acting directly.
+  single-step exception still routes through one subagent call.
 - **Writing Plans.** Keep verbatim. The five-part plan shape (Context, Approach,
   Potential Pitfalls, Workflow Plan, Verification). The Workflow Plan part is
   required in every plan — a `Phase | Shape | Agents | Blocks on | Verification`
-  table whose `Blocks on` edges form the dependency graph the schedule must run
-  at full width, speculative lanes as their own `(speculative)` rows, or one
+  table whose `Blocks on` edges form the dependency graph whose ready rows run
+  concurrently within the host budget, speculative lanes as their own
+  `(speculative)` rows, or one
   line saying everything stays at the main-agent level; a plan without it is
   incomplete.
 - **Compact Context (ccx).** The `cc-skills:ccx` import in every layer's
@@ -118,10 +135,12 @@ shared AGENTS.md:
   `TaskUpdate`; cited by the `tasks.py` Stop gate (keep the heading in sync with that hook).
 - `## Plan Execution & Orchestration` — keep verbatim. The session-level orchestrator
   contract: substantive work runs as dynamic workflows (`Workflow` tool, standing
-  authorization) at the dependency graph's full width — every lane whose inputs
-  are ready is in flight, phases sequence only on a consumed output, and any
-  pending gate with a concrete candidate in hand gets a worktree-isolated
+  authorization) with ready lanes running concurrently within the shared host
+  budget, phases sequence only on a consumed output, and any
+  pending gate with a concrete candidate in hand may get a worktree-isolated
   speculative lane that a confirming verdict lands and a refuting one discards;
+  a speculative lane that needs a build or test draws on the same host budget
+  and waits for it;
   only trivial edits, single reads, and single targeted lookups stay
   at the main-agent level, and routine docs/prose edits skip dynamic workflows and
   adversarial verify while keeping Models-table routing and the `## Workflow Plan`
