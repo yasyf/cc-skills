@@ -230,6 +230,7 @@ Set the run and repo ids before calling it. The remaining variables have default
 | `ORCA_LAUNCH_CLAUDE_ARGS` | Further arguments from Orca's agent defaults; default none. Leave out the plan-mode argument. |
 | `ORCA_LAUNCH_RETRY_SECONDS` | Wait before a retry; default `30`. |
 | `ORCA_LAUNCH_BOOT_SECONDS` | Ceiling on the wait for Orca to detect the terminal's agent; default `180`. |
+| `ORCA_LAUNCH_WORKTREE_SECONDS` | Ceiling on the wait for a worktree whose create failed to register; default `180`. |
 
 A successful launch prints one of these result lines:
 
@@ -260,12 +261,21 @@ duplicate its active work. A follow-up alone is not a relaunch: edit the brief f
 then send its pointer with `send --type dispatch` to the current dispatch.
 
 Worktree creation gets four attempts; terminal creation gets three, separated by
-`ORCA_LAUNCH_RETRY_SECONDS`. Before `worker-start`, which refuses a terminal whose
+`ORCA_LAUNCH_RETRY_SECONDS`. A worktree create that fails often created the worktree
+anyway, since the runtime drops the connection but finishes the work. Before each
+attempt and after a failed one, the script asks `orca worktree show` for the
+worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) after a
+failure, and creates again only when none registers. Before `worker-start`, which refuses a terminal whose
 agent Orca has not detected with `agent_unconfigured`, the script polls
 `orca terminal list` every 4 seconds until the terminal's `agentIdentity` reads
 `claude`, or `codex` for sol, and fails with
 `boot terminal=<handle>: orca terminal list shows agentIdentity=<seen>` once
-`ORCA_LAUNCH_BOOT_SECONDS` passes. After a claude start it checks the screen for
+`ORCA_LAUNCH_BOOT_SECONDS` passes. Orca drops a terminal's startup command under
+load and leaves a shell prompt. Once a third of the ceiling has passed with no agent
+detected, the script reads the terminal's screen; when it shows neither the command
+line nor the agent's UI, the script types the command with `orca terminal send` once.
+A launch whose agent is still undetected at the ceiling fails, and `worker-start` never
+runs. After a claude start it checks the screen for
 `bypass permissions on` up to ten times, 4 seconds apart. A failed `worker-start` returns immediately;
 it is not one of those retry loops.
 
