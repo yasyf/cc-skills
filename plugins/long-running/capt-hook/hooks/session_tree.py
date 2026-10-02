@@ -55,7 +55,7 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
 
 
 def own_name(evt: BaseHookEvent) -> str | None:
-    meta = evt.ctx.t.path.with_suffix(".meta.json")
+    meta = evt.transcript_path.with_suffix("") / "subagents" / f"agent-{evt.agent_id}.meta.json"
     return json.loads(meta.read_text()).get("name") if meta.is_file() else None
 
 
