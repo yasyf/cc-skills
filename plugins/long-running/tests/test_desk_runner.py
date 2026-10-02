@@ -33,6 +33,7 @@ class FakeShell(runner_module.Shell):
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
         self.mailbox: list[dict] = []
+        self.inbox_error = None
         self.inboxes: dict[str, list[dict]] = {}
         self.lose_sends = 0
         self.garble_sends = 0
@@ -79,7 +80,8 @@ class FakeShell(runner_module.Shell):
             path = self.attachments.get(argv[6])
             return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[6]}")
         if name == "orca-check.sh":
-            return self.check(argv)
+            assert argv[1:] == ["--stale"]
+            return runner_module.Done(0, self.stale_out, "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
         if name == "claude":
@@ -119,19 +121,35 @@ class FakeShell(runner_module.Shell):
         if verb == ["orchestration", "request-show"]:
             return self.ok({"state": self.requests.get(argv[3], "absent")})
         if verb == ["orchestration", "check"]:
+            assert argv[2] == "--terminal" and not argv[3].startswith("run:")
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
+        if verb == ["orchestration", "inbox"]:
+            assert argv[2:4] == ["--terminal", "run:run_1"]
+            if self.inbox_error:
+                return self.inbox_error
+            messages = sorted(self.mailbox, key=lambda message: message["sequence"], reverse=True)[:int(argv[5])]
+            return self.ok({"messages": messages, "count": len(messages)})
         if verb == ["terminal", "send"]:
             return self.ok({})
         raise AssertionError(f"unexpected orca call {argv}")
 
-    def check(self, argv: list[str]) -> runner_module.Done:
-        if "--stale" in argv:
-            return runner_module.Done(0, self.stale_out, "")
-        if not self.mailbox:
-            return runner_module.Done(0, "timeout\n", "")
-        batch, self.mailbox = self.mailbox, []
-        lines = [json.dumps(message) for message in batch] + [f"delivery {self.next_id('dlv')} heartbeats=0"]
-        return runner_module.Done(0, "\n".join(lines) + "\n", "")
+    def receive(self, message: dict) -> dict:
+        message = {
+            "id": self.next_id("msg"),
+            "sequence": self.sequence,
+            "type": "status",
+            "subject": "checkpoint",
+            "body": "",
+            "thread_id": None,
+            "payload": "{}",
+            "from_handle": "term_ctx_a",
+            "to_handle": "run:run_1",
+            "created_at": self.now().isoformat(),
+            "read": False,
+            **message,
+        }
+        self.mailbox.append(message)
+        return message
 
     def stack_enqueue(self, argv: list[str]) -> runner_module.Done:
         if "--status" in argv:
@@ -156,18 +174,16 @@ class FakeShell(runner_module.Shell):
         (receipts / f"{lane}.terminal").write_text(terminal + "\n")
         self.dispatches[dispatch] = {"status": status, "terminal": terminal}
 
-    def ack(self, thread: str, verb: str, dispatch: str, lane: str = LANE) -> None:
+    def ack(self, thread: str, verb: str, dispatch: str) -> None:
         key = thread.split("/", 1)[1]
-        self.mailbox.append(
+        self.receive(
             {
-                "id": self.next_id("msg"),
                 "type": "status",
                 "subject": f"{verb} {key}",
                 "body": "ok",
                 "thread_id": thread,
                 "payload": json.dumps({"dispatchId": dispatch}),
                 "from_handle": self.dispatches[dispatch]["terminal"],
-                "lane": lane,
             }
         )
 
@@ -313,8 +329,9 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
 
 
 def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_path):
+    orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
-    shell.mailbox.append({"id": "msg_hb", "type": "status", "subject": "checkpoint", "body": "working", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
+    shell.receive({"id": "msg_hb", "type": "status", "subject": "checkpoint", "body": "working", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     for _ in range(10):
         orca_pass(shell, config)
         shell.sleep(60)
@@ -323,11 +340,12 @@ def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_
 
 
 def test_a_routine_question_the_brief_settles_is_answered_without_escalating(shell, config, tmp_path):
+    orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     question = {"id": "msg_q1", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE}
-    shell.mailbox.append(question)
+    shell.receive(question)
     orca_pass(shell, config)
-    shell.mailbox.append(question)
+    shell.receive(question)
     orca_pass(shell, config)
     replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
     assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q1"
@@ -336,9 +354,10 @@ def test_a_routine_question_the_brief_settles_is_answered_without_escalating(she
 
 
 def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, config, tmp_path):
+    orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     shell.verdict = {"verdict": "escalate", "text": "apply to prod? A) wait B) apply now"}
-    shell.mailbox.append({"id": "msg_q2", "type": "escalation", "subject": "apply?", "body": "", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
+    shell.receive({"id": "msg_q2", "type": "escalation", "subject": "apply?", "body": "", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
     lines = escalations(tmp_path)
     assert len(lines) == 1 and "DECIDE msg_q2" in lines[0] and "A) wait B) apply now" in lines[0]
@@ -621,10 +640,170 @@ def test_an_unrelated_push_does_not_settle_a_restack_still_on_the_landed_branch(
 
 
 def test_an_empty_receipt_or_a_null_payload_does_not_stop_the_runner(shell, config, tmp_path):
+    orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     (tmp_path / "receipts" / "half-written.json").write_text("")
     (tmp_path / "receipts" / "half-written.terminal").write_text("term_x\n")
     cli(shell, config, "relay", "--key", "R700", "--lane", "half-written", "--text", "hello")
-    shell.mailbox.append({"id": "msg_n", "type": "status", "subject": "note", "body": "", "thread_id": None, "payload": "null", "from_handle": "term_ctx_a", "lane": LANE})
+    shell.receive({"id": "msg_n", "type": "status", "subject": "note", "body": "", "thread_id": None, "payload": "null", "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
     assert shell.sends() == []
+
+
+def test_read_messages_still_transfer_ownership_complete_relays_and_report_outcomes(shell, config, tmp_path):
+    cli(shell, config, "relay", "--key", "R800", "--lane", LANE, "--text", "apply the fix")
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").pending_owner == "ctx_a"
+    shell.ack(thread("R800"), "started", "ctx_a")
+    shell.ack(thread("R800"), "done", "ctx_a")
+    outcome = shell.receive({"type": "worker_done", "subject": "fixed", "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "success"})})
+    for message in shell.mailbox:
+        message["read"] = True
+    orca_pass(shell, config)
+    container = incident(tmp_path, f"desk-lane-{LANE}")
+    assert (container.owner, container.pending_owner, container.owner_generation) == ("ctx_a", None, 1)
+    assert container.actions["R800"].status == "completed"
+    assert container.actions["R800"].response["message"] == shell.mailbox[1]["id"]
+    assert escalations(tmp_path) == [f"11:00 OUTCOME {outcome['id']} {LANE}: worker_done success dispatch=ctx_a: fixed"]
+    assert all(message["read"] for message in shell.mailbox)
+    assert not any("--wait" in call or "--ack" in call for call in shell.calls)
+
+
+def test_nothing_dispatches_before_the_first_read_sets_the_cursor(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    cli(shell, config, "relay", "--key", "R900", "--lane", LANE, "--text", "apply the fix")
+    shell.inbox_error = runner_module.Done(1, "", "socket closed")
+    orca_pass(shell, config)
+    assert shell.sends() == []
+    assert "inbox:run_1" not in incident(tmp_path, "desk-runner").facts
+    shell.inbox_error = None
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    shell.ack(thread("R900"), "started", "ctx_a")
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R900"].status == "started"
+
+
+def test_the_cursor_survives_restart_and_pages_back_without_replay_or_skips(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "INBOX_PAGE_SIZE", 2)
+    orca_pass(shell, config)
+    before = shell.receive({"type": "worker_done", "subject": "before restart"})
+    orca_pass(shell, config)
+    messages = [shell.receive({"type": "worker_done", "subject": f"after restart {index}"}) for index in range(7)]
+    shell.calls.clear()
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    processed = []
+    handle = runner.message
+
+    def record(message):
+        processed.append(message["id"])
+        handle(message)
+
+    monkeypatch.setattr(runner, "message", record)
+    runner_module.run_orca(runner, True)
+    assert processed == [message["id"] for message in messages]
+    assert [call[call.index("--limit") + 1] for call in shell.calls if call[:3] == ["orca", "orchestration", "inbox"]] == ["2", "4", "8"]
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == messages[-1]["sequence"]
+    runner.check()
+    assert processed == [message["id"] for message in messages]
+    assert [line.split()[2] for line in escalations(tmp_path)] == [before["id"], *processed]
+
+
+def test_a_cursor_checkpoint_survives_a_failure_mid_batch(shell, config, tmp_path, monkeypatch):
+    orca_pass(shell, config)
+    messages = [shell.receive({"type": "worker_done", "subject": str(index)}) for index in range(3)]
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    handle = runner.message
+
+    def fail_second(message):
+        if message["id"] == messages[1]["id"]:
+            raise RuntimeError("interrupted")
+        handle(message)
+
+    monkeypatch.setattr(runner, "message", fail_second)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        runner.check()
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == messages[0]["sequence"]
+    restarted = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    processed = []
+    handle = restarted.message
+
+    def record(message):
+        processed.append(message["id"])
+        handle(message)
+
+    monkeypatch.setattr(restarted, "message", record)
+    restarted.check()
+    restarted.flush()
+    assert processed == [message["id"] for message in messages[1:]]
+    assert [line.split()[2] for line in escalations(tmp_path)] == [message["id"] for message in messages]
+
+
+@pytest.mark.parametrize("subject,kind,sender,lane", [("fix-live: 12:48 PM PT release abc", "FIX-LIVE", "term_ctx_a", LANE), ("MeChAnIsM: wrong selector", "MECHANISM", "term_unknown", "term_unknown")])
+def test_milestone_status_escalates_once_per_message_id(shell, config, tmp_path, subject, kind, sender, lane):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    body = "release\n\t" + "a " * 200
+    message = shell.receive({"subject": subject, "body": body, "from_handle": sender})
+    orca_pass(shell, config)
+    shell.receive({"id": message["id"], "subject": subject, "body": body, "from_handle": sender})
+    orca_pass(shell, config)
+    assert escalations(tmp_path) == [f"11:00 {kind} {message['id']} {lane}: {subject}: {' '.join(body.split())[:300].rstrip()}"]
+
+
+def test_only_exact_status_milestone_prefixes_escalate_and_heartbeats_advance_the_cursor(shell, config, tmp_path):
+    orca_pass(shell, config)
+    for subject in (None, "", "checkpoint", "fix-live soon", "mechanisms: known", "prefix fix-live: now"):
+        shell.receive({"subject": subject})
+    heartbeat = shell.receive({"type": "heartbeat", "subject": "fix-live: ignored", "payload": "not json"})
+    orca_pass(shell, config)
+    assert escalations(tmp_path) == []
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == heartbeat["sequence"]
+
+
+def test_first_read_starts_at_the_newest_sequence_without_replaying_history(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "INBOX_PAGE_SIZE", 2)
+    for index in range(5):
+        newest = shell.receive({"type": "worker_done", "subject": f"history {index}", "read": True})
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == newest["sequence"]
+    assert escalations(tmp_path) == []
+    assert len([call for call in shell.calls if call[:3] == ["orca", "orchestration", "inbox"]]) == 1
+    fresh = shell.receive({"type": "worker_done", "subject": "fresh"})
+    orca_pass(shell, config)
+    assert [line.split()[2] for line in escalations(tmp_path)] == [fresh["id"]]
+
+
+@pytest.mark.parametrize("failure", [runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "socket closed"}}), ""), runner_module.Done(1, "", "socket closed")])
+def test_inbox_errors_escalate_once_per_bucket_without_advancing_the_cursor(shell, config, tmp_path, failure):
+    orca_pass(shell, config)
+    fresh = shell.receive({"type": "worker_done", "subject": "fresh"})
+    shell.inbox_error = failure
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == 0
+    [line] = escalations(tmp_path)
+    assert "ORCA-INBOX orca-inbox:" in line and "socket closed" in line
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert len(escalations(tmp_path)) == 2
+    shell.inbox_error = None
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == fresh["sequence"]
+    assert f"OUTCOME {fresh['id']}" in escalations(tmp_path)[-1]
+
+
+def test_the_orca_loop_sleeps_ten_seconds_between_passes(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        raise RuntimeError("end loop")
+
+    monkeypatch.setattr(shell, "sleep", sleep)
+    with pytest.raises(RuntimeError, match="end loop"):
+        runner_module.run_orca(runner, False)
+    assert sleeps == [10]

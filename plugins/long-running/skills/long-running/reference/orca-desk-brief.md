@@ -34,12 +34,13 @@ compaction. `show` and the config's `view` file render action state. Runner-owne
 `inbox/` files are views, never command authority. Keep existing history; do not
 mirror runner actions into `TaskCreate`/`TaskUpdate` or complete shadow tasks for them.
 
-Only the orca runner calls `check --run`. To cut over from a running orca-desk,
+Only the orca runner consumes the Run. To cut over from a running orca-desk,
 let it finish its current pass and acknowledge its delivered batch, then end its
 loop before starting the runner. Keep its session open. Carry unresolved work into
-runner commands with its existing keys. Never run two consumers of the Run mailbox.
-Run the orca process with the Run's coordinator identity; a worker terminal's
-`check --run` fails `consumer_fenced`.
+runner commands with its existing keys.
+
+The runner reads `orchestration inbox --terminal run:<run>` without a waiter or
+acknowledgement. No other loop may run `check --run` with `--wait` or `--ack`.
 
 ## Config and startup
 
@@ -103,7 +104,6 @@ DRIVE='/absolute/drive'
 CONFIG="$DRIVE/runner.json"
 mkdir -p "$DRIVE/inbox"
 touch "$DRIVE/inbox/runner.md"
-export ORCA_CHECK_TIMEOUT_MS=60000
 nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
 nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
 tail -n 0 -F "$DRIVE/inbox/runner.md"
@@ -143,7 +143,7 @@ new receipt is `UNVERIFIABLE`, never relaunched automatically.
 ## Orca passes and standing rules
 
 Each pass settles detached launches, delivers accepted relays and launches,
-reconciles lost sends, consumes a Run delivery, checks start and launch deadlines,
+reconciles lost sends, reads new Run messages, checks start and launch deadlines,
 and writes changed views and escalation lines. A quiet pass writes nothing.
 Stale mail, prompts, and liveness are swept every five minutes.
 
@@ -154,10 +154,12 @@ submits `launch` and never runs lifecycle helpers inline.
 line, or a new dispatch receipt when the log is empty. Other output fails the
 launch. No output and no new receipt leaves it unverifiable.
 
-**O3. Keep one mailbox consumer.** The orca runner calls `orca-check.sh --json`,
-processes the whole batch, and acknowledges its delivery id on the next check.
-The wrapper emits one JSON object per non-heartbeat message, then `delivery
-<id> heartbeats=<n>` or `timeout`.
+**O3. Keep one Run reader.** The orca runner calls
+`orca orchestration inbox --terminal run:<run> --limit N --json`. It processes
+sequences after the saved cursor oldest first, skips heartbeats, and saves each
+sequence in the `desk-runner` container's `facts` under `inbox:<run>`. Full pages expand
+until the cursor is covered. A first read saves the newest sequence without
+replaying history; restarts resume there, including messages marked read elsewhere.
 
 **O4. Judge questions from the brief.** A Sonnet-low `claude -p` call with no
 tools reads the lane's brief for each question or escalation. It answers what
@@ -191,9 +193,8 @@ do not treat it as proof that this rule is enforced.
 **O11. Treat a capacity fallback like an ask.** Workers send `question` or
 `escalation` when `ask` returns `capacity reached`; both reach the same judge.
 
-**O12. Bound each mailbox wait to 60 seconds.** Keep
-`ORCA_CHECK_TIMEOUT_MS=60000`. The wrapper's retry can extend the call, and the
-landing process sleeps for its configured interval; this is not a pass deadline.
+**O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
+between passes; the landing process sleeps for its configured interval.
 
 **O13. A prompt is a desk bug.** The sweep reads `observation.agentWait` and
 emits `PROMPT` in the pass that sees it. It never types a guessed answer.
@@ -257,6 +258,7 @@ identify the cause; `DECIDE` uses the question id.
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
+| `FIX-LIVE`, `MECHANISM` | Read the lane's status milestone by message id; the line includes its subject and up to 300 body characters. |
 | `PROMPT` | Resolve the prompt on the named dispatch and terminal. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
@@ -267,10 +269,10 @@ identify the cause; `DECIDE` uses the question id.
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
 | `DECISION_GATE`, `HANDOFF` | Act on the worker's gate or handoff. |
-| `ORCA-CHECK` | Resolve the mailbox error without restarting Orca. |
+| `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
 
 The store deduplicates escalation keys. Liveness keys include the hour;
-`ORCA-CHECK` keys include a time bucket, so an unchanged fault can recur. Missing
+`ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Missing
 briefs and failed judge calls can emit `DECIDE` without options. Routine quiet
 polls do not wake a model.
 

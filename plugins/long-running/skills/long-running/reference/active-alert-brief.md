@@ -163,6 +163,7 @@ Do:
      A muted monitor still gets fixed; use the mute window.
   3. The moment you know the mechanism, record it for the executor:
      `incident.py note --incident <incident id> --mechanism "<mechanism, one line>"`.
+     Also send a status Run message with subject `mechanism: <evidence>`.
   4. Design check, when the brief quotes design rulings. Before the PR opens,
      record the entry point your change calls and how it meets each ruling:
      `incident.py note --incident <incident id> --design-check "<symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>"`.
@@ -181,7 +182,12 @@ Do:
      `incident.py note --incident <incident id> --live "<evidence, one line>"`.
      If the evidence shows the alert is not ours, record that instead:
      `incident.py note --incident <incident id> --not-ours "<evidence, one line>"`.
-  6. Record every artifact in cc-notes, never under ~/.claude/scratch:
+  7. Run <exact live-check command> every two minutes and post its output as a
+     status Run message until it shows <expected live output>. Then send a status
+     Run message with subject `fix-live: <h:mm PM PT> <evidence>`. The brief names
+     that exact command; the root uses it too. For a static site, for example:
+     `curl -fsS https://platform.poetic.com/ | grep -oE '/releases/[0-9a-f]{40}/' | head -1`.
+  8. Record every artifact in cc-notes, never under ~/.claude/scratch:
      `ccn log append <incident log id> --entry "<kind: one line>" --attach <file, repeatable>`.
      A directory goes as one .tgz; `--replace` updates a same-named attachment.
      Investigation detail goes to

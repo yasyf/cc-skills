@@ -3,7 +3,7 @@ set -eu
 
 usage() {
   cat >&2 <<'EOF'
-usage: orca-check.sh [--ack <delivery-id>] [--peek] [--json] [-- <orca check args>...]
+usage: orca-check.sh [--peek] [-- <orca check args>...]
        orca-check.sh --stale [--inbox <inbox file>]
 
 Runs one blocking `orca orchestration check --wait` that wakes on worker_done,
@@ -13,14 +13,11 @@ except heartbeats, one per line, then the delivery to acknowledge:
   <msg id> <type> <lane> <subject>: <body on one line>
   delivery <delivery id> heartbeats=<n>
 
---json prints each of those messages as one compact JSON object instead, the
-message as Orca returned it plus its "lane", for desk-runner.py, and also wakes
-on status, decision_gate, and handoff, which carry a lane's started/done replies. A wait that ends
-empty prints `timeout`. --ack <delivery-id> acknowledges the
-previous batch before waiting; pass result.deliveryId, since a message id
-acknowledges nothing and the Run replays an unacknowledged batch. --peek prints
-the unread messages without waiting or marking them read. Arguments after --
-go to `orca orchestration check`, such as --terminal <handle> or --run <id>.
+A wait that ends empty prints `timeout`. --peek prints unread messages without
+waiting or marking them read. Arguments after -- go to `orca orchestration check`,
+such as --terminal <handle>. To acknowledge a previous terminal batch, pass
+--ack <delivery-id> after --; a message id acknowledges nothing. The Run inbox
+belongs to desk-runner.py; no other loop may check --run with --wait or --ack.
 
 <lane> is the lane whose orca-launch.sh receipt names the sender's terminal,
 else the sender's handle. A lost connection, or a runtime_unavailable error,
@@ -48,12 +45,10 @@ EOF
   exit 2
 }
 
-ACK='' PEEK='' STALE='' INBOX='' JSON=''
+PEEK='' STALE='' INBOX=''
 while [ $# -gt 0 ]; do
   case $1 in
-    --ack) [ $# -ge 2 ] || usage; ACK=$2; shift 2 ;;
     --peek) PEEK=1; shift ;;
-    --json) JSON=1; shift ;;
     --stale) STALE=1; shift ;;
     --inbox) [ $# -ge 2 ] || usage; INBOX=$2; shift 2 ;;
     --) shift; break ;;
@@ -103,9 +98,7 @@ fi
 if [ -n "$PEEK" ]; then
   set -- --peek "$@"
 else
-  TYPES=worker_done,escalation,question
-  [ -z "$JSON" ] || TYPES=$TYPES,status,decision_gate,handoff
-  set -- --wait --types "$TYPES" --timeout-ms "$TIMEOUT" ${ACK:+--ack "$ACK"} "$@"
+  set -- --wait --types worker_done,escalation,question --timeout-ms "$TIMEOUT" "$@"
 fi
 
 attempt=0
@@ -128,12 +121,11 @@ for receipt in "$STATE"/*.terminal; do
   LANES=$(printf '%s' "$LANES" | jq -c --arg handle "$(cat "$receipt")" --arg lane "$(basename "$receipt" .terminal)" '. + {($handle): $lane}')
 done
 
-printf '%s' "$OUT" | jq -r --argjson lanes "$LANES" --arg json "$JSON" '
+printf '%s' "$OUT" | jq -r --argjson lanes "$LANES" '
   .result as $r
   | ($r.messages // []) as $all
   | ($all | map(select(.type != "heartbeat"))[]
-      | if $json == "1" then . + {lane: ($lanes[.from_handle] // .from_handle)} | tojson
-        else "\(.id) \(.type) \($lanes[.from_handle] // .from_handle) \(.subject): \(.body // "" | gsub("\\s+"; " "))" end),
+      | "\(.id) \(.type) \($lanes[.from_handle] // .from_handle) \(.subject): \(.body // "" | gsub("\\s+"; " "))"),
     if $r.deliveryId then "delivery \($r.deliveryId) heartbeats=\($all | map(select(.type == "heartbeat")) | length)"
     elif ($all | length) == 0 and ($r.timedOut // false) then "timeout"
     else empty end'
