@@ -16,6 +16,15 @@ REPO = "Forge-AI/monorepo"
 LANE = "lightning-eh"
 
 
+@pytest.mark.parametrize("path", ["SKILL.md", "reference/landing-desk-brief.md", "reference/priority-desk-brief.md"])
+def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
+    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
+    text = (skill / path).read_text()
+    assert "desk-wait.sh" in text
+    assert "timeout: 60000" in text
+    assert "tail -n 0 -F" in text
+
+
 def stamp(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 

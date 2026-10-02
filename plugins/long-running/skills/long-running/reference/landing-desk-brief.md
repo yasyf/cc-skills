@@ -89,7 +89,7 @@ Verified facts, do not re-derive:
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
     plus the plan's Decisions; an id list, never a range>
-  scripts: ledger.py, bus.py, standing.py, and desk-runner.py, on PATH by name
+  scripts: ledger.py, bus.py, standing.py, desk-runner.py, and desk-wait.sh, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -98,8 +98,19 @@ After your own compaction, resume in place. The ledger holds your inbox, holds,
   as it stands; never ask the root to reconstruct your state.
 
 At spawn:
-  - Arm `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
-    under Monitor at its maximum timeout (at most 30 minutes); re-arm on every expiry.
+  - In-process desk (every Agent-spawned desk): run one foreground Bash call with
+    `timeout: 60000`, running
+    `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
+    It waits at most 50 seconds and returns on a new inbox, mailbox, or deadline
+    line. Run step 0 on its output, then rerun the call in a loop.
+    Top-level session: arm one Monitor on `tail -n 0 -F <root inbox file>` at its
+    maximum timeout (at most 30 minutes). Re-arm on every expiry and after your
+    own compaction. Each appended line wakes you; run step 0 on it at once.
+  - In-process desk: run
+    `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... --once`
+    as a foreground step between waits. Top-level session: arm the same command
+    without `--once` under Monitor at its maximum timeout (at most 30 minutes);
+    re-arm on every expiry.
     Pass each priority PR the root names with `--priority`. Send every `P0 #n ...`
     line to the root the moment it prints. A `REPORT msg/<n> ...` line is a lane's
     own `ledger.py report`: run step 1 on it at once. The watch is the detector; the
@@ -108,17 +119,25 @@ At spawn:
     PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build
     list. Never make one REST status call per PR.
 
+In-process desk: loop over the foreground wait, act on its output, and run the
+  periodic watch with `--once` between waits. Run the 3-minute reconciliation
+  pass and the 30-minute summary when due in that same foreground loop, never
+  as background Bash or Monitor. Top-level session: block on the inbox Monitor
+  and run the scheduled pass and summary in the background.
+
 Do, in this order, forever:
   0. Root inbox file <path>: at the TOP of every iteration, before any other work,
-     read every line after your saved cursor and act on each ruling. Advance the
-     cursor every iteration and name `cursor R<n>` in every report. Never report
+     act on the lines printed by `desk-wait.sh`, then read every line after your
+     saved cursor and act on each ruling. Advance the cursor every iteration and
+     name `cursor R<n>` in every report. Never report
      "waiting on the root" before checking the inbox for the answer.
      A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
      never report it done. Append `standing.py inbox <inbox file>` output to every
      report and forward its `violation` lines to the root.
      The root appends rulings there, because a SendMessage to a looping desk is
-     not delivered mid-turn. No wait in this
-     loop runs longer than 60 seconds before you read the file again.
+     not delivered mid-turn. In-process desks receive new lines from the
+     foreground wait, which advances the file cursor. Top-level sessions wake
+     on the inbox Monitor; re-arm it on expiry and after your own compaction.
      Read the holds file's #<n> and lane:<name> entries. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift

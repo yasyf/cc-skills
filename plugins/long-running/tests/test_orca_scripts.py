@@ -180,7 +180,7 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh'"
+        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false'"
     )
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--terminal") == "term_a"
@@ -218,7 +218,7 @@ def test_a_sol_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orc
     assert shell.returncode == 0, shell.stderr
     assert shell.stdout.splitlines() == [
         f"{BIN}:{orca.root / 'bin'}:/usr/bin:/bin",
-        "--dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh",
+        "--dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false",
     ]
 
 
@@ -243,6 +243,39 @@ def test_a_sol_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
     assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
     [send] = orca.calls("terminal send")
     assert flag(send, "--terminal") == "term_a"
+
+
+@pytest.mark.parametrize("model", ["codex", "sol"])
+@pytest.mark.parametrize("prompt", ["Update available!", "Skip until next version"])
+def test_a_readiness_timeout_at_an_update_prompt_never_sends_the_spec(orca, model, prompt):
+    orca.healthy(agent="codex", screen=prompt)
+    orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    orca.reply("terminal send", SENT)
+    result = orca.launch("lane-a", model, "xhigh", str(orca.brief))
+    terminal = "term_codex" if model == "codex" else "term_a"
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [f"lane-a failed agent_readiness terminal={terminal} update prompt: '[\"❯\",\"{prompt}\"]'"]
+    [read] = orca.calls("terminal read")
+    assert read == ["terminal", "read", "--terminal", terminal, "--screen", "--json"]
+    assert orca.calls("terminal send") == []
+
+
+def test_an_update_prompt_failure_quotes_one_line_of_at_most_300_screen_characters(orca):
+    orca.healthy(agent="codex")
+    prompt = "\nUpdate available!\t\tSkip until next version\r\nRelease notes: https://github.com/openai/codex/releases/latest\n" + "x" * 320
+    orca.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": prompt}}}})
+    orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a"}}})
+    orca.reply("terminal send", SENT)
+    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    assert result.returncode == 1, result.stdout + result.stderr
+    [line] = result.stdout.splitlines()
+    prefix = "lane-a failed agent_readiness terminal=term_a update prompt: '"
+    assert line.startswith(prefix)
+    assert line.endswith("'")
+    quoted = line.removeprefix(prefix).removesuffix("'")
+    assert len(quoted) == 300
+    assert quoted.startswith(" Update available! Skip until next version Release notes: https://github.com/openai/codex/releases/latest ")
+    assert orca.calls("terminal send") == []
 
 
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
