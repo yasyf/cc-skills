@@ -143,7 +143,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
         "env CLAUDE_LONG_RUNNING_LANE=lane-a claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
-        " --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode"
+        " --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config"
         " --channels plugin:cc-review@cc-review --model claude-opus-5-5 --effort high"
     )
     [start] = orca.calls("orchestration worker-start")
@@ -180,13 +180,29 @@ def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_lev
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command") == (
-        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false'"
+        f"sh -c 'PATH={BIN}:$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false -c mcp_servers={{}}'"
     )
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--terminal") == "term_a"
     assert "--agent" not in start and "--model" not in start and "--effort" not in start
     assert orca.calls("terminal read") == []
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
+
+
+def test_a_worker_starts_only_the_mcp_servers_its_launch_names(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_MCP_CONFIG"] = "/briefs/slack-mcp.json"
+    assert orca.launch().returncode == 0
+    command = flag(orca.calls("terminal create")[0], "--command")
+    assert " --strict-mcp-config --mcp-config /briefs/slack-mcp.json " in command
+
+
+def test_a_sol_worker_takes_its_mcp_servers_from_the_launch(orca):
+    orca.healthy(agent="codex")
+    orca.env["ORCA_LAUNCH_CODEX_MCP"] = '{datadog={url="https://mcp.datadoghq.com"}}'
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    command = flag(orca.calls("terminal create")[0], "--command")
+    assert command.endswith(""" -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}}'""")
 
 
 def test_no_parent_puts_a_claude_lane_in_a_top_level_worktree(orca):
@@ -218,7 +234,7 @@ def test_a_sol_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orc
     assert shell.returncode == 0, shell.stderr
     assert shell.stdout.splitlines() == [
         f"{BIN}:{orca.root / 'bin'}:/usr/bin:/bin",
-        "--dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false",
+        "--dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c check_for_update_on_startup=false -c mcp_servers={}",
     ]
 
 

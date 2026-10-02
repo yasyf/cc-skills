@@ -51,7 +51,7 @@ these commands:
 orca worktree create --name "<lane>" --repo "id:<repo id>" --base-branch "origin/<base>" \
   --parent-worktree "path:<coordinator worktree>" --setup run --json
 orca terminal create --worktree "path:<wt>" --json \
-  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --channels plugin:cc-review@cc-review --model <id> --effort <level>"
+  --command "claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config --channels plugin:cc-review@cc-review --model <id> --effort <level>"
 orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --json
 ```
@@ -117,7 +117,7 @@ verified on `ctx_e6b256d5c0c8`:
 
 ```sh
 orca terminal create --worktree "path:<wt>" --title "<name>" --json \
-  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh"
+  --command "codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=xhigh -c mcp_servers={}"
 orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 90000 --json
 ```
