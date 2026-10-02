@@ -1871,7 +1871,9 @@ A lane is due at 0.7 of its own compaction threshold, computed from its live mod
 way Compaction handoff describes. On a 600k window, that lands around 400k tokens.
 `LONG_RUNNING_LANE_ROTATE_TOKENS` sets the line outright. Once `long-running` is
 invoked, the same capt-hook pack checks the lanes on every main-session `Stop`, and
-never blocks it.
+never blocks it. The check reads only the root transcript's newest 256 events. Without that
+window a hook reads the newest 4 MiB, and on a long drive that projection exceeds
+capt-hook's snapshot output limit, so capt-hook skips the hook.
 
 **Liveness.** A lane is live only while it appears as a running teammate or subagent in
 the `Stop` payload's `background_tasks`. A subagent matches by id. Claude Code labels
@@ -1953,6 +1955,10 @@ release-v3 drive (2026-09-30).*
 
 *Prevents alerts-watch sitting over its line from 07:02Z until the owner ordered its
 rotation by hand (release-v3, 2026-10-01).*
+
+*Prevents landing-desk-7 passing 500k tokens with no `ROOT-ACTION`: every rotation
+check was skipped for exceeding the snapshot output limit on a 174 MB root transcript
+(release-v3, 2026-10-02).*
 
 *Prevents a `ROOT-ACTION` for ccx-guard-eperm naming four different task ids
 across four firings, three of which stopped other lanes sharing its label

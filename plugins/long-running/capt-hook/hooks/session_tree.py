@@ -118,5 +118,5 @@ def last_uuid(events: Sequence[TranscriptEvent]) -> str | None:
 
 def events_after(events: Sequence[TranscriptEvent], cursor: str | None) -> tuple[list[TranscriptEvent], str | None]:
     seen = [i for i, event in enumerate(events) if hasattr(event, "meta") and str(event.meta.uuid) == cursor]
-    fresh = list(events[seen[0] + 1 :]) if seen else []
+    fresh = list(events[seen[0] + 1 :]) if seen else list(events) if cursor else []
     return fresh, last_uuid(events) or cursor

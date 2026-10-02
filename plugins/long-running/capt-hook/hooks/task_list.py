@@ -26,7 +26,7 @@ from captain_hook import (
 from captain_hook.tasks import Task, Tasks
 
 from . import session_tree
-from .compaction_handoff import CompactionState
+from .compaction_handoff import TURN_WINDOW, CompactionState
 from .lane_rotation import DriveActive, live_lanes
 from .nudges import queue_nudge
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE
@@ -225,6 +225,7 @@ def fresh_prompts(evt: BaseHookEvent, cursor: str | None) -> tuple[list[str], st
     Event.PostToolUse | Event.Stop,
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
+    transcript_events=TURN_WINDOW,
     tests={
         Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
         Input(tool="TaskCreate", tool_input={"subject": "x", "description": "y"}): Allow(),
@@ -278,6 +279,7 @@ def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
     Event.PostToolUse | Event.Stop,
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
+    transcript_events=TURN_WINDOW,
     tests={
         Input(tool="Bash", tool_input={"command": "ls"}): Allow(),
         Input(tool="TaskUpdate", tool_input={"taskId": "1", "status": "completed"}): Allow(),

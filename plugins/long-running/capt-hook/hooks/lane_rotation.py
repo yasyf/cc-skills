@@ -24,7 +24,7 @@ from captain_hook import (
 )
 
 from . import session_tree
-from .compaction_handoff import CompactionState
+from .compaction_handoff import TURN_WINDOW, CompactionState
 from .nudges import NudgeState, queue_nudge
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent
 from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
@@ -242,7 +242,7 @@ ACTIVE_ROOT_TESTS = {
 }
 
 
-@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], tests=ACTIVE_ROOT_TESTS)
+@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], transcript_events=TURN_WINDOW, tests=ACTIVE_ROOT_TESTS)
 def note_flushed_lanes(evt: BaseHookEvent) -> HookResult | None:
     if drive_root(evt) is None:
         return None
@@ -264,7 +264,7 @@ def note_flushed_lanes(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
-@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], tests=ACTIVE_ROOT_TESTS)
+@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], transcript_events=TURN_WINDOW, tests=ACTIVE_ROOT_TESTS)
 def ask_lanes_to_rotate(evt: BaseHookEvent) -> HookResult | None:
     if (root := drive_root(evt)) is None:
         return None
@@ -298,7 +298,7 @@ def ask_lanes_to_rotate(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
-@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], tests=ACTIVE_ROOT_TESTS)
+@on(Event.Stop, only_if=[DriveActive()], skip_if=[FromSubagent()], transcript_events=TURN_WINDOW, tests=ACTIVE_ROOT_TESTS)
 def escalate_unrotated_lanes(evt: BaseHookEvent) -> HookResult | None:
     if (root := drive_root(evt)) is None:
         return None
