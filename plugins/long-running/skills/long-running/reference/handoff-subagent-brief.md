@@ -18,6 +18,7 @@ from the `ROOT-ACTION` line, `<lane>@<team>` for a teammate.
 ## Spawn brief
 
 ```text
+ccx: role=handoff
 You are <lane>-handoff: you write the handoff that lets <lane>-<N+1> replace <lane>.
 Model sonnet, effort xhigh. Write only the cc-notes doc and its edit buffer.
 

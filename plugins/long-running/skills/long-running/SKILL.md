@@ -78,7 +78,12 @@ lane, not the drive root`.
 These pass: the plan and its progress folder, an inbox tail, a filter over piped output
 such as `ccx vcs status | grep`, heredoc appends, `ls`, `date`, `ccn`, `ccx vcs status`,
 `ccx vcs pr status`, `cc-present`, `Agent`, `SendMessage`, the task tools, and `Monitor`.
-A trailing `# root:raw` on a Bash command runs it as written. Set
+One bounded read of one file passes too: `head -n`/`tail -n` up to 40 lines, `head -c`
+up to 4000 bytes, `grep -c`, `grep -m` up to 20, `wc`, or a read piped into such a
+`head` or `tail`. Any other file read, search, history read, or Slack read is shown to a
+small model first, and blocks only when the model is confident it is an investigation
+rather than a one-shot control-plane read.
+A `# ccx:raw` comment on a Bash command, or `CAPT_HOOK_CCX_RAW=1`, runs it as written. Set
 `LONG_RUNNING_ROOT_READ_LINES`, `LONG_RUNNING_ROOT_MCP_CHARS`, or
 `LONG_RUNNING_ROOT_ARTIFACT_DIRS`, a comma list, in the session's environment to change
 the thresholds.
@@ -487,7 +492,7 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
 The pack's `root_context` hook blocks every Slack write in a drive's root with
 `delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
 reference/slack-lane-brief.md — ... (R20: the drive root never writes to Slack)`;
-`# root:raw` does not bypass it; lanes pass.
+`# ccx:raw` does not bypass it; lanes pass.
 
 *Prevents the release-v3 failure of 2026-10-01: the owner pasted Anubhav Jain's
 "PR reviewer broken" thread at `17:25:46Z` after replying "Looking". The root briefed
@@ -1121,7 +1126,12 @@ message.
 
 ### Lane brief
 
+The `ccx:` line names the lane's role for the hooks: `fix` with incident wording routes
+to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handoff`,
+`comms`, and `triage` lanes need no root task.
+
 ```
+ccx: role=<role> tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -1174,6 +1184,8 @@ Bus: <id>; script bus.py, on PATH by name; --repo <drive checkout>.
     that acts; `withdraw --re` before you change or retract any of them. A SendMessage
     carries the entry number, never the body.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
+`# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
+  where a hook misreads the command, and name that hook in your report.
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verify through CI: never run a whole-package build or suite locally (buck2/cargo build,

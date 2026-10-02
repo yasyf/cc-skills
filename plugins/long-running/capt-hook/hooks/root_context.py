@@ -7,11 +7,13 @@ from pathlib import Path
 
 from captain_hook import (
     Allow,
+    Annotated,
     Arguments,
     BaseHookEvent,
     Block,
     CommandMatches,
     CommandSchema,
+    Confirm,
     Event,
     FileFixture,
     FromSubagent,
@@ -30,6 +32,7 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.cmd import Call, Target
+from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, progress_folder
@@ -44,6 +47,10 @@ ARTIFACT_EXTENSIONS = frozenset({"jsonl"})
 READ_DEFAULT_LIMIT = 2000
 FILE_READERS = frozenset({"cat", "head", "tail", "sed", "awk", "grep", "egrep", "fgrep", "less", "more", "bat", "jq", "yq"})
 SEARCHERS = frozenset({"rg", "ag", "ack"})
+GREPS = frozenset({"grep", "egrep", "fgrep"})
+BOUNDED_BYTES = 4000
+BOUNDED_LINES = 40
+BOUNDED_MATCHES = 20
 SCRIPT_FIRST = SEARCHERS | {"grep", "egrep", "fgrep", "sed", "awk", "jq", "yq"}
 SCRIPT_FLAGS = frozenset({"-e", "-f", "--regexp", "--file", "--expression"})
 SLACK_READ_TOOLS = (
@@ -80,6 +87,14 @@ ANSWER_TOOLS = ("mcp__plugin_cc-notes_cc-notes__answer_add", "mcp__plugin_cc-not
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
 COMMITMENT = r"\b(?:from now on|we will|we now|going forward)\b"
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
+ROOT_READ = Confirm(
+    rule=(
+        "An investigation read at the drive root: reading repo code, history, lane output, or Slack to work something "
+        "out floods the root's context and belongs to a lane. One-shot control-plane reads are outside the rule: a "
+        "bounded read of a state, inbox, or mailbox file, and a single Slack thread read during an incident turn "
+        "before any lane exists."
+    )
+)
 
 WORDS = (Operand("words", count="*"),)
 REPO_OPTION = Option("repo", ("-R", "--repo"))
@@ -118,6 +133,32 @@ CC_SLACK = CommandSchema("cc-slack", operands=WORDS)
 CCN = CommandSchema("ccn", operands=WORDS, options=(REPO_OPTION,))
 CC_NOTES = CommandSchema("cc-notes", operands=WORDS, options=(REPO_OPTION,))
 ANSWER_WRITES = (("answer", "add"), ("answer", "edit"))
+HEAD = CommandSchema(
+    "head", operands=WORDS, options=(Option("bytes", ("-c", "--bytes")), Option("lines", ("-n", "--lines")))
+)
+TAIL = CommandSchema("tail", operands=WORDS, options=(Option("lines", ("-n", "--lines")),))
+WC = CommandSchema(
+    "wc",
+    operands=WORDS,
+    options=tuple(Option(name, flags, bool) for name, flags in (("l", ("-l",)), ("w", ("-w",)), ("c", ("-c",)), ("m", ("-m",)))),
+)
+CAT = CommandSchema("cat", operands=WORDS)
+GREP = CommandSchema(
+    "grep",
+    operands=WORDS,
+    options=(
+        Option("count", ("-c", "--count"), bool),
+        Option("max", ("-m", "--max-count")),
+        Option("pattern", ("-e", "--regexp")),
+        *(
+            Option(flag, (flag,), bool)
+            for flag in ("-n", "-i", "-E", "-F", "-G", "-P", "-w", "-x", "-v", "-l", "-H", "-h", "-s", "-a")
+        ),
+    ),
+)
+LIST_OPERATORS = frozenset({"|", ";", "&&", "||"})
+REDIRECT_HEADS = frozenset("<>&0123456789")
+READ_SCHEMAS = {"head": HEAD, "tail": TAIL, "wc": WC, "cat": CAT} | dict.fromkeys(GREPS, GREP)
 
 
 @workflow_state("long_running_root_context")
@@ -144,12 +185,6 @@ def runs_verb(schema: CommandSchema, *prefixes: tuple[str, ...]) -> CommandMatch
 class DriveActive:
     def check(self, evt: BaseHookEvent) -> bool:
         return CompactionState.load(evt).active
-
-
-class RootRaw:
-    def check(self, evt: BaseHookEvent) -> bool:
-        _, hash_mark, comment = evt.command.raw.rstrip().rpartition("#")
-        return bool(hash_mark) and comment.strip() == "root:raw"
 
 
 class OwnerPrompt:
@@ -255,24 +290,92 @@ class SearchesRepo:
         return False
 
 
+def within(values: tuple[Scalar | None, ...], limit: int) -> bool:
+    return all(isinstance(value, str) and value.isdigit() and int(value) <= limit for value in values)
+
+
+def caps_output(name: str, values: dict[str, tuple[Scalar | None, ...]]) -> bool:
+    match name:
+        case "head":
+            return within(values.get("bytes", ()), BOUNDED_BYTES) and within(values.get("lines", ()), BOUNDED_LINES)
+        case "tail":
+            return within(values.get("lines", ()), BOUNDED_LINES)
+        case "wc":
+            return True
+        case "grep" | "egrep" | "fgrep":
+            return bool(values.get("count")) or (bool(values.get("max")) and within(values["max"], BOUNDED_MATCHES))
+    return False
+
+
+def bound(call: Call) -> Arguments | None:
+    schema = READ_SCHEMAS.get(call.name)
+    arguments = schema.bind(call) if schema else None
+    return arguments if arguments and arguments.complete else None
+
+
+def operands(call: Call, arguments: Arguments) -> tuple[Target, ...]:
+    targets = arguments.paths("words").targets
+    return targets[1:] if call.name in GREPS and "pattern" not in arguments.values else targets
+
+
+def simple_list(raw: str, calls: Sequence[Call]) -> bool:
+    glue = list(raw)
+    for call in calls:
+        if call.source.span is None or call.nested:
+            return False
+        start, end = call.source.span
+        glue[start:end] = " " * (end - start)
+    words = "".join(glue).split()
+    if "#" in (heads := [word[0] for word in words]):
+        words = words[: heads.index("#")]
+    return all(word in LIST_OPERATORS or word[0] in REDIRECT_HEADS for word in words)
+
+
+def keeps_stdout(call: Call) -> bool:
+    return all(redirect.fd == 2 or redirect.op.startswith("<") for redirect in call.redirects)
+
+
+def capped_by_pipe(call: Call, calls: Sequence[Call]) -> bool:
+    end = next((each for each in calls if each.occurrence.index == call.occurrence.index + 1), None)
+    if end is None or call.occurrence.next_op != "|" or end.occurrence.next_op == "|" or not keeps_stdout(end):
+        return False
+    arguments = bound(end)
+    return arguments is not None and not operands(end, arguments) and caps_output(end.name, arguments.values)
+
+
+def bounded_read(call: Call, calls: Sequence[Call], raw: str) -> bool:
+    if not simple_list(raw, calls) or not keeps_stdout(call) or (arguments := bound(call)) is None:
+        return False
+    match operands(call, arguments):
+        case [target] if not target.has_glob and target.path is not None and target.path.is_file():
+            return caps_output(call.name, arguments.values) or capped_by_pipe(call, calls)
+    return False
+
+
 class ReadsRepoFiles:
     def check(self, evt: BaseHookEvent) -> bool:
         plan = drive_plan(evt)
-        return any(
-            call.name in FILE_READERS
+        calls = evt.command.calls()
+        reads = [
+            call
+            for call in calls
+            if call.name in FILE_READERS
             and not (call.name == "sed" and "-i" in call.flags)
             and not all(exempt(path, plan) for path in paths(call))
-            for call in evt.command.calls()
-        )
+        ]
+        return bool(reads) and not (len(reads) == 1 and bounded_read(reads[0], calls, evt.command.raw))
 
 
-def root_block(*, message: str, only_if: Sequence[object], tests: dict, bypass: bool = True) -> None:
+def root_block(
+    *, message: str, only_if: Sequence[object], tests: dict, bypass: bool = True, confirm: Confirm | None = None
+) -> None:
     hook(
         Event.PreToolUse,
         message=message,
         only_if=[DriveActive(), *only_if],
-        skip_if=[FromSubagent(), *([RootRaw()] if bypass else [])],
+        skip_if=[FromSubagent(), *([Annotated("raw")] if bypass else [])],
         block=True,
+        confirm=confirm,
         tests=tests,
     )
 
@@ -306,10 +409,38 @@ root_block(
 root_block(
     message="File reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[ReadsRepoFiles()],
+    confirm=ROOT_READ,
     tests={
         Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Block(
             pattern=r"File reads"
         ),
+        Input(
+            command="cat {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE, llm={"block": False}
+        ): Warn(pattern=r"allowed, the model found the call outside the rule"),
+        Input(command="cat {file} # ccx:raw", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
+        Input(command="head -c 1200 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="head -c 4001 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="head -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="head -n 41 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="tail -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="tail -n +40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="tail -f {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="grep -c line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="grep -n -m 20 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="grep -m 21 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="grep -m 5 -A 9 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="grep -n line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="grep -n line {file} | head -n 12", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="grep -m 1 -o . {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="cat {file} >&2 | head -n 1", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="cat {file} | tee /dev/stderr | head -n 1", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="cat {file} | (head -n 1; cat)", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="for i in 1 2; do head -n 40 {file}; done", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command="grep -c line {file} 2>/dev/null # count", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command="wc -l {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(
+            command="head -n 5 {file} && head -n 5 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE
+        ): Block(),
         Input(command="sed -i '' s/a/b/ {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
         Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n")): Allow(),
         Input(command="cat >> inbox.md <<'EOF'\nlaunch l17 NOW\nEOF", state=ACTIVE): Allow(),
@@ -321,11 +452,16 @@ root_block(
 root_block(
     message="Searches belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[SearchesRepo()],
+    confirm=ROOT_READ,
     tests={
         Input(command="rg -n LAUNCH plugins", state=ACTIVE): Block(pattern=r"^Searches belong"),
+        Input(command="rg -n LAUNCH plugins", state=ACTIVE, llm={"confident": False}): Warn(
+            pattern=r"allowed, the model could not confirm"
+        ),
         Input(tool="Grep", tool_input={"pattern": "LAUNCH", "path": "plugins"}, state=ACTIVE): Block(),
-        Input(command="rg -n '# root:raw' plugins", state=ACTIVE): Block(),
-        Input(command="rg -n LAUNCH plugins # root:raw", state=ACTIVE): Allow(),
+        Input(command="rg -n '# ccx:raw' plugins", state=ACTIVE): Block(),
+        Input(command="rg -n LAUNCH plugins # ccx:raw", state=ACTIVE): Allow(),
+        Input(command="rg -n LAUNCH plugins", env={"CAPT_HOOK_CCX_RAW": "1"}, state=ACTIVE): Allow(),
         Input(command="rg -n LAUNCH plugins"): Allow(),
         Input(command="rg -n LAUNCH plugins", agent_id="a1b2c3", state=ACTIVE): Allow(),
         Input(command="date -u +%H:%MZ && ls ~/scratch", state=ACTIVE): Allow(),
@@ -335,8 +471,10 @@ root_block(
 root_block(
     message="Git history reads belong to a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",
     only_if=[runs_verb(GIT, ("log",), ("show",), ("diff",), ("blame",), ("grep",), ("reflog",))],
+    confirm=ROOT_READ,
     tests={
         Input(command="git log --oneline -20", state=ACTIVE): Block(pattern=r"Git history"),
+        Input(command="git log --oneline -20", state=ACTIVE, llm={"block": False}): Warn(pattern=r"allowed"),
         Input(command="git -C /tmp/repo diff --stat", state=ACTIVE): Block(),
         Input(command="git --no-optional-locks log -1", state=ACTIVE): Block(),
         Input(command="git --literal-pathspecs show HEAD", state=ACTIVE): Block(),
@@ -406,11 +544,15 @@ root_block(
 root_block(
     message="Slack reads belong to a lane, not the drive root. Delegate with `Agent` using `cc-slack:slack-triage`.",
     only_if=[Or(runs_verb(CC_SLACK, ("thread",), ("history",)), Tool(*SLACK_READ_TOOLS))],
+    confirm=ROOT_READ,
     tests={
         Input(command="cc-slack thread C0B/p1790815593712039", state=ACTIVE): Block(pattern=r"Slack reads"),
         Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE): Block(),
+        Input(
+            tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE, llm={"block": False}
+        ): Warn(pattern=r"allowed"),
         Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
-        Input(command="cc-slack thread C0B/p1 # root:raw", state=ACTIVE): Allow(),
+        Input(command="cc-slack thread C0B/p1 # ccx:raw", state=ACTIVE): Allow(),
     },
 )
 
@@ -428,7 +570,8 @@ root_block(
         Input(
             tool="mcp__slack__slack_add_reaction", tool_input={"channel_id": "C0B", "reaction": "eyes"}, state=ACTIVE
         ): Block(),
-        Input(command="cc-slack react --url C0B/p1 --name eyes # root:raw", state=ACTIVE): Block(),
+        Input(command="cc-slack react --url C0B/p1 --name eyes # ccx:raw", state=ACTIVE): Block(),
+        Input(command="cc-slack react --url C0B/p1 --name eyes", env={"CAPT_HOOK_CCX_RAW": "1"}, state=ACTIVE): Block(),
         Input(command="~/.claude/plugins/cache/forge/cc-slack/0.2.11/bin/cc-slack react --url C0B/p1", state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_send_message", tool_input={"channel_id": "C0B", "text": "On it"}): Allow(),
         Input(command="cc-slack reply --url C0B/p1 --text 'On it'", agent_id="a1b2c3", state=ACTIVE): Allow(),

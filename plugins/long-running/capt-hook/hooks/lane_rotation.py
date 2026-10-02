@@ -41,6 +41,7 @@ PACE_SECONDS = 15 * 60
 PACE_LIMIT = 3
 ASK_GAP_SECONDS = 30 * 60
 ACK_WINDOW_SECONDS = 10 * 60
+ESCALATE_GAP_SECONDS = 15 * 60
 TASK_LABEL_CHARS = 50
 FLUSHED = re.compile(r"flushed:?((?:[ ,]+[0-9a-f]{6,40}\b)+)", re.IGNORECASE)
 
@@ -54,6 +55,7 @@ class RotationState(WorkflowState):
     timeline: list[dict] = []
     asked_events: dict[str, int] = {}
     frozen: dict[str, int] = {}
+    escalated: dict[str, tuple[float, int]] = {}
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,13 @@ def record_escalation(state: RotationState, lane: Lane, now: float) -> None:
         record(state, lane.name, lane.agent_id, "escalate", now, last=iso(now), count=1, tokens=lane.turn.tokens)
 
 
+def escalation_due(lane: Lane, state: RotationState, now: float) -> bool:
+    if (last := state.escalated.get(lane.agent_id)) is None:
+        return True
+    at, asks = last
+    return asks != len(state.asks[lane.agent_id]) or now - at >= ESCALATE_GAP_SECONDS
+
+
 def unread(lane: Lane, state: RotationState, now: float) -> bool:
     return (
         lane.agent_id in state.asked_events
@@ -170,6 +179,7 @@ def settle(state: RotationState, lanes: list[Lane], now: float) -> None:
             continue
         name = state.names.pop(agent_id)
         del state.asks[agent_id]
+        state.escalated.pop(agent_id, None)
         asked = state.asked_events.pop(agent_id, None)
         if not lane:
             record(state, name, agent_id, "gone", now)
@@ -295,7 +305,8 @@ def escalate_unrotated_lanes(evt: BaseHookEvent) -> HookResult | None:
     now = time.time()
     with RotationState.mutate(evt) as state:
         for lane in awake(live_lanes(evt), state):
-            if overdue(lane, state, root, now):
+            if overdue(lane, state, root, now) and escalation_due(lane, state, now):
                 queue_root_action(evt, lane, escalation(lane))
                 record_escalation(state, lane, now)
+                state.escalated[lane.agent_id] = (now, len(state.asks[lane.agent_id]))
     return None

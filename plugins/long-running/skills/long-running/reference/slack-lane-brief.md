@@ -4,6 +4,7 @@ Use when the owner pastes a Slack link or the drive owes a Slack reaction or rep
 Fill the angle brackets and spawn `long-running:lane-ship` on sonnet under R20.
 
 ```text
+ccx: role=comms
 You are <Slack lane name>, owning the acknowledgment and report for this Slack ask.
 Model sonnet; effort low for react/read. Astra writes the copy.
 Authority: reactions eyes, white_check_mark, and pray carry the owner's standing grant.
@@ -81,6 +82,7 @@ the R16 turn. Spawn `long-running:lane-ship` on sonnet. It posts without a root 
 each event the executor sends carries the cc-slack grant id that authorizes it.
 
 ```text
+ccx: role=comms
 You are <comms lane name>, owning every post in the incident thread.
 Model sonnet; effort low. Astra writes the copy.
 Authority: the grant id on each executor event, passed as `--grant <id>`. A thread

@@ -180,6 +180,7 @@ Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 
 ```
 ## Lane: <name> (<agent> <model> <effort>). <the mission in one line>.
+ccx: role=<role> tooling-lane=<key, for a tooling lane only>
 Target: <files, component, or environment in scope>.
 Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
