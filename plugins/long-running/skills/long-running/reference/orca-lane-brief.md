@@ -177,7 +177,9 @@ Drive to a terminal state, then send the preamble's `worker_done` with
 `--outcome succeeded|failed`, `--task-id <taskId>`, and `--dispatch-id <dispatchId>`
 from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,
-go in the report file its `--report-path` names.
+go in the report file its `--report-path` names. `worker_done` is your last act: the
+root's gc then closes your idle terminal and removes your worktree once it is clean
+and pushed, so push everything and leave no background process running first.
 
 Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 ```

@@ -24,8 +24,8 @@ Orca skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote wo
 - Never create the machine with the provider CLI or recipe helper and register an
   SSH host by hand; Orca then never suspends or destroys it.
 - Verify the workspace from Orca's own listings through the skill's verify step
-  before starting work there. Leave a finished lane's workspace running, like its
-  terminal (R195). Delete a workspace through the skill only on the user's explicit
+  before starting work there. Leave a finished lane's remote workspace running;
+  R195's gc reclaims local Orca worktrees only. Delete a workspace through the skill only on the user's explicit
   authorization for that workspace, and only after proving no protected session
   or terminal remains on it. A completed task is not that authorization.
 - Treat tailnet access as pending. It depends on the helper's tailnet enrollment
@@ -138,7 +138,7 @@ waits on readiness in its mailbox loop.
 
 That earlier dispatch read `ready`. `--skip-git-repo-check` is exec-only and breaks interactive codex.
 Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at twice the speed.
-`worker-release` returns `retained` (`external_terminal`) for a terminal you created; closing it requires `orca terminal close --terminal <handle>`, subject to R195's session protection.
+`worker-release` returns `retained` (`external_terminal`) for a terminal you created, and `orca-launch.sh` creates every claude terminal, so Orca never closes a finished claude lane's terminal. The root's gc closes it under R195's settled-dispatch bar.
 
 ### Worker messages
 
@@ -185,11 +185,25 @@ coordinator identity; workers consume their own terminal inboxes.
 
 **R195. Sessions are protected.** Claude and Codex sessions, Orca, terminal hosts,
 PTY daemons, and their supervisors are never stopped, signalled, suspended,
-restarted, released, or closed, singly or in bulk, for cleanup, load, or a finished
-lane. A finished lane's terminal stays open and idle. Remove a worktree only when
-it is clean, fully pushed, and no terminal in `orca terminal list` is attached to it.
+restarted, released, or closed, singly or in bulk, for cleanup or load. The one
+exception is a settled dispatch's idle terminal, which the root's gc closes
+after the lane's `worker_done`. Idle means an empty prompt, nothing running, no
+unanswered question, and no output in 10 minutes, read again right before the
+close. gc never touches a live or unsettled worker or a terminal outside the
+Run. It removes a worktree only when it is clean, fully pushed or landed, has no
+open PR, and no other terminal in `orca terminal list` is attached to it. The
+runner never does either (O6). Forge-AI/monorepo's gc is
+`.agents/skills/orca/scripts/orca-gc --run <run> [--dispatch <ctx>]`.
 
-*Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
+The owner ruled this on 2026-10-02: "1 and improve our orca skill and scripts to
+avoid this in the future" (answer bef3366, option 1 releasing every completed or
+failed dispatch and closing its idle terminal), and answer 827a3f2, which named
+76 such handles for the finished- and failed-dispatch class verified idle by a
+screen read.
+
+*Prevents the 12:35Z kill that ended every session of a drive (release v3,
+2026-09-30), and the 476 retained terminals and 361 worktrees of settled
+dispatches that held a 32-core machine at load 100 to 600 (release v3, 2026-10-02).*
 
 **R210. Load is the only launch throttle.** Working workers have no cap. Before each
 launch, read `uptime`; while the 1-minute load average is above the core count
