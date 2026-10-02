@@ -92,6 +92,12 @@ After transfer, an ack from another dispatch gets a stand-down reply and cannot
 move the original action. Obey that stand-down without ending or closing your
 session. Never act on a replayed key you already completed.
 
+Fix-lane milestones: send `mechanism: <evidence>` as a status Run message when
+known. The brief names the exact live-check command and expected live output;
+the root uses that command too. Run it every two minutes and post its output as a
+status Run message until it flips, then send status subject
+`fix-live: <h:mm PM PT> <evidence>`. Carry the preamble's Run addressing.
+
 Binding rules (owner):
 - <one rule per bullet, each as the owner stated it>
 
