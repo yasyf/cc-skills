@@ -284,21 +284,39 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
     }
 
 
-def test_escalation_repeats_every_firing_without_piling_up(tree: Tree, clock: list[float]) -> None:
+def test_escalation_repeats_at_most_every_fifteen_minutes_without_piling_up(tree: Tree, clock: list[float]) -> None:
     evt = stop(tree, [tree.lane("desk-3", 450_000)])
     rotate_lanes(evt)
     tree.read("desk-3")
     clock[0] += lane_rotation.ACK_WINDOW_SECONDS
-    for _ in range(3):
+    issued = []
+    for _ in range(16):
         rotate_lanes(evt)
+        issued.append(len(pending(evt)))
+        nudges.NudgeState(pending=[]).save(evt.evt())
         clock[0] += 60
 
-    [line] = pending(evt)
-    assert line.startswith("ROOT-ACTION `desk-3`: Rotate it by hand")
+    assert issued == [1] + [0] * 14 + [1]
     assert [(entry["event"], entry.get("count"), entry.get("last")) for entry in timeline(evt)] == [
         ("ask", None, None),
-        ("escalate", 3, "2026-09-25T21:47:00Z"),
+        ("escalate", 2, "2026-09-25T22:00:00Z"),
     ]
+
+
+def test_a_new_rotate_ask_reissues_the_escalation(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("desk-3", 450_000)])
+    rotate_lanes(evt)
+    tree.read("desk-3")
+    clock[0] += lane_rotation.ESCALATE_GAP_SECONDS + lane_rotation.ACK_WINDOW_SECONDS
+    rotate_lanes(evt)
+    tree.read("desk-3")
+    nudges.NudgeState(pending=[]).save(evt.evt())
+
+    clock[0] += lane_rotation.ASK_GAP_SECONDS - lane_rotation.ESCALATE_GAP_SECONDS - lane_rotation.ACK_WINDOW_SECONDS
+    rotate_lanes(evt)
+
+    assert len(tree.inbox("desk-3")) == 2
+    assert [line.split(":")[0] for line in pending(evt)] == ["ROOT-ACTION `desk-3`"]
 
 
 def test_flushed_reply_ends_the_escalation(tree: Tree, clock: list[float]) -> None:

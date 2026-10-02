@@ -157,6 +157,38 @@ def test_orca_launch_counts_as_a_spawn(drive: Drive, command: str) -> None:
     assert drive.stop() == ["Lane `alert-fix` has no task. Run `TaskCreate` with `owner=alert-fix`."]
 
 
+@pytest.mark.parametrize(
+    ("name", "role"),
+    [
+        ("incident-slack-watch-9", "watch"),
+        ("api-1n7w-sentry-export", "export"),
+        ("ccx-guard-eperm-2-handoff", "handoff"),
+        ("owner-link-407-evidence", "evidence"),
+        ("thread-reader-c0bq", "reader"),
+        ("polar-ato-triage", "triage"),
+        ("incident-comms", "comms"),
+        ("brief-batch", "helper"),
+    ],
+)
+def test_helper_role_spawn_needs_no_task(drive: Drive, name: str, role: str) -> None:
+    drive.tool("Agent", {"name": name, "description": name, "prompt": f"ccx: role={role}\nYou are {name}.", "team_name": TEAM})
+
+    assert drive.stop() == []
+
+
+def test_helper_role_orca_launch_needs_no_task(drive: Drive) -> None:
+    drive.bash("scripts/orca-launch.sh alert-watch sonnet low brief.md  # ccx:role=watch")
+
+    assert drive.stop() == []
+
+
+@pytest.mark.parametrize("header", ["ccx: role=fix\n", "ccx: role=ship\n", "ccx: tooling-lane=ledger-fix\n", ""])
+def test_working_role_spawn_still_needs_a_task(drive: Drive, header: str) -> None:
+    drive.tool("Agent", {"name": "ledger-fix", "description": "fix ledger", "prompt": f"{header}go", "team_name": TEAM})
+
+    assert drive.stop() == ["Lane `ledger-fix` has no task. Run `TaskCreate` with `owner=ledger-fix`."]
+
+
 def test_unnamed_subagent_needs_no_task(drive: Drive) -> None:
     drive.tool("Agent", {"description": "look around", "prompt": "go", "subagent_type": "Explore"})
 
@@ -263,7 +295,7 @@ def test_status_questions_and_relayed_messages_are_not_asks(drive: Drive, text: 
     assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, None]
 
 
-DRIFT_LINE = "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+DRIFT_LINE = task_list.DRIFT_LINE
 
 
 def reconcile(drive: Drive) -> list[str]:
@@ -282,6 +314,37 @@ def test_reconciliation_flags_stale_tasks(drive: Drive) -> None:
     drive.task("4", "Root-held decision")
 
     assert reconcile(drive) == [DRIFT_LINE]
+
+
+def test_unchanged_drift_is_flagged_once(drive: Drive) -> None:
+    drive.lane("quiet-lane", behind=timedelta(hours=2))
+    drive.task("2", "Quiet work", owner="quiet-lane")
+
+    assert reconcile(drive) == [DRIFT_LINE]
+    assert reconcile(drive) == []
+
+    drive.task("2", "Quiet work", status="completed", owner="quiet-lane")
+    assert reconcile(drive) == []
+    drive.task("2", "Quiet work", owner="quiet-lane")
+    assert reconcile(drive) == [DRIFT_LINE]
+
+    drive.lane("gone-lane", busy=False)
+    drive.task("3", "Gone work — lane gone-lane")
+
+    assert reconcile(drive) == [DRIFT_LINE]
+
+
+def test_unchanged_untracked_lanes_are_flagged_once(drive: Drive) -> None:
+    drive.lane("loose-lane")
+
+    assert reconcile(drive) == ["Busy lanes have no open task: `loose-lane`. Run `TaskCreate` with `owner=<lane>` for each."]
+    assert reconcile(drive) == []
+
+    drive.lane("second-lane")
+
+    assert reconcile(drive) == [
+        "Busy lanes have no open task: `loose-lane`, `second-lane`. Run `TaskCreate` with `owner=<lane>` for each."
+    ]
 
 
 def test_busy_lane_without_a_task_is_flagged(drive: Drive) -> None:

@@ -38,6 +38,8 @@ LISTED_LANES = 5
 DONE_COOLDOWN_SECONDS = 30 * 60
 IDLE_SECONDS = 30 * 60
 ROOT_NAMES = frozenset({"team-lead", "main"})
+HELPER_ROLES = frozenset({"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"})
+DRIFT_LINE = "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
 TASK_TOOLS = frozenset({"TaskCreate", "TaskUpdate"})
 NAME_FLAGS = ("--display-name", "--name", "--task-title")
 LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
@@ -77,11 +79,13 @@ class DoneState(WorkflowState):
 @workflow_state("long_running_task_drift")
 class DriftState(WorkflowState):
     turns: int = 0
+    flagged: list[str] = []
 
 
 @workflow_state("long_running_task_untracked")
 class UntrackedState(WorkflowState):
     turns: int = 0
+    flagged: list[str] = []
 
 
 def spawned_names(evt: BaseHookEvent) -> set[str]:
@@ -179,25 +183,26 @@ def finished(evt: BaseHookEvent, state: DoneState, text: str, now: float) -> lis
     return lines
 
 
-def drift_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
+def drifted(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
     lanes = {lane.name: lane for lane in live_lanes(evt)}
     known = spawned_names(evt)
-    if not any(
-        (lane := lane_of(task)) in known and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
+    return sorted(
+        task.id
         for task in tasks.in_progress
-    ):
-        return None
-    return "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+        if (lane := lane_of(task)) in known
+        and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
+    )
 
 
-def untracked_line(evt: BaseHookEvent, tasks: Tasks, now: float) -> str | None:
-    names = [
+def untracked(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
+    return [
         lane.name
         for lane in live_lanes(evt)
         if now - lane.turn.at.timestamp() <= IDLE_SECONDS and not covered(tasks, lane.name)
     ]
-    if not names:
-        return None
+
+
+def untracked_line(names: list[str]) -> str:
     shown = ", ".join(f"`{name}`" for name in names[:LISTED_LANES])
     more = f" (+{len(names) - LISTED_LANES} more)" if len(names) > LISTED_LANES else ""
     return f"Busy lanes have no open task: {shown}{more}. Run `TaskCreate` with `owner=<lane>` for each."
@@ -264,7 +269,7 @@ def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
         if evt.tool_name in TASK_TOOLS:
             tasks = evt.tasks
             state.lanes = [name for name in state.lanes if not covered(tasks, name)]
-        elif name := spawned_lane(evt):
+        elif (name := spawned_lane(evt)) and evt.annotations.get("role") not in HELPER_ROLES:
             state.lanes.append(name)
     return None
 
@@ -298,8 +303,11 @@ def flag_task_list_drift(evt: BaseHookEvent) -> HookResult | None:
         if state.turns < RECONCILE_TURNS:
             return None
         state.turns = 0
-    if line := drift_line(evt, evt.tasks, time.time()):
-        queue_nudge(evt, line)
+    stale = drifted(evt, evt.tasks, time.time())
+    with DriftState.mutate(evt) as state:
+        if stale and stale != state.flagged:
+            queue_nudge(evt, DRIFT_LINE)
+        state.flagged = stale
     return None
 
 
@@ -315,8 +323,11 @@ def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
         if state.turns < RECONCILE_TURNS:
             return None
         state.turns = 0
-    if line := untracked_line(evt, evt.tasks, time.time()):
-        queue_nudge(evt, line)
+    names = untracked(evt, evt.tasks, time.time())
+    with UntrackedState.mutate(evt) as state:
+        if names and sorted(names) != state.flagged:
+            queue_nudge(evt, untracked_line(names))
+        state.flagged = sorted(names)
     return None
 
 

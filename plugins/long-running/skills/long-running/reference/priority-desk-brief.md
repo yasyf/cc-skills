@@ -26,6 +26,7 @@ Follow [Desk inboxes](../SKILL.md#desk-inboxes) if the cursor stays stale.
 ## Spawn brief
 
 ```text
+ccx: role=desk
 You are <outcome>-desk: the priority desk for <owner-named #1 outcome>.
 Model opus. Drive this outcome until every owed item is landed or proven.
 

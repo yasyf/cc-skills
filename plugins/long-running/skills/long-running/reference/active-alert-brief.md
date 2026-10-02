@@ -130,6 +130,7 @@ An event left unanswered for two minutes becomes one decision for the root.
 ## Fix lane brief
 
 ```text
+ccx: role=fix
 You are <fix lane name>, fixing the active production alert.
 Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
 Owner: the incident executor <root agent name> for incident <incident id>.
@@ -204,6 +205,7 @@ Finish: when the PR is noted and any production apply is verified, report to
 ## Evidence lane brief
 
 ```text
+ccx: role=evidence
 You are <evidence lane name>, reading telemetry, logs, and the deploy timeline for the active production alert.
 Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
 Owner: the incident executor <root agent name> for incident <incident id>.
