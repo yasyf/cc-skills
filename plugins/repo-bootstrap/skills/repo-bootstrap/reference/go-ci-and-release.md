@@ -55,9 +55,19 @@ homebrew_casks:
 ```
 
 Every Darwin artifact is signed and notarized before publication. Homebrew 7 quarantines every cask
-download and offers no `--no-quarantine` option. It carries approval across upgrades only for `.app`
-artifacts. A `binary` cask is quarantined again on every install and upgrade. The scaffold leaves
-that quarantine in place.
+download and offers no `--no-quarantine` option. Homebrew/brew#20929 removed the option in 7.0 after
+deprecating it in 5.0.0. On 7.0.7, `brew install --cask --no-quarantine` and
+`brew upgrade --cask --no-quarantine` exit with a usage error, and
+`HOMEBREW_CASK_OPTS=--no-quarantine` is dropped without a warning.
+
+Homebrew carries approval across upgrades only for `.app` artifacts. In `cask/upgrade.rb`,
+`quarantine_release_decision` considers only `Artifact::App`; a cask whose only artifact is `binary`
+gets `:skip`. A `binary` cask is quarantined again on every install and upgrade.
+
+In fleet observations, Gatekeeper allows the signed and notarized binaries at launch. `syspolicyd`
+logs `GK evaluateScanResult: 2` without a denial or a prompt. The recurring behavior is
+`com.apple.quarantine` being re-applied by each cask install and upgrade, not a runtime block. The
+scaffold leaves that quarantine in place.
 
 A repository shipping a Developer ID-signed tool may add the `postflight_steps` stanza below through
 `custom_block`. Homebrew 7 deprecates the Ruby `postflight` block and disables it on 2027-12-11.
@@ -197,8 +207,11 @@ Notes:
   build; with a universal-binary / FUSE recipe use that build's id.
 - **`enabled: true` is deliberate** — direct goreleaser runs fail closed, and the shared workflow
   rejects empty credentials before invoking goreleaser.
-- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The cask preserves quarantine so that check remains active.
+- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its
+  cdhash and checked online by Gatekeeper. A cask without `postflight_steps` preserves quarantine,
+  so Gatekeeper runs that online check at first launch. A cask with the stanza skips the
+  first-launch assessment for that binary and relies on the local `codesign --verify --strict`
+  gate instead.
 
 ### (2) native codesign — when the release already runs on a macOS runner
 
