@@ -17,9 +17,12 @@ LANE = "lightning-eh"
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "reference/landing-desk-brief.md", "reference/priority-desk-brief.md"])
-def test_desk_briefs_arm_an_inbox_monitor(path):
+def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     skill = Path(__file__).resolve().parents[1] / "skills/long-running"
-    assert "tail -n 0 -F" in (skill / path).read_text()
+    text = (skill / path).read_text()
+    assert "desk-wait.sh" in text
+    assert "timeout: 60000" in text
+    assert "tail -n 0 -F" in text
 
 
 def stamp(delta: timedelta) -> str:

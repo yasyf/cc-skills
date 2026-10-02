@@ -47,19 +47,30 @@ Verified facts, do not re-derive:
 
 At spawn:
   - Read P1 and P2.
-  - Arm one Monitor on `tail -n 0 -F <root inbox file>` at its maximum timeout
-    (at most 30 minutes). Re-arm on every expiry and after your own compaction.
-    Each appended line wakes you; run step 0 on it at once.
-  - Arm `ccx vcs pr watch <every owed PR number>` under Monitor and re-arm on
-    expiry. Route ejections, conflicts, and reds at once.
+  - In-process desk (every Agent-spawned desk): run one foreground Bash call with
+    `timeout: 60000`, running
+    `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
+    It waits at most 50 seconds and returns on a new inbox, mailbox, or deadline
+    line. Run step 0 on its output, then rerun the call in a loop.
+    Top-level session: arm one Monitor on `tail -n 0 -F <root inbox file>` at its
+    maximum timeout (at most 30 minutes). Re-arm on every expiry and after your
+    own compaction. Each appended line wakes you; run step 0 on it at once.
+  - In-process desk: run `ccx vcs pr watch <every owed PR number> --once` as a
+    foreground step between waits. Top-level session: arm the same command
+    without `--once` under Monitor and re-arm on expiry. Route ejections,
+    conflicts, and reds at once.
   - Run a pass every 3 minutes. Stagger with other desks and shards by a minute
     (:00/:01/:02); your offset is <offset>.
 
-Block on the inbox Monitor. Run the 3-minute reconciliation pass and the
-  15-minute report in the background; they never stand in for the Monitor.
+In-process desk: loop over the foreground wait, act on its output, and run the
+  periodic watch with `--once` between waits. Run the 3-minute reconciliation
+  pass and the 15-minute report when due in that same foreground loop, never
+  as background Bash or Monitor. Top-level session: block on the inbox Monitor
+  and run the scheduled pass and report in the background.
 
 Do, in this order, every iteration:
-  0. Inbox from cursor at the TOP, before any other work. Read every new line,
+  0. Inbox from cursor at the TOP, before any other work. Act on the lines printed
+     by `desk-wait.sh`, which advances the file cursor, then read every new line,
      act on it, and advance the cursor every iteration. Include `cursor R<n>`
      in every report. Never report "waiting on the root" before reading the
      inbox for its answer. Never rewrite or truncate the inbox.

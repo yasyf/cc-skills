@@ -1081,15 +1081,26 @@ landing-desk-2 brief declared only "L65–L107 standing" and dropped L40, and R3
 marked "R312 done" once deploy-experience's `tools/deploy --since` task built
 toward it.*
 
-**I7. A desk blocks on a Monitor over its inbox.** At spawn, on every Monitor
-expiry, and after its own compaction, the desk arms one Monitor on
-`tail -n 0 -F <inbox file>` at the maximum timeout (at most 30 minutes). Each
-appended `R<n>` line wakes the desk; it reads from its saved cursor (I2) and acts
-in that turn. The 3-minute reconciliation pass and the 30-minute summary run in
-the background and never stand in for the Monitor.
+**I7. In-process teammate desks wait in the foreground.** Every Agent-spawned
+desk is in-process. Run one foreground Bash call with `timeout: 60000`:
+`desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
+It blocks for at most 50 seconds and exits on the first new line in any named
+file: inbox, mailbox, or deadlines. Act on its output, then rerun the call in a
+loop.
+
+The script advances each file's cursor; act on the printed lines before
+reading beyond it (I2). Run the 3-minute reconciliation pass, the 30-minute
+summary, and periodic sources such as `ledger.py watch ... --once` and
+`ccx vcs pr watch ... --once` as foreground steps in that same loop between
+waits, never as background Bash or Monitor.
+
+Only top-level sessions arm a Monitor on `tail -n 0 -F <inbox file>` at the
+maximum timeout (at most 30 minutes). Re-arm it on every expiry and after
+compaction. Each appended `R<n>` line wakes the desk; read from the saved cursor
+and act in that turn.
 
 *Prevents the 34-minute miss of R956-R969 in a backgrounded desk pass on
-2026-10-02.*
+2026-10-02. The first fix armed a Monitor an in-process desk is never woken by.*
 
 ## The lane bus
 
