@@ -54,10 +54,45 @@ homebrew_casks:
     description: <description>
 ```
 
-The cask preserves Gatekeeper quarantine. Every Darwin artifact is signed and notarized before
-publication; neither generated nor hand-written installers strip `com.apple.quarantine`. Pick a
-**formula** instead only when you need `brew services`, a runtime `depends_on`, or conditional
-install (§ Formula recipe).
+Every Darwin artifact is signed and notarized before publication. Homebrew 7 quarantines every cask
+download and offers no `--no-quarantine` option. Homebrew/brew#20929 removed the option in 7.0 after
+deprecating it in 5.0.0. On 7.0.7, `brew install --cask --no-quarantine` and
+`brew upgrade --cask --no-quarantine` exit with a usage error, and
+`HOMEBREW_CASK_OPTS=--no-quarantine` is dropped without a warning.
+
+Homebrew carries approval across upgrades only for `.app` artifacts. In `cask/upgrade.rb`,
+`quarantine_release_decision` considers only `Artifact::App`; a cask whose only artifact is `binary`
+gets `:skip`. A `binary` cask is quarantined again on every install and upgrade.
+
+In fleet observations, Gatekeeper allows the signed and notarized binaries at launch. `syspolicyd`
+logs `GK evaluateScanResult: 2` without a denial or a prompt. The recurring behavior is
+`com.apple.quarantine` being re-applied by each cask install and upgrade, not a runtime block. The
+scaffold leaves that quarantine in place.
+
+A repository shipping a Developer ID-signed tool may add the `postflight_steps` stanza below through
+`custom_block`. Homebrew 7 deprecates the Ruby `postflight` block and disables it on 2027-12-11.
+Homebrew 7 has already checked the archive's SHA-256 before these steps run.
+
+The first step verifies the one staged binary against the team's Developer ID requirement and aborts
+the install if verification fails. The second step removes `com.apple.quarantine` from that file and
+tolerates an absent attribute. Strip one file, keep the `codesign` step, and leave the stanza out of
+an unsigned release. Used by: **codex-ask** (cc-skills), **cc-review**, **cc-orchestrate**.
+
+```yaml
+homebrew_casks:
+  - name: <name>
+    binaries: [<name>]
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/codesign", args: ["--verify", "--strict", "-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"<TEAM_ID>\"", "--", "{{ "{{staged_path}}" }}/<name>"]
+          run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{ "{{staged_path}}" }}/<name>"], must_succeed: false, print_stderr: false
+        end
+      end
+```
+
+Pick a **formula** instead only when you need `brew services`, a runtime `depends_on`, or
+conditional install (§ Formula recipe).
 
 **One-time setup per repo:**
 1. The `yasyf/homebrew-tap` repo must exist (it does — multiple repos push to it).
@@ -172,8 +207,11 @@ Notes:
   build; with a universal-binary / FUSE recipe use that build's id.
 - **`enabled: true` is deliberate** — direct goreleaser runs fail closed, and the shared workflow
   rejects empty credentials before invoking goreleaser.
-- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its cdhash
-  and checked online by Gatekeeper. The cask preserves quarantine so that check remains active.
+- **Bare binaries only** — a bare Mach-O can't be stapled; notarization is recorded against its
+  cdhash and checked online by Gatekeeper. A cask without `postflight_steps` preserves quarantine,
+  so Gatekeeper runs that online check at first launch. A cask with the stanza skips the
+  first-launch assessment for that binary and relies on the local `codesign --verify --strict`
+  gate instead.
 
 ### (2) native codesign — when the release already runs on a macOS runner
 
