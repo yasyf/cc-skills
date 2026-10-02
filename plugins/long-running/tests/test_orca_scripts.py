@@ -611,7 +611,7 @@ def test_check_prints_each_non_heartbeat_message_and_the_delivery(orca):
             },
         },
     )
-    result = orca.run("orca-check.sh", "--ack", "delivery_1")
+    result = orca.run("orca-check.sh", "--", "--terminal", "term_root", "--ack", "delivery_1")
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines() == [
         "msg_2 worker_done lane-a done: Opened #12. Green.",
@@ -625,18 +625,12 @@ def test_check_prints_each_non_heartbeat_message_and_the_delivery(orca):
     assert "--wait" in check
 
 
-def test_check_json_prints_each_message_whole_with_its_lane(orca):
-    orca.receipts.mkdir()
-    (orca.receipts / "lane-a.terminal").write_text("term_a\n")
-    done = message("msg_2", "status", "term_a", "started R625", "")
-    orca.reply(
-        "orchestration check",
-        {"rc": 0, "out": {"ok": True, "result": {"runId": "run_1", "deliveryId": "delivery_2", "messages": [message("msg_1", "heartbeat", "term_a", "alive", ""), done]}}},
-    )
-    result = orca.run("orca-check.sh", "--json")
-    assert result.returncode == 0, result.stdout + result.stderr
-    lines = result.stdout.splitlines()
-    assert [json.loads(lines[0]), lines[1]] == [done | {"lane": "lane-a"}, "delivery delivery_2 heartbeats=1"]
+@pytest.mark.parametrize("args", [("--json",), ("--ack", "delivery_1")])
+def test_check_rejects_removed_runner_modes(orca, args):
+    result = orca.run("orca-check.sh", *args)
+    assert result.returncode == 2
+    assert result.stderr.startswith("usage: orca-check.sh [--peek] [-- <orca check args>...]")
+    assert orca.calls() == []
 
 
 def test_check_prints_timeout_for_an_empty_wait(orca):

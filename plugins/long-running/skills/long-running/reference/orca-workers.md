@@ -1,13 +1,14 @@
 # Orca workers: launch recipe
 
 `desk-runner.py run --config C --desk orca` owns launches and the
-`scripts/orca-check.sh` loop. Start it detached before the first worker, with the
+Run inbox cursor. Start it detached before the first worker, with the
 config in [orca-desk-brief.md](orca-desk-brief.md). The root issues
 `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH`
 and `desk-runner.py relay --config C --key R<n> --lane L --text T
 [--reply-to <question msg id>]`. No model desk runs between the root and Orca;
-the root reads the runner's escalation file. Only the orca runner consumes
-`check --run`; end any old desk loop after its current pass before starting it.
+the root reads the runner's escalation file. Only the orca runner consumes the Run,
+through non-destructive `orchestration inbox --terminal run:<run> --limit N --json`
+reads. No other loop may use `check --run` with `--wait` or `--ack`.
 The commands below describe the adapters the runner calls, not a second root loop.
 
 ## Launching
@@ -282,10 +283,10 @@ it is not one of those retry loops.
 
 ### `orca-check.sh`
 
-The runner calls this adapter for one mailbox check:
+The runner uses `--stale`; terminal callers can block or peek:
 
 ```text
-usage: orca-check.sh [--ack <delivery-id>] [--peek] [--json] [-- <orca check args>...]
+usage: orca-check.sh [--peek] [-- <orca check args>...]
        orca-check.sh --stale [--inbox <inbox file>]
 ```
 
@@ -300,24 +301,20 @@ delivery <delivery id> heartbeats=<n>
 ```
 
 The lane comes from the launch receipt's terminal handle; a sender with no matching
-receipt prints as its handle. A wait that ends empty prints `timeout`. The
-runner uses `--json`: one compact JSON object per non-heartbeat message, including
-its lane, followed by the same delivery line.
-
-The runner processes every message, then passes the printed delivery id as
-`--ack <delivery-id>` on its next call. This is
-`result.deliveryId`, never a message id. A message id acknowledges nothing, and an
-unacknowledged batch replays.
+receipt prints as its handle. A wait that ends empty prints `timeout`.
+Terminal callers acknowledge the previous batch by passing `--ack <delivery-id>`
+after `--`. Use `result.deliveryId`; a message id acknowledges nothing, and an
+unacknowledged batch replays. Desk-runner reads the Run inbox by sequence and never
+acknowledges deliveries.
 
 An escalated question can be recorded as awaiting a
 root ruling before acknowledging its delivery; the question's message id remains
 the reply address. Never answer a stale question to a replacement dispatch;
 [O10](../SKILL.md#the-orca-desk) records the current judge path's missing fence.
 
-`--peek` prints unread messages without waiting or marking them read. It does not
-acknowledge a batch, even if `--ack` is supplied beside it. Arguments after `--`
-pass through to `orca orchestration check`. Only the orca runner uses `--run <id>`;
-a worker uses `--terminal <handle>`.
+`--peek` prints unread messages without waiting or marking them read. Arguments
+after `--` pass through to `orca orchestration check`; workers use
+`--terminal <handle>`. Do not start a blocking Run check beside desk-runner.
 
 `--stale` reads every launch receipt's dispatch with `worker-show` and peeks the
 worker terminal's unread messages. It prints `STALE <lane> <age>m unread <msg id>`
@@ -336,10 +333,10 @@ age starts at creation; an inbox line's age starts at dispatch completion.
 
 A lost connection or a `runtime_unavailable` error retries once, then prints
 `connection-lost` and exits 1. Any other Orca error prints
-`error <code>: <message>` and exits 1 without retrying. The runner emits
-`ORCA-CHECK` and continues its loop; it never restarts Orca. It reads actions from
-the store, never an inbox cursor. [orca-desk-brief.md](orca-desk-brief.md) gives the
-loop and escalation contract.
+`error <code>: <message>` and exits 1 without retrying. The runner's separate Run
+inbox read emits `ORCA-INBOX` on failure and keeps its saved cursor for the next
+pass. It never restarts Orca. [orca-desk-brief.md](orca-desk-brief.md) gives the loop
+and escalation contract.
 
 ## Worked example: a v3 drive
 
@@ -364,4 +361,4 @@ desk-runner.py show --config "$CONFIG"
 
 The root never appends to an orca-desk inbox or `SendMessage`s a desk. It arms one
 Monitor on `tail -n 0 -F <escalations file>` and re-arms on expiry. The orca runner
-alone reads and acknowledges Run deliveries.
+alone reads the Run inbox and persists its sequence cursor.

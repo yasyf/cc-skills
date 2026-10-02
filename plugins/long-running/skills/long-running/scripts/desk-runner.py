@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The scripted desk: root commands become durable actions addressed to a lane's current Orca dispatch, the Run mailbox is consumed and acknowledged, ready bottom prefixes enqueue, and deadlines are checked, all without a model turn.
+"""The scripted desk: root commands become durable actions addressed to a lane's current Orca dispatch, the Run inbox is read by sequence, ready bottom prefixes enqueue, and deadlines are checked, all without a model turn.
 
     desk-runner.py relay  --config PATH --key KEY --lane LANE --text TEXT [--reply-to MSG] [--deadline-minutes N]
     desk-runner.py launch --config PATH --key KEY --lane LANE --model M --effort E --brief PATH [--owner-directed]
@@ -66,6 +66,7 @@ SWEEP_EVERY = timedelta(minutes=5)
 ORPHANED_SEND = timedelta(minutes=2)
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
+INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
@@ -527,26 +528,40 @@ class Runner:
         if launched and launched["how"] == "unsupervised":
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
 
-    def check(self, delivery: str) -> str:
-        argv = [str(SCRIPTS / "orca-check.sh"), "--json", *(["--ack", delivery] if delivery else []), "--", "--run", self.config.run]
-        done = self.shell.run(argv, env={"ORCA_CHECK_STATE": str(self.config.receipts)})
-        following = ""
-        for line in done.out.splitlines():
-            if line.startswith("delivery "):
-                following = line.split()[1]
-            elif line.startswith("{"):
-                self.message(json.loads(line))
-            elif line.startswith(("connection-lost", "error ")):
-                self.escalate(f"orca-check:{actions.stamp(self.now())[:15]}", "ORCA-CHECK", "runner", line)
-                return delivery
-        return following
+    def check(self) -> bool:
+        """Read the Run past the persisted cursor; False while no cursor exists, so nothing dispatches before the first read sets one."""
+        key = f"inbox:{self.config.run}"
+        cursor = self.book.load(RUNNER).facts.get(key)
+        limit = INBOX_PAGE_SIZE
+        while True:
+            reply = self.orca.call("orchestration", "inbox", "--terminal", f"run:{self.config.run}", "--limit", str(limit))
+            if not reply["ok"]:
+                self.escalate(f"orca-inbox:{actions.stamp(self.now())[:15]}", "ORCA-INBOX", "runner", json.dumps(reply["error"]))
+                return cursor is not None
+            messages = reply["result"]["messages"]
+            if cursor is None:
+                newest = max((message["sequence"] for message in messages), default=0)
+                self.book.edit(RUNNER, lambda incident: incident.facts.update({key: newest}))
+                return True
+            if len(messages) < limit or messages[-1]["sequence"] <= cursor + 1:
+                break
+            limit *= 2
+        for message in reversed(messages):
+            if message["sequence"] <= cursor:
+                continue
+            if message["type"] != "heartbeat":
+                self.message(message | {"lane": self.orca.lane_of(message["from_handle"])})
+            cursor = message["sequence"]
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
+        return True
 
     def message(self, message: dict) -> None:
         decoded = json.loads(message.get("payload") or "{}")
         payload = decoded if isinstance(decoded, dict) else {}
         lane = message.get("lane") or self.orca.lane_of(message.get("from_handle", ""))
         sender = payload.get("dispatchId") or (self.orca.receipt(lane) if self.orca.terminal(lane) == message.get("from_handle") else "")
-        acked = ACK.match(message.get("subject") or "")
+        subject = message.get("subject") or ""
+        acked = ACK.match(subject)
         thread = message.get("thread_id") or ""
         if acked and "/" in thread:
             container, key = thread.split("/", 1)
@@ -556,6 +571,10 @@ class Runner:
             self.judge(message, lane)
         elif message["type"] == "worker_done":
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
+        elif message["type"] == "status" and subject.lower().startswith(("fix-live:", "mechanism:")):
+            kind = subject.split(":", 1)[0].upper()
+            body = " ".join((message.get("body") or "").split())[:300]
+            self.escalate(message["id"], kind, lane, f"{subject}: {body}")
         elif message["type"] in ("decision_gate", "handoff"):
             self.escalate(message["id"], message["type"].upper(), lane, f"{message.get('subject', '')}: {(message.get('body') or '')[:200]}")
 
@@ -911,21 +930,21 @@ def seed_policy(runner: Runner) -> None:
 
 
 def run_orca(runner: Runner, once: bool) -> int:
-    delivery = ""
     swept = datetime.min.replace(tzinfo=timezone.utc)
     while True:
-        runner.reap()
-        runner.resume_judges()
-        runner.deliver()
-        if runner.now() - swept >= SWEEP_EVERY:
-            runner.sweep()
-            swept = runner.now()
-        delivery = runner.check(delivery)
+        if runner.check():
+            runner.reap()
+            runner.resume_judges()
+            runner.deliver()
+            if runner.now() - swept >= SWEEP_EVERY:
+                runner.sweep()
+                swept = runner.now()
         runner.deadlines_orca()
         runner.flush()
         runner.write_view()
         if once:
             return 0
+        runner.shell.sleep(10)
 
 
 def run_landing(runner: Runner, once: bool) -> int:

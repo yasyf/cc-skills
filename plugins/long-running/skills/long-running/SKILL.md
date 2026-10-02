@@ -901,6 +901,12 @@ one Monitor on `tail -n 0 -F <escalations file>`, under the drive's `inbox/`,
 re-armed on expiry. `show` and the config's `view` file render state; these inbox
 files are views, never authority.
 
+Lane results reach the root as `FIX-LIVE`,
+`MECHANISM`, or `OUTCOME` escalation lines, or by Run message id. Never reconstruct
+the latest lane state with `grep ... | tail` across several files: file order can
+hide an earlier file's newest lines. Never use `orca orchestration inbox | grep -A`
+for this: the listing puts newer messages above the match.
+
 [reference/orca-desk-brief.md](reference/orca-desk-brief.md) owns the config,
 commands, passes, acknowledgement contract, escalation kinds, and cutover.
 [reference/orca-workers.md](reference/orca-workers.md) describes the adapters.
@@ -918,11 +924,13 @@ counts as launched, as does a new dispatch receipt when the log is empty. Other
 output produces `LAUNCH-FAILED`; neither a line nor a new receipt produces
 `UNVERIFIABLE`, never an automatic relaunch. `unsupervised` escalates separately.
 
-**O3. Keep one check loop and acknowledge deliveries.** The orca runner calls
-`orca-check.sh --json -- --run <run>`, handles every non-heartbeat message, and
-passes the printed delivery id as `--ack` on the next call. A message id
-acknowledges nothing; an unacknowledged batch replays. Never start a second
-consumer for a priority desk or a root poll.
+**O3. Keep one Run reader.** Only desk-runner consumes the Run. It reads
+`orca orchestration inbox --terminal run:<run> --limit N --json` without marking
+messages read, processes new sequences oldest first, and persists each cursor
+advance. It expands full pages until the cursor is covered. Its first read starts
+at the newest sequence without replaying history, and nothing launches or
+relays until that read succeeds. No other loop may run
+`orca orchestration check --run <run>` with `--wait` or `--ack`.
 
 **O4. Answer from the brief, escalate the rest.** A Sonnet-low `claude -p` judge
 with no tools reads the lane's brief. It answers what the brief settles or emits
@@ -969,10 +977,9 @@ fence; this rule must not be reported as an enforced runner guarantee.
 **O11. Treat a capacity fallback like an ask.** Workers whose `ask` returns
 `capacity reached` send `question` or `escalation`. Both use the same judge path.
 
-**O12. Wait at most 60 seconds per mailbox check.** Keep
-`ORCA_CHECK_TIMEOUT_MS=60000`. A connection retry can extend the wrapper call;
-this is not a total pass deadline. The landing process uses its configured
-180-second interval. Model desks retain the 60-second inbox-wait rule.
+**O12. Pause ten seconds between Run reads.** The orca runner sleeps ten seconds
+between passes. The landing process uses its configured 180-second interval.
+Model desks retain the 60-second inbox-wait rule.
 
 **O13. A prompt is a desk bug.** The five-minute sweep reads `observation.agentWait`
 and emits `PROMPT` in the pass that sees it. Stale unread mail gets one terminal
