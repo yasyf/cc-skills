@@ -5,6 +5,7 @@ import re
 from cc_transcript.models import AssistantEvent
 from captain_hook import (
     Allow,
+    Annotated,
     BaseHookEvent,
     Block,
     Confirm,
@@ -20,15 +21,18 @@ from captain_hook import (
 
 from .compaction_handoff import CompactionState
 from .nudges import queue_nudge
+from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
 
 ACTIVE = [CompactionState(active=True)]
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
+INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
     "Route the incident fix lane through the orca-desk. Append `orca-desk: launch <name> NOW` to its inbox; an Agent "
-    "spawn on an incident is a support lane and says so in a `ccx: role=<role>` line of its brief."
+    "spawn on an incident is a support lane and says so in a `ccx: role=<role>` line of its brief, and a fix lane "
+    "that is not an incident says `ccx: incident=none`."
 )
 INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on Orca sol; tooling, support, and repush lanes may spawn here")
 REPLY_WINDOW = 256
@@ -37,7 +41,8 @@ UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the U
 
 
 def prose(call: TaskCall) -> list[str]:
-    return [line for line in (call.raw.get("prompt") or "").splitlines() if not line.strip().startswith("ccx:")]
+    lines = (line.strip() for line in (call.raw.get("prompt") or "").splitlines())
+    return [line for line in lines if line and not line.startswith("ccx:")]
 
 
 def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
@@ -51,11 +56,18 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent")],
-    skip_if=[FromSubagent()],
+    skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests={
         spawn("pr-review-pipeline-fix", "CI incident, effort high."): Block(pattern=r"orca-desk: launch <name> NOW"),
         spawn("incident-api-1n80-fix", "Fix it."): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", llm={"block": False}): Block(),
+        spawn("lane-failing-fix", INCIDENT_TURN, llm={"block": False}): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api."): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", llm={"block": False}): Warn(
+            pattern=r"allowed, the model found the call outside the rule"
+        ),
+        spawn("lane-failing-fix", f"ccx: incident=none\n{INCIDENT_TURN}"): Allow(),
+        spawn("flappy-monitors-2", NOT_AN_INCIDENT): Allow(),
+        spawn("ignore-protect-preview", INCIDENT_ADJACENT): Allow(),
         spawn("incident-runner", "Lane incident-runner: a durable incident executor.", llm={"block": False}): Warn(
             pattern=r"allowed, the model found the call outside the rule"
         ),
@@ -72,10 +84,11 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
     if call is None or not CompactionState.load(evt).active:
         return None
     lines = prose(call)
-    if "role" not in evt.annotations:
-        return evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX) if incident_spawn(call, lines[:1]) else None
-    if evt.annotations["role"] == FIX_ROLE and incident_spawn(call, lines):
+    role = evt.annotations.get("role")
+    if role == FIX_ROLE and any(INCIDENT_AUTHORITY.search(line) for line in lines):
         return evt.block(INCIDENT_ROUTE)
+    if role in (None, FIX_ROLE) and incident_spawn(call, lines[:1]):
+        return evt.block(INCIDENT_ROUTE, confirm=INCIDENT_FIX)
     return None
 
 

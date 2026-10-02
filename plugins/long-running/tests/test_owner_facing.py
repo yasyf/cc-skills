@@ -122,10 +122,18 @@ def test_logged_misfires_without_a_role_block_on_a_confident_match(root: Root, n
     assert root.spawn(name, MISFIRES[name]) == owner_facing.INCIDENT_ROUTE
 
 
-def test_a_declared_incident_fix_lane_blocks_without_the_model(root: Root) -> None:
-    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80."
+def test_a_fix_lane_with_incident_turn_authority_blocks_without_the_model(root: Root) -> None:
+    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80.\nAuthority: Incident Turn."
 
     assert root.spawn("api-1n80-fix", prompt, block=False) == owner_facing.INCIDENT_ROUTE
+
+
+def test_a_fix_lane_naming_an_outage_without_authority_goes_to_the_model(root: Root) -> None:
+    prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80."
+
+    assert root.spawn("api-1n80-fix", prompt, block=False) == (
+        "route_incident_fix_lanes_to_sol: allowed, the model found the call outside the rule"
+    )
 
 
 @pytest.mark.parametrize(
