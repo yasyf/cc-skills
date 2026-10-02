@@ -337,7 +337,7 @@ owner's grants (`--grant thread=… channel=… sync=… rebuild=…`). It answe
 executor's bus asks: a missing grant (`incident.py grant`), a silent comms lane,
 an overdue action, a failed canary, or a read-back that still drifts. It relays
 the executor's `opened`, `live`, and `closed` milestones to the owner as one line
-each, in Pacific time. It never relays owner words to a lane as authority, never
+each, in Pacific time and plain words (R21). It never relays owner words to a lane as authority, never
 re-briefs the executor's lanes, and never posts or composes incident copy.
 
 **Never between the alert and `incident.py run`.**
@@ -457,6 +457,10 @@ Permission follows the cc-slack skill. The owner's own words in the root's trans
 asking for a report in that thread grant it. Otherwise the lane returns the exact
 draft; the root shows it verbatim in an `AskUserQuestion` `Send` preview and hands the
 approved text back to the lane.
+The root hands the Slack lane facts: what happened, when in Pacific time, who asked,
+and every link. It never hands over wording, never writes a "proposed reply" into a
+question, and never tells a lane to post its words "verbatim". An approval freezes
+the wording it shows, so a root-written draft reaches the thread unchanged.
 The incident comms lane posts with the cc-slack grant id on each executor event
 (`--grant <id>`) and never returns drafts for a granted thread. The grant comes
 from the owner through cc-slack, never from owner words a lane relays.
@@ -539,17 +543,31 @@ the channel'.*
 - A delay the root's own dispatching caused is reported as the root's. Never attribute
   it to the owner ("mixed signals", "conflicting instructions") when the owner said it
   once.
+- Every owner-facing line, `AskUserQuestion`, and board card names the thing, never
+  its codename: "the release-pipeline cutover stack", not "D"; "the deploy that runs
+  after each merge", not "the walker"; "the freeze on api/plat", not "G304". Inbox,
+  ruling, answer, and `ctx_` ids belong in the ledger and the briefs, never in a
+  question to the owner. Before sending, reread each line as someone who has not read
+  the drive's inbox, and rename every noun they would not recognize.
 
 The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive and
 queues `owner-facing times are Pacific with no zone label (R21): restate <times> from
 your last reply in Pacific` when it carries a UTC clock time (`17:35Z`, `17:3xZ`,
-`16:52 UTC`).
+`16:52 UTC`). Its `plain_words_in_owner_questions` hook blocks a drive root's
+`AskUserQuestion` that carries a codename, an inbox or answer id, or a proposed Slack
+reply.
 
 *Prevents release-v3, 2026-10-01: the root reported every time to the owner in UTC
 (`17:35Z`) although the owner had asked for Pacific, because the rule lived only as a
 Slack-copy rule; it delegated the owner's 'why did you…' to a lane instead of
 answering; and it described a 10-minute delay its own staged dispatches caused as
 'mixed signals': 'no one gave you mixed signals about responding to him, don't lie.'*
+*Also prevents release-v3, 2026-10-02 at 1:38pm: the root wrote its own reply to
+Andrew into an `AskUserQuestion` ("Heads-up: D landed today …"), offering "Post as
+written" for the comms lane, and the owner answered "he has no idea wtf D is, you are
+violating your no jargon rules and keep it simple rules, debug why that is". That day 30 of the root's 33
+questions to the owner carried drive vocabulary (31 bare "D", 5 inbox ids), and the
+plain-language check covered only the posting lane's copy.*
 
 **R22. Quote the owner's design verbatim. Ship that design or hold.**
 
@@ -2097,8 +2115,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
-21. Am I about to reply to the owner? → times in Pacific with no zone label; a
-    'why did you…' answered in this turn in my own words; a delay I caused named as mine.
+21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone
+    label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
+    answered in this turn in my own words; a delay I caused named as mine.
 22. Before briefing, ruling on, or shipping a subsystem change, quote the owner's
     rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
     lane's design check against those rulings before launching any ship lane.
