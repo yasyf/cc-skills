@@ -20,7 +20,10 @@ The terminal runs claude in bypass-permissions mode with the model and effort on
 command line, since Orca's default agent args start claude in plan mode and
 worker-start refuses --model and --effort beside --terminal. The command always
 disallows AskUserQuestion, EnterPlanMode, and ExitPlanMode: a worker's prompt
-reaches only its own terminal, which no one watches. Claude runs under
+reaches only its own terminal, which no one watches. It also passes
+--strict-mcp-config, so a worker starts only the MCP servers ORCA_LAUNCH_MCP_CONFIG
+names instead of the eight or so every interactive session starts; a brief that
+needs a server names it there. Claude runs under
 CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a drive,
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
 opens in the drive's ledger under the lane's name. The spec is a
@@ -50,7 +53,10 @@ no tier flag.
 sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
 fast tier never depends on Orca's runtime config. It also passes
--c check_for_update_on_startup=false to disable the startup update prompt.
+-c check_for_update_on_startup=false to disable the startup update prompt, and
+-c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}> so codex starts none of the
+config.toml servers; servers a codex plugin bundles still start. A codex lane on
+Orca's agent keeps Orca's own command line.
 The command prepends the plugin bin to the terminal's own PATH, never the
 caller's expanded PATH. When Orca times out at agent_readiness on a codex or sol
 worker whose terminal is up, the script reads the screen first. If it contains
@@ -75,6 +81,8 @@ up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
   ORCA_LAUNCH_BASE           base branch, default the parent checkout's origin/HEAD
   ORCA_LAUNCH_STATE          receipt directory, default ~/.claude/scratch/orca-launch/<run>
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
+  ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
+  ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for a sol worker's mcp_servers, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
@@ -123,9 +131,10 @@ BRIEF=$(cd "$(dirname "$BRIEF")" && pwd)/$(basename "$BRIEF")
 
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
-COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
+COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
-[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false'"
+CODEX_MCP=${ORCA_LAUNCH_CODEX_MCP:-'{}'}
+[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP'"
 pointer() {
   printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }

@@ -298,12 +298,16 @@ refusal, Orca message delivery, and the ledger gap.*
 suite locally: no `buck2 build`, `cargo build`, `yarn tsc:*`, `bun test`, jest, or
 `go test ./...`. It pushes and reads CI. The only local runs are the one failing test
 that reproduces a red CI step, or a single artifact the brief names. Those run one at a
-time with parallelism capped at `-j 8` or the tool's equivalent. Before any local run,
-a lane reads the 1-minute load; above the core count, it finishes its current command
-and starts no build.
+time with parallelism capped at `-j 8` or the tool's equivalent. Machine load governs only those local runs: before
+starting one, a lane reads the 1-minute load, and above the core count it posts one
+`HELD on load <load>/<cores>: <command>` status line to the Run mailbox
+(`orca orchestration send --type status`) and waits at most 5 minutes before running it
+anyway. Load never holds a Buildkite build, a hand apply of a saved plan, an incident
+step, or an owner-directed step; those run at once.
 
 *Prevents release-v3 lanes pushing the box to load 103 with local rust builds on
-2026-09-30, until the 12:35Z mass kill.*
+2026-09-30, until the 12:35Z mass kill, and apply-restate-1255 holding an
+owner-ordered Buildkite apply on load 428 until the root answered (2026-10-02).*
 
 **R16. An active production alert gets its executor in the same turn.** An active
 alert or outage on any surface counts: a Datadog monitor, a Sentry alert, an
@@ -1235,8 +1239,10 @@ Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py ans
 Verify through CI: never run a whole-package build or suite locally (buck2/cargo build,
   `yarn tsc:*`, `bun test`, jest, `go test ./...`). Run locally only the one failing test
   that reproduces a red CI step, or a single artifact this brief names, one at a time with
-  `-j 8` or the tool's equivalent. With the 1-minute load above the core count, finish
-  the current command and start no build.
+  `-j 8` or the tool's equivalent. Load governs only those local runs: above the core
+  count, post `HELD on load <load>/<cores>: <command>` to the Run mailbox and wait at most
+  5 minutes. Never hold a Buildkite build, a saved-plan apply, an incident step, or an
+  owner-directed step on load.
 GitHub budget: one 5000-point hourly GraphQL budget serves the whole account, at 1 point
   per call. Watch a PR with `ccx vcs pr watch --state <file>` or REST
   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, at most once a minute; never
