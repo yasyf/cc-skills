@@ -15,6 +15,7 @@ from cc_transcript.discovery import subagent_paths
 from cc_transcript.models import TranscriptEvent
 
 from captain_hook import BaseHookEvent
+from captain_hook.snapshots.client import EvidenceIncomplete
 
 __capt_hook_skip__ = True
 
@@ -55,7 +56,10 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
 
 
 def own_name(evt: BaseHookEvent) -> str | None:
-    meta = evt.ctx.t.path.with_suffix(".meta.json")
+    try:
+        meta = evt.ctx.t.path.with_suffix(".meta.json")
+    except EvidenceIncomplete:
+        return None
     return json.loads(meta.read_text()).get("name") if meta.is_file() else None
 
 
