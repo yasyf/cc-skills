@@ -52,6 +52,7 @@ def test_start_registers_the_drive_by_its_root_session(repo, capsys):
         "checkout": str(Path.cwd()),
         "sessions": [ROOT_SESSION],
         "orca_run": "run_7715a23a5657",
+        "state_dir": str(Path.home() / ".claude" / "scratch" / "900424b6"),
         "started_at": "",
         "updated_at": "",
     }
@@ -67,6 +68,13 @@ def test_a_handoff_joins_the_drive_and_keeps_its_orca_run(repo, monkeypatch):
     assert entry["sessions"] == [ROOT_SESSION, RESUMED_SESSION]
     assert entry["orca_run"] == "run_7715a23a5657"
     assert drive.main(["current"]) == 0
+
+
+def test_a_handoff_keeps_the_state_dir_the_drive_started_with(repo, monkeypatch, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    monkeypatch.setenv(drive.SESSION_ENV, RESUMED_SESSION)
+
+    assert started(repo, "--drive", "900424b6")["state_dir"] == str(tmp_path / "release-v3")
 
 
 def test_a_session_runs_one_drive_at_a_time(repo):
@@ -168,3 +176,37 @@ def test_record_refuses_a_malformed_pr(repo):
     with pytest.raises(SystemExit):
         drive.main(["record", "--session", ROOT_SESSION, "--lane", "x", "--cwd", str(repo), "--pr", "#12"])
 
+
+
+def thread(*argv: str) -> int:
+    return drive.main(["thread", "--lane", "owner-links-comms", "--channel", "C0AAAAAAAA1", "--thread-ts", "1790901035.467689", "--posted-ts", "1790901997.422529", *argv])
+
+
+def test_a_post_in_the_drive_joins_its_watch_list(repo, tmp_path, capsys):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    watched = tmp_path / "release-v3" / "slack" / "watched-threads.jsonl"
+
+    assert thread("--session", ROOT_SESSION) == 0
+    assert thread("--session", WORKER_SESSION, "--drive", "900424b6") == 0
+
+    rows = [json.loads(line) for line in watched.read_text().splitlines()]
+    assert [row | {"posted_at": ""} for row in rows] == [
+        {
+            "channel": "C0AAAAAAAA1",
+            "thread_ts": "1790901035.467689",
+            "posted_ts": "1790901997.422529",
+            "posted_at": "",
+            "session": session,
+            "lane": "owner-links-comms",
+        }
+        for session in (ROOT_SESSION, WORKER_SESSION)
+    ]
+    assert capsys.readouterr().out.splitlines()[-1] == f"C0AAAAAAAA1/1790901035.467689 is on the drive's Slack watch list at {watched}"
+
+
+def test_a_post_outside_any_drive_is_not_watched(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+
+    assert thread("--session", WORKER_SESSION) == 0
+
+    assert not (tmp_path / "release-v3" / "slack").exists()

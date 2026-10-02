@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """The drive registry: which long-running drive, and so which ledger, a session's pull requests belong to.
 
-    drive.py start   --ledger ID [--drive ID] [--orca-run ID]
+    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR]
     drive.py end     [--drive ID]
     drive.py current
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
+    drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
 
 STDLIB ONLY. One file per drive at ``~/.claude/long-running/drives/<drive>.json`` names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
-the checkout the drive started in, every root session that has run it, and its Orca run.
+the checkout the drive started in, every root session that has run it, its Orca run, and its state
+directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another.
 ``start`` is an upsert: the resumed root of a handoff runs it again and joins ``sessions``.
 
 ``record`` is the capt-hook pack's entry point after a command opened or pushed pull requests.
@@ -17,6 +19,9 @@ A session belongs to a drive when its id is one of the drive's root sessions, wh
 in-process subagent and teammate, or when it carries ``CLAUDE_LONG_RUNNING_DRIVE``, which Orca workers
 inherit from ``orca-launch.sh``. A session in no drive, a command run outside the drive's
 repository, and a pull request on another repository are not the drive's and record nothing.
+
+``thread`` is the pack's entry point after a Slack post: it appends the posted thread to
+``<state dir>/slack/watched-threads.jsonl``, the list the drive's Slack watch lane polls.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ import ledger
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 DRIVE_ID_LENGTH = 8
+WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
@@ -113,6 +119,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         "checkout": str(cwd),
         "sessions": [*entry["sessions"], session] if session not in entry["sessions"] else entry["sessions"],
         "orca_run": args.orca_run or entry["orca_run"],
+        "state_dir": str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive),
         "updated_at": stamp(),
     }
     print(f"drive {drive} on ledger {args.ledger} at {save(entry)}")
@@ -176,6 +183,25 @@ def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_thread(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (entry := find(args.drive, args.session)):
+        return 0
+    path = Path(entry["state_dir"]) / WATCHED_THREADS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "channel": args.channel,
+        "thread_ts": args.thread_ts,
+        "posted_ts": args.posted_ts,
+        "posted_at": stamp(),
+        "session": args.session,
+        "lane": args.lane,
+    }
+    with path.open("a") as out:
+        out.write(json.dumps(row) + "\n")
+    print(f"{args.channel}/{args.thread_ts} is on the drive's Slack watch list at {path}")
+    return 0
+
+
 def pr_spec(value: str) -> re.Match:
     if not (match := PR_SPEC.match(value)):
         raise argparse.ArgumentTypeError(f"{value!r} is not [OWNER/NAME#]N[=SHA]")
@@ -190,6 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--ledger", required=True)
     start.add_argument("--drive", help="the drive id; defaults to the drive this session already runs, else its id's first 8 characters")
     start.add_argument("--orca-run", metavar="ID")
+    start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
     start.set_defaults(handler=cmd_start)
 
     end = subparsers.add_parser("end", help="the drive is over; its PRs stop being recorded")
@@ -210,6 +237,15 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--cwd", required=True, type=Path)
     record.add_argument("--pr", required=True, action="append", type=pr_spec, metavar="[OWNER/NAME#]N[=SHA]")
     record.set_defaults(handler=cmd_record)
+
+    thread = subparsers.add_parser("thread", help="add a Slack thread a session posted in to the drive's watch list")
+    thread.add_argument("--session", required=True)
+    thread.add_argument("--drive", help="the drive named by the session's CLAUDE_LONG_RUNNING_DRIVE")
+    thread.add_argument("--lane", required=True)
+    thread.add_argument("--channel", required=True)
+    thread.add_argument("--thread-ts", required=True)
+    thread.add_argument("--posted-ts", required=True)
+    thread.set_defaults(handler=cmd_thread)
 
     return parser
 

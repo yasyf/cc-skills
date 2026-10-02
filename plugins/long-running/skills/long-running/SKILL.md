@@ -23,7 +23,8 @@ A single-lane investigation is not this. One question goes to one subagent in di
 
 The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; and one priority desk per owner-named #1-priority outcome while that
-outcome is open. The orca desk is the `desk-runner.py run --desk orca` process,
+outcome is open. Once the drive has posted to Slack, the Slack watch lane is standing
+too, briefed from `reference/slack-watch-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
 not a subagent. Its landing process shares the store and runs D3, D14, and D16
 where the checkout carries `stack-enqueue`.
 The root spawns a subagent for every task with a body, including its own routine work.
@@ -479,6 +480,12 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
   is never the channel for a new post. In an incident, the executor raises a silent
   comms lane as a decision. The replacement lane posts the executor's unanswered
   event, so nothing is restated.
+- A post that asks a person to act (a grant, a permission, an approval, an answer)
+  opens an R3 wait→do chain. Any fence, hold, or `until <person>` line it gates names
+  the thread (`until reply in <channel>/<thread_ts>`). The watch lane relays that reply
+  to the root and writes the unblock line into the fence owner's inbox (for example
+  `inbox/deploy-go.md`) in the same poll. No fence may name a person without naming a
+  watched thread.
 - An answer the owner dictated goes out as one message with the grant in the dispatch,
   never staged across several instructions.
 - The owner's surface word is literal: "channel" means a top-level channel post,
@@ -493,6 +500,12 @@ The pack's `root_context` hook blocks every Slack write in a drive's root with
 `delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
 reference/slack-lane-brief.md — ... (R20: the drive root never writes to Slack)`;
 `# ccx:raw` does not bypass it; lanes pass.
+
+The pack's `slack_threads` hook appends every thread a drive session posts in to
+`<state dir>/slack/watched-threads.jsonl`, whether the post went through the cc-slack
+CLI, its MCP tools, or the user-level `mcp__slack__slack_send_message`, and whether or
+not it passed `--no-watch`. That file is the watch lane's thread list; handoffs and
+spawn prompts never carry one (`reference/slack-watch-brief.md`).
 
 *Prevents the release-v3 failure of 2026-10-01: the owner pasted Anubhav Jain's
 "PR reviewer broken" thread at `17:25:46Z` after replying "Looking". The root briefed
@@ -1401,7 +1414,7 @@ to join the existing drive. Run `drive.py end` only when the drive is over.
 
 ```sh
 LEDGER=$(ledger.py init --title "desk: $DRIVE")
-drive.py start --ledger "$LEDGER" [--orca-run <run>]
+drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scratch/<slug>]
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
 # on each report: record it and grade the current head; reports are not a gate
