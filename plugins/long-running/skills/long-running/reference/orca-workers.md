@@ -193,6 +193,7 @@ it is clean, fully pushed, and no terminal in `orca terminal list` is attached t
 **R210. Load is the only launch throttle.** Working workers have no cap. Before each
 launch, read `uptime`; while the 1-minute load average is above the core count
 (`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
+Incident (sol) and owner-directed launches are exempt and start at once.
 
 The runtime drops connections under load. Retry after 30 seconds; never restart
 Orca to recover a connection. Handles belong to one runtime. After a restart,

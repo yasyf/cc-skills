@@ -108,6 +108,8 @@ class FakeShell(runner_module.Shell):
                 request = f"00000000-0000-0000-0000-{self.sequence:012d}"
                 self.sequence += 1
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "data": {"orchestrationRequestId": request}}}), "")
+            if argv[argv.index("--to") + 1].startswith("run:"):
+                return self.ok({"message": {"id": self.next_id("msg")}})
             to = argv[argv.index("--to") + 1].removeprefix("dispatch:")
             message = {"id": self.next_id("msg"), "thread_id": argv[argv.index("--thread-id") + 1], "created_at": "2026-10-01T18:00:00Z"}
             self.inboxes.setdefault(self.dispatches[to]["terminal"], []).append(message)
@@ -359,14 +361,54 @@ def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell,
     assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_n"]
 
 
-def test_a_launch_held_by_load_starts_nothing(shell, config, tmp_path):
+def launches(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
+
+
+@pytest.mark.parametrize(("model", "flags"), [("sol", ()), ("opus", ("--owner-directed",))])
+def test_an_incident_or_owner_directed_launch_never_waits_on_load(shell, config, tmp_path, model, flags):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, model, "xhigh", str(brief)]]
+
+
+def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_deadline(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
     brief.write_text("brief")
     shell.cpu_load = 40
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
-    orca_pass(shell, config)
-    assert not [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    for _ in range(4):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert launches(shell) == [] and escalations(tmp_path) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+    for _ in range(3):
+        shell.sleep(60)
+        orca_pass(shell, config)
+    assert launches(shell) == []
+    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
+    assert action.status == "failed" and "load 40 above 8 cores" in action.reason
+    [line] = escalations(tmp_path)
+    assert "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
+    [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
+    assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
+
+
+def test_show_marks_a_load_held_launch_held_with_its_reason_and_age(shell, config, tmp_path, capsys):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    shell.cpu_load = 40
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    shell.sleep(180)
+    capsys.readouterr()
+    cli(shell, config, "show")
+    assert "- R638 launch [HELD load 40 above 8 cores for 3m] accepted 11:00" in capsys.readouterr().out
+    shell.cpu_load = 1.0
+    cli(shell, config, "show")
+    assert "- R638 launch [accepted] accepted 11:00" in capsys.readouterr().out
 
 
 def gate(*lines: str, would: str = "") -> str:
