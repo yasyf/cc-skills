@@ -56,13 +56,16 @@ The single canonical agent-conventions doc. Section by section:
   or lanes batch and fan out; a single message with independent tool calls
   comes first. Local builds, test suites, repo-wide scans or indexing,
   benchmarks, and similar compiler- or IO-heavy jobs share a host budget: one
-  local job per coordinator group at a time, at most two compiler or test
-  workers on the host at once. Right before starting one, check load average
-  against core count, idle CPU, and free memory; defer when saturated. CI grades
-  tests; run a suite locally only to reproduce a red CI run or for a check no
-  pipeline grades. Use no timed retry loops around git or stack writes and no
-  separate fetch, rebase, or restack before a ship or submit that already does
-  it; read a refusal and retry only when its cause changes. Queue
+  local job at a time across a root coordinator and every descendant lane,
+  including workers and nested coordinators, with the root coordinator recording
+  who holds the slot, and at most two compiler or test workers on the host at
+  once. Right before starting one, check load average against core count, idle
+  CPU, and free memory; when the host is saturated, defer every optional job and
+  let CI grade the work; a necessary local reproduction waits for real headroom.
+  CI grades tests; run a suite locally only to reproduce a red CI run or for a
+  check no pipeline grades. Use no timed retry loops around git or stack writes
+  and no separate fetch, rebase, or restack before a ship or submit that already
+  does it; read a refusal and retry only when its cause changes. Queue
   resource-intensive lanes when budget is unavailable and continue cheap work;
   waiting on host budget is correct scheduling. Never stop, restart, suspend,
   signal, or reprioritize existing sessions, their processes, or anyone else's
