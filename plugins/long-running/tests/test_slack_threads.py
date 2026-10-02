@@ -20,7 +20,7 @@ def exhausted(self):
     raise EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")
 
 
-def test_a_named_lane_registers_its_post_after_the_transcript_deadline(tmp_path, monkeypatch):
+def test_a_lane_registers_its_post_after_the_transcript_deadline(tmp_path, monkeypatch):
     transcript = tmp_path / f"{SESSION}.jsonl"
     transcript.write_text("")
     meta = tmp_path / SESSION / "subagents" / f"agent-{AGENT}.meta.json"
@@ -38,6 +38,7 @@ def test_a_named_lane_registers_its_post_after_the_transcript_deadline(tmp_path,
     evt = PostToolUseEvent(_raw=raw, ctx=build_context(None, transcript, tmp_path, tmp_path))
     monkeypatch.setattr(HookContext, "t", property(exhausted))
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     calls = []
 
     def run(argv, **kwargs):
@@ -48,5 +49,5 @@ def test_a_named_lane_registers_its_post_after_the_transcript_deadline(tmp_path,
 
     assert register_posted_thread(evt) is None
     assert [argv[argv.index("--lane") + 1 :] for argv in calls] == [
-        ["owner-links-comms", "--channel", "C0AAAAAAAA1", "--thread-ts", "1790901035.467689", "--posted-ts", "1790901997.422529"]
+        [SESSION, "--channel", "C0AAAAAAAA1", "--thread-ts", "1790901035.467689", "--posted-ts", "1790901997.422529"]
     ]
