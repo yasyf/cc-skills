@@ -1081,6 +1081,16 @@ landing-desk-2 brief declared only "L65–L107 standing" and dropped L40, and R3
 marked "R312 done" once deploy-experience's `tools/deploy --since` task built
 toward it.*
 
+**I7. A desk blocks on a Monitor over its inbox.** At spawn, on every Monitor
+expiry, and after its own compaction, the desk arms one Monitor on
+`tail -n 0 -F <inbox file>` at the maximum timeout (at most 30 minutes). Each
+appended `R<n>` line wakes the desk; it reads from its saved cursor (I2) and acts
+in that turn. The 3-minute reconciliation pass and the 30-minute summary run in
+the background and never stand in for the Monitor.
+
+*Prevents the 34-minute miss of R956-R969 in a backgrounded desk pass on
+2026-10-02.*
+
 ## The lane bus
 
 `SendMessage` is fire-and-forget into an inbox. A message lands while its reader is

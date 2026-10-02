@@ -98,6 +98,9 @@ After your own compaction, resume in place. The ledger holds your inbox, holds,
   as it stands; never ask the root to reconstruct your state.
 
 At spawn:
+  - Arm one Monitor on `tail -n 0 -F <root inbox file>` at its maximum timeout
+    (at most 30 minutes). Re-arm on every expiry and after your own compaction.
+    Each appended line wakes you; run step 0 on it at once.
   - Arm `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]...`
     under Monitor at its maximum timeout (at most 30 minutes); re-arm on every expiry.
     Pass each priority PR the root names with `--priority`. Send every `P0 #n ...`
@@ -108,6 +111,9 @@ At spawn:
     PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build
     list. Never make one REST status call per PR.
 
+Block on the inbox Monitor. Run the 3-minute reconciliation pass and the
+  30-minute summary in the background; they never stand in for the Monitor.
+
 Do, in this order, forever:
   0. Root inbox file <path>: at the TOP of every iteration, before any other work,
      read every line after your saved cursor and act on each ruling. Advance the
@@ -117,8 +123,9 @@ Do, in this order, forever:
      never report it done. Append `standing.py inbox <inbox file>` output to every
      report and forward its `violation` lines to the root.
      The root appends rulings there, because a SendMessage to a looping desk is
-     not delivered mid-turn. No wait in this
-     loop runs longer than 60 seconds before you read the file again.
+     not delivered mid-turn. The inbox Monitor wakes you on each appended line;
+     read from your saved cursor and act in that turn. Re-arm it on expiry and
+     after your own compaction.
      Read the holds file's #<n> and lane:<name> entries. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift

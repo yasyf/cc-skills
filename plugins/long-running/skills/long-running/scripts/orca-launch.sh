@@ -43,17 +43,21 @@ launch counts only once the receipt reads ready and the terminal's screen shows 
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
-already bypass approvals, so there is no custom command and no screen check.
+already bypass approvals, so there is no custom command or bypass-permissions screen check.
 Its service tier comes from Orca's codex runtime config, since worker-start has
 no tier flag.
 
 sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
-fast tier never depends on Orca's runtime config. The command prepends the
-plugin bin to the terminal's own PATH, never the caller's expanded PATH. When Orca times out at
-agent_readiness on a codex or sol worker whose terminal is up, the script types
-the spec pointer into that terminal itself and prints the lane as unsupervised:
-it runs, but Orca carries no worker_done for it.
+fast tier never depends on Orca's runtime config. It also passes
+-c check_for_update_on_startup=false to disable the startup update prompt.
+The command prepends the plugin bin to the terminal's own PATH, never the
+caller's expanded PATH. When Orca times out at agent_readiness on a codex or sol
+worker whose terminal is up, the script reads the screen first. If it contains
+"Update available!" or "Skip until next version", the launch fails with a
+single-line screen quote, whitespace squeezed and cut to 300 characters, without
+typing into the prompt. Otherwise, it types the spec pointer into that terminal
+itself and prints the lane as unsupervised: it runs, but Orca carries no worker_done for it.
 
 <model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), sol
 (gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
@@ -95,7 +99,7 @@ RECEIPT=$STATE/$LANE.json
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
 fail() {
-  echo "$LANE failed $*"
+  printf '%s\n' "$LANE failed $*"
   exit 1
 }
 
@@ -121,7 +125,7 @@ BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/or
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
-[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT'"
+[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false'"
 pointer() {
   printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
@@ -232,6 +236,12 @@ if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1;
 fi
 if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   [ "$(jq -r '.result.failedStage // empty' "$RECEIPT")" = agent_readiness ]; then
+  SCREEN=$(orca terminal read --terminal "$TERMINAL" --screen --json | jq -r '.result.terminal.tail | tostring')
+  case $SCREEN in
+    *"Update available!"* | *"Skip until next version"*)
+      fail "agent_readiness terminal=$TERMINAL update prompt: '$(printf '%s' "$SCREEN" | tr -s '[:space:]' ' ' | cut -c1-300)'"
+      ;;
+  esac
   orca terminal send --terminal "$TERMINAL" --text "$SPEC" --enter --json >/dev/null ||
     fail "spec send terminal=$TERMINAL after agent_readiness timeout"
   echo "$LANE unsupervised task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"

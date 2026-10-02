@@ -16,6 +16,12 @@ REPO = "Forge-AI/monorepo"
 LANE = "lightning-eh"
 
 
+@pytest.mark.parametrize("path", ["SKILL.md", "reference/landing-desk-brief.md", "reference/priority-desk-brief.md"])
+def test_desk_briefs_arm_an_inbox_monitor(path):
+    skill = Path(__file__).resolve().parents[1] / "skills/long-running"
+    assert "tail -n 0 -F" in (skill / path).read_text()
+
+
 def stamp(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 

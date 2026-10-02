@@ -45,10 +45,18 @@ Verified facts, do not re-derive:
   owed list: P1 in your inbox
   root-verified truth: P2 in your inbox, timestamp <UTC>
 
-At spawn, read P1 and P2. Arm `ccx vcs pr watch <every owed PR number>` under
-  Monitor and re-arm on expiry. Route ejections, conflicts, and reds at once.
-  Run a pass every 3 minutes. Stagger with other desks and shards by a minute
-  (:00/:01/:02); your offset is <offset>.
+At spawn:
+  - Read P1 and P2.
+  - Arm one Monitor on `tail -n 0 -F <root inbox file>` at its maximum timeout
+    (at most 30 minutes). Re-arm on every expiry and after your own compaction.
+    Each appended line wakes you; run step 0 on it at once.
+  - Arm `ccx vcs pr watch <every owed PR number>` under Monitor and re-arm on
+    expiry. Route ejections, conflicts, and reds at once.
+  - Run a pass every 3 minutes. Stagger with other desks and shards by a minute
+    (:00/:01/:02); your offset is <offset>.
+
+Block on the inbox Monitor. Run the 3-minute reconciliation pass and the
+  15-minute report in the background; they never stand in for the Monitor.
 
 Do, in this order, every iteration:
   0. Inbox from cursor at the TOP, before any other work. Read every new line,
