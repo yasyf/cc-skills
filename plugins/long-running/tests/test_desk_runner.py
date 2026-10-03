@@ -842,3 +842,16 @@ def test_without_a_gc_the_line_names_the_r195_bar(shell, config, tmp_path):
     orca_pass(shell, config)
     [reclaim] = [line for line in escalations(tmp_path) if " RECLAIM " in line]
     assert reclaim.endswith("close each idle terminal and remove each finished worktree under R195")
+
+
+@pytest.mark.parametrize(("flag", "value"), [("--model", "gemini"), ("--effort", "extreme")])
+def test_a_launch_the_script_cannot_start_is_refused_when_submitted(shell, config, tmp_path, flag, value):
+    argv = {"--model": "astra", "--effort": "xhigh"} | {flag: value}
+    with pytest.raises(SystemExit):
+        cli(shell, config, "launch", "--key", "R1", "--lane", LANE, "--model", argv["--model"], "--effort", argv["--effort"], "--brief", str(tmp_path / "brief.md"))
+    assert not (tmp_path / "store").exists()
+
+
+@pytest.mark.parametrize("model", ["astra", "codex", "sol", "opus", "claude-opus-5-5", "gpt-6.1-sol"])
+def test_every_model_the_script_starts_is_accepted(model):
+    assert runner_module.launch_model(model) == model
