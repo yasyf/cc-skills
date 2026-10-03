@@ -75,6 +75,14 @@ the drive's briefs log, as [orca-lane-brief.md](orca-lane-brief.md) describes.
 `--spec` points to its resolved file path, at most 300 characters. Orca truncates
 the pasted prompt near 3 KB, so the brief itself never goes in `--spec`.
 
+Fable is local only, for top-level root orchestrators or extremely sensitive
+implementation, using the Mac's existing interactive authentication. Ordinary
+Claude workers and subdesks use Opus or Sonnet per the routing table; Opus is the
+default for Claude implementation workers. Auth, migrations, concurrency, or error-prone code
+alone does not qualify for Fable. Preserve explicitly requested models and
+effort within these roles. Never use Fable as a general fallback or set
+`fallbackModel`.
+
 Use these model ids; the script also accepts the aliases in the first column.
 
 | Alias | Model id |

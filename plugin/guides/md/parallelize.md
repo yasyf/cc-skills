@@ -12,3 +12,16 @@ Single-step exception: one task, no parallel sibling, no follow-on → one subag
 **Bound a delegate's life, not just its scope.** A delegate's cost grows with the *square* of its turn count: its context grows by roughly a thousand tokens per tool call and every call re-reads the whole thing, so a turn at 200 costs several times the same turn at 20. Past ~50 tool calls a delegate spends more re-reading its own history than doing the work.
 
 At ~50 tool calls, a delegate stops and hands off rather than pressing on: it returns findings, open questions, and the next concrete step — never its transcript, never a narrated log of what it tried. The caller respawns a fresh delegate with that summary as its entire context. Splitting one 200-turn agent into four 50-turn ones costs roughly half as much and loses nothing a real handoff carries; the fresh prefix each respawn pays for is noise against the saving. This is a budget, not a deadline — a delegate that finishes in ten turns finishes, and one mid-edit at turn 50 completes the edit first, because an interrupted mutation costs more to reconstruct than the turns it saves. A delegate that keeps going past the budget records why in its handoff.
+
+## Worker model defaults
+
+Fable is local only, for top-level root orchestrators or extremely sensitive
+implementation, using the Mac's existing interactive authentication. Ordinary
+Claude workers and subdesks use Opus or Sonnet per the routing table; Opus is the
+default for Claude implementation workers. Auth, migrations, concurrency, or error-prone code
+alone does not qualify for Fable. Preserve explicitly requested models and
+effort within these roles. Never use Fable as a general fallback or set
+`fallbackModel`.
+
+Set the model explicitly on worker definitions or dispatches so ordinary
+workers do not inherit Fable from a root orchestrator.
