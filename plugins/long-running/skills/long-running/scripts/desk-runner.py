@@ -559,11 +559,11 @@ class Runner:
     def launch(self, container: str, lane: str, action: actions.Action) -> None:
         """Start orca-launch.sh detached, so a readiness wait never holds a relay; `reap` records its printed line."""
         spec = json.loads(action.target)
+        if not self.bound_for_launch():
+            return
         if held := self.load_hold(action):
             if self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                 self.expire_launch(container, lane, action, held)
-            return
-        if not self.bound_for_launch():
             return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return

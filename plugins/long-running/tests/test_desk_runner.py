@@ -983,3 +983,18 @@ def test_launch_failed_carries_the_launchs_own_failure_line(shell, config, tmp_p
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].reason == reason
     [line] = escalations(tmp_path)
     assert line == f"11:00 LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
+
+
+def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(shell, config, tmp_path):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    shell.cpu_load = 40
+    shell.coordinator = "term_elsewhere"
+    for _ in range(8):
+        runner.deliver()
+        runner.flush()
+        shell.sleep(60)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+    assert [line.split()[1] for line in escalations(tmp_path)] == ["UNBOUND"]

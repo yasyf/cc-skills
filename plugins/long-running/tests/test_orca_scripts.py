@@ -996,3 +996,12 @@ def test_an_orca_error_printed_across_lines_fails_the_launch_on_one_line(orca):
     orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "0"
     result = orca.launch()
     assert result.stdout == "lane-a failed worktree create: runtime_unavailable: Could not read Orca runtime metadata. Start the Orca app first.\n"
+
+
+def test_a_worker_start_that_printed_a_dispatch_beside_a_refusal_rolls_nothing_back(orca):
+    orca.healthy()
+    dispatched = json.dumps({"ok": True, "result": {"state": "starting"}})
+    orca.reply("orchestration worker-start", {"rc": 1, "out": dispatched + "\n" + json.dumps(FENCED["out"])})
+    result = orca.launch()
+    assert result.stdout.strip().endswith(f"; rollback left terminal=term_a worktree={orca.worktree}")
+    assert orca.calls("worktree rm") == []

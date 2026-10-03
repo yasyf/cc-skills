@@ -321,7 +321,7 @@ if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1;
   [ "$AGENT" != codex ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
 elif [ "$STARTED" != 0 ]; then
-  REFUSED=$(jq -r 'select(.ok == false) | .error.code' "$RECEIPT.new" 2>/dev/null) || REFUSED=
+  REFUSED=$(jq -rs 'if length == 1 and .[0].ok == false then .[0].error.code else empty end' "$RECEIPT.new" 2>/dev/null) || REFUSED=
   case $REFUSED in
     consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable) ROLLBACK=1 ;;
     *) KEPT="${TERMINAL:+ terminal=$TERMINAL}${MADE:+ worktree=$WT}" ;;
