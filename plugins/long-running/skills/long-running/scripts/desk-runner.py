@@ -5,6 +5,7 @@
     desk-runner.py launch --config PATH --key KEY --lane LANE --model M --effort E --brief PATH [--owner-directed]
     desk-runner.py policy --config PATH --key KEY --landing prefix|whole --revision REV --source TEXT [--supersedes REV]
     desk-runner.py run    --config PATH --desk orca|landing [--once]
+    desk-runner.py rebind --config PATH
     desk-runner.py show   --config PATH
 
 STDLIB ONLY. Every action lives in the store `actions.py` owns: one container per lane,
@@ -21,7 +22,14 @@ A relay is accepted, then started and completed by the lane itself: it replies
 never resent blindly.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
-prompts, and checks relay deadlines. A sol or `--owner-directed` launch starts whatever
+prompts, and checks relay deadlines. Orca lets only the terminal bound to the Run call
+worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
+The runner records that terminal, its pane, the Run's coordinator and generation, and how
+the binding was obtained, at start and before each pass that launches. Started from a
+terminal that is not the Run's coordinator, or from no Orca terminal, it refuses to start
+and prints the rebind command; a binding lost mid-run holds every launch and escalates
+UNBOUND once. `rebind` runs `orca orchestration run-use` from the current terminal and
+records it; `show` prints the binding first. A sol or `--owner-directed` launch starts whatever
 the load; any other launch waits while the 1-minute load is above the core count, for
 at most `deadlines.load_hold_minutes`, then fails into the escalations file and the Run
 mailbox. `run --desk landing` gates and enqueues ready
@@ -57,6 +65,7 @@ LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RUNNER = "desk-runner"
 UNLAUNCHED = "unlaunched"
+BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 INACTIVE = frozenset({"completed", "failed"})
@@ -133,6 +142,9 @@ class Shell:
     def cores(self) -> int:
         return os.cpu_count() or 1
 
+    def env(self, name: str) -> str:
+        return os.environ.get(name, "")
+
 
 def pacific(moment: datetime) -> str:
     return moment.astimezone(PACIFIC).strftime("%H:%M")
@@ -144,6 +156,7 @@ def lane_container(lane: str) -> str:
 
 @dataclass
 class Config:
+    source: Path
     store: Path | None
     escalations: Path
     view: Path
@@ -166,6 +179,7 @@ class Config:
         orca = raw["orca"]
         deadlines = raw.get("deadlines", {})
         return cls(
+            source=path.expanduser().resolve(),
             store=Path(raw["store"]).expanduser() if raw.get("store") else None,
             escalations=Path(raw["escalations"]).expanduser(),
             view=Path(raw["view"]).expanduser(),
@@ -327,6 +341,7 @@ class Runner:
         self.book = Book(store, shell)
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
+        self.pass_binding: dict | None = None
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -343,6 +358,75 @@ class Runner:
             with self.config.escalations.open("a") as out:
                 out.write(f"{pacific(actions.parse_stamp(action.accepted_at))} {action.target}\n")
             self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp()})))
+
+    def binding(self, via: str = "") -> dict:
+        """Ask Orca whether this process's terminal coordinates the Run, and record the answer, with how it was obtained, in the runner's state."""
+        terminal = self.shell.env("ORCA_TERMINAL_HANDLE")
+        prior = self.book.load(RUNNER).facts.get(BINDING) or {}
+        current = self.orca.call("orchestration", "run-current") if terminal else {}
+        held = ((self.orca.call("orchestration", "run-show", "--id", self.config.run).get("result") or {}).get("run")) or {}
+        coordinates = ((current.get("result") or {}).get("run") or {}).get("id") or ""
+        state = {
+            "terminal": terminal,
+            "pane": self.shell.env("ORCA_PANE_KEY"),
+            "run": self.config.run,
+            "bound": bool(terminal) and coordinates == self.config.run,
+            "coordinator": held.get("coordinator_handle") or "",
+            "generation": held.get("consumer_generation"),
+            "at": self.book.stamp(),
+        }
+        if not terminal:
+            state["why"] = "no ORCA_TERMINAL_HANDLE: the runner was not started from an Orca terminal"
+        elif not current.get("ok"):
+            error = current.get("error") or {}
+            state["why"] = f"orca orchestration run-current failed: {error.get('code')}: {error.get('message')}"
+        elif not state["bound"]:
+            state["why"] = f"terminal {terminal} coordinates {coordinates or 'no Run'}; Orca binds {self.config.run} to {state['coordinator'] or 'no terminal'} at generation {state['generation']}"
+        if via:
+            state["via"] = via
+        elif state["bound"] and prior.get("bound") and (prior.get("terminal"), prior.get("generation")) == (terminal, state["generation"]):
+            state["via"] = prior.get("via", "")
+        elif state["bound"]:
+            state["via"] = f"ORCA_TERMINAL_HANDLE inherited from the shell that started the runner, already bound at generation {state['generation']}"
+        self.book.edit(RUNNER, lambda incident: incident.facts.update({BINDING: state}))
+        return state
+
+    def rebind_command(self) -> str:
+        return f"desk-runner.py rebind --config {self.config.source}"
+
+    def unbound(self, state: dict) -> str:
+        return f"desk-runner cannot start workers on {self.config.run}: {state['why']}. From the coordinator's Orca terminal run `{self.rebind_command()}`, and start the runner from that terminal"
+
+    def binding_line(self, state: dict | None) -> str:
+        if not state:
+            return f"binding: unchecked; `{self.rebind_command()}` binds this terminal"
+        checked = pacific(actions.parse_stamp(state["at"]))
+        if not state["bound"]:
+            return f"binding: UNBOUND {state['why']}; checked {checked}; fix: `{self.rebind_command()}` from the coordinator's terminal"
+        return f"binding: terminal {state['terminal']} pane {state['pane'] or 'unknown'} coordinates {state['run']} at generation {state['generation']}, via {state['via']}; checked {checked}"
+
+    def bound_for_launch(self) -> bool:
+        """Check the binding once per delivery pass that launches; an unbound runner holds its launches and escalates once per binding state."""
+        if self.pass_binding is None:
+            self.pass_binding = self.binding()
+            state = self.pass_binding
+            if not state["bound"]:
+                self.escalate(f"unbound:{state['terminal']}:{state['coordinator']}:{state['generation']}", "UNBOUND", "runner", f"{self.unbound(state)}; launches wait until it is bound")
+        return self.pass_binding["bound"]
+
+    def rebind(self) -> int:
+        if not self.shell.env("ORCA_TERMINAL_HANDLE"):
+            print(f"desk-runner rebind: no ORCA_TERMINAL_HANDLE; run `{self.rebind_command()}` from the coordinator's Orca terminal", file=sys.stderr)
+            return 3
+        previous = ((self.orca.call("orchestration", "run-show", "--id", self.config.run).get("result") or {}).get("run")) or {}
+        used = self.orca.call("orchestration", "run-use", "--id", self.config.run)
+        if not used.get("ok"):
+            error = used.get("error") or {}
+            print(f"desk-runner rebind: orca orchestration run-use failed: {error.get('code')}: {error.get('message')}", file=sys.stderr)
+            return 1
+        state = self.binding(via=f"orca orchestration run-use by desk-runner rebind at {pacific(self.now())}, replacing {previous.get('coordinator_handle') or 'no terminal'} at generation {previous.get('consumer_generation')}")
+        print(self.binding_line(state))
+        return 0 if state["bound"] else 1
 
     def lane(self, lane: str) -> str:
         container = lane_container(lane)
@@ -391,6 +475,7 @@ class Runner:
                 return
 
     def deliver(self) -> None:
+        self.pass_binding = None
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             self.transfer(lane)
@@ -478,6 +563,8 @@ class Runner:
             if self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                 self.expire_launch(container, lane, action, held)
             return
+        if not self.bound_for_launch():
+            return
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         argv = [str(SCRIPTS / "orca-launch.sh"), lane, spec["model"], spec["effort"], spec["brief"]]
@@ -521,8 +608,9 @@ class Runner:
         elif not out and receipt and receipt != prior:
             proof = {"line": f"receipt dispatch {receipt}", "dispatch": receipt, "at": self.book.stamp()}
         elif out:
-            self.book.attempt(container, lambda incident: incident.fail(key, out[-300:]))
-            self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, out.splitlines()[-1])
+            reason = next((line for line in reversed(out.splitlines()) if line.startswith(f"{lane} failed ")), " ".join(out.split())[:300])
+            self.book.attempt(container, lambda incident: incident.fail(key, reason))
+            self.escalate(f"{container}/{key}", "LAUNCH-FAILED", lane, reason)
             return
         else:
             self.book.attempt(container, lambda incident: incident.lose(key))
@@ -711,7 +799,7 @@ class Runner:
             self.overdue(container, container.removeprefix(LANE_PREFIX))
 
     def render(self) -> str:
-        lines = [f"# desk-runner {pacific(self.now())}"]
+        lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
         if policy := self.landing_policy():
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
@@ -952,6 +1040,12 @@ def seed_policy(runner: Runner) -> None:
 
 
 def run_orca(runner: Runner, once: bool) -> int:
+    state = runner.binding()
+    if not state["bound"]:
+        runner.escalate(f"unbound:{state['terminal']}:{state['coordinator']}:{state['generation']}", "UNBOUND", "runner", f"{runner.unbound(state)}; the runner refused to start")
+        runner.flush()
+        print(runner.unbound(state), file=sys.stderr)
+        return 3
     swept = datetime.min.replace(tzinfo=timezone.utc)
     while True:
         if runner.check():
@@ -1013,8 +1107,9 @@ def build_parser() -> argparse.ArgumentParser:
     loop = verbs.add_parser("run")
     loop.add_argument("--desk", choices=("orca", "landing"), required=True)
     loop.add_argument("--once", action="store_true")
+    rebind = verbs.add_parser("rebind")
     show = verbs.add_parser("show")
-    for sub in (relay, launch, policy, loop, show):
+    for sub in (relay, launch, policy, loop, rebind, show):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -1028,6 +1123,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "show":
         sys.stdout.write(runner.render())
         return 0
+    if args.verb == "rebind":
+        return runner.rebind()
     if args.verb == "relay":
         action, created = runner.accept_relay(args.key, args.lane, args.text, args.reply_to, args.deadline_minutes or config.start_minutes)
     elif args.verb == "launch":

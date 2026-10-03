@@ -20,6 +20,7 @@ Orca rulings to `inbox/orca-desk.md`, and never `SendMessage` a desk.
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
 desk-runner.py launch --config C --key R<n> --lane L --model M --effort E --brief PATH [--owner-directed]
 desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision REV --source TEXT --supersedes <current revision>
+desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
 
@@ -113,6 +114,14 @@ tail -n 0 -F "$DRIVE/inbox/runner.md"
 
 Restarting either process uses the same records and is idempotent. Keep one process
 per desk. Restarting a runner never means relaunching its workers.
+
+The orca desk calls Orca as the terminal it was started from, named by the
+`ORCA_TERMINAL_HANDLE` it inherits, and only the terminal bound to the Run may call
+`worker-start`. It refuses to start, printing the rebind command, unless that
+terminal coordinates the Run. When the binding moves while it runs, it holds every
+launch and writes one `UNBOUND` line. After the root moves to a new terminal, run
+`desk-runner.py rebind --config "$CONFIG"` there, then restart the orca desk from
+that terminal. `show` prints the binding first.
 
 ## Actions and acknowledgements
 

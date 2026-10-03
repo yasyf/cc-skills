@@ -204,8 +204,9 @@ fully pushed or landed, has no open PR, and no other terminal in
 `orca terminal list` is attached to it. The runner never does either (O6); its
 sweep names each newly settled dispatch in one `RECLAIM` line carrying the gc
 command, and the root runs it. A launch that fails before `worker-start` is
-not a session: `orca-launch.sh` closes the tab it opened and removes a worktree
-it created. Forge-AI/monorepo's gc is
+not a session, and neither is one that `worker-start` refuses before it
+dispatches, such as `consumer_fenced`: `orca-launch.sh` closes the tab it
+opened and removes a worktree it created. Forge-AI/monorepo's gc is
 `.agents/skills/orca/scripts/orca-gc --run <run> [--dispatch <ctx>]`.
 
 The owner ruled this on 2026-10-02: "1 and improve our orca skill and scripts to

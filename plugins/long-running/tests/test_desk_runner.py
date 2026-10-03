@@ -48,6 +48,13 @@ class FakeShell(runner_module.Shell):
         self.cpu_load = 1.0
         self.attachments: dict[str, Path] = {}
         self.sequence = 0
+        self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
+        self.coordinator = "term_root"
+        self.generation = 3
+        self.run_use_error: dict | None = None
+
+    def env(self, name):
+        return self.environ.get(name, "")
 
     def now(self):
         return self.clock
@@ -96,8 +103,24 @@ class FakeShell(runner_module.Shell):
     def ok(self, result: dict) -> runner_module.Done:
         return runner_module.Done(0, json.dumps({"ok": True, "result": result}), "")
 
+    def bound_run(self) -> dict:
+        return {"id": "run_1", "coordinator_handle": self.coordinator, "consumer_generation": self.generation}
+
     def orca(self, argv: list[str]) -> runner_module.Done:
         verb = argv[:2]
+        if verb == ["orchestration", "run-current"]:
+            assert self.env("ORCA_TERMINAL_HANDLE")
+            return self.ok({"run": self.bound_run() if self.coordinator == self.env("ORCA_TERMINAL_HANDLE") else None})
+        if verb == ["orchestration", "run-show"]:
+            assert argv[2:] == ["--id", "run_1"]
+            return self.ok({"run": self.bound_run()})
+        if verb == ["orchestration", "run-use"]:
+            assert argv[2:] == ["--id", "run_1"]
+            if self.run_use_error:
+                return runner_module.Done(1, json.dumps({"ok": False, "error": self.run_use_error}), "")
+            self.coordinator = self.env("ORCA_TERMINAL_HANDLE")
+            self.generation += 1
+            return self.ok({"run": self.bound_run()})
         if verb == ["orchestration", "worker-show"]:
             dispatch = self.dispatches[argv[3]]
             return self.ok({"dispatch": {"status": dispatch["status"]}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
@@ -855,3 +878,108 @@ def test_a_launch_the_script_cannot_start_is_refused_when_submitted(shell, confi
 @pytest.mark.parametrize("model", ["astra", "codex", "sol", "opus", "claude-opus-5-5", "gpt-6.1-sol"])
 def test_every_model_the_script_starts_is_accepted(model):
     assert runner_module.launch_model(model) == model
+
+
+def orca_calls(shell: FakeShell, verb: str) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["orca", "orchestration", verb]]
+
+
+def accept_launch(shell: FakeShell, config: Path, tmp_path: Path) -> Path:
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
+    return brief
+
+
+@pytest.mark.parametrize(
+    ("environ", "why"),
+    [
+        ({"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}, "terminal term_root coordinates no Run; Orca binds run_1 to term_dead at generation 3"),
+        ({}, "no ORCA_TERMINAL_HANDLE: the runner was not started from an Orca terminal"),
+    ],
+)
+def test_a_runner_whose_terminal_is_not_the_coordinator_refuses_to_start_and_prints_the_rebind(shell, config, tmp_path, capsys, environ, why):
+    shell.environ = environ
+    shell.coordinator = "term_dead"
+    accept_launch(shell, config, tmp_path)
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    expected = f"desk-runner cannot start workers on run_1: {why}. From the coordinator's Orca terminal run `desk-runner.py rebind --config {config.resolve()}`, and start the runner from that terminal"
+    assert capsys.readouterr().err == expected + "\n"
+    assert launches(shell) == [] and orca_calls(shell, "inbox") == []
+    assert len(orca_calls(shell, "run-current")) == (1 if environ else 0)
+    [line] = escalations(tmp_path)
+    assert f"UNBOUND unbound:{environ.get('ORCA_TERMINAL_HANDLE', '')}:term_dead:3 runner: {expected}; the runner refused to start" in line
+    binding = incident(tmp_path, "desk-runner").facts["binding"]
+    assert binding["bound"] is False and binding["why"] == why
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    assert len(escalations(tmp_path)) == 1
+
+
+def test_a_binding_lost_mid_run_holds_launches_and_escalates_once_until_rebind(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert runner.binding()["bound"]
+    brief = accept_launch(shell, config, tmp_path)
+    shell.coordinator = "term_elsewhere"
+    shell.generation = 4
+    for _ in range(3):
+        runner.deliver()
+        runner.flush()
+    assert launches(shell) == []
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
+    [line] = escalations(tmp_path)
+    assert "UNBOUND unbound:term_root:term_elsewhere:4 runner: desk-runner cannot start workers on run_1: terminal term_root coordinates no Run" in line
+    assert line.endswith("; launches wait until it is bound")
+    assert cli(shell, config, "rebind") == 0
+    runner.deliver()
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "sol", "xhigh", str(brief)]]
+
+
+def test_rebind_moves_the_run_to_this_terminal_and_records_how(shell, config, tmp_path, capsys):
+    shell.coordinator = "term_dead"
+    assert cli(shell, config, "rebind") == 0
+    assert orca_calls(shell, "run-use") == [["orca", "orchestration", "run-use", "--id", "run_1", "--json"]]
+    via = "orca orchestration run-use by desk-runner rebind at 11:00, replacing term_dead at generation 3"
+    line = f"binding: terminal term_root pane pane_root coordinates run_1 at generation 4, via {via}; checked 11:00"
+    assert capsys.readouterr().out == line + "\n"
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-runner").facts["binding"]["via"] == via
+    cli(shell, config, "show")
+    assert capsys.readouterr().out.splitlines()[1] == line
+
+
+def test_a_refused_rebind_names_orcas_error_and_records_nothing(shell, config, tmp_path, capsys):
+    shell.coordinator = "term_dead"
+    shell.run_use_error = {"code": "terminal_handle_stale", "message": "term_root is gone"}
+    assert cli(shell, config, "rebind") == 1
+    assert capsys.readouterr().err == "desk-runner rebind: orca orchestration run-use failed: terminal_handle_stale: term_root is gone\n"
+    assert "binding" not in incident(tmp_path, "desk-runner").facts
+
+
+def test_a_runner_bound_at_start_records_the_inherited_terminal(shell, config, tmp_path, capsys):
+    orca_pass(shell, config)
+    binding = incident(tmp_path, "desk-runner").facts["binding"]
+    assert (binding["terminal"], binding["pane"], binding["coordinator"], binding["generation"], binding["bound"]) == ("term_root", "pane_root", "term_root", 3, True)
+    assert binding["via"] == "ORCA_TERMINAL_HANDLE inherited from the shell that started the runner, already bound at generation 3"
+    cli(shell, config, "show")
+    assert capsys.readouterr().out.splitlines()[1].startswith("binding: terminal term_root pane pane_root coordinates run_1 at generation 3")
+
+
+@pytest.mark.parametrize(
+    ("printed", "reason"),
+    [
+        (
+            f"{LANE} failed worker-start terminal=term_b: consumer_fenced: worker-start requires the coordinator terminal currently bound to the Task Run.; rolled back terminal=term_b worktree=/w\n",
+            f"{LANE} failed worker-start terminal=term_b: consumer_fenced: worker-start requires the coordinator terminal currently bound to the Task Run.; rolled back terminal=term_b worktree=/w",
+        ),
+        ("orca-launch.sh: unknown model astra\nusage: orca-launch.sh <lane> <model> <effort> <brief-file>\n\n  ORCA_LAUNCH_WORKTREE_SECONDS  ceiling\n", "orca-launch.sh: unknown model astra usage: orca-launch.sh <lane> <model> <effort> <brief-file> ORCA_LAUNCH_WORKTREE_SECONDS ceiling"),
+        (f"{LANE} failed worktree create: runtime_unavailable: Start the Orca app first.\n}}\n", f"{LANE} failed worktree create: runtime_unavailable: Start the Orca app first."),
+    ],
+)
+def test_launch_failed_carries_the_launchs_own_failure_line(shell, config, tmp_path, printed, reason):
+    shell.launch_line = printed
+    accept_launch(shell, config, tmp_path)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].reason == reason
+    [line] = escalations(tmp_path)
+    assert line == f"11:00 LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
