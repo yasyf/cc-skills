@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -75,6 +76,7 @@ class CompactionState(WorkflowState):
     generated_at: float | None = None
     active_doc: str | None = None
     generated_doc: str | None = None
+    compacted_at: float | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -128,6 +130,8 @@ def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subproce
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
     if state.generated_doc:
         argv += ["--generated-doc", state.generated_doc]
+    if state.compacted_at:
+        argv += ["--fresh-since", datetime.fromtimestamp(state.compacted_at, timezone.utc).isoformat()]
     return subprocess.run(
         argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
     )
@@ -226,8 +230,8 @@ def point_doc(state: CompactionState, doc_id: str) -> None:
         Path(state.plan_path or ""),
         f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
         f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). It is the only "
-        "active one: each handoff folds the newest hand-written progress doc into its `## Root narrative` and "
-        "supersedes it; only this line's id changes.",
+        "active one: a hand-written progress doc written for the coming compaction gains the generated sections "
+        "in place, else the session's generated doc is edited in place; only this line's id changes.",
     )
 
 
@@ -441,6 +445,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         digest, failure = state.digest, state.failure
         state.phase = "idle"
         state.compacting_since = None
+        state.compacted_at = time.time()
         state.digest = state.failure = None
         if not (state.active and state.plan_path):
             return None
