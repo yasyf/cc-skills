@@ -16,7 +16,12 @@
 # The payload never lands on disk either way. The FIFO lifecycle is a bounded
 # rendezvous: the writer's shell owns the write-open, so the reader always gets EOF
 # even when cookiesync dies without output, and both sides run under `timeout`, so a
-# missing peer can never pin the other in open(2).
+# missing peer can never pin the other in open(2). On exit the FIFO is held open for
+# writing while it is unlinked, so an agent-browser daemon still blocked opening it
+# reads EOF instead of wedging its session.
+#
+# Both modes end on the primary URL. Landing on a login or SSO page there exits 3 and
+# names where to sign in.
 set -uo pipefail
 
 die() {
@@ -30,11 +35,19 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ab="$here/ab"
 
 TMPD="$(mktemp -d)"
+release_fifo() {
+  local fd
+  [[ -p "$TMPD/state" ]] || return 0
+  exec {fd}<>"$TMPD/state"
+  rm -f "$TMPD/state"
+  exec {fd}>&-
+}
 # `jobs -p` sees every background child — writer and loader both, even one launched an
 # instant before its pid variable is assigned — so a signal can never orphan either.
 cleanup() {
   local p
   while read -r p; do kill "$p" 2>/dev/null; done < <(jobs -p)
+  release_fifo
   rm -rf "$TMPD"
 }
 trap cleanup EXIT
@@ -131,11 +144,11 @@ seed_local() {
   # the open itself, so a reader that never comes cannot pin the writer. The loader
   # runs under its own timeout, which also bounds its read-open of the FIFO.
   # shellcheck disable=SC2016
-  timeout -k 5 60 bash -c 'f="$1"; shift; exec cookiesync cookies --format playwright -- "$@" >"$f"' \
+  timeout -k 5 300 bash -c 'f="$1"; shift; exec cookiesync cookies --format playwright -- "$@" >"$f"' \
     seedwriter "$TMPD/state" "${hosts[@]}" 2>"$TMPD/err" &
   wpid=$!
   # Load concurrently so payloads larger than the pipe buffer (>64KB) drain.
-  timeout -k 5 90 "$ab" ${local_flag[@]+"${local_flag[@]}"} ${session_flag[@]+"${session_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
+  timeout -k 5 330 "$ab" ${local_flag[@]+"${local_flag[@]}"} ${session_flag[@]+"${session_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
   lpid=$!
   # Reap whichever side finishes first (bash ≥5.1): a failed first-finisher gets the
   # survivor killed instead of waited out — a loader that dies before ever opening
@@ -169,7 +182,8 @@ seed_local() {
   cat "$TMPD/load"
 
   # storageState carries localStorage; sessionStorage rides separately.
-  seed_storage session
+  seed_storage session || return 1
+  run_ab open "$primary"
 }
 
 seed_browserbase() {
@@ -196,8 +210,25 @@ seed_browserbase() {
   fi
 }
 
+login_url='^https?://([^/?#]*[.-])?(login|signin|accounts|auth|sso|okta)[.-][^/?#]*([/?#]|$)|^https?://[^/?#]+/([^?#]*/)?(login|log-in|signin|sign-in|sign_in|sso|auth|authorize|session/new)([/?#]|$)'
+
+require_session() {
+  local landed host self profiles
+  landed="$(run_ab get url)" || die "could not read the landed url"
+  [[ "$landed" =~ $login_url && ! "$primary" =~ $login_url ]] || return 0
+  host="$(bare_host "$primary")"
+  self="$(cookiesync self)" || die "'cookiesync self' failed"
+  profiles="$(cookiesync browser ls | awk -v p="$self:" 'index($0, p) == 1 { out = out sep substr($0, length(p) + 1); sep = ", " } END { print out }')"
+  echo "abwc-seed: no session for $host in any reachable browser (landed on ${landed%%[?#]*})." >&2
+  echo "abwc-seed: sign in at https://$host in Chrome or Arc on $(scutil --get ComputerName) (${profiles:-no registered profile}), then re-run abwc-seed." >&2
+  exit 3
+}
+
 case "$mode" in
 local) seed_local ;;
 browserbase) seed_browserbase ;;
 *) die "unknown ab mode: $mode" ;;
 esac
+status=$?
+require_session
+exit "$status"

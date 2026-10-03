@@ -80,7 +80,11 @@ session="${session:-${AB_SESSION:-}}"
 # Outside a recognized Claude session `cookiesync requestor` falls back to the parent PID, so cross-invocation persistence is defeated there (documented limitation, not fixed here).
 # The sanitizer is non-injective (`a/b` and `a?b` both fold to `a-b`), so append a short stable hash of the FULL raw TAG to keep distinct requestors on distinct sessions.
 SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')-$(printf '%s' "$TAG" | shasum -a 256 | cut -c1-8)"
-API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
+# Only a call that can reach Browserbase resolves its key: `op read` stalls about 60s
+# while 1Password is locked, which would tax every --local and --bridge call.
+API_KEY=""
+[[ "$force_local" == 1 || "$use_bridge" == 1 ]] ||
+  API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
 
 # `mode` — report which backend a call would use (the key resolution + --local logic
 # above, nothing else) so helpers like abwc-seed never duplicate it.
