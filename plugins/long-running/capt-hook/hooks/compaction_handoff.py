@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -42,13 +41,14 @@ SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
 STANDING = SCRIPTS / "standing.py"
 HANDOFF = SCRIPTS / "handoff.py"
 VIOLATIONS = 3
+SEVERAL_ACTIVE = 4
 GENERATE_TIMEOUT_SECONDS = 120
 GENERATED_STEM = "-generated"
 GENERATED_TITLE = "(generated)"
 FRESH_SECONDS = 300
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 GENERATED_STUB = json.dumps(
-    {"id": "d" * 40, "generated": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."}
+    {"id": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."}
 )
 FIRE_FRACTION = 0.8
 TURN_WINDOW = 256
@@ -75,7 +75,6 @@ class CompactionState(WorkflowState):
     generated_at: float | None = None
     active_doc: str | None = None
     generated_doc: str | None = None
-    compacted_at: float | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -129,8 +128,6 @@ def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subproce
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
     if state.generated_doc:
         argv += ["--generated-doc", state.generated_doc]
-    if state.compacted_at:
-        argv += ["--fresh-since", datetime.fromtimestamp(state.compacted_at, timezone.utc).isoformat()]
     return subprocess.run(
         argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
     )
@@ -145,7 +142,7 @@ def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
     state.active_doc = result["id"]
     if result["id"]:
-        state.generated_doc = result["generated"]
+        state.generated_doc = result["id"]
         point_doc(state, result["id"])
     else:
         point_file(state, Path(result["file"]))
@@ -193,8 +190,9 @@ def compact_instructions(state: CompactionState, titles: str = "") -> str:
             f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack{keep}. "
             f"Quote: active progress doc: {doc}; the id in this summary wins over any id captured earlier in the conversation."
         )
+    failed = f"The generated handoff failed: {state.failure}. " if state.failure else ""
     return (
-        f"Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
+        f"{failed}Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
         f"{resume_steps(state)}. Keep only in-flight details they lack{keep}."
     )
 
@@ -227,9 +225,9 @@ def point_doc(state: CompactionState, doc_id: str) -> None:
     point_plan(
         Path(state.plan_path or ""),
         f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
-        f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). A hand-written "
-        "progress doc stays active while fresh, and each session edits one generated doc in place; only this "
-        "line's id changes.",
+        f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). It is the only "
+        "active one: each handoff folds the newest hand-written progress doc into its `## Root narrative` and "
+        "supersedes it; only this line's id changes.",
     )
 
 
@@ -259,6 +257,8 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
             "The drive's handoff fails the standing-rules lint. "
             f"Fix each finding at its file and line, then stop again:\n{generated.stdout.strip()}"
         )
+    if generated.returncode == SEVERAL_ACTIVE:
+        return f"The drive's handoff left more than one active progress doc. Fix it, then stop again:\n{generated.stdout.strip()}"
     adopt(state, generated)
     return generated.returncode == 0
 
@@ -441,7 +441,6 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         digest, failure = state.digest, state.failure
         state.phase = "idle"
         state.compacting_since = None
-        state.compacted_at = time.time()
         state.digest = state.failure = None
         if not (state.active and state.plan_path):
             return None

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import handoff
@@ -24,7 +23,7 @@ class FakeCcn(ledger.Shell):
         self.calls: list[list[str]] = []
         self.added: dict[str, str] = {}
         self.titles: dict[str, str] = {}
-        self.created: dict[str, dict] = {}
+        self.stuck: set[str] = set()
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
@@ -44,8 +43,6 @@ class FakeCcn(ledger.Shell):
             )
         if verb == ["doc", "show"]:
             return json.dumps({"id": argv[5], "body": self.docs[argv[5]]})
-        if verb == ["doc", "history"]:
-            return json.dumps([{"kind": "edit", "time": "2026-10-01T00:00:00Z"}, {"kind": "create", "time": "2026-09-01T00:00:00Z"} | self.created.get(argv[5], {})])
         if verb == ["doc", "add"]:
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
@@ -58,7 +55,8 @@ class FakeCcn(ledger.Shell):
             self.titles[argv[5]] = argv[argv.index("--title") + 1]
             return ""
         if verb == ["doc", "supersede"]:
-            self.active.remove(argv[5])
+            if argv[5] not in self.stuck:
+                self.active.remove(argv[5])
             return ""
         raise AssertionError(f"unexpected ccn call: {argv}")
 
@@ -144,84 +142,78 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert "Unrelated" not in body
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]
-    assert body.split("## Root narrative\n")[1].strip() == f"_From doc aaaaaaa, carried forward._\n\n{shell.docs['a' * 40]}"
+    assert body.split("## Root narrative\n")[1].strip() == f"_From doc aaaaaaa._\n\n{shell.docs['a' * 40]}"
 
 
-def test_the_roots_fresh_doc_becomes_the_narrative_and_stays_the_active_doc(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_roots_doc_becomes_the_narrative_and_the_generated_doc_supersedes_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
     shell.active.append("b" * 40)
 
     out = generate(drive_home, shell, "--narrative-doc", "b" * 40, capsys=capsys)
 
-    assert out["id"] == "b" * 40
-    assert shell.active == ["b" * 40, out["generated"]]
-    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", "b" * 40] in shell.calls
-    assert shell.docs[out["generated"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
-
-
-def handwritten(shell: FakeCcn, session: str, age: timedelta) -> str:
-    doc = "b" * 40
-    shell.docs[doc] = "## Root's next actions\n1. land l11"
-    shell.active.append(doc)
-    shell.created[doc] = {"session": session, "time": (datetime.now(timezone.utc) - age).isoformat()}
-    return doc
-
-
-def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_never_superseded(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    shell = shell_with()
-    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
-    record = handwritten(shell, "s-root", timedelta(minutes=8))
-
-    out = generate(drive_home, shell, capsys=capsys)
-
-    assert out["id"] == record
-    assert shell.active == [record, out["generated"]]
-    assert not any(call[3:6] == ["doc", "supersede", record] for call in shell.calls)
-    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", record] in shell.calls
-    assert shell.docs[out["generated"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert shell.active == [out["id"]]
+    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", out["id"]] in shell.calls
+    assert ["ccn", "-R", REPO, "doc", "supersede", "b" * 40, "--by", out["id"]] in shell.calls
+    assert shell.docs[out["id"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
     assert out["digest"].startswith(
-        "Compacted long-running drive `brook`. Before acting, read the active progress doc `ccn doc show bbbbbbb` (hand-written) "
-        f"and its generated sections `ccn doc show {out['generated'][:7]}` (it supersedes the summary)"
+        f"Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show {out['id'][:7]}` (it supersedes the summary)"
     )
 
 
-@pytest.mark.parametrize(
-    ("session", "age"), [("s-other", timedelta(minutes=8)), ("s-root", timedelta(minutes=45)), (None, timedelta(minutes=8))]
-)
-def test_a_hand_written_doc_from_another_session_or_past_the_window_is_superseded(
-    drive_home: Path, capsys: pytest.CaptureFixture[str], session: str | None, age: timedelta
-) -> None:
-    shell = shell_with()
-    record = handwritten(shell, session, age)
-
-    out = generate(drive_home, shell, capsys=capsys)
-
-    assert out["id"] == out["generated"] != record
-    assert shell.active == [out["id"]]
-    assert ["ccn", "-R", REPO, "doc", "supersede", record, "--by", out["id"]] in shell.calls
-
-
-def test_a_hand_written_doc_written_since_the_previous_compaction_stays_active_past_the_window(
+def test_a_hand_written_doc_newer_than_the_generated_doc_is_folded_in_and_superseded(
     drive_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shell = shell_with()
-    record = handwritten(shell, "s-root", timedelta(minutes=45))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
+    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
+    shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
+    shell.active.append("b" * 40)
 
-    out = generate(drive_home, shell, "--fresh-since", since, capsys=capsys)
+    out = generate(drive_home, shell, "--generated-doc", "a" * 40, capsys=capsys)
 
-    assert out["id"] == record
+    assert out["id"] == "a" * 40
+    assert shell.active == ["a" * 40]
+    assert ["ccn", "-R", REPO, "doc", "supersede", "b" * 40, "--by", "a" * 40] in shell.calls
+    assert shell.docs["a" * 40].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+
+
+def test_a_hand_written_doc_older_than_the_generated_doc_is_superseded_and_the_generated_narrative_carries(
+    drive_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shell = shell_with()
+    shell.docs["b" * 40] = "## Root's next actions\n1. stale"
+    shell.active.insert(0, "b" * 40)
+    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
+    shell.docs["a" * 40] = "# generated\n\n## Root narrative\n\n_From doc ccccccc._\n\n1. watch SoFi"
+
+    out = generate(drive_home, shell, "--generated-doc", "a" * 40, capsys=capsys)
+
+    assert shell.active == ["a" * 40]
+    assert ["ccn", "-R", REPO, "doc", "supersede", "b" * 40, "--by", "a" * 40] in shell.calls
+    assert shell.docs["a" * 40].endswith("_From doc ccccccc, carried forward._\n\n1. watch SoFi\n")
+
+
+def test_generate_fails_loudly_when_another_progress_doc_stays_active(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.stuck.add("a" * 40)
+    argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--repo", REPO]
+
+    assert handoff.main(argv, shell) == handoff.SEVERAL_ACTIVE
+
+    generated = shell.active[-1]
+    assert capsys.readouterr().out.startswith(
+        f"2 active progress:brook docs after generation, expected only {generated[:7]}: aaaaaaa, {generated[:7]}; "
+    )
 
 
 def test_the_sessions_generated_doc_is_edited_in_place_not_chained(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     first = generate(drive_home, shell, capsys=capsys)
 
-    second = generate(drive_home, shell, "--generated-doc", first["generated"], capsys=capsys)
-    third = generate(drive_home, shell, "--generated-doc", first["generated"], capsys=capsys)
+    second = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
+    third = generate(drive_home, shell, "--generated-doc", first["id"], capsys=capsys)
 
-    assert first["id"] == second["id"] == third["id"] == first["generated"]
+    assert first["id"] == second["id"] == third["id"]
     assert shell.active == [first["id"]]
     assert sum(call[3:5] == ["doc", "add"] for call in shell.calls) == 1
     assert sum(call[3:5] == ["doc", "edit"] for call in shell.calls) == 2
@@ -236,7 +228,7 @@ def test_a_generated_doc_that_is_no_longer_active_is_replaced(drive_home: Path, 
 
     out = generate(drive_home, shell, "--generated-doc", "9" * 40, capsys=capsys)
 
-    assert out["generated"] != "9" * 40
+    assert out["id"] != "9" * 40
     assert not any(call[3:5] == ["doc", "edit"] for call in shell.calls)
 
 
