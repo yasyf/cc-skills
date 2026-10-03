@@ -8,6 +8,7 @@
   "all_clear_at": null,
   "severity": null,
   "channels": [{"name": "#outage", "id": "C0909AD1458"}],
+  "incident_channel": {"name": "inc-northwind-browsers", "id": "C0A1B2C3D4E", "permalink": "https://forge-ai.slack.com/archives/C0A1B2C3D4E"},
   "teams": [
     {"id": "team_0ddq7rbsdd9akafvh5fahe0rdg", "codename": "Polar", "aliases": ["Northwind Foods", "Northwind"]},
     {"id": "team_7fkq1mwsdd9akafvh5fahe0abc", "codename": "Mamba", "aliases": ["Contoso EU"]}

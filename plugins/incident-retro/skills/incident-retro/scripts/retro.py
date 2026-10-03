@@ -295,6 +295,9 @@ def sibling_module(name: str):
 
 
 SLACK_PERMALINK = sibling_module("retro_evidence").SLACK_PERMALINK
+CHANNEL_LABEL = re.compile(r"[^#\s]\S*")
+SLACK_CHANNEL_ID = re.compile(r"[CG][A-Z0-9]{8,}")
+SLACK_CHANNEL_LINK = re.compile(r"https://[a-z0-9-]+\.slack\.com/archives/([A-Z0-9]+)")
 
 
 def evidence_files(root: Path) -> list:
@@ -684,6 +687,24 @@ def check_slug(rep, R, meta, slug: str):
         rep.warn(f"meta.slug opens on {shape.group(1)}, not {date}, the day the incident started")
 
 
+def check_incident_channel(rep, channel):
+    if not isinstance(channel, dict):
+        rep.err("meta.incident.channel must be an object {name, id, permalink}")
+        return
+    name, cid, link = channel.get("name"), channel.get("id"), channel.get("permalink")
+    if not (isinstance(name, str) and CHANNEL_LABEL.fullmatch(name)):
+        rep.err(f"meta.incident.channel.name {name!r} is not a channel name without the leading #")
+    if not (isinstance(cid, str) and SLACK_CHANNEL_ID.fullmatch(cid)):
+        rep.err(f"meta.incident.channel.id {cid!r} is not a Slack channel id such as C0909AD1458")
+    archive = SLACK_CHANNEL_LINK.fullmatch(link) if isinstance(link, str) else None
+    if not archive:
+        rep.err(f"meta.incident.channel.permalink {link!r} is not https://<workspace>.slack.com/archives/<id>")
+    elif isinstance(cid, str) and archive.group(1) != cid:
+        rep.err(f"meta.incident.channel.permalink names {archive.group(1)}, not the channel id {cid}")
+    for extra in sorted(set(channel) - {"name", "id", "permalink"}):
+        rep.warn(f"meta.incident.channel carries {extra!r}, which the page ignores")
+
+
 def check_meta(rep, R, meta):
     for k in ("title", "subtitle", "slug", "date"):
         if not (isinstance(meta.get(k), str) and meta[k].strip()):
@@ -704,7 +725,7 @@ def check_meta(rep, R, meta):
     incident = meta.get("incident")
     if incident is not None:
         if not isinstance(incident, dict):
-            rep.err("meta.incident must be an object {number?, severity?, severityLink?}")
+            rep.err("meta.incident must be an object {number?, severity?, severityLink?, channel?}")
         else:
             n = incident.get("number")
             if n is not None and (not isinstance(n, int) or isinstance(n, bool) or n < 1):
@@ -715,7 +736,9 @@ def check_meta(rep, R, meta):
             link = incident.get("severityLink")
             if link is not None and (not isinstance(link, str) or foreign_scheme(link) or not link.startswith("https://")):
                 rep.err("meta.incident.severityLink must be an https:// URL")
-            for extra in sorted(set(incident) - {"number", "severity", "severityLink"}):
+            if "channel" in incident:
+                check_incident_channel(rep, incident["channel"])
+            for extra in sorted(set(incident) - {"number", "severity", "severityLink", "channel"}):
                 rep.warn(f"meta.incident carries {extra!r}, which the page ignores")
     for key in ("authors", "attendees", "teams"):
         values = meta.get(key)
@@ -2556,6 +2579,7 @@ def text(args) -> int:
         incident = meta.get("incident") or {}
         dateline = [meta.get("date"), STATUS_LABEL.get(meta.get("status"), meta.get("status")),
                     f"incident #{incident['number']}" if incident.get("number") else None, incident.get("severity"),
+                    f"#{incident['channel']['name']}" if incident.get("channel") else None,
                     ", ".join(meta.get("teams") or []) or None]
         out.append(" · ".join(str(x) for x in dateline if x))
         if meta.get("authors"):

@@ -41,6 +41,8 @@ PAGE_STATE = """JSON.stringify({
   quoteButtons: document.querySelectorAll("[data-quote]").length,
   scrubMax: Number(document.querySelector("#sbTrack").getAttribute("aria-valuemax")),
   statusPill: (document.querySelector("#docMeta .pill") || {}).textContent,
+  channelChip: [...document.querySelectorAll("#docMeta a")].filter(a => a.title === "Incident channel")
+    .map(a => [a.textContent, a.getAttribute("href")]),
   liveCard: !document.querySelector("#liveCard").hidden,
   liveBanner: (document.querySelector("#liveCard .lc-banner") || {}).textContent || "",
   polling: window.irLivePolling(),
@@ -83,7 +85,9 @@ def record(**over):
     base = {
         "meta": {"title": "A live incident", "subtitle": "A fixture for the live poll.", "slug": SLUG,
                  "status": "ongoing", "date": "2026-09-18", "timezone": "UTC", "teams": ["Polar"],
-                 "authors": ["Ada"], "tags": ["live", "render"]},
+                 "authors": ["Ada"], "tags": ["live", "render"],
+                 "incident": {"channel": {"name": "inc-live-render", "id": "C0TEST0001",
+                                          "permalink": "https://example.slack.com/archives/C0TEST0001"}}},
         "live": {"updatedAt": "2026-09-18T19:40:00Z", "phase": "detected",
                  "headline": "Run creation is failing", "currentState": "Rolling the workers.",
                  "next": "Confirm recovery.",
@@ -148,6 +152,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             shell = self.page_state(chrome, session)
             self.assertFalse(any(shell["sections"].values()), "empty registers left their sections visible")
             self.assertTrue(shell["liveCard"], "an ongoing retro showed no live card")
+            self.assertEqual(shell["channelChip"], [["#inc-live-render", "https://example.slack.com/archives/C0TEST0001"]])
             self.assertRegex(shell["liveBanner"], r"^Live incident in progressDetectedupdated ",
                              "the live banner lost its phase or its age")
 

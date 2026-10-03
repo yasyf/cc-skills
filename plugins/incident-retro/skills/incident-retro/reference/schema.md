@@ -26,7 +26,7 @@ here.
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
 | `status` | yes | `ongoing`, `draft`, `in-review`, `reviewed`, `resolved`; rendered Ongoing, Draft, Under review, Reviewed, Closed out. `ongoing` and `draft` are the statuses that may leave `timestamps.onset` or `resolved` null; `reviewed` and `resolved` expect at least one cause with kind `root`; `resolved` expects every action `done` or `dropped`. An `ongoing` retro is one `retro.py live sync` writes while the incident runs, so it carries a `live` block, skips the prose-provenance gate, and takes the tag count as a strict warning rather than an error |
-| `incident` | no | `{number?, severity?, severityLink?}`; `number` a positive integer, `severity` matches `sev-N`, `severityLink` an https URL |
+| `incident` | no | `{number?, severity?, severityLink?, channel?}`; `number` a positive integer, `severity` matches `sev-N`, `severityLink` an https URL. `channel` is the incident's Slack channel, `{name, id, permalink}`: `name` without the leading `#`, `id` a Slack channel id such as `C0909AD1458`, `permalink` `https://<workspace>.slack.com/archives/<id>` naming that id. The page shows it as a `#name` chip linking the permalink. `live sync` copies it from `state.json` `incident_channel` |
 | `authors`, `attendees` | no | lists of people's names; never an email or `mailto:` (`check` errors on `@`). A retro past `draft` names its authors |
 | `commander` | no | the incident commander's name |
 | `teams` | no | team codenames the retro concerns, as strings |
@@ -620,7 +620,8 @@ timeline comes from Slack thread roots, deploys, monitor `fired_at`, and pull
 requests opened and merged. One outage window runs from `started_at` to the
 all-clear or now. `causes` come from `diagnoses`, carrying `identifiedAt`.
 `actions` come from `inventory`, with the disposition as the state, the
-matching `prs` as links, and a `history` entry appended only on a change. The
+matching `prs` as links, and a `history` entry appended only on a change.
+`incident_channel`, when present, becomes `meta.incident.channel`. The
 `evidence/slack/` set is rebuilt from the log on every sync rather than added
 to, so a thread the log no longer carries leaves with it and an alias added
 today reaches a snapshot captured yesterday.
@@ -715,7 +716,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 
 Errors unless noted; `--strict` promotes the strict warnings.
 
-1. `meta`: title, subtitle, tags, slug, date present; status, severity, authors without `@`, repo, ref, timezone, `homeLink`, `subIncidents`, sections, ai. Checks headline and subtitle limits, colons, and identifiers; tag count, shape, and uniqueness; and slug shape, length, and word count. Takeaways over 18 words and any string takeaway on `evidence`, `glossary`, or `notes` draw strict warnings.
+1. `meta`: title, subtitle, tags, slug, date present; status, severity, the incident channel's name, id and matching permalink, authors without `@`, repo, ref, timezone, `homeLink`, `subIncidents`, sections, ai. Checks headline and subtitle limits, colons, and identifiers; tag count, shape, and uniqueness; and slug shape, length, and word count. Takeaways over 18 words and any string takeaway on `evidence`, `glossary`, or `notes` draw strict warnings.
 2. Timestamps parse with an offset and stay in order; onset and resolved set unless the status is `ongoing` or `draft`.
 3. Windows: ids, kind, start before end, incident resolves; overlaps on one team warn.
 4. Timeline: order, kinds, unique ids, phase outside the incident, refs are https, Slack refs are permalinks with snapshots, and deploys carry a change ref. Warns on missing snapshots or change refs, no key moment, or more than eight key moments. Text over 25 words draws a strict warning; over 40 is an error.
