@@ -38,9 +38,13 @@ INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on Orca sol; tooling,
 REPLY_WINDOW = 256
 UTC_CLOCK = re.compile(r"\b\d{1,2}:\d[\dx](?::\d\d)?\s?(?:Z|UTC)\b")
 UTC_IN_REPLY = "Owner-facing times are Pacific with no zone label. Restate the UTC times from your last reply in Pacific."
-CODENAMES = re.compile(
-    r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note) [0-9a-f]{7}\b|\bctx_\w+|\b(?:merge-)?walker\b|\bthe drive\b"
-    r"|\b[B-HJ-Z](?:'s\b| (?=(?:landed|lands|landing|gate|sat|has|is|was|tip|branch|chain|stack|lane|continues|keeps|waits)\b))"
+RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
+LETTER_NAMES = re.compile(r"\b[B-HJ-Z]\b")
+CODENAME_JUDGE = Confirm(
+    rule="Block only when a bare capital letter stands in as the name of a stack, gate, lane, or piece of work, such"
+    " as 'D gate' or 'B's tip', so the owner could not pick an option without first asking what the letter means. A"
+    " letter that labels an option, plan, or list item, such as 'Option B' or 'B: lane', or that belongs to a real"
+    " name or unit, never blocks."
 )
 DRAFTED_COPY = re.compile(r"\bProposed (?:reply|post|text|message)\b", re.IGNORECASE)
 CODENAME_IN_QUESTION = (
@@ -141,9 +145,13 @@ def question_text(evt: BaseHookEvent) -> str:
     )
 
 
-def ask(question: str, **option: str) -> Input:
+def ask(question: str, llm: dict[str, bool] | None = None, **option: str) -> Input:
     questions = [{"question": question, "header": "Ask", "options": [{"label": "Go", **option}, {"label": "Hold"}], "multiSelect": False}]
-    return Input(tool="AskUserQuestion", tool_input={"questions": questions}, state=ACTIVE)
+    return Input(tool="AskUserQuestion", tool_input={"questions": questions}, state=ACTIVE, llm=llm)
+
+
+JUDGE_ALLOWS = {"block": False}
+JUDGE_UNSURE = {"block": True, "confident": False}
 
 
 @on(
@@ -156,7 +164,32 @@ def ask(question: str, **option: str) -> Input:
         ask("Extend the alert grant?", description="same terms as answer 543e865"): Block(pattern=r"never a codename"),
         ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?'): Block(pattern=r"never composes Slack copy"),
         ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
-        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", description="Options A and B"): Allow(),
+        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", JUDGE_ALLOWS, description="Options A and B"): Warn(
+            pattern=r"allowed, the model found the call outside the rule"
+        ),
+        ask("Land the release-pipeline cutover stack now?", JUDGE_UNSURE, description="B lands after D"): Warn(
+            pattern=r"allowed, the model could not confirm the match with confidence"
+        ),
+        ask("Apply G327 per R1053?"): Block(pattern=r"never a codename"),
+        ask("Retry the dispatch?", description="ctx_8f2a1 stalled; log c093750 has the trace"): Block(pattern=r"never a codename"),
+        ask("Resend the relay?", description="msg_01HXQ never arrived"): Block(pattern=r"never a codename"),
+        ask(
+            "For Slack releases whose plan shows a delete or replace, should the drive also approve on your behalf without asking, or keep bringing you the delete list first?",
+            description="Safe plans are approved unasked; any delete or replace pauses at Platy's hold until you read the list, as today.",
+        ): Allow(),
+        ask(
+            "For a Slack release whose plan shows a delete or a replace, should the drive also approve it for you without asking, or keep bringing you the list of resources first?",
+            description="The lane approves every Slack release, deletes and replaces included, and reports the counts afterward.",
+        ): Allow(),
+        ask(
+            "Eleven of your older pull requests that predate the release pipeline work are still open and untouched. What should happen to them?",
+            description="They are not part of the release pipeline program; the drive keeps landing only its own pull requests.",
+        ): Allow(),
+        ask(
+            "The AWS single sign-on session expired at about 11:12 PM. The command is `aws sso login --sso-session forge`. Have you signed in?",
+            description="I tell the walker and the release lane to retry their sign-ins now.",
+        ): Allow(),
+        ask("Six Orca lanes (d-land, merge-walker, deploy-scope-fix) show Login expired. How do you want them back?"): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}, agent_id="a1b2c3", state=ACTIVE): Allow(),
     },
@@ -167,6 +200,8 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     text = question_text(evt)
     if DRAFTED_COPY.search(text):
         return evt.block(DRAFT_IN_QUESTION)
-    if CODENAMES.search(text):
+    if RECORD_IDS.search(text):
         return evt.block(CODENAME_IN_QUESTION)
+    if LETTER_NAMES.search(text):
+        return evt.block(CODENAME_IN_QUESTION, confirm=CODENAME_JUDGE)
     return None
