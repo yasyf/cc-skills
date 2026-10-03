@@ -82,11 +82,13 @@ may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 
 A launch that fails before worker-start rolls back what it made: it closes the
-tab of the terminal it opened and removes, with orca worktree rm --force, a
-worktree this run created, and its failure line ends "; rolled back terminal=...
-worktree=..." or "; rollback left ..." for whatever Orca refused. A worktree that
-existed before the launch stays, and nothing is rolled back once worker-start
-has run, because a dispatch may then own the terminal.
+tab of the terminal whose handle its own terminal create returned, and removes,
+with orca worktree rm --force, a worktree whose path its own worktree create
+returned. Its failure line ends "; rolled back terminal=... worktree=..." and
+"; rollback left ..." names what it kept: a terminal it adopted from a listing,
+which a concurrent launch of the same lane may own, and whatever Orca refused.
+A worktree that existed before the launch stays, and nothing is rolled back
+once worker-start has run, because a dispatch may then own the terminal.
 
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
@@ -122,20 +124,19 @@ POLL=4
 RECEIPT=$STATE/$LANE.json
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
-ROLLBACK='' CREATED='' TERMINAL='' UNDONE='' KEPT=''
+ROLLBACK='' MADE='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
 rollback() {
   [ -n "$ROLLBACK" ] || return 0
   ROLLBACK=''
-  if [ -n "$TERMINAL" ]; then
-    if orca terminal close --terminal "$TERMINAL" --tab --json >/dev/null 2>&1; then
-      UNDONE="$UNDONE terminal=$TERMINAL"
-    else
-      KEPT="$KEPT terminal=$TERMINAL"
-    fi
+  if [ -n "$TERMINAL" ] && [ "$TERMINAL" = "$OWNED" ] &&
+    orca terminal close --terminal "$TERMINAL" --tab --json >/dev/null 2>&1; then
+    UNDONE="$UNDONE terminal=$TERMINAL"
+  elif [ -n "$TERMINAL" ]; then
+    KEPT="$KEPT terminal=$TERMINAL"
   fi
-  [ -n "$CREATED" ] || return 0
+  [ -n "$MADE" ] || return 0
   if orca worktree rm --worktree "path:$WT" --force --json >/dev/null 2>&1; then
-    rm -f "$STATE/$LANE.worktree"
+    rm -f "$STATE/$LANE.worktree" || :
     UNDONE="$UNDONE worktree=$WT"
   else
     KEPT="$KEPT worktree=$WT"
@@ -211,6 +212,7 @@ while ! registered; do
   if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
     "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1 &&
     FOUND=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json"); then
+    MADE=1
     break
   fi
   waited=0
@@ -250,6 +252,7 @@ until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   orca terminal create --worktree "path:$WT" --title "$NAME" --command "$COMMAND" --json \
     >"$STATE/$LANE.terminal.json" 2>"$STATE/$LANE.terminal.err" || :
   TERMINAL=$(jq -r '.result.terminal.handle // empty' "$STATE/$LANE.terminal.json" 2>/dev/null) || TERMINAL=
+  OWNED=$TERMINAL
   [ -z "$TERMINAL" ] || break
   sleep "$RETRY"
   listed

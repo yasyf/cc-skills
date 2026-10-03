@@ -884,3 +884,26 @@ def test_nothing_is_rolled_back_once_worker_start_has_run(orca, state, screen):
     assert orca.launch().returncode == 1
     assert orca.calls("terminal close") == []
     assert orca.calls("worktree rm") == []
+
+
+def test_a_worktree_that_was_only_briefly_unregistered_is_never_removed(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
+    orca.worktree.mkdir()
+    found = {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}}
+    orca.reply("worktree show", {"rc": 1, "out": ""}, found)
+    orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_exists"}}})
+    result = orca.launch()
+    assert result.stdout.strip().endswith("; rolled back terminal=term_a")
+    assert orca.calls("worktree rm") == []
+
+
+def test_an_adopted_terminal_is_named_not_closed(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.reply("terminal create", TIMED_OUT)
+    orca.reply("terminal list", bare(), listing(None))
+    result = orca.launch()
+    assert result.stdout.strip().endswith(f"; rolled back worktree={orca.worktree}; rollback left terminal=term_a")
+    assert ["terminal", "close", "--terminal", "term_a", "--tab", "--json"] not in orca.calls("terminal close")

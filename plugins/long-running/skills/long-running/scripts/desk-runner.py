@@ -662,13 +662,14 @@ class Runner:
             if created and (terminal := self.orca.terminal(lane)):
                 self.orca.wake(terminal, f"unread Orca message {item}; read it now")
         hour = actions.stamp(self.now())[:13]
+        named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
         settled: list[Dispatch] = []
         for lane in self.orca.lanes():
             dispatch = self.orca.show(lane)
             if not dispatch:
                 continue
             if dispatch.status in INACTIVE:
-                if self.book.accept(RUNNER, f"reclaim:{dispatch.id}", "reclaim", dispatch.terminal, lane, None)[1]:
+                if f"reclaim:{dispatch.id}" not in named:
                     settled.append(dispatch)
                 continue
             if dispatch.wait:
@@ -684,6 +685,8 @@ class Runner:
         scope = "".join(f" --dispatch {dispatch.id}" for dispatch in settled) if len(settled) <= RECLAIM_NAMED else ""
         step = f"run {self.config.gc} --run {self.config.run}{scope}" if self.config.gc else "close each idle terminal and remove each finished worktree under R195"
         self.escalate(f"reclaim:{settled[0].id}", "RECLAIM", "runner", f"{len(settled)} settled dispatch(es) still hold their terminal: {named}{more}; {step}")
+        for dispatch in settled:
+            self.book.accept(RUNNER, f"reclaim:{dispatch.id}", "reclaim", dispatch.terminal, dispatch.lane, None)
 
     def overdue(self, container: str, about: str) -> None:
         moment = self.now()
