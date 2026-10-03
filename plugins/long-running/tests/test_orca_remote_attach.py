@@ -367,7 +367,7 @@ def test_a_missing_or_different_run_binding_refuses_before_status(attach, bound,
     attach.reply("orchestration run-current", bound)
     result = attach.run()
     assert result.returncode == 1
-    assert result.stdout == f"lane-a failed {line}; from the coordinator's Orca terminal run: orca orchestration run-use --id {RUN}\n"
+    assert result.stdout == f"lane-a failed {line}; no attachment was attempted, so attach from the coordinator that already owns Run {RUN}\n"
     assert attach.calls() == [CURRENT]
     assert attach.kept() == []
 

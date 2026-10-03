@@ -1279,11 +1279,26 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
   head with `ledger.py report` in the same turn; the desk grades without waiting for it.
 ```
 
-Spawn every lane as one of this plugin's two lane types, with the routing table's
-`model`. Both definitions default to Opus; set a different model explicitly
-when the assignment calls for it. Fable is local only, for top-level root
-orchestrators or extremely sensitive implementation. Ordinary workers and
-subdesks do not inherit Fable from the root.
+For implementation and test lanes, prefer the repository's canonical remote
+entrypoint when it provides one. In Forge-AI/monorepo, follow
+[the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md).
+It defaults to Sprite prepare+attach and the already-owned native Run with its
+sole inbox consumer. It does not route through desk-runner or common
+`orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
+
+Give a canonical remote worker the skill's complete VM brief and source-return
+contract. It returns an uncommitted patch and strict report; the root collects,
+reviews, and ships the source. Do not copy the Mac lane-ship template's paths or
+PR obligations into that brief. Retain every session, including explicit local
+root/Fable and extremely sensitive workers; completion or a cleanup recommendation
+never authorizes closing one. Dedicated remote API keys belong only to the
+worker process; local Fable keeps existing Mac interactive authentication.
+
+For in-process subagents, use one of this plugin's two lane types with the
+routing table's `model`. Both definitions default to Opus; set a different
+model explicitly when the assignment calls for it. Fable is local only, for
+top-level root orchestrators or extremely sensitive implementation. Ordinary
+workers and subdesks do not inherit Fable from the root.
 
 The standing subagents, the desk's shards, sequencers, and pollers are
 `long-running:lane`. An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
@@ -1296,19 +1311,21 @@ If a `lane` needs a skill, give that operation to a separately named `lane-ship`
 with a scoped brief.
 Keep the original lane running; the new lane must not duplicate its active work.
 
-A lane that runs as an Orca worker is a separate session the Agent tool cannot message.
-Submit `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E
+A lane using the separate desktop Orca adapter is a session the Agent tool cannot
+message. Submit `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E
 --brief PATH`; the runner invokes `scripts/orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
 a shared contract and lane section concatenated into one file, with a ≤300-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
 never as a claude worker calling the codex skill; the codex skill is for inline lanes,
 and `codex-ask` for one-off questions.
-When a lane needs its own machine for tests or builds off the owner's Mac, or the
-running platform, it creates a remote Orca workspace through the repository's Orca
-skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote workspaces").
 
-One worktree per lane, always. Two agents in one checkout race HEAD, the index, and
+That adapter's launch, relay, and receipt rules apply only to its own lanes.
+Canonical remote workers use home Dispatch messages and the repository skill's
+source-return workflow. Namespace remains opt-in pending regular Compute runtime
+acceptance; native recipe-picker enablement is a separate surface.
+
+One isolated checkout per editing lane. Two agents in one checkout race HEAD, the index, and
 untracked files; a restack under a running ship lands its staged diff on whatever branch
 is checked out at commit time.
 

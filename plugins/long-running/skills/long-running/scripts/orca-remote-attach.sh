@@ -115,7 +115,7 @@ done
 BINDING=$(orca orchestration run-current --json 2>/dev/null) && BOUND=0 || BOUND=$?
 [ "$BOUND" = 0 ] && printf '%s' "$BINDING" | jq -se --arg run "$RUN" 'length == 1 and (.[0] | type == "object" and .ok == true and .error == null and .result.run.id == $run)' >/dev/null 2>&1 || {
   CODE=$(printf '%s' "$BINDING" | pick '.error.code' "$WORD")
-  fail "coordinator binding: run-current exited $BOUND${CODE:+ code=$CODE} without naming Run $RUN; from the coordinator's Orca terminal run: orca orchestration run-use --id $RUN"
+  fail "coordinator binding: run-current exited $BOUND${CODE:+ code=$CODE} without naming Run $RUN; no attachment was attempted, so attach from the coordinator that already owns Run $RUN"
 }
 
 STATUS=$(orca status --environment "$ENVIRONMENT" --json 2>/dev/null) && ANSWERED=0 || ANSWERED=$?
