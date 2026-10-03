@@ -13,8 +13,8 @@ ranked fix 3).*
 ## Root discipline
 
 Issue commands with the drive's R/L numbering. Submit a key once per action;
-submitting it again in the same lane returns the existing action. Never append
-Orca rulings to `inbox/orca-desk.md`, and never `SendMessage` a desk.
+submitting it again in the same lane returns the existing action. Never `SendMessage`
+a desk.
 
 ```text
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]
@@ -23,6 +23,26 @@ desk-runner.py policy --config C --key L<n> --landing prefix|whole --revision RE
 desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
+
+A relay can also be one line appended to the desk inbox, `orca.desk_inbox` in the
+config, which defaults to `orca-desk.md` beside the escalations file. The orca runner
+reads each complete line appended since its saved byte offset; its first read starts
+at the file's end, so history never replays. A line is a relay only in this form, one
+relay per line, its text running to the end of the line:
+
+```text
+R<n> (<time>) orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>
+```
+
+For each named lane with a live dispatch, the runner does what `relay --key R<n>`
+does. When the dispatch's newest question to the Run has no answer on its terminal,
+the relay is a reply to that question, which releases a worker blocked in
+`orca orchestration ask`; otherwise, it is a plain relay that wakes the terminal.
+A line without `R<n>` takes the key `inbox@<byte offset>`. Each lane logs once to the
+escalations file as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`.
+A dead or missing dispatch, a key that already holds different text, and a line that
+says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
+them. `orca-desk: launch` lines are not read; launch through `launch`.
 
 Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
 question message id as its key; answer with `relay --reply-to <msg id>`. Other
@@ -60,6 +80,7 @@ carries. Set the accepted prefix policy's revision to #28601's revision.
   "orca": {
     "run": "<run id>",
     "receipts": "/absolute/drive/receipts",
+    "desk_inbox": "/absolute/drive/inbox/orca-desk.md",
     "briefs": {"repo": "/absolute/drive/checkout", "log": "<briefs log id>"},
     "gc": "/absolute/drive/checkout/.agents/skills/orca/scripts/orca-gc",
     "launch_env": {
@@ -268,6 +289,8 @@ identify the cause; `DECIDE` uses the question id.
 | Kind | Root action |
 |---|---|
 | `DECIDE` | Resolve the question the brief does not settle; answer with `relay --reply-to <msg id>`. |
+| `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
+| `RELAY-FAILED` | Fix the named inbox relay line's lane, key, or form, and append a corrected line. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
