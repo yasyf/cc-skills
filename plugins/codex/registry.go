@@ -285,13 +285,13 @@ func classify(d string) laneInfo {
 		replySize = fileSize(r)
 	}
 	pidFile := join(d, "pid")
+	alive := isFile(pidFile) && pidAlive(d)
 	var pid *int
-	if isFile(pidFile) {
+	if alive {
 		if p, ok := readPid(pidFile); ok {
 			pid = &p
 		}
 	}
-	alive := isFile(pidFile) && pidAlive(d)
 	status := join(d, "status")
 	st := ""
 	if nonempty(status) {

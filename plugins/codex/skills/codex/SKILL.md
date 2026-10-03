@@ -363,7 +363,8 @@ Every run — ad-hoc or fan-out — lives under
 absolute and outside any repo). The filesystem is the registry:
 
 - `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --ps` walks the base and prints one JSONL record per run — state
-  (the collect classification), pid, start time, log age, cwd, session —
+  (the collect classification), pid while the run's own process still holds it
+  (a settled run's pid is often recycled, so it is omitted), start time, log age, cwd, session —
   pruning only long-terminal runs. A run whose caller died, compacted, or was
   never woken is *not* lost: any session can find it here and recover with
   `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --await <run-dir>` (single run)
