@@ -1024,7 +1024,8 @@ def replies(shell: FakeShell) -> list[list[str]]:
     ],
 )
 def test_the_relay_grammar_names_the_key_lanes_and_text(line, key, lanes, text):
-    directive = runner_module.INBOX_RELAY.match(line)
+    directive = runner_module.INBOX_DIRECTIVE.match(line)
+    assert directive["verb"] == "relay"
     parsed = runner_module.RELAY_TO.match(directive["rest"])
     assert (directive["key"], runner_module.LANE_LIST.split(parsed["lanes"]), parsed["text"]) == (key, lanes, text)
 
@@ -1121,3 +1122,81 @@ def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, c
     assert [call[call.index("--body") + 1].split("\n", 1)[0] for call in shell.sends()] == ["rebase onto dev"]
     [line] = escalations(tmp_path)
     assert line.split(" ", 1)[1] == f"RELAY-FAILED R5 {LANE}: R5 already holds a different relay to {LANE} (accepted)"
+
+
+def launch_brief(tmp_path: Path) -> Path:
+    brief = tmp_path / "fix-brief.md"
+    brief.write_text("brief")
+    return brief
+
+
+@pytest.mark.parametrize(
+    ("line", "key", "lane", "now", "model", "effort", "brief"),
+    [
+        ("R1907 (7:0x PM PT) orca-desk: launch alerts-api-1n91-fix NOW sol xhigh brief=/d/fix-brief.md", "R1907", "alerts-api-1n91-fix", " NOW", "sol", "xhigh", "/d/fix-brief.md"),
+        ("- orca-desk: launch docs-lane astra high brief=/d/b.md", None, "docs-lane", None, "astra", "high", "/d/b.md"),
+    ],
+)
+def test_the_launch_grammar_names_the_key_lane_route_and_brief(line, key, lane, now, model, effort, brief):
+    directive = runner_module.INBOX_DIRECTIVE.match(line)
+    spec = runner_module.LAUNCH_SPEC.match(directive["rest"])
+    assert (directive["verb"], directive["key"], spec["lane"], spec["now"], spec["model"], spec["effort"], spec["brief"]) == ("launch", key, lane, now, model, effort, brief)
+
+
+def test_an_inbox_launch_line_launches_once_and_now_skips_the_load_hold(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.cpu_load = 140
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R1907 (7:0x PM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_n")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "opus", "xhigh", str(brief)]]
+    action = incident(tmp_path, f"desk-lane-{LANE}").actions["R1907"]
+    assert (action.status, json.loads(action.target)["urgent"]) == ("verified", True)
+    assert [line.split(" ", 1)[1] for line in escalations(tmp_path)] == [f"LAUNCHED R1907 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+
+
+def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}", f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len(launches(shell)) == 1
+    assert [line.split(" ", 1)[1] for line in escalations(tmp_path) if "LAUNCH-FAILED" in line] == [
+        f"LAUNCH-FAILED R9 {LANE}: R9 already holds a launch for {LANE} (accepted); nothing was launched"
+    ]
+
+
+def test_an_inbox_launch_outside_the_grammar_or_route_fails_visibly_and_launches_nothing(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    orca_pass(shell, config)
+    desk_inbox(
+        tmp_path,
+        f"R1908 (7:1x PM PT) orca-desk: launch {LANE} NOW — sol xhigh fast (incident route), brief {brief}; relay to walker: go",
+        f"R1909 orca-desk: launch {LANE} NOW",
+        f"R1910 orca-desk: launch {LANE} gemini xhigh brief={brief}",
+        f"R1911 orca-desk: launch {LANE} sol extreme brief={brief}",
+        f"R1912 orca-desk: launch {LANE} sol xhigh brief={tmp_path}/missing.md",
+    )
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    assert [line.split(":", 1)[0] for line in lines] == ["LAUNCH-FAILED R1908 inbox", "LAUNCH-FAILED R1909 inbox", f"LAUNCH-FAILED R1910 {LANE}", f"LAUNCH-FAILED R1911 {LANE}", f"LAUNCH-FAILED R1912 {LANE}"]
+    assert all(runner_module.LAUNCH_GRAMMAR in line for line in lines[:2])
+    assert "gemini is not a model orca-launch.sh starts" in lines[2] and "extreme is not an effort" in lines[3] and "missing.md is not a file" in lines[4]
+
+
+def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, config, tmp_path):
+    brief = launch_brief(tmp_path)
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R10 orca-desk: launch {LANE} NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1] == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"

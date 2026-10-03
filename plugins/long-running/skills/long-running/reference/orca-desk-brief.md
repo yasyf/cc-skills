@@ -42,7 +42,25 @@ A line without `R<n>` takes the key `inbox@<byte offset>`. Each lane logs once t
 escalations file as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`.
 A dead or missing dispatch, a key that already holds different text, and a line that
 says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
-them. `orca-desk: launch` lines are not read; launch through `launch`.
+them.
+
+A launch can also be one line in the same inbox, in this form only, one launch per
+line, with nothing after the brief path:
+
+```text
+R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>
+```
+
+The runner does what `launch --key R<n>` does with the same model, effort, and
+brief; `NOW` is `--owner-directed`, so the launch skips the load hold. An incident
+fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW sol xhigh brief=<path>`;
+sol always runs on the fast tier. A line without `R<n>` takes the key
+`inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
+<ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
+and launches nothing for a lane with a live dispatch or a launch still in flight,
+a key that already holds an action, a model or effort `launch` refuses, or a brief
+that is not a file. A line that says `orca-desk: launch` outside the form logs
+`LAUNCH-FAILED <key> inbox`.
 
 Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
 question message id as its key; answer with `relay --reply-to <msg id>`. Other
@@ -291,6 +309,7 @@ identify the cause; `DECIDE` uses the question id.
 | `DECIDE` | Resolve the question the brief does not settle; answer with `relay --reply-to <msg id>`. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
 | `RELAY-FAILED` | Fix the named inbox relay line's lane, key, or form, and append a corrected line. |
+| `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
 | `OUTCOME` | Consume the worker's `worker_done` result. |
@@ -300,7 +319,7 @@ identify the cause; `DECIDE` uses the question id.
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
 | `RECLAIM` | Run the line's gc command; it closes each idle settled terminal's tab and removes each finished worktree under R195. |
 | `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
-| `LAUNCH-FAILED` | Read the named launch failure before issuing any new action. |
+| `LAUNCH-FAILED` | Read the named launch failure before issuing any new action; for an inbox launch line, relay to the live dispatch or append a corrected line under a new key. |
 | `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |
 | `SEND-FAILED` | Resolve a send that failed three explicit attempts. |
 | `ENQUEUE-STRANDED`, `ENQUEUE-UNSETTLED`, `ENQUEUE-FAILED` | Resolve the queue result from current evidence. |
