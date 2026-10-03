@@ -5,8 +5,14 @@ Reference them by dotted wire type inside any `Doc.blocks` array or a card's
 `children`. All three are interactive; every click streams back as a
 `pack.interaction` event carrying the payloads described below.
 
-A round's board normally carries `design-doc.registers` first — the human reads
-where the design stands — then whatever the round is actually asking.
+A round's board asks one question. It carries one `design-doc.fork` or one
+`design-doc.claims` sweep, and a fork never shares a board with another fork or
+a sweep. A `design-doc.registers` block may sit above it as read-only context
+with `challengeable` off; a challengeable registers block is a round of its own.
+
+One board carrying a claims sweep, a challengeable registers block, and seven
+forks is the wrong shape. Ask the first fork, record its answer, then push the
+next board.
 
 The field names on `registers` mirror `registers.json` entry-for-entry, so a
 register entry goes onto the board unchanged.
