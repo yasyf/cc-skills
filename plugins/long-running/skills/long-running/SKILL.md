@@ -898,7 +898,10 @@ The root issues `relay`, `launch`, and `policy` commands with the drive's R/L
 keys. A repeated key in the same lane is one action. A relay can also be one
 `R<n> orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line appended to
 `inbox/orca-desk.md`; the runner delivers it once per lane and logs `RELAYED` or
-`RELAY-FAILED`. The root never `SendMessage`s a desk. It reads escalation lines through
+`RELAY-FAILED`. A launch can be one
+`R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
+the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
+and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It reads escalation lines through
 one Monitor on `tail -n 0 -F <escalations file>`, under the drive's `inbox/`,
 re-armed on expiry. `show` and the config's `view` file render state; these inbox
 files are views, never authority.
@@ -1069,8 +1072,8 @@ session open and idle.
 ## Desk inboxes
 
 These I-rules apply to the landing desk, priority desks, and shards. Orca traffic
-uses `desk-runner.py relay`, `launch`, and `policy` commands, or a relay line in
-`inbox/orca-desk.md` in the one form the orca desk brief gives. The runner's escalation and state files under `inbox/` are
+uses `desk-runner.py relay`, `launch`, and `policy` commands, or a relay or launch
+line in `inbox/orca-desk.md` in the one form the orca desk brief gives each. The runner's escalation and state files under `inbox/` are
 rendered views. Its action records hold authority. The root never `SendMessage`s
 a desk.
 

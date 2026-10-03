@@ -30,9 +30,9 @@ INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Route the incident fix lane through the orca-desk. Append `orca-desk: launch <name> NOW` to its inbox; an Agent "
-    "spawn on an incident is a support lane and says so in a `ccx: role=<role>` line of its brief, and a fix lane "
-    "that is not an incident says `ccx: incident=none`."
+    "Route the incident fix lane through the orca-desk: append `R<n> orca-desk: launch <name> NOW sol xhigh "
+    "brief=<absolute path>` to its inbox. An Agent spawn on an incident is a support lane with a `ccx: role=<role>` "
+    "line in its brief; a non-incident fix lane says `ccx: incident=none`."
 )
 INCIDENT_FIX = Confirm(rule="an incident FIX lane must run on Orca sol; tooling, support, and repush lanes may spawn here")
 REPLY_WINDOW = 256
@@ -71,7 +71,7 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     only_if=[Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests={
-        spawn("pr-review-pipeline-fix", "CI incident, effort high."): Block(pattern=r"orca-desk: launch <name> NOW"),
+        spawn("pr-review-pipeline-fix", "CI incident, effort high."): Block(pattern=r"orca-desk: launch <name> NOW sol xhigh brief=<absolute path>"),
         spawn("incident-api-1n80-fix", "Fix it."): Block(),
         spawn("lane-failing-fix", INCIDENT_TURN, llm={"block": False}): Block(),
         spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api."): Block(),

@@ -25,7 +25,10 @@ never resent blindly.
 prompts, and checks relay deadlines. It also tails the drive's desk inbox file and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question when it has one, logged once as
-`RELAYED` or `RELAY-FAILED`. Orca lets only the terminal bound to the Run call
+`RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
+line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
+`LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
+launch logs `LAUNCHED` with its dispatch and terminal. Orca lets only the terminal bound to the Run call
 worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
 The runner records that terminal, its pane, the Run's coordinator and generation, and how
 the binding was obtained, at start and before each pass that launches. Started from a
@@ -89,12 +92,14 @@ STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
 HELD_PR = re.compile(r"#(\d+)")
 HELD_LANE = re.compile(r"\blane:(\S+)")
-LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=\S+ worktree=\S+$", re.MULTILINE)
+LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
-INBOX_RELAY = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: relay\b(?P<rest>.*)$")
+LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch)\b(?P<rest>.*)$")
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
 LANE_LIST = re.compile(r", (?:and )?| and ")
+LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -449,8 +454,8 @@ class Runner:
         target = json.dumps({"text": text, "reply_to": reply_to})
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
-    def relay_inbox(self) -> None:
-        """Relay each complete line appended to the desk inbox since the saved byte offset; a first read starts at the end, so history never replays."""
+    def read_inbox(self) -> None:
+        """Act on each complete line appended to the desk inbox since the saved byte offset; a first read starts at the end, so history never replays."""
         path = self.config.desk_inbox
         fact = f"desk-inbox:{path}"
         cursor = self.book.load(RUNNER).facts.get(fact)
@@ -467,16 +472,19 @@ class Runner:
         for raw in appended.splitlines(keepends=True):
             if not raw.endswith(b"\n"):
                 break
-            self.relay_line(offset, raw.decode().strip())
+            self.inbox_line(offset, raw.decode().strip())
             offset += len(raw)
             self.book.edit(RUNNER, lambda incident, at=offset: incident.facts.update({fact: at}))
 
-    def relay_line(self, offset: int, line: str) -> None:
-        directive = INBOX_RELAY.match(line)
+    def inbox_line(self, offset: int, line: str) -> None:
+        directive = INBOX_DIRECTIVE.match(line)
         if not directive:
             return
         key = directive["key"] or f"inbox@{offset}"
-        parsed = RELAY_TO.match(directive["rest"])
+        (self.relay_line if directive["verb"] == "relay" else self.launch_line)(offset, key, directive["rest"])
+
+    def relay_line(self, offset: int, key: str, rest: str) -> None:
+        parsed = RELAY_TO.match(rest)
         if not parsed or "; relay " in parsed["text"]:
             self.record(f"escalation:relay:{offset}", f"RELAY-FAILED {key} inbox: one relay per line, in the form `{RELAY_GRAMMAR}`; nothing was relayed")
             return
@@ -496,6 +504,39 @@ class Runner:
             self.record(log, f"RELAY-FAILED {key} {lane}: {key} already holds a different relay to {lane} ({action.status})")
             return
         self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
+
+    def launch_line(self, offset: int, key: str, rest: str) -> None:
+        """Accept what `launch` accepts, `NOW` meaning `--owner-directed`, once per key and only for a lane with no live dispatch and no launch in flight."""
+        log = f"escalation:launch:{offset}"
+        spec = LAUNCH_SPEC.match(rest)
+        if not spec:
+            self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
+            return
+        lane, brief = spec["lane"], Path(spec["brief"]).resolve()
+        if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief):
+            self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
+            return
+        self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
+
+    def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
+        try:
+            launch_model(model)
+        except argparse.ArgumentTypeError as error:
+            return str(error)
+        if effort not in EFFORTS:
+            return f"{effort} is not an effort: {', '.join(EFFORTS)}"
+        if not brief.is_file():
+            return f"brief {brief} is not a file"
+        container = lane_container(lane)
+        if container in self.book.store.ids():
+            if held := self.book.load(container).actions.get(key):
+                return f"{key} already holds a {held.kind} for {lane} ({held.status})"
+            if flight := next((action for action in self.book.actions(container, kind="launch") if action.status in ("accepted", "started")), None):
+                return f"launch {flight.action_id} for {lane} is {flight.status}"
+        dispatch = self.orca.show(lane)
+        if dispatch and dispatch.status not in INACTIVE:
+            return f"dispatch {dispatch.id} is {dispatch.status}; relay to it instead"
+        return ""
 
     def open_question(self, dispatch: Dispatch) -> str:
         """The newest question the dispatch asked the Run that no message on the dispatch's terminal answers, or empty."""
@@ -687,6 +728,7 @@ class Runner:
             self.escalate(f"{container}/{key}", "UNVERIFIABLE", lane, "launch outcome unknown: no launch line and no new receipt; it was not relaunched")
             return
         self.book.attempt(container, lambda incident: (incident.complete(key, proof, dispatch_id=proof["dispatch"]), incident.verify(key, proof)))
+        self.record(f"escalation:{container}/{key}:launched", f"LAUNCHED {key} {lane}: dispatch {proof['dispatch']} terminal {launched['terminal'] if launched else self.orca.terminal(lane)}")
         self.transfer(lane)
         if launched and launched["how"] == "unsupervised":
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
@@ -1121,7 +1163,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         if runner.check():
             runner.reap()
             runner.resume_judges()
-            runner.relay_inbox()
+            runner.read_inbox()
             runner.deliver()
             if runner.now() - swept >= SWEEP_EVERY:
                 runner.sweep()
