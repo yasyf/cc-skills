@@ -1241,6 +1241,11 @@ function renderDoctop(){
   pills.push(inc.severityLink&&safeUrl(inc.severityLink)?`<a href="${esc(inc.severityLink)}" target="_blank" rel="noopener">${sev}</a>`:sev);
  }
  if(inc.number!=null)pills.push(`<span class="pill">Incident #${esc(String(inc.number))}</span>`);
+ const chan=inc.channel;
+ if(chan&&chan.name){
+  const tag=`<span class="pill">#${esc(String(chan.name))}</span>`;
+  pills.push(chan.permalink&&safeUrl(chan.permalink)?`<a href="${esc(chan.permalink)}" target="_blank" rel="noopener" title="Incident channel">${tag}</a>`:tag);
+ }
  const facts=[];
  if(META.date)facts.push(esc(longDate(META.date)));
  if(META.rev)facts.push(`Revision ${esc(String(META.rev))}`);
@@ -3453,7 +3458,7 @@ function buildDocMd(opt){
  if(META.subtitle)push(`${META.subtitle}\n`);
  if(TAGS.length)push(`${TAGS.map(t=>"`"+t+"`").join(" · ")}\n`);
  if(META.draft)push(`> **Draft** — ${META.draftNote||DRAFT_NOTE}\n`);
- push(`_${[longDate(META.date),META.rev?"revision "+META.rev:null,STATUS_WORD(META.status),inc.number!=null?"incident #"+inc.number:null,inc.severity?String(inc.severity).toUpperCase():null,(META.teams||[]).length?"teams: "+META.teams.join(", "):null,(META.authors||[]).length?"written by "+META.authors.join(", "):null,META.commander?"incident commander "+META.commander:null,META.footerNote].filter(Boolean).join(" · ")}_\n`);
+ push(`_${[longDate(META.date),META.rev?"revision "+META.rev:null,STATUS_WORD(META.status),inc.number!=null?"incident #"+inc.number:null,inc.severity?String(inc.severity).toUpperCase():null,inc.channel&&inc.channel.name?(inc.channel.permalink?`[#${inc.channel.name}](${inc.channel.permalink})`:"#"+inc.channel.name):null,(META.teams||[]).length?"teams: "+META.teams.join(", "):null,(META.authors||[]).length?"written by "+META.authors.join(", "):null,META.commander?"incident commander "+META.commander:null,META.footerNote].filter(Boolean).join(" · ")}_\n`);
  push("How to read this: the tiles at the top are derived from the timestamps and are the only source for how long anything took. Bracketed ids like C1, AI2, W1 or T4 are citations into the causes, action items, windows and timeline entries below.\n");
  push("## Overview\n");
  const exec=$("#execHost");

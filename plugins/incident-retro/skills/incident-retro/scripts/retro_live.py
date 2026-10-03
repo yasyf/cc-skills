@@ -348,6 +348,8 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     meta = R.setdefault("meta", {})
     meta["status"] = "ongoing"
     meta["teams"] = [t["codename"] for t in state.get("teams") or [] if isinstance(t, dict) and t.get("codename")]
+    if state.get("incident_channel"):
+        meta.setdefault("incident", {})["channel"] = state["incident_channel"]
     timestamps = R.setdefault("timestamps", {})
     previous = dict(timestamps)
     timestamps["onset"] = state.get("started_at")

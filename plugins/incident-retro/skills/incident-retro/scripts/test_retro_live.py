@@ -149,6 +149,11 @@ class Sync(unittest.TestCase):
         self.assertIn("Polar", blob)
         self.assertIn("Mamba", blob)
 
+    def test_the_incident_channel_is_copied_with_its_name_scrubbed(self):
+        self.assertEqual(self.record()["meta"]["incident"]["channel"],
+                         {"name": "inc-Polar-browsers", "id": "C0A1B2C3D4E",
+                          "permalink": "https://forge-ai.slack.com/archives/C0A1B2C3D4E"})
+
     def test_the_slack_snapshots_hold_the_thread_and_are_registered(self):
         record = self.record()
         files = sorted(p.name for p in (self.root / "evidence" / "slack").glob("*.json"))
@@ -601,6 +606,36 @@ class LiveBlock(unittest.TestCase):
 
     def test_a_naive_updated_at_is_an_error(self):
         self.assertTrue(self.report(self.live(updatedAt="2026-09-02T16:00:00")).errors)
+
+
+class IncidentChannel(unittest.TestCase):
+    CHANNEL = {"name": "inc-Polar-browsers", "id": "C0A1B2C3D4E",
+               "permalink": "https://forge-ai.slack.com/archives/C0A1B2C3D4E"}
+
+    def errors(self, **over):
+        rep = retro.Report(False)
+        retro.check_incident_channel(rep, {**self.CHANNEL, **over})
+        return rep.errors
+
+    def test_a_well_formed_channel_passes(self):
+        self.assertEqual(self.errors(), [])
+
+    def test_a_name_with_the_leading_hash_is_an_error(self):
+        self.assertTrue(self.errors(name="#inc-Polar-browsers"))
+
+    def test_an_id_that_is_not_a_channel_is_an_error(self):
+        self.assertTrue(self.errors(id="U0A1B2C3D4E"))
+
+    def test_a_permalink_off_slack_is_an_error(self):
+        self.assertTrue(self.errors(permalink="https://example.com/archives/C0A1B2C3D4E"))
+
+    def test_a_permalink_naming_another_channel_is_an_error(self):
+        self.assertTrue(self.errors(permalink="https://forge-ai.slack.com/archives/C0FFFFFFFFF"))
+
+    def test_a_channel_missing_its_permalink_is_an_error(self):
+        rep = retro.Report(False)
+        retro.check_incident_channel(rep, {"name": "inc-Polar-browsers", "id": "C0A1B2C3D4E"})
+        self.assertTrue(rep.errors)
 
 
 class History(unittest.TestCase):
