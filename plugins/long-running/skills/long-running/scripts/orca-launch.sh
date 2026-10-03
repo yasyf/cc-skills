@@ -81,14 +81,23 @@ because the runtime drops connections under load. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 
-A launch that fails before worker-start rolls back what it made: it closes the
-tab of the terminal whose handle its own terminal create returned, and removes,
-with orca worktree rm --force, a worktree whose path its own worktree create
-returned. Its failure line ends "; rolled back terminal=... worktree=..." and
-"; rollback left ..." names what it kept: a terminal it adopted from a listing,
-which a concurrent launch of the same lane may own, and whatever Orca refused.
-A worktree that existed before the launch stays, and nothing is rolled back
-once worker-start has run, because a dispatch may then own the terminal.
+Only the terminal bound to the Run may call worker-start, and Orca reads the
+caller from ORCA_TERMINAL_HANDLE. Before it creates anything, the script asks
+orca orchestration run-current which Run this terminal coordinates, and fails
+with the rebind command when it is not ORCA_LAUNCH_RUN.
+
+A launch that fails before worker-start, or that worker-start refuses before it
+dispatches anything (consumer_fenced, invalid_argument, task_not_found,
+worker_prompt_too_large, runtime_unavailable), rolls back what it made: it
+closes the tab of the terminal whose handle its own terminal create returned,
+and removes, with orca worktree rm --force, a worktree whose path its own
+worktree create returned. Its failure line ends "; rolled back terminal=...
+worktree=..." and "; rollback left ..." names what it kept: a terminal it
+adopted from a listing, which a concurrent launch of the same lane may own,
+whatever Orca refused, and, after any other worker-start failure, the terminal
+and worktree a dispatch may own. A worktree that existed before the launch
+stays. Every failure line is one line, and an Orca error in it reads
+"<code>: <message>".
 
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
@@ -145,8 +154,13 @@ rollback() {
 
 fail() {
   rollback
-  printf '%s\n' "$LANE failed $*${UNDONE:+; rolled back$UNDONE}${KEPT:+; rollback left$KEPT}"
+  printf '%s\n' "$LANE failed $(printf '%s' "$*" | tr -s '[:space:]' ' ')${UNDONE:+; rolled back$UNDONE}${KEPT:+; rollback left$KEPT}"
   exit 1
+}
+
+orca_error() {
+  jq -er 'select(.ok == false) | "\(.error.code): \(.error.message // "no message")"' "$1" 2>/dev/null ||
+    cat "$@" | tr -s '[:space:]' ' ' | cut -c1-300
 }
 
 AGENT=claude
@@ -198,6 +212,11 @@ spec
 
 mkdir -p "$STATE"
 
+orca orchestration run-current --json >"$STATE/$LANE.binding.json" 2>&1 || :
+BOUND=$(jq -r '.result.run.id // empty' "$STATE/$LANE.binding.json" 2>/dev/null) || BOUND=
+[ "$BOUND" = "$RUN" ] ||
+  fail "coordinator binding: terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${BOUND:-no Run}, not $RUN ($(orca_error "$STATE/$LANE.binding.json")); from the coordinator's Orca terminal run: orca orchestration run-use --id $RUN"
+
 set -- --parent-worktree "path:$PARENT"
 [ "$AGENT" != sol ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
 
@@ -208,7 +227,7 @@ registered() {
 attempt=0 CREATED=''
 while ! registered; do
   attempt=$((attempt + 1)) CREATED=1
-  [ "$attempt" -le 4 ] || fail "worktree create: $(head -c 300 "$STATE/$LANE.worktree.json")"
+  [ "$attempt" -le 4 ] || fail "worktree create: $(orca_error "$STATE/$LANE.worktree.json")"
   if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
     "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1 &&
     FOUND=$(jq -er '.result.worktree.path' "$STATE/$LANE.worktree.json"); then
@@ -231,7 +250,7 @@ listed() {
   until orca terminal list --worktree "path:$WT" --json >"$STATE/$LANE.terminals.json" 2>&1 &&
     LISTED=$(jq -ce '[.result.terminals[].handle]' "$STATE/$LANE.terminals.json"); do
     listing=$((listing + 1))
-    [ "$listing" -lt 3 ] || fail "terminal list: $(head -c 300 "$STATE/$LANE.terminals.json")"
+    [ "$listing" -lt 3 ] || fail "terminal list: $(orca_error "$STATE/$LANE.terminals.json")"
     sleep "$RETRY"
   done
 }
@@ -248,7 +267,7 @@ attempt=0 TERMINAL=''
 [ -z "$CREATED" ] || close_startup_shells
 until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   attempt=$((attempt + 1))
-  [ "$attempt" -le 3 ] || fail "terminal create: $(cat "$STATE/$LANE.terminal.json" "$STATE/$LANE.terminal.err" | head -c 300)"
+  [ "$attempt" -le 3 ] || fail "terminal create: $(orca_error "$STATE/$LANE.terminal.json" "$STATE/$LANE.terminal.err")"
   orca terminal create --worktree "path:$WT" --title "$NAME" --command "$COMMAND" --json \
     >"$STATE/$LANE.terminal.json" 2>"$STATE/$LANE.terminal.err" || :
   TERMINAL=$(jq -r '.result.terminal.handle // empty' "$STATE/$LANE.terminal.json" 2>/dev/null) || TERMINAL=
@@ -301,6 +320,16 @@ if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1;
   mv "$RECEIPT.new" "$RECEIPT"
   [ "$AGENT" != codex ] || TERMINAL=$(jq -r 'first(.result.effects[] | select(.kind == "terminal" and .role == "agent") | .id) // empty' "$RECEIPT")
   printf '%s\n' "$TERMINAL" >"$STATE/$LANE.terminal"
+elif [ "$STARTED" != 0 ]; then
+  REFUSED=$(jq -rs 'if length == 1 and .[0].ok == false then .[0].error.code else empty end' "$RECEIPT.new" 2>/dev/null) || REFUSED=
+  case $REFUSED in
+    consumer_fenced | invalid_argument | task_not_found | worker_prompt_too_large | runtime_unavailable) ROLLBACK=1 ;;
+    *) KEPT="${TERMINAL:+ terminal=$TERMINAL}${MADE:+ worktree=$WT}" ;;
+  esac
+  REBIND=
+  [ "$REFUSED" != consumer_fenced ] ||
+    REBIND="; terminal ${ORCA_TERMINAL_HANDLE:-unset} is not the Run's coordinator: from the coordinator's Orca terminal run orca orchestration run-use --id $RUN"
+  fail "worker-start${TERMINAL:+ terminal=$TERMINAL}: $(orca_error "$RECEIPT.new" "$STATE/$LANE.worker.err")$REBIND"
 fi
 if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   [ "$(jq -r '.result.failedStage // empty' "$RECEIPT")" = agent_readiness ]; then
@@ -315,9 +344,9 @@ if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   echo "$LANE unsupervised task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"
   exit 0
 fi
-[ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL: $(head -c 300 "$STATE/$LANE.worker.err")"
+[ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL worktree=$WT: $(orca_error "$RECEIPT" "$STATE/$LANE.worker.err")"
 READY=$(jq -r '.result.state' "$RECEIPT")
-[ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL"
+[ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL worktree=$WT"
 
 attempt=0
 until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --screen --json |

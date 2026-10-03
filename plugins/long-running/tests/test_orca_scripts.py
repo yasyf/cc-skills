@@ -14,6 +14,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "skills/long-running/scripts"
 BIN = Path(__file__).resolve().parents[1] / "bin"
 
 SENT = {"rc": 0, "out": {"ok": True, "result": {}}}
+BOUND = {"rc": 0, "out": {"ok": True, "result": {"run": {"id": "run_1", "coordinator_handle": "term_coordinator"}}}}
 TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for terminal handle after creation"}}}
 
 ORCA = """#!/usr/bin/env python3
@@ -70,6 +71,7 @@ class Orca:
             "ORCA_LAUNCH_STATE": str(self.receipts),
             "ORCA_LAUNCH_CLAUDE_ARGS": "--channels plugin:cc-review@cc-review",
             "ORCA_CHECK_STATE": str(self.receipts),
+            "ORCA_TERMINAL_HANDLE": "term_root",
             "HOME": str(root / "home"),
             "CODEX_HOME": str(root / "codex"),
         }
@@ -95,6 +97,7 @@ class Orca:
         return subprocess.run([str(SCRIPTS / script), *args], env=self.env, capture_output=True, text=True)
 
     def healthy(self, state: str = "ready", screen: str = "⏵⏵ bypass permissions on (shift+tab to cycle)", agent: str = "claude") -> None:
+        self.reply("orchestration run-current", BOUND)
         self.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(self.worktree)}}}, "mkdir": str(self.worktree)})
         self.reply("terminal create", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"handle": "term_a"}}}})
         self.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}}})
@@ -924,3 +927,81 @@ def test_an_adopted_terminal_is_named_not_closed(orca):
     result = orca.launch()
     assert result.stdout.strip().endswith(f"; rolled back worktree={orca.worktree}; rollback left terminal=term_a")
     assert ["terminal", "close", "--terminal", "term_a", "--tab", "--json"] not in orca.calls("terminal close")
+
+
+FENCED = {
+    "rc": 1,
+    "out": {
+        "ok": False,
+        "error": {
+            "code": "consumer_fenced",
+            "message": "worker-start requires the coordinator terminal currently bound to the Task Run. Orchestration mutation request ID: req-1.",
+            "data": {"orchestrationRequestId": "req-1"},
+        },
+    },
+}
+
+
+@pytest.mark.parametrize("current", [{"run": None}, {"run": {"id": "run_other"}}])
+def test_a_terminal_that_does_not_coordinate_the_run_creates_nothing_and_names_the_rebind(orca, current):
+    orca.healthy()
+    orca.reply("orchestration run-current", {"rc": 0, "out": {"ok": True, "result": current}})
+    result = orca.launch()
+    assert result.returncode == 1
+    bound = (current["run"] or {}).get("id", "no Run")
+    assert result.stdout == f"lane-a failed coordinator binding: terminal term_root coordinates {bound}, not run_1 (" + json.dumps({"ok": True, "result": current}) + "); from the coordinator's Orca terminal run: orca orchestration run-use --id run_1\n"
+    assert [" ".join(call[:2]) for call in orca.calls()] == ["orchestration run-current"]
+
+
+def test_a_fenced_worker_start_rolls_back_its_terminal_and_worktree_and_quotes_orcas_error(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", FENCED)
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout == (
+        "lane-a failed worker-start terminal=term_a: consumer_fenced: worker-start requires the coordinator terminal currently bound to the Task Run. "
+        "Orchestration mutation request ID: req-1.; terminal term_root is not the Run's coordinator: from the coordinator's Orca terminal run "
+        f"orca orchestration run-use --id run_1; rolled back terminal=term_a worktree={orca.worktree}\n"
+    )
+    assert orca.calls("terminal close")[-1] == ["terminal", "close", "--terminal", "term_a", "--tab", "--json"]
+    assert orca.calls("worktree rm") == [["worktree", "rm", "--worktree", f"path:{orca.worktree}", "--force", "--json"]]
+    assert not (orca.receipts / "lane-a.json").exists()
+    assert not (orca.receipts / "lane-a.terminal").exists()
+
+
+def test_a_fenced_relaunch_closes_its_terminal_and_keeps_the_worktree_and_receipt(orca):
+    orca.healthy(state="failed")
+    assert orca.launch().returncode == 1
+    orca.healthy()
+    orca.reply("orchestration worker-start", FENCED)
+    result = orca.launch()
+    assert result.stdout.strip().endswith("; rolled back terminal=term_a")
+    assert orca.calls("worktree rm") == []
+    assert json.loads((orca.receipts / "lane-a.json").read_text())["result"]["dispatchId"] == "ctx_a"
+
+
+def test_a_worker_start_that_may_have_dispatched_names_what_it_left(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", TIMED_OUT)
+    result = orca.launch()
+    assert result.stdout == f"lane-a failed worker-start terminal=term_a: runtime_error: Timed out waiting for terminal handle after creation; rollback left terminal=term_a worktree={orca.worktree}\n"
+    assert orca.calls("worktree rm") == []
+    assert ["terminal", "close", "--terminal", "term_a", "--tab", "--json"] not in orca.calls("terminal close")
+
+
+def test_an_orca_error_printed_across_lines_fails_the_launch_on_one_line(orca):
+    orca.healthy()
+    unavailable = {"ok": False, "error": {"code": "runtime_unavailable", "message": "Could not read Orca runtime metadata. Start the Orca app first."}}
+    orca.reply("worktree create", {"rc": 1, "out": json.dumps(unavailable, indent=2)})
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "0"
+    result = orca.launch()
+    assert result.stdout == "lane-a failed worktree create: runtime_unavailable: Could not read Orca runtime metadata. Start the Orca app first.\n"
+
+
+def test_a_worker_start_that_printed_a_dispatch_beside_a_refusal_rolls_nothing_back(orca):
+    orca.healthy()
+    dispatched = json.dumps({"ok": True, "result": {"state": "starting"}})
+    orca.reply("orchestration worker-start", {"rc": 1, "out": dispatched + "\n" + json.dumps(FENCED["out"])})
+    result = orca.launch()
+    assert result.stdout.strip().endswith(f"; rollback left terminal=term_a worktree={orca.worktree}")
+    assert orca.calls("worktree rm") == []
