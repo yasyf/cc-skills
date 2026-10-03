@@ -1,7 +1,7 @@
 ---
 name: agent-browser-with-cookies
 description: Run AUTHENTICATED agent-browser automation against one or more sites by reusing your existing local browser login — stream those sites' cookies straight out of the local browser store (one Touch ID tap via the `cookiesync` CLI and its resident daemon) into a fresh agent-browser session, then do the task. Use when a browser task needs you to be logged in (dashboards, gated pages, account settings, an app that calls a separate API host, "do X on <site> as me", "use my session/cookies") and the user is already signed in via their desktop browser. macOS; authorized local use on the user's own machine.
-allowed-tools: Bash(cookiesync:*), Bash(bash:*), Bash(open:*), Bash(pkill:*), Bash(brew install:*), Read
+allowed-tools: Bash(cookiesync:*), Bash(bash:*), Bash(open:*), Bash(brew install:*), Read
 effort: medium
 ---
 
@@ -62,13 +62,12 @@ point; never call `agent-browser` raw.
    local. `--session <name>` (both commands; `AB_SESSION` env works too, the flag
    wins) names a separate per-agent session — carry it on **every** later `"$ab"`
    call, `close` included (**Parallel per-host fan-out**, Notes). Seed with the
-   shipped helper, listing **every** host the task touches, primary URL first; then
-   open only the primary URL:
+   shipped helper, listing **every** host the task touches, primary URL first. It
+   ends on the primary URL:
 
    ```bash
    ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
    "${CLAUDE_PLUGIN_ROOT}/bin/abwc-seed" "$U1" "$U2" …
-   "$ab" open "$U1"
    ```
 
    `abwc-seed` streams cookies **and** localStorage/sessionStorage process-to-process:
@@ -79,6 +78,10 @@ point; never call `agent-browser` raw.
    relays cookiesync's per-peer skip warnings on stderr and exits non-zero when the
    payload was bad (usually `cookies` wanting `auth` — re-run step 2, then re-run it)
    or, on Browserbase, when any seeding step failed (a summary line counts them).
+   It exits **3** when the primary URL lands on a login or SSO page: no reachable
+   browser holds a session for that host, and its stderr names the host, the Mac, and
+   the registered profiles to sign in with. Relay that line to the user and go to
+   **Log in and retry**.
    Single site: just `"$U1"`. Other domains' cookies activate when navigation reaches
    them.
 
@@ -136,21 +139,24 @@ a separate cookiesync-side plugin) is the equivalent one-shot bridge for direct
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Re-run `abwc-seed` with that
   host added.
-- **Daemon wedged — commands hang or fail `Resource temporarily unavailable (os error
-  35)`** — the agent-browser daemon is stuck (classically a reader left blocked on a
-  FIFO by a killed writer). Kill the daemon and the stealth browser, then re-run the
-  launch step (step 3):
-
-  ```bash
-  pkill -f agent-browser; pkill -if clark
-  ```
+- **Every `ab` call takes about a minute** — without `--local` or `--bridge`, `ab`
+  resolves the Browserbase key through `op read`, which stalls about 60s while
+  1Password is locked. Pass `--local` (or `--bridge`) on every call; don't wrap `ab`
+  in a `timeout` shorter than that stall, or every call reads as a hang.
+- **Daemon wedged — commands on one session hang or fail `Resource temporarily
+  unavailable (os error 35)`** — the agent-browser daemon for that session is stuck.
+  `abwc-seed` releases its own FIFO on exit, so a seed no longer leaves a reader
+  blocked. Try `"$ab" close` for that session. If that hangs too, carry on under a
+  fresh `--session <name>` and report the stuck daemon's pid to the user
+  (`agent-browser session list`, then `ps`). Never `pkill` or `kill` it: other agents'
+  sessions share the same binary.
 
 - **Browserbase renders logged-out** — cookies and web storage were seeded, but a
   seeded cookie can still be an **expired** desktop session: do **Log in and retry**
   once. If that doesn't fix it, the site rejects Browserbase's cloud IP, or its login
   lives in **IndexedDB** (which Browserbase can't restore). `"$ab" close` to release
   the cloud session, then re-run step 3 forcing local — `abwc-seed --local`, then
-  `"$ab" --local open "$U1"` and `--local` on every later call.
+  `--local` on every later call.
 - **Loaded but still logged out** (step 4) — first suspect the desktop session itself
   (logged out, or expired since those cookies were written): do **Log in and retry**
   once. If a fresh login doesn't fix it, the login isn't in cookies *or*
@@ -240,6 +246,9 @@ deeper diagnosis.
 - **Outside Claude Code:** pin the requestor inline on every call —
   `COOKIESYNC_REQUESTOR="agent-browser · $(id -un)" cookiesync auth --reason "…"` —
   an export in a separate step doesn't persist across steps.
+- **Cookie headers:** `"$ab" cookies set --curl <file>` imports a cURL dump, JSON
+  array, or bare `Cookie` header in every mode, `/dev/stdin` included, even though
+  agent-browser's `cookies --help` leaves it out.
 - **Browsers:** `abwc-seed` unions every registered browser and host. To force a
   single browser, drop to a direct `cookiesync cookies --browser chrome|arc …` call;
   `--profile` requires `--browser`.
