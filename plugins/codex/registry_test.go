@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -215,6 +216,24 @@ func TestClassifyIsReadOnly(t *testing.T) {
 	}
 	if !isFile(reply + ".tmp") {
 		t.Fatal("classify destroyed a live worker's staged reply")
+	}
+}
+
+// TestClassifyOmitsARecycledPid: a settled run's pid file outlives its process,
+// and macOS hands the number to an unrelated process; the record names a pid only
+// while the start-time check proves the run itself still holds it.
+func TestClassifyOmitsARecycledPid(t *testing.T) {
+	lane := mustTempDir(t)
+	writeFile(t, filepath.Join(lane, "pid"), strconv.Itoa(os.Getpid())+"\n")
+	writeFile(t, filepath.Join(lane, "lstart"), "Thu Jan  1 00:00:00 2026\n")
+	writeFile(t, filepath.Join(lane, "status"), "0\n")
+	if li := classify(lane); li.pid != nil {
+		t.Fatalf("settled run with a recycled pid reports pid %d", *li.pid)
+	}
+
+	writeFile(t, filepath.Join(lane, "lstart"), procLstart(os.Getpid())+"\n")
+	if li := classify(lane); li.pid == nil || *li.pid != os.Getpid() {
+		t.Fatalf("live run's pid = %v, want %d", li.pid, os.Getpid())
 	}
 }
 
