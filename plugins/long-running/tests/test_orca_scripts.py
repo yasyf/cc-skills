@@ -71,6 +71,7 @@ class Orca:
             "ORCA_LAUNCH_CLAUDE_ARGS": "--channels plugin:cc-review@cc-review",
             "ORCA_CHECK_STATE": str(self.receipts),
             "HOME": str(root / "home"),
+            "CODEX_HOME": str(root / "codex"),
         }
         self.env.pop("CLAUDE_LONG_RUNNING_DRIVE", None)
 
@@ -203,6 +204,86 @@ def test_a_sol_worker_takes_its_mcp_servers_from_the_launch(orca):
     assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     assert command.endswith(""" -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}}'""")
+
+
+def test_a_sol_worker_disables_every_config_server_its_launch_does_not_name(orca):
+    orca.healthy(agent="codex")
+    (orca.root / "codex").mkdir()
+    (orca.root / "codex" / "config.toml").write_text(
+        'model = "gpt-6-luna"\n[mcp_servers.node_repl]\ncommand = "node_repl"\n[mcp_servers.slack]\ncommand = "npx"\n'
+        '[mcp_servers.datadog]\nurl = "https://mcp.datadoghq.com"\n[plugins."computer-history@openai-bundled"]\nenabled = true\n'
+    )
+    orca.env["ORCA_LAUNCH_CODEX_MCP"] = '{datadog={url="https://mcp.datadoghq.com"}}'
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    command = flag(orca.calls("terminal create")[0], "--command")
+    assert command.endswith(
+        """ -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}} -c mcp_servers.node_repl.enabled=false -c mcp_servers.slack.enabled=false'"""
+    )
+
+
+def test_a_claude_lane_never_reads_the_codex_config(orca):
+    orca.healthy()
+    (orca.root / "codex").mkdir()
+    (orca.root / "codex" / "config.toml").write_text("not toml [")
+    assert orca.launch().returncode == 0
+
+
+STARTUP = {"rc": 0, "out": {"ok": True, "result": {"terminals": [{"handle": "term_shell", "agentIdentity": None}, {"handle": "term_other", "agentIdentity": "claude"}]}}}
+
+
+def test_a_created_worktrees_startup_shell_is_closed_before_the_agent_terminal_opens(orca):
+    orca.healthy()
+    orca.reply("terminal list", STARTUP, listing("claude"))
+    orca.reply("terminal close", SENT)
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert orca.calls("terminal close") == [["terminal", "close", "--terminal", "term_shell", "--tab", "--json"]]
+    calls = [" ".join(call[:2]) for call in orca.calls()]
+    assert calls.index("terminal close") < calls.index("terminal create")
+
+
+def test_a_codex_lanes_created_worktree_has_its_startup_shell_closed(orca):
+    orca.healthy()
+    orca.reply("terminal list", STARTUP)
+    orca.reply("terminal close", SENT)
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []}}})
+    assert orca.launch("lane-a", "codex", "xhigh", str(orca.brief)).returncode == 0
+    assert [flag(call, "--terminal") for call in orca.calls("terminal close")] == ["term_shell"]
+
+
+def test_a_failed_startup_shell_close_still_launches(orca):
+    orca.healthy()
+    orca.reply("terminal list", STARTUP, listing("claude"))
+    orca.reply("terminal close", {"rc": 1, "out": {"ok": False, "error": {"code": "not_found"}}})
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "not_found" in (orca.receipts / "lane-a.startup.json").read_text()
+
+
+def test_a_worktree_with_a_setup_terminal_keeps_every_terminal(orca):
+    orca.healthy()
+    created = {"worktree": {"path": str(orca.worktree)}, "setupReceipt": {"state": "running", "terminalHandle": "term_shell"}}
+    orca.reply("worktree create", {"rc": 0, "out": {"ok": True, "result": created}, "mkdir": str(orca.worktree)})
+    orca.reply("terminal list", STARTUP, listing("claude"))
+    assert orca.launch().returncode == 0
+    assert orca.calls("terminal close") == []
+
+
+def test_a_relaunch_into_an_existing_worktree_closes_nothing(orca):
+    orca.healthy()
+    orca.worktree.mkdir(parents=True)
+    orca.reply("terminal list", STARTUP, listing("claude", "term_shell", "term_a"))
+    assert orca.launch().returncode == 0
+    assert orca.calls("worktree create") == []
+    assert orca.calls("terminal close") == []
+
+
+def test_a_create_whose_response_was_lost_closes_nothing(orca):
+    orca.healthy()
+    orca.reply("worktree create", {"rc": 1, "out": "Error: socket hang up", "mkdir": str(orca.worktree)})
+    orca.reply("terminal list", STARTUP, listing("claude"))
+    assert orca.launch().returncode == 0
+    assert orca.calls("terminal close") == []
 
 
 def test_no_parent_puts_a_claude_lane_in_a_top_level_worktree(orca):
