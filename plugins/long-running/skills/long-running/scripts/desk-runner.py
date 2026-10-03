@@ -60,6 +60,7 @@ UNLAUNCHED = "unlaunched"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 INACTIVE = frozenset({"completed", "failed"})
+RECLAIM_NAMED = 10
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
 RETRYABLE = frozenset({"blocked", "superseded"})
 SWEEP_EVERY = timedelta(minutes=5)
@@ -149,6 +150,7 @@ class Config:
     briefs_repo: str
     briefs_log: str
     launch_env: dict[str, str]
+    gc: str | None
     start_minutes: int
     launch_minutes: int
     load_hold_minutes: int
@@ -170,6 +172,7 @@ class Config:
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
             briefs_log=orca["briefs"]["log"],
             launch_env=orca.get("launch_env", {}),
+            gc=orca.get("gc"),
             start_minutes=deadlines.get("start_minutes", 10),
             launch_minutes=deadlines.get("launch_minutes", 15),
             load_hold_minutes=deadlines.get("load_hold_minutes", 5),
@@ -659,14 +662,28 @@ class Runner:
             if created and (terminal := self.orca.terminal(lane)):
                 self.orca.wake(terminal, f"unread Orca message {item}; read it now")
         hour = actions.stamp(self.now())[:13]
+        settled: list[Dispatch] = []
         for lane in self.orca.lanes():
             dispatch = self.orca.show(lane)
-            if not dispatch or dispatch.status in INACTIVE:
+            if not dispatch:
+                continue
+            if dispatch.status in INACTIVE:
+                if self.book.accept(RUNNER, f"reclaim:{dispatch.id}", "reclaim", dispatch.terminal, lane, None)[1]:
+                    settled.append(dispatch)
                 continue
             if dispatch.wait:
                 self.escalate(f"prompt:{dispatch.id}:{dispatch.wait.get('since', '')}", "PROMPT", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} parked on {dispatch.wait.get('reason', 'a prompt')}")
             elif not dispatch.live:
                 self.escalate(f"liveness:{dispatch.id}:{hour}", "LIVENESS", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} is not live; resume it in place, never relaunch on this alone")
+        if settled:
+            self.reclaim(settled)
+
+    def reclaim(self, settled: list[Dispatch]) -> None:
+        named = " ".join(f"{dispatch.lane}={dispatch.id}:{dispatch.terminal}" for dispatch in settled[:RECLAIM_NAMED])
+        more = f" and {len(settled) - RECLAIM_NAMED} more" if len(settled) > RECLAIM_NAMED else ""
+        scope = "".join(f" --dispatch {dispatch.id}" for dispatch in settled) if len(settled) <= RECLAIM_NAMED else ""
+        step = f"run {self.config.gc} --run {self.config.run}{scope}" if self.config.gc else "close each idle terminal and remove each finished worktree under R195"
+        self.escalate(f"reclaim:{settled[0].id}", "RECLAIM", "runner", f"{len(settled)} settled dispatch(es) still hold their terminal: {named}{more}; {step}")
 
     def overdue(self, container: str, about: str) -> None:
         moment = self.now()

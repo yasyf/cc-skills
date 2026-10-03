@@ -947,6 +947,8 @@ Question-reply actions currently complete on send without those worker acks.
 **O6. Never end a session.** The runner never stops, signals, releases, or closes
 Claude, Codex, Orca, terminals, PTY daemons, or their supervisors. A settled
 worker keeps its session open. No launch receipt or missing heartbeat changes this.
+The sweep names each newly settled dispatch once in a `RECLAIM` line with the
+config's `orca.gc` command, and the root runs that command under R195.
 
 *Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
 

@@ -81,6 +81,13 @@ because the runtime drops connections under load. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
 
+A launch that fails before worker-start rolls back what it made: it closes the
+tab of the terminal it opened and removes, with orca worktree rm --force, a
+worktree this run created, and its failure line ends "; rolled back terminal=...
+worktree=..." or "; rollback left ..." for whatever Orca refused. A worktree that
+existed before the launch stays, and nothing is rolled back once worker-start
+has run, because a dispatch may then own the terminal.
+
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
@@ -115,8 +122,29 @@ POLL=4
 RECEIPT=$STATE/$LANE.json
 WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
 
+ROLLBACK='' CREATED='' TERMINAL='' UNDONE='' KEPT=''
+rollback() {
+  [ -n "$ROLLBACK" ] || return 0
+  ROLLBACK=''
+  if [ -n "$TERMINAL" ]; then
+    if orca terminal close --terminal "$TERMINAL" --tab --json >/dev/null 2>&1; then
+      UNDONE="$UNDONE terminal=$TERMINAL"
+    else
+      KEPT="$KEPT terminal=$TERMINAL"
+    fi
+  fi
+  [ -n "$CREATED" ] || return 0
+  if orca worktree rm --worktree "path:$WT" --force --json >/dev/null 2>&1; then
+    rm -f "$STATE/$LANE.worktree"
+    UNDONE="$UNDONE worktree=$WT"
+  else
+    KEPT="$KEPT worktree=$WT"
+  fi
+}
+
 fail() {
-  printf '%s\n' "$LANE failed $*"
+  rollback
+  printf '%s\n' "$LANE failed $*${UNDONE:+; rolled back$UNDONE}${KEPT:+; rollback left$KEPT}"
   exit 1
 }
 
@@ -193,6 +221,7 @@ while ! registered; do
 done
 WT=$FOUND
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
+ROLLBACK=1
 spec
 
 listed() {
@@ -262,6 +291,7 @@ fi
 TIMEOUT=600000
 [ "$AGENT" = claude ] || TIMEOUT=90000
 STARTED=0
+ROLLBACK=''
 orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
   --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
 if jq -e '.result.taskId and .result.dispatchId' "$RECEIPT.new" >/dev/null 2>&1; then
