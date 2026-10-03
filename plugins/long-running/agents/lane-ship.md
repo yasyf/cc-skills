@@ -2,6 +2,7 @@
 name: lane-ship
 description: One implementation lane in a long-running drive that ships a PR or calls a skill such as submit-pr, open-pr, or codex. It is `lane` plus the Skill tool; its allowlist still leaves out ToolSearch, every MCP tool, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table.
 tools: Bash, Read, Edit, Write, Grep, Glob, Skill, Agent, SendMessage, Monitor, TaskStop
+model: opus
 experimental:
   cacheTtl: 1h
 ---

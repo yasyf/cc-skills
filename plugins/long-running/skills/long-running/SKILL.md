@@ -1280,7 +1280,12 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
 ```
 
 Spawn every lane as one of this plugin's two lane types, with the routing table's
-`model`. The standing subagents, the desk's shards, sequencers, and pollers are
+`model`. Both definitions default to Opus; set a different model explicitly
+when the assignment calls for it. Fable is local only, for top-level root
+orchestrators or extremely sensitive implementation. Ordinary workers and
+subdesks do not inherit Fable from the root.
+
+The standing subagents, the desk's shards, sequencers, and pollers are
 `long-running:lane`. An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or
 codex is `long-running:lane-ship`. Both leave out `ToolSearch`, the `mcp__*` tools, and
 the deferred-tool list, and both carry the 1h prompt cache a nine-minute poll needs.
@@ -1362,7 +1367,7 @@ red car evicts every car above it.
 
 Parallel lanes collide in meaning long before they collide in text: one lane builds on
 a mechanism another lane is deleting, and both PRs go green. A standing
-`semantic-collisions` lane, a `long-running:lane` on fable, holds the bird's-eye view
+`semantic-collisions` lane, a `long-running:lane` on opus at `xhigh`, holds the bird's-eye view
 of every open PR and worktree and resolves those collisions before either side lands.
 `reference/semantic-collisions-brief.md` is its brief, ready to paste.
 

@@ -310,9 +310,6 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "| fable-5 | 2 | 9 | 9 |" in claude
     assert "judge the output, not the price tag" in claude
     assert "`xhigh` by default" in claude
-    # Opus xhigh is the delegation default and the implementation lane at every
-    # horizon; fable keeps only the sensitive carve-out. Regressing these would
-    # re-route implementation subagents back to fable.
     assert "| opus-5 | 4 | 8 | 8 |" in claude
     assert "when in doubt, opus" in claude
     assert "when in doubt, fable" not in claude
@@ -326,19 +323,18 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "long-horizon agentic driving" in claude
     # The routing table is its own H2, mirroring the user's global CLAUDE.md.
     assert "\n## Model Routing\n" in claude
-    # Escalation: implementation crosses opus <-> astra first; every other lane
-    # needs an actual opus xhigh miss before fable. Pins the direction.
     assert "crosses between opus `xhigh` and astra `xhigh`" in claude
-    assert "reaches fable only once opus `xhigh` has actually fallen short" in claude
-    assert "never on the guess that it will" in claude
-    # An unpinned spawn runs opus; fable on a subagent is always typed by hand.
-    assert "Subagents never inherit fable" in claude
-    assert "A spawn naming no `model` runs opus" in claude
+    assert "Fable remains limited to local top-level root orchestrators or extremely sensitive implementation" in claude
+    assert "A missed attempt alone does not qualify." in claude
+    assert "Select worker models explicitly" in claude
+    assert "An omitted model can inherit the root's model." in claude
+    assert "Long-running worker definitions pin `model: opus`" in claude
+    assert "A spawn naming no `model` runs opus" not in claude
     # How a lane runs is not what kind of work it is.
     assert "Spawn convenience is not a routing input" in claude
     # A bounded N-unit sweep executes a written bar; opus is never its lane.
     assert "never runs on opus" in claude
-    assert "the one implementation lane fable keeps" in claude
+    assert "Select a Fable worker only for extremely sensitive local implementation" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
     # v6 2026-07-25 Opus 5 recalibration: bounded decision-light impl returns to
@@ -350,21 +346,15 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "sweeps fan out to gpt-6-astra" in claude
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
-    # The fable row opens on its single lane, not on the orchestration lanes it
-    # used to claim; design review stays opus, while synthesis defaults to opus
-    # with astra equally accepted.
-    assert "| fable-5 | 2 | 9 | 9 | Exactly one lane:" in claude
+    assert "| fable-5 | 2 | 9 | 9 | Local only, for top-level root orchestrators or extremely sensitive implementation" in claude
     assert "synthesis/accept-reject" in claude
     # Prose routes to gpt-6-astra via the codex skill; capt-hook's prose gate
     # blocks a Claude-model spawn that would write the prose itself.
     assert "never down-route writing" in claude
-    # 2026-07-03: security review/audit + verification of security-sensitive code
-    # route to gpt-6-astra; implementing that code stays fable (carve-out must survive).
-    # "count as same-tier" keeps the verification-tier rule from contradicting the
-    # gpt-6-astra lanes — without it agents refuse the routing (observed live).
     assert "security review/audit" in claude
     assert "verification of security-sensitive code" in claude
-    assert "very sensitive or error-prone implementation" in claude
+    assert "extremely sensitive implementation" in claude
+    assert "very sensitive or error-prone implementation" not in claude
     assert "count as same-tier" in claude
     # gpt-6-astra v7 (2026-09-05): astra Cost 3 and the prose lane, large net-new
     # stays opus; recon lane defaults to luna. Ultra is not a retry rung.
@@ -372,8 +362,6 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "gpt-5.6-luna" in claude
     assert "recon lane" in claude
     assert "net-new code stay on opus" in claude
-    # "fable if crucial" was a second, broader implementation carve-out — only
-    # "very sensitive or error-prone" keeps fable (refuter finding, 2026-08-01).
     assert "fable if crucial" not in claude
     assert "fable if the surface is very crucial" not in claude
     assert "ultra execution mode" in claude
