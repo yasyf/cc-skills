@@ -44,6 +44,12 @@ of the worktree, and a terminal that was not there before the create is adopted;
 the script creates again only when that list shows none. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
 
+orca worktree create opens a first terminal, a login shell, in every worktree
+it creates without --agent, and returns no handle for it. When this launch
+created the worktree and Orca reports no setup terminal or default tabs, the
+script closes every terminal Orca lists there with no agent, before creating
+its own. Release v3 kept 279 of these idle shells, one per lane.
+
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
 already bypass approvals, so there is no custom command or bypass-permissions screen check.
@@ -53,10 +59,13 @@ no tier flag.
 sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
 fast tier never depends on Orca's runtime config. It also passes
--c check_for_update_on_startup=false to disable the startup update prompt, and
--c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}> so codex starts none of the
-config.toml servers; servers a codex plugin bundles still start. A codex lane on
-Orca's agent keeps Orca's own command line.
+-c check_for_update_on_startup=false to disable the startup update prompt,
+-c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}>, and then
+-c mcp_servers.<name>.enabled=false for every server config.toml names that
+ORCA_LAUNCH_CODEX_MCP does not. An -c table merges into config.toml rather than
+replacing it, so -c mcp_servers={} alone left node_repl, computer-use, and the
+Slack MCP running beside every sol lane. Servers a codex plugin bundles still
+start. A codex lane on Orca's agent keeps Orca's own command line.
 The command prepends the plugin bin to the terminal's own PATH, never the
 caller's expanded PATH. When Orca times out at agent_readiness on a codex or sol
 worker whose terminal is up, the script reads the screen first. If it contains
@@ -134,7 +143,16 @@ DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
 COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$DRIVE} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode --strict-mcp-config${ORCA_LAUNCH_MCP_CONFIG:+ --mcp-config $ORCA_LAUNCH_MCP_CONFIG}${ORCA_LAUNCH_CLAUDE_ARGS:+ $ORCA_LAUNCH_CLAUDE_ARGS} --model $MODEL_ID --effort $EFFORT"
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
 CODEX_MCP=${ORCA_LAUNCH_CODEX_MCP:-'{}'}
-[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP'"
+CODEX_OFF=
+[ "$AGENT" != sol ] || CODEX_OFF=$(python3 - "${CODEX_HOME:-$HOME/.codex}/config.toml" "$CODEX_MCP" <<'PY'
+import pathlib, sys, tomllib
+config = pathlib.Path(sys.argv[1])
+servers = tomllib.loads(config.read_text()).get("mcp_servers", {}) if config.exists() else {}
+named = tomllib.loads(f"named = {sys.argv[2]}")["named"]
+print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if name not in named))
+PY
+) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
+[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
 pointer() {
   printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
@@ -158,9 +176,9 @@ registered() {
   FOUND=$(orca worktree show --worktree "path:$WT" --json | jq -er '.result.worktree.path') || return 1
 }
 
-attempt=0
+attempt=0 CREATED=''
 while ! registered; do
-  attempt=$((attempt + 1))
+  attempt=$((attempt + 1)) CREATED=1
   [ "$attempt" -le 4 ] || fail "worktree create: $(head -c 300 "$STATE/$LANE.worktree.json")"
   if orca worktree create --name "$WORKTREE_NAME" --repo "id:$REPO" --base-branch "$BASE" \
     "$@" --setup run --json >"$STATE/$LANE.worktree.json" 2>&1 &&
@@ -187,8 +205,16 @@ listed() {
   done
 }
 
+close_startup_shells() {
+  jq -e '.result | .worktree and (.setup or .defaultTabs or .setupReceipt.terminalHandle | not)' "$STATE/$LANE.worktree.json" >/dev/null 2>&1 || return 0
+  for shell in $(jq -r '.result.terminals[] | select((.agentIdentity // "") == "") | .handle' "$STATE/$LANE.terminals.json"); do
+    orca terminal close --terminal "$shell" --tab --json >>"$STATE/$LANE.startup.json" 2>&1 || :
+  done
+}
+
 attempt=0 TERMINAL=''
-[ "$AGENT" = codex ] || { listed && BEFORE=$LISTED; }
+[ "$AGENT" = codex ] && [ -z "$CREATED" ] || { listed && BEFORE=$LISTED; }
+[ -z "$CREATED" ] || close_startup_shells
 until [ "$AGENT" = codex ] || [ -n "$TERMINAL" ]; do
   attempt=$((attempt + 1))
   [ "$attempt" -le 3 ] || fail "terminal create: $(cat "$STATE/$LANE.terminal.json" "$STATE/$LANE.terminal.err" | head -c 300)"
