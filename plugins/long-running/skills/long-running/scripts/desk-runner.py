@@ -61,6 +61,8 @@ STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 INACTIVE = frozenset({"completed", "failed"})
 RECLAIM_NAMED = 10
+MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|claude-[\w.-]+|gpt-[\w.-]+")
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
 RETRYABLE = frozenset({"blocked", "superseded"})
 SWEEP_EVERY = timedelta(minutes=5)
@@ -980,6 +982,12 @@ def run_landing(runner: Runner, once: bool) -> int:
         runner.shell.sleep(max(0.0, interval - (runner.now() - started).total_seconds()))
 
 
+def launch_model(model: str) -> str:
+    if not MODELS.fullmatch(model):
+        raise argparse.ArgumentTypeError(f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*")
+    return model
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="desk-runner.py", description=__doc__.split("\n", 1)[0])
     verbs = parser.add_subparsers(dest="verb", required=True)
@@ -992,8 +1000,8 @@ def build_parser() -> argparse.ArgumentParser:
     launch = verbs.add_parser("launch")
     launch.add_argument("--key", required=True)
     launch.add_argument("--lane", required=True)
-    launch.add_argument("--model", required=True)
-    launch.add_argument("--effort", required=True)
+    launch.add_argument("--model", required=True, type=launch_model)
+    launch.add_argument("--effort", required=True, choices=EFFORTS)
     launch.add_argument("--brief", required=True, type=Path)
     launch.add_argument("--owner-directed", action="store_true")
     policy = verbs.add_parser("policy")

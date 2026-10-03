@@ -664,10 +664,27 @@ def test_launch_points_at_the_absolute_brief(orca):
     assert f"read {orca.brief.resolve()} in full" in flag(orca.calls("orchestration worker-start")[0], "--spec")
 
 
-def test_launch_rejects_an_unknown_effort(orca):
+def test_launch_rejects_an_unknown_effort_in_one_line(orca):
     result = orca.launch("lane-a", "opus", "extreme", str(orca.brief))
-    assert result.returncode == 2
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed effort extreme unknown: use low, medium, high, xhigh, or max"
     assert orca.calls() == []
+
+
+def test_launch_rejects_an_unknown_model_in_one_line(orca):
+    result = orca.launch("lane-a", "gemini", "xhigh", str(orca.brief))
+    assert result.returncode == 1
+    assert result.stdout.strip() == "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*"
+    assert orca.calls() == []
+
+
+def test_an_astra_lane_starts_gpt_6_astra_on_the_codex_agent(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    result = orca.launch("lane-a", "astra", "xhigh", str(orca.brief))
+    assert result.returncode == 0, result.stdout + result.stderr
+    [start] = orca.calls("orchestration worker-start")
+    assert (flag(start, "--agent"), flag(start, "--model")) == ("codex", "gpt-6-astra")
 
 
 def message(msg_id: str, kind: str, sender: str, subject: str, body: str) -> dict:

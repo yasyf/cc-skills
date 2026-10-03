@@ -74,7 +74,7 @@ single-line screen quote, whitespace squeezed and cut to 300 characters, without
 typing into the prompt. Otherwise, it types the spec pointer into that terminal
 itself and prints the lane as unsupervised: it runs, but Orca carries no worker_done for it.
 
-<model> is opus, sonnet, fable, a claude-* model id, codex (gpt-6-astra), sol
+<model> is opus, sonnet, fable, a claude-* model id, astra or codex (gpt-6-astra), sol
 (gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
 because the runtime drops connections under load. A worktree create that fails
@@ -151,18 +151,18 @@ fail() {
 
 AGENT=claude
 case $MODEL in
-  codex) AGENT=codex MODEL_ID=gpt-6-astra ;;
+  codex | astra) AGENT=codex MODEL_ID=gpt-6-astra ;;
   sol) AGENT=sol MODEL_ID=gpt-6.1-sol ;;
   gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
   fable) MODEL_ID=claude-fable-5-1 ;;
   claude-*) MODEL_ID=$MODEL ;;
-  *) usage ;;
+  *) fail "model $MODEL unknown: use opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*" ;;
 esac
 case $EFFORT in
   low | medium | high | xhigh | max) ;;
-  *) usage ;;
+  *) fail "effort $EFFORT unknown: use low, medium, high, xhigh, or max" ;;
 esac
 [ -r "$BRIEF" ] || fail "brief $BRIEF unreadable"
 BRIEF=$(cd "$(dirname "$BRIEF")" && pwd)/$(basename "$BRIEF")
