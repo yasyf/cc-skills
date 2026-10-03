@@ -100,6 +100,8 @@ class Orca:
         self.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": state, "taskId": "task_a", "dispatchId": "ctx_a"}}})
         self.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": ["❯", screen]}}}})
         self.reply("terminal list", listing(agent))
+        self.reply("terminal close", SENT)
+        self.reply("worktree rm", SENT)
 
     def launch(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
@@ -494,7 +496,9 @@ def test_launch_fails_when_orca_never_detects_the_agent_within_the_boot_ceiling(
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "10"
     result = orca.launch()
     assert result.returncode == 1
-    assert result.stdout.strip() == "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s"
+    assert result.stdout.strip() == (
+        f"lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 10s; rolled back terminal=term_a worktree={orca.worktree}"
+    )
     assert len(orca.calls("terminal list")) == 4
     assert orca.calls("orchestration worker-start") == []
     assert orca.calls("terminal send") == []
@@ -531,7 +535,8 @@ def test_a_typed_command_that_starts_no_agent_fails_the_launch_before_worker_sta
     result = orca.launch()
     assert result.returncode == 1
     assert result.stdout.strip() == (
-        "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 12s; the command was typed into the terminal once"
+        "lane-a failed boot terminal=term_a: orca terminal list shows agentIdentity=none, not claude, after 12s; the command was typed into the terminal once;"
+        f" rolled back terminal=term_a worktree={orca.worktree}"
     )
     assert len(orca.calls("terminal send")) == 1
     assert orca.calls("orchestration worker-start") == []
@@ -544,7 +549,7 @@ def test_a_failed_command_send_fails_the_launch_before_worker_start(orca):
     orca.reply("terminal send", {"rc": 1, "out": "runtime_unavailable"})
     result = orca.launch()
     assert result.returncode == 1
-    assert result.stdout.strip() == "lane-a failed command send terminal=term_a after Orca dropped the startup command"
+    assert result.stdout.strip() == f"lane-a failed command send terminal=term_a after Orca dropped the startup command; rolled back terminal=term_a worktree={orca.worktree}"
     assert orca.calls("orchestration worker-start") == []
 
 
@@ -554,7 +559,7 @@ def test_a_command_line_wrapped_across_screen_rows_is_not_typed_again(orca):
     orca.reply("terminal read", screen("yasyf@mac ~/v3-lane-a-base> env CLAUDE_LONG_RUNN", "ING_LANE=lane-a claude --model claude-opus-5-5"))
     result = orca.launch()
     assert result.returncode == 1
-    assert result.stdout.strip().endswith("after 12s")
+    assert result.stdout.strip().endswith(f"after 12s; rolled back terminal=term_a worktree={orca.worktree}")
     assert orca.calls("terminal send") == []
 
 
@@ -613,7 +618,7 @@ def test_a_failed_create_reports_its_output_after_three_attempts(orca):
     orca.reply("terminal list", bare())
     result = orca.launch()
     assert result.returncode == 1
-    assert result.stdout.strip() == "lane-a failed terminal create: runtime_unavailable"
+    assert result.stdout.strip() == f"lane-a failed terminal create: runtime_unavailable; rolled back worktree={orca.worktree}"
     assert len(orca.calls("terminal create")) == 3
 
 
@@ -841,3 +846,64 @@ def test_a_cli_runs_by_name_from_any_directory_with_the_plugin_bin_on_path(scrip
     result = subprocess.run([script, "--help"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith(f"usage: {script}")
+
+
+def test_a_launch_that_fails_before_worker_start_closes_its_tab_and_removes_the_worktree_it_created(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    assert orca.launch().returncode == 1
+    assert orca.calls("terminal close")[-1] == ["terminal", "close", "--terminal", "term_a", "--tab", "--json"]
+    [remove] = orca.calls("worktree rm")
+    assert remove == ["worktree", "rm", "--worktree", f"path:{orca.worktree}", "--force", "--json"]
+    assert not (orca.receipts / "lane-a.worktree").exists()
+    assert [" ".join(call[:2]) for call in orca.calls()][-2:] == ["terminal close", "worktree rm"]
+
+
+def test_a_relaunch_that_fails_keeps_the_worktree_it_found(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.worktree.mkdir()
+    result = orca.launch()
+    assert result.stdout.strip().endswith("; rolled back terminal=term_a")
+    assert orca.calls("worktree create") == []
+    assert orca.calls("worktree rm") == []
+
+
+def test_a_rollback_orca_refuses_is_named_in_the_failure(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.reply("worktree rm", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_locked"}}})
+    result = orca.launch()
+    assert result.stdout.strip().endswith(f"; rolled back terminal=term_a; rollback left worktree={orca.worktree}")
+    assert (orca.receipts / "lane-a.worktree").read_text().strip() == str(orca.worktree)
+
+
+@pytest.mark.parametrize(("state", "screen"), [("failed", "❯"), ("ready", "plan mode on")])
+def test_nothing_is_rolled_back_once_worker_start_has_run(orca, state, screen):
+    orca.healthy(state=state, screen=screen)
+    assert orca.launch().returncode == 1
+    assert orca.calls("terminal close") == []
+    assert orca.calls("worktree rm") == []
+
+
+def test_a_worktree_that_was_only_briefly_unregistered_is_never_removed(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
+    orca.worktree.mkdir()
+    found = {"rc": 0, "out": {"ok": True, "result": {"worktree": {"path": str(orca.worktree)}}}}
+    orca.reply("worktree show", {"rc": 1, "out": ""}, found)
+    orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "worktree_exists"}}})
+    result = orca.launch()
+    assert result.stdout.strip().endswith("; rolled back terminal=term_a")
+    assert orca.calls("worktree rm") == []
+
+
+def test_an_adopted_terminal_is_named_not_closed(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    orca.reply("terminal create", TIMED_OUT)
+    orca.reply("terminal list", bare(), listing(None))
+    result = orca.launch()
+    assert result.stdout.strip().endswith(f"; rolled back worktree={orca.worktree}; rollback left terminal=term_a")
+    assert ["terminal", "close", "--terminal", "term_a", "--tab", "--json"] not in orca.calls("terminal close")

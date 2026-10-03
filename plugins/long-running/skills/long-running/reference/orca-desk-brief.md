@@ -48,7 +48,8 @@ Fill the paths and ids in this JSON and use the same file for both processes.
 `store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
 holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
 owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
-environment. Set the accepted prefix policy's revision to #28601's revision.
+environment. `orca.gc` names the repo's gc command, which every `RECLAIM` line
+carries. Set the accepted prefix policy's revision to #28601's revision.
 
 ```json
 {
@@ -59,6 +60,7 @@ environment. Set the accepted prefix policy's revision to #28601's revision.
     "run": "<run id>",
     "receipts": "/absolute/drive/receipts",
     "briefs": {"repo": "/absolute/drive/checkout", "log": "<briefs log id>"},
+    "gc": "/absolute/drive/checkout/.agents/skills/orca/scripts/orca-gc",
     "launch_env": {
       "ORCA_LAUNCH_RUN": "<run id>",
       "ORCA_LAUNCH_REPO": "<Orca repo id>",
@@ -171,7 +173,9 @@ address the original question id through `--reply-to`.
 
 **O6. Never end a session.** The runner never stops, signals, releases, or closes
 Claude, Codex, Orca, a terminal, a PTY daemon, or a supervisor. Finished sessions
-stay open. An `OUTCOME` line does not authorize cleanup.
+stay open. An `OUTCOME` line does not authorize cleanup. The sweep names each
+newly settled dispatch once in a `RECLAIM` line with the `orca.gc` command, and
+the root runs that command under R195.
 
 **O7. Keep action records.** The action record carries acceptance,
 delivery, start, result, and verification. Neither a sent message nor a moved
@@ -262,6 +266,7 @@ identify the cause; `DECIDE` uses the question id.
 | `PROMPT` | Resolve the prompt on the named dispatch and terminal. |
 | `LIVENESS` | Inspect the non-live dispatch; preserve its session. |
 | `STALE-MAIL` | Resolve unread work on a completed or failed dispatch. |
+| `RECLAIM` | Run the line's gc command; it closes each idle settled terminal's tab and removes each finished worktree under R195. |
 | `STALE-POLICY` | Reconcile the rejected revision with the accepted predecessor. |
 | `LAUNCH-FAILED` | Read the named launch failure before issuing any new action. |
 | `UNSUPERVISED` | Arrange the launched lane's reporting without launching it again. |

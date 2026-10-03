@@ -190,9 +190,14 @@ exception is a settled dispatch's idle terminal, which the root's gc closes
 after the lane's `worker_done`. Idle means an empty prompt, nothing running, no
 unanswered question, and no output in 10 minutes, read again right before the
 close. gc never touches a live or unsettled worker or a terminal outside the
-Run. It removes a worktree only when it is clean, fully pushed or landed, has no
-open PR, and no other terminal in `orca terminal list` is attached to it. The
-runner never does either (O6). Forge-AI/monorepo's gc is
+Run. It closes a terminal with `orca terminal close --terminal <handle> --tab`
+and removes a worktree with `orca worktree rm`, only when the worktree is clean,
+fully pushed or landed, has no open PR, and no other terminal in
+`orca terminal list` is attached to it. The runner never does either (O6); its
+sweep names each newly settled dispatch in one `RECLAIM` line carrying the gc
+command, and the root runs it. A launch that fails before `worker-start` is
+not a session: `orca-launch.sh` closes the tab it opened and removes a worktree
+it created. Forge-AI/monorepo's gc is
 `.agents/skills/orca/scripts/orca-gc --run <run> [--dispatch <ctx>]`.
 
 The owner ruled this on 2026-10-02: "1 and improve our orca skill and scripts to

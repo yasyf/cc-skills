@@ -807,3 +807,38 @@ def test_the_orca_loop_sleeps_ten_seconds_between_passes(shell, config, tmp_path
     with pytest.raises(RuntimeError, match="end loop"):
         runner_module.run_orca(runner, False)
     assert sleeps == [10]
+
+
+def with_gc(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["orca"]["gc"] = ".agents/skills/orca/scripts/orca-gc"
+    config.write_text(json.dumps(raw))
+
+
+def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shell, config, tmp_path):
+    with_gc(config)
+    shell.launch(LANE, "ctx_a", status="completed")
+    shell.launch("live-lane", "ctx_b")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    reclaims = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    assert len(reclaims) == 1
+    assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
+    assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
+
+
+def test_a_large_settled_set_names_the_whole_run(shell, config, tmp_path):
+    with_gc(config)
+    for index in range(runner_module.RECLAIM_NAMED + 2):
+        shell.launch(f"lane-{index:02d}", f"ctx_{index:02d}", status="failed")
+    orca_pass(shell, config)
+    [reclaim] = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    assert " and 2 more; run .agents/skills/orca/scripts/orca-gc --run run_1" in reclaim
+    assert reclaim.endswith("--run run_1")
+
+
+def test_without_a_gc_the_line_names_the_r195_bar(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a", status="completed")
+    orca_pass(shell, config)
+    [reclaim] = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    assert reclaim.endswith("close each idle terminal and remove each finished worktree under R195")
