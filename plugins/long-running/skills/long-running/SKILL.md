@@ -1815,7 +1815,7 @@ the `bin/handoff.py` wrapper. The script uses only the standard library and has 
 verbs:
 
 ```text
-handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--strict] [--folder] [--repo PATH]
+handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO] [--strict] [--folder] [--repo PATH]
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH]
 ```
 
@@ -1843,7 +1843,7 @@ monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
 without cc-notes, `--folder` writes only that file. Each generation run is capped at
-120 seconds and prints JSON `{id, file, digest}`.
+120 seconds and prints JSON `{id, generated, file, digest}`, where `id` is the active doc.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
@@ -1870,14 +1870,21 @@ owner-gate lines without live answer ids appear under `## Lint findings` and cou
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 
-**Supersede and point.** The hook supersedes the root's narrative doc and every other
-active `progress:<slug>` doc with the generated doc's id. Exactly one doc stays active;
-history is the supersede chain.
+**Supersede and point.** A session keeps one generated doc. The hook passes it as
+`--generated-doc`, and `generate` edits it in place while it is active instead of adding
+another. The root's hand-written doc stays active as the record when it is the
+`--narrative-doc`, or when this session created it in the last 30 minutes or since the
+previous compaction (`--fresh-since`). The generated doc then carries it under
+`_From doc <id>._`. The active doc is the hand-written record when there is one, else
+the generated doc, and it supersedes every other active `progress:<slug>` doc.
+
+*Prevents the release-v3 PreCompact handoff of 2026-10-03 00:50Z superseding hand-written
+doc 6df6ee4 eight minutes after the root wrote it, while the summary still named 6df6ee4.*
 
 The hook adds one pointer line to the plan the first time. It starts with
 `- **Progress (read first after any compaction):**` and names the label and generated
 doc id, or the generated filename for the file fallback. Later handoffs change only
-that id or name. The handoff never restructures the plan. Let the hook do the
+that id or name, always to the active doc. The handoff never restructures the plan. Let the hook do the
 superseding and pointer edit.
 
 **`/compact`.** Once the progress record and pointer are ready, the hook starts a
@@ -1892,12 +1899,14 @@ by hand and blocks nothing.
 `generate` again unless the hook generated a handoff in the last five minutes. It
 carries the narrative forward, so every compaction has a fresh generated record,
 including Claude Code's own auto-compaction before the root writes anything. It
-still appends `standing.py titles` to the compaction instructions.
+still appends `standing.py titles` to the compaction instructions. It ends them with
+`Quote: active progress doc: <id8>; the id in this summary wins over any id captured
+earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed, at most 2,000 UTF-8 bytes. Its first line names the program and
 says to read the generated handoff with `ccn doc show <id7>` or the file path before
-acting, then the plan, then reload Skill `long-running` if its rules are gone. The
+acting, or the active hand-written doc and then the generated doc when one is active, then the plan, then reload Skill `long-running` if its rules are gone. The
 plan and progress record supersede the summary.
 
 The next line lists every live standing inbox rule id. Standing rule texts, clipped

@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,13 @@ if args[:2] == ["doc", "add"]:
     open(os.path.join(state, added + ".md"), "w").write(sys.stdin.read())
     json.dump(docs + [{"id": added, "title": args[2], "tags": ["progress:brook"], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
     print(json.dumps({"id": added}))
+if args[:2] == ["doc", "edit"]:
+    open(os.path.join(state, args[2] + ".md"), "w").write(sys.stdin.read())
+    title = args[args.index("--title") + 1]
+    json.dump([d | {"title": title} if d["id"] == args[2] else d for d in json.load(open(listed))], open(listed, "w"))
+if args[:2] == ["doc", "history"]:
+    created = json.load(open(os.path.join(state, "created.json"))).get(args[2], {})
+    print(json.dumps([{"kind": "create", "time": "2026-09-01T00:00:00Z"} | created]))
 if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != "fail":
     json.dump([d for d in json.load(open(listed)) if d["id"] != args[2]], open(listed, "w"))
 if args[:2] == ["doc", "show"]:
@@ -140,6 +148,7 @@ def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (bin_dir / "ccn").chmod(0o755)
     (state_dir / "docs.json").write_text("[]")
     (state_dir / "answers.json").write_text("[]")
+    (state_dir / "created.json").write_text("{}")
     monkeypatch.setenv("FAKE_CCN", str(state_dir))
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return state_dir
@@ -185,7 +194,7 @@ def test_the_slug_comes_from_the_plans_progress_line(home: Path, plan: Path, doc
     assert "--label progress:release-v3" in pending(session)[0]
 
 
-def test_a_new_doc_is_folded_into_a_generated_doc_that_supersedes_both(home: Path, plan: Path, docs: Path) -> None:
+def test_a_new_doc_stays_active_beside_a_generated_doc_that_supersedes_the_rest(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     handoff.CompactionState(active=True, plan_path=str(plan)).save(bash(session))
@@ -201,22 +210,31 @@ def test_a_new_doc_is_folded_into_a_generated_doc_that_supersedes_both(home: Pat
     result = handoff.compact_when_idle(stop_event(session, background_tasks=[{"id": "t1", "type": "teammate", "status": "running", "description": "orca-desk-6"}]))
 
     assert result.system_message.startswith("The handoff is recorded")
-    assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
-    assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
+    assert not any(call[:3] == ["doc", "supersede", "b" * 40] for call in ccn_calls(docs))
     generated = (docs / ("d" * 40 + ".md")).read_text()
     assert generated.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
     assert "- teammate: orca-desk-6 (running)" in generated
-    assert state(session).digest.startswith("Compacted long-running drive `brook`. Before acting, read the generated handoff `ccn doc show ddddddd`")
+    assert state(session).digest.startswith(
+        "Compacted long-running drive `brook`. Before acting, read the active progress doc `ccn doc show bbbbbbb` (hand-written) "
+        "and its generated sections `ccn doc show ddddddd`"
+    )
+    assert (state(session).active_doc, state(session).generated_doc) == ("b" * 40, "d" * 40)
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
-    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `dddddddd`" in lines[2]
+    assert lines[2].startswith(handoff.POINTER_PREFIX) and "now `bbbbbbbb`" in lines[2]
 
-    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due", prior=["d" * 40]).save(bash(session))
-    (docs / "docs.json").write_text(json.dumps([doc("d" * 40, "2026-09-30T06:00:00Z") | {"title": "brook: progress (generated)"}, doc("c" * 40, "2026-09-30T07:00:00Z")]))
+    with handoff.CompactionState.mutate(bash(session)) as saved:
+        saved.phase, saved.prior = "due", ["b" * 40, "d" * 40]
+    (docs / "docs.json").write_text(
+        json.dumps([doc("d" * 40, "2026-09-30T06:00:00Z") | {"title": "brook: progress (generated)"}, doc("c" * 40, "2026-09-30T07:00:00Z")])
+    )
     handoff.compact_when_idle(stop_event(session))
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
-    assert "now `eeeeeeee`" in pointer
-    assert ["doc", "supersede", "c" * 40, "--by", "e" * 40] in ccn_calls(docs)
+    assert "now `cccccccc`" in pointer
+    assert sum(call[:2] == ["doc", "add"] for call in ccn_calls(docs)) == 1
+    assert ["doc", "edit", "d" * 40] == next(call[:3] for call in ccn_calls(docs) if call[:2] == ["doc", "edit"])
+    assert (docs / ("d" * 40 + ".md")).read_text().endswith("_From doc ccccccc._\n\n## Standing owner rules\n- none\n")
     assert plan.read_text().startswith("# brook\n\n")
 
 
@@ -460,7 +478,7 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
 
     (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n")
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
-    assert ["doc", "supersede", "b" * 40, "--by", "d" * 40] in ccn_calls(docs)
+    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
     assert "- 4ffc9a5 When does a merged change get released?" in (docs / ("d" * 40 + ".md")).read_text()
 
 
@@ -550,6 +568,39 @@ def test_a_resumed_drive_without_a_progress_doc_points_at_the_label(home: Path, 
         f"Read `{plan}` before anything else, then the progress doc: `ccn doc list --label progress:brook`, "
         "then `ccn doc show <id>`; they supersede the conversation so far."
     )
+
+
+def test_a_hand_written_doc_minutes_old_survives_compaction_and_the_summary_names_it(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    old_generated = doc("4" * 40, "2026-10-02T22:12:33Z") | {"title": "brook: progress 2026-10-02T2212Z (generated)"}
+    record = doc("6" * 40, "2026-10-03T00:42:16Z")
+    (docs / "docs.json").write_text(json.dumps([old_generated, record]))
+    (docs / ("6" * 40 + ".md")).write_text("## Root's next actions\n1. 12-item plan\n")
+    minutes_ago = datetime.fromtimestamp(handoff.time.time() - 480, timezone.utc).isoformat()
+    (docs / "created.json").write_text(json.dumps({"6" * 40: {"session": SESSION, "time": minutes_ago}}))
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    instructions = handoff.compaction_instructions(precompact(session)).message
+
+    assert ["doc", "supersede", "4" * 40, "--by", "6" * 40] in ccn_calls(docs)
+    assert not any(call[:3] == ["doc", "supersede", "6" * 40] for call in ccn_calls(docs))
+    assert instructions == (
+        f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. "
+        "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
+    )
+    [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
+    assert "now `66666666`" in pointer
+
+    generated = state(session).generated_doc
+    handoff.reground(session_start(session, "compact"))
+    with handoff.CompactionState.mutate(bash(session)) as saved:
+        saved.generated_at = None
+    handoff.compaction_instructions(precompact(session))
+
+    assert sum(call[:2] == ["doc", "add"] for call in ccn_calls(docs)) == 1
+    assert ["doc", "edit", generated] == next(call[:3] for call in ccn_calls(docs) if call[:2] == ["doc", "edit"])
+    assert state(session).active_doc == "6" * 40
+    assert not any(call[:3] == ["doc", "supersede", "6" * 40] for call in ccn_calls(docs))
 
 
 def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, plan: Path, docs: Path) -> None:

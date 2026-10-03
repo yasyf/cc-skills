@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import handoff
@@ -22,6 +23,8 @@ class FakeCcn(ledger.Shell):
         self.rows = rows
         self.calls: list[list[str]] = []
         self.added: dict[str, str] = {}
+        self.titles: dict[str, str] = {}
+        self.created: dict[str, dict] = {}
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
@@ -33,15 +36,27 @@ class FakeCcn(ledger.Shell):
         if verb == ["answer", "list"]:
             return json.dumps([a for a in self.answers if all(label in a["tags"] for label in labels)])
         if verb == ["doc", "list"]:
-            return json.dumps([{"id": doc, "updated_at": f"2026-10-01T0{i}:00:00Z"} for i, doc in enumerate(self.active)])
+            return json.dumps(
+                [
+                    {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
+                    for i, doc in enumerate(self.active)
+                ]
+            )
         if verb == ["doc", "show"]:
             return json.dumps({"id": argv[5], "body": self.docs[argv[5]]})
+        if verb == ["doc", "history"]:
+            return json.dumps([{"kind": "edit", "time": "2026-10-01T00:00:00Z"}, {"kind": "create", "time": "2026-09-01T00:00:00Z"} | self.created.get(argv[5], {})])
         if verb == ["doc", "add"]:
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
             self.active.append(doc)
             self.added[doc] = argv[5]
+            self.titles[doc] = argv[5]
             return json.dumps({"id": doc[:40]})
+        if verb == ["doc", "edit"]:
+            self.docs[argv[5]] = stdin or ""
+            self.titles[argv[5]] = argv[argv.index("--title") + 1]
+            return ""
         if verb == ["doc", "supersede"]:
             self.active.remove(argv[5])
             return ""
@@ -132,15 +147,97 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert body.split("## Root narrative\n")[1].strip() == f"_From doc aaaaaaa, carried forward._\n\n{shell.docs['a' * 40]}"
 
 
-def test_the_roots_fresh_doc_becomes_the_narrative_and_is_superseded(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_roots_fresh_doc_becomes_the_narrative_and_stays_the_active_doc(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
     shell.active.append("b" * 40)
 
     out = generate(drive_home, shell, "--narrative-doc", "b" * 40, capsys=capsys)
 
+    assert out["id"] == "b" * 40
+    assert shell.active == ["b" * 40, out["generated"]]
+    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", "b" * 40] in shell.calls
+    assert shell.docs[out["generated"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+
+
+def handwritten(shell: FakeCcn, session: str, age: timedelta) -> str:
+    doc = "b" * 40
+    shell.docs[doc] = "## Root's next actions\n1. land l11"
+    shell.active.append(doc)
+    shell.created[doc] = {"session": session, "time": (datetime.now(timezone.utc) - age).isoformat()}
+    return doc
+
+
+def test_a_hand_written_doc_this_session_wrote_minutes_ago_is_never_superseded(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    shell.titles["a" * 40] = "brook: progress 2026-10-01T0000Z (generated)"
+    record = handwritten(shell, "s-root", timedelta(minutes=8))
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    assert out["id"] == record
+    assert shell.active == [record, out["generated"]]
+    assert not any(call[3:6] == ["doc", "supersede", record] for call in shell.calls)
+    assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", record] in shell.calls
+    assert shell.docs[out["generated"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert out["digest"].startswith(
+        "Compacted long-running drive `brook`. Before acting, read the active progress doc `ccn doc show bbbbbbb` (hand-written) "
+        f"and its generated sections `ccn doc show {out['generated'][:7]}` (it supersedes the summary)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("session", "age"), [("s-other", timedelta(minutes=8)), ("s-root", timedelta(minutes=45)), (None, timedelta(minutes=8))]
+)
+def test_a_hand_written_doc_from_another_session_or_past_the_window_is_superseded(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], session: str | None, age: timedelta
+) -> None:
+    shell = shell_with()
+    record = handwritten(shell, session, age)
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    assert out["id"] == out["generated"] != record
     assert shell.active == [out["id"]]
-    assert shell.docs[out["id"]].endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
+    assert ["ccn", "-R", REPO, "doc", "supersede", record, "--by", out["id"]] in shell.calls
+
+
+def test_a_hand_written_doc_written_since_the_previous_compaction_stays_active_past_the_window(
+    drive_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shell = shell_with()
+    record = handwritten(shell, "s-root", timedelta(minutes=45))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
+
+    out = generate(drive_home, shell, "--fresh-since", since, capsys=capsys)
+
+    assert out["id"] == record
+
+
+def test_the_sessions_generated_doc_is_edited_in_place_not_chained(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+    first = generate(drive_home, shell, capsys=capsys)
+
+    second = generate(drive_home, shell, "--generated-doc", first["generated"], capsys=capsys)
+    third = generate(drive_home, shell, "--generated-doc", first["generated"], capsys=capsys)
+
+    assert first["id"] == second["id"] == third["id"] == first["generated"]
+    assert shell.active == [first["id"]]
+    assert sum(call[3:5] == ["doc", "add"] for call in shell.calls) == 1
+    assert sum(call[3:5] == ["doc", "edit"] for call in shell.calls) == 2
+    assert shell.titles[first["id"]].endswith(" (generated)")
+    body = shell.docs[first["id"]]
+    assert body.count("## Standing owner rules") == 1
+    assert "_From doc aaaaaaa, carried forward._" in body
+
+
+def test_a_generated_doc_that_is_no_longer_active_is_replaced(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
+
+    out = generate(drive_home, shell, "--generated-doc", "9" * 40, capsys=capsys)
+
+    assert out["generated"] != "9" * 40
+    assert not any(call[3:5] == ["doc", "edit"] for call in shell.calls)
 
 
 def test_a_carried_narrative_is_only_the_previous_narrative_section(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -193,7 +290,7 @@ def test_digest_stays_inside_the_injected_context_budget() -> None:
         tasks=[{}] * 200,
     )
 
-    text = handoff.digest(big, "`ccn doc show 1234567`")
+    text = handoff.digest(big, "the generated handoff `ccn doc show 1234567`")
 
     assert len(text.encode()) <= handoff.DIGEST_BUDGET
     assert text.startswith("Compacted long-running drive `release-v3`. Before acting, read the generated handoff `ccn doc show 1234567`")

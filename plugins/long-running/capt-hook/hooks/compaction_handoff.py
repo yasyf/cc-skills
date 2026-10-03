@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -46,7 +47,9 @@ GENERATED_STEM = "-generated"
 GENERATED_TITLE = "(generated)"
 FRESH_SECONDS = 300
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
-GENERATED_STUB = json.dumps({"id": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."})
+GENERATED_STUB = json.dumps(
+    {"id": "d" * 40, "generated": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."}
+)
 FIRE_FRACTION = 0.8
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
@@ -70,6 +73,9 @@ class CompactionState(WorkflowState):
     digest: str | None = None
     failure: str | None = None
     generated_at: float | None = None
+    active_doc: str | None = None
+    generated_doc: str | None = None
+    compacted_at: float | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -121,6 +127,10 @@ def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
 def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(HANDOFF), "generate", "--program", state.slug or "", "--plan", state.plan_path or ""]
     argv += ["--session", "-", "--repo", evt.cwd, *(["--folder"] if state.store == "folder" else []), *args]
+    if state.generated_doc:
+        argv += ["--generated-doc", state.generated_doc]
+    if state.compacted_at:
+        argv += ["--fresh-since", datetime.fromtimestamp(state.compacted_at, timezone.utc).isoformat()]
     return subprocess.run(
         argv, input=session_json(evt, state), capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, cwd=evt.cwd
     )
@@ -128,12 +138,14 @@ def generate(evt: BaseHookEvent, state: CompactionState, *args: str) -> subproce
 
 def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -> None:
     if generated.returncode:
-        state.digest = None
+        state.digest = state.active_doc = None
         state.failure = next(iter((generated.stderr or generated.stdout).strip().splitlines()[-1:]), f"exit {generated.returncode}")
         return
     result = json.loads(generated.stdout)
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
+    state.active_doc = result["id"]
     if result["id"]:
+        state.generated_doc = result["generated"]
         point_doc(state, result["id"])
     else:
         point_file(state, Path(result["file"]))
@@ -143,6 +155,8 @@ def resume_steps(state: CompactionState) -> str:
     plan = Path(state.plan_path or "")
     if state.store == "folder":
         return f"then the newest file in `{progress_folder(plan)}/`"
+    if state.active_doc:
+        return f"then the active progress doc: `ccn doc show {state.active_doc[:8]}`"
     return f"then the progress doc: `ccn doc list --label progress:{state.slug}`, then `ccn doc show <id>`"
 
 
@@ -171,10 +185,17 @@ def resume_restore(state: CompactionState, cwd: str) -> str:
     return f"{head}\n{body.encode()[:room].decode(errors='ignore')}".rstrip()
 
 
-def compact_instructions(state: CompactionState) -> str:
+def compact_instructions(state: CompactionState, titles: str = "") -> str:
+    keep = f", and keep these titles verbatim: `{titles}`" if titles else ""
+    if state.store == "ccn" and state.active_doc:
+        doc = state.active_doc[:8]
+        return (
+            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack{keep}. "
+            f"Quote: active progress doc: {doc}; the id in this summary wins over any id captured earlier in the conversation."
+        )
     return (
         f"Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
-        f"{resume_steps(state)}. Keep only in-flight details they lack."
+        f"{resume_steps(state)}. Keep only in-flight details they lack{keep}."
     )
 
 
@@ -206,8 +227,8 @@ def point_doc(state: CompactionState, doc_id: str) -> None:
     point_plan(
         Path(state.plan_path or ""),
         f"{POINTER_PREFIX} the latest execution state is the active cc-notes doc labelled `progress:{state.slug}` "
-        f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). Each "
-        "handoff adds a new doc and supersedes the previous one, so history is the supersede chain; only this "
+        f"(`ccn doc list --label progress:{state.slug}`, now `{doc_id[:8]}`; `ccn doc show <id>`). A hand-written "
+        "progress doc stays active while fresh, and each session edits one generated doc in place; only this "
         "line's id changes.",
     )
 
@@ -420,6 +441,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         digest, failure = state.digest, state.failure
         state.phase = "idle"
         state.compacting_since = None
+        state.compacted_at = time.time()
         state.digest = state.failure = None
         if not (state.active and state.plan_path):
             return None
@@ -509,9 +531,9 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
         ): Warn(
-            pattern=r"^Resume the drive from `~/brook\.md` and its progress record: read the plan, "
-            r"then the progress doc: `ccn doc list --label progress:brook`, then "
-            r"`ccn doc show <id>`\. Keep only in-flight details they lack\.$"
+            pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
+            r"Quote: active progress doc: dddddddd; "
+            r"the id in this summary wins over any id captured earlier in the conversation\.$"
         ),
         Input(
             session_id="s1",
@@ -523,7 +545,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             },
         ): Warn(
             pattern=r"(?s)they lack, and keep these titles verbatim: "
-            r"`- 4ffc9a5 When does a merged change get released\?`\.$"
+            r"`- 4ffc9a5 When does a merged change get released\?`\. Quote: active progress doc: dddddddd; "
         ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
         Input(
@@ -531,7 +553,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
             state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
             commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
-        ): Warn(pattern=r"^Resume the drive from `~/brook\.md` and its progress record"),
+        ): Warn(pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`"),
     },
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
@@ -542,7 +564,4 @@ def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
         if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
             adopt(state, generate(evt, state))
         titles = standing(state, evt.cwd, "titles").stdout.strip() if state.store == "ccn" else ""
-    instructions = compact_instructions(state)
-    if titles:
-        instructions = f"{instructions.removesuffix('.')}, and keep these titles verbatim: `{titles}`."
-    return evt.context(instructions)
+    return evt.context(compact_instructions(state, titles))
