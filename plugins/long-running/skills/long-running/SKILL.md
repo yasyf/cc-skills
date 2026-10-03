@@ -1815,7 +1815,7 @@ the `bin/handoff.py` wrapper. The script uses only the standard library and has 
 verbs:
 
 ```text
-handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--strict] [--folder] [--repo PATH]
+handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO] [--strict] [--folder] [--repo PATH]
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH]
 ```
 
@@ -1843,7 +1843,7 @@ monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
 without cc-notes, `--folder` writes only that file. Each generation run is capped at
-120 seconds and prints JSON `{id, file, digest}`, where `id` is the generated doc.
+120 seconds and prints JSON `{id, file, digest}`, where `id` is the one active doc.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
@@ -1870,19 +1870,22 @@ owner-gate lines without live answer ids appear under `## Lint findings` and cou
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 
-**Supersede and point.** Exactly one `progress:<slug>` doc is active: the generated
-doc. A session keeps one, passed as `--generated-doc` and edited in place while active.
-The root's record is the `--narrative-doc`, else the newest hand-written progress doc
-updated after the newest generated one. The generated doc carries the record's whole
-body under `_From doc <id>._`, then supersedes it and every other active
-`progress:<slug>` doc. If the label still lists another active doc, `generate` exits 4
-naming each id; the `Stop` path blocks on it, and `PreCompact` puts the failure first in
-the compaction instructions.
+**Supersede and point.** Exactly one `progress:<slug>` doc is active. When the root
+wrote a hand-written progress doc for the coming compaction, `generate` augments that
+doc in place: it is the `--narrative-doc`, or the newest hand-written doc this session
+created in the last 30 minutes or since the previous compaction (`--fresh-since`). Its
+body becomes the generated sections with its own narrative under `_From doc <id>._`.
+Otherwise `generate` edits the session's generated doc, passed as `--generated-doc`,
+in place while it is active, or adds one. The doc it wrote supersedes every other
+active `progress:<slug>` doc. If the label still lists another, `generate` exits 4
+naming each id; the `Stop` path blocks on it, and `PreCompact` puts the failure first
+in the compaction instructions.
 
 *Prevents the release-v3 handoff of 2026-10-02 10:07 PM PT leaving hand-written dcef5bb
-active beside generated 91b9194, which already carried dcef5bb's body under fresher
-generated sections. The plan pointer and the compaction instructions named dcef5bb, and
-the root resumed from the stale doc.*
+active beside generated 91b9194, which carried dcef5bb's body under fresher generated
+sections, while the plan pointer and compaction instructions named dcef5bb. Owner
+ruling: "the hook should augment the existing one if one was recently made for the
+upcming compaxt".*
 
 The hook adds one pointer line to the plan the first time. It starts with
 `- **Progress (read first after any compaction):**` and names the label and generated
@@ -1908,8 +1911,8 @@ earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed, at most 2,000 UTF-8 bytes. Its first line names the program and
-says to read the generated handoff with `ccn doc show <id7>` or the file path before
-acting, then the plan, then reload Skill `long-running` if its rules are gone. The
+says to read the progress doc with `ccn doc show <id7>`, or the generated file path,
+before acting, then the plan, then reload Skill `long-running` if its rules are gone. The
 plan and progress record supersede the summary.
 
 The next line lists every live standing inbox rule id. Standing rule texts, clipped
