@@ -2,7 +2,7 @@
 """The generated handoff: a drive root's restart state, built from its sources at every compaction.
 
     handoff.py generate --program SLUG --plan PATH [--inbox-dir DIR] [--ledger ID] [--session FILE|-]
-                        [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO]
+                        [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID]
                         [--strict] [--folder] [--repo PATH]
     handoff.py lint     (--doc ID | --file PATH) --program SLUG [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
@@ -12,12 +12,13 @@ ledger's open owner asks, the root's open tasks, its lanes and monitors, each in
 cursor, and newest rulings, and the drive registry. It writes them as a ``(generated)`` progress
 doc under ``progress:<program>``, plus the same markdown at ``<plan-stem>-progress/<UTC>-generated.md``.
 ``--generated-doc`` names the session's generated doc, edited in place while it is active, so a
-session keeps one. The active doc is the hand-written record when there is one: ``--narrative-doc``,
-else the newest hand-written progress doc this session created since ``--fresh-since`` or within
-:data:`FRESH_MINUTES`. Every other active progress doc is superseded by the active doc. The root's
-narrative is the last section: the record's body or ``--narrative-file``, else the narrative the
-newest progress doc carries. ``--folder`` skips cc-notes and writes the file alone. ``--session``
-is the hook's JSON, ``{"session_id", "tasks": [...], "background": [...]}``.
+session keeps one. The generated doc is the only active progress doc: it supersedes every other,
+the hand-written record included, and generation exits :data:`SEVERAL_ACTIVE` when the label still
+lists another. The record is ``--narrative-doc``, else the newest hand-written progress doc updated
+after the newest generated one. The root's narrative is the last section: the record's body or
+``--narrative-file``, else the narrative the newest progress doc carries. ``--folder`` skips
+cc-notes and writes the file alone. ``--session`` is the hook's JSON,
+``{"session_id", "tasks": [...], "background": [...]}``.
 
 A rule the previous handoff carried and the sources no longer hold is written once as
 ``<id> superseded by ...``, so :func:`standing.lint` passes on every generated doc. Its other
@@ -26,7 +27,7 @@ named by its file and line, and the plan's own uncited owner-gate lines go under
 ``## Lint findings``; with ``--strict`` a narrative or inbox finding writes nothing and exits
 :data:`standing.VIOLATIONS`.
 
-It prints ``{"id", "generated", "file", "digest"}``: ``id`` is the active doc. ``digest`` is the post-compaction restore, at most
+It prints ``{"id", "file", "digest"}``: ``id`` is the generated doc. ``digest`` is the post-compaction restore, at most
 :data:`DIGEST_BUDGET` UTF-8 bytes: Claude Code injects SessionStart context past 10,000
 characters as a 2 KB preview, and the cc-notes restores in the same output take 7,500.
 
@@ -40,7 +41,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import drive
@@ -55,7 +56,7 @@ TASK_CHARS = 200
 DIGEST_RULE_CHARS = 160
 DIGEST_TITLE_CHARS = 100
 SHORT = 7
-FRESH_MINUTES = 30
+SEVERAL_ACTIVE = 4
 NARRATIVE = "## Root narrative"
 FINDINGS = "## Lint findings"
 GENERATED_MARK = "(generated)"
@@ -193,26 +194,10 @@ def doc_body(shell: ledger.Shell, repo: str, doc_id: str) -> str:
     return ccn_json(shell, repo, "doc", "show", doc_id)["body"]
 
 
-def creation(shell: ledger.Shell, repo: str, doc_id: str) -> dict:
-    return next(entry for entry in ccn_json(shell, repo, "doc", "history", doc_id) if entry["kind"] == "create")
-
-
-def fresh_cutoff(at: datetime, since: str | None) -> datetime:
-    window = at - timedelta(minutes=FRESH_MINUTES)
-    return min(window, datetime.fromisoformat(since)) if since else window
-
-
-def fresh_record(shell: ledger.Shell, repo: str, docs: list[dict], session: str | None, cutoff: datetime) -> str | None:
-    if not session:
-        return None
-    fresh = []
-    for doc in docs:
-        if doc["title"].endswith(GENERATED_MARK):
-            continue
-        created = creation(shell, repo, doc["id"])
-        if created.get("session") == session and datetime.fromisoformat(created["time"]) >= cutoff:
-            fresh.append(doc)
-    return max(fresh, key=lambda doc: doc["updated_at"])["id"] if fresh else None
+def newer_record(docs: list[dict]) -> str | None:
+    generated = max((doc["updated_at"] for doc in docs if doc["title"].endswith(GENERATED_MARK)), default="")
+    written = [doc for doc in docs if not doc["title"].endswith(GENERATED_MARK) and doc["updated_at"] > generated]
+    return max(written, key=lambda doc: doc["updated_at"])["id"] if written else None
 
 
 def rule_lines(handoff: Handoff) -> list[str]:
@@ -355,11 +340,9 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     docs = active_progress(shell, args.repo, args.program)
-    handoff.record = args.narrative_doc or fresh_record(
-        shell, args.repo, docs, session.get("session_id"), fresh_cutoff(handoff.at, args.fresh_since)
-    )
+    handoff.record = args.narrative_doc or newer_record(docs)
     handoff.generated = next((doc["id"] for doc in docs if doc["id"] == args.generated_doc), None)
-    handoff.stale = [doc["id"] for doc in docs if doc["id"] not in (handoff.record, handoff.generated)]
+    handoff.stale = [doc["id"] for doc in docs if doc["id"] != handoff.generated]
     active = [doc for doc in docs if doc["id"] != handoff.record]
     previous = doc_body(shell, args.repo, max(active, key=lambda doc: doc["updated_at"])["id"]) if active else None
     if handoff.record and not args.narrative_file:
@@ -382,20 +365,19 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown)
     if args.folder:
-        print(json.dumps({"id": None, "generated": None, "file": str(path), "digest": digest(handoff, f"the generated handoff `{path}`")}))
+        print(json.dumps({"id": None, "file": str(path), "digest": digest(handoff, f"the generated handoff `{path}`")}))
         return 0
     generated = write_generated(handoff, shell, args.repo, markdown)
-    active = handoff.record or generated
     for stale in handoff.stale:
-        shell.run(["ccn", "-R", args.repo, "doc", "supersede", stale, "--by", active])
-    if handoff.record:
-        doc = (
-            f"the active progress doc `ccn doc show {active[:SHORT]}` (hand-written) and its generated sections "
-            f"`ccn doc show {generated[:SHORT]}`"
+        shell.run(["ccn", "-R", args.repo, "doc", "supersede", stale, "--by", generated])
+    if (active := [doc["id"] for doc in active_progress(shell, args.repo, args.program)]) != [generated]:
+        print(
+            f"{len(active)} active progress:{args.program} docs after generation, expected only {generated[:SHORT]}: "
+            f"{', '.join(doc[:SHORT] for doc in active)}; supersede every other with `ccn doc supersede <id> --by {generated[:SHORT]}`"
         )
-    else:
-        doc = f"the generated handoff `ccn doc show {generated[:SHORT]}`"
-    print(json.dumps({"id": active, "generated": generated, "file": str(path), "digest": digest(handoff, doc)}))
+        return SEVERAL_ACTIVE
+    doc = f"the generated handoff `ccn doc show {generated[:SHORT]}`"
+    print(json.dumps({"id": generated, "file": str(path), "digest": digest(handoff, doc)}))
     return 0
 
 
@@ -438,7 +420,6 @@ def build_parser() -> argparse.ArgumentParser:
     narrative.add_argument("--narrative-doc", metavar="ID", help="the root's freshly written progress doc")
     narrative.add_argument("--narrative-file", metavar="PATH", help="the root's freshly written progress file")
     generate.add_argument("--generated-doc", metavar="ID", help="the session's generated doc, edited in place while active")
-    generate.add_argument("--fresh-since", metavar="ISO", help="the previous compaction: a hand-written doc this session wrote since stays active")
     generate.add_argument("--strict", action="store_true", help="write nothing when the narrative fails the lint")
     generate.add_argument("--folder", action="store_true", help="no cc-notes: write the progress file alone")
     generate.set_defaults(handler=cmd_generate)

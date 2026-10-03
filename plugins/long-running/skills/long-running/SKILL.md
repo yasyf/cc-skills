@@ -1815,7 +1815,7 @@ the `bin/handoff.py` wrapper. The script uses only the standard library and has 
 verbs:
 
 ```text
-handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO] [--strict] [--folder] [--repo PATH]
+handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--strict] [--folder] [--repo PATH]
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH]
 ```
 
@@ -1843,7 +1843,7 @@ monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
 without cc-notes, `--folder` writes only that file. Each generation run is capped at
-120 seconds and prints JSON `{id, generated, file, digest}`, where `id` is the active doc.
+120 seconds and prints JSON `{id, file, digest}`, where `id` is the generated doc.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
@@ -1870,16 +1870,19 @@ owner-gate lines without live answer ids appear under `## Lint findings` and cou
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 
-**Supersede and point.** A session keeps one generated doc. The hook passes it as
-`--generated-doc`, and `generate` edits it in place while it is active instead of adding
-another. The root's hand-written doc stays active as the record when it is the
-`--narrative-doc`, or when this session created it in the last 30 minutes or since the
-previous compaction (`--fresh-since`). The generated doc then carries it under
-`_From doc <id>._`. The active doc is the hand-written record when there is one, else
-the generated doc, and it supersedes every other active `progress:<slug>` doc.
+**Supersede and point.** Exactly one `progress:<slug>` doc is active: the generated
+doc. A session keeps one, passed as `--generated-doc` and edited in place while active.
+The root's record is the `--narrative-doc`, else the newest hand-written progress doc
+updated after the newest generated one. The generated doc carries the record's whole
+body under `_From doc <id>._`, then supersedes it and every other active
+`progress:<slug>` doc. If the label still lists another active doc, `generate` exits 4
+naming each id; the `Stop` path blocks on it, and `PreCompact` puts the failure first in
+the compaction instructions.
 
-*Prevents the release-v3 PreCompact handoff of 2026-10-03 00:50Z superseding hand-written
-doc 6df6ee4 eight minutes after the root wrote it, while the summary still named 6df6ee4.*
+*Prevents the release-v3 handoff of 2026-10-02 10:07 PM PT leaving hand-written dcef5bb
+active beside generated 91b9194, which already carried dcef5bb's body under fresher
+generated sections. The plan pointer and the compaction instructions named dcef5bb, and
+the root resumed from the stale doc.*
 
 The hook adds one pointer line to the plan the first time. It starts with
 `- **Progress (read first after any compaction):**` and names the label and generated
@@ -1906,7 +1909,7 @@ earlier in the conversation.` so the summary carries the id the hook just wrote.
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed, at most 2,000 UTF-8 bytes. Its first line names the program and
 says to read the generated handoff with `ccn doc show <id7>` or the file path before
-acting, or the active hand-written doc and then the generated doc when one is active, then the plan, then reload Skill `long-running` if its rules are gone. The
+acting, then the plan, then reload Skill `long-running` if its rules are gone. The
 plan and progress record supersede the summary.
 
 The next line lists every live standing inbox rule id. Standing rule texts, clipped
