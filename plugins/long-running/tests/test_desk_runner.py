@@ -35,6 +35,7 @@ class FakeShell(runner_module.Shell):
         self.mailbox: list[dict] = []
         self.inbox_error = None
         self.inboxes: dict[str, list[dict]] = {}
+        self.questions: list[dict] = []
         self.lose_sends = 0
         self.garble_sends = 0
         self.requests: dict[str, str] = {}
@@ -144,7 +145,10 @@ class FakeShell(runner_module.Shell):
         if verb == ["orchestration", "request-show"]:
             return self.ok({"state": self.requests.get(argv[3], "absent")})
         if verb == ["orchestration", "check"]:
-            assert argv[2] == "--terminal" and not argv[3].startswith("run:")
+            assert argv[2] == "--terminal"
+            if argv[3].startswith("run:"):
+                assert argv[3:] == ["run:run_1", "--all", "--types", "question"]
+                return self.ok({"messages": self.questions})
             return self.ok({"messages": self.inboxes.get(argv[3], [])})
         if verb == ["orchestration", "inbox"]:
             assert argv[2:4] == ["--terminal", "run:run_1"]
@@ -998,3 +1002,122 @@ def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(sh
         shell.sleep(60)
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     assert [line.split()[1] for line in escalations(tmp_path)] == ["UNBOUND"]
+
+
+def desk_inbox(tmp_path: Path, *lines: str) -> None:
+    path = tmp_path / "inbox/orca-desk.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as inbox:
+        inbox.write("".join(f"{line}\n" for line in lines))
+
+
+def replies(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+
+
+@pytest.mark.parametrize(
+    ("line", "key", "lanes", "text"),
+    [
+        ("R1054 (3:0x PM PT) orca-desk: relay to merge-walker-r2 and d-land-r2: G331 (chain resumes)", "R1054", ["merge-walker-r2", "d-land-r2"], "G331 (chain resumes)"),
+        ("- orca-desk: relay to a, b, and c: `walker: router GO`", None, ["a", "b", "c"], "`walker: router GO`"),
+        ("R7 orca-desk: relay to lane-a: see deploy-go.md: G12", "R7", ["lane-a"], "see deploy-go.md: G12"),
+    ],
+)
+def test_the_relay_grammar_names_the_key_lanes_and_text(line, key, lanes, text):
+    directive = runner_module.INBOX_RELAY.match(line)
+    parsed = runner_module.RELAY_TO.match(directive["rest"])
+    assert (directive["key"], runner_module.LANE_LIST.split(parsed["lanes"]), parsed["text"]) == (key, lanes, text)
+
+
+def test_an_inbox_relay_line_reaches_every_named_lane_once(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.launch("walker", "ctx_w")
+    desk_inbox(tmp_path, f"R1 (9:0x AM PT) orca-desk: relay to {LANE}: history is never replayed")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R2 (3:0x PM PT) orca-desk: relay to {LANE} and walker: G331 resumes the chain", "- walker (3:1x PM PT) ASK root: say 'orca-desk: relay to walker: go'")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    sends = shell.sends()
+    assert [(call[call.index("--to") + 1], call[call.index("--subject") + 1]) for call in sends] == [("dispatch:ctx_a", "R2: act R2"), ("dispatch:ctx_w", "R2: act R2")]
+    assert all(call[call.index("--body") + 1].startswith("G331 resumes the chain\n") for call in sends)
+    assert [line.split(" ", 1)[1] for line in escalations(tmp_path)] == [
+        f"RELAYED R2 {LANE}: relay to dispatch ctx_a",
+        "RELAYED R2 walker: relay to dispatch ctx_w",
+    ]
+
+
+def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.questions = [
+        {"id": "msg_other", "from_handle": "dispatch:ctx_z", "created_at": "2026-10-01T17:59:00Z"},
+        {"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"},
+        {"id": "msg_q8", "from_handle": "term_ctx_a", "created_at": "2026-10-01T17:55:00Z"},
+        {"id": "msg_q7", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:40:00Z"},
+    ]
+    shell.inboxes["term_ctx_a"] = [{"id": "msg_r8", "thread_id": "msg_q8"}]
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"- orca-desk: relay to {LANE}: walker: router GO")
+    orca_pass(shell, config)
+    [reply] = replies(shell)
+    assert reply[reply.index("--id") + 1] == "msg_q9"
+    assert reply[reply.index("--body") + 1].startswith("walker: router GO\n")
+    assert shell.sends() == []
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1] == f"RELAYED inbox@0 {LANE}: reply to question msg_q9 of dispatch ctx_a"
+
+
+def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a", status="completed")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R3 orca-desk: relay to {LANE} and ghost: G332")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.sends() == [] and replies(shell) == []
+    assert [line.split(" ", 1)[1] for line in escalations(tmp_path) if " RELAY" in line] == [
+        f"RELAY-FAILED R3 {LANE}: no live dispatch (ctx_a is completed)",
+        "RELAY-FAILED R3 ghost: no live dispatch",
+    ]
+
+
+def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    desk_inbox(
+        tmp_path,
+        f"R1050 (12:0x AM PT) orca-desk: relay G328 (AIG applies held again) to {LANE}.",
+        f"R1048 (10:5x PM PT) orca-desk: relay to {LANE}: `walker: router GO`; relay to walker: `d-land: sandsql GO`",
+    )
+    orca_pass(shell, config)
+    assert shell.sends() == []
+    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    assert [line.split(":", 1)[0] for line in lines] == ["RELAY-FAILED R1050 inbox", "RELAY-FAILED R1048 inbox"]
+    assert all(runner_module.RELAY_GRAMMAR in line for line in lines)
+
+
+def test_an_inbox_relay_waits_for_its_newline_and_a_reread_relays_nothing_twice(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    path = tmp_path / "inbox/orca-desk.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"R4 orca-desk: relay to {LANE}: rebase onto dev")
+    orca_pass(shell, config)
+    assert shell.sends() == []
+    path.write_text(path.read_text() + "\n")
+    orca_pass(shell, config)
+    store = actions.Store(tmp_path / "store")
+    with store.owned("desk-runner", store.load("desk-runner").owner_generation) as runner:
+        runner.facts[f"desk-inbox:{path}"] = 0
+    orca_pass(shell, config)
+    assert len(shell.sends()) == 1
+    assert len(escalations(tmp_path)) == 1
+
+
+def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "R5", "--lane", LANE, "--text", "rebase onto dev")
+    desk_inbox(tmp_path, f"R5 orca-desk: relay to {LANE}: deploy now")
+    orca_pass(shell, config)
+    assert [call[call.index("--body") + 1].split("\n", 1)[0] for call in shell.sends()] == ["rebase onto dev"]
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1] == f"RELAY-FAILED R5 {LANE}: R5 already holds a different relay to {LANE} (accepted)"

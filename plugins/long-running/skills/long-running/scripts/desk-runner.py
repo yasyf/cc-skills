@@ -22,7 +22,10 @@ A relay is accepted, then started and completed by the lane itself: it replies
 never resent blindly.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
-prompts, and checks relay deadlines. Orca lets only the terminal bound to the Run call
+prompts, and checks relay deadlines. It also tails the drive's desk inbox file and turns
+each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
+per lane, a reply to the lane's latest open question when it has one, logged once as
+`RELAYED` or `RELAY-FAILED`. Orca lets only the terminal bound to the Run call
 worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
 The runner records that terminal, its pane, the Run's coordinator and generation, and how
 the binding was obtained, at start and before each pass that launches. Started from a
@@ -88,6 +91,10 @@ HELD_PR = re.compile(r"#(\d+)")
 HELD_LANE = re.compile(r"\blane:(\S+)")
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=\S+ worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
+RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
+INBOX_RELAY = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: relay\b(?P<rest>.*)$")
+RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
+LANE_LIST = re.compile(r", (?:and )?| and ")
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -160,6 +167,7 @@ class Config:
     store: Path | None
     escalations: Path
     view: Path
+    desk_inbox: Path
     run: str
     receipts: Path
     briefs_repo: str
@@ -178,11 +186,13 @@ class Config:
         raw = json.loads(path.read_text())
         orca = raw["orca"]
         deadlines = raw.get("deadlines", {})
+        escalations = Path(raw["escalations"]).expanduser()
         return cls(
             source=path.expanduser().resolve(),
             store=Path(raw["store"]).expanduser() if raw.get("store") else None,
-            escalations=Path(raw["escalations"]).expanduser(),
+            escalations=escalations,
             view=Path(raw["view"]).expanduser(),
+            desk_inbox=Path(orca["desk_inbox"]).expanduser() if orca.get("desk_inbox") else escalations.parent / "orca-desk.md",
             run=orca["run"],
             receipts=Path(orca["receipts"]).expanduser(),
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
@@ -349,8 +359,10 @@ class Runner:
 
     def escalate(self, key: str, kind: str, about: str, text: str) -> None:
         """Record one escalation per key; `flush` appends it to the escalations file."""
-        line = f"{kind} {key} {about}: {' '.join(text.split())}"
-        self.book.accept(RUNNER, f"escalation:{key}", "escalation", line, "runner", None)
+        self.record(f"escalation:{key}", f"{kind} {key} {about}: {' '.join(text.split())}")
+
+    def record(self, action_id: str, line: str) -> None:
+        self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
 
     def flush(self) -> None:
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
@@ -436,6 +448,64 @@ class Runner:
     def accept_relay(self, key: str, lane: str, text: str, reply_to: str, minutes: int) -> tuple[actions.Action, bool]:
         target = json.dumps({"text": text, "reply_to": reply_to})
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
+
+    def relay_inbox(self) -> None:
+        """Relay each complete line appended to the desk inbox since the saved byte offset; a first read starts at the end, so history never replays."""
+        path = self.config.desk_inbox
+        fact = f"desk-inbox:{path}"
+        cursor = self.book.load(RUNNER).facts.get(fact)
+        if cursor is None:
+            start = path.stat().st_size if path.is_file() else 0
+            self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: start}))
+            return
+        if not path.is_file():
+            return
+        with path.open("rb") as inbox:
+            inbox.seek(cursor)
+            appended = inbox.read()
+        offset = cursor
+        for raw in appended.splitlines(keepends=True):
+            if not raw.endswith(b"\n"):
+                break
+            self.relay_line(offset, raw.decode().strip())
+            offset += len(raw)
+            self.book.edit(RUNNER, lambda incident, at=offset: incident.facts.update({fact: at}))
+
+    def relay_line(self, offset: int, line: str) -> None:
+        directive = INBOX_RELAY.match(line)
+        if not directive:
+            return
+        key = directive["key"] or f"inbox@{offset}"
+        parsed = RELAY_TO.match(directive["rest"])
+        if not parsed or "; relay " in parsed["text"]:
+            self.record(f"escalation:relay:{offset}", f"RELAY-FAILED {key} inbox: one relay per line, in the form `{RELAY_GRAMMAR}`; nothing was relayed")
+            return
+        for lane in LANE_LIST.split(parsed["lanes"]):
+            self.relay_to(offset, key, lane, parsed["text"])
+
+    def relay_to(self, offset: int, key: str, lane: str, text: str) -> None:
+        """Accept what `relay` accepts for one lane: a reply to the current dispatch's latest open question, else a plain relay."""
+        log = f"escalation:relay:{offset}:{lane}"
+        dispatch = self.orca.show(lane)
+        if not dispatch or dispatch.status in INACTIVE:
+            self.record(log, f"RELAY-FAILED {key} {lane}: no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}")
+            return
+        question = self.open_question(dispatch)
+        action, created = self.accept_relay(key, lane, text, question, self.config.start_minutes)
+        if not created and json.loads(action.target)["text"] != text:
+            self.record(log, f"RELAY-FAILED {key} {lane}: {key} already holds a different relay to {lane} ({action.status})")
+            return
+        self.record(log, f"RELAYED {key} {lane}: {f'reply to question {question} of' if question else 'relay to'} dispatch {dispatch.id}")
+
+    def open_question(self, dispatch: Dispatch) -> str:
+        """The newest question the dispatch asked the Run that no message on the dispatch's terminal answers, or empty."""
+        asked = (self.orca.call("orchestration", "check", "--terminal", f"run:{self.config.run}", "--all", "--types", "question").get("result") or {}).get("messages") or []
+        mine = [message for message in asked if message.get("from_handle") in (f"dispatch:{dispatch.id}", dispatch.terminal)]
+        if not mine:
+            return ""
+        received = (self.orca.call("orchestration", "check", "--terminal", dispatch.terminal, "--all").get("result") or {}).get("messages") or []
+        answered = {message.get("thread_id") for message in received}
+        return next((message["id"] for message in sorted(mine, key=lambda message: message["created_at"], reverse=True) if message["id"] not in answered), "")
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool) -> tuple[actions.Action, bool]:
         urgent = owner_directed or model == "sol"
@@ -1051,6 +1121,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         if runner.check():
             runner.reap()
             runner.resume_judges()
+            runner.relay_inbox()
             runner.deliver()
             if runner.now() - swept >= SWEEP_EVERY:
                 runner.sweep()
