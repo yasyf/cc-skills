@@ -1,5 +1,33 @@
 # Orca workers: launch recipe
 
+For implementation and test workers, prefer a repository's canonical remote
+entrypoint. Forge-AI/monorepo's
+[Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md)
+defaults to Sprite prepare+attach, with an explicit local root/Fable or extremely
+sensitive route. Preserve the requested model, effort, and Codex service tier.
+Use its complete VM brief and
+[source-return contract](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md#return-source-for-root-review);
+the remote worker returns a patch/report and the root collects, reviews, and
+ships it. Remote API keys stay in the worker process; local Fable uses existing
+Mac interactive authentication.
+
+Canonical remote workers use their already-owned native Run, one home-inbox
+consumer, and home Dispatch IDs. Do not enroll them in desk-runner, common
+`orca-launch.sh`, or `orca-check.sh`, or apply the raw-TTY wake, unsupervised
+retry, local VCS/PR, or historical cleanup procedures below to them. Do not add
+a second consumer to compensate for an adapter that assumes local terminals.
+Namespace remains opt-in pending regular Compute acceptance; the recipe picker
+is separate from this direct CLI route.
+
+Current session retention also overrides every historical cleanup/rollback
+instruction in this reference for local sessions. Keep workers and coordinators on success,
+failure, completion, and idle. A `RECLAIM` line, load, or terminal count grants
+no permission to stop, release, close, or remove a session or its workspace.
+
+## Separate desktop adapter
+
+The rest of this reference describes the existing desktop adapter.
+
 `desk-runner.py run --config C --desk orca` owns launches and the
 Run inbox cursor. Start it detached before the first worker, with the
 config in [orca-desk-brief.md](orca-desk-brief.md). The root issues
@@ -13,28 +41,11 @@ The commands below describe the adapters the runner calls, not a second root loo
 
 ## Launching
 
-When a lane needs its own machine for tests or builds off the owner's Mac, or the
-running platform, it creates its own remote Orca workspace through the repository's
-Orca skill if it ships one (Forge-AI/monorepo: `.agents/skills/orca`, "Remote workspaces").
-
-- Use the skill's `orca computer` flow through the desktop New Workspace composer:
-  `Run on` -> a per-workspace environment recipe. Orca owns sleep, wake, and delete.
-- Default to Sprites over SSH (`sprites-agents-ssh`) for agents and tests. Use
-  Namespace stack over SSH (`namespace-stack-ssh`) only for the running platform.
-- Never create the machine with the provider CLI or recipe helper and register an
-  SSH host by hand; Orca then never suspends or destroys it.
-- Verify the workspace from Orca's own listings through the skill's verify step
-  before starting work there. Leave a finished lane's remote workspace running;
-  R195's gc reclaims local Orca worktrees only. Delete a workspace through the skill only on the user's explicit
-  authorization for that workspace, and only after proving no protected session
-  or terminal remains on it. A completed task is not that authorization.
-- Treat tailnet access as pending. It depends on the helper's tailnet enrollment
-  (not yet shipped) and the owner's one-time setup: an OAuth client, workspace tag,
-  and SSH policy that admits only the owner as exact workspace OS users. After the
-  repository skill's verify step passes, run its in-workspace Tailnet check
-  (`tailscale status`, `.Self.DNSName`); only once it prints the node's DNS name,
-  reach the workspace at that name, from an owner-permitted device.
-  Never assume enrollment, reachability, or revocation on destroy without that check.
+Choose any optional remote workspace recipe through the repository's Orca
+skill and its current verification contract. The canonical monorepo worker
+route above uses direct prepare+attach and does not require the desktop composer.
+Keep every resulting session and workspace; follow the current retention rule
+above instead of historical cleanup advice.
 
 Orca launches `claude` with the default agent arguments in the user's settings, including
 `--permission-mode plan`. A worker needs a terminal created with an explicit
