@@ -5,14 +5,14 @@ Reference them by dotted wire type inside any `Doc.blocks` array or a card's
 `children`. All three are interactive; every click streams back as a
 `pack.interaction` event carrying the payloads described below.
 
-A round's board asks one question. It carries one `design-doc.fork` or one
-`design-doc.claims` sweep, and a fork never shares a board with another fork or
-a sweep. A `design-doc.registers` block may sit above it as read-only context
-with `challengeable` off; a challengeable registers block is a round of its own.
+An interview board carries one `design-doc.fork` block per open fork, all at
+once, and nothing but questions. At most one short `design-doc.registers` block
+may sit above the forks, read-only with `challengeable` off. A
+`design-doc.claims` sweep is its own short board.
 
-One board carrying a claims sweep, a challengeable registers block, and seven
-forks is the wrong shape. Ask the first fork, record its answer, then push the
-next board.
+Padding is the wrong shape: a challengeable registers block listing every
+assumption, claims the human already stated, or long context blocks beside the
+forks.
 
 The field names on `registers` mirror `registers.json` entry-for-entry, so a
 register entry goes onto the board unchanged.
