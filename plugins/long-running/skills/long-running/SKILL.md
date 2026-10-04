@@ -375,8 +375,8 @@ executor owns the incident, through the final reply:
 Alert intake runs before the root wakes. `monitor-watch.py --alert-inbox` and the
 Slack watch lane append `orca-desk: alert <slug> <link> :: <what fired>` to the
 orca desk inbox. The runner fills `reference/alert-fix-brief.md` with drive facts
-from `alert.facts` and launches `<slug>-fix` on sol xhigh at once; a repeat relays
-to the live lane. The root ratifies from `INCIDENT` in that turn:
+from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, and
+launches `<slug>-fix` on sol xhigh at once; a repeat relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as

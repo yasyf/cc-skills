@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -48,6 +49,8 @@ class FakeShell(runner_module.Shell):
         self.launch_line = ""
         self.cpu_load = 1.0
         self.attachments: dict[str, Path] = {}
+        self.entries: list[str] = []
+        self.attach_error = ""
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
@@ -87,6 +90,8 @@ class FakeShell(runner_module.Shell):
         if argv[:5] == ["ccn", "-R", str(self.root / "checkout"), "attachment", "path"] and argv[5] == "briefs1":
             path = self.attachments.get(argv[6])
             return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[6]}")
+        if argv[:6] == ["ccn", "-R", str(self.root / "checkout"), "log", "append", "briefs1"]:
+            return self.append(argv[6:])
         if name == "orca-check.sh":
             assert argv[1:] == ["--stale"]
             return runner_module.Done(0, self.stale_out, "")
@@ -100,6 +105,18 @@ class FakeShell(runner_module.Shell):
         if len(argv) > 1 and Path(argv[1]).name == "bus.py":
             return runner_module.Done(0, "#7\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def append(self, flags: list[str]) -> runner_module.Done:
+        assert flags[0] == "--entry" and flags[2] == "--attach" and flags[4:] == ["--replace"]
+        if self.attach_error:
+            return runner_module.Done(1, "", self.attach_error)
+        source = Path(flags[3])
+        stored = self.root / "lfs" / hashlib.sha256(source.read_bytes()).hexdigest()
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        stored.write_bytes(source.read_bytes())
+        self.attachments[source.name] = stored
+        self.entries.append(flags[1])
+        return runner_module.Done(0, "briefs1\n", "")
 
     def ok(self, result: dict) -> runner_module.Done:
         return runner_module.Done(0, json.dumps({"ok": True, "result": result}), "")
@@ -1213,7 +1230,7 @@ def test_the_alert_grammar_names_the_slug_link_and_what_fired():
     )
 
 
-def test_an_alert_line_writes_the_brief_and_launches_the_sol_fix_lane_once(shell, config, tmp_path):
+def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol_fix_lane_once(shell, config, tmp_path):
     facts = tmp_path / "alert-facts.md"
     facts.write_text("apply authority: 0 deletes and 0 replaces while the alert is active\n")
     raw = json.loads(config.read_text())
@@ -1225,20 +1242,25 @@ def test_an_alert_line_writes_the_brief_and_launches_the_sol_fix_lane_once(shell
     orca_pass(shell, config)
     shell.launch("dd-312516332-fix", "ctx_n")
     orca_pass(shell, config)
-    brief = tmp_path / "incidents/dd-312516332/fix-brief.md"
+    brief = shell.attachments["dd-312516332-fix.full.md"]
+    assert brief.parent == tmp_path / "lfs"
     assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), "dd-312516332-fix", "sol", "xhigh", str(brief)]]
+    assert shell.entries == ["INCIDENT dd-312516332: fix brief for dd-312516332-fix: Datadog OK -> Alert Run assignment starved https://app.datadoghq.com/monitors/312516332"]
     text = brief.read_text()
     assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
     assert "Rollback first" in text and "{" not in text
+    assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
+    assert not (tmp_path / "incidents").exists()
     lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
     assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on sol xhigh" in lines[0]
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
 def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, config, tmp_path):
-    brief = tmp_path / "incidents/alerts-runs-1704/fix-brief.md"
-    brief.parent.mkdir(parents=True)
+    brief = tmp_path / "lfs/root-edited"
+    brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text("root-edited brief")
+    shell.attachments["alerts-runs-1704-fix.full.md"] = brief
     shell.launch("alerts-runs-1704-fix", "ctx_a")
     orca_pass(shell, config)
     desk_inbox(tmp_path, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C098XDNJJR3/p1791072242613549 :: Page #11507 SoFi Disputes stuck-case monitor stopped reporting")
@@ -1246,7 +1268,7 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     assert launches(shell) == []
     [send] = shell.sends()
     assert "The alert fired again at" in send[send.index("--body") + 1]
-    assert brief.read_text() == "root-edited brief"
+    assert brief.read_text() == "root-edited brief" and shell.attachments["alerts-runs-1704-fix.full.md"] == brief and shell.entries == []
     [line] = escalations(tmp_path)
     assert line.split(" ", 1)[1] == "RELAYED inbox@0:again alerts-runs-1704-fix: relay to dispatch ctx_a"
 
@@ -1261,15 +1283,27 @@ def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, 
 
 
 def test_an_alert_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(shell, config, tmp_path):
-    brief = tmp_path / "incidents/dd-7/fix-brief.md"
-    brief.parent.mkdir(parents=True)
-    brief.write_text("last episode")
+    last = tmp_path / "lfs/last-episode"
+    last.parent.mkdir(parents=True, exist_ok=True)
+    last.write_text("last episode")
+    shell.attachments["dd-7-fix.full.md"] = last
     shell.launch("dd-7-fix", "ctx_old", status="completed")
     orca_pass(shell, config)
     desk_inbox(tmp_path, "R40 orca-desk: alert dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert again")
     orca_pass(shell, config)
-    assert [call[1] for call in launches(shell)] == ["dd-7-fix"]
-    assert "Datadog OK -> Alert again" in brief.read_text()
+    brief = shell.attachments["dd-7-fix.full.md"]
+    assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "sol", "xhigh", str(brief)]]
+    assert brief != last and "Datadog OK -> Alert again" in brief.read_text()
+
+
+def test_an_alert_whose_brief_fails_to_attach_launches_nothing(shell, config, tmp_path):
+    shell.attach_error = "error: cc-notes: ref lock held"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R41 orca-desk: alert dd-8 https://app.datadoghq.com/monitors/8 :: Datadog OK -> Alert")
+    orca_pass(shell, config)
+    assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1].startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
 
 
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
