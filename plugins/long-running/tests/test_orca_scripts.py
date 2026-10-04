@@ -137,6 +137,17 @@ def test_a_worker_launched_inside_a_drive_carries_the_drive_to_claude(orca):
     assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
 
 
+def test_a_worker_launched_by_a_sessionless_runner_carries_the_drive_of_its_orca_run(orca):
+    orca.healthy()
+    drives = orca.root / "home" / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "900424b6.json").write_text(json.dumps({"drive": "900424b6", "sessions": [], "orca_run": "run_1"}))
+    orca.env.pop("CLAUDE_CODE_SESSION_ID", None)
+    assert orca.launch().returncode == 0
+    [terminal] = orca.calls("terminal create")
+    assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
+
+
 def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     orca.healthy()
     result = orca.launch()

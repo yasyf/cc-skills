@@ -95,6 +95,21 @@ def test_current_and_end_resolve_the_session_drive(repo, monkeypatch, capsys):
     assert not list(drive.drives_dir().glob("*.json"))
 
 
+def test_a_sessionless_process_resolves_the_drive_of_its_orca_run(repo, monkeypatch, capsys):
+    started(repo, "--orca-run", "run_7715a23a5657")
+    capsys.readouterr()
+    monkeypatch.delenv(drive.SESSION_ENV)
+
+    assert drive.main(["current"]) == 1
+
+    monkeypatch.setenv(drive.ORCA_RUN_ENV, "run_other")
+    assert drive.main(["current"]) == 1
+
+    monkeypatch.setenv(drive.ORCA_RUN_ENV, "run_7715a23a5657")
+    assert drive.main(["current"]) == 0
+    assert capsys.readouterr().out == "900424b6\n"
+
+
 def test_a_lane_in_the_root_session_records_its_pr_with_its_head(repo, capsys):
     started(repo)
     shell = FakeShell()
@@ -148,6 +163,17 @@ def test_nothing_outside_the_drive_reaches_its_ledger(repo, tmp_path, session, w
     assert record(shell, cwd, "--session", session, "--lane", "lane", "--pr", pr) == 0
 
     assert shell.calls == []
+
+
+def test_a_session_in_no_drive_says_so_on_stderr(repo, capsys):
+    started(repo)
+    capsys.readouterr()
+
+    assert record(FakeShell(), repo, "--session", WORKER_SESSION, "--lane", "merge-walker-r2", "--pr", "29693") == 0
+
+    assert capsys.readouterr().err.strip() == (
+        f"no drive claims session {WORKER_SESSION} (lane merge-walker-r2, {drive.DRIVE_ENV}=unset); PR #29693 not recorded"
+    )
 
 
 def test_a_failed_write_names_the_ledger_and_the_command_to_run(repo, capsys):
