@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable, Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from captain_hook import (
     Allow,
@@ -23,6 +27,7 @@ from captain_hook import (
     Operand,
     Option,
     Or,
+    Prompt,
     ReadCall,
     Tool,
     Warn,
@@ -34,8 +39,9 @@ from captain_hook import (
 from captain_hook.cmd import Call, Target
 from captain_hook.command_schema import Scalar
 from captain_hook.util import reqenv
+from pydantic import BaseModel
 
-from .compaction_handoff import CompactionState, progress_folder
+from .compaction_handoff import CompactionState, ccn, progress_folder
 from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
@@ -86,6 +92,15 @@ MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_c
 ANSWER_TOOLS = ("mcp__plugin_cc-notes_cc-notes__answer_add", "mcp__plugin_cc-notes_cc-notes__answer_edit")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
+RULING_LABELS = ("scope:durable", "owner-ruling")
+PACIFIC = ZoneInfo("America/Los_Angeles")
+RULING_SYSTEM = (
+    "The owner of a multi-agent coding drive just sent the orchestrator a message. When the message states a "
+    "standing rule (a preference, policy, or decision meant to hold beyond the current task), return in title the "
+    "one question that rule answers, phrased as an agent would ask it before acting, under 120 characters, ending "
+    "with a question mark. Example: the message 'from now on, release everything as it merges' gives the title "
+    "'When does a merged PR get released?'. When the message states no standing rule, return an empty title."
+)
 ROOT_READ = Confirm(
     rule=(
         "An investigation read at the drive root: reading repo code, history, lane output, or Slack to work something "
@@ -182,6 +197,10 @@ def runs_verb(schema: CommandSchema, *prefixes: tuple[str, ...]) -> CommandMatch
 class DriveActive:
     def check(self, evt: BaseHookEvent) -> bool:
         return CompactionState.load(evt).active
+
+
+class RulingTitle(BaseModel):
+    title: str = ""
 
 
 class OwnerPrompt:
@@ -623,20 +642,67 @@ def learn_oversized_mcp(evt: BaseHookEvent) -> HookResult | None:
     )
 
 
+def answers(evt: BaseHookEvent, verb: str, *args: str) -> Any:
+    done = ccn(str(evt.cwd), "answer", verb, "--json", *args)
+    done.check_returncode()
+    return json.loads(done.stdout)
+
+
+def message_label(evt: BaseHookEvent) -> str:
+    digest = hashlib.sha256(f"{evt.session_id}\0{evt.user_prompt}".encode()).hexdigest()[:16]
+    return f"message:{digest}"
+
+
+def ruling_title(evt: BaseHookEvent) -> str:
+    prompt = (
+        Prompt()
+        .system(RULING_SYSTEM)
+        .context("message", evt.user_prompt or "")
+        .ask("What question does the standing rule in this message answer?")
+    )
+    return evt.ctx.call_llm(prompt, response_model=RulingTitle, model="small", agent=False, transcript=False).title.strip()
+
+
+def ruling_body(evt: BaseHookEvent) -> str:
+    stamp = datetime.now(PACIFIC).strftime("%Y-%m-%d %-I:%M %p PT")
+    return f"{evt.user_prompt}\n\nOwner, {stamp}, session {evt.session_id}"
+
+
+def record_ruling(evt: BaseHookEvent) -> str:
+    label = message_label(evt)
+    if existing := answers(evt, "list", "--label", label, "--limit", "1"):
+        return existing[0]["id"]
+    if not (title := ruling_title(evt)):
+        return ""
+    flags = [arg for name in (*RULING_LABELS, label) for arg in ("--label", name)]
+    return answers(evt, "add", *flags, f"--body={ruling_body(evt)}", "--", title)["id"]
+
+
 @on(
     Event.UserPromptSubmit,
     only_if=[DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     tests={
-        Input(prompt="from now on, release everything as it merges", state=ACTIVE): Allow(),
+        Input(
+            prompt="from now on, release everything as it merges",
+            state=ACTIVE,
+            commands={"ccn": '[{"id": "4ffc9a5e0d"}]'},
+        ): Warn(pattern=r"^Recorded this standing rule as cc-notes answer `4ffc9a5`"),
+        Input(prompt="from now on, release everything as it merges", state=ACTIVE, commands={"ccn": "[]"}): Allow(),
         Input(prompt="what is the status of l17?", state=ACTIVE): Allow(),
     },
 )
-def capture_standing_rule(evt: BaseHookEvent) -> None:
-    if evt.ctx.nlp(evt.user_prompt, STANDING):
-        with RootContextState.mutate(evt) as state:
-            state.rule_pending = True
-            state.rule_recorded = False
+def capture_standing_rule(evt: BaseHookEvent) -> HookResult | None:
+    if not evt.ctx.nlp(evt.user_prompt, STANDING):
+        return None
+    with RootContextState.mutate(evt) as state:
+        state.rule_pending = True
+        state.rule_recorded = False
+    if not (answer_id := record_ruling(evt)):
+        return None
+    with RootContextState.mutate(evt) as state:
+        state.rule_recorded = True
+    return evt.context(f"Recorded this standing rule as cc-notes answer `{answer_id[:7]}`; never record it again by hand.")
 
 
 @on(
