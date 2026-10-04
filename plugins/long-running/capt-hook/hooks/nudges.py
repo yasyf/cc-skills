@@ -13,6 +13,7 @@ from captain_hook import (
     workflow_state,
 )
 
+from . import session_tree
 
 ROOT_ACTION = "ROOT-ACTION"
 
@@ -24,7 +25,9 @@ def root_action_key(lane: str) -> str:
 def stopped_lane(evt: BaseHookEvent) -> str | None:
     if evt.tool_name != "TaskStop" or not (task_id := evt.input.raw.get("task_id")):
         return None
-    return task_id.split("@", 1)[0]
+    if "@" in task_id:
+        return task_id.split("@", 1)[0]
+    return next((agent.name for agent in session_tree.subagents(evt) if agent.agent_id == task_id), None)
 
 
 @workflow_state("long_running_nudges")

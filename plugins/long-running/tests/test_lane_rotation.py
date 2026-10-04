@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from cc_transcript import Session, parse
 from captain_hook.app import _state
-from captain_hook.events import StopEvent
+from captain_hook.events import PostToolUseEvent, StopEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.transcripts import lift_session
 from fire import fire
@@ -262,6 +262,26 @@ def test_subagent_lane_without_an_inbox_is_asked_through_the_root(tree: Tree, cl
 
     assert pending(evt) == [f"ROOT-ACTION `reviewer`: `SendMessage` it now, since it has no teammate inbox: `{lane_rotation.ROTATE}`"]
     assert [entry["via"] for entry in timeline(evt)] == ["root"]
+
+
+def task_stop(tree: Tree, task_id: str) -> str | None:
+    raw = {"session_id": "0123456789abcdef", "transcript_path": str(tree.root), "cwd": str(tree.claude.parent)}
+    ctx = build_context(transcript=Session.from_path(tree.root), session_dir=tree.claude / "session")
+    evt = PostToolUseEvent(_raw=raw | {"tool_name": "TaskStop", "tool_input": {"task_id": task_id}}, ctx=ctx)
+    return "\n".join(result.message for result in fire(nudges, evt)) or None
+
+
+@pytest.mark.parametrize("named", [True, False])
+def test_stopping_a_lane_drops_its_queued_root_action(tree: Tree, clock: list[float], named: bool) -> None:
+    reviewer = tree.lane("reviewer", 420_000, team=None, description="Reviewer")
+    evt = stop(tree, [reviewer, tree.lane("auditor", 420_000, team=None, description="Auditor")])
+    rotate_lanes(evt)
+
+    delivered = task_stop(tree, "reviewer@session-rot" if named else reviewer["id"])
+
+    assert delivered is not None
+    assert "ROOT-ACTION `auditor`" in delivered
+    assert "ROOT-ACTION `reviewer`" not in delivered
 
 
 def test_ask_is_recorded_in_the_timeline(tree: Tree, clock: list[float]) -> None:
