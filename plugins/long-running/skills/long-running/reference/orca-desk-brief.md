@@ -69,11 +69,16 @@ orca-desk: alert <slug> <link> :: <what fired>
 ```
 
 `monitor-watch.py --alert-inbox` and the Slack watch lane write these lines. The
-runner fills `reference/alert-fix-brief.md` with `alert.facts`, writes it to
-`<alert.incidents>/<slug>/fix-brief.md`, and launches `<slug>-fix` on sol xhigh
-at once. A repeat relays to the live lane and keeps its brief. The root ratifies
-from `INCIDENT`: evidence and incident-doc lanes, target fence, and comms in the
-affected account channels and, for a platform-wide incident, `#outage` under R16.
+runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches it to the
+briefs log as `<slug>-fix.full.md` with `ccn log append --attach --replace`, and
+launches `<slug>-fix` on sol xhigh at once on that attachment's
+`ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
+to attach logs `INCIDENT` with the ccn error and launches nothing. A repeat relays
+to the live lane and keeps its brief. The root ratifies from `INCIDENT`: evidence
+and incident-doc lanes, target fence, and comms in the affected account channels
+and, for a platform-wide incident, `#outage` under R16. The evidence lane attaches
+`<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix
+lane to read it.
 The incident executor can adopt the launched lane with `--adopt fix=<lane>`.
 A malformed line logs `ALERT-FAILED` and launches nothing.
 
@@ -141,19 +146,17 @@ owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
 environment. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
-`alert.incidents` holds generated fix briefs. `alert.facts` names the file whose
-contents go into each brief: drive checkout, apply authority, target facts, and
-the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and `NOT-OURS` lines.
+Generated fix briefs are attachments on `orca.briefs.log`. `alert.facts` names
+the file whose contents go into each brief: drive checkout, apply authority,
+target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
+`NOT-OURS` lines.
 
 ```json
 {
   "store": "/absolute/drive/actions",
   "escalations": "/absolute/drive/inbox/runner.md",
   "view": "/absolute/drive/inbox/runner-state.md",
-  "alert": {
-    "incidents": "/absolute/drive/incidents",
-    "facts": "/absolute/drive/alert-facts.md"
-  },
+  "alert": {"facts": "/absolute/drive/alert-facts.md"},
   "orca": {
     "run": "<run id>",
     "receipts": "/absolute/drive/receipts",

@@ -55,6 +55,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -193,7 +194,6 @@ class Config:
     hold_minutes: int
     judge_model: str
     landing: dict | None
-    incidents: Path
     alert_facts: Path | None
 
     @classmethod
@@ -222,7 +222,6 @@ class Config:
             hold_minutes=deadlines.get("hold_minutes", 15),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
-            incidents=Path(alert["incidents"]).expanduser() if alert.get("incidents") else escalations.parent.parent / "incidents",
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
         )
 
@@ -534,7 +533,7 @@ class Runner:
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
 
     def alert_line(self, offset: int, key: str, rest: str) -> None:
-        """Launch the alert's sol fix lane on a brief freshly written from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
+        """Launch the alert's sol fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
         log = f"escalation:alert:{offset}"
         spec = ALERT_SPEC.match(rest)
         if not spec:
@@ -546,13 +545,15 @@ class Runner:
         if dispatch and dispatch.status not in INACTIVE:
             self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
-        brief = self.config.incidents / slug / "fix-brief.md"
         if refusal := self.launch_refusal(key, lane, "sol", "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
-        brief.parent.mkdir(parents=True, exist_ok=True)
         facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
-        brief.write_text(ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), incident=brief.parent, facts=facts))
+        text = ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=facts)
+        if failure := self.attach(f"{lane}.full.md", text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}"):
+            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the brief did not attach: {failure}")
+            return
+        brief = self.attachment(f"{lane}.full.md")
         self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
@@ -887,6 +888,13 @@ class Runner:
     def attachment(self, name: str) -> Path | None:
         done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "attachment", "path", self.config.briefs_log, name])
         return Path(done.out.strip()) if done.code == 0 else None
+
+    def attach(self, name: str, text: str, entry: str) -> str:
+        with tempfile.TemporaryDirectory() as staging:
+            path = Path(staging) / name
+            path.write_text(text)
+            done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "log", "append", self.config.briefs_log, "--entry", entry, "--attach", str(path), "--replace"])
+        return "" if done.code == 0 else (done.err or done.out).strip()[-300:]
 
     def judge(self, message: dict, lane: str) -> None:
         """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""
