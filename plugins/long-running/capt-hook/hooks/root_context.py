@@ -85,7 +85,6 @@ DOC_TOOLS = (
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
 ANSWER_TOOLS = ("mcp__plugin_cc-notes_cc-notes__answer_add", "mcp__plugin_cc-notes_cc-notes__answer_edit")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
-COMMITMENT = r"\b(?:from now on|we will|we now|going forward)\b"
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
 ROOT_READ = Confirm(
     rule=(
@@ -166,8 +165,6 @@ class RootContextState(WorkflowState):
     oversized: dict[str, int] = {}
     rule_pending: bool = False
     rule_recorded: bool = False
-    commitment_pending: bool = False
-    commitment_recorded: bool = False
 
 
 def verb(*prefixes: tuple[str, ...]) -> Callable[[Arguments], bool]:
@@ -639,7 +636,7 @@ def capture_standing_rule(evt: BaseHookEvent) -> None:
     if evt.ctx.nlp(evt.user_prompt, STANDING):
         with RootContextState.mutate(evt) as state:
             state.rule_pending = True
-            state.rule_recorded = state.commitment_recorded = False
+            state.rule_recorded = False
 
 
 @on(
@@ -656,37 +653,7 @@ def capture_standing_rule(evt: BaseHookEvent) -> None:
 )
 def record_answer(evt: BaseHookEvent) -> None:
     with RootContextState.mutate(evt) as state:
-        state.rule_recorded = state.commitment_recorded = True
-
-
-@on(
-    Event.PostToolUse,
-    only_if=[DriveActive(), Tool("AskUserQuestion")],
-    skip_if=[FromSubagent()],
-    tests={
-        Input(
-            tool="AskUserQuestion",
-            tool_input={
-                "questions": [{"question": "Post?", "options": [{"label": "Send", "preview": "Going forward we release."}]}]
-            },
-            state=ACTIVE,
-        ): Allow(),
-        Input(
-            tool="AskUserQuestion",
-            tool_input={"questions": [{"question": "We will ship l17 next?", "options": [{"label": "Yes"}]}]},
-            state=ACTIVE,
-        ): Allow(),
-    },
-)
-def capture_slack_commitment(evt: BaseHookEvent) -> None:
-    previews = (
-        option.get("preview") or ""
-        for question in evt.input.raw.get("questions", [])
-        for option in question.get("options", [])
-    )
-    if any(evt.ctx.nlp(preview, COMMITMENT) for preview in previews):
-        with RootContextState.mutate(evt) as state:
-            state.commitment_pending = True
+        state.rule_recorded = True
 
 
 @on(
@@ -707,23 +674,3 @@ def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> None:
                 "Run `answer_add` with `scope:durable`.",
             )
         state.rule_pending = state.rule_recorded = False
-
-
-@on(
-    Event.Stop,
-    only_if=[DriveActive()],
-    skip_if=[FromSubagent()],
-    tests={
-        Input(state=[*ACTIVE, RootContextState(commitment_pending=True)]): Allow(),
-        Input(state=ACTIVE): Allow(),
-    },
-)
-def nudge_unrecorded_commitment(evt: BaseHookEvent) -> None:
-    with RootContextState.mutate(evt) as state:
-        if state.commitment_pending and not state.commitment_recorded:
-            queue_nudge(
-                evt,
-                "A commitment approved for Slack must be recorded. "
-                "Run `answer_add` with `scope:durable` and the permalink.",
-            )
-        state.commitment_pending = state.commitment_recorded = False

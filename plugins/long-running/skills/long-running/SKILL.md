@@ -493,13 +493,9 @@ told you", or "the plan is", is recorded the turn it arrives, as an `answer_add`
 `scope:durable` and a line in the plan's Decisions section. When a turn ends without an `answer_add` or
 `answer_edit`, the `root_context` hook queues `owner standing rule not recorded:
 answer_add it (scope:durable) + a plan Decisions line` for the next turn.
-A Slack post the root approves (a Slack lane's draft shown verbatim in an
-`AskUserQuestion` `Send` preview) that commits to a standing behavior, with "from now
-on", "we will", "we now", or "going forward", is recorded the same turn as an
-`answer_add` with `scope:durable` that carries the post's permalink once the lane
-returns it. A turn whose `AskUserQuestion` carries such a preview and records no answer
-queues `standing commitment approved for Slack and not recorded: answer_add it
-(scope:durable) with the permalink`.
+An `AskUserQuestion` answer, a picked `Send` preview of a Slack lane's draft included,
+is recorded by the cc-notes pack itself with `from:owner` and `source:askuserquestion`;
+the root never records one by hand.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
