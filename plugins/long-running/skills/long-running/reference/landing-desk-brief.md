@@ -198,6 +198,11 @@ Do, in this order, forever:
      and restacks. It uses `stack-enqueue <prefix top> --hold $(cat <held file>)`
      with numeric PRs, dropping `--hold` when the file is empty. A filename or an
      empty `--hold` fails argparse with exit 2, which reads as unsettled.
+     A ready stack is enqueued as one batch from any of its PRs; the call lands
+     the largest green bottom prefix at once. Never enqueue the first PR alone and
+     the rest later, and never through the `merge` label or `gt merge` on one PR
+     of a stack; a partial enqueue needs `--partial`. On a stalled queue (a head's
+     draft closed unmerged), run `stack-enqueue --check <head>`, then `--recover`.
      A `held` refusal is not a red and is not routed; it waits for the root.
      A lane report is not a gate. For each other refused head, send the lane the tool's
      `new head <sha9>: <blocker>` line once per head and blocker. If the head moved
