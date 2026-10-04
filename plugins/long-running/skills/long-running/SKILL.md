@@ -714,6 +714,8 @@ Where the checkout carries an enqueue script, a lane calls it as
 least one PR number, never a filename. Argparse exit 2 otherwise reads as
 `unsettled`.
 
+A ready stack is enqueued as one batch from any of its PRs: `stack-enqueue` lands the largest green bottom prefix in one call. A lane never enqueues the first PR alone and the rest later, and never through the `merge` label or `gt merge` on one PR of a stack. A partial enqueue needs `--partial`. On a stalled queue, where a head's draft closed unmerged, run `stack-enqueue --check <head>`, then `--recover`.
+
 The landing runner runs D3 for tracked stacks; the landing desk
 never adds a competing enqueue. The desk records outside enqueues on refresh as
 `in the queue, labelled outside the desk`. `ledger.py label` cannot pass `--hold`
@@ -752,6 +754,7 @@ numeric file. A `held` refusal waits for the root and is never routed as a red.
 The runner verifies an enqueue only when `reconcile` records every prefix row
 as `landed` by squash on the base. The landing desk never enqueues beside it.
 Never hold a ready prefix behind another stack's landing under D19.
+The runner enqueues a ready stack as one batch, never its first PR alone, and never through `merge` or `gt merge` on one PR; a stalled queue head gets `stack-enqueue --check <head>`, then `--recover`.
 
 The accepted policy is a record seeded from config as `prefix` at #28601's
 revision. The root changes it with `desk-runner.py policy --config C --key L<n>
