@@ -1200,3 +1200,61 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     assert launches(shell) == []
     [line] = escalations(tmp_path)
     assert line.split(" ", 1)[1] == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
+
+
+def test_the_alert_grammar_names_the_slug_link_and_what_fired():
+    directive = runner_module.INBOX_DIRECTIVE.match("- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    spec = runner_module.ALERT_SPEC.match(directive["rest"])
+    assert (directive["verb"], spec["slug"], spec["link"], spec["what"]) == (
+        "alert",
+        "dd-312516332",
+        "https://app.datadoghq.com/monitors/312516332",
+        "Datadog OK -> Alert Run assignment starved",
+    )
+
+
+def test_an_alert_line_writes_the_brief_and_launches_the_sol_fix_lane_once(shell, config, tmp_path):
+    facts = tmp_path / "alert-facts.md"
+    facts.write_text("apply authority: 0 deletes and 0 replaces while the alert is active\n")
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps({**raw, "alert": {"facts": str(facts)}}))
+    shell.cpu_load = 140
+    shell.launch_line = "dd-312516332-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    orca_pass(shell, config)
+    shell.launch("dd-312516332-fix", "ctx_n")
+    orca_pass(shell, config)
+    brief = tmp_path / "incidents/dd-312516332/fix-brief.md"
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), "dd-312516332-fix", "sol", "xhigh", str(brief)]]
+    text = brief.read_text()
+    assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
+    assert "Rollback first" in text and "{" not in text
+    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on sol xhigh" in lines[0]
+    assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
+
+
+def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, config, tmp_path):
+    brief = tmp_path / "incidents/alerts-runs-1704/fix-brief.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("root-edited brief")
+    shell.launch("alerts-runs-1704-fix", "ctx_a")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C098XDNJJR3/p1791072242613549 :: Page #11507 SoFi Disputes stuck-case monitor stopped reporting")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [send] = shell.sends()
+    assert "The alert fired again at" in send[send.index("--body") + 1]
+    assert brief.read_text() == "root-edited brief"
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1] == "RELAYED inbox@0 alerts-runs-1704-fix: relay to dispatch ctx_a"
+
+
+def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R12 orca-desk: alert Run assignment starved, please look")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1].startswith("ALERT-FAILED R12 inbox: one alert per line") and runner_module.ALERT_GRAMMAR in line

@@ -226,10 +226,18 @@ release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
 **R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
-and `launch` commands and reads escalation lines through one Monitor on
-`tail -n 0 -F <escalations file>`, re-armed on expiry. It never runs the check/ack
-loop, relaunch sweeps, or helper scripts inline. No model desk sits between the
-root and Orca.
+and `launch` commands and watches its inbox files through one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json [--match <extra regex>] [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+at timeout 1800000, re-armed on every exit and after compaction. Its byte-offset
+cursor loses and replays nothing on re-arm; `ESCALATION`, `INCIDENT`, `URGENT`,
+`DECIDE`, `ALERT`, and `ASK root` always match, and pure Python leaves no grep
+stage for a reaper to kill. After five minutes without a root turn since an urgent
+line arrived, it pushes to the owner's DM and names any open question holding
+delivery.
+
+Use `--match '.*'` for all inbox traffic or a regex for extra lines. The root never
+runs the check/ack loop, relaunch sweeps, or helper scripts inline. No model desk
+sits between the root and Orca.
 
 Start the orca runner before the first worker; keep its escalations
 under the drive's `inbox/`. Use `policy` for a landing rule and `show` for action
@@ -238,6 +246,15 @@ state. [The runner brief](reference/orca-desk-brief.md) gives the config and cut
 *Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 being sent
 to a superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3
 and ranked fix 3).*
+
+*Prevents release-v3's eight Monitor deaths between 2:44 and 5:04 PM Pacific on
+2026-10-03: Claude Code's shell `grep` function ran embedded ugrep, which the
+machine reaper killed after 15 minutes. The 2:50 PM watch died at 3:06 PM; the
+merge walker's 3:13 PM DECIDE/ESCALATION about a network delete cutting a live
+customer box fell in the gap. The 3:33 PM `tail -n 0` re-arm skipped it, leaving
+the root to find it at 4:10 PM, 57 minutes late. Open `AskUserQuestion` calls at
+3:07-3:32 PM and 4:11-4:31 PM held every Monitor event and teammate message;
+"Run assignment starved" sent at 4:26 PM reached the root at 4:32 PM.*
 
 **R10. Landed is the only progress.** Status to the owner is landed, queued, or the
 exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
@@ -331,6 +348,14 @@ executor owns the incident, through the final reply:
 - It records every side effect in the `scripts/actions.py` store before running it,
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
+
+Alert intake runs before the root wakes. `monitor-watch.py --alert-inbox` and the
+Slack watch lane append `orca-desk: alert <slug> <link> :: <what fired>` to the
+orca desk inbox. The runner fills `reference/alert-fix-brief.md` with drive facts
+from `alert.facts` and launches `<slug>-fix` on sol xhigh at once; a repeat relays
+to the live lane. The root ratifies from `INCIDENT`: evidence lane, target fence,
+and comms. This coexists with `incident.py`; its executor can adopt the launched
+lane with `--adopt fix=<lane>`.
 
 The root's part is the grants and the decisions. It opens the incident with the
 owner's grants (`--grant thread=… channel=… sync=… rebuild=…`). It answers the
@@ -901,10 +926,13 @@ keys. A repeated key in the same lane is one action. A relay can also be one
 `RELAY-FAILED`. A launch can be one
 `R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
 the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
-and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It reads escalation lines through
-one Monitor on `tail -n 0 -F <escalations file>`, under the drive's `inbox/`,
-re-armed on expiry. `show` and the config's `view` file render state; these inbox
-files are views, never authority.
+and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
+includes the escalations file in one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' --session <root session id> <inbox files...>`
+at timeout 1800000, re-armed on every exit. Add `--heartbeat <lane>=<file>:<seconds>`
+for each watch lane. R9 defines cursor, urgent-line, and owner-DM behavior.
+`show` and the config's `view` file render state; these inbox files are views,
+never authority.
 
 Lane results reach the root as `FIX-LIVE`,
 `MECHANISM`, or `OUTCOME` escalation lines, or by Run message id. Never reconstruct
@@ -1022,8 +1050,8 @@ dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
 `reference/active-alert-brief.md` holds the executor's runbook and its lane briefs.
 
 **A1. Report monitor transitions, and nothing else.** The desk keeps one Monitor on
-`monitor-watch.py watch` over the drive's monitors, by tag glob such as
-`release-target:*` and by named id. It messages the root only on a move into Alert,
+`monitor-watch.py watch --alert-inbox <drive>/inbox/orca-desk.md` over the drive's
+monitors, by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
 one-line first read. Never on an unchanged state or a timer tick. It owns no fixes
 and posts nothing to Slack.
@@ -1133,10 +1161,11 @@ summary, and periodic sources such as `ledger.py watch ... --once` and
 `ccx vcs pr watch ... --once` as foreground steps in that same loop between
 waits, never as background Bash or Monitor.
 
-Only top-level sessions arm a Monitor on `tail -n 0 -F <inbox file>` at the
-maximum timeout (at most 30 minutes). Re-arm it on every expiry and after
-compaction. Each appended `R<n>` line wakes the desk; read from the saved cursor
-and act in that turn.
+Only top-level sessions arm one inbox Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+at timeout 1800000. Re-arm it on every exit and after compaction. R9 defines its
+delivery guarantees. Each appended `R<n>` line wakes the desk; read from the saved
+cursor and act in that turn.
 
 *Prevents the 34-minute miss of R956-R969 in a backgrounded desk pass on
 2026-10-02. The first fix armed a Monitor an in-process desk is never woken by.*

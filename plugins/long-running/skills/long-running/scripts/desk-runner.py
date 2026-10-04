@@ -96,10 +96,13 @@ LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ disp
 LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch)\b(?P<rest>.*)$")
+ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert)\b(?P<rest>.*)$")
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
+ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
+ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -185,12 +188,15 @@ class Config:
     enqueue_minutes: int
     judge_model: str
     landing: dict | None
+    incidents: Path
+    alert_facts: Path | None
 
     @classmethod
     def load(cls, path: Path) -> Config:
         raw = json.loads(path.read_text())
         orca = raw["orca"]
         deadlines = raw.get("deadlines", {})
+        alert = raw.get("alert", {})
         escalations = Path(raw["escalations"]).expanduser()
         return cls(
             source=path.expanduser().resolve(),
@@ -210,6 +216,8 @@ class Config:
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
+            incidents=Path(alert["incidents"]).expanduser() if alert.get("incidents") else escalations.parent.parent / "incidents",
+            alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
         )
 
 
@@ -481,7 +489,8 @@ class Runner:
         if not directive:
             return
         key = directive["key"] or f"inbox@{offset}"
-        (self.relay_line if directive["verb"] == "relay" else self.launch_line)(offset, key, directive["rest"])
+        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line}
+        verbs[directive["verb"]](offset, key, directive["rest"])
 
     def relay_line(self, offset: int, key: str, rest: str) -> None:
         parsed = RELAY_TO.match(rest)
@@ -517,6 +526,30 @@ class Runner:
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
+
+    def alert_line(self, offset: int, key: str, rest: str) -> None:
+        """Launch the alert's sol fix lane on a brief written from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
+        log = f"escalation:alert:{offset}"
+        spec = ALERT_SPEC.match(rest)
+        if not spec:
+            self.record(log, f"ALERT-FAILED {key} inbox: one alert per line, in the form `{ALERT_GRAMMAR}`; nothing was launched")
+            return
+        slug, link, what = spec["slug"], spec["link"], spec["what"]
+        lane = f"{slug}-fix"
+        dispatch = self.orca.show(lane)
+        if dispatch and dispatch.status not in INACTIVE:
+            self.relay_to(offset, key, lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            return
+        brief = self.config.incidents / slug / "fix-brief.md"
+        if not brief.is_file():
+            brief.parent.mkdir(parents=True, exist_ok=True)
+            facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
+            brief.write_text(ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), incident=brief.parent, facts=facts))
+        if refusal := self.launch_refusal(key, lane, "sol", "xhigh", brief):
+            self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
+            return
+        self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
+        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence lane, fence the target, start comms")
 
     def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
         try:

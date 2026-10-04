@@ -398,6 +398,9 @@ desk-runner.py relay --config "$CONFIG" --key R2 --lane ci-fix --text '<ruling>'
 desk-runner.py show --config "$CONFIG"
 ```
 
-The root never appends to an orca-desk inbox or `SendMessage`s a desk. It arms one
-Monitor on `tail -n 0 -F <escalations file>` and re-arms on expiry. The orca runner
-alone reads the Run inbox and persists its sequence cursor.
+The root issues runner commands and never `SendMessage`s a desk. It includes the
+escalations file in one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+at timeout 1800000, re-armed on every exit. R9 defines cursor, urgent-line, and
+owner-DM behavior. The orca runner alone reads the Run inbox and persists its
+sequence cursor.
