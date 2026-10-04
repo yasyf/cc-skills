@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -67,8 +70,9 @@ class Root:
         results = fire(self.event(PostToolUseEvent, tool_name=tool, tool_input=tool_input, tool_response=response))
         return results[0].message if results else None
 
-    def say(self, prompt: str) -> None:
-        fire(self.event(UserPromptSubmitEvent, prompt=prompt))
+    def say(self, prompt: str) -> str | None:
+        results = fire(self.event(UserPromptSubmitEvent, prompt=prompt))
+        return results[0].message if results else None
 
     def stop(self) -> list[str]:
         evt = self.event(StopEvent)
@@ -78,8 +82,35 @@ class Root:
         return pending
 
 
+class Notes:
+    def __init__(self) -> None:
+        self.answers: list[dict] = []
+        self.adds: list[list[str]] = []
+
+    def __call__(self, cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+        match args:
+            case ("answer", "list", "--json", "--label", label, "--limit", "1"):
+                found = [answer for answer in self.answers if label in answer["tags"]][:1]
+                return subprocess.CompletedProcess(args, 0, json.dumps(found), "")
+            case ("answer", "add", "--json", *flags, "--", title):
+                self.adds.append(list(args))
+                labels = [flags[i + 1] for i, flag in enumerate(flags) if flag == "--label"]
+                body = next(flag.removeprefix("--body=") for flag in flags if flag.startswith("--body="))
+                answer = {"id": f"{len(self.answers) + 1:07x}" * 2, "title": title, "body": body, "tags": labels}
+                self.answers.append(answer)
+                return subprocess.CompletedProcess(args, 0, json.dumps(answer), "")
+        raise AssertionError(f"unexpected ccn call: {args}")
+
+
 @pytest.fixture
-def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
+def notes(monkeypatch: pytest.MonkeyPatch) -> Notes:
+    fake = Notes()
+    monkeypatch.setattr(root_context, "ccn", fake)
+    return fake
+
+
+@pytest.fixture
+def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, notes: Notes) -> Root:
     monkeypatch.setenv("HOME", str(tmp_path))
     return Root(tmp_path)
 
@@ -234,11 +265,41 @@ def test_oversized_mcp_response_blocks_its_next_call(root: Root) -> None:
     assert "fetch is too large" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
 
 
-def test_unrecorded_standing_rule_nudges_at_stop(root: Root) -> None:
-    root.say("From now on, release everything as it merges.")
+def test_unrecorded_standing_rule_nudges_at_stop(root: Root, notes: Notes) -> None:
+    assert root.say("From now on, release everything as it merges.") is None
     root.post("Bash", {"command": "date"})
 
+    assert notes.adds == []
     assert root.stop() == [RULE_NUDGE]
+    assert root.stop() == []
+
+
+def test_a_titled_standing_rule_records_itself(root: Root, notes: Notes) -> None:
+    root.verdict["title"] = "When does a merged PR get released?"
+    prompt = "From now on, release everything as it merges.\n  Every target."
+
+    message = root.say(prompt)
+
+    [answer] = notes.answers
+    assert message == f"Recorded this standing rule as cc-notes answer `{answer['id'][:7]}`; never record it again by hand."
+    assert answer["title"] == "When does a merged PR get released?"
+    assert {"scope:durable", "owner-ruling"} <= set(answer["tags"])
+    assert re.fullmatch(
+        re.escape(prompt) + r"\n\nOwner, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} [AP]M PT, session 0123456789abcdef",
+        answer["body"],
+    )
+    assert root.stop() == []
+
+
+def test_a_rerun_of_one_message_records_one_answer(root: Root, notes: Notes) -> None:
+    root.verdict["title"] = "When does a merged PR get released?"
+
+    first = root.say("from now on, release everything as it merges")
+    second = root.say("from now on, release everything as it merges")
+    root.say("never skip review")
+
+    assert first == second
+    assert len(notes.adds) == 2
     assert root.stop() == []
 
 
