@@ -1258,6 +1258,71 @@ def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
+ROOT_ALERT = "orca-desk: alert alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
+
+
+def root_brief(tmp_path: Path, monitor: str) -> Path:
+    brief = tmp_path / "incidents/alerts-api-0303/fix-brief.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text(f"# alerts-api-0303-fix\n\nccx: incident={monitor} role=fix\n")
+    return brief
+
+
+@pytest.mark.parametrize(("monitor", "skipped"), [("327967001", True), ("328006761", False)])
+def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, config, tmp_path, monitor, skipped):
+    brief = root_brief(tmp_path, monitor)
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    launched = [call[1] for call in launches(shell)]
+    assert ("alerts-api-0305-fix" not in launched) is skipped and "alerts-api-0303-fix" in launched
+    assert any("LAUNCH-SKIPPED inbox@0 alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path)) is skipped
+
+
+def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_path):
+    brief = root_brief(tmp_path, "327967001")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch("alerts-api-0303-fix", "ctx_root")
+    orca_pass(shell, config)
+    shell.sleep(3600)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix"]
+    assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path))
+
+
+@pytest.mark.parametrize("reused", [False, True], ids=["finished", "reused-for-another-monitor"])
+def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell, config, tmp_path, reused):
+    brief = root_brief(tmp_path, "327967001")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch("alerts-api-0303-fix", "ctx_root")
+    orca_pass(shell, config)
+    shell.dispatches["ctx_root"]["status"] = "completed"
+    if reused:
+        other = tmp_path / "incidents/alerts-api-0400/fix-brief.md"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_text("# alerts-api-0400-fix\n\nccx: incident=328006761 role=fix\n")
+        desk_inbox(tmp_path, f"R1070 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={other}")
+        orca_pass(shell, config)
+        shell.launch("alerts-api-0303-fix", "ctx_reused")
+        orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    assert "alerts-api-0305-fix" in [call[1] for call in launches(shell)]
+    assert not any("LAUNCH-SKIPPED" in line for line in escalations(tmp_path))
+
+
+def test_an_alert_brief_names_its_monitor_for_later_dedupe(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    assert "ccx: lane=alerts-api-0305-fix role=incident effort=xhigh incident=327967001\n" in shell.attachments["alerts-api-0305-fix.full.md"].read_text()
+
+
 def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, config, tmp_path):
     brief = tmp_path / "lfs/root-edited"
     brief.parent.mkdir(parents=True, exist_ok=True)

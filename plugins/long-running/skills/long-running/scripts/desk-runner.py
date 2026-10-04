@@ -106,6 +106,8 @@ LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
+MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
+INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 JUDGE_SCHEMA = json.dumps(
@@ -164,6 +166,10 @@ class Shell:
 
     def env(self, name: str) -> str:
         return os.environ.get(name, "")
+
+
+def brief_incidents(brief: Path) -> set[str]:
+    return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
 
 def pacific(moment: datetime) -> str:
@@ -545,11 +551,16 @@ class Runner:
         if dispatch and dispatch.status not in INACTIVE:
             self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
+        monitors = set(MONITOR_ID.findall(f"{link} {what}"))
+        if monitors and (peer := self.incident_lane(monitors, lane, offset)):
+            self.record(log, f"LAUNCH-SKIPPED {key} {lane}: duplicate of {peer}, already on monitor {', '.join(sorted(monitors))}")
+            return
         if refusal := self.launch_refusal(key, lane, "sol", "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
         facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
-        text = ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=facts)
+        incident = "".join(f" incident={monitor}" for monitor in sorted(monitors)[:1])
+        text = ALERT_TEMPLATE.read_text().format(lane=lane, incident=incident, slug=slug, link=link, what=what, onset=pacific(self.now()), repo=self.config.briefs_repo, log=self.config.briefs_log, facts=facts)
         if failure := self.attach(f"{lane}.full.md", text, f"INCIDENT {slug}: fix brief for {lane}: {what} {link}"):
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the brief did not attach: {failure}")
             return
@@ -593,6 +604,28 @@ class Runner:
                 f"escalation:aged:{action.action_id}",
                 f"DECIDE hold:{held['slug']} {held['owner']}: held {minutes} min: {held['what']} | the root decides it now with {held['owner']}, ahead of any open owner question on another subject",
             )
+
+    def incident_lane(self, monitors: set[str], lane: str, offset: int) -> str | None:
+        """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
+        for container in self.book.containers(LANE_PREFIX):
+            other = container.removeprefix(LANE_PREFIX)
+            launches = [action for action in self.book.actions(container, kind="launch") if brief_incidents(Path(json.loads(action.target)["brief"])) & monitors]
+            if other == lane or not launches:
+                continue
+            dispatch = self.orca.show(other)
+            live = dispatch.id if dispatch and dispatch.status not in INACTIVE else None
+            if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
+                return other
+        inbox = self.config.desk_inbox
+        position = 0
+        for raw in inbox.read_bytes().splitlines(keepends=True) if inbox.is_file() else []:
+            start, position = position, position + len(raw)
+            directive = INBOX_DIRECTIVE.match(raw.decode().strip())
+            if start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
+                continue
+            if brief_incidents(Path(spec["brief"])) & monitors:
+                return spec["lane"]
+        return None
 
     def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
         try:
