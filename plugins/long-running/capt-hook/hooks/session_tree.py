@@ -16,12 +16,15 @@ from cc_transcript.models import TranscriptEvent
 
 from captain_hook import BaseHookEvent
 from captain_hook.snapshots.client import EvidenceIncomplete
+from captain_hook.tasks import Task, Tasks
 
 __capt_hook_skip__ = True
 
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 IDLE_NOTIFICATION = '{"type":"idle_notification"'
+ROOT_NAMES = frozenset({"team-lead", "main"})
+LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
 LOCK_STALE_SECONDS = 10
 LOCK_RETRIES = 10
 LOCK_MIN_DELAY = 0.005
@@ -45,6 +48,20 @@ class Subagent:
     @cached_property
     def started(self):
         return next((event.meta.timestamp for event in self.events if hasattr(event, "meta")), None)
+
+
+def lane_of(task: Task) -> str | None:
+    if task.owner and task.owner not in ROOT_NAMES:
+        return task.owner
+    return match[1] if (match := LANE_IN_SUBJECT.search(task.subject)) else None
+
+
+def mentions(text: str, name: str) -> bool:
+    return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
+
+
+def covered(tasks: Tasks, name: str) -> bool:
+    return any(lane_of(task) == name or mentions(task.subject, name) for task in tasks.open)
 
 
 def subagents(evt: BaseHookEvent) -> list[Subagent]:

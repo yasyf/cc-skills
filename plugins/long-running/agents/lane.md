@@ -18,7 +18,8 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
   `flushed <ids>` within 10 minutes, and keep working. Without that reply, the root
   rotates you by hand. It spawns a numbered successor from your brief and handoff,
-  then stops you once the successor reports.
+  then sends you a stand-down once the successor reports. On a stand-down, stop
+  working and send nothing further.
 - You have no Skill tool. When the work needs a skill, tell your orchestrator,
   which gives that operation to a separately named `long-running:lane-ship` with a
   scoped brief while you keep working on the rest. Never duplicate its work and
