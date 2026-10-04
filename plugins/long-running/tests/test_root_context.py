@@ -17,9 +17,6 @@ RULE_NUDGE = (
     "A standing rule stated by the owner must be recorded. "
     "Run `answer_add` with `scope:durable`."
 )
-COMMITMENT_NUDGE = (
-    "A commitment approved for Slack must be recorded. Run `answer_add` with `scope:durable` and the permalink."
-)
 
 
 def fire(evt) -> list:
@@ -290,32 +287,10 @@ def approval(*previews: str) -> dict:
 
 @pytest.mark.parametrize(
     "preview",
-    ["From now on we release as merged.", "Going forward, every PR lands whole.", "we now enqueue stacks whole"],
+    ["From now on we release as merged.", "Going forward, every PR lands whole.", "we now enqueue stacks whole", "#28797 landed."],
 )
-def test_unrecorded_slack_commitment_nudges_at_stop(root: Root, preview: str) -> None:
+def test_an_approved_slack_preview_never_nudges(root: Root, preview: str) -> None:
     root.post("AskUserQuestion", approval(preview))
-
-    assert root.stop() == [COMMITMENT_NUDGE]
-    assert root.stop() == []
-
-
-def test_recorded_slack_commitment_is_quiet(root: Root) -> None:
-    root.post("AskUserQuestion", approval("From now on we release as merged."))
-    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes, <permalink>"})
-
-    assert root.stop() == []
-
-
-@pytest.mark.parametrize(
-    ("tool", "tool_input"),
-    [
-        ("AskUserQuestion", approval("#28797 landed.")),
-        ("AskUserQuestion", {"questions": [{"question": "We will ship l17 next?", "options": [{"label": "Yes"}]}]}),
-        ("Bash", {"command": "cc-slack thread C0B/p1 # we will see"}),
-    ],
-)
-def test_slack_posts_without_commitments_are_quiet(root: Root, tool: str, tool_input: dict) -> None:
-    root.post(tool, tool_input)
 
     assert root.stop() == []
 
@@ -347,9 +322,9 @@ def test_the_root_keeps_its_own_dm_status_and_identity_checks(root: Root, comman
     assert root.bash(command) is None
 
 
-def test_a_new_standing_rule_reopens_a_recorded_slack_commitment(root: Root) -> None:
+def test_an_approved_slack_preview_does_not_record_a_typed_standing_rule(root: Root) -> None:
     root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Earlier", "body": "yes"})
     root.say("from now on, release as merged")
     root.post("AskUserQuestion", approval("From now on we release as merged."))
 
-    assert root.stop() == [RULE_NUDGE, COMMITMENT_NUDGE]
+    assert root.stop() == [RULE_NUDGE]
