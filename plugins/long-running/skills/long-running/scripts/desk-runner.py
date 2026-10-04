@@ -106,7 +106,6 @@ LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
-ALERT_WINDOW = timedelta(minutes=30)
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
@@ -553,7 +552,7 @@ class Runner:
             self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
         monitors = set(MONITOR_ID.findall(f"{link} {what}"))
-        if monitors and (peer := self.incident_lane(monitors, lane)):
+        if monitors and (peer := self.incident_lane(monitors, lane, offset)):
             self.record(log, f"LAUNCH-SKIPPED {key} {lane}: duplicate of {peer}, already on monitor {', '.join(sorted(monitors))}")
             return
         if refusal := self.launch_refusal(key, lane, "sol", "xhigh", ALERT_TEMPLATE):
@@ -606,22 +605,25 @@ class Runner:
                 f"DECIDE hold:{held['slug']} {held['owner']}: held {minutes} min: {held['what']} | the root decides it now with {held['owner']}, ahead of any open owner question on another subject",
             )
 
-    def incident_lane(self, monitors: set[str], lane: str) -> str | None:
-        """The lane already on one of these monitors: a launch in flight or a live dispatch on a brief whose `ccx: incident=` names one, or a desk-inbox launch line whose such brief was written within the alert window."""
+    def incident_lane(self, monitors: set[str], lane: str, offset: int) -> str | None:
+        """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
             launches = [action for action in self.book.actions(container, kind="launch") if brief_incidents(Path(json.loads(action.target)["brief"])) & monitors]
             if other == lane or not launches:
                 continue
-            if any(action.status in ("accepted", "started") for action in launches) or ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
+            dispatch = self.orca.show(other)
+            live = dispatch.id if dispatch and dispatch.status not in INACTIVE else None
+            if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
                 return other
         inbox = self.config.desk_inbox
-        for line in inbox.read_text().splitlines() if inbox.is_file() else []:
-            directive = INBOX_DIRECTIVE.match(line.strip())
-            if not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
+        position = 0
+        for raw in inbox.read_bytes().splitlines(keepends=True) if inbox.is_file() else []:
+            start, position = position, position + len(raw)
+            directive = INBOX_DIRECTIVE.match(raw.decode().strip())
+            if start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
                 continue
-            brief = Path(spec["brief"])
-            if brief_incidents(brief) & monitors and self.now() - datetime.fromtimestamp(brief.stat().st_mtime, timezone.utc) <= ALERT_WINDOW:
+            if brief_incidents(Path(spec["brief"])) & monitors:
                 return spec["lane"]
         return None
 
