@@ -22,7 +22,8 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     text = (skill / path).read_text()
     assert "desk-wait.sh" in text
     assert "timeout: 60000" in text
-    assert "tail -n 0 -F" in text
+    assert "inbox-watch.py" in text
+    assert "tail -n 0 -F" not in text
 
 
 def stamp(delta: timedelta) -> str:
