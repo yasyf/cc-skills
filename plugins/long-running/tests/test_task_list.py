@@ -77,8 +77,10 @@ class Drive:
         if busy:
             self.lanes[name] = {"id": f"t-{name}", "type": "teammate", "status": "running", "description": meta["description"]}
 
-    def task(self, task_id: str, subject: str, status: str = "in_progress", owner: str | None = None) -> None:
-        raw = {"id": task_id, "subject": subject, "description": "", "status": status, "blocks": [], "blockedBy": []}
+    def task(
+        self, task_id: str, subject: str, status: str = "in_progress", owner: str | None = None, description: str = ""
+    ) -> None:
+        raw = {"id": task_id, "subject": subject, "description": description, "status": status, "blocks": [], "blockedBy": []}
         (self.tasks / f"{task_id}.json").write_text(json.dumps(raw | ({"owner": owner} if owner else {})))
 
     def append(self, *entries: dict) -> None:
@@ -139,6 +141,19 @@ def test_spawn_with_a_task_in_the_same_turn_is_quiet(drive: Drive) -> None:
 def test_task_created_before_the_spawn_covers_it(drive: Drive) -> None:
     drive.task("7", "Owner: fix the ledger — lane ledger-fix", status="pending")
     drive.tool("Agent", {"name": "ledger-fix", "description": "fix ledger", "prompt": "go", "team_name": TEAM})
+
+    assert drive.stop() == []
+
+
+def test_task_naming_the_lane_in_its_description_covers_it(drive: Drive) -> None:
+    drive.task(
+        "333",
+        "prereq-probe: PR-time prerequisite probe and builder AMI pointer",
+        description="Lane prereq-probe-and-ami-pointer: two PRs, then report team-lead.",
+    )
+    drive.tool(
+        "Agent", {"name": "prereq-probe-and-ami-pointer", "description": "probe", "prompt": "go", "team_name": TEAM}
+    )
 
     assert drive.stop() == []
 
