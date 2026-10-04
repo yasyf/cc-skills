@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1256,6 +1257,49 @@ def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol
     lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
     assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on sol xhigh" in lines[0]
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
+
+
+ROOT_ALERT = "orca-desk: alert alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
+
+
+def root_brief(shell, tmp_path: Path, monitor: str) -> Path:
+    brief = tmp_path / "incidents/alerts-api-0303/fix-brief.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text(f"# alerts-api-0303-fix\n\nccx: incident={monitor} role=fix\n")
+    os.utime(brief, (shell.clock.timestamp(), shell.clock.timestamp()))
+    return brief
+
+
+@pytest.mark.parametrize(("monitor", "skipped"), [("327967001", True), ("328006761", False)])
+def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, config, tmp_path, monitor, skipped):
+    brief = root_brief(shell, tmp_path, monitor)
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    launched = [call[1] for call in launches(shell)]
+    assert ("alerts-api-0305-fix" not in launched) is skipped and "alerts-api-0303-fix" in launched
+    assert any("LAUNCH-SKIPPED inbox@0 alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path)) is skipped
+
+
+def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_path):
+    brief = root_brief(shell, tmp_path, "327967001")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch("alerts-api-0303-fix", "ctx_root")
+    orca_pass(shell, config)
+    shell.sleep(3600)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix"]
+    assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path))
+
+
+def test_an_alert_brief_names_its_monitor_for_later_dedupe(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, ROOT_ALERT)
+    orca_pass(shell, config)
+    assert "ccx: lane=alerts-api-0305-fix role=incident effort=xhigh incident=327967001\n" in shell.attachments["alerts-api-0305-fix.full.md"].read_text()
 
 
 def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, config, tmp_path):
