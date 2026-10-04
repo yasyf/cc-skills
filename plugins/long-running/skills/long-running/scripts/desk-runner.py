@@ -568,7 +568,7 @@ class Runner:
         if self.holds(spec["slug"]):
             return
         target = json.dumps({"slug": spec["slug"], "owner": spec["owner"], "what": spec["what"]})
-        self.book.accept(RUNNER, f"hold:{spec['slug']}@{offset}", "hold", target, key, self.now() + timedelta(minutes=self.config.hold_minutes))
+        self.book.accept(RUNNER, f"hold:{spec['slug']}@{self.book.stamp()}", "hold", target, key, self.now() + timedelta(minutes=self.config.hold_minutes))
 
     def unhold_line(self, offset: int, key: str, rest: str) -> None:
         spec = UNHOLD_SPEC.match(rest)
