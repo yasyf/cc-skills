@@ -229,6 +229,10 @@ Authority: implement the fix and open its PR through <submit skill>.
   While the alert is active, apply the fix to production through
   <break-glass skill> without asking when the plan shows 0 deletes and 0 replaces.
   Log the apply in <runbook>. Any delete or replace stops for the owner.
+  A break-glass profile refused with ForbiddenException on GetRoleCredentials
+  holds no live grant. Grant yourself, never wait for the owner, then retry:
+  `env -u AWS_PROFILE tools/ci break-glass --reason "INCIDENT <incident id>: WHY" --stack DOMAIN/ENV`
+  The incident section of <break-glass skill> has the wait and verify steps.
   A CI pipeline whose stored settings a `ci sync` writes is activated by the
   executor after landing; never run that sync yourself.
 
