@@ -96,7 +96,8 @@ def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatc
 
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
     monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
-    monkeypatch.setattr(pr_ledger.reqenv, "getenv", lambda name: {"CLAUDE_LONG_RUNNING_LANE": lane}.get(name))
+    if lane:
+        monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", lane)
     monkeypatch.setattr(
         pr_ledger.subprocess,
         "run",
