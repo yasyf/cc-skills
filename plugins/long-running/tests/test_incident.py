@@ -460,6 +460,7 @@ def test_pacific_times_carry_no_zone():
 def test_render_brief_fills_every_placeholder():
     text = incident.render_brief("Fix lane brief", {"fix lane name": "incident-x-fix", "incident id": "x", "break-glass skill": "break-glass"})
     assert "  break-glass without asking" in text
+    assert '`env -u AWS_PROFILE tools/ci break-glass --reason "INCIDENT x: WHY" --stack DOMAIN/ENV`' in text
     assert "incident-x-fix" in text
     assert "incident.py note --incident x --pr <PR number>" in text
     assert not incident.PLACEHOLDER.search(text)
