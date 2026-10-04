@@ -554,6 +554,9 @@ class Runner:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the brief did not attach: {failure}")
             return
         brief = self.attachment(f"{lane}.full.md")
+        if brief is None:
+            self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the attached brief has no path")
+            return
         self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
@@ -894,7 +897,9 @@ class Runner:
             path = Path(staging) / name
             path.write_text(text)
             done = self.shell.run(["ccn", "-R", self.config.briefs_repo, "log", "append", self.config.briefs_log, "--entry", entry, "--attach", str(path), "--replace"])
-        return "" if done.code == 0 else (done.err or done.out).strip()[-300:]
+        if done.code == 0:
+            return ""
+        return (done.err or done.out).strip()[-300:] or f"ccn exited {done.code}"
 
     def judge(self, message: dict, lane: str) -> None:
         """One Sonnet-low call per question id: an answer the brief settles is replied to the question, anything else escalates with options."""

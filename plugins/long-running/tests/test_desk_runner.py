@@ -51,6 +51,8 @@ class FakeShell(runner_module.Shell):
         self.attachments: dict[str, Path] = {}
         self.entries: list[str] = []
         self.attach_error = ""
+        self.attach_code = 1
+        self.unresolved: set[str] = set()
         self.sequence = 0
         self.environ = {"ORCA_TERMINAL_HANDLE": "term_root", "ORCA_PANE_KEY": "pane_root"}
         self.coordinator = "term_root"
@@ -88,7 +90,7 @@ class FakeShell(runner_module.Shell):
         if argv[0] == "orca":
             return self.orca(argv[1:-1])
         if argv[:5] == ["ccn", "-R", str(self.root / "checkout"), "attachment", "path"] and argv[5] == "briefs1":
-            path = self.attachments.get(argv[6])
+            path = None if argv[6] in self.unresolved else self.attachments.get(argv[6])
             return runner_module.Done(0, f"{path}\n", "") if path else runner_module.Done(1, "", f"no attachment {argv[6]}")
         if argv[:6] == ["ccn", "-R", str(self.root / "checkout"), "log", "append", "briefs1"]:
             return self.append(argv[6:])
@@ -108,8 +110,8 @@ class FakeShell(runner_module.Shell):
 
     def append(self, flags: list[str]) -> runner_module.Done:
         assert flags[0] == "--entry" and flags[2] == "--attach" and flags[4:] == ["--replace"]
-        if self.attach_error:
-            return runner_module.Done(1, "", self.attach_error)
+        if self.attach_error or self.attach_code != 1:
+            return runner_module.Done(self.attach_code, "", self.attach_error)
         source = Path(flags[3])
         stored = self.root / "lfs" / hashlib.sha256(source.read_bytes()).hexdigest()
         stored.parent.mkdir(parents=True, exist_ok=True)
@@ -1304,6 +1306,26 @@ def test_an_alert_whose_brief_fails_to_attach_launches_nothing(shell, config, tm
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
     [line] = escalations(tmp_path)
     assert line.split(" ", 1)[1].startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
+
+
+def test_an_alert_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
+    shell.attach_code = -9
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R42 orca-desk: alert dd-9 https://app.datadoghq.com/monitors/9 :: Datadog OK -> Alert")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [line] = escalations(tmp_path)
+    assert line.endswith("| dd-9-fix not launched: the brief did not attach: ccn exited -9")
+
+
+def test_an_alert_whose_attached_brief_has_no_path_launches_nothing(shell, config, tmp_path):
+    shell.unresolved.add("dd-10-fix.full.md")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R43 orca-desk: alert dd-10 https://app.datadoghq.com/monitors/10 :: Datadog OK -> Alert")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    [line] = escalations(tmp_path)
+    assert line.endswith("| dd-10-fix not launched: the attached brief has no path")
 
 
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
