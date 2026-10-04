@@ -1248,7 +1248,7 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     assert "The alert fired again at" in send[send.index("--body") + 1]
     assert brief.read_text() == "root-edited brief"
     [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == "RELAYED inbox@0 alerts-runs-1704-fix: relay to dispatch ctx_a"
+    assert line.split(" ", 1)[1] == "RELAYED inbox@0:again alerts-runs-1704-fix: relay to dispatch ctx_a"
 
 
 def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, config, tmp_path):
@@ -1258,3 +1258,15 @@ def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, 
     assert launches(shell) == []
     [line] = escalations(tmp_path)
     assert line.split(" ", 1)[1].startswith("ALERT-FAILED R12 inbox: one alert per line") and runner_module.ALERT_GRAMMAR in line
+
+
+def test_an_alert_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(shell, config, tmp_path):
+    brief = tmp_path / "incidents/dd-7/fix-brief.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("last episode")
+    shell.launch("dd-7-fix", "ctx_old", status="completed")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R40 orca-desk: alert dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert again")
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == ["dd-7-fix"]
+    assert "Datadog OK -> Alert again" in brief.read_text()

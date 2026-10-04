@@ -191,3 +191,36 @@ def test_a_session_without_a_transcript_refuses_to_start(inbox):
     )
     assert result.returncode == 1
     assert f"no transcript for session {SESSION}" in result.stderr
+
+
+def test_a_file_created_after_the_first_run_is_read_from_its_start(inbox):
+    late = inbox.root / "orca-desk.md"
+    result = subprocess.run(
+        [str(SCRIPT), "--state", str(inbox.state), "--timeout", "0", str(late)], capture_output=True, text=True, env={**os.environ, "HOME": str(inbox.home)}
+    )
+    assert result.stdout == ""
+    inbox.append(late, "INCIDENT first line of a new file")
+    result = subprocess.run(
+        [str(SCRIPT), "--state", str(inbox.state), "--timeout", "0", str(late)], capture_output=True, text=True, env={**os.environ, "HOME": str(inbox.home)}
+    )
+    assert result.stdout.splitlines() == ["orca-desk.md: INCIDENT first line of a new file"]
+
+
+def test_an_urgent_word_past_the_width_still_counts_as_urgent(inbox):
+    inbox.run()
+    inbox.append(inbox.deploy, "x" * 50 + " INCIDENT late", *[f"#{n} LANDED" for n in range(5)])
+    lines = inbox.run("--match", "LANDED", "--width", "10", "--burst", "1")
+    assert lines[0] == "deploy-go.md: " + "x" * 10
+    assert lines[1].startswith("+5 more matching lines")
+
+
+def test_a_failed_push_is_retried_after_the_push_window(inbox):
+    inbox.transcript({"type": "assistant", "timestamp": stamp(3600), "message": {"content": []}})
+    failing = inbox.root / "fail"
+    failing.write_text("#!/bin/sh\necho down >&2\nexit 1\n")
+    failing.chmod(0o755)
+    args = ("--session", SESSION, "--push-after", "0", "--push-command", str(failing))
+    inbox.run(*args)
+    inbox.append(inbox.runner, "DECIDE x")
+    assert inbox.run(*args)[-1] == "PUSHED 1 urgent line(s) to the owner; the push failed: down"
+    assert inbox.run(*args, "--push-command", inbox.push_command)[-1] == "PUSHED 1 urgent line(s) to the owner"

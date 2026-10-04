@@ -82,15 +82,24 @@ def epoch(stamp: str) -> float:
 
 def root_turn(transcript: Path) -> RootTurn | None:
     size = transcript.stat().st_size
+    span = TAIL_BYTES
+    while True:
+        turn = turn_in(transcript, size, span)
+        if turn or span >= size:
+            return turn
+        span *= 4
+
+
+def turn_in(transcript: Path, size: int, span: int) -> RootTurn | None:
     with transcript.open("rb") as handle:
-        handle.seek(max(0, size - TAIL_BYTES))
-        tail = handle.read().splitlines()[1:] if size > TAIL_BYTES else handle.read().splitlines()
+        handle.seek(max(0, size - span))
+        tail = handle.read(min(span, size)).splitlines()[1 if size > span else 0 :]
     last = None
     asked: dict[str, float] = {}
     for raw in tail:
         try:
             event = json.loads(raw)
-        except json.JSONDecodeError:
+        except ValueError:
             continue
         if event.get("isSidechain") or "timestamp" not in event:
             continue
@@ -131,9 +140,10 @@ class Watch:
     def matches(self, line: str) -> bool:
         return bool(URGENT.search(line)) or any(pattern.search(line) for pattern in self.extra)
 
-    def read(self, path: Path) -> list[str]:
+    def read(self, path: Path) -> list[tuple[bool, str]]:
         key = str(path)
         if not path.is_file():
+            self.state["offsets"].setdefault(key, 0)
             return []
         size = path.stat().st_size
         offset = self.state["offsets"].get(key)
@@ -142,22 +152,21 @@ class Watch:
             return []
         if size < offset:
             self.state["offsets"][key] = size
-            return [f"RESET {path.name}: shrank from {offset} to {size} bytes; resuming at its end"]
+            return [(False, f"RESET {path.name}: shrank from {offset} to {size} bytes; resuming at its end")]
         with path.open("rb") as handle:
             handle.seek(offset)
             appended = handle.read(size - offset)
         complete = appended[: appended.rfind(b"\n") + 1]
         self.state["offsets"][key] = offset + len(complete)
         return [
-            f"{path.name}: {line[: self.args.width]}"
+            (bool(URGENT.search(line)), f"{path.name}: {line[: self.args.width]}")
             for line in complete.decode(errors="replace").splitlines()
             if line.strip() and self.matches(line)
         ]
 
-    def emit(self, lines: list[str], now: float) -> None:
-        urgent, rest = [], []
-        for line in lines:
-            (urgent if URGENT.search(line.split(": ", 1)[-1]) else rest).append(line)
+    def emit(self, lines: list[tuple[bool, str]], now: float) -> None:
+        urgent = [line for loud, line in lines if loud]
+        rest = [line for loud, line in lines if not loud]
         room = max(0, self.args.burst - len(urgent))
         for line in urgent:
             print(line, flush=True)
@@ -187,14 +196,19 @@ class Watch:
         if turn is None:
             return
         self.state["pending"] = [item for item in self.state["pending"] if item["at"] > turn.at]
-        overdue = [item for item in self.state["pending"] if not item["pushed"] and now - item["at"] >= self.args.push_after]
+        overdue = [
+            item
+            for item in self.state["pending"]
+            if not item["pushed"] and now - item["at"] >= self.args.push_after and now - item.get("tried", 0) >= self.args.push_after
+        ]
         if not overdue:
             return
         waiting = f"; it has been waiting on your answer in the terminal since {clock(turn.asking_since)}" if turn.asking_since else ""
         text = f"The drive's root has not acted on an urgent line for {int((now - overdue[0]['at']) // 60)} min{waiting}: " + " | ".join(item["line"] for item in overdue)
         result = subprocess.run([*shlex.split(self.args.push_command), text], capture_output=True, text=True)
         for item in overdue:
-            item["pushed"] = True
+            item["pushed"] = result.returncode == 0
+            item["tried"] = now
         print(f"PUSHED {len(overdue)} urgent line(s) to the owner{' (root waiting on an open question)' if turn.asking_since else ''}" + ("" if result.returncode == 0 else f"; the push failed: {(result.stderr or result.stdout).strip()[:200]}"), flush=True)
 
     def tick(self) -> None:

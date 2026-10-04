@@ -528,7 +528,7 @@ class Runner:
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
 
     def alert_line(self, offset: int, key: str, rest: str) -> None:
-        """Launch the alert's sol fix lane on a brief written from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
+        """Launch the alert's sol fix lane on a brief freshly written from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
         log = f"escalation:alert:{offset}"
         spec = ALERT_SPEC.match(rest)
         if not spec:
@@ -538,16 +538,15 @@ class Runner:
         lane = f"{slug}-fix"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
-            self.relay_to(offset, key, lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
             return
         brief = self.config.incidents / slug / "fix-brief.md"
-        if not brief.is_file():
-            brief.parent.mkdir(parents=True, exist_ok=True)
-            facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
-            brief.write_text(ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), incident=brief.parent, facts=facts))
-        if refusal := self.launch_refusal(key, lane, "sol", "xhigh", brief):
+        if refusal := self.launch_refusal(key, lane, "sol", "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
+        brief.parent.mkdir(parents=True, exist_ok=True)
+        facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
+        brief.write_text(ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), incident=brief.parent, facts=facts))
         self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
         self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence lane, fence the target, start comms")
 
