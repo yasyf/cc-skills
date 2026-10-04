@@ -115,4 +115,6 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
         return evt.context(UNRECORDED)
     if done.returncode:
         return evt.context(UNRECORDED)
-    return evt.context(RECORDED) if done.stdout.strip() else None
+    if done.stdout.strip():
+        return evt.context(RECORDED)
+    return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None

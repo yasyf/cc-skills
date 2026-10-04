@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,24 @@ def test_a_failed_fork_names_the_unrecorded_prs_instead_of_faulting(tmp_path, mo
 
     assert result is not None
     assert result.message == pr_ledger.UNRECORDED
+
+
+@pytest.mark.parametrize(("lane", "expected"), [("merge-walker-r2", "no drive claims session"), (None, None)], ids=["lane", "no-lane"])
+def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatch, lane, expected):
+    from hooks import pr_ledger
+
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    if lane:
+        monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", lane)
+    monkeypatch.setattr(
+        pr_ledger.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", "no drive claims session x (lane y)"),
+    )
+    evt = event(tmp_path)
+    evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
+
+    result = pr_ledger.record_opened_prs(evt)
+
+    assert (result.message if result else None) == (expected and "no drive claims session x (lane y)")

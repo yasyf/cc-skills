@@ -17,8 +17,10 @@ directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names anot
 ``record`` is the capt-hook pack's entry point after a command opened or pushed pull requests.
 A session belongs to a drive when its id is one of the drive's root sessions, which covers every
 in-process subagent and teammate, or when it carries ``CLAUDE_LONG_RUNNING_DRIVE``, which Orca workers
-inherit from ``orca-launch.sh``. A session in no drive, a command run outside the drive's
-repository, and a pull request on another repository are not the drive's and record nothing.
+inherit from ``orca-launch.sh``. ``current`` also resolves the drive whose Orca run is ``ORCA_LAUNCH_RUN``, so a
+desk runner that holds no session still launches workers into the drive. A session in no drive, a command run outside the drive's
+repository, and a pull request on another repository are not the drive's and record nothing; a session in no
+drive says so on stderr.
 
 ``thread`` is the pack's entry point after a Slack post: it appends the posted thread to
 ``<state dir>/slack/watched-threads.jsonl``, the list the drive's Slack watch lane polls.
@@ -39,6 +41,7 @@ import ledger
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 DRIVE_ID_LENGTH = 8
 WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
@@ -105,6 +108,11 @@ def current_drive() -> str | None:
     return entry["drive"] if entry else None
 
 
+def orca_run_drive() -> str | None:
+    run = os.environ.get(ORCA_RUN_ENV)
+    return next((entry["drive"] for entry in drives() if run and entry["orca_run"] == run), None)
+
+
 def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
     session = session_id()
     drive = args.drive or current_drive() or session[:DRIVE_ID_LENGTH]
@@ -138,7 +146,7 @@ def cmd_end(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_current(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if not (drive := current_drive()):
+    if not (drive := current_drive() or orca_run_drive()):
         return 1
     print(drive)
     return 0
@@ -162,8 +170,14 @@ def in_repo(cwd: Path, entry: dict) -> bool:
 
 
 def cmd_record(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    entry = find(args.drive, args.session)
-    if not entry or not in_repo(args.cwd, entry):
+    if not (entry := find(args.drive, args.session)):
+        print(
+            f"no drive claims session {args.session} (lane {args.lane}, {DRIVE_ENV}={args.drive or 'unset'}); "
+            f"PR {', '.join('#' + match['pr'] for match in args.pr)} not recorded",
+            file=sys.stderr,
+        )
+        return 0
+    if not in_repo(args.cwd, entry):
         return 0
     specs = [match for match in args.pr if (match["repo"] or entry["repo"]).lower() == entry["repo"].lower()]
     os.chdir(args.cwd)
