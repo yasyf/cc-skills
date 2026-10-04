@@ -36,9 +36,29 @@ incident.py run --incident <id>
 Start `run` as a background command. It exits only when the final reply posts or
 another owner takes the incident.
 
+In the intake turn, ratify any desk launch from its `INCIDENT` line and start
+the support lanes:
+
+1. Adopt the fix lane with `--adopt fix=<lane>` when the desk already launched it.
+2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
+   `long-running:lane` on opus, named `incident-<id>-retro`, using the brief below.
+3. Fence the target from further deploys and applies outside the fix lane.
+4. Start the comms lane under the contract below. Its first post goes to each
+   affected account channel before the mechanism is known. A platform-wide
+   incident also gets a `#outage` post. The incident-doc link follows when ready;
+   it never holds the first acknowledgement.
+
+The incident-doc lane runs the incident-retro skill's live mode in the
+Forge-AI/design-docs checkout. It runs `live init`, merges the shell PR, then
+runs `live sync` at every state change and at least every 10 minutes. It hands
+the page link to comms for `#outage` and the account channels. At resolution, it
+runs `live finalize` and prepares the draft retro on `retro/<date>-<slug>`.
+
 - Each grant is the owner's authority for one kind of side effect. The root
-  records the two Slack grants from the owner's words, and the comms lane passes
-  each id as `--grant <id>`. `thread` comes from `cc-slack grant --url <permalink>
+  records Slack grants for the affected account channels and threads, plus
+  `#outage` for a platform-wide incident, under cc-notes answers `5ad4507` and
+  `52f4863`. These standing rulings need no per-post owner ask. The comms lane
+  passes each id as `--grant <id>`. `thread` comes from `cc-slack grant --url <permalink>
   --quote "<owner's words>"` and covers replies in that thread. `channel` comes
   from `cc-slack grant --channel <channel id> --quote "<owner's words>"` and covers
   top-level posts in that one channel, never a reply, broadcast, or edit. `sync`
@@ -55,7 +75,7 @@ another owner takes the incident.
   `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane as
   milestones. The root relays those to the owner as one line each, in Pacific
   time.
-- The root's whole job after `open` is the decisions the executor asks for on the
+- After intake, the root owns the decisions the executor asks for on the
   bus: a missing grant, a silent comms lane, an overdue action, a failed canary,
   or a read-back that still drifts after an apply. `incident.py status --incident
   <id>` prints the milestones and open decisions in Pacific time.
@@ -111,6 +131,30 @@ fix it" means the executor's fix lane plus its evidence lane, not a verdict gate
 ## Comms lane contract
 
 The comms lane comes from [slack-lane-brief.md](slack-lane-brief.md#incident-comms-lane).
+Its first step on a page or alert affecting a customer team is a proactive post
+in that account's channel: acknowledge the page and say investigation has started.
+Do this before the mechanism is known, with no per-post owner ask, under cc-notes
+answer `5ad4507`. Resolve the channel and FDEs through the ai-oncall skill mapping
+(`d12f767`). On a miss, search Slack channels by account name and report which
+path found the channel and FDEs; never guess an FDE mention.
+
+Post account updates at mechanism and fix-live. Use plain words, Pacific times,
+and @-mention the account's FDEs. Every account-channel post states what we are
+doing to prevent recurrence (`52f4863`), including the first acknowledgement.
+State the prevention work underway without claiming an unverified fix.
+
+After the account posts, open a platform-wide incident in `#outage` when it
+affects more than one customer or a core service. Include impact, timeline,
+status, and prevention. Update at mechanism, fix-live, and resolution. Add the
+live incident-doc link as soon as the doc lane hands it over, in `#outage` and
+the account channels.
+The root supplies grants for those channels and threads at launch; each grant
+still covers only its named surface.
+
+*Prevents a customer page waiting for diagnosis or another owner approval before
+any account update. cc-notes answers `5ad4507`, `d12f767`, and `52f4863`,
+2026-10-03.*
+
 The executor posts each event to it as a bus `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
@@ -126,6 +170,53 @@ bus.py post --bus <bus id> --from <comms lane name> --kind answer --re <seq> --t
 ```
 
 An event left unanswered for two minutes becomes one decision for the root.
+
+## Incident doc lane brief
+
+```text
+ccx: role=retro
+You are incident-<incident id>-retro, maintaining the live incident doc.
+Agent long-running:lane; model opus.
+Owner: <root agent name>, for incident <incident id>.
+Authority: maintain the incident doc through the incident-retro skill's live
+  mode in the Forge-AI/design-docs checkout. You gate no fix or comms post.
+
+Verified facts, do not re-derive:
+  alert <alert link>; onset <onset>; target <target>
+  fix lane <fix lane name>; evidence lane <evidence lane name>
+  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  incident inputs: <incident-dir>/state.json and <incident-dir>/slack-log.jsonl
+  docs checkout: <design-docs-checkout>; slug: <date>-<slug>
+
+Do:
+  1. Load the incident-retro skill. Keep its incident inputs current from the
+     fix, evidence, and comms lanes. Follow its codename and publishing checks.
+  2. Run `retro.py live init <incident-dir> --docs <design-docs-checkout>`.
+     Open and merge the shell PR with the retro and both index cards before
+     handing out the live page. Init makes no commit or PR itself.
+  3. Run `retro.py live sync <incident-dir> --docs <design-docs-checkout>` at
+     every state change and at least every 10 minutes. The page at
+     https://docs.poetic.design/incident-retros/<date>-<slug>/ polls the
+     live/<date>-<slug> branch. Verify the shell is served, then hand the link
+     to <comms lane name> for #outage and the affected account channels.
+  4. Keep impact, timeline, status, mechanism, mitigation, and prevention current.
+     Record unknowns as unknowns. Send the doc link and each state change on
+     <incident topic>; the comms lane owns Slack posts.
+  5. At resolution, sync the final state, stop your sync loop, then run
+     `retro.py live finalize <incident-dir> --docs <design-docs-checkout> --tags <two to six topical tags, comma-separated>`.
+     Prepare the draft retro on retro/<date>-<slug>, at the same page URL.
+     Hand its branch and link to <root agent name> and <comms lane name>.
+
+Do NOT touch: production, fix or evidence worktrees, or Slack posts.
+Worktree: <design-docs-checkout>, exclusive to this lane.
+Finish: after resolution, final sync, and the draft-retro handoff.
+```
+
+*Prevents an incident running without a lane keeping its live doc current. The
+owner's relayed 5:4x PM ruling on 2026-10-03 set that duty. The
+[live doc for run stalls and database read failures](https://docs.poetic.design/incident-retros/2026-10-03-run-stalls-and-database-read-failures/)
+followed shell PR Forge-AI/design-docs#54, merged at 5:48 PM Pacific; its link went
+under `#outage`, and the incident resolved at 5:59 PM.*
 
 ## Fix lane brief
 

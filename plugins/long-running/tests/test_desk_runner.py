@@ -1270,3 +1270,48 @@ def test_an_alert_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(she
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == ["dd-7-fix"]
     assert "Datadog OK -> Alert again" in brief.read_text()
+
+
+def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R50 (3:50 PM PT) orca-desk: hold api-catchup owner=merge-walker-r2 :: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them")
+    orca_pass(shell, config)
+    shell.sleep(14 * 60)
+    orca_pass(shell, config)
+    assert escalations(tmp_path) == []
+    shell.sleep(2 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [line] = escalations(tmp_path)
+    assert line.split(" ", 1)[1] == (
+        "DECIDE hold:api-catchup merge-walker-r2: held 16 min: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them"
+        " | the root decides it now with merge-walker-r2, ahead of any open owner question on another subject"
+    )
+
+
+def test_a_lifted_hold_never_escalates_and_a_new_hold_restarts_the_clock(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "orca-desk: hold api-catchup owner=walker :: api waits on the move", "orca-desk: hold api-catchup owner=walker :: a repeat keeps the first clock")
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    desk_inbox(tmp_path, "orca-desk: unhold api-catchup")
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    desk_inbox(tmp_path, "orca-desk: hold api-catchup owner=walker :: held again")
+    orca_pass(shell, config)
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    assert escalations(tmp_path) == []
+    shell.sleep(6 * 60)
+    orca_pass(shell, config)
+    [line] = escalations(tmp_path)
+    assert "DECIDE hold:api-catchup walker: held 16 min: held again" in line
+
+
+def test_a_hold_outside_the_grammar_fails_visibly(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "R51 orca-desk: hold the api chain until the move lands", "R52 orca-desk: unhold the api chain")
+    orca_pass(shell, config)
+    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    assert [line.split(":", 1)[0] for line in lines] == ["HOLD-FAILED R51 inbox", "HOLD-FAILED R52 inbox"]
+    assert runner_module.HOLD_GRAMMAR in lines[0] and runner_module.UNHOLD_GRAMMAR in lines[1]

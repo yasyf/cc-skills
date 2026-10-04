@@ -256,6 +256,29 @@ the root to find it at 4:10 PM, 57 minutes late. Open `AskUserQuestion` calls at
 3:07-3:32 PM and 4:11-4:31 PM held every Monitor event and teammate message;
 "Run assignment starved" sent at 4:26 PM reached the root at 4:32 PM.*
 
+**R9a. An urgent hold gets a decision owner and a clock.** A lane holding a release
+the plan marks urgent, or a blocked catch-up of a coupled control-plane set,
+appends `orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>` to
+the orca desk inbox. It names itself or a dedicated decision-owner lane as owner.
+A held or blocked coupled release gets its own decision-owner lane. When the
+release moves, the holding lane appends `orca-desk: unhold <slug>`.
+
+After `deadlines.hold_minutes` (default 15), the runner writes one decision:
+
+```text
+DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
+```
+
+The root resolves it with that lane before or instead of an open
+`AskUserQuestion` on another subject. The unrelated owner question goes to a
+non-blocking board or waits. With no root turn for five minutes after the line
+arrives, `inbox-watch.py` pushes it to the owner's DM under R9.
+
+*Prevents the 2026-10-03 api/runtime-v2/restate-worker catch-up staying held while
+executor shipped alone at 3:51 PM Pacific and the starvation mechanism arrived.
+Demeter questions occupied 3:07-3:32 PM and 4:11-4:31 PM. cc-notes answer `5548bb2`,
+option 3; retro `849e294`.*
+
 **R10. Landed is the only progress.** Status to the owner is landed, queued, or the
 exact blocker: the PR, its head, and the gate it waits on. "Open" and "in CI" are not
 status. PRs sitting more than 24 hours on merge conflicts are combined into trains
@@ -353,12 +376,44 @@ Alert intake runs before the root wakes. `monitor-watch.py --alert-inbox` and th
 Slack watch lane append `orca-desk: alert <slug> <link> :: <what fired>` to the
 orca desk inbox. The runner fills `reference/alert-fix-brief.md` with drive facts
 from `alert.facts` and launches `<slug>-fix` on sol xhigh at once; a repeat relays
-to the live lane. The root ratifies from `INCIDENT`: evidence lane, target fence,
-and comms. This coexists with `incident.py`; its executor can adopt the launched
-lane with `--adopt fix=<lane>`.
+to the live lane. The root ratifies from `INCIDENT` in that turn:
 
-The root's part is the grants and the decisions. It opens the incident with the
-owner's grants (`--grant thread=… channel=… sync=… rebuild=…`). It answers the
+1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
+2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
+   `long-running:lane` on opus, named `incident-<id>-retro`.
+3. Fence the target from further deploys and applies outside the fix lane.
+4. Start comms in the affected account channels first, before the mechanism is
+   known, under cc-notes answer `5ad4507`. A platform-wide incident also opens
+   in `#outage` under `52f4863`.
+
+The incident-doc lane runs the incident-retro skill's live mode in the
+Forge-AI/design-docs checkout: `live init`, then `live sync` at every state change
+and at least every 10 minutes. The shell PR merges first; the page at
+`https://docs.poetic.design/incident-retros/<date>-<slug>/` polls
+`live/<date>-<slug>`. The lane hands its link to comms for `#outage` and the
+account channels. At resolution, it runs `live finalize` and prepares the draft
+retro on `retro/<date>-<slug>`.
+
+Comms uses the ai-oncall channel and FDE mapping from `d12f767`; on a miss,
+search Slack channels by account name and report which path found them. Follow
+up at mechanism and fix-live, in plain words and Pacific times, with the
+account's FDEs @-mentioned. Every account post says what we are doing to prevent
+recurrence (`52f4863`).
+
+More than one customer or a core service makes the incident platform-wide.
+Its `#outage` post carries impact, timeline, status,
+and prevention, with updates at mechanism, fix-live, and resolution. Add the
+incident-doc link when it arrives. Never wait for that link or a per-post owner
+ask to acknowledge the page.
+
+*Prevents incident records and customer updates starting only after diagnosis,
+the gap closed by cc-notes answers `5ad4507`, `d12f767`, and `52f4863` on
+2026-10-03. The owner's relayed 5:4x PM ruling gave the live doc its own lane;
+Forge-AI/design-docs#54 merged at 5:48 PM Pacific, its link went under the
+`#outage` thread, and the incident resolved at 5:59 PM.*
+
+After intake, the root owns the grants and the decisions. It opens the incident
+with the owner's grants (`--grant thread=… channel=… sync=… rebuild=…`). It answers the
 executor's bus asks: a missing grant (`incident.py grant`), a silent comms lane,
 an overdue action, a failed canary, or a read-back that still drifts. It relays
 the executor's `opened`, `live`, and `closed` milestones to the owner as one line
@@ -1060,6 +1115,15 @@ Each alert is P0 for the root. Open its incident and start the executor that tur
 under R16, with no verdict gate. The monitor's
 targets stay fenced from deploys, applies, and enqueues until it recovers or diagnosis
 clears the alert; the fence never blocks the fix lane's own apply under R16.
+
+**A2. A run-binding watch proves a new run starts and finishes.** After an apply
+or release of executor, api, runtime-v2, or restate-worker, the watch or bake
+records a newly bound run, its start, and its completion. Crash and storage
+health alone cannot pass the watch.
+
+*Prevents the 2026-10-03 executor watch passing after 30 minutes while run starts
+fell to 1/min. Retro `849e294`; monorepo #29861 adds a run-starts line to
+`deploy-watch.sh`.*
 
 ## The priority desk
 

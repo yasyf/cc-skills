@@ -72,14 +72,47 @@ orca-desk: alert <slug> <link> :: <what fired>
 runner fills `reference/alert-fix-brief.md` with `alert.facts`, writes it to
 `<alert.incidents>/<slug>/fix-brief.md`, and launches `<slug>-fix` on sol xhigh
 at once. A repeat relays to the live lane and keeps its brief. The root ratifies
-from `INCIDENT`: evidence lane, target fence, and comms. The incident executor
-can adopt the launched lane with `--adopt fix=<lane>`. A malformed line logs
-`ALERT-FAILED` and launches nothing.
+from `INCIDENT`: evidence and incident-doc lanes, target fence, and comms in the
+affected account channels and, for a platform-wide incident, `#outage` under R16.
+The incident executor can adopt the launched lane with `--adopt fix=<lane>`.
+A malformed line logs `ALERT-FAILED` and launches nothing.
 
-Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
-question message id as its key; answer with `relay --reply-to <msg id>`. Other
-relays carry guidance or a brief attachment pointer. Keep each brief complete as
-an attachment on the drive's `briefs: <slug>` log.
+An urgent release hold is one line in the same inbox. The holding lane names
+itself or a dedicated decision-owner lane and states both the release and its
+blocker:
+
+```text
+orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>
+orca-desk: unhold <slug>
+```
+
+Use `hold` for a release the plan marks urgent or any blocked catch-up of a
+coupled control-plane set. A held or blocked coupled release gets its own
+decision-owner lane. The holding lane writes `unhold` when the release moves.
+Repeating an active hold keeps its first clock; a hold after `unhold` starts a
+new one. A malformed hold or unhold logs `HOLD-FAILED`.
+
+After `deadlines.hold_minutes` (default 15), the runner writes once per hold:
+
+```text
+DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with <owner>, ahead of any open owner question on another subject
+```
+
+The root resolves it with the named lane before or instead of any open
+`AskUserQuestion` on another subject. That unrelated question goes to a
+non-blocking board or waits. R9's inbox watch pushes the line to the owner's DM
+after five minutes without a root turn since it arrived. The hold verb records
+a decision clock; it does not change the landing holds file or authorize a release.
+
+*Prevents the api/runtime-v2/restate-worker catch-up waiting behind the Demeter
+questions on 2026-10-03 while executor shipped alone. cc-notes answer `5548bb2`,
+option 3; retro `849e294`.*
+
+Use `--model sol --effort xhigh` for fix and evidence lanes. A worker-question
+`DECIDE` carries the question message id as its key; answer with
+`relay --reply-to <msg id>`. A `hold:<slug>` key names a release decision, not a
+question message id. Other relays carry guidance or a brief attachment pointer.
+Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 
 Read runner traffic only from the config's `escalations` file, under the drive's
 `inbox/`. Include it in one Monitor on
@@ -144,6 +177,7 @@ the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and `NOT-OURS` lines.
     "start_minutes": 10,
     "launch_minutes": 15,
     "load_hold_minutes": 5,
+    "hold_minutes": 15,
     "enqueue_minutes": 15
   },
   "judge_model": "claude-sonnet-5-5",
@@ -332,13 +366,14 @@ never by editing a rendered inbox view.
 
 Each line uses `<HH:MM Pacific> <KIND> <key> <lane>: <text>`, with Pacific `HH:MM`
 and no zone label. The lane slot can name `landing`, `runner`, or a PR. Keys
-identify the cause; `DECIDE` uses the question id.
+identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 
 | Kind | Root action |
 |---|---|
-| `DECIDE` | Resolve the question the brief does not settle; answer with `relay --reply-to <msg id>`. |
-| `INCIDENT` | Ratify the fix launch, start the evidence lane, fence the target, and start comms; adopt the fix lane into the incident executor. |
+| `DECIDE` | For `hold:<slug>`, decide with the named lane ahead of unrelated owner questions. For a worker question, answer with `relay --reply-to <msg id>`. |
+| `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
+| `HOLD-FAILED` | Correct the hold or unhold grammar and append the line again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
 | `RELAY-FAILED` | Fix the named inbox relay line's lane, key, or form, and append a corrected line. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |

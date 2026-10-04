@@ -97,12 +97,16 @@ LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert)\b(?P<rest>.*)$")
+HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
+UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|hold|unhold)\b(?P<rest>.*)$")
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
+HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
+UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 JUDGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -186,6 +190,7 @@ class Config:
     launch_minutes: int
     load_hold_minutes: int
     enqueue_minutes: int
+    hold_minutes: int
     judge_model: str
     landing: dict | None
     incidents: Path
@@ -214,6 +219,7 @@ class Config:
             launch_minutes=deadlines.get("launch_minutes", 15),
             load_hold_minutes=deadlines.get("load_hold_minutes", 5),
             enqueue_minutes=deadlines.get("enqueue_minutes", 15),
+            hold_minutes=deadlines.get("hold_minutes", 15),
             judge_model=raw.get("judge_model", "claude-sonnet-5-5"),
             landing=raw.get("landing"),
             incidents=Path(alert["incidents"]).expanduser() if alert.get("incidents") else escalations.parent.parent / "incidents",
@@ -489,7 +495,7 @@ class Runner:
         if not directive:
             return
         key = directive["key"] or f"inbox@{offset}"
-        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line}
+        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "hold": self.hold_line, "unhold": self.unhold_line}
         verbs[directive["verb"]](offset, key, directive["rest"])
 
     def relay_line(self, offset: int, key: str, rest: str) -> None:
@@ -548,7 +554,41 @@ class Runner:
         facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
         brief.write_text(ALERT_TEMPLATE.read_text().format(lane=lane, slug=slug, link=link, what=what, onset=pacific(self.now()), incident=brief.parent, facts=facts))
         self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
-        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence lane, fence the target, start comms")
+        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
+
+    def holds(self, slug: str) -> list[actions.Action]:
+        return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
+
+    def hold_line(self, offset: int, key: str, rest: str) -> None:
+        """Start the clock on an urgent hold; `aged_holds` turns one older than `deadlines.hold_minutes` into a DECIDE line for the root."""
+        spec = HOLD_SPEC.match(rest)
+        if not spec:
+            self.record(f"escalation:hold:{offset}", f"HOLD-FAILED {key} inbox: one hold per line, in the form `{HOLD_GRAMMAR}`; no clock started")
+            return
+        if self.holds(spec["slug"]):
+            return
+        target = json.dumps({"slug": spec["slug"], "owner": spec["owner"], "what": spec["what"]})
+        self.book.accept(RUNNER, f"hold:{spec['slug']}@{offset}", "hold", target, key, self.now() + timedelta(minutes=self.config.hold_minutes))
+
+    def unhold_line(self, offset: int, key: str, rest: str) -> None:
+        spec = UNHOLD_SPEC.match(rest)
+        if not spec:
+            self.record(f"escalation:unhold:{offset}", f"HOLD-FAILED {key} inbox: lift a hold in the form `{UNHOLD_GRAMMAR}`")
+            return
+        for action in self.holds(spec["slug"]):
+            self.book.edit(RUNNER, lambda incident, held=action.action_id: incident.verify(held, {"at": self.book.stamp(), "by": key}))
+
+    def aged_holds(self) -> None:
+        moment = self.now()
+        for action in self.book.actions(RUNNER, kind="hold", status="accepted"):
+            if not action.overdue(moment):
+                continue
+            held = json.loads(action.target)
+            minutes = int((moment - actions.parse_stamp(action.accepted_at)).total_seconds() // 60)
+            self.record(
+                f"escalation:aged:{action.action_id}",
+                f"DECIDE hold:{held['slug']} {held['owner']}: held {minutes} min: {held['what']} | the root decides it now with {held['owner']}, ahead of any open owner question on another subject",
+            )
 
     def launch_refusal(self, key: str, lane: str, model: str, effort: str, brief: Path) -> str:
         try:
@@ -1201,6 +1241,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                 runner.sweep()
                 swept = runner.now()
         runner.deadlines_orca()
+        runner.aged_holds()
         runner.flush()
         runner.write_view()
         if once:
