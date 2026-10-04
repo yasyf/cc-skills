@@ -10,7 +10,8 @@ Fill the angle brackets and paste the brief.
 **Open the incident before anything else.** Every transition to Alert, Warn, or No
 Data is P0. In the turn it arrives, the root runs `incident.py open --kind alert
 --target <monitor's target>` and starts `incident.py run`, under R16 and
-`active-alert-brief.md`. The executor launches the sol fix and evidence lanes,
+`active-alert-brief.md`. If the runner already launched the fix lane, adopt it with
+`--adopt fix=<lane>`. The executor launches any missing sol fix and evidence lanes,
 fences the target, and adds the Opus 5.5 backup at 15 minutes without a mechanism.
 
 Never put a "real-or-not" or "ours-or-not" verdict, a mechanism-depth mandate,
@@ -60,10 +61,15 @@ At spawn, run once and report every line it prints as one message:
     $(cat <monitors file>)
 Then keep one Monitor on
   python3 <scripts>/monitor-watch.py watch --state <state file> \
-    $(cat <monitors file>)
+    --alert-inbox <drive>/inbox/orca-desk.md $(cat <monitors file>)
   with timeout 1800000, re-armed on expiry. Re-read the monitors file at every
   re-arm. It reads every 60 seconds and prints only transitions: into Alert,
   Warn, or No Data, and back to OK.
+
+Each known monitor's move into Alert or Warn also appends
+  `orca-desk: alert dd-<id> <link> :: <what fired>` to the orca desk inbox.
+  The runner launches the fix lane from that line. A first read, No Data, and
+  recovery never append an alert directive. You still report each transition.
 
 On each printed line, in the same turn:
   1. Read the monitor once: `pup --no-agent --read-only monitors get <id>`.

@@ -103,9 +103,11 @@ At spawn:
     `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
     It waits at most 50 seconds and returns on a new inbox, mailbox, or deadline
     line. Run step 0 on its output, then rerun the call in a loop.
-    Top-level session: arm one Monitor on `tail -n 0 -F <root inbox file>` at its
-    maximum timeout (at most 30 minutes). Re-arm on every expiry and after your
-    own compaction. Each appended line wakes you; run step 0 on it at once.
+    Top-level session: arm one inbox Monitor on
+    `inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+    at timeout 1800000. Include the root inbox file. Re-arm on every exit and
+    after your own compaction. R9 defines its delivery guarantees. Each appended
+    line wakes you; run step 0 on it at once.
   - In-process desk: run
     `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command
@@ -137,7 +139,7 @@ Do, in this order, forever:
      The root appends rulings there, because a SendMessage to a looping desk is
      not delivered mid-turn. In-process desks receive new lines from the
      foreground wait, which advances the file cursor. Top-level sessions wake
-     on the inbox Monitor; re-arm it on expiry and after your own compaction.
+     on the inbox Monitor; re-arm it on every exit and after your own compaction.
      Read the holds file's #<n> and lane:<name> entries. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift

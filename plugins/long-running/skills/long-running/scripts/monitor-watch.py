@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-USAGE = """usage: monitor-watch.py once|watch --state <file> [--tag <glob>]... [--id <id>]...
+USAGE = """usage: monitor-watch.py once|watch --state <file> [--tag <glob>]... [--id <id>]... [--alert-inbox <file>]
 
 Reads every Datadog monitor through `pup monitors list` and keeps those carrying a
 tag that matches a --tag glob, such as release-target:*, or named by --id. It
@@ -21,6 +21,11 @@ them. A monitor the state file has not seen yet prints with <from> start when it
 is not OK, so the first read reports everything already alerting. A failed read
 prints API-FAIL once per streak.
 
+With --alert-inbox, each move from a known state into Alert or Warn also appends one
+`orca-desk: alert dd-<id> <link> :: <what>` line to that file, so the orca desk
+runner launches the sol fix lane before any model reads the transition. A monitor
+seen for the first time never appends one.
+
 once reads one time. watch reads every --interval seconds, default 60, until
 --timeout seconds pass, default 1740, so a Monitor re-arms it before its own
 30-minute expiry. --state persists across runs, so a re-armed watch reports
@@ -28,6 +33,7 @@ only what changed while it was down.
 """
 
 LOUD = {"Alert", "Warn", "No Data"}
+PAGING = {"Alert", "Warn"}
 
 
 def utc() -> str:
@@ -71,6 +77,11 @@ def poll(args: argparse.Namespace, failing: bool) -> bool:
                 f"{utc()} {key} {before or 'start'} -> {after} at {monitor.get('overall_state_modified')} | {monitor['name']}",
                 flush=True,
             )
+            if args.alert_inbox and before is not None and after in PAGING:
+                with open(args.alert_inbox, "a") as inbox:
+                    inbox.write(
+                        f"orca-desk: alert dd-{key} https://app.datadoghq.com/monitors/{key} :: Datadog {before} -> {after} at {monitor.get('overall_state_modified')}: {monitor['name']}\n"
+                    )
     with open(args.state + ".new", "w") as out:
         json.dump(states, out)
     os.replace(args.state + ".new", args.state)
@@ -85,6 +96,7 @@ def main() -> None:
     parser.add_argument("--id", action="append", default=[])
     parser.add_argument("--interval", type=float, default=60)
     parser.add_argument("--timeout", type=float, default=1740)
+    parser.add_argument("--alert-inbox")
     args = parser.parse_args()
     if not args.tag and not args.id:
         parser.error("name at least one --tag or --id")

@@ -62,16 +62,34 @@ a key that already holds an action, a model or effort `launch` refuses, or a bri
 that is not a file. A line that says `orca-desk: launch` outside the form logs
 `LAUNCH-FAILED <key> inbox`.
 
+An alert is one line in the same inbox:
+
+```text
+orca-desk: alert <slug> <link> :: <what fired>
+```
+
+`monitor-watch.py --alert-inbox` and the Slack watch lane write these lines. The
+runner fills `reference/alert-fix-brief.md` with `alert.facts`, writes it to
+`<alert.incidents>/<slug>/fix-brief.md`, and launches `<slug>-fix` on sol xhigh
+at once. A repeat relays to the live lane and keeps its brief. The root ratifies
+from `INCIDENT`: evidence lane, target fence, and comms. The incident executor
+can adopt the launched lane with `--adopt fix=<lane>`. A malformed line logs
+`ALERT-FAILED` and launches nothing.
+
 Use `--model sol --effort xhigh` for incident lanes. A `DECIDE` line carries the
 question message id as its key; answer with `relay --reply-to <msg id>`. Other
 relays carry guidance or a brief attachment pointer. Keep each brief complete as
 an attachment on the drive's `briefs: <slug>` log.
 
 Read runner traffic only from the config's `escalations` file, under the drive's
-`inbox/`, through one Monitor on `tail -n 0 -F <file>`. Re-arm on expiry and after
-compaction. `show` and the config's `view` file render action state. Runner-owned
-`inbox/` files are views, never command authority. Keep existing history; do not
-mirror runner actions into `TaskCreate`/`TaskUpdate` or complete shadow tasks for them.
+`inbox/`. Include it in one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+at timeout 1800000. Re-arm on every exit and after compaction. R9 defines cursor,
+urgent-line, and owner-DM behavior.
+
+`show` and the config's `view` file render action state. Runner-owned `inbox/`
+files are views, never command authority. Keep existing history; do not mirror
+runner actions into `TaskCreate`/`TaskUpdate` or complete shadow tasks for them.
 
 Only the orca runner consumes the Run. To cut over from a running orca-desk,
 let it finish its current pass and acknowledge its delivered batch, then end its
@@ -90,11 +108,19 @@ owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
 environment. `orca.gc` names the repo's gc command, which every `RECLAIM` line
 carries. Set the accepted prefix policy's revision to #28601's revision.
 
+`alert.incidents` holds generated fix briefs. `alert.facts` names the file whose
+contents go into each brief: drive checkout, apply authority, target facts, and
+the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and `NOT-OURS` lines.
+
 ```json
 {
   "store": "/absolute/drive/actions",
   "escalations": "/absolute/drive/inbox/runner.md",
   "view": "/absolute/drive/inbox/runner-state.md",
+  "alert": {
+    "incidents": "/absolute/drive/incidents",
+    "facts": "/absolute/drive/alert-facts.md"
+  },
   "orca": {
     "run": "<run id>",
     "receipts": "/absolute/drive/receipts",
@@ -139,16 +165,20 @@ carries. Set the accepted prefix policy's revision to #28601's revision.
 
 Start each process detached so it survives the root's compaction, in a dedicated
 Orca terminal with coordinator identity or with `nohup`. After filling the config,
-start both and arm the root's Monitor on the last command:
+start both and arm the root's Monitor on the last command at timeout 1800000.
+Include every other root inbox in the same command and re-arm it on every exit:
 
 ```sh
 DRIVE='/absolute/drive'
 CONFIG="$DRIVE/runner.json"
+ROOT_SESSION='<root session id>'
 mkdir -p "$DRIVE/inbox"
 touch "$DRIVE/inbox/runner.md"
 nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
 nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
-tail -n 0 -F "$DRIVE/inbox/runner.md"
+inbox-watch.py --state "$DRIVE/inbox/.inbox-watch.json" --match '.*' \
+  --heartbeat "slack=$DRIVE/slack/watch.beat:600" --session "$ROOT_SESSION" \
+  "$DRIVE/inbox/runner.md"
 ```
 
 Restarting either process uses the same records and is idempotent. Keep one process
@@ -307,6 +337,8 @@ identify the cause; `DECIDE` uses the question id.
 | Kind | Root action |
 |---|---|
 | `DECIDE` | Resolve the question the brief does not settle; answer with `relay --reply-to <msg id>`. |
+| `INCIDENT` | Ratify the fix launch, start the evidence lane, fence the target, and start comms; adopt the fix lane into the incident executor. |
+| `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
 | `RELAY-FAILED` | Fix the named inbox relay line's lane, key, or form, and append a corrected line. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |

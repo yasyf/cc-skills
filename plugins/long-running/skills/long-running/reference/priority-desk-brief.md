@@ -52,9 +52,11 @@ At spawn:
     `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
     It waits at most 50 seconds and returns on a new inbox, mailbox, or deadline
     line. Run step 0 on its output, then rerun the call in a loop.
-    Top-level session: arm one Monitor on `tail -n 0 -F <root inbox file>` at its
-    maximum timeout (at most 30 minutes). Re-arm on every expiry and after your
-    own compaction. Each appended line wakes you; run step 0 on it at once.
+    Top-level session: arm one inbox Monitor on
+    `inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+    at timeout 1800000. Include the root inbox file. Re-arm on every exit and
+    after your own compaction. R9 defines its delivery guarantees. Each appended
+    line wakes you; run step 0 on it at once.
   - In-process desk: run `ccx vcs pr watch <every owed PR number> --once` as a
     foreground step between waits. Top-level session: arm the same command
     without `--once` under Monitor and re-arm on expiry. Route ejections,

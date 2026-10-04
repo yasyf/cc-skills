@@ -89,3 +89,15 @@ def test_a_failed_read_reports_and_keeps_the_state(watch):
     )
     assert "API-FAIL" in result.stdout
     assert json.loads(watch.state.read_text()) == {"1": "Alert"}
+
+
+def test_a_move_into_alert_or_warn_appends_one_alert_line_for_the_desk(watch):
+    inbox = watch.root / "orca-desk.md"
+    args = ("--tag", "release-target:*", "--alert-inbox", str(inbox))
+    watch.once(monitor(1, "OK"), monitor(2, "OK"), monitor(3, "OK"), monitor(4, "Alert"), args=args)
+    assert not inbox.exists()
+    watch.once(monitor(1, "Alert"), monitor(2, "Warn"), monitor(3, "No Data"), monitor(4, "OK"), args=args)
+    assert inbox.read_text().splitlines() == [
+        "orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert at 2026-09-30T19:00:00+00:00: monitor 1",
+        "orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn at 2026-09-30T19:00:00+00:00: monitor 2",
+    ]
