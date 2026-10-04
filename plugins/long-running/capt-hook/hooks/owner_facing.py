@@ -186,6 +186,10 @@ JUDGE_UNSURE = {"block": True, "confident": False}
             description="They are not part of the release pipeline program; the drive keeps landing only its own pull requests.",
         ): Allow(),
         ask(
+            "The 11 older PRs of yours outside the drive (#29147, #28357, #22400–#22402, #17808) are untouched. What should happen to them?",
+            description="Leave them: the drive keeps landing only its own PRs, such as #29976.",
+        ): Allow(),
+        ask(
             "The AWS single sign-on session expired at about 11:12 PM. The command is `aws sso login --sso-session forge`. Have you signed in?",
             description="I tell the walker and the release lane to retry their sign-ins now.",
         ): Allow(),

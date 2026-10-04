@@ -61,7 +61,9 @@ def mentions(text: str, name: str) -> bool:
 
 
 def covered(tasks: Tasks, name: str) -> bool:
-    return any(lane_of(task) == name or mentions(task.subject, name) for task in tasks.open)
+    return any(
+        lane_of(task) == name or mentions(task.subject, name) or mentions(task.description, name) for task in tasks.open
+    )
 
 
 def subagents(evt: BaseHookEvent) -> list[Subagent]:

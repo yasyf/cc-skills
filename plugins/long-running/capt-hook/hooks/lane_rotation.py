@@ -25,7 +25,7 @@ from captain_hook import (
 
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
-from .nudges import NudgeState, queue_nudge
+from .nudges import NudgeState, queue_nudge, root_action_key
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent, covered
 from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
@@ -34,7 +34,6 @@ SENDER = "long-running"
 ROTATE = (
     'ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.'
 )
-ROOT_ACTION = "ROOT-ACTION"
 HANDOFF_BRIEF = Path(__file__).parents[2] / "skills" / "long-running" / "reference" / "handoff-subagent-brief.md"
 DORMANT = timedelta(hours=1)
 PACE_SECONDS = 15 * 60
@@ -216,7 +215,7 @@ def escalation(lane: Lane) -> str:
 
 
 def queue_root_action(evt: BaseHookEvent, lane: Lane, text: str) -> None:
-    key = f"{ROOT_ACTION} `{lane.name}`"
+    key = root_action_key(lane.name)
     with NudgeState.mutate(evt) as nudges:
         nudges.pending = [line for line in nudges.pending if not line.startswith(key)] + [f"{key}: {text}"]
 

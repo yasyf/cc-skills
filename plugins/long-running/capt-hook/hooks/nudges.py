@@ -13,6 +13,22 @@ from captain_hook import (
     workflow_state,
 )
 
+from . import session_tree
+
+ROOT_ACTION = "ROOT-ACTION"
+
+
+def root_action_key(lane: str) -> str:
+    return f"{ROOT_ACTION} `{lane}`"
+
+
+def stopped_lane(evt: BaseHookEvent) -> str | None:
+    if evt.tool_name != "TaskStop" or not (task_id := evt.input.raw.get("task_id")):
+        return None
+    if "@" in task_id:
+        return task_id.split("@", 1)[0]
+    return next((agent.name for agent in session_tree.subagents(evt) if agent.agent_id == task_id), None)
+
 
 @workflow_state("long_running_nudges")
 class NudgeState(WorkflowState):
@@ -34,6 +50,16 @@ def queue_nudge(evt: BaseHookEvent, text: str) -> None:
         ),
         Input(prompt="continue", state=[NudgeState()]): Allow(),
         Input(
+            tool="TaskStop",
+            tool_input={"task_id": "desk@session-root"},
+            state=[NudgeState(pending=["ROOT-ACTION `desk`: Rotate it by hand.", "ROOT-ACTION `desk-2`: Rotate it by hand."])],
+        ): Warn(pattern=r"^ROOT-ACTION `desk-2`: Rotate it by hand\.$"),
+        Input(
+            tool="TaskStop",
+            tool_input={"task_id": "desk@session-root"},
+            state=[NudgeState(pending=["ROOT-ACTION `desk`: Rotate it by hand."])],
+        ): Allow(),
+        Input(
             tool="Bash", tool_input={"command": "ls"}, agent_id="a1b2c3", state=[NudgeState(pending=["only"])]
         ): Allow(),
     },
@@ -41,4 +67,6 @@ def queue_nudge(evt: BaseHookEvent, text: str) -> None:
 def deliver_nudge(evt: BaseHookEvent) -> HookResult | None:
     with NudgeState.mutate(evt) as state:
         pending, state.pending = state.pending, []
+    if lane := stopped_lane(evt):
+        pending = [line for line in pending if not line.startswith(root_action_key(lane))]
     return evt.context("\n\n".join(pending)) if pending else None
