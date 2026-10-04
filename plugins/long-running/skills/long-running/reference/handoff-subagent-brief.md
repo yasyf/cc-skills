@@ -12,8 +12,8 @@ nothing of the old lane yourself, neither its transcript, receipts, cursor files
 runtime listings. The subagent's reply is one doc id line plus at most three lines
 naming what it could not reconstruct. Then do only the swap. Spawn
 `<lane>-N+1` with its reference brief, `ccn doc show <id>` as its handoff, and the cursor the
-handoff names. Wait for its first report, then `TaskStop` the old lane by the id
-from the `ROOT-ACTION` line, `<lane>@<team>` for a teammate.
+handoff names. Wait for its first report, then send the old lane a stand-down with
+`SendMessage` to its name.
 
 ## Spawn brief
 

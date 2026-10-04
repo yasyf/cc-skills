@@ -29,7 +29,7 @@ from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
 from .lane_rotation import DriveActive, live_lanes
 from .nudges import queue_nudge
-from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE
+from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, covered, lane_of, mentions
 
 ASK_CALLS = 3
 ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
@@ -37,12 +37,10 @@ RECONCILE_TURNS = 20
 LISTED_LANES = 5
 DONE_COOLDOWN_SECONDS = 30 * 60
 IDLE_SECONDS = 30 * 60
-ROOT_NAMES = frozenset({"team-lead", "main"})
 HELPER_ROLES = frozenset({"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"})
 DRIFT_LINE = "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
 TASK_TOOLS = frozenset({"TaskCreate", "TaskUpdate"})
 NAME_FLAGS = ("--display-name", "--name", "--task-title")
-LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
 DESK = re.compile(r"(?:^|-)desk(?:-|$)")
 REF = re.compile(r"#\d+|\b[A-Z]\d+\b")
 TASK_REF = re.compile(r"\btask #(\d+)", re.IGNORECASE)
@@ -90,20 +88,6 @@ class UntrackedState(WorkflowState):
 
 def spawned_names(evt: BaseHookEvent) -> set[str]:
     return {agent.name for agent in session_tree.subagents(evt) if agent.name}
-
-
-def lane_of(task: Task) -> str | None:
-    if task.owner and task.owner not in ROOT_NAMES:
-        return task.owner
-    return match[1] if (match := LANE_IN_SUBJECT.search(task.subject)) else None
-
-
-def mentions(text: str, name: str) -> bool:
-    return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
-
-
-def covered(tasks: Tasks, name: str) -> bool:
-    return any(lane_of(task) == name or mentions(task.subject, name) for task in tasks.open)
 
 
 def flag_value(args: tuple[str, ...], names: tuple[str, ...]) -> str | None:

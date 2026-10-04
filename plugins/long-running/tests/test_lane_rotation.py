@@ -21,6 +21,7 @@ from hooks.compaction_handoff import TURN_WINDOW, CompactionState
 
 ROOT_AT = datetime(2026, 9, 25, 21, 35, tzinfo=UTC)
 TEAM = "session-rot"
+TASK_LIST = "rot-list"
 DESK = "alanding-desk-1a1a1a1a1a1a1a1a"
 GOLDEN = Path(__file__).resolve().parents[1] / "capt-hook" / "hooks" / "tests" / "fixtures" / "rotation" / "golden"
 
@@ -54,6 +55,8 @@ class Tree:
         self.root = self.claude / "projects" / "p" / "root.jsonl"
         write_jsonl(self.root, [assistant(ROOT_AT, 300_000, sidechain=False)])
         (self.claude / "teams" / TEAM / "inboxes").mkdir(parents=True)
+        self.tasks = self.claude / "tasks" / TASK_LIST
+        self.tasks.mkdir(parents=True)
         self.members: dict[str, list[str]] = {}
 
     def lane(
@@ -68,7 +71,10 @@ class Tree:
         description: str | None = None,
         prompt: str | None = None,
         spawned: datetime = ROOT_AT - timedelta(hours=3),
+        status: str | None = "in_progress",
     ) -> dict:
+        if status:
+            self.task(name, status)
         agent_id = f"a{name}-{hashlib.sha1(f'{name}{spawned}'.encode()).hexdigest()[:16]}"
         subagents = self.root.with_suffix("") / "subagents"
         meta = {"agentType": "general-purpose", "description": description or f"{name} lane", "name": name}
@@ -85,6 +91,18 @@ class Tree:
         write_jsonl(subagents / f"agent-{agent_id}.jsonl", [first, assistant(ROOT_AT - behind, tokens, sidechain=True, model=model)])
         label = (prompt[:50] + "..." if len(prompt) > 50 else prompt) if prompt else meta["description"]
         return {"id": f"t-{name}" if team else agent_id, "type": "teammate" if team else "subagent", "status": "running", "description": label}
+
+    def task(self, name: str, status: str) -> None:
+        raw = {"id": name, "subject": f"Drive the {name} work", "status": status, "owner": name}
+        (self.tasks / f"{name}.json").write_text(json.dumps(raw))
+
+    def delete_task(self, name: str) -> None:
+        (self.tasks / f"{name}.json").unlink()
+
+    def grow(self, name: str, tokens: int) -> None:
+        transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
+        with transcript.open("a") as lane:
+            lane.write(json.dumps(assistant(ROOT_AT, tokens, sidechain=True)) + "\n")
 
     def roster(self, team: str) -> None:
         members = [{"agentId": f"{member}@{team}", "name": member} for member in self.members[team]]
@@ -112,6 +130,8 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Tree:
     monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
     monkeypatch.delenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", raising=False)
     monkeypatch.delenv("LONG_RUNNING_LANE_ROTATE_TOKENS", raising=False)
+    monkeypatch.setenv("CAPTAIN_HOOK_TASKS_DIR", str(tmp_path / ".claude" / "tasks"))
+    monkeypatch.setenv("CLAUDE_CODE_TASK_LIST_ID", TASK_LIST)
     built = Tree(tmp_path)
     (built.claude / "settings.json").write_text(json.dumps({"autoCompactWindow": 600_000}))
     return built
@@ -275,7 +295,7 @@ def test_unacked_lane_escalates_to_the_root_after_the_ack_window(tree: Tree, clo
     rotate_lanes(evt)
     assert pending(evt) == [
         f"ROOT-ACTION `alerts-watch`: Rotate it by hand: spawn a handoff subagent from `{lane_rotation.HANDOFF_BRIEF.name}`, "
-        "spawn its successor from the lane brief plus that handoff, then `TaskStop` `alerts-watch@session-rot`."
+        "spawn its successor from the lane brief plus that handoff, then `SendMessage` `alerts-watch` a stand-down."
     ]
     assert len(pending(evt)[0]) <= 300
     assert lane_rotation.HANDOFF_BRIEF.is_file()
@@ -371,7 +391,7 @@ def test_compacted_lane_starts_a_fresh_cycle(tree: Tree, clock: list[float]) -> 
     assert lane_rotation.RotationState.load(evt.evt()).asks == {}
 
 
-def test_lanes_sharing_a_description_each_name_their_own_stop_id(tree: Tree, clock: list[float]) -> None:
+def test_lanes_sharing_a_description_each_get_their_own_escalation(tree: Tree, clock: list[float]) -> None:
     shared = "Lane brief (long-running drive release-v3, root = s"
     tasks = [
         tree.lane("ccx-guard-eperm", 480_000, description=shared, behind=timedelta(minutes=1)),
@@ -384,8 +404,8 @@ def test_lanes_sharing_a_description_each_name_their_own_stop_id(tree: Tree, clo
     rotate_lanes(evt)
 
     lines = {line.split("`")[1]: line for line in pending(evt)}
-    assert lines["ccx-guard-eperm"].endswith("then `TaskStop` `ccx-guard-eperm@session-rot`.")
-    assert lines["landing-desk-2"].endswith("then `TaskStop` `landing-desk-2@session-rot`.")
+    assert lines["ccx-guard-eperm"].endswith("then `SendMessage` `ccx-guard-eperm` a stand-down.")
+    assert lines["landing-desk-2"].endswith("then `SendMessage` `landing-desk-2` a stand-down.")
 
 
 def test_stopped_lane_sharing_a_description_is_gone_not_matched_to_a_live_task(tree: Tree, clock: list[float]) -> None:
@@ -398,7 +418,7 @@ def test_stopped_lane_sharing_a_description_is_gone_not_matched_to_a_live_task(t
 
     tree.kill("ccx-guard-eperm")
     evt = stop(tree, [live])
-    assert [(lane.name, lane.stop_id) for lane in lane_rotation.live_lanes(evt.evt())] == [("landing-desk-2", "landing-desk-2@session-rot")]
+    assert [lane.name for lane in lane_rotation.live_lanes(evt.evt())] == ["landing-desk-2"]
 
     clock[0] += lane_rotation.ACK_WINDOW_SECONDS
     rotate_lanes(evt)
@@ -514,12 +534,21 @@ def test_flushed_reply_before_the_ask_is_ignored(tree: Tree, clock: list[float])
 
 
 @pytest.mark.parametrize(
-    "body",
-    ["still working on #25751", "Flushed: b037decf", "flushed abc"],
+    ("body", "ids"),
+    [
+        ("still working on #25751", None),
+        ("Flushed: b037decf", ["b037decf"]),
+        ("flushed abc", []),
+        (
+            "flushed ledger msg/000038 msg/000043; bus #83 #112; ccn note 7803814 — nothing new since the last flush.",
+            ["msg/000038", "msg/000043", "#83", "#112", "7803814"],
+        ),
+        ("flushed bus#137 msg/000042.\nOption 1 was already applied on #29838", ["bus#137", "msg/000042"]),
+    ],
 )
-def test_reply_parsing(body: str) -> None:
+def test_reply_parsing(body: str, ids: list[str] | None) -> None:
     replies = lane_rotation.flushed_replies(f'<teammate-message teammate_id="desk">\n{body}\n</teammate-message>')
-    assert replies == ([("desk", ["b037decf"])] if body.startswith("Flushed") else [])
+    assert replies == ([] if ids is None else [("desk", ids)])
 
 
 def test_a_failed_append_keeps_the_asks_already_made(
@@ -714,3 +743,80 @@ def test_unflushed_lane_escalates_from_a_tail_window(tree: Tree, clock: list[flo
     rotate_lanes(evt)
 
     assert [line.split(":")[0] for line in pending(evt)] == ["ROOT-ACTION `landing-desk`"]
+
+
+@pytest.mark.parametrize("status", ["completed", "deleted"])
+def test_finished_lane_is_never_asked(tree: Tree, clock: list[float], status: str) -> None:
+    task = tree.lane("b-pipeline", 550_000)
+    if status == "deleted":
+        tree.delete_task("b-pipeline")
+    else:
+        tree.task("b-pipeline", status)
+    evt = stop(tree, [task])
+
+    for _ in range(3):
+        rotate_lanes(evt)
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+
+    assert (tree.inbox("b-pipeline"), pending(evt), timeline(evt)) == ([], [], [])
+
+
+def test_lane_that_finishes_after_its_ask_is_dropped_without_escalation(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("b-queue-roles", 450_000)
+    evt = stop(tree, [task])
+    rotate_lanes(evt)
+    tree.read("b-queue-roles")
+
+    tree.task("b-queue-roles", "completed")
+    for _ in range(4):
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+        rotate_lanes(evt)
+
+    assert (len(tree.inbox("b-queue-roles")), pending(evt)) == (1, [])
+    assert [entry["event"] for entry in timeline(evt)] == ["ask", "finished"]
+    assert lane_rotation.RotationState.load(evt.evt()).asks == {}
+
+
+def test_flushed_lane_is_not_asked_again_until_its_context_grows(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("b-platy-page-route", 450_000)])
+    rotate_lanes(evt)
+    tree.read("b-platy-page-route")
+    deliver(
+        tree,
+        '<teammate-message teammate_id="b-platy-page-route">\nflushed msg/000032 (ledger READY #29838 at 281d2ad1), bus #33\n</teammate-message>',
+        ROOT_AT + timedelta(minutes=2),
+    )
+    clock[0] += 120
+    rotate_lanes(evt)
+    nudges.NudgeState(pending=[]).save(evt.evt())
+
+    growth = 396_900 * lane_rotation.REFLUSH_GROWTH_PERCENT // 100
+    tree.grow("b-platy-page-route", 450_000 + growth - 1)
+    for _ in range(3):
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+        rotate_lanes(evt)
+    assert (len(tree.inbox("b-platy-page-route")), pending(evt)) == (1, [])
+    assert lane_rotation.RotationState.load(evt.evt()).flushed_tokens == {timeline(evt)[0]["agent_id"]: 450_000}
+
+    tree.grow("b-platy-page-route", 450_000 + growth)
+    rotate_lanes(evt)
+    assert len(tree.inbox("b-platy-page-route")) == 2
+    assert [entry["event"] for entry in timeline(evt)] == ["ask", "flushed", "ask"]
+
+
+def test_flushed_lane_that_compacts_starts_a_fresh_cycle(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("desk", 450_000)])
+    rotate_lanes(evt)
+    tree.read("desk")
+    deliver(tree, '<teammate-message teammate_id="desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT + timedelta(minutes=2))
+    clock[0] += 120
+    rotate_lanes(evt)
+
+    tree.grow("desk", 30_000)
+    rotate_lanes(evt)
+    assert lane_rotation.RotationState.load(evt.evt()).flushed_tokens == {}
+
+    tree.grow("desk", 400_000)
+    clock[0] += lane_rotation.PACE_SECONDS
+    rotate_lanes(evt)
+    assert len(tree.inbox("desk")) == 2

@@ -2076,6 +2076,12 @@ an in-process teammate by its prompt's first 50 characters plus `...`, not by th
 `description` in its meta, so a teammate matches on either one. Many lanes share one
 label, so a label match only counts a running task and never names one.
 
+A lane is finished when no `pending` or `in_progress` task in the root's task list
+covers it. Coverage matches the lane name as task owner, `lane <name>` in the
+subject or a name mention in the subject. A finished lane is never asked or
+escalated. If it finishes after an ask, the hook drops the ask and records
+`finished` in the rotation timeline.
+
 A teammate must also still be on its team's roster,
 `~/.claude/teams/<team>/config.json`; membership alone never counts. A live teammate
 always reads its inbox, so a lane whose transcript has not moved in the 10 minutes
@@ -2090,30 +2096,31 @@ message format and under its lock:
 `ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.`
 
 It asks at most three new lanes per 15 minutes, highest token count first. A lane
-already asked is asked again every 30 minutes until it replies `flushed <ids>`, with
-no cap. Re-asks do not count toward the limit for new lanes.
+already asked is asked again every 30 minutes until it replies with a first line
+starting `flushed`, with no cap. Re-asks do not count toward the limit for new lanes.
 
 A lane with no teammate inbox is asked through the root. The hook queues a
 ``ROOT-ACTION `<lane>`: SendMessage it now ...`` line carrying the same `ROTATE` text
 into the root's context on its next tool call or prompt. The root sends the request
 with `SendMessage` to the lane's name in that turn.
 
-**Handoff.** A `flushed <ids>` reply confirms the lane recorded its state and keeps
-working; it ends the rotation cycle. The hook nudges the root once: the lane keeps
+**Handoff.** A reply starting `flushed` confirms the lane recorded its state and
+keeps working; it ends the rotation cycle. The hook records the lane's token count
+at the flush and asks again only after its context grows by at least 10% of its
+rotation line from that count. The hook nudges the root once: the lane keeps
 running in place, nothing to do. After its own compaction, the lane reads its ledger
 and saved cursor and continues. Never `TaskStop` or respawn a flushed lane, and
 never spawn a second agent under a live lane's name. An `open-pr:pr-watcher` resumes
 from its state file after its own compaction.
 
 A lane that drops below its line through its own compaction or leaves
-`background_tasks` because it stopped or rotated also ends the cycle. A compacted
-lane starts a fresh cycle if it crosses the line again.
+`background_tasks` because it stopped or rotated also ends the cycle. Dropping below
+the line clears its flush record, so a later crossing starts a fresh cycle.
 
-If a lane has not replied `flushed <ids>` within 10 minutes of its first ask and is
-still live, awake, and over its line, every later main-session `Stop` queues a
-``ROOT-ACTION `<lane>`: rotate it by hand now.`` line. It names the lane's tokens
-against its line, transcript size, running time, ask count, and first-ask time,
-with three steps:
+A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
+without a reply starting `flushed` to its first ask. A later main-session `Stop`
+queues ``ROOT-ACTION `<lane>`: Rotate it by hand: ...``. The line repeats every
+15 minutes or after a new ask, with three steps:
 
 0. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
@@ -2122,15 +2129,13 @@ with three steps:
 1. Spawn `<lane>-N+1` from the old lane's brief plus that doc id, read with
    `ccn doc show <id>`, and the cursor it names. `alerts-watch` becomes
    `alerts-watch-2`; `desk-3` becomes `desk-4`.
-2. Once the successor reports, `TaskStop` the old lane by the id named in the line:
-   `<name>@<team>` for a teammate, which `TaskStop` resolves by name, or the agent id
-   for a subagent. Never pass a `t…` task id from the label match; it can belong to
-   any lane sharing that label.
+2. Once the successor reports, send the old lane a stand-down with `SendMessage`
+   to its name. The old lane stops working and sends nothing further.
 
 Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
-adding another. The root acts on it in the turn it arrives. This is the one case
-where the root stops a lane, and it stops it only after the successor has reported.
-A `flushed <ids>` reply cancels the rotation.
+adding another. The root acts on it in the turn it arrives. The root sends the old
+lane a stand-down only after the successor has reported. A reply starting `flushed`
+cancels the rotation.
 
 The same swap applies to a lane that died or outgrew its line before any ask. The
 root never reconstructs a handoff inline. It never opens a lane's transcript, its
@@ -2139,11 +2144,12 @@ task-list` for a rotation. The handoff subagent reads all of them in its own
 context; the root holds only the doc id it returns.
 
 The session's hook state directory holds `rotation_state.json` with a `timeline`
-list. It records one entry per `ask`, `flushed`, `compacted`, or `gone` event. An
-`ask` entry holds `via` as `inbox` or `root`, `tokens`, and `line`. A `flushed` entry
-holds `ids`, and a `compacted` entry holds `tokens`. An `escalate` entry holds its
-first `at`, latest `last`, `count`, and `tokens`; consecutive escalations for the
-same lane update that entry.
+list. It records one entry per `ask`, `flushed`, `compacted`, `finished` or `gone`
+event. An `ask` entry holds `via` as `inbox` or `root`, `tokens`, and `line`. A
+`flushed` entry holds `ids`, the first line's tokens containing a digit. A
+`compacted` entry holds `tokens`. An `escalate` entry holds its first `at`, latest
+`last`, `count`, and `tokens`; consecutive escalations for the same lane update
+that entry.
 
 *Prevents stopping and respawning lanes from ending live sessions during the
 release-v3 drive (2026-09-30).*
@@ -2259,7 +2265,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
-18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and `TaskStop` the old lane after its first report; never open the lane's transcript, receipts, or runtime listings myself.
+18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone

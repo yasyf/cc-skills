@@ -26,7 +26,7 @@ from captain_hook import (
 from . import session_tree
 from .compaction_handoff import TURN_WINDOW, CompactionState
 from .nudges import NudgeState, queue_nudge
-from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent
+from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent, covered
 from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
 
@@ -43,14 +43,16 @@ ASK_GAP_SECONDS = 30 * 60
 ACK_WINDOW_SECONDS = 10 * 60
 ESCALATE_GAP_SECONDS = 15 * 60
 TASK_LABEL_CHARS = 50
-FLUSHED = re.compile(r"flushed:?((?:[ ,]+[0-9a-f]{6,40}\b)+)", re.IGNORECASE)
+REFLUSH_GROWTH_PERCENT = 10
+FLUSHED = re.compile(r"flushed\b", re.IGNORECASE)
+FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
 
 
 @workflow_state("long_running_rotation")
 class RotationState(WorkflowState):
     asks: dict[str, list[float]] = {}
     names: dict[str, str] = {}
-    flushed: list[str] = []
+    flushed_tokens: dict[str, int] = {}
     cursor: str | None = None
     timeline: list[dict] = []
     asked_events: dict[str, int] = {}
@@ -62,7 +64,6 @@ class RotationState(WorkflowState):
 class Lane:
     name: str
     agent_id: str
-    stop_id: str
     team: str | None
     turn: Turn
     line: int
@@ -95,7 +96,6 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     )
     lanes = []
     for agent, turn in active:
-        stop_id = agent.agent_id
         if team := agent.meta.get("teamName"):
             roster = rosters.setdefault(team, session_tree.team_members(evt, team))
             if agent.name not in roster:
@@ -103,13 +103,11 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
             if not (label := next((key for key in (agent.meta["description"], task_label(agent)) if teammate_tasks[key]), None)):
                 continue
             teammate_tasks[label] -= 1
-            stop_id = roster[agent.name]
         if turn:
             lanes.append(
                 Lane(
                     name=agent.name,
                     agent_id=agent.agent_id,
-                    stop_id=stop_id,
                     team=team,
                     turn=turn,
                     line=rotation_line(turn.model, agent.meta.get("model"), evt.cwd),
@@ -119,8 +117,19 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
     return lanes
 
 
+def finished(evt: BaseHookEvent, lanes: list[Lane]) -> set[str]:
+    tasks = evt.tasks
+    return {lane.agent_id for lane in lanes if not covered(tasks, lane.name)}
+
+
+def ask_line(lane: Lane, state: RotationState) -> int:
+    if (flushed := state.flushed_tokens.get(lane.agent_id)) is None:
+        return lane.line
+    return max(lane.line, flushed + lane.line * REFLUSH_GROWTH_PERCENT // 100)
+
+
 def over_line(lane: Lane, state: RotationState, root: Turn) -> bool:
-    return lane.agent_id not in state.flushed and lane.turn.tokens >= lane.line and root.at - lane.turn.at <= DORMANT
+    return lane.turn.tokens >= ask_line(lane, state) and root.at - lane.turn.at <= DORMANT
 
 
 def due(lane: Lane, state: RotationState, root: Turn, now: float) -> bool:
@@ -171,17 +180,26 @@ def awake(lanes: list[Lane], state: RotationState) -> list[Lane]:
     return [lane for lane in lanes if lane.agent_id not in state.frozen]
 
 
-def settle(state: RotationState, lanes: list[Lane], now: float) -> None:
+def forget_ask(state: RotationState, agent_id: str) -> int | None:
+    del state.asks[agent_id]
+    state.escalated.pop(agent_id, None)
+    return state.asked_events.pop(agent_id, None)
+
+
+def settle(state: RotationState, lanes: list[Lane], done: set[str], now: float) -> None:
     live = {lane.agent_id: lane for lane in lanes}
-    for agent_id in [agent_id for agent_id in state.asks if agent_id not in state.flushed]:
+    for agent_id, lane in live.items():
+        if agent_id in state.flushed_tokens and lane.turn.tokens < lane.line:
+            del state.flushed_tokens[agent_id]
+    for agent_id in list(state.asks):
         lane = live.get(agent_id)
-        if lane and lane.turn.tokens >= lane.line and not unread(lane, state, now):
+        if lane and agent_id not in done and lane.turn.tokens >= lane.line and not unread(lane, state, now):
             continue
         name = state.names.pop(agent_id)
-        del state.asks[agent_id]
-        state.escalated.pop(agent_id, None)
-        asked = state.asked_events.pop(agent_id, None)
-        if not lane:
+        asked = forget_ask(state, agent_id)
+        if agent_id in done:
+            record(state, name, agent_id, "finished", now)
+        elif not lane:
             record(state, name, agent_id, "gone", now)
         elif lane.turn.tokens < lane.line:
             record(state, name, agent_id, "compacted", now, tokens=lane.turn.tokens)
@@ -193,7 +211,7 @@ def settle(state: RotationState, lanes: list[Lane], now: float) -> None:
 def escalation(lane: Lane) -> str:
     return (
         f"Rotate it by hand: spawn a handoff subagent from `{HANDOFF_BRIEF.name}`, spawn its successor from the lane "
-        f"brief plus that handoff, then `TaskStop` `{lane.stop_id}`."
+        f"brief plus that handoff, then `SendMessage` `{lane.name}` a stand-down."
     )
 
 
@@ -219,9 +237,9 @@ def rotate_message() -> dict:
 def flushed_replies(text: str) -> list[tuple[str, list[str]]]:
     replies = []
     for name, body in TEAMMATE_MESSAGE.findall(text):
-        reply = json.loads(body).get("result") or "" if body.startswith(IDLE_NOTIFICATION) else body
-        if match := FLUSHED.match(reply.strip()):
-            replies.append((name, re.split(r"[ ,]+", match[1].strip())))
+        reply = (json.loads(body).get("result") or "" if body.startswith(IDLE_NOTIFICATION) else body).strip()
+        if FLUSHED.match(reply):
+            replies.append((name, FLUSHED_ID.findall(reply.splitlines()[0])))
     return replies
 
 
@@ -249,18 +267,19 @@ def note_flushed_lanes(evt: BaseHookEvent) -> HookResult | None:
     now = time.time()
     with RotationState.mutate(evt) as state:
         fresh, state.cursor = session_tree.events_after(evt.ctx.t.events, state.cursor)
-        pending = {agent_id: name for agent_id, name in state.names.items() if agent_id not in state.flushed}
-        for event in fresh if pending else []:
-            if not isinstance(event, UserEvent):
-                continue
-            for name, ids in flushed_replies(event.text):
-                if asked := [
-                    agent_id for agent_id, lane in pending.items() if lane == name and agent_id not in state.flushed
-                ]:
-                    state.flushed.extend(asked)
-                    for agent_id in asked:
-                        record(state, name, agent_id, "flushed", now, ids=ids)
-                    queue_nudge(evt, f"Lane `{name}` flushed its context. Leave it running; do not `TaskStop` it.")
+        replies = [
+            reply for event in fresh if state.names and isinstance(event, UserEvent) for reply in flushed_replies(event.text)
+        ]
+        tokens = {lane.agent_id: lane.turn.tokens for lane in live_lanes(evt)} if replies else {}
+        for name, ids in replies:
+            if asked := [agent_id for agent_id, lane in state.names.items() if lane == name]:
+                for agent_id in asked:
+                    del state.names[agent_id]
+                    forget_ask(state, agent_id)
+                    if agent_id in tokens:
+                        state.flushed_tokens[agent_id] = tokens[agent_id]
+                    record(state, name, agent_id, "flushed", now, ids=ids)
+                queue_nudge(evt, f"Lane `{name}` flushed its context. Leave it running; do not `TaskStop` it.")
     return None
 
 
@@ -271,8 +290,9 @@ def ask_lanes_to_rotate(evt: BaseHookEvent) -> HookResult | None:
     now = time.time()
     with RotationState.mutate(evt) as state:
         lanes = awake(live_lanes(evt), state)
-        settle(state, lanes, now)
-        lanes = [lane for lane in lanes if lane.agent_id not in state.frozen]
+        done = finished(evt, lanes)
+        settle(state, lanes, done, now)
+        lanes = [lane for lane in lanes if lane.agent_id not in state.frozen and lane.agent_id not in done]
         recent = sum(now - asks[0] < PACE_SECONDS for asks in state.asks.values())
         fresh = sorted(
             (lane for lane in lanes if lane.agent_id not in state.asks and due(lane, state, root, now)),
@@ -304,8 +324,10 @@ def escalate_unrotated_lanes(evt: BaseHookEvent) -> HookResult | None:
         return None
     now = time.time()
     with RotationState.mutate(evt) as state:
-        for lane in awake(live_lanes(evt), state):
-            if overdue(lane, state, root, now) and escalation_due(lane, state, now):
+        lanes = awake(live_lanes(evt), state)
+        done = finished(evt, lanes)
+        for lane in lanes:
+            if lane.agent_id not in done and overdue(lane, state, root, now) and escalation_due(lane, state, now):
                 queue_root_action(evt, lane, escalation(lane))
                 record_escalation(state, lane, now)
                 state.escalated[lane.agent_id] = (now, len(state.asks[lane.agent_id]))
