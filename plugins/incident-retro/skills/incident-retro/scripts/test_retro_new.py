@@ -112,6 +112,33 @@ class Remediation(unittest.TestCase):
         self.assertEqual(carried.errors, [])
 
 
+class CodexDown(unittest.TestCase):
+    def lock_report(self, entry, fallback):
+        root = Path(tempfile.mkdtemp())
+        R = json.loads((retro.TEMPLATES / "starter" / "retro.json").read_text())
+        R["summary"]["text"] = "Opus wrote this."
+        if fallback:
+            R["meta"]["proseFallback"] = fallback
+        (root / "prose.lock.json").write_text(json.dumps({"model": "gpt-6-astra", "fields": {"summary.text": entry}}))
+        rep = retro.Report(True)
+        retro.sibling_module("retro_prose").check_lock(retro, rep, R, root)
+        return rep.errors
+
+    def test_opus_text_needs_the_codex_down_record(self):
+        prose = retro.sibling_module("retro_prose")
+        entry = {"sha256": prose.digest("Opus wrote this."), "model": prose.FALLBACK_MODEL,
+                 "reason": prose.FALLBACK_REASON}
+        self.assertTrue(any("summary.text is locked" in e for e in self.lock_report(entry, None)))
+        fallback = {"model": prose.FALLBACK_MODEL, "reason": prose.FALLBACK_REASON, "fields": ["summary.text"]}
+        self.assertFalse(any("summary.text is locked" in e for e in self.lock_report(entry, fallback)))
+
+    def test_another_model_is_refused(self):
+        prose = retro.sibling_module("retro_prose")
+        entry = {"sha256": prose.digest("Opus wrote this."), "model": "gpt-4o", "reason": prose.FALLBACK_REASON}
+        fallback = {"model": prose.FALLBACK_MODEL, "reason": prose.FALLBACK_REASON, "fields": ["summary.text"]}
+        self.assertTrue(any("summary.text is locked" in e for e in self.lock_report(entry, fallback)))
+
+
 class CommsCheck(unittest.TestCase):
     URL = "https://docs.poetic.design/incident-retros/2026-10-04-x/"
 
