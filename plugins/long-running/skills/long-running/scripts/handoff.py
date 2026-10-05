@@ -12,7 +12,7 @@ The register holds at most 30 owner-approved rules with answer ids linking to th
 rulings in cc-notes. Generation never builds or writes a register doc or file.
 The progress record's ``## Standing owner rules`` section names the register doc and its
 rule count; the register itself arrives verbatim after compaction. Live ``(standing)``
-inbox rules follow, then retired rules. With no register doc, the section says so.
+inbox rules follow by id and inbox file, then retired rules. With no register doc, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
 drive registry. Generation writes a progress doc under ``progress:<program>`` and the
@@ -31,7 +31,7 @@ progress file. ``--session`` reads the hook's JSON fields ``session_id``, ``task
 and ``background`` from a file or stdin.
 
 An inbox rule missing since the previous handoff appears once as ``<id> superseded by
-...``. Lint checks the standing section, register quote, carried inbox ids, and citations
+...``. Lint checks the standing section, register pointer, carried inbox ids, and citations
 for lines requiring owner approval. Findings go under ``## Lint findings``.
 With ``--strict``, register, carry, narrative, or inbox findings write nothing and exit
 :data:`standing.VIOLATIONS`. Plan findings never block generation.
@@ -66,7 +66,6 @@ DIGEST_BUDGET = 2000
 RULING = re.compile(rf"^\s*(?:[-*]\s+)?\**`?({standing.ID})\b")
 CATCH_UP = "Catch up with `cci digest --drive {drive}`, then `cci tail --drive {drive}`; never tail, sed, or grep a whole inbox."
 RULING_CHARS = 400
-STANDING_CHARS = 240
 TASK_CHARS = 120
 SHORT = 7
 FRESH_MINUTES = 30
@@ -86,6 +85,7 @@ class Inbox:
     name: str
     head: str | None
     cursor: str | None
+    last: str | None
 
 
 @dataclass
@@ -129,14 +129,6 @@ def clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def cited_clip(text: str, limit: int) -> str:
-    clipped = clip(text, limit)
-    if not clipped.endswith("…"):
-        return clipped
-    cited = dict.fromkeys(standing.HEX.findall(" ".join(text.split())[limit - 1 :]))
-    return f"{clipped} ({', '.join(cited)})" if cited else clipped
-
-
 def ccn_json(shell: ledger.Shell, repo: str, *args: str) -> object:
     return json.loads(shell.run(["ccn", "-R", repo, *args, "--json"]) or "null")
 
@@ -165,11 +157,10 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
         handoff.standing |= {rid: text.lstrip("-* ") for rid, text in inbox.live().items()}
         handoff.sources |= {rid: f"{path}:{inbox.at[rid]}" for rid in inbox.live()}
         handoff.superseded |= inbox.superseded
-        heads = [match[1] for line in lines if (match := RULING.match(line))]
+        rulings = [(match[1], line.strip()) for line in lines if (match := RULING.match(line))]
         cursor = path.with_name(f"{path.name}.cursor")
-        handoff.inboxes.append(
-            Inbox(name=path.name, head=heads[-1] if heads else None, cursor=cursor.read_text().strip() if cursor.is_file() else None)
-        )
+        head, last = rulings[-1] if rulings else (None, None)
+        handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last))
 
 
 def uncited_plan_lines(plan: Path, live: set[str]) -> list[str]:
@@ -246,9 +237,9 @@ def shown(lines: list[str], more: str) -> list[str]:
 
 
 def rule_lines(handoff: Handoff) -> list[str]:
-    return [
-        f"- {cited_clip(text, STANDING_CHARS)} [{Path(handoff.sources[rid].rpartition(':')[0]).name}]" for rid, text in handoff.standing.items()
-    ] + [f"- {line}" for line in handoff.retired]
+    return [f"- {rid} [{Path(handoff.sources[rid].rpartition(':')[0]).name}]" for rid in handoff.standing] + [
+        f"- {line}" for line in handoff.retired
+    ]
 
 
 def render(handoff: Handoff) -> str:
@@ -269,18 +260,26 @@ def render(handoff: Handoff) -> str:
             f"checkout `{registry['checkout']}`, root sessions {', '.join(session[:8] for session in registry['sessions'])}"
         )
     out += ["", "## Open owner asks"] + ([f"- {line}" for line in handoff.asks] or ["- none"])
-    tasks = sorted(handoff.tasks, key=lambda task: task["status"] != "in_progress")
+    active = [task for task in handoff.tasks if task["status"] == "in_progress"]
     out += ["", "## Open tasks"]
-    out += shown([f"- #{task['id']} [{task['status']}] {clip(task['subject'], TASK_CHARS)}" for task in tasks], "in `TaskList`") or ["- none"]
+    out += [f"- #{task['id']} {clip(task['subject'], TASK_CHARS)}" for task in active] or ["- none in progress"]
+    if pending := len(handoff.tasks) - len(active):
+        out.append(f"- {pending} pending in `TaskList`")
     out += ["", "## Lanes and monitors"]
-    running = handoff.monitors + handoff.lanes[::-1]
-    out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)} ({task['status']})" for task in running], "lanes")
+    running = [task for task in handoff.monitors + handoff.lanes[::-1] if task["status"] == "running"]
+    out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)}" for task in running], "running lanes")
     if not running:
         out.append("- none running at the last stop")
     out += ["", "## Inboxes", ""]
     if handoff.inbox_dir:
         out += [CATCH_UP.format(drive=handoff.inbox_dir.parent.name), ""]
-    out += [f"- {inbox.name}: head {inbox.head or '-'}, cursor {inbox.cursor or '-'}" for inbox in handoff.inboxes] or ["- no inbox directory"]
+    out += shown(
+        [
+            f"- {inbox.name}: head {inbox.head or '-'}, cursor {inbox.cursor or '-'}" + (f": {clip(inbox.last, TASK_CHARS)}" if inbox.last else "")
+            for inbox in handoff.inboxes
+        ],
+        "inboxes",
+    ) or ["- no inbox directory"]
     out += ["", FINDINGS] + ([f"- {line}" for line in handoff.findings + handoff.plan_findings] or ["- none"])
     out += ["", NARRATIVE, ""]
     out.append(

@@ -2221,8 +2221,9 @@ Register `ccn doc show <id7>`: N owner-approved rules, delivered verbatim after 
 ```
 
 With no register doc, the section says so. Every live `(standing)` inbox rule
-follows, clipped to 240 characters, with its inbox filename. Each inbox rule missing
-since the previous handoff appears last as `- <id> superseded by <successor id>` or
+follows by id and inbox filename only, as `- R584 [orca-desk.md]`; its text stays in
+the inbox. Each inbox rule missing since the previous handoff appears last as
+`- <id> superseded by <successor id>` or
 `- <id> superseded by nothing: the sources dropped it ...`.
 The handoff carries no separate list of durable answer titles.
 
@@ -2280,15 +2281,19 @@ root's open tasks, lanes and monitors from the background tasks at the root's la
 `Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
 root sessions.
 
-The open task list shows at most ten, with `in_progress` first and subjects clipped
-to 120 characters. A final ``- N more in `TaskList` `` line counts the rest.
-Lanes and monitors share a limit of ten entries, monitors first, then newest lanes,
-with descriptions clipped to 120 characters. A final `- N more lanes` line counts
-the rest.
+The open task list shows only `in_progress` tasks, one line each as
+`- #<id> <subject>`, with subjects clipped to 120 characters. With none in progress,
+it says `- none in progress`. When any tasks are pending, a final
+``- N pending in `TaskList` `` line counts them.
+Lanes and monitors show only `running` entries, one line each without the status
+suffix. They share a limit of ten entries, monitors first, then newest lanes, with
+descriptions clipped to 120 characters. A final `- N more running lanes` line
+counts the rest.
 
-For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head id
-and its `<file>.cursor` value as `- <file>: head <id>, cursor <id>`. It carries no
-ruling lines in this section. Sections run in this order:
+For at most ten `~/.claude/scratch/<slug>/inbox/*.md` files, the record carries one
+line each: `- <file>: head <id>, cursor <id>: <last ruling line>`. The cursor comes
+from `<file>.cursor`; the last ruling line is clipped to 120 characters and omitted
+when absent. A final `- N more inboxes` line counts the rest. Sections run in this order:
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
