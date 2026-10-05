@@ -50,6 +50,14 @@ class ExclusiveClaim(unittest.TestCase):
             pass
 
 
+class SentenceHeads(unittest.TestCase):
+    def test_a_one_word_sentence_is_not_a_name(self):
+        self.assertEqual(retro_prose.fact_drift("Nothing.", "No operational capability is lost.", "{}"), [])
+
+    def test_a_real_name_still_freezes(self):
+        self.assertTrue(retro_prose.fact_drift("Ask Dana.", "Ask the on-call engineer.", "{}"))
+
+
 class RecordIsReadUnderTheClaim(unittest.TestCase):
     """A run that waited for the claim must not act on the copy it read before waiting."""
 
