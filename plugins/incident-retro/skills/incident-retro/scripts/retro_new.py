@@ -19,9 +19,10 @@ and fill Remediation before the prose pass and the first retro PR.
 `publish` runs check --strict, render-check, and a whole-page slop-cop count before pushing anything.
 After the gates pass, it refreshes both index cards, commits only the retro directory and the two
 index pages, pushes, and opens a ready PR or edits the existing PR and marks it ready. It writes
-the PR body from the summary panels and enables auto-merge with the merge method the repository allows. A retro PR is never draft.
+the PR body from the summary panels. A retro PR is never draft.
 
-The wait ends when the PR merges and a successful github-pages deployment contains the merge
+The wait merges the PR itself with the merge method the repository allows as soon as it is clean and every
+check is green, and ends when the PR has merged and a successful github-pages deployment contains the merge
 commit. GitHub sign-in protects the site, so the deployment record proves the merged revision is
 served. Success exits 0 with `RENDERED: https://<CNAME>/incident-retros/<slug>/` as the last line.
 A failed check or a PR closed without merging exits 1. After --seconds (default 540), an unfinished
@@ -64,6 +65,8 @@ AWAIT_POLL = 10
 STILL_WAITING = 75
 PAGES_ENV = "github-pages"
 MERGE_METHODS = ("squash", "rebase", "merge")
+GREEN = ("SUCCESS", "SKIPPED", "NEUTRAL")
+RED = ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT")
 
 
 def run(argv, cwd=None, check=True) -> str:
@@ -340,8 +343,7 @@ def publish(args) -> int:
         run(["gh", "pr", "ready", url], cwd=docs, check=False)
     else:
         url = run(["gh", "pr", "create", "--title", title, "--body", body], cwd=docs).strip().splitlines()[-1]
-    run(["gh", "pr", "merge", url, merge_flag(url), "--delete-branch", "--auto"], cwd=docs)
-    print(f"publish: {url} is ready and set to merge once its checks pass")
+    print(f"publish: {url} is ready and merges once it is clean and its checks pass")
     print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
     return await_rendered(root, url, args.seconds)
 
@@ -368,15 +370,17 @@ def await_rendered(root: Path, url: str, seconds: float) -> int:
     repo = "/".join(url.split("/")[3:5])
     deadline = time.monotonic() + seconds
     while True:
-        pr = json.loads(run(["gh", "pr", "view", url, "--json", "state,mergeCommit,statusCheckRollup"]))
-        failed = [c.get("name") or c.get("context") for c in pr["statusCheckRollup"]
-                  if (c.get("conclusion") or c.get("state")) in ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT")]
+        pr = json.loads(run(["gh", "pr", "view", url, "--json", "state,mergeCommit,mergeStateStatus,statusCheckRollup"]))
+        verdicts = [c.get("conclusion") or c.get("state") for c in pr["statusCheckRollup"]]
+        failed = [c.get("name") or c.get("context") for c, v in zip(pr["statusCheckRollup"], verdicts) if v in RED]
         if failed:
             print(f"publish: {url} failed {', '.join(failed)}; fix it and run publish again", file=sys.stderr)
             return 1
         if pr["state"] == "CLOSED":
             print(f"publish: {url} was closed without merging", file=sys.stderr)
             return 1
+        if pr["state"] == "OPEN" and pr["mergeStateStatus"] == "CLEAN" and all(v in GREEN for v in verdicts):
+            run(["gh", "pr", "merge", url, merge_flag(url)], cwd=root.parents[1])
         if pr["state"] == "MERGED" and pages_live(repo, pr["mergeCommit"]["oid"]):
             print(f"RENDERED: {rendered_url(root)}")
             return 0

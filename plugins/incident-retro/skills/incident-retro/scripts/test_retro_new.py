@@ -3,7 +3,7 @@
 
   python3 scripts/test_retro_new.py
 """
-import argparse, contextlib, datetime, io, json, sys, tempfile, unittest, zoneinfo
+import argparse, contextlib, datetime, io, json, sys, tempfile, unittest, unittest.mock, zoneinfo
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -180,6 +180,36 @@ class Board(unittest.TestCase):
         self.assertTrue(choice["options"][0]["recommended"])
         self.assertNotIn("recommended", choice["options"][1])
         self.assertEqual(choice["options"][1]["detail"]["md"], "Add a rule.")
+
+
+class AwaitMerges(unittest.TestCase):
+    URL = "https://github.com/Forge-AI/design-docs/pull/73"
+
+    def pr(self, state, merge_state, *verdicts):
+        return json.dumps({"state": state, "mergeStateStatus": merge_state, "mergeCommit": {"oid": "abc"},
+                           "statusCheckRollup": [{"name": f"check-{i}", "conclusion": v} for i, v in enumerate(verdicts)]})
+
+    def test_a_clean_green_pr_is_merged_with_the_allowed_method(self):
+        views = iter([self.pr("OPEN", "CLEAN", "SUCCESS", ""), self.pr("OPEN", "CLEAN", "SUCCESS", "SUCCESS"),
+                      self.pr("MERGED", "UNKNOWN", "SUCCESS", "SUCCESS")])
+        calls = []
+
+        def gh(argv, cwd=None, check=True):
+            calls.append((argv, cwd))
+            if argv[:3] == ["gh", "pr", "view"]:
+                return next(views)
+            if argv[:2] == ["gh", "api"]:
+                return json.dumps({"allow_squash_merge": False, "allow_rebase_merge": True, "allow_merge_commit": False})
+            return ""
+
+        root = Path(tempfile.mkdtemp()) / "incident-retros" / "slug"
+        with unittest.mock.patch.object(retro_new, "run", gh), \
+                unittest.mock.patch.object(retro_new, "pages_live", return_value=True), \
+                unittest.mock.patch.object(retro_new, "rendered_url", return_value="https://docs.example/slug/"), \
+                unittest.mock.patch.object(retro_new.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(retro_new.await_rendered(root, self.URL, 60), 0)
+        merges = [(argv, cwd) for argv, cwd in calls if argv[:3] == ["gh", "pr", "merge"]]
+        self.assertEqual(merges, [(["gh", "pr", "merge", self.URL, "--rebase"], root.parents[1])])
 
 
 if __name__ == "__main__":

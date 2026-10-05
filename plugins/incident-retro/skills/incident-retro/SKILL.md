@@ -101,9 +101,9 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    reach disk when the run ends. A later fact edit sends the affected fields
    back through Astra.
 5. Run `$TOOL publish <dir>`. It runs the gates before pushing, refreshes
-   both cards, opens or updates a ready PR, enables auto-merge with the merge method the repository allows, and
-   waits for merge and a successful Pages deployment containing the merge
-   commit. If it exits 75, resume with the printed `AWAIT:` command until
+   both cards, opens or updates a ready PR, merges it once it is clean and green with the
+   merge method the repository allows, and waits for a successful Pages
+   deployment containing the merge commit. If it exits 75, resume with the printed `AWAIT:` command until
    it succeeds or reports a failure. Phase 5 gives the wait and exit rules.
 6. Return only the URL from the final `RENDERED:` line. Every Slack or comms
    draft about the retro passes `$TOOL comms-check <draft-file|-> --url <rendered-url>`
@@ -467,12 +467,13 @@ After the Phase 4 gates pass, `publish` refreshes both index cards from
 `retro.json`, using `meta.title`, `meta.subtitle`, `meta.date`, and
 `meta.status`. It commits only the retro directory and the two index pages
 as `incident retros: 📝 <meta.title>`, then pushes. It opens a ready PR or
-edits the existing PR and marks it ready, then enables auto-merge with the merge method the repository allows.
+edits the existing PR and marks it ready.
 The PR body contains the summary panels rendered as Markdown with Astra's
 text verbatim, plus the page URL from `CNAME`.
 
-`publish` waits for the PR to merge and a successful `github-pages`
-deployment to contain the merge commit. The site requires GitHub sign-in,
+`publish` merges the PR itself, with the merge method the repository allows,
+as soon as it is clean and every check is green. It then waits for a
+successful `github-pages` deployment to contain the merge commit. The site requires GitHub sign-in,
 so the deployment record proves that the merged revision is served; an
 anonymous fetch does not. On success, the last line is
 `RENDERED: https://<CNAME>/incident-retros/<slug>/`, and the command exits 0.
