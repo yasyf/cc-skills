@@ -113,18 +113,20 @@ with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 listed = os.path.join(state, "docs.json")
 if args[:2] == ["doc", "list"]:
-    print(open(listed).read())
+    labels = [args[i + 1] for i, arg in enumerate(args) if arg == "--label"]
+    print(json.dumps([d for d in json.load(open(listed)) if all(label in d["tags"] for label in labels)]))
 if args[:2] == ["doc", "add"]:
     docs = json.load(open(listed))
-    added = "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
+    label = args[args.index("--label") + 1]
+    added = "9" * 40 if label.startswith("standing-rules:") else "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
     open(os.path.join(state, added + ".md"), "w").write(sys.stdin.read())
-    json.dump(docs + [{"id": added, "title": args[2], "tags": ["progress:brook"], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
+    json.dump(docs + [{"id": added, "title": args[2], "tags": [label], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
     print(json.dumps({"id": added}))
 if args[:2] == ["doc", "edit"]:
     open(os.path.join(state, args[2] + ".md"), "w").write(sys.stdin.read())
     title = {"title": args[args.index("--title") + 1]} if "--title" in args else {}
     json.dump([d | title if d["id"] == args[2] else d for d in json.load(open(listed))], open(listed, "w"))
-if args[:2] == ["doc", "history"]:
+if args[:2] in (["doc", "history"], ["answer", "history"]):
     created = json.load(open(os.path.join(state, "created.json"))).get(args[2], {})
     print(json.dumps([{"kind": "create", "time": "2026-09-01T00:00:00Z"} | created]))
 if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != "fail":
@@ -211,14 +213,12 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
 
     assert result.system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
-    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text())] == ["b" * 40]
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
+    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["b" * 40]
     augmented = (docs / ("b" * 40 + ".md")).read_text()
     assert augmented.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
     assert "- teammate: orca-desk-6 (running)" in augmented
-    assert state(session).digest.startswith(
-        "Compacted long-running drive `brook`. Before acting, read the progress doc `ccn doc show bbbbbbb` (it supersedes the summary)"
-    )
+    assert "Then read the progress doc `ccn doc show bbbbbbb`" in state(session).digest
     assert (state(session).active_doc, state(session).generated_doc) == ("b" * 40, "b" * 40)
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
@@ -232,7 +232,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
     assert "now `cccccccc`" in pointer
     assert ["doc", "supersede", "b" * 40, "--by", "c" * 40] in ccn_calls(docs)
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert (docs / ("c" * 40 + ".md")).read_text().endswith("_From doc ccccccc._\n\n## Root's next actions\n1. land l12\n")
     assert plan.read_text().startswith("# brook\n\n")
 
@@ -245,7 +245,7 @@ def test_a_generated_doc_is_never_taken_for_the_roots_narrative(home: Path, plan
     assert handoff.compact_when_idle(stop_event(session)) is None
 
     assert state(session).phase == "due"
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
 
 
 def test_a_failed_supersede_keeps_the_handoff_due(home: Path, plan: Path, docs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -526,10 +526,47 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     restored = handoff.reground(session_start(session, "compact")).message
 
-    assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the progress doc `ccn doc show ddddddd`")
-    assert "\nLive standing inbox rules: R7.\nR7 (standing) release every landing as it merges [orca-desk.md]\n" in restored
+    assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show 9999999`")
+    assert "Then read the progress doc `ccn doc show ddddddd`" in restored
+    assert "\nRegister: 0 owner answers, 1 live standing inbox rules.\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
+
+
+def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    rulings = [
+        {
+            "id": f"{n:07x}" + "0" * 33,
+            "title": f"Ruling {n}: is the ledger ever a source of truth?",
+            "body": f"No. Pulumi state is the only truth, ruling {n}.\n\n" + "ünïcode reason " * 400,
+            "tags": ["scope:durable", "brook"],
+            "updated_at": f"2026-10-0{n}T00:00:00Z",
+        }
+        for n in range(1, 4)
+    ]
+    (docs / "answers.json").write_text(json.dumps(rulings))
+    handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
+
+    handoff.compaction_instructions(precompact(session))
+    register = (docs / ("9" * 40 + ".md")).read_text()
+    handoff.reground(session_start(session, "compact"))
+    parts = []
+    while delivered := handoff.deliver_register(bash(session)):
+        number = len(parts) + 1
+        header, begin, rest = delivered.message.partition(f"\n--- begin part {number} ---\n")
+        part, end, tail = rest.partition(f"--- end part {number} ---")
+        assert header == f"Standing rules register `9999999`, part {number} of {state(session).register_total}, verbatim; it binds every lane brief."
+        assert begin and end and not tail
+        assert len(part.encode()) <= handoff.REGISTER_PART_BYTES
+        parts.append(part)
+
+    assert len(parts) > 1
+    assert "".join(parts) == register
+    assert register == (plan.parent / "brook-progress" / "standing-rules.md").read_text()
+    assert register in (docs / ("d" * 40 + ".md")).read_text()
+    assert "  > No. Pulumi state is the only truth, ruling 2." in register
+    assert handoff.deliver_register(bash(session)) is None
 
 
 def session_start(session: Path, source: str) -> SessionStartEvent:
@@ -584,13 +621,14 @@ def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_sum
     instructions = handoff.compaction_instructions(precompact(session)).message
 
     assert ["doc", "supersede", "4" * 40, "--by", "6" * 40] in ccn_calls(docs)
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
-    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text())] == ["6" * 40]
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
+    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["6" * 40]
     augmented = (docs / ("6" * 40 + ".md")).read_text()
     assert augmented.count("## Standing owner rules") == 1
     assert augmented.endswith("_From doc 6666666._\n\n## Root's next actions\n1. 12-item plan\n")
     assert instructions == (
         f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. "
+        "The standing rules register `ccn doc show 99999999` returns verbatim after compaction; never restate a ruling from this summary. "
         "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
     )
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
@@ -601,7 +639,7 @@ def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_sum
         saved.generated_at = None
     handoff.compaction_instructions(precompact(session))
 
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert [call[:3] for call in ccn_calls(docs) if call[:2] == ["doc", "edit"]] == [["doc", "edit", "6" * 40]] * 2
     assert state(session).active_doc == state(session).generated_doc == "6" * 40
     augmented = (docs / ("6" * 40 + ".md")).read_text()
@@ -638,7 +676,7 @@ def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, p
 
     handoff.compaction_instructions(precompact(session))
 
-    assert not any(call[:2] == ["doc", "add"] for call in ccn_calls(docs))
+    assert not any(call[:2] == ["doc", "add"] and "standing-rules:brook" not in call for call in ccn_calls(docs))
     assert state(session).digest == "kept"
 
 

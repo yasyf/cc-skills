@@ -39,7 +39,6 @@ POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
-STANDING = SCRIPTS / "standing.py"
 HANDOFF = SCRIPTS / "handoff.py"
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
@@ -49,7 +48,13 @@ GENERATED_TITLE = "(generated)"
 FRESH_SECONDS = 300
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 GENERATED_STUB = json.dumps(
-    {"id": "d" * 40, "file": "/p/brook-progress/x-generated.md", "digest": "Compacted long-running drive `brook`."}
+    {
+        "id": "d" * 40,
+        "file": "/p/brook-progress/x-generated.md",
+        "register": "e" * 40,
+        "register_file": "/p/brook-progress/standing-rules.md",
+        "digest": "Compacted long-running drive `brook`.",
+    }
 )
 FIRE_FRACTION = 0.8
 TURN_WINDOW = 256
@@ -58,6 +63,7 @@ CCN_TIMEOUT_SECONDS = 20
 COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 RESTORE_BUDGET = 2000
 SHORT = 7
+REGISTER_PART_BYTES = 8000
 
 
 @workflow_state("long_running_compaction")
@@ -77,6 +83,10 @@ class CompactionState(WorkflowState):
     active_doc: str | None = None
     generated_doc: str | None = None
     compacted_at: float | None = None
+    register_doc: str | None = None
+    register_file: str | None = None
+    register_parts: list[str] = []
+    register_total: int = 0
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -115,11 +125,6 @@ def records(state: CompactionState, cwd: str) -> list[str]:
     return [doc["id"] for doc in progress_docs(state, cwd) or []]
 
 
-def standing(state: CompactionState, cwd: str, verb: str, *args: str) -> subprocess.CompletedProcess[str]:
-    argv = [sys.executable, str(STANDING), verb, "--program", state.slug or "", "--repo", cwd, *args]
-    return subprocess.run(argv, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS)
-
-
 def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
     tasks = [{"id": task.id, "status": task.status, "subject": task.subject} for task in evt.tasks.open]
     return json.dumps({"session_id": evt.session_id, "tasks": tasks, "background": state.background})
@@ -145,6 +150,7 @@ def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -
     result = json.loads(generated.stdout)
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
     state.active_doc = result["id"]
+    state.register_doc, state.register_file = result["register"], result["register_file"]
     if result["id"]:
         state.generated_doc = result["id"]
         point_doc(state, result["id"])
@@ -186,19 +192,45 @@ def resume_restore(state: CompactionState, cwd: str) -> str:
     return f"{head}\n{body.encode()[:room].decode(errors='ignore')}".rstrip()
 
 
-def compact_instructions(state: CompactionState, titles: str = "") -> str:
-    keep = f", and keep these titles verbatim: `{titles}`" if titles else ""
+def compact_instructions(state: CompactionState) -> str:
+    rules = (
+        f" The standing rules register `ccn doc show {state.register_doc[:8]}` returns verbatim after compaction; "
+        "never restate a ruling from this summary."
+        if state.register_doc
+        else ""
+    )
     if state.store == "ccn" and state.active_doc:
         doc = state.active_doc[:8]
         return (
-            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack{keep}. "
+            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack.{rules} "
             f"Quote: active progress doc: {doc}; the id in this summary wins over any id captured earlier in the conversation."
         )
     failed = f"The generated handoff failed: {state.failure}. " if state.failure else ""
     return (
         f"{failed}Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
-        f"{resume_steps(state)}. Keep only in-flight details they lack{keep}."
+        f"{resume_steps(state)}. Keep only in-flight details they lack.{rules}"
     )
+
+
+def register_parts(text: str, limit: int = REGISTER_PART_BYTES) -> list[str]:
+    parts: list[str] = []
+    current = ""
+    for line in text.splitlines(keepends=True):
+        while len(line.encode()) > limit:
+            head = line.encode()[:limit].decode(errors="ignore")
+            parts += [current, head] if current else [head]
+            current, line = "", line[len(head) :]
+        if current and len((current + line).encode()) > limit:
+            parts.append(current)
+            current = ""
+        current += line
+    return [*parts, current] if current else parts
+
+
+def queue_register(state: CompactionState) -> None:
+    if state.register_file and (path := Path(state.register_file)).is_file():
+        state.register_parts = register_parts(path.read_text())
+        state.register_total = len(state.register_parts)
 
 
 def handoff_nudge(state: CompactionState) -> str:
@@ -434,6 +466,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
+            queue_register(state)
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
@@ -450,6 +483,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
+        queue_register(state)
     if digest:
         return evt.context(digest + pending)
     follow_up = (
@@ -460,6 +494,44 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
     return evt.context(
         f"Read `{state.plan_path}` before anything else, {resume_steps(state)}; they supersede the compaction summary."
         + follow_up
+    )
+
+
+@on(
+    Event.PostToolUse | Event.UserPromptSubmit,
+    skip_if=[FromSubagent()],
+    tests={
+        Input(
+            tool="Bash",
+            tool_input={"command": "ls"},
+            state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["## Standing owner rules\n", "- 4ffc9a5 Q?\n"], register_total=2)],
+        ): Warn(
+            pattern=r"^Standing rules register `eeeeeee`, part 1 of 2, verbatim; it binds every lane brief\.\n"
+            r"--- begin part 1 ---\n## Standing owner rules\n--- end part 1 ---$"
+        ),
+        Input(prompt="continue", state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["- 4ffc9a5 Q?\n"], register_total=2)]): Warn(
+            pattern=r"^Standing rules register `eeeeeee`, part 2 of 2, verbatim; it binds every lane brief\.\n"
+            r"--- begin part 2 ---\n- 4ffc9a5 Q\?\n--- end part 2 ---$"
+        ),
+        Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
+        Input(
+            tool="Bash",
+            tool_input={"command": "ls"},
+            agent_id="a1b2c3",
+            state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["part"])],
+        ): Allow(),
+    },
+)
+def deliver_register(evt: BaseHookEvent) -> HookResult | None:
+    with CompactionState.mutate(evt) as state:
+        if not state.register_parts:
+            return None
+        number = state.register_total - len(state.register_parts) + 1
+        part, state.register_parts = state.register_parts[0], state.register_parts[1:]
+        total, name = state.register_total, (state.register_doc or "")[:SHORT] or state.register_file
+    return evt.context(
+        f"Standing rules register `{name}`, part {number} of {total}, verbatim; it binds every lane brief.\n"
+        f"--- begin part {number} ---\n{part}--- end part {number} ---"
     )
 
 
@@ -533,31 +605,14 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             session_id="s1",
             file=FileFixture(home=True, name="brook.md", content="# brook\n"),
             state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
-            commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
+            commands={f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
-            r"Quote: active progress doc: dddddddd; "
+            r"The standing rules register `ccn doc show eeeeeeee` returns verbatim after compaction; "
+            r"never restate a ruling from this summary\. Quote: active progress doc: dddddddd; "
             r"the id in this summary wins over any id captured earlier in the conversation\.$"
         ),
-        Input(
-            session_id="s1",
-            file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
-            commands={
-                f"{sys.executable} {STANDING} titles": "- 4ffc9a5 When does a merged change get released?\n",
-                f"{sys.executable} {HANDOFF} generate": GENERATED_STUB,
-            },
-        ): Warn(
-            pattern=r"(?s)they lack, and keep these titles verbatim: "
-            r"`- 4ffc9a5 When does a merged change get released\?`\. Quote: active progress doc: dddddddd; "
-        ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),
-        Input(
-            session_id="s1",
-            file=FileFixture(home=True, name="brook.md", content="# brook\n"),
-            state=[CompactionState(active=True, plan_path="~/brook.md", slug="brook")],
-            commands={f"{sys.executable} {STANDING} titles": "", f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
-        ): Warn(pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`"),
     },
 )
 def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
@@ -567,5 +622,4 @@ def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
         resolve_record(state, evt.cwd)
         if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
             adopt(state, generate(evt, state))
-        titles = standing(state, evt.cwd, "titles").stdout.strip() if state.store == "ccn" else ""
-    return evt.context(compact_instructions(state, titles))
+    return evt.context(compact_instructions(state))

@@ -45,6 +45,9 @@ OWNER_GATE = re.compile(
 HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
 SHORT = 7
 VIOLATIONS = 3
+REGISTER_HEADING = "## Standing owner rules"
+REGISTER_INTRO = "Generated at each handoff from cc-notes answers and (standing) inbox lines, this register quotes every durable owner ruling of this drive in full; every lane brief carries it verbatim. Change a ruling with `ccn answer supersede` or a superseding inbox line, never by editing this register."
+QUOTE = "  >"
 
 
 @dataclass
@@ -130,7 +133,9 @@ def rule_findings(body: str, previous: str | None, required: list[dict]) -> list
 
 def lint(body: str, previous: str | None, required: list[dict], live: set[str]) -> list[str]:
     return rule_findings(body, previous, required) + [
-        f"owner-gate line cites no live answer id: {line.strip()[:200]}" for line in body.splitlines() if gated(line, live)
+        f"owner-gate line cites no live answer id: {line.strip()[:200]}"
+        for line in body.splitlines()
+        if not line.startswith(QUOTE) and gated(line, live)
     ]
 
 
@@ -149,6 +154,22 @@ def doc_body(repo: str, doc_id: str) -> str:
 
 def durable(repo: str, program: str) -> list[dict]:
     return answers(repo, "scope:durable", program)
+
+
+def quoted(body: str) -> list[str]:
+    return [f"{QUOTE} {line}".rstrip() for line in body.strip("\n").splitlines()]
+
+
+def register_lines(required: list[dict]) -> list[str]:
+    lines = []
+    for answer in required:
+        lines.append(f"- {answer['id'][:SHORT]} {answer['title']}")
+        lines += quoted(answer.get("body") or "")
+    return lines
+
+
+def register(lines: list[str]) -> str:
+    return "\n".join([REGISTER_HEADING, "", REGISTER_INTRO, "", *(lines or ["- none recorded"])]) + "\n"
 
 
 def cmd_inbox(args: argparse.Namespace) -> int:

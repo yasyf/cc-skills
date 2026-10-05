@@ -1347,6 +1347,10 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
+Standing rules register (required):
+  <Root pastes the full body from `ccn doc show <register id>` verbatim;
+  the doc has label `standing-rules:<slug>`.>
+Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
@@ -1968,12 +1972,25 @@ handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger I
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH]
 ```
 
-`generate` builds `<slug>: progress <UTC> (generated)` under `progress:<slug>`.
-It copies every `scope:durable` answer labeled `<slug>` or `progress:<slug>` as
-`- <id7> <title>`, verbatim, and every live `(standing)` inbox rule from `standing.py`'s
-parser, with its inbox filename. Each rule the previous handoff carried that the
-sources no longer hold appears once as `- <id> superseded by <successor id>`, or
+`generate` builds a standing rules register at each handoff. It includes every
+`scope:durable` answer labeled `<slug>` or `progress:<slug>`. It also includes durable
+owner answers whose cc-notes create history names one of the drive's root sessions,
+even without a program label. Owner tags are `from:owner`, `source:askuserquestion`,
+`owner-ruling`, `owner-rule`, and `owner`.
+
+Each answer appears as `- <id7> <title>` followed by its full body, quoted line by
+line with `  >`. Every live `(standing)` inbox rule follows, with its inbox filename.
+Each rule the previous handoff carried that the sources no longer hold appears last
+as `- <id> superseded by <successor id>`, or
 `- <id> superseded by nothing: the sources dropped it ...`.
+
+The register is one doc labeled `standing-rules:<slug>` and a file at
+`<plan-stem>-progress/standing-rules.md`. Generation edits the doc in place only when
+its bytes change and supersedes any extra register docs. Its body starts with
+`## Standing owner rules` and is copied byte for byte as the first section of
+`<slug>: progress <UTC> (generated)`, under `progress:<slug>`. Change a ruling with
+`ccn answer supersede` or a superseding inbox line, never by editing the register.
+Every lane brief pastes the register doc body verbatim.
 
 *Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
 vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
@@ -1987,15 +2004,17 @@ root sessions.
 
 For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head id,
 its `<file>.cursor` value, and its last five ruling lines. Sections run in this order:
-`Read first`, `Standing owner rules`, `Open owner asks`, `Open tasks`, `Lanes and
+`Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
 `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <drive>/inbox/*.md`
 and the instruction never to tail, sed, or grep a whole inbox.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
-without cc-notes, `--folder` writes only that file. Each generation run is capped at
-120 seconds and prints JSON `{id, file, digest}`, where `id` is the one active doc.
+without cc-notes, `--folder` writes that file and the register file. Each generation
+run is capped at 120 seconds and prints JSON `{id, file, register, register_file, digest}`.
+`id` names the active progress doc; `register` names the register doc. Both are null
+in folder mode.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
@@ -2008,7 +2027,8 @@ prompts the root to record standing rules, since the handoff reads only rules re
 as answers or `(standing)` inbox lines.
 
 **Lint.** Generation runs `standing.lint` over the generated rules and the narrative,
-excluding inbox quotes, tasks, and asks. Durable titles and carried ids pass by
+excluding inbox quotes, tasks, and asks. The owner-gate check skips quoted register
+lines (`  >`), which carry the owner's own answer. Durable titles and carried ids pass by
 construction. A narrative line or live `(standing)` inbox rule that gates on `owner's word`,
 `owner approval`, `owner sign-off`, `owner GO`, or `reserved for the owner` needs a live
 answer id; a missing citation is a finding. Each finding names its source: the inbox file and
@@ -2056,21 +2076,31 @@ by hand and blocks nothing.
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes. It
 carries the narrative forward, so every compaction has a fresh generated record,
-including Claude Code's own auto-compaction before the root writes anything. It
-still appends `standing.py titles` to the compaction instructions. It ends them with
+including Claude Code's own auto-compaction before the root writes anything. The
+instructions name the register doc, say it returns verbatim after compaction, and
+forbid restating a ruling from the summary. They end with
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured
 earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
-`generate` printed, at most 2,000 UTF-8 bytes. Its first line names the program and
-says to read the progress doc with `ccn doc show <id7>`, or the generated file path,
-before acting, then the plan, then reload Skill `long-running` if its rules are gone. The
-plan and progress record supersede the summary.
+`generate` printed. It names the register first, with `ccn doc show <register id>`
+or the register file path: it arrives verbatim with the next tool results, binds
+every lane brief, and outranks the summary. Read the progress doc next, then the
+plan. Reload Skill `long-running` if its rules are gone.
 
-The next line lists every live standing inbox rule id. Standing rule texts, clipped
-to 160 characters, and durable answer titles, clipped to 100 characters, follow while
-they fit, then `+N more in the handoff.`. The closing line counts owner asks, tasks,
-lanes, monitors, and lint findings.
+The next line reads `Register: N owner answers, M live standing inbox rules.`
+The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
+The digest carries no clipped title list.
+
+On `SessionStart` with source `compact` or `resume`, the hook queues the register
+file in parts of at most 8,000 bytes (`REGISTER_PART_BYTES`), split at line boundaries.
+Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part between
+`--- begin part i ---` and `--- end part i ---`. The part bodies join to the register
+file byte for byte. Delivery continues until the whole register reaches context.
+
+*Prevents the release-v3 loss of October 4, 2026: titles-only carry dropped the
+ec2881e ruling "No: Pulumi state is the only truth" and left later lane briefs
+without it (cc-notes note d07074b).*
 
 Claude Code moves `SessionStart` context over 10,000 characters to a file and injects
 a 2 KB preview. capt-hook merges every pack's `SessionStart` context into one output;
@@ -2301,7 +2331,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
-19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → a standing rule gets its own `R<n> (standing)` line and is never marked done (I6); briefs list standing ids, never a range; the compaction hook generates the handoff's standing rules from answers and `(standing)` lines; desk and lane handoffs still paste `standing.py titles` verbatim.
+19. Am I about to write an inbox line, desk brief, or handoff that carries an owner rule? → give each standing rule its own `R<n> (standing)` line; never mark it done (I6). The hook generates the register from answers and `(standing)` lines. Desk and lane briefs paste the `standing-rules:<slug>` doc body verbatim with `ccn doc show <register id>`. List each standing id, never a range. READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone
     label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
