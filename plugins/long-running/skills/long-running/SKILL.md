@@ -718,9 +718,9 @@ finds the ledger through the working directory's repository, so a lane outside t
 checkout passes `ledger.py -C <checkout> <verb>`.
 
 Every script in `scripts/` is on PATH by name through the plugin's `bin/`, which Claude
-Code adds for the installed version, so briefs call `ledger.py`, `bus.py`, or
+Code adds for the installed version, so briefs call `ledger.py` or
 `orca-launch.sh` and never a path. `orca-launch.sh` puts the same `bin/` on PATH for a
-sol worker's codex terminal.
+sol worker's codex terminal. Lane messages use `cci` directly.
 
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
 a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
@@ -923,8 +923,9 @@ that already cleared.
 
 Orca delivery can follow later; this is not a recheck at
 that later send. Orca lanes receive a relay; other lanes receive
-`bus.py post --kind blocker`. The landing desk never repeats these per-head gate
-messages and retains `ledger.py route` for red CI and conflicts.
+`cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<blocker>"`.
+The landing desk never repeats these per-head gate messages and retains
+`ledger.py route` for red CI and conflicts.
 
 Without `stack-enqueue`, the desk sends `new head <sha9>: <blocker>` once per head
 and blocker. A head that moved since refresh is graded on the next pass without
@@ -940,7 +941,7 @@ In the same pass, run `route` and send its messages. D3's executor handles enque
 
 **D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`.
 
-Where `stack-enqueue` exists, the landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `bus.py post --kind blocker` for others. The landing desk never duplicates it. Without that script, the desk keeps the route; for Orca lanes use `desk-runner.py relay --config C --key R<n> --lane L --text T`.
+Where `stack-enqueue` exists, the landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"` for others. The landing desk never duplicates it. Without that script, the desk keeps the route; for Orca lanes use `desk-runner.py relay --config C --key R<n> --lane L --text T`.
 
 *Prevents the wait for unfinished PRs above a green bottom that the owner ruled out on 2026-10-01, and made the repo rule in the monorepo's #28601: AGENTS.md "Stacked diffs" lands the largest green bottom prefix with `stack-enqueue <any PR of the stack>` and restacks everything above it right after. Restacking children and rerunning their CI after the prefix lands is an accepted cost.*
 
@@ -1300,7 +1301,8 @@ or mid-poll. The reader checks cci before acting on a message that may be stale.
 
 The root puts the cci drive name in every brief beside the ledger id. Durable
 decisions stay in cc-notes; their bus records link them with `--ccn <id>`.
-`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
+`incident.py` posts through `bus.py` onto the same cci drive. Open the incident
+with `incident.py open --bus <cci drive>`; its comms lane reads and answers with cci.
 
 **B1. Post the state, message the pointer.** Use
 `cci post --drive <drive> --lane <lane> --kind <kind> --text "<text>"` for
@@ -1417,16 +1419,18 @@ Report every PR open, push, enqueue, and READY yourself, in this one shape:
   `ledger.py report --ledger <id> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
   plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`.
   The desk's inbox reads that row; a SendMessage to a looping desk is never read.
-Bus: <id>; script bus.py, on PATH by name; --repo <drive checkout>.
+Bus: cci drive <drive>; CLI cci, on PATH by name.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
-    `bus.py read --bus <id> --lane <name> <subscription>`; a message is acted on only after it.
-  While running: one Monitor on `bus.py watch --bus <id> --lane <name> <subscription>`,
+    `cci tail --drive <drive> --cursor <name> --reader <name> <subscription>`; act on a message only after reading cci.
+  While running: one Monitor on `cci watch --drive <drive> --cursor <name>-watch --reader <name> <subscription>`,
     timeout 1800000, re-armed on expiry.
-  Post a `head` after every push, a `contract` for anything another lane consumes, a
+  Use `cci post --drive <drive> --lane <name> --kind <kind> --topic <topic> --text "<text>"`:
+    a `head` after every push, a `contract` for anything another lane consumes, a
     `decision` another lane could build on, a `blocker` or `ask` addressed `--to` the lane
-    that acts; `withdraw --re` before you change or retract any of them. A SendMessage
-    carries the entry number, never the body.
+    that acts. Answer with `--kind answer --re <seq>`; use `--kind withdraw --re <seq>`
+    before you change or retract a record. Set the topic and recipients on replies.
+    A SendMessage carries the entry number, never the body.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
 `# ccx:raw` at the end of a Bash command runs it past the hooks as written. Use it only
   where a hook misreads the command, and name that hook in your report.
@@ -1943,44 +1947,58 @@ the cursor belong to the previous year.
 
 ### Lane bus
 
-The root creates the bus once and puts its id in every brief; everything after that is
-`bus.py`, run with `--repo <drive checkout>` from any worktree.
+The cci drive is the bus; it needs no init. The root puts its name in every brief.
+Use that name as `DRIVE` from any worktree. Each lane reads on every wake and before
+every decision, report, or ask:
 
 ```sh
-BUS=$(bus.py init --title "bus: $DRIVE")
-
-# a lane, on every wake and before every decision, report, or ask
-bus.py read  --bus "$BUS" --lane pr-plans --topic 27510 --topic iam-contract --kind decision
-
-# a lane, while running: one Monitor, timeout 1800000, re-armed on expiry; prints only deliveries
-bus.py watch --bus "$BUS" --lane pr-plans --topic 27510 --topic iam-contract --kind decision
-
-# publish state instead of answering questions about it
-bus.py post --bus "$BUS" --from pr-plans --kind head     --topic 27510        --text <full sha>
-bus.py post --bus "$BUS" --from iam-structural --kind contract --topic iam-contract --text "grants derive from row kinds; no hand IAM"
-bus.py post --bus "$BUS" --from iam-structural --kind decision --topic iam-contract --text "IAM wave lands before the pre-hold" --to pr-plans
-
-# ask, answer, block, withdraw; the printed #seq is what the SendMessage carries
-bus.py post --bus "$BUS" --from pr-plans --kind ask      --topic 27510 --text "clear to label before the IAM wave?" --to iam-structural
-bus.py post --bus "$BUS" --from iam-structural --kind answer --re 7 --text "yes, land it"
-bus.py post --bus "$BUS" --from landing-desk --kind blocker  --topic 27510 --text "DESK #27510 3f3acff97: plan job red" --to pr-plans
-bus.py post --bus "$BUS" --from artifact-contract --kind withdraw --re 4 --text "verdict retracted; contract changed"
-
-# read state, never ask for it; the root reads summary, never the log
-bus.py state   --bus "$BUS" [--lane iam-structural] [--topic 27510]
-bus.py summary --bus "$BUS"
-bus.py read    --bus "$BUS" --lane root --all --peek   # the whole log, when a thread must be read
+cci tail --drive "$DRIVE" --cursor pr-plans --reader pr-plans --topic 27510 --topic iam-contract --kind decision
 ```
 
-A `head` is the full 40-hex sha. A reply inherits its target's topic; an `answer` goes
-to the asker and a `withdraw` to the target's addressees unless `--to` says otherwise.
-Only the poster withdraws an entry, once. The cursor is
-`~/.cache/ccn-bus/<bus>/<lane>.cursor`, so a compacted lane resumes where it left off;
-`--peek` leaves it, `--since` and `--all` re-read. `read` prints
-`nothing new since #n` when nothing reached the lane; `watch` prints nothing then, and
-`bus unreachable: ...` once when cc-notes stops answering. Every post holds a lock keyed
-on the bus and retries a contended ref, because `ccn log append` refuses rather than
-queues a concurrent write.
+While the lane runs, keep one Monitor with timeout 1800000 and re-arm it on expiry.
+The watch prints only deliveries and uses a separate cursor:
+
+```sh
+cci watch --drive "$DRIVE" --cursor pr-plans-watch --reader pr-plans --topic 27510 --topic iam-contract --kind decision
+```
+
+Publish state instead of answering questions about it. Set `HEAD_SHA` to the full
+40-hex SHA of the pushed commit:
+
+```sh
+cci post --drive "$DRIVE" --lane pr-plans --kind head --topic 27510 --text "$HEAD_SHA"
+cci post --drive "$DRIVE" --lane iam-structural --kind contract --topic iam-contract --text "grants derive from row kinds; no hand IAM"
+cci post --drive "$DRIVE" --lane iam-structural --kind decision --topic iam-contract --text "IAM wave lands before the pre-hold" --to pr-plans
+```
+
+Post asks, answers, blockers, and withdrawals with cci. The printed sequence number
+is what the `SendMessage` carries. Use the ask's number as `ASK_SEQ` and the verdict
+being retracted as `VERDICT_SEQ`:
+
+```sh
+cci post --drive "$DRIVE" --lane pr-plans --kind ask --topic 27510 --text "clear to label before the IAM wave?" --to iam-structural
+cci post --drive "$DRIVE" --lane iam-structural --kind answer --topic 27510 --to pr-plans --re "$ASK_SEQ" --text "yes, land it"
+cci post --drive "$DRIVE" --lane landing-desk --kind blocker --topic 27510 --text "DESK #27510 3f3acff97: plan job red" --to pr-plans
+cci post --drive "$DRIVE" --lane artifact-contract --kind withdraw --topic artifact-reads --to partial-release --re "$VERDICT_SEQ" --text "verdict retracted; contract changed"
+```
+
+Read state before asking for it; add `--lane` or `--topic` to narrow the result.
+The root reads the digest and replays deliveries from the start when a thread needs
+closer reading:
+
+```sh
+cci state --drive "$DRIVE"
+cci state --drive "$DRIVE" --lane iam-structural --topic iam-contract
+cci digest --drive "$DRIVE"
+cci tail --drive "$DRIVE" --reader root --since 0
+```
+
+Set a reply's topic and recipients explicitly. Address an `answer` to the asker
+and a `withdraw` to the original recipients; leave it broadcast if the original
+was broadcast. Withdraw only your own records, once, before replacing them.
+The lane's named cci cursor survives compaction and advances through printed
+records. `--since` reads without changing it; `--since 0` replays retained records.
+Repeat a capped tail with the same cursor and filters to continue reading.
 
 ### Label watch
 

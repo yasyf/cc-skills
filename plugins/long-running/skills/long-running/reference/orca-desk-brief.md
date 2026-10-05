@@ -368,9 +368,9 @@ argparse's exit 2 otherwise reads as `unsettled`.
 
 After a prefix lands, the runner routes `ccx vcs stack submit` to the owner of the
 first PR above it. Orca lanes receive a relay; other lanes receive
-`bus.py post --kind blocker`. It verifies a restack route when the child's head
-moves or the child lands. The landing-desk lane never enqueues or duplicates
-these restack routes beside the runner.
+`cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"`.
+It verifies a restack route when the child's head moves or the child lands. The
+landing-desk lane never enqueues or duplicates these restack routes beside the runner.
 
 A `BLOCKED` head other than `held` routes once per head and blocker. The runner
 re-runs the gate immediately before creating the route, suppressing a blocker
