@@ -1713,6 +1713,53 @@ too. `unlabel --reason` records why a label came off and blocks a
 re-label of that head; it does not stop a queue that already took the PR. A lane
 asking what it owns gets `ledger.py show --red`, never the raw table.
 
+### Drive dashboard
+
+`drive.py start` and every root `SessionStart` while the drive is active start the
+dashboard server automatically, only when the session belongs to a registered
+drive. No agent step is needed. The hooks start it detached so they never block a
+session and print no URL. Get the URL with `lr-dashboard.py url`.
+Open it to read the drive's state.
+
+Run `lr-dashboard.py start --drive <id>` to start it by hand. Use `lr-dashboard.py url`
+to print the running URL, `lr-dashboard.py snapshot` for JSON, and `lr-dashboard.py serve`
+to serve in the foreground.
+
+The server binds `127.0.0.1`, prefers a port derived from the drive id, and records
+its address in `<state dir>/dashboard/server.json`. On the next start, a newer
+plugin version replaces the old server through `/shutdown`.
+`start` holds a per-drive lock at `<state dir>/dashboard/start.lock` so concurrent
+starts do not spawn two servers. `/shutdown` requires a token recorded in
+`server.json`, so a browser page from another origin cannot stop the server.
+
+It reads inbox files and rotated archives under `<inbox>/<file>.md.archive/*.md`,
+the ledger, the root's task list and archive, and cc-notes
+plans, progress docs, handoff docs, program docs, logs, investigations, and answers. It
+also reads cc-present boards, compactions from the root transcript, Orca run tasks,
+inbox watch state, and beat files.
+Collector failures, including registry reads racing `drive.py end`, appear as
+source errors without stopping the poll. Orca workers are read across every page.
+An explicit `CLAUDE_CODE_TASK_LIST_ID` wins when resolving the task list.
+Transcripts are found under any project directory, preserving earlier compactions
+after a drive moves checkouts.
+
+The only hand-edited dashboard input is `<state dir>/dashboard.yaml`. Use top-level
+section keys holding `- text` items, or `- text:` items with an indented `url:` line.
+
+The server records each inbox file's line count and mtime in
+`<state dir>/dashboard/seen.json` each time the file grows. Walking back from the
+end, every recorded mark bounds the lines it covers. This places lines appended
+while the server runs; older history still relies on the clocks in each line.
+A file that shrinks, such as one rotated, resets its marks.
+
+The walk follows a line's clock back at most 16 hours, so a quoted or misordered
+stamp cannot drag earlier lines back by days. An undated clock requiring a larger
+step is marked approximate, as is a line without a clock. When a line has no
+parenthesized stamp, clocks are searched in its first 80 characters.
+
+ISO stamps keep their zone. Month-day stamps after the cursor fall in the previous
+year.
+
 ### Lane bus
 
 The root creates the bus once and puts its id in every brief; everything after that is
