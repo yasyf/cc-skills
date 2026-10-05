@@ -51,7 +51,8 @@ Do, in this order:
      - Next actions, in order, with the gate each one waits on.
      - `## Standing owner rules`: read the newest owner-approved register with
        `rulings.py register --program <slug>`. Add a pointer to `ccn doc show <id>`
-       and quote its body verbatim with `  >` on each line. If the result is null,
+       and quote its whole body verbatim, in order, with `  >` on each line.
+       The lint rejects a quote of only the first line. If the result is null,
        state that no register doc exists. Never build or edit the register.
        Then carry every live rule from `standing.py inbox <inbox file>` as a bullet.
        Read the whole inbox, not only from the last relayed line. Name each standing

@@ -1348,7 +1348,8 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Claude lanes receive the whole register through hooks.
+  Claude lanes receive the register through hooks; above 9,000 characters, read it
+  with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
@@ -2023,7 +2024,8 @@ The standing rules register is a cc-notes doc labeled `standing-rules:<slug>`, a
 owner answers `4d381e0` and `8cb6da7` require.
 A consolidation lane proposes at most 30 rules for the owner to approve.
 Full answers stay in cc-notes, linked by id from the register.
-The release-v3 draft is doc `0cf17c9`.
+The owner's 30-rule cap keeps the current release-v3 draft, doc `0cf17c9`, at about
+7 KB, below the injection budget.
 
 `generate` reads the newest register doc by `updated_at`.
 It never builds, edits, or supersedes a register doc or writes a register file.
@@ -2036,9 +2038,15 @@ appears last as `- <id> superseded by <successor id>` or
 `- <id> superseded by nothing: the sources dropped it ...`.
 The handoff carries no separate list of durable answer titles.
 
+The lint requires the whole register quoted in order; quoting only its first line
+fails.
+
+The plugin ships a `bin/rulings.py` launcher.
+
 `rulings.py register --program <slug>` prints the newest register as `{id, body}` or
 `null`. `rulings.py match --program <slug>` reads a lane brief from stdin.
-It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md` and queries
+It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md` with atomic
+per-file replacements so concurrent spawns never read partial files. It queries
 `ccx code search --semantic` with the brief's first 2,000 characters.
 Each matched answer absent from the register's citations appears as `- <id7> <title>`
 over its quoted body. `--budget` defaults to 8,000 bytes.
@@ -2046,12 +2054,24 @@ over its quoted body. `--budget` defaults to 8,000 bytes.
 `--drive <id>` replaces `--program` for workers carrying `CLAUDE_LONG_RUNNING_DRIVE`.
 It resolves the program and state directory from the drive registry.
 
-Claude subagents, including planning agents, receive the whole register at
-`SubagentStart`. Matches for the spawn prompt arrive verbatim on the subagent's first
-`PostToolUse`. Orca Claude worker sessions carrying `CLAUDE_LONG_RUNNING_DRIVE` receive
-the whole register at `SessionStart`. Their first `UserPromptSubmit` delivers matches
-for the brief. All injections warn and fail open. Codex briefs must paste the register
-body because Codex workers have no Claude hooks.
+Claude subagents, including planning agents, receive the register at `SubagentStart`.
+Orca Claude worker sessions carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at
+`SessionStart`. If the body exceeds 9,000 characters, the hook names the register and
+tells the lane to read it in full with `ccn doc show <id7>` before acting. Within that
+budget, the body arrives verbatim. Claude Code moves context over 10,000 characters
+to a file with a 2 KB preview.
+
+`SubagentStart` cannot see the spawn prompt, so the hook keys matched answers by
+subagent type. At `SubagentStart`, the hook collects matches from same-type spawns in the
+preceding 60 seconds. It deduplicates them and delivers at most 8,000 bytes on the
+subagent's first `PostToolUse`.
+A lane may therefore receive answers matched to a sibling spawned alongside it.
+Rewriting the Agent prompt was rejected because capt-hook keeps only the first
+rewrite per call, dropping other hooks' Agent rewrites such as the model upgrade.
+
+An Orca Claude worker's first `UserPromptSubmit` delivers matches for its brief.
+All injections warn and fail open. Codex briefs must paste the register body because
+Codex workers have no Claude hooks.
 
 *Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
 vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
@@ -2413,8 +2433,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     standing rule its own `R<n> (standing)` line under I6. Never mark it done.
     A consolidation lane proposes at most 30 register rules for the owner to approve.
     Handoff generation only reads the newest `standing-rules:<slug>` doc.
-    Claude hooks inject the register and matched answers. Codex briefs must paste the
-    register body verbatim. List each standing inbox id, never a range.
+    Claude hooks inject the register, or a read instruction above 9,000 characters,
+    and matched answers. Codex briefs must paste the register body verbatim.
+    List each standing inbox id, never a range.
     READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone

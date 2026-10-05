@@ -11,8 +11,10 @@ The register is the newest cc-notes doc labeled `standing-rules:<slug>`.
 A consolidation lane proposes at most 30 rules for the owner to approve.
 Full answers stay in cc-notes, linked by id.
 
-Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive the whole register
-at `SessionStart`. Their first `UserPromptSubmit` delivers matches for the brief.
+Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive the register verbatim
+at `SessionStart` when its body is at most 9,000 characters. Above that limit, the hook
+names the register and tells the worker to read it in full with `ccn doc show <id7>`
+before acting. Their first `UserPromptSubmit` delivers matches for the brief.
 These injections warn and fail open. Codex briefs must paste the register body
 because Codex workers have no Claude hooks.
 
@@ -207,7 +209,8 @@ Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on this subsystem, quoted with its id, and the entry point (symbol at file:line) it makes the change call; or "none">.
 Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Claude workers receive the whole register through hooks.
+  Claude workers receive the register through hooks; above 9,000 characters, read it
+  with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
