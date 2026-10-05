@@ -28,14 +28,18 @@ per lane, a reply to the lane's latest open question when it has one, logged onc
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight; every verified
-launch logs `LAUNCHED` with its dispatch and terminal. Orca lets only the terminal bound to the Run call
+launch logs `LAUNCHED` with its dispatch and terminal. An `orca-desk: alert <slug> <link> :: <what fired>`
+line, which monitor-watch writes, records the transition and launches nothing. An
+`orca-desk: incident` line in the same form, which the alerts desk writes when it judges a
+lane necessary, launches `<slug>-fix` on the incident alias from the alert-fix brief.
+Orca lets only the terminal bound to the Run call
 worker-start, and it names the caller by the ORCA_TERMINAL_HANDLE this process inherited.
 The runner records that terminal, its pane, the Run's coordinator and generation, and how
 the binding was obtained, at start and before each pass that launches. Started from a
 terminal that is not the Run's coordinator, or from no Orca terminal, it refuses to start
 and prints the rebind command; a binding lost mid-run holds every launch and escalates
 UNBOUND once. `rebind` runs `orca orchestration run-use` from the current terminal and
-records it; `show` prints the binding first. A sol or `--owner-directed` launch starts whatever
+records it; `show` prints the binding first. An incident or `--owner-directed` launch starts whatever
 the load; any other launch waits while the 1-minute load is above the core count, for
 at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
 and the Run mailbox. `run --desk landing` gates and enqueues ready
@@ -87,7 +91,8 @@ STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 INACTIVE = frozenset({"completed", "failed"})
 RECLAIM_NAMED = 10
-MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|claude-[\w.-]+|gpt-[\w.-]+")
+MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
+INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
 RETRYABLE = frozenset({"blocked", "superseded"})
@@ -109,9 +114,10 @@ LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
 LAUNCH_GRAMMAR = "orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>"
 ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
+INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|hold|unhold)\b(?P<rest>.*)$")
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold)\b(?P<rest>.*)$")
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*): (?P<text>\S.*)$")
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+) brief=(?P<brief>/\S+)$")
@@ -516,7 +522,7 @@ class Runner:
         if not directive:
             return
         key = directive["key"] or f"inbox@{offset}"
-        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "hold": self.hold_line, "unhold": self.unhold_line}
+        verbs = {"relay": self.relay_line, "launch": self.launch_line, "alert": self.alert_line, "incident": self.incident_line, "hold": self.hold_line, "unhold": self.unhold_line}
         verbs[directive["verb"]](offset, key, directive["rest"])
 
     def relay_line(self, offset: int, key: str, rest: str) -> None:
@@ -555,11 +561,26 @@ class Runner:
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]))
 
     def alert_line(self, offset: int, key: str, rest: str) -> None:
-        """Launch the alert's sol fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
+        """Record a monitor transition and launch nothing, or relay a repeat to the fix lane already on it; the alerts desk decides whether an incident lane is necessary."""
         log = f"escalation:alert:{offset}"
         spec = ALERT_SPEC.match(rest)
         if not spec:
-            self.record(log, f"ALERT-FAILED {key} inbox: one alert per line, in the form `{ALERT_GRAMMAR}`; nothing was launched")
+            self.record(log, f"ALERT-FAILED {key} inbox: one alert per line, in the form `{ALERT_GRAMMAR}`; nothing was recorded")
+            return
+        slug, link, what = spec["slug"], spec["link"], spec["what"]
+        lane = f"{slug}-fix"
+        dispatch = self.orca.show(lane)
+        if dispatch and dispatch.status not in INACTIVE:
+            self.relay_to(offset, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
+            return
+        self.record(log, f"ALERT {slug} {pacific(self.now())}: {what} {link} | no lane launched; the alerts desk writes `{INCIDENT_GRAMMAR}` when it judges one necessary")
+
+    def incident_line(self, offset: int, key: str, rest: str) -> None:
+        """Launch the alert's incident fix lane on a brief freshly attached to the briefs log from the template, or relay a repeat to the lane already on it; the root ratifies from the INCIDENT line."""
+        log = f"escalation:incident:{offset}"
+        spec = ALERT_SPEC.match(rest)
+        if not spec:
+            self.record(log, f"INCIDENT-FAILED {key} inbox: one incident per line, in the form `{INCIDENT_GRAMMAR}`; nothing was launched")
             return
         slug, link, what = spec["slug"], spec["link"], spec["what"]
         lane = f"{slug}-fix"
@@ -571,7 +592,7 @@ class Runner:
         if monitors and (peer := self.incident_lane(monitors, lane, offset)):
             self.record(log, f"LAUNCH-SKIPPED {key} {lane}: duplicate of {peer}, already on monitor {', '.join(sorted(monitors))}")
             return
-        if refusal := self.launch_refusal(key, lane, "sol", "xhigh", ALERT_TEMPLATE):
+        if refusal := self.launch_refusal(key, lane, INCIDENT_MODEL, "xhigh", ALERT_TEMPLATE):
             self.record(log, f"INCIDENT {slug} again at {pacific(self.now())}: {what} {link} | {lane} not launched: {refusal}")
             return
         facts = self.config.alert_facts.read_text().strip() if self.config.alert_facts else "none recorded for this drive"
@@ -584,8 +605,8 @@ class Runner:
         if brief is None:
             self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | {lane} not launched: the attached brief has no path")
             return
-        self.accept_launch(key, lane, "sol", "xhigh", str(brief), True)
-        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on sol xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
+        self.accept_launch(key, lane, INCIDENT_MODEL, "xhigh", str(brief), True)
+        self.record(log, f"INCIDENT {slug} {pacific(self.now())}: {what} {link} | fix lane {lane} launching on incident xhigh, brief {brief}; root: ratify, spawn the evidence and incident-doc lanes, fence the target, start comms in the affected account channels and #outage")
 
     def holds(self, slug: str) -> list[actions.Action]:
         return [action for action in self.book.actions(RUNNER, kind="hold", status="accepted") if json.loads(action.target)["slug"] == slug]
@@ -672,7 +693,7 @@ class Runner:
         return next((message["id"] for message in sorted(mine, key=lambda message: message["created_at"], reverse=True) if message["id"] not in answered), "")
 
     def accept_launch(self, key: str, lane: str, model: str, effort: str, brief: str, owner_directed: bool) -> tuple[actions.Action, bool]:
-        urgent = owner_directed or model == "sol"
+        urgent = owner_directed or model == INCIDENT_MODEL
         target = json.dumps({"model": model, "effort": effort, "brief": brief, "prior": self.orca.receipt(lane), "urgent": urgent})
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
@@ -805,7 +826,7 @@ class Runner:
         self.launching[f"{container}/{action.action_id}"] = self.shell.spawn(argv, self.launch_log(container, action.action_id), self.config.launch_env)
 
     def load_hold(self, action: actions.Action) -> str:
-        """Why an accepted launch is waiting on load, or empty when it may start; sol and owner-directed launches never wait."""
+        """Why an accepted launch is waiting on load, or empty when it may start; incident and owner-directed launches never wait."""
         load, cores = self.shell.load(), self.shell.cores()
         if json.loads(action.target)["urgent"] or load <= cores:
             return ""
@@ -1328,7 +1349,7 @@ def run_landing(runner: Runner, once: bool) -> int:
 
 def launch_model(model: str) -> str:
     if not MODELS.fullmatch(model):
-        raise argparse.ArgumentTypeError(f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*")
+        raise argparse.ArgumentTypeError(f"{model} is not a model orca-launch.sh starts: opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*")
     return model
 
 

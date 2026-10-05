@@ -3,8 +3,8 @@
 For implementation and test workers, prefer a repository's canonical remote
 entrypoint. Forge-AI/monorepo's
 [Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md)
-defaults to Sprite prepare+attach, with an explicit local root/Fable or extremely
-sensitive route. Preserve the requested model, effort, and Codex service tier.
+defaults to Sprite prepare+attach, with an explicit local route for the root and
+for extremely sensitive Fable work. Preserve the requested model, effort, and Codex service tier.
 Use its complete VM brief and
 [source-return contract](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md#return-source-for-root-review);
 the remote worker returns a patch/report and the root collects, reviews, and
@@ -73,7 +73,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 `claude` command. Shift-tab is a fallback only before the worker opens a plan.
 The launch script checks the terminal screen for `bypass permissions on`.
 
-Except for sol incident lanes below, worktrees use `--parent-worktree path:<coordinator worktree>`.
+Except for incident lanes below, worktrees use `--parent-worktree path:<coordinator worktree>`.
 The script reuses an existing directory; re-tag an existing worktree before launch
 when it does not carry that parent:
 
@@ -86,7 +86,7 @@ the drive's briefs log, as [orca-lane-brief.md](orca-lane-brief.md) describes.
 `--spec` points to its resolved file path, at most 300 characters. Orca truncates
 the pasted prompt near 3 KB, so the brief itself never goes in `--spec`.
 
-Fable is local only, for top-level root orchestrators or extremely sensitive
+Roots run Opus 5.5. Fable is for exceptional cases only: the most sensitive local
 implementation, using the Mac's existing interactive authentication. Ordinary
 Claude workers and subdesks use Opus or Sonnet per the routing table; Opus is the
 default for Claude implementation workers. Auth, migrations, concurrency, or error-prone code
@@ -101,16 +101,19 @@ Use these model ids; the script also accepts the aliases in the first column.
 | `opus` | `claude-opus-5-5` |
 | `sonnet` | `claude-sonnet-5-5` |
 | `fable` | `claude-fable-5-1` |
+| `sol`, `codex` | `gpt-6.1-sol` on Orca's codex agent, standard tier |
+| `incident` | `gpt-6.1-sol` in its own terminal, fast tier |
+| `astra` | `gpt-6-astra` on Orca's codex agent, exceptional cases only |
 
 Effort is `low`, `medium`, `high`, `xhigh`, or `max`.
 
 A lane the routing table sends to codex launches on Orca's codex agent, never as a
-claude worker calling the codex skill. `orca-launch.sh <lane> codex xhigh <brief>`
-creates the worktree the same way, then runs:
+claude worker calling the codex skill. `orca-launch.sh <lane> sol xhigh <brief>`
+(`codex` is the same alias) creates the worktree the same way, then runs:
 
 ```sh
 orca orchestration worker-start --run "<run>" --spec "<pointer>" --task-title "<prefix><lane>" \
-  --worktree "path:<wt>" --agent codex --model gpt-6-astra --effort xhigh --timeout-ms 600000 --json
+  --worktree "path:<wt>" --agent codex --model gpt-6.1-sol --effort xhigh --timeout-ms 600000 --json
 ```
 
 `--agent` makes Orca create the terminal, and Orca's `agentDefaultArgs.codex` carries
@@ -129,7 +132,7 @@ Leave the terminal open, as R195 requires, and report the dispatch to the root.
 
 ### Incident lanes: gpt-6.1-sol on the fast tier
 
-Launch both incident lanes with `scripts/orca-launch.sh <lane> sol xhigh <brief>`.
+Launch both incident lanes with `scripts/orca-launch.sh <lane> incident xhigh <brief>`.
 `worker-start` has no service-tier flag, so the script passes the tier on the codex
 command line. It creates a top-level (`--no-parent`) worktree and a terminal running
 codex on the fast tier, then starts the worker on that terminal. This is the recipe
@@ -142,14 +145,19 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 90000 --json
 ```
 
-Only sol lanes run fast. Orca's codex runtime config,
+Only `incident` lanes run fast. Orca's codex runtime config,
 `~/Library/Application Support/orca/codex-runtime-home/home/config.toml`, stays
-`service_tier = "default"`, so astra `codex` lanes on `--agent codex` run on the
-default tier. No script or lane edits that file.
+`service_tier = "default"`, so `sol` and `codex` lanes on `--agent codex` run on
+the standard tier. No script or lane edits that file.
 
-Orca's readiness check does not recognize codex. Dispatch `ctx_a1c0260ecb02` and the root's two hand-launched sol workers
+The Opus 5.5 backup of an incident runs in Claude fast mode. `incident.py`
+launches it as `opus xhigh` with `ORCA_LAUNCH_CLAUDE_ARGS="--settings
+'{"fastMode":true}'"`; a session launched with that setting reports
+`fast_mode_state: on`, even under a user-level `fastModePerSessionOptIn`.
+
+Orca's readiness check does not recognize codex. Dispatch `ctx_a1c0260ecb02` and the root's two hand-launched incident workers
 ended `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` with codex at its prompt and
-the spec undelivered. On that timeout with a live codex or sol terminal, the script types the
+the spec undelivered. On that timeout with a live codex or incident terminal, the script types the
 spec pointer itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
 Count it as launched; it reports with
 `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"`,
@@ -158,7 +166,7 @@ A `desk-runner.py launch` action starts the script detached; the runner never
 waits on readiness in its mailbox loop.
 
 That earlier dispatch read `ready`. `--skip-git-repo-check` is exec-only and breaks interactive codex.
-Codex accepts `service_tier=fast`; the catalog id is `priority`, labeled Fast at twice the speed.
+Codex 0.160 accepts `service_tier=fast` and resolves it to the catalog id `priority`, labeled Fast; the session config of a lane launched with `fast` records `service_tier: "priority"`.
 `worker-release` returns `retained` (`external_terminal`) for a terminal you created, and `orca-launch.sh` creates every claude terminal, so Orca never closes a finished claude lane's terminal. The root's gc closes it under R195's settled-dispatch bar.
 
 ### Worker messages
@@ -235,7 +243,7 @@ dispatches that held a 32-core machine at load 100 to 600 (release v3, 2026-10-0
 **R210. Load is the only launch throttle.** Working workers have no cap. Before each
 launch, read `uptime`; while the 1-minute load average is above the core count
 (`sysctl -n hw.ncpu`), launch nothing until two readings in a row are under it.
-Incident (sol) and owner-directed launches are exempt and start at once.
+Incident and owner-directed launches are exempt and start at once.
 
 The runtime drops connections under load. Retry after 30 seconds; never restart
 Orca to recover a connection. Handles belong to one runtime. After a restart,
@@ -265,7 +273,7 @@ Set the run and repo ids before calling it. The remaining variables have default
 | `ORCA_LAUNCH_RUN` | Orchestration run id; required. |
 | `ORCA_LAUNCH_REPO` | Orca repo id; required. |
 | `ORCA_LAUNCH_PARENT` | Coordinator worktree path; default `$PWD`. |
-| `ORCA_LAUNCH_NO_PARENT` | `1` creates a top-level (`--no-parent`) worktree instead of a child of the parent, as a sol lane always does; default unset. |
+| `ORCA_LAUNCH_NO_PARENT` | `1` creates a top-level (`--no-parent`) worktree instead of a child of the parent, as an incident lane always does; default unset. |
 | `ORCA_LAUNCH_PREFIX` | Worktree name prefix; default none. The worktree is `<prefix><lane>-base`, so its branch `yasyf/<prefix><lane>-base` never blocks the lane's `yasyf/<prefix><lane>/` branches. |
 | `ORCA_LAUNCH_ROOT` | Directory Orca creates worktrees in; default the parent's directory. |
 | `ORCA_LAUNCH_BASE` | Base branch; default the parent checkout's `origin/HEAD`. |
@@ -313,7 +321,7 @@ worktree's path, polling up to `ORCA_LAUNCH_WORKTREE_SECONDS` (default 180) afte
 failure, and creates again only when none registers. Before `worker-start`, which refuses a terminal whose
 agent Orca has not detected with `agent_unconfigured`, the script polls
 `orca terminal list` every 4 seconds until the terminal's `agentIdentity` reads
-`claude`, or `codex` for sol, and fails with
+`claude`, or `codex` for incident, and fails with
 `boot terminal=<handle>: orca terminal list shows agentIdentity=<seen>` once
 `ORCA_LAUNCH_BOOT_SECONDS` passes. Orca drops a terminal's startup command under
 load and leaves a shell prompt. Once a third of the ceiling has passed with no agent

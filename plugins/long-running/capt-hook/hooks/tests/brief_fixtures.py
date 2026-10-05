@@ -24,7 +24,7 @@ parity. No applies."""
 
 INCIDENT_TURN = """ccx: tooling-lane=lane-failing role=fix
 
-# lane-failing-fix (sol xhigh fast)
+# lane-failing-fix (incident xhigh)
 
 ## R810 — INCIDENT
 Datadog 100000001 "replication lane failing" OK → ALERT. orca-desk: launch lane-failing-fix NOW.

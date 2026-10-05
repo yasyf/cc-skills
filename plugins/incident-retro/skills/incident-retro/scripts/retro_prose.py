@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route every authored sentence of a retro through gpt-6-astra, and lock it there.
+"""Route every authored sentence of a retro through Claude Opus 5.5, and lock it there.
 
   retro.py prose <dir> [--field ADDR]… [--stale] [--batch N] [--dry-run] [--detach]
   retro.py prose <dir> --await
@@ -7,7 +7,7 @@
 
 The command enumerates the prose a writer authors, builds one work order
 pointing the model at the writing contract rather than restating it, calls
-`codex-ask -m astra` as a subprocess, refuses a reply that moved a fact, writes
+`claude -p --model claude-opus-5-5 --json-schema` as a subprocess, refuses a reply that moved a fact, writes
 the returned text straight into retro.json and summary.html, and records the
 model, run directory, log and per-field digest in prose.lock.json. `check
 --strict` reads that lock, so a hand edit or another model's rewrite fails the
@@ -17,11 +17,10 @@ import fcntl, hashlib, json, os, re, shlex, shutil, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-CODEX_ASK = "codex-ask"
 SLOP_COP = "slop-cop"
-PROSE_MODEL = "astra"
-FALLBACK_MODEL = "claude-opus-5-5"
-FALLBACK_REASON = "codex down"
+PROSE_MODEL = "claude-opus-5-5"
+PROSE_TOOLS = "Read,Grep,Glob"
+REPLY_LOG = "reply.jsonl"
 PROSE_LOCK = "prose.lock.json"
 WRITE_LOCK = ".prose.lock"
 PROSE_TIMEOUT = 1800
@@ -34,7 +33,6 @@ LEGACY = "legacy"
 HEADLINE = "headline"
 SUBTITLE = "subtitle"
 REQUIRED_KINDS = ("short name", HEADLINE, SUBTITLE)
-REPLY_KEYS = ("REPLY_FILE", "LOG_FILE")
 WRITING_DOCS = "writing-docs"
 SKILL_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "skills"
 LANES = Path.home() / ".cache" / "incident-retro" / "prose"
@@ -356,22 +354,29 @@ def work_order(retro, R: dict, root: Path, batch: list, store: dict, rules: Path
     return "\n".join(lines)
 
 
-def ask(question: str, schema: dict, lane: Path, timeout: float) -> dict:
+def prose_command(schema: dict, dirs: list) -> list:
+    return ["env", "-u", "CLAUDECODE", "claude", "-p", "--model", PROSE_MODEL, "--output-format", "stream-json",
+            "--verbose", "--json-schema", json.dumps(schema), "--tools", PROSE_TOOLS, "--strict-mcp-config",
+            "--no-session-persistence", "--add-dir", *dirs]
+
+
+def ask(question: str, schema: dict, lane: Path, timeout: float, dirs: list) -> dict:
     lane.mkdir(parents=True, exist_ok=True)
-    qfile, sfile = lane / "question.md", lane / "schema.json"
-    qfile.write_text(question)
-    sfile.write_text(json.dumps(schema))
-    argv = [CODEX_ASK, "-m", PROSE_MODEL, "--schema", str(sfile), str(qfile)]
+    (lane / "question.md").write_text(question)
+    log = lane / REPLY_LOG
+    argv = prose_command(schema, dirs)
     started = time.time()
-    run = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    pointers = dict(line.split(": ", 1) for line in run.stdout.splitlines() if line.split(": ", 1)[0] in REPLY_KEYS)
-    if run.returncode != 0 or "REPLY_FILE" not in pointers:
-        raise RuntimeError(f"{' '.join(argv)} exited {run.returncode}\n{run.stdout}\n{run.stderr}".strip())
-    reply = Path(pointers["REPLY_FILE"])
+    run = subprocess.run(argv, input=question, capture_output=True, text=True, timeout=timeout)
+    log.write_text(run.stdout)
+    events = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
+    result = next((e for e in reversed(events) if e.get("type") == "result"), {})
+    if run.returncode != 0 or result.get("is_error") or "structured_output" not in result:
+        raise RuntimeError(f"claude -p --model {PROSE_MODEL} exited {run.returncode}: "
+                           f"{result.get('result') or run.stderr.strip()} (log {log})")
     return {
-        "reply": json.loads(reply.read_text()),
-        "run": str(reply.parent),
-        "log": pointers.get("LOG_FILE", ""),
+        "reply": result["structured_output"],
+        "run": str(lane),
+        "log": str(log),
         "seconds": round(time.time() - started, 1),
     }
 
@@ -516,19 +521,11 @@ def check_lock(retro, rep, R: dict, root: Path):
         rep.err(f"{len(legacy)} field(s) carry {LEGACY} provenance on a retro that starts {onset}, after "
                 f"incident-retro {retro.LEGACY_CUTOFF}; the migration path is for retros written before this "
                 f"version, so run retro.py prose without --quick")
-    fallback = (R.get("meta") or {}).get("proseFallback") or {}
-    for addr, entry in lock["fields"].items():
-        if not isinstance(entry, dict) or entry.get("model") in (None, "gpt-6-astra"):
-            continue
-        if not (entry.get("model") == FALLBACK_MODEL and entry.get("reason") == FALLBACK_REASON
-                and fallback.get("reason") == FALLBACK_REASON and addr in (fallback.get("fields") or [])):
-            rep.err(f"{addr} is locked to {entry.get('model')!r}; only astra writes retro prose, or "
-                    f"{FALLBACK_MODEL} with reason {FALLBACK_REASON!r} recorded in meta.proseFallback")
     missing = unlocked(retro, R, root)
     if missing:
         shown = ", ".join(missing[:6]) + (f" and {len(missing) - 6} more" if len(missing) > 6 else "")
-        rep.strict_warn(f"{len(missing)} prose field(s) carry no astra provenance in {PROSE_LOCK} ({shown}); every "
-                        f"sentence on the page is written by gpt-6-astra, so run retro.py prose to write them there")
+        rep.strict_warn(f"{len(missing)} prose field(s) carry no writer provenance in {PROSE_LOCK} ({shown}); every "
+                        f"sentence on the page is written by {PROSE_MODEL}, so run retro.py prose to write them there")
     findings = sum(f.get("slop", 0) for f in lock["fields"].values() if isinstance(f, dict))
     if findings > SLOP_BUDGET:
         worst = sorted(((f.get("slop", 0), a) for a, f in lock["fields"].items() if isinstance(f, dict)), reverse=True)
@@ -614,8 +611,6 @@ def prose(args) -> int:
                 "locked" if (lock.get(addr) or {}).get("sha256") == digest(text) else "unlocked")
             print(f"{state:9} {store[addr]['kind']:16} {addr}")
         return 0
-    if args.write:
-        return write_by_hand(retro, root, args.write)
     if args.field:
         wanted = list(dict.fromkeys(f for f in args.field if f in store))
         for f in args.field:
@@ -629,7 +624,7 @@ def prose(args) -> int:
     else:
         wanted = sorted(store)
     if not wanted and not args.quick:
-        print("prose: every field already carries astra provenance")
+        print("prose: every field already carries writer provenance")
         return 0
     rules_file = rule_catalogue(lane_root)
     if args.dry_run:
@@ -646,39 +641,6 @@ def prose(args) -> int:
     except Busy as held:
         print(f"prose: {held} is already writing {root}; two runs overwrite each other's fields", file=sys.stderr)
         return 1
-
-
-def write_by_hand(retro, root: Path, pairs: list) -> int:
-    """Land Opus-written text while codex is down: each field is linted, locked with the Opus model and the
-    reason, and meta.proseFallback records the substitution so the page and the gate both show it."""
-    with Owner(root):
-        R, store = read_record(retro, root)
-        lock = load_lock(root)
-        written = {}
-        for pair in pairs:
-            addr, sep, text = pair.partition("=")
-            if not sep or addr not in store or store[addr]["holder"] is None:
-                print(f"prose: --write {addr!r} is not ADDR=TEXT for a retro.json prose field", file=sys.stderr)
-                return 1
-            spec = store[addr]
-            spec["holder"][spec["key"]] = text.strip()
-            written[addr] = text.strip()
-        findings = lint(written, False)
-        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        for addr, text in written.items():
-            lock["fields"][addr] = {"sha256": digest(text), "model": FALLBACK_MODEL, "reason": FALLBACK_REASON,
-                                    "at": stamp, "slop": len(findings.get(addr) or [])}
-            for v in findings.get(addr) or []:
-                print(f"warn:  {addr}: slop-cop {v.get('ruleId')}: {v.get('matchedText', '')!r}")
-        fallback = R["meta"].setdefault("proseFallback", {"model": FALLBACK_MODEL, "reason": FALLBACK_REASON,
-                                                          "fields": []})
-        fallback["fields"] = sorted(set(fallback["fields"]) | set(written))
-        fallback["at"] = stamp
-        retro.write_retro(root, R)
-        write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
-    print(f"prose: wrote {len(written)} field(s) on {FALLBACK_MODEL} ({FALLBACK_REASON}) and recorded them in "
-          f"meta.proseFallback")
-    return 0
 
 
 def await_command(root: Path) -> str:
@@ -746,8 +708,9 @@ def write_batch(retro, R: dict, root: Path, args, store: dict, batch: list, lane
     refused, fields, landed = [], {}, {}
     say = lambda line: print(f"{lane.name}: {line}", flush=True)
     question = work_order(retro, R, root, batch, store, rules_file)
+    dirs = sorted({str(p.parent) for p in contract_files(retro)} | {str(root.resolve()), str(rules_file.parent)})
     for attempt in range(SLOP_ROUNDS + 1):
-        got = ask(question, REPLY_SCHEMA, lane / f"round-{attempt + 1}", args.timeout)
+        got = ask(question, REPLY_SCHEMA, lane / f"round-{attempt + 1}", args.timeout, dirs)
         say(f"{PROSE_MODEL} answered in {got['seconds']}s, run {got['run']}")
         answered = set()
         for item in got["reply"].get("fields") or []:
@@ -814,8 +777,8 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
             spec["holder"][spec["key"]] = text
     written |= write_summary(root, {a: t for a, t in landed.items() if a.startswith("summary.html#")})
     retro.write_retro(root, R)
-    lock["model"] = "gpt-6-astra"
-    lock["command"] = f"{CODEX_ASK} -m {PROSE_MODEL}"
+    lock["model"] = PROSE_MODEL
+    lock["command"] = f"claude -p --model {PROSE_MODEL} --json-schema"
     lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
     write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
 
@@ -826,7 +789,7 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
         print(f"prose: pinned {stamped} pre-existing field(s) as {LEGACY} provenance at plugin "
               f"{retro.plugin_version()}; a later edit to one still has to go through {PROSE_MODEL}")
     print(f"prose: wrote {len(landed)} field(s), {len(written)} of them summary panels, and locked them to "
-          f"gpt-6-astra in {PROSE_LOCK}")
+          f"{PROSE_MODEL} in {PROSE_LOCK}")
     print(f"prose: {lock['slop']} slop-cop finding(s) across every locked field, budget {SLOP_BUDGET}")
     if refused:
         print(f"prose: {len(refused)} field(s) did not land; rerun with --field to ask again")
@@ -834,19 +797,16 @@ def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lan
 
 
 def add_prose_parser(sub, retro):
-    p = sub.add_parser("prose", help="write every authored sentence through gpt-6-astra and lock it in prose.lock.json")
+    p = sub.add_parser("prose", help=f"write every authored sentence through {PROSE_MODEL} and lock it in prose.lock.json")
     p.add_argument("dir")
     p.add_argument("--field", action="append", help="one field address to rewrite; repeatable")
-    p.add_argument("--stale", action="store_true", help="only the fields carrying no astra provenance")
-    p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask astra only for what this "
+    p.add_argument("--stale", action="store_true", help="only the fields carrying no writer provenance")
+    p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask the model only for what this "
                    "version newly requires, skip the model lint rounds, and pin the rest as legacy provenance")
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call, the calls running side by "
                    "side; the default 0 sends every field in one call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")
-    p.add_argument("--write", action="append", metavar="ADDR=TEXT", help=f"while codex is down, land text written "
-                   f"on {FALLBACK_MODEL}: locked with reason {FALLBACK_REASON!r} and recorded in meta.proseFallback; "
-                   f"repeatable")
     p.add_argument("--note", action="append", metavar="[ADDR=]TEXT", help="steer the writing without writing it: "
                    "'ADDR=text' for one field, bare text for every field in this run; repeatable")
     p.add_argument("--dry-run", action="store_true", help="print the work order instead of calling the model")

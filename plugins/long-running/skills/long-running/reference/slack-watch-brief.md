@@ -55,7 +55,7 @@ Incidents:
   runs in any channel above is incident intake, including bot posts. In the same
   poll, append one line to the incident inbox and SendMessage the root with its
   permalink:
-  `orca-desk: alert <channel name without #>-<HHMM> <permalink> :: <who/what, one line>`.
+  `orca-desk: incident <channel name without #>-<HHMM> <permalink> :: <who/what, one line>`.
   Use the message's Pacific HHMM. Write the line before advancing the cursor.
 
 A message from any lane gets a one-line answer. Continue the poll loop in the

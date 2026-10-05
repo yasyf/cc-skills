@@ -433,7 +433,7 @@ def launches(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 
 
-@pytest.mark.parametrize(("model", "flags"), [("sol", ()), ("opus", ("--owner-directed",))])
+@pytest.mark.parametrize(("model", "flags"), [("incident", ()), ("opus", ("--owner-directed",))])
 def test_an_incident_or_owner_directed_launch_never_waits_on_load(shell, config, tmp_path, model, flags):
     brief = tmp_path / "fix.md"
     brief.write_text("brief")
@@ -915,7 +915,7 @@ def test_a_launch_the_script_cannot_start_is_refused_when_submitted(shell, confi
     assert not (tmp_path / "store").exists()
 
 
-@pytest.mark.parametrize("model", ["astra", "codex", "sol", "opus", "claude-opus-5-5", "gpt-6.1-sol"])
+@pytest.mark.parametrize("model", ["astra", "codex", "sol", "incident", "opus", "claude-opus-5-5", "gpt-6.1-sol"])
 def test_every_model_the_script_starts_is_accepted(model):
     assert runner_module.launch_model(model) == model
 
@@ -1184,7 +1184,7 @@ def launch_brief(tmp_path: Path) -> Path:
 @pytest.mark.parametrize(
     ("line", "key", "lane", "now", "model", "effort", "brief"),
     [
-        ("R1907 (7:0x PM PT) orca-desk: launch alerts-api-1n91-fix NOW sol xhigh brief=/d/fix-brief.md", "R1907", "alerts-api-1n91-fix", " NOW", "sol", "xhigh", "/d/fix-brief.md"),
+        ("R1907 (7:0x PM PT) orca-desk: launch alerts-api-1n91-fix NOW incident xhigh brief=/d/fix-brief.md", "R1907", "alerts-api-1n91-fix", " NOW", "incident", "xhigh", "/d/fix-brief.md"),
         ("- orca-desk: launch docs-lane astra high brief=/d/b.md", None, "docs-lane", None, "astra", "high", "/d/b.md"),
     ],
 )
@@ -1265,7 +1265,17 @@ def test_the_alert_grammar_names_the_slug_link_and_what_fired():
     )
 
 
-def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol_fix_lane_once(shell, config, tmp_path):
+def test_a_monitor_alert_line_launches_nothing_and_records_the_transition(shell, config, tmp_path):
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, "- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    orca_pass(shell, config)
+    assert launches(shell) == []
+    assert shell.entries == []
+    [line] = escalations(shell)
+    assert line.startswith("ALERT dd-312516332 ") and "no lane launched; the alerts desk writes `orca-desk: incident" in line
+
+
+def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_incident_fix_lane_once(shell, config, tmp_path):
     facts = tmp_path / "alert-facts.md"
     facts.write_text("apply authority: 0 deletes and 0 replaces while the alert is active\n")
     raw = json.loads(config.read_text())
@@ -1273,13 +1283,13 @@ def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol
     shell.cpu_load = 140
     shell.launch_line = "dd-312516332-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    desk_inbox(tmp_path, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
     orca_pass(shell, config)
     shell.launch("dd-312516332-fix", "ctx_n")
     orca_pass(shell, config)
     brief = shell.attachments["dd-312516332-fix.full.md"]
     assert brief.parent == tmp_path / "lfs"
-    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), "dd-312516332-fix", "sol", "xhigh", str(brief)]]
+    assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), "dd-312516332-fix", "incident", "xhigh", str(brief)]]
     assert shell.entries == ["INCIDENT dd-312516332: fix brief for dd-312516332-fix: Datadog OK -> Alert Run assignment starved https://app.datadoghq.com/monitors/312516332"]
     text = brief.read_text()
     assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
@@ -1287,11 +1297,11 @@ def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol
     assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
     assert not (tmp_path / "incidents").exists()
     lines = [line for line in escalations(shell)]
-    assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on sol xhigh" in lines[0]
+    assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on incident xhigh" in lines[0]
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
-ROOT_ALERT = "orca-desk: alert alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
+ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
 
 
 def root_brief(tmp_path: Path, monitor: str) -> Path:
@@ -1305,7 +1315,7 @@ def root_brief(tmp_path: Path, monitor: str) -> Path:
 def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, config, tmp_path, monitor, skipped):
     brief = root_brief(tmp_path, monitor)
     orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    desk_inbox(tmp_path, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     launched = [call[1] for call in launches(shell)]
     assert ("alerts-api-0305-fix" not in launched) is skipped and "alerts-api-0303-fix" in launched
@@ -1315,7 +1325,7 @@ def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, confi
 def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_path):
     brief = root_brief(tmp_path, "327967001")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     shell.launch("alerts-api-0303-fix", "ctx_root")
     orca_pass(shell, config)
@@ -1330,7 +1340,7 @@ def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_p
 def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell, config, tmp_path, reused):
     brief = root_brief(tmp_path, "327967001")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={brief}")
+    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     shell.launch("alerts-api-0303-fix", "ctx_root")
     orca_pass(shell, config)
@@ -1339,7 +1349,7 @@ def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell
         other = tmp_path / "incidents/alerts-api-0400/fix-brief.md"
         other.parent.mkdir(parents=True, exist_ok=True)
         other.write_text("# alerts-api-0400-fix\n\nccx: incident=328006761 role=fix\n")
-        desk_inbox(tmp_path, f"R1070 orca-desk: launch alerts-api-0303-fix NOW sol xhigh brief={other}")
+        desk_inbox(tmp_path, f"R1070 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={other}")
         orca_pass(shell, config)
         shell.launch("alerts-api-0303-fix", "ctx_reused")
         orca_pass(shell, config)
@@ -1382,44 +1392,44 @@ def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, 
     assert line.startswith("ALERT-FAILED R12 inbox: one alert per line") and runner_module.ALERT_GRAMMAR in line
 
 
-def test_an_alert_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(shell, config, tmp_path):
+def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(shell, config, tmp_path):
     last = tmp_path / "lfs/last-episode"
     last.parent.mkdir(parents=True, exist_ok=True)
     last.write_text("last episode")
     shell.attachments["dd-7-fix.full.md"] = last
     shell.launch("dd-7-fix", "ctx_old", status="completed")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R40 orca-desk: alert dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert again")
+    desk_inbox(tmp_path, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 :: Datadog OK -> Alert again")
     orca_pass(shell, config)
     brief = shell.attachments["dd-7-fix.full.md"]
-    assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "sol", "xhigh", str(brief)]]
+    assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "incident", "xhigh", str(brief)]]
     assert brief != last and "Datadog OK -> Alert again" in brief.read_text()
 
 
-def test_an_alert_whose_brief_fails_to_attach_launches_nothing(shell, config, tmp_path):
+def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config, tmp_path):
     shell.attach_error = "error: cc-notes: ref lock held"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R41 orca-desk: alert dd-8 https://app.datadoghq.com/monitors/8 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R41 orca-desk: incident dd-8 https://app.datadoghq.com/monitors/8 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
     [line] = escalations(shell)
     assert line.startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
 
 
-def test_an_alert_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
+def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
     shell.attach_code = -9
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R42 orca-desk: alert dd-9 https://app.datadoghq.com/monitors/9 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R42 orca-desk: incident dd-9 https://app.datadoghq.com/monitors/9 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
     assert line.endswith("| dd-9-fix not launched: the brief did not attach: ccn exited -9")
 
 
-def test_an_alert_whose_attached_brief_has_no_path_launches_nothing(shell, config, tmp_path):
+def test_an_incident_whose_attached_brief_has_no_path_launches_nothing(shell, config, tmp_path):
     shell.unresolved.add("dd-10-fix.full.md")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R43 orca-desk: alert dd-10 https://app.datadoghq.com/monitors/10 :: Datadog OK -> Alert")
+    desk_inbox(tmp_path, "R43 orca-desk: incident dd-10 https://app.datadoghq.com/monitors/10 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)

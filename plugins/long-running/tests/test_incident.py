@@ -46,6 +46,7 @@ class Replay:
         self.apply_changes_config = True
         self.applies: list[str] = []
         self.launches: list[tuple[str, str, str]] = []
+        self.fast: dict[str, bool] = {}
         self.receipts: dict[str, dict] = {}
         self.rebuilds: list[int] = []
         self.lose_rebuild: dict[int, str] = {}
@@ -76,9 +77,10 @@ class Replay:
     def now(self) -> datetime:
         return self.clock.at
 
-    def launch(self, lane: str, model: str, effort: str, brief: Path) -> dict:
+    def launch(self, lane: str, model: str, effort: str, brief: Path, fast: bool = False) -> dict:
         assert brief.exists()
         self.launches.append((lane, model, effort))
+        self.fast[lane] = fast
         receipt = {"lane": lane, "state": "ready", "task": f"task-{lane}", "dispatch": f"dispatch-{lane}", "terminal": "t1", "worktree": "/w"}
         self.receipts[lane] = receipt
         return receipt
@@ -275,7 +277,7 @@ def test_replay_reaches_the_final_reply_with_no_root_turn(store, clock, fake):
     assert record.status == "closed"
     assert fake.asks == []
     assert [lane for lane, _, _ in fake.launches] == [f"incident-{incident_id}-fix", f"incident-{incident_id}-evidence"]
-    assert {model for _, model, _ in fake.launches} == {"sol"}
+    assert {model for _, model, _ in fake.launches} == {"incident"}
     assert len(fake.applies) == 1
     assert max(rebuild_counts(fake).values()) == 1
     assert ADVANCED_SOURCE not in fake.rebuilds
@@ -399,7 +401,7 @@ def test_claude_is_refused_as_the_incident_fix_route(store, clock, fake):
     assert fake.launches == []
 
 
-@pytest.mark.parametrize(("role", "model"), [("fix", "opus"), ("evidence", "claude-opus-5-5"), ("backup", "fable"), ("backup", "codex")])
+@pytest.mark.parametrize(("role", "model"), [("fix", "opus"), ("fix", "sol"), ("evidence", "claude-opus-5-5"), ("backup", "fable"), ("backup", "astra"), ("backup", "codex")])
 def test_route_assertions(role, model):
     with pytest.raises(RouteRefused):
         incident.assert_route(role, model)
@@ -410,7 +412,8 @@ def test_backup_launches_on_opus_after_fifteen_quiet_minutes(store, clock, fake)
     runner = Runner(store, incident_id, world_of(fake), clock)
     drive(runner, store, clock, INTAKE + timedelta(minutes=16), worker=lambda *_: None)
 
-    assert [(lane.rsplit("-", 1)[1], model) for lane, model, _ in fake.launches] == [("fix", "sol"), ("evidence", "sol"), ("backup", "opus")]
+    assert [(lane.rsplit("-", 1)[1], model) for lane, model, _ in fake.launches] == [("fix", "incident"), ("evidence", "incident"), ("backup", "opus")]
+    assert {lane.rsplit("-", 1)[1]: fast for lane, fast in fake.fast.items()} == {"fix": False, "evidence": False, "backup": True}
 
 
 def test_a_transferred_incident_refuses_the_former_owner(store, clock, fake):
@@ -512,13 +515,28 @@ def test_github_reads_pr_heads_in_one_query_and_finds_a_queue_landing():
 def test_orca_parses_the_launch_line():
     for state in ("ready", "unsupervised"):
         shell = Shell({("orca-launch.sh",): f"booting\nincident-x-fix {state} task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n"})
-        receipt = incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "sol", "xhigh", Path("/b.md"))
+        receipt = incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
         assert (receipt["state"], receipt["dispatch"]) == (state, "d1")
     shell = Shell({("orca-launch.sh",): "incident-x-fix failed worker-start terminal=: refused\n"})
     with pytest.raises(incident.EffectFailed):
-        incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "sol", "xhigh", Path("/b.md"))
+        incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
     with pytest.raises(incident.EffectFailed):
-        incident.Orca(shell, None, None).launch("incident-x-fix", "sol", "xhigh", Path("/b.md"))
+        incident.Orca(shell, None, None).launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
+
+
+def test_orca_launches_the_backup_in_claude_fast_mode(monkeypatch):
+    monkeypatch.setenv("ORCA_LAUNCH_CLAUDE_ARGS", "--verbose")
+    envs = []
+
+    class Recording(Shell):
+        def run(self, argv, cwd=None, env=None):
+            envs.append(env)
+            return super().run(argv, cwd, env)
+
+    shell = Recording({("orca-launch.sh",): "incident-x-backup ready task=t1 dispatch=d1 terminal=term-1 worktree=/w/x\n"})
+    incident.Orca(shell, "run1", "repo1").launch("incident-x-backup", "opus", "xhigh", Path("/b.md"), fast=True)
+    incident.Orca(shell, "run1", "repo1").launch("incident-x-fix", "incident", "xhigh", Path("/b.md"))
+    assert [env["ORCA_LAUNCH_CLAUDE_ARGS"] for env in envs] == ["--verbose --settings '{\"fastMode\":true}'", "--verbose"]
 
 
 @pytest.mark.parametrize(
@@ -584,11 +602,11 @@ def test_a_lost_launch_without_a_receipt_asks_instead_of_relaunching(store, cloc
     incident_id = open_incident(store, clock)
     launch = fake.launch
 
-    def lost(lane, model, effort, brief):
+    def lost(lane, model, effort, brief, fast=False):
         if lane.endswith("-fix") and not any(name.endswith("-fix") for name, _, _ in fake.launches):
             fake.launches.append((lane, model, effort))
             raise ResponseLost("worker-start timed out")
-        return launch(lane, model, effort, brief)
+        return launch(lane, model, effort, brief, fast)
 
     world = world_of(fake)
     world.orca.launch = lost

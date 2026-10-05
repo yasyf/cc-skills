@@ -112,31 +112,31 @@ class Remediation(unittest.TestCase):
         self.assertEqual(carried.errors, [])
 
 
-class CodexDown(unittest.TestCase):
-    def lock_report(self, entry, fallback):
+class LockedWriter(unittest.TestCase):
+    def lock_report(self, entry, fallback=None):
         root = Path(tempfile.mkdtemp())
         R = json.loads((retro.TEMPLATES / "starter" / "retro.json").read_text())
         R["summary"]["text"] = "Opus wrote this."
         if fallback:
             R["meta"]["proseFallback"] = fallback
-        (root / "prose.lock.json").write_text(json.dumps({"model": "gpt-6-astra", "fields": {"summary.text": entry}}))
+        (root / "prose.lock.json").write_text(json.dumps({"model": entry.get("model", ""), "fields": {"summary.text": entry}}))
         rep = retro.Report(True)
         retro.sibling_module("retro_prose").check_lock(retro, rep, R, root)
         return rep.errors
 
-    def test_opus_text_needs_the_codex_down_record(self):
+    def test_every_recorded_writer_model_passes(self):
         prose = retro.sibling_module("retro_prose")
-        entry = {"sha256": prose.digest("Opus wrote this."), "model": prose.FALLBACK_MODEL,
-                 "reason": prose.FALLBACK_REASON}
-        self.assertTrue(any("summary.text is locked" in e for e in self.lock_report(entry, None)))
-        fallback = {"model": prose.FALLBACK_MODEL, "reason": prose.FALLBACK_REASON, "fields": ["summary.text"]}
-        self.assertFalse(any("summary.text is locked" in e for e in self.lock_report(entry, fallback)))
+        digest = prose.digest("Opus wrote this.")
+        for entry in ({"sha256": digest, "model": prose.PROSE_MODEL}, {"sha256": digest, "run": "/runs/codex-ask.1"},
+                      {"sha256": digest, "model": "claude-opus-5-5", "reason": "codex down"}):
+            with self.subTest(entry=entry):
+                self.assertFalse(any("summary.text" in e for e in self.lock_report(entry)))
 
-    def test_another_model_is_refused(self):
+    def test_a_historical_fallback_record_still_passes(self):
         prose = retro.sibling_module("retro_prose")
-        entry = {"sha256": prose.digest("Opus wrote this."), "model": "gpt-4o", "reason": prose.FALLBACK_REASON}
-        fallback = {"model": prose.FALLBACK_MODEL, "reason": prose.FALLBACK_REASON, "fields": ["summary.text"]}
-        self.assertTrue(any("summary.text is locked" in e for e in self.lock_report(entry, fallback)))
+        entry = {"sha256": prose.digest("Opus wrote this."), "model": "claude-opus-5-5", "reason": "codex down"}
+        fallback = {"model": "claude-opus-5-5", "reason": "codex down", "fields": ["summary.text"]}
+        self.assertFalse(any("summary.text" in e for e in self.lock_report(entry, fallback)))
 
 
 class CommsCheck(unittest.TestCase):

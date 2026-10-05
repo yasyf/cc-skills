@@ -22,9 +22,10 @@ is not OK, so the first read reports everything already alerting. A failed read
 prints API-FAIL once per streak.
 
 With --alert-inbox, each move from a known state into Alert or Warn also appends one
-`orca-desk: alert dd-<id> <link> :: <what>` line to that file, so the orca desk
-runner launches the sol fix lane before any model reads the transition. A monitor
-seen for the first time never appends one.
+`orca-desk: alert dd-<id> <link> :: <what>` line to that file. The orca desk runner
+records the transition and launches nothing; the alerts desk launches an incident
+lane only when it judges one necessary. A monitor seen for the first time never
+appends one.
 
 once reads one time. watch reads every --interval seconds, default 60, until
 --timeout seconds pass, default 1740, so a Monitor re-arms it before its own

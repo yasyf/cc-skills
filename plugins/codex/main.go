@@ -36,7 +36,7 @@ const (
 	turnFailedMarker    = `"type":"turn.failed"`
 )
 
-const usageStr = "usage: codex-ask [-m astra|sol|luna] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
+const usageStr = "usage: codex-ask [-m sol|luna|astra] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane NAME] [--schema NAME|FILE] " +
 	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT]"
 
 var terminal = []string{"completed", "failed", "no-run"}

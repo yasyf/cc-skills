@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, fan a repetitive bounded sweep (N-unit migrations, test conversions, mechanical refactors) across parallel codex lanes (individual bounded changes and large net-new code stay on Claude — opus, fable only when the surface is very sensitive or error-prone), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a sweep of fully specified edits, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
+description: Get a second opinion from OpenAI Codex CLI on difficult debugging, code analysis, or architecture problems, run a code/diff review (finder or adversarial-refuter passes over a diff or working tree), run a security review/audit or verification of security-sensitive code (auth, input validation, crypto, secrets), diagnose a bug, fan a repetitive bounded sweep (N-unit migrations, test conversions, mechanical refactors) across parallel codex lanes (individual bounded changes and large net-new code stay on Claude opus), generate images (logos, mascots, banners, illustrations) with Codex's $imagegen skill, or offload rote throwaway work (one-off scripts, data munging) where code quality doesn't matter and nothing can go wrong. Use when reviewing code or a diff for defects, when auditing or verifying security-sensitive code, when diagnosing a bug, when stuck after multiple attempts, for a sweep of fully specified edits, when asked to generate an image, or for disposable bulk work. Runs inline in the caller's context — safe to invoke from the main conversation, subagents, and workflows alike; workflow stages that must route to codex by agent type spawn the codex-wrapper agent this plugin ships.
 allowed-tools: Bash(cat:*, codex:*, codex-ask:*, echo:*, ls:*, ${CLAUDE_SKILL_DIR}/../../bin/codex-ask:*), Read, Grep, Glob
 effort: medium
 ---
@@ -17,8 +17,9 @@ Invoke it by its plugin-root path — `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask"
 substituted to a real path in this skill's text. The plugin's `bin/` also rides
 the Bash tool's PATH, but bare `codex-ask` resolves by PATH order, where a
 brew-installed binary can shadow the plugin's symlink. The
-script owns every mechanic: it pins `-c model=gpt-6-astra
--c model_reasoning_effort=xhigh -c service_tier=fast`, runs
+script owns every mechanic: it pins `-c model=gpt-6.1-sol
+-c model_reasoning_effort=xhigh` on the standard tier (`--incident` adds
+`-c service_tier=fast`), runs
 `--sandbox danger-full-access` with `--skip-git-repo-check` (runs work from
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules, the § Replies reply contract, no
@@ -34,32 +35,30 @@ calls: dispatch is foreground-only, because background Bash completion never
 wakes an in-process subagent (claude-code#78782) and the script already
 survives a killed or timed-out foreground call.
 
-The fast tier is mandatory on every variant; without it, xhigh prompts can run
-10–30+ minutes and get abandoned. Keep questions bounded and specific: a narrow
-question returns in ~2 minutes, an open-ended design essay does not.
+Runs use the standard tier. The fast tier is for incident lanes only: pass
+`--incident` on an active or urgent production alert, never otherwise. On the
+standard tier an xhigh prompt can run 10–30 minutes, so anything past a narrow
+question dispatches async (`--dispatch` plus an owner, or `--await` from a
+foreground call) instead of holding a 10-minute foreground Bash call. Keep
+questions bounded and specific: a narrow question returns in a few minutes, an
+open-ended design essay does not.
 
 ## When to Use
 
 - Code/diff review — sweeping a diff or codebase for bugs, correctness issues, or
   cleanups, including finder and adversarial-refuter passes. This is the review
-  lane per the Models table. Synthesis/accept-reject over findings defaults to opus
-  at `xhigh`, and astra at `xhigh` through `codex:codex-wrapper` is an equally
-  accepted route.
+  lane per the Models table. Synthesis/accept-reject over findings runs on opus
+  at `xhigh`.
 - Security review/audit and verification of security-sensitive code — auth, input
   validation, file paths, crypto, secrets. The primary security-verification lane
-  per the Models table: implementing that code stays on fable, this lane checks
-  the result. Synthesis/accept-reject over findings defaults to opus at `xhigh`,
-  and astra at `xhigh` through `codex:codex-wrapper` is an equally accepted route.
+  per the Models table: implementing that code stays on Claude opus, this lane checks
+  the result. Synthesis/accept-reject over findings runs on opus at `xhigh`.
   Routing here also quarantines dual-use payloads (exploit code,
   vuln PoCs, malware analysis) outside the Claude session entirely, so the root
-  orchestrator never carries material that could trip fable's dual-use screening
+  orchestrator never carries material that could trip its dual-use screening
   and downgrade the session.
-- All prose and writing — docs, blog posts, PR titles and bodies, commit
-  messages, release notes, plan prose. This is the writing lane per the Models
-  table: astra writes better prose than fable, so writing is delegated here
-  rather than edited inline.
-- Bug diagnosis — the first stop; escalate to fable only when Codex's answer
-  misses.
+- Bug diagnosis — the first stop; escalate to opus xhigh only when Codex's
+  answer misses.
 - After 2+ failed approaches to the same problem
 - Debugging subtle bugs (off-by-one, race conditions, state corruption)
 - Analyzing complex algorithms against specifications
@@ -71,31 +70,26 @@ question returns in ~2 minutes, an open-ended design essay does not.
   where code quality doesn't matter and nothing can go wrong. Codex's flat-rate
   plan makes this effectively free; keep the output out of production paths.
 - Repetitive bounded sweeps at scale -- N-unit test conversions, migrations, and
-  mechanical refactor passes fanned out as parallel lanes, where astra's per-task
+  mechanical refactor passes fanned out as parallel lanes, where sol's per-task
   token efficiency multiplied across the sweep still beats opus. Bounded
   terminal/shell-heavy execution fits here too. An individual bounded,
   decision-light change (a scoped edit, a signature change, a well-specified
   small feature) now defaults to Claude opus -- since Opus 5 the two are tied on
   capability with opus output cheaper -- and large amounts of net-new code stay
-  on Claude (opus xhigh, fable only when the surface is very sensitive or
-  error-prone): the codex lane is much stronger at modifying
+  on Claude (opus xhigh): the codex lane is much stronger at modifying
   existing code than at authoring a large new subsystem from scratch, and
-  ambiguous or exploratory builds and decision-dense refactors stay on opus
-  too; long agentic runs are fable's lane. Scope drift was sol's failure mode
-  and is astra's step-change — 48% of sol runs exceeded their authorized target
-  on OpenAI's scope eval against astra's 0% (2026-09-03) — so the sweep lane
-  runs wider than it did, but the routing above is unchanged until measured
-  here. Production sweep edits are in range at
-  xhigh; review the diff as you would any other contributor's.
+  ambiguous or exploratory builds, decision-dense refactors, and long agentic
+  runs stay on opus too. Production sweep edits are in range at xhigh; review
+  the diff as you would any other contributor's.
 
-Model variants: `-m astra` (gpt-6-astra) is the default; pass `-m luna` for the
-rote/bulk and recon lanes, `-m sol` for gpt-6.1-sol, the incident lane. Routing,
-escalation, and when each variant applies live in the fleet Models table
-(CLAUDE.md `## Model Routing`, formerly `§ Plan Execution & Orchestration`) —
-the script pins tier and effort
-regardless of variant. Escalation is cross-model for implementation: an astra
-miss retries on opus xhigh, an opus miss on astra xhigh, and fable comes only
-after both.
+Model variants: `-m sol` (gpt-6.1-sol) is the default; pass `-m luna` for the
+rote/bulk and recon lanes. `-m astra` (gpt-6-astra) stays selectable for
+exceptional cases only; no route defaults to it. Codex writes no prose: docs,
+PR titles and bodies, commit messages, and release notes go to a Claude Opus
+5.5 lane. Routing, escalation, and when each variant applies live in the fleet
+Models table (CLAUDE.md `## Model Routing`) — the script pins effort regardless
+of variant, and the tier is standard unless `--incident` asks for fast.
+Escalation runs sol → opus xhigh.
 
 ## Browser Access
 
@@ -251,8 +245,8 @@ carries:
 ### Step 2: Ask via codex-ask
 
 Pipe the question through `codex-ask` in a foreground Bash call with a
-10-minute timeout (`timeout: 600000`) — xhigh on the fast tier typically
-returns in ~2 minutes but can run longer. The script mints the run dir under
+10-minute timeout (`timeout: 600000`) — xhigh on the standard tier returns a
+narrow question in a few minutes but can run 10–30 minutes on a broad one. The script mints the run dir under
 the fixed base, prints the `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines up front,
 runs the pinned exec detached from the calling shell, redirects the JSONL
 event stream into the log, and blocks until the reply is complete — plus a log
@@ -346,7 +340,7 @@ The codex skill never absorbs a surprise. If the reply invalidates the premise
 of your question or changes the task's shape -- the bug isn't where you said,
 the spec means something else, the fix belongs in a different layer -- stop
 rather than improvising a detour: surface the finding with 2-4 concrete options
-and let the user (or the fable orchestrator that delegated to you) pick. See
+and let the user (or the orchestrator that delegated to you) pick. See
 AGENTS.md § Ask Before Assuming. The same stop rules ride into codex itself
 via § Replies, so a surprise arrives flagged -- a wrong premise led with, a
 shape-change returned as findings plus 2-4 options -- rather than buried in
@@ -453,9 +447,10 @@ lane reported failed whose record says `completed` is a paperwork failure —
 recover the answer from its `reply_file`, don't re-dispatch. A lane reported
 successful over an untouched, scoped tree diff never actually ran.
 
-**Timeout**: exec mode never prompts and the fast tier is pinned, so a call
-dragging past a few minutes means the question is unbounded — broad open-ended
-prompts are the usual cause.
+**Timeout**: exec mode never prompts, so a call dragging past ten minutes on
+the standard tier means the question is unbounded or belongs on the async
+path — broad open-ended prompts are the usual cause. Rerun the `AWAIT:` line;
+never re-ask, and never reach for `--incident` outside an active alert.
 
 **Reply ignores the contract** (buried verdict, missing severities, uncited
 claims): every run carries AGENTS.md § Replies as developer instructions, and

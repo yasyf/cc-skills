@@ -17,43 +17,33 @@ spec.loader.exec_module(design)
 
 class PlainifyTests(unittest.TestCase):
     def ask(self):
-        return design.ask_plain("codex", "Rewrite this.", "decisions", {"t": "One database"}, "One database per tenant (DQ2).",
+        return design.ask_plain("Rewrite this.", "decisions", {"t": "One database"}, "One database per tenant (DQ2).",
                                 {"DQ2": "Per-tenant isolation"})
 
-    def astra_reply(self, cmd, **kwargs):
-        self.assertEqual(cmd[cmd.index("--model") + 1], "gpt-6-astra")
-        self.assertIn("model_reasoning_effort=xhigh", cmd)
-        Path(cmd[cmd.index("--output-last-message") + 1]).write_text("Each tenant has its own database.")
-        return subprocess.CompletedProcess(cmd, 0)
+    def opus_reply(self, cmd, **kwargs):
+        self.assertEqual(cmd[:6], ["env", "-u", "CLAUDECODE", "claude", "-p", "--model"])
+        self.assertEqual(cmd[cmd.index("--model") + 1], "claude-opus-5-5")
+        return subprocess.CompletedProcess(cmd, 0, stdout="Each tenant has its own database.")
 
-    def test_astra_success_does_not_call_claude(self):
-        with patch.object(design.subprocess, "run", side_effect=self.astra_reply) as run:
+    def test_opus_writes_the_twin_in_one_call(self):
+        with patch.object(design.subprocess, "run", side_effect=self.opus_reply) as run:
             self.assertEqual(self.ask(), "Each tenant has its own database.")
         self.assertEqual(run.call_count, 1)
+        self.assertIn('"DQ2": "Per-tenant isolation"', run.call_args.args[0][-1])
 
-    def test_astra_failures_call_claude_once(self):
-        errors = [FileNotFoundError("codex"), subprocess.TimeoutExpired("codex", 180),
-                  subprocess.CalledProcessError(1, "codex", stderr="unavailable")]
+    def test_opus_failures_propagate_without_a_fallback(self):
+        errors = [FileNotFoundError("claude"), subprocess.TimeoutExpired("claude", 180),
+                  subprocess.CalledProcessError(1, "claude", stderr="unavailable")]
         for error in errors:
             with self.subTest(error=type(error).__name__):
-                fallback = subprocess.CompletedProcess([], 0, stdout="One database per tenant.")
-                with patch.object(design.subprocess, "run", side_effect=[error, fallback]) as run:
-                    self.assertEqual(self.ask(), "One database per tenant.")
-                self.assertEqual(run.call_count, 2)
-                self.assertIn("claude", run.call_args.args[0])
-                self.assertIn("claude-haiku-4-5", run.call_args.args[0])
-                self.assertIn('"DQ2": "Per-tenant isolation"', run.call_args.args[0][-1])
-                self.assertIn('"DQ2": "Per-tenant isolation"', run.call_args_list[0].args[0][-1])
+                with patch.object(design.subprocess, "run", side_effect=error) as run, self.assertRaises(type(error)):
+                    self.ask()
+                self.assertEqual(run.call_count, 1)
 
-    def test_empty_astra_reply_uses_claude(self):
-        def reply(cmd, **kwargs):
-            if cmd[0] == "codex":
-                Path(cmd[cmd.index("--output-last-message") + 1]).write_text("  ")
-                return subprocess.CompletedProcess(cmd, 0)
-            return subprocess.CompletedProcess(cmd, 0, stdout="One database per tenant.")
-        with patch.object(design.subprocess, "run", side_effect=reply) as run:
-            self.assertEqual(self.ask(), "One database per tenant.")
-        self.assertEqual(run.call_count, 2)
+    def test_empty_opus_reply_raises(self):
+        with patch.object(design.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="  ")):
+            with self.assertRaises(ValueError):
+                self.ask()
 
     def run_cli(self, root, *extra):
         with patch("sys.argv", [str(SCRIPT), "plainify", str(root), *extra]):
@@ -61,11 +51,11 @@ class PlainifyTests(unittest.TestCase):
                 design.main()
         return exit.exception.code
 
-    def test_default_writes_astra_twin(self):
+    def test_default_writes_opus_twin(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             (root / "registers.json").write_text(json.dumps({"tldr": [{"md": "One database per tenant."}]}))
-            with patch.object(design.subprocess, "run", side_effect=self.astra_reply):
+            with patch.object(design.subprocess, "run", side_effect=self.opus_reply):
                 self.assertEqual(self.run_cli(root), 0)
             self.assertEqual(json.loads((root / "registers.json").read_text())["tldr"][0]["p"],
                              "Each tenant has its own database.")
@@ -75,7 +65,7 @@ class PlainifyTests(unittest.TestCase):
             root = Path(scratch)
             original = json.dumps({"tldr": [{"md": "One database per tenant."}]})
             (root / "registers.json").write_text(original)
-            with patch.object(design.subprocess, "run", side_effect=self.astra_reply) as run:
+            with patch.object(design.subprocess, "run", side_effect=self.opus_reply) as run:
                 self.assertEqual(self.run_cli(root, "--dry-run"), 0)
             self.assertEqual(run.call_count, 1)
             self.assertEqual((root / "registers.json").read_text(), original)
@@ -84,12 +74,11 @@ class PlainifyTests(unittest.TestCase):
         def reply(cmd, **kwargs):
             self.assertIn("At most 20 words", cmd[-1])
             self.assertNotIn("At most 30 words", cmd[-1])
-            Path(cmd[cmd.index("--output-last-message") + 1]).write_text(" ".join(["word"] * 21))
-            return subprocess.CompletedProcess(cmd, 0)
+            return subprocess.CompletedProcess(cmd, 0, stdout=" ".join(["word"] * 21))
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             (root / "registers.json").write_text(json.dumps({"tldr": [{"md": "One database per tenant."}]}))
-            args = design.argparse.Namespace(dir=str(root), only=None, provider="codex", dry_run=True)
+            args = design.argparse.Namespace(dir=str(root), only=None, provider="claude", dry_run=True)
             out = io.StringIO()
             with patch.object(design.subprocess, "run", side_effect=reply), contextlib.redirect_stdout(out):
                 self.assertEqual(design.plainify(args), 0)
@@ -111,7 +100,7 @@ class PlainifyTests(unittest.TestCase):
             (root / "registers.json").write_text(original)
             def reply(cmd, **kwargs):
                 if "Kind: decision" in cmd[-1] and "One database per tenant." in cmd[-1]:
-                    return self.astra_reply(cmd, **kwargs)
+                    return self.opus_reply(cmd, **kwargs)
                 raise subprocess.CalledProcessError(1, cmd, stderr="unavailable")
             with patch.object(design.subprocess, "run", side_effect=reply):
                 self.assertEqual(self.run_cli(root), 1)

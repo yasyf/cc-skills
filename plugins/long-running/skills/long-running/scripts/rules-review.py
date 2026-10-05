@@ -3,7 +3,7 @@
 
     rules-review.py sweep --repo owner/name --ledger ID --checkout DIR [--inbox FILE]... [--state DIR] [--parallel N]
 
-Each sweep collects finished reviews, dispatches one detached gpt-6-astra xhigh review for every open PR head
+Each sweep collects finished reviews, dispatches one detached gpt-6.1-sol xhigh review on the standard tier for every open PR head
 without one, applies the root inbox's ``rules-override`` lines, and posts each head's findings once as a PR review.
 Verdicts live on ``review/<pr>@<head>`` ledger rows; ``ledger.py list`` marks a PR ``rules_blocked`` only while
 its current head's review holds a finding no override waives, and the landing runner holds blocked PRs. A head with
@@ -72,7 +72,7 @@ COMMENT_FINDING = "**{ruling}** at `{cite}`: {sentence}\n\n> {quote}"
 
 class Shell(ledger.Shell):
     def dispatch(self, run_dir: Path, question: str) -> str:
-        argv = ["codex-ask", "-m", "astra", "--schema", str(SCHEMA), "-s", str(run_dir), "--dispatch", "-"]
+        argv = ["codex-ask", "-m", "sol", "--schema", str(SCHEMA), "-s", str(run_dir), "--dispatch", "-"]
         return subprocess.run(argv, input=question, cwd=run_dir, capture_output=True, text=True, check=True).stdout
 
 

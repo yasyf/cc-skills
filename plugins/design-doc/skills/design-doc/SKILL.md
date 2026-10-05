@@ -6,13 +6,12 @@ allowed-tools: Bash(python3:*, ls:*, cat:*, pdftoppm:*, wrangler:*, npm:*, open:
 
 # design-doc
 
-GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all prose,
-including summaries, plain twins, handles, revision notes, and publication
-text. Delegated authors use the same model and effort. In Codex, set these
-explicitly when spawning an author. From Claude, load the `codex` skill and
-use its `codex-ask -m astra` route, which pins both settings; Claude may
-collect evidence and publish the result, but must delegate the writing.
-Prose helpers try Astra first and may use Claude only when Astra fails.
+Claude Opus 5.5 (`claude-opus-5-5`) writes and revises all prose, including
+summaries, plain twins, handles, revision notes, and publication text. A
+session on another model delegates the writing to an Opus 5.5 author
+(`Agent` with `model: opus`) and may collect evidence and publish the result
+itself. Prose helpers call Opus 5.5 through `claude -p`, with no fallback
+model.
 
 An architecture design is a stack of decisions on top of a stack of assumptions. This skill runs the design as a conversation — the user decides everything — and renders the result as a document where every claim traces back to an assumption, a decision, and the question round that produced it.
 
@@ -87,7 +86,7 @@ Rounds run on a live `cc-present` board: before the first round (in Phase 1 and 
 
 Attack the middle draft, before polish makes flaws harder to see. Use the `codex` plugin skill when it's available; otherwise spawn a fresh-context subagent with no stake in the design and a brief to attack it as a skeptical senior engineer: correctness bugs, missing failure modes, unjustified numbers. Save the output verbatim as `<reviewer>-review-<date>.md`, index each finding in the `findings` register (data only — never rendered), and disposition every one: a new decision, an open item, or a recorded rejection with a reason. A finding fixed by code carries the pull request that fixed it as the row's fifth element, in the same shape as a `links[]` entry. A finding that needs the user's call becomes a round like any other, whose question says what the reviewer found, in words; the finding number stays in the register. Then run the reviewer again on the updated registers: dispositions change the design, and a changed design grows new flaws. One pass is the floor, not the norm.
 
-The register stops moving in this phase, so this is where every rendered entry gets its plain twin and its handle. `p` sits beside the precise wording of each tl;dr line, ground rule, decision, assumption, and open item, written by the hand that wrote the entry while the reasoning is fresh; `h` is the two-to-five-word name a citation shows for it. The twin says what the entry means to someone who will not read it, the handle what they would call it; both contracts are in [reference/writing.md](reference/writing.md). `$TOOL plainify <dir>` drafts missing twins and handles with GPT-6 Astra at `xhigh`, falling back to Claude only when Astra fails. Run it in the foreground with `timeout: 600000`. Never background it or watch it with a `Monitor`: Claude Code never wakes an idle in-process teammate for either notification. `--provider none` lists the gaps without generating prose. Read each draft against its original and edit it before moving on; a twin that drifts from its entry is a second claim the registers do not back. In the same pass, rewrite every decision title that is still a question as the answer, a noun phrase of at most ten words; the question stays in `rounds[].q`.
+The register stops moving in this phase, so this is where every rendered entry gets its plain twin and its handle. `p` sits beside the precise wording of each tl;dr line, ground rule, decision, assumption, and open item, written by the hand that wrote the entry while the reasoning is fresh; `h` is the two-to-five-word name a citation shows for it. The twin says what the entry means to someone who will not read it, the handle what they would call it; both contracts are in [reference/writing.md](reference/writing.md). `$TOOL plainify <dir>` drafts missing twins and handles with Claude Opus 5.5. Run it in the foreground with `timeout: 600000`. Never background it or watch it with a `Monitor`: Claude Code never wakes an idle in-process teammate for either notification. `--provider none` lists the gaps without generating prose. Read each draft against its original and edit it before moving on; a twin that drifts from its entry is a second claim the registers do not back. In the same pass, rewrite every decision title that is still a question as the answer, a noun phrase of at most ten words; the question stays in `rounds[].q`.
 
 **Exit criteria:** every finding has a disposition, and the latest pass produced nothing that changes a decision; every rendered entry carries a twin and a handle you have read, no decision title ends in a question mark, and `$TOOL check` is clean.
 

@@ -172,7 +172,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
 
 
-def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
+def test_a_codex_lane_starts_sol_on_the_codex_agent_without_a_custom_terminal(orca):
     orca.healthy()
     orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
     result = orca.launch("lane-a", "codex", "xhigh", str(orca.brief))
@@ -182,15 +182,27 @@ def test_a_codex_lane_starts_on_the_codex_agent_without_a_custom_terminal(orca):
     assert orca.calls("terminal read") == []
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--agent") == "codex"
-    assert flag(start, "--model") == "gpt-6-astra"
+    assert flag(start, "--model") == "gpt-6.1-sol"
     assert flag(start, "--effort") == "xhigh"
     assert "--terminal" not in start
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
-def test_a_sol_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_level_worktree(orca):
+def test_a_sol_lane_runs_on_the_standard_tier_under_its_parent_worktree(orca):
+    orca.healthy()
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_codex"}]}}})
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    [worktree] = orca.calls("worktree create")
+    assert "--parent-worktree" in worktree and "--no-parent" not in worktree
+    assert orca.calls("terminal create") == []
+    [start] = orca.calls("orchestration worker-start")
+    assert (flag(start, "--agent"), flag(start, "--model")) == ("codex", "gpt-6.1-sol")
+    assert not any("service_tier" in arg for arg in start)
+
+
+def test_an_incident_lane_runs_codex_on_the_fast_tier_in_its_own_terminal_in_a_top_level_worktree(orca):
     orca.healthy(agent="codex")
-    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    result = orca.launch("lane-a", "incident", "xhigh", str(orca.brief))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
     [worktree] = orca.calls("worktree create")
@@ -214,15 +226,15 @@ def test_a_worker_starts_only_the_mcp_servers_its_launch_names(orca):
     assert " --strict-mcp-config --mcp-config /briefs/slack-mcp.json " in command
 
 
-def test_a_sol_worker_takes_its_mcp_servers_from_the_launch(orca):
+def test_an_incident_worker_takes_its_mcp_servers_from_the_launch(orca):
     orca.healthy(agent="codex")
     orca.env["ORCA_LAUNCH_CODEX_MCP"] = '{datadog={url="https://mcp.datadoghq.com"}}'
-    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     assert command.endswith(""" -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}}'""")
 
 
-def test_a_sol_worker_disables_every_config_server_its_launch_does_not_name(orca):
+def test_an_incident_worker_disables_every_config_server_its_launch_does_not_name(orca):
     orca.healthy(agent="codex")
     (orca.root / "codex").mkdir()
     (orca.root / "codex" / "config.toml").write_text(
@@ -230,7 +242,7 @@ def test_a_sol_worker_disables_every_config_server_its_launch_does_not_name(orca
         '[mcp_servers.datadog]\nurl = "https://mcp.datadoghq.com"\n[plugins."computer-history@openai-bundled"]\nenabled = true\n'
     )
     orca.env["ORCA_LAUNCH_CODEX_MCP"] = '{datadog={url="https://mcp.datadoghq.com"}}'
-    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     assert command.endswith(
         """ -c mcp_servers={datadog={url="https://mcp.datadoghq.com"}} -c mcp_servers.node_repl.enabled=false -c mcp_servers.slack.enabled=false'"""
@@ -311,18 +323,18 @@ def test_no_parent_puts_a_claude_lane_in_a_top_level_worktree(orca):
     assert "--no-parent" in worktree and "--parent-worktree" not in worktree
 
 
-@pytest.mark.parametrize("model", ["sol", "opus"])
+@pytest.mark.parametrize("model", ["incident", "opus"])
 def test_a_terminal_command_never_inlines_the_callers_path(orca, model):
-    orca.healthy(agent="codex" if model == "sol" else "claude")
+    orca.healthy(agent="codex" if model == "incident" else "claude")
     orca.env["PATH"] = f"{orca.env['PATH']}:/{'p' * 6000}"
     assert orca.launch("lane-a", model, "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     assert "p" * 100 not in command and len(command) < 600
 
 
-def test_a_sol_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orca):
+def test_an_incident_terminal_runs_codex_with_the_plugin_bin_ahead_of_its_own_path(orca):
     orca.healthy(agent="codex")
-    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
     command = flag(orca.calls("terminal create")[0], "--command")
     codex = orca.root / "bin" / "codex"
     codex.write_text('#!/bin/sh\necho "$PATH"\necho "$@"\n')
@@ -347,18 +359,18 @@ def test_a_codex_readiness_timeout_sends_the_spec_and_runs_unsupervised(orca):
     assert str(orca.brief) in flag(send, "--text") and "--enter" in send
 
 
-def test_a_sol_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
+def test_an_incident_readiness_timeout_sends_the_spec_to_its_own_terminal(orca):
     orca.healthy(agent="codex")
     orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a"}}})
     orca.reply("terminal send", {"rc": 0, "out": {"ok": True}})
-    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    result = orca.launch("lane-a", "incident", "xhigh", str(orca.brief))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
     [send] = orca.calls("terminal send")
     assert flag(send, "--terminal") == "term_a"
 
 
-@pytest.mark.parametrize("model", ["codex", "sol"])
+@pytest.mark.parametrize("model", ["codex", "incident"])
 @pytest.mark.parametrize("prompt", ["Update available!", "Skip until next version"])
 def test_a_readiness_timeout_at_an_update_prompt_never_sends_the_spec(orca, model, prompt):
     orca.healthy(agent="codex", screen=prompt)
@@ -379,7 +391,7 @@ def test_an_update_prompt_failure_quotes_one_line_of_at_most_300_screen_characte
     orca.reply("terminal read", {"rc": 0, "out": {"ok": True, "result": {"terminal": {"tail": prompt}}}})
     orca.reply("orchestration worker-start", {"rc": 1, "out": {"ok": True, "result": {"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a"}}})
     orca.reply("terminal send", SENT)
-    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    result = orca.launch("lane-a", "incident", "xhigh", str(orca.brief))
     assert result.returncode == 1, result.stdout + result.stderr
     [line] = result.stdout.splitlines()
     prefix = "lane-a failed agent_readiness terminal=term_a update prompt: '"
@@ -522,7 +534,7 @@ def screen(*lines: str, source: str = "screen") -> dict:
     return {"rc": 0, "out": {"ok": True, "result": {"terminal": {"source": source, "tail": list(lines)}}}}
 
 
-@pytest.mark.parametrize(("model", "agent"), [("opus", "claude"), ("sol", "codex")])
+@pytest.mark.parametrize(("model", "agent"), [("opus", "claude"), ("incident", "codex")])
 def test_a_startup_command_orca_dropped_is_typed_into_the_terminal_once(orca, model, agent):
     orca.healthy(agent=agent)
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "40"
@@ -636,10 +648,10 @@ def test_a_failed_create_reports_its_output_after_three_attempts(orca):
     assert len(orca.calls("terminal create")) == 3
 
 
-def test_a_sol_lane_waits_for_orca_to_detect_codex(orca):
+def test_an_incident_lane_waits_for_orca_to_detect_codex(orca):
     orca.healthy(agent="claude")
     orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
-    result = orca.launch("lane-a", "sol", "xhigh", str(orca.brief))
+    result = orca.launch("lane-a", "incident", "xhigh", str(orca.brief))
     assert result.returncode == 1
     assert "not codex" in result.stdout
 
@@ -688,7 +700,7 @@ def test_launch_rejects_an_unknown_effort_in_one_line(orca):
 def test_launch_rejects_an_unknown_model_in_one_line(orca):
     result = orca.launch("lane-a", "gemini", "xhigh", str(orca.brief))
     assert result.returncode == 1
-    assert result.stdout.strip() == "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*"
+    assert result.stdout.strip() == "lane-a failed model gemini unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*"
     assert orca.calls() == []
 
 

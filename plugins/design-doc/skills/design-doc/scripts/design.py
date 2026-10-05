@@ -5,7 +5,7 @@
   design.py check <dir> [--strict]
   design.py summary-text <dir>
   design.py glossary <dir>
-  design.py plainify <dir> [--only DQ3,A2] [--provider slop-cop|claude|codex|none] [--dry-run]
+  design.py plainify <dir> [--only DQ3,A2] [--provider claude|slop-cop|none] [--dry-run]
   design.py render-check <dir> [--timeout S]
   design.py pdf [dir]
   design.py build [dir]
@@ -27,8 +27,7 @@ summary-text prints summary.html as plain text, one "## <kind>" section per
 panel, the input for the voice gate. glossary prints the recurring terms the
 registers never define, as JSON to paste into terms[]. plainify writes a
 plain-language twin for every rendered entry that lacks one and a handle for
-every entry that has none, through GPT-6 Astra with Claude as a fallback
-when Astra fails, and prints a review table. The slop-cop provider remains
+every entry that has none, through Claude Opus 5.5, and prints a review table. The slop-cop provider remains
 available for batch generation and grading. render-check opens the doc in headless Chrome
 over its debugging pipe, waits for the page to report every diagram
 rendered, and fails on a Mermaid parse error, a diagram that never
@@ -81,7 +80,8 @@ IDENTIFIED = ("assumptions", "decisions", "arch", "open", "numbers", "paths")
 TWIN_KIND = {"tldr": "summary bullet", "constraints": "ground rule", "decisions": "decision",
              "assumptions": "assumption", "open": "open question", "arch": "architecture card",
              "numbers": "numbers table"}
-PLAIN_PROVIDERS = ("slop-cop", "claude", "codex", "none")
+PLAIN_PROVIDERS = ("claude", "slop-cop", "none")
+PLAIN_MODEL = "claude-opus-5-5"
 PLAIN_TIMEOUT = 180
 RENDER_TIMEOUT = 60
 PLAIN_FORBID = (r"\b(DQ|A|Q|V)\d+\b", r"(?i)\bfinding \d+", r"(?i)\bpass-\d")
@@ -546,35 +546,18 @@ def with_twin(e: dict, field: str, twin: str) -> dict:
     return out
 
 
-def ask_plain(provider: str, prompt: str, reg: str, e: dict, original: str, titles: dict) -> str:
+def ask_plain(prompt: str, reg: str, e: dict, original: str, titles: dict) -> str:
     if reg == "tldr":
         prompt = prompt.replace(f"At most {TWIN_WORDS} words", f"At most {TLDR_WORDS} words")
     request = f"{prompt}\n\nRegister titles: {json.dumps(titles, ensure_ascii=False)}\n\nKind: {TWIN_KIND[reg]}\n"
     if isinstance(e.get("t"), str) and reg != "open":
         request += f"Title: {e['t']}\n"
     request += f"Text: {original}\n"
-    if provider == "claude":
-        out = subprocess.run(["env", "-u", "CLAUDECODE", "claude", "-p", "--model", "claude-haiku-4-5", request],
-                             capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT).stdout
-    else:
-        try:
-            with tempfile.TemporaryDirectory() as scratch:
-                reply = Path(scratch) / "reply.md"
-                print("plainify: generating with gpt-6-astra at xhigh", file=sys.stderr)
-                subprocess.run(["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only",
-                                "--model", "gpt-6-astra", "-c", "model_reasoning_effort=xhigh",
-                                "-c", "service_tier=fast", "--output-last-message", str(reply), request],
-                               capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT)
-                out = reply.read_text()
-                if not " ".join(out.split()).strip("\"“” "):
-                    raise ValueError("Astra returned an empty reply")
-        except (OSError, ValueError, subprocess.SubprocessError) as err:
-            detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else err
-            print(f"plainify: gpt-6-astra failed: {detail}; falling back to claude-haiku-4-5", file=sys.stderr)
-            return ask_plain("claude", prompt, reg, e, original, titles)
+    out = subprocess.run(["env", "-u", "CLAUDECODE", "claude", "-p", "--model", PLAIN_MODEL, request],
+                         capture_output=True, text=True, check=True, timeout=PLAIN_TIMEOUT).stdout
     plain = " ".join(out.split()).strip("\"“” ")
     if not plain:
-        raise ValueError(f"{provider} returned an empty reply")
+        raise ValueError(f"{PLAIN_MODEL} returned an empty reply")
     return plain
 
 
@@ -582,7 +565,7 @@ def slop_cop_binary():
     binary = os.environ.get("SLOP_COP") or shutil.which("slop-cop")
     if binary is None:
         print(f"plainify: no slop-cop found; install it with `brew install {SLOP_COP_FORMULA}`, point SLOP_COP at "
-              "the binary, or pass --provider codex", file=sys.stderr)
+              "the binary, or pass --provider claude", file=sys.stderr)
     return binary
 
 
@@ -655,7 +638,7 @@ def plainify(args) -> int:
             twin, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
         elif args.provider != "none":
             try:
-                twin = ask_plain(args.provider, prompt, reg, e, original, register_titles(R))
+                twin = ask_plain(prompt, reg, e, original, register_titles(R))
             except (OSError, ValueError, subprocess.SubprocessError) as err:
                 print(f"plainify: {args.provider} failed on {ident}: {err}", file=sys.stderr)
                 return 1
@@ -1927,7 +1910,7 @@ def draft_handles(args, R):
         if args.provider == "slop-cop":
             handle, issues = graded[ident]["plain"].strip(), graded_issues(graded[ident])
         else:
-            handle, issues = ask_plain(args.provider, prompt, reg, e, e["t"], register_titles(R)), []
+            handle, issues = ask_plain(prompt, reg, e, e["t"], register_titles(R)), []
         handle = handle.strip().rstrip(".")
         issues += handle_issues(handle, ids)
         rows.append((ident, first_line(e["t"]), handle, issues))
@@ -2749,7 +2732,7 @@ def main():
     pl = sub.add_parser("plainify", help="write a plain-language twin for every rendered entry that lacks one")
     pl.add_argument("dir")
     pl.add_argument("--only", help="comma-separated entry ids to rewrite even when a twin exists, e.g. DQ3,A2,tldr[0]")
-    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="codex", help="codex runs GPT-6 Astra at xhigh with Claude fallback on failure (default), claude runs the Claude Code CLI, slop-cop generates and grades a batch, none only lists missing twins and handles")
+    pl.add_argument("--provider", choices=PLAIN_PROVIDERS, default="claude", help="claude runs Claude Opus 5.5 through the Claude Code CLI (default), slop-cop generates and grades a batch, none only lists missing twins and handles")
     pl.add_argument("--dry-run", action="store_true", help="print the review table without writing registers.json")
     pl.set_defaults(fn=plainify)
     rc = sub.add_parser("render-check", help="render the doc in headless Chrome and fail on a Mermaid error")

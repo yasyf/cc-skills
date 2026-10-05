@@ -20,8 +20,8 @@ here.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `title` | yes | Astra-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
-| `subtitle` | yes | Astra-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
+| `title` | yes | Opus-written headline used for the page's `h1`, rail brand, and browser title. Names the failure within `DOC_TITLE_WORDS = 8` words and `DOC_TITLE_CHARS = 60` characters; either excess is an error. No final period. Colons and identifiers draw strict warnings. [reference/writing.md](writing.md) gives the rule and examples |
+| `subtitle` | yes | Opus-written causal sentence beneath the headline, within `SUBTITLE_WORDS = 20` words and `SUBTITLE_CHARS = 120` characters. Excess characters are an error; excess words, colons, and identifiers draw strict warnings |
 | `tags` | yes | Operator-chosen data from a controlled vocabulary for filtering, outside the prose field list. Use 2 to 6 distinct topical tags matching `[a-z0-9]+(?:-[a-z0-9]+)*`, such as `migration`, `release-pipeline`, `paging`. Name the system, failure class, and surface. Repeating a team codename warns |
 | `slug` | yes | the URL and the download filename `<slug>-incident-retro.md`. `<incident date>-<three to six plain words>`, at most 60 characters. Names the incident independently of `title` to keep long titles out of URLs. `scaffold` builds one from the title's content words; `--slug` overrides it |
 | `date` | yes | date of the writeup, `YYYY-MM-DD` |
@@ -32,7 +32,6 @@ here.
 | `teams` | no | team codenames the retro concerns, as strings |
 | `repo`, `ref` | no | as design-doc: `owner/repo` and a Git ref; the page renders a link into `repo` as `#1234` and others as `owner/repo#1234` |
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
-| `proseFallback` | no | `{model, reason, fields, at}`, written by `prose --write` while codex is down: `claude-opus-5-5`, `codex down`, and the field addresses that model wrote |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
 | `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `remediation`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
@@ -50,7 +49,7 @@ a strict warning.
 For a retro written before 0.3.0, move the old `meta.title` into
 `meta.subtitle`, clear `meta.title`, and run
 `retro.py prose <dir> --quick` to write the newly required prose through
-Astra. Replace the old subtitle value, including
+Opus. Replace the old subtitle value, including
 "Incident retrospective"; it no longer supplies a browser-title suffix.
 Add topical tags separately from the codenames in `meta.teams`.
 
@@ -264,7 +263,7 @@ page renders Prevention options after Remediation.
 | `links` | PR links for the option, using the link shape below |
 | `lane` | Name of the follow-up lane carrying the option, matching `remediation.lanes[].name` |
 
-Astra writes every prose string in the question and its options through
+Opus writes every prose string in the question and its options through
 `prose`; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
 `check` errors on fewer than
 two or more than four options, or more than one recommended option.
@@ -294,7 +293,7 @@ The top-level object contains `done` and `lanes` lists.
 | `lanes` | `[{name, text, links?}]` | Named follow-up lanes, the work each carries, and optional links |
 
 Every entry requires nonempty `text`; each lane also requires a nonempty
-`name`. Links use the link shape below. Astra writes
+`name`. Links use the link shape below. Opus writes
 `remediation.done[i].text` and `remediation.lanes[i].text`; lane names and
 links remain data.
 
@@ -432,7 +431,7 @@ an action's link.
 
 ## `prose`: authored fields and provenance
 
-`retro.py prose <dir>` routes the fields below through `codex-ask -m astra`.
+`retro.py prose <dir>` routes the fields below through `claude -p --model claude-opus-5-5`.
 `targets()` enumerates `meta.title` as `headline` and `meta.subtitle` as
 `subtitle`; both are addressable with `--field`. `meta.tags` stays
 operator-chosen data: tags are a controlled vocabulary for filtering, not
@@ -480,7 +479,7 @@ The command reuses that file when it exists.
 
 The linter's full catalog contains 226 rules, each with a `description`, a
 `tip`, and an `llmDirective`. The model must write to those rules in its first
-draft. The command calls `codex-ask -m astra` as a subprocess with a JSON reply schema of
+draft. The command calls `claude -p --model claude-opus-5-5 --json-schema` as a subprocess with a JSON reply schema of
 `{"fields": [{"id": "<address>", "text": "<wording>"}]}`. It writes accepted
 text into `retro.json` and `summary.html` when all calls finish, along with
 the provenance in `prose.lock.json`.
@@ -531,7 +530,7 @@ Without a selection flag, the command selects every enumerated field.
 over `--stale`. Combining `--field` with `--quick` still skips model lint and
 pins the other fields as legacy.
 
-An operator note directs Astra without supplying the prose. The work order
+An operator note directs Opus without supplying the prose. The work order
 marks it `REQUIRED` and says that returning the current text unchanged does
 not answer it. Notes do not select fields; use `--field` to request the
 rewrite. For example:
@@ -554,7 +553,7 @@ offset. `--quick` omits this batched model lint pass; the fact freeze still
 checks every reply.
 
 The command returns each violation's rule id, matched text, rule directive, and
-suggested change to Astra for revision, with an explanation when present.
+suggested change to Opus for revision, with an explanation when present.
 `SLOP_ROUNDS = 2` allows two rewrites after the first draft, stopping early
 when no findings remain. Each revision asks only for the fields the lint
 flagged. The same model writes every round within the
@@ -565,8 +564,8 @@ and rerun those addresses with `--field`.
 Work orders and reply schemas live under
 `~/.cache/incident-retro/prose/<slug>/batch-<N>/round-<N>/`; the rule catalog
 sits at the slug root. The slug comes from `meta.slug`, with the directory
-name used when it is absent. Replies and logs remain in the run directory
-returned by `codex-ask`. The retro directory is published as a static site,
+name used when it is absent. Each round's `reply.jsonl`, the `claude -p`
+event stream, stays in its round directory. The retro directory is published as a static site,
 so work orders, replies, and logs stay outside it. `prose.lock.json` remains
 beside the record; `.prose.lock` and atomic-write scratch files are transient.
 
@@ -586,13 +585,14 @@ Each write to `retro.json` or `prose.lock.json` in this pipeline writes a
 Successful replacement leaves no scratch file.
 
 `prose.lock.json` sits beside `retro.json`. Its top level records
-`model: "gpt-6-astra"`, `command: "codex-ask -m astra"`, and the total `slop`
-count. Each field written by Astra records `sha256`, the reply's run
-directory in `run`, its `log` path, a UTC `at` timestamp, and a `slop` count
+`model: "claude-opus-5-5"`, `command: "claude -p --model claude-opus-5-5
+--json-schema"`, and the total `slop` count. Each field the model writes
+records `sha256`, the round directory in `run`, its `log` path, a UTC `at` timestamp, and a `slop` count
 of findings left after revision. `check --strict` sums the per-field counts and fails above
 `SLOP_BUDGET = 3`, naming up to five fields with the most findings. This gate
 covers the prose fields recorded in the lock, not the whole rendered
-document.
+document. `check` accepts every writer model a lock records, so a lock written by
+an earlier model stays valid as history.
 
 `check --strict` also errors when a required short name is absent or a
 nonempty enumerated field lacks a matching digest. A hand edit or another
@@ -650,7 +650,7 @@ A later edit breaks the field's hash and fails `check --strict`. Send the
 edited field through `prose --field` without `--quick`. Running `--quick`
 again does not clear that failure: the migration pins a field only when the
 lock has no entry for it, so an edited field keeps the hash it was pinned
-with and stays failing until Astra rewrites it.
+with and stays failing until Opus rewrites it.
 
 ## `live`: the retro while the incident runs
 
@@ -784,7 +784,7 @@ Mermaid is not used. The template draws the retro's tiles and windows as SVG. It
 | `<filename>.<pid>.part` | transient sibling used to replace `retro.json` or `prose.lock.json` atomically; removed by successful replacement |
 | `~/.cache/incident-retro/prose/<slug>/slop-cop-rules.json` | the linter's full rule catalog, outside the published retro directory |
 | `~/.cache/incident-retro/prose/<slug>/batch-<N>/round-<N>/` | generated work orders and JSON reply schemas |
-| Run and log paths recorded in `prose.lock.json` | replies and logs returned by `codex-ask` |
+| Run and log paths recorded in `prose.lock.json` | each round's directory and its `reply.jsonl` |
 | `NOTES.md` | prose that does not fit structure |
 | `evidence/datadog/`, `evidence/slack/`, `evidence/images/` | snapshot files the page renders |
 | `history/rev-<N>.json` | archived revisions, written by `snapshot` |

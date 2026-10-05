@@ -790,13 +790,13 @@ func TestLaneComposesWithScratchModelAndDispatch(t *testing.T) {
 	}
 }
 
-func TestDefaultModelIsAstraAndSolStaysSelectable(t *testing.T) {
+func TestDefaultModelIsSolAndAstraStaysSelectable(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		flags []string
 		want  string
 	}{
-		{"default", nil, modelAstra},
+		{"default", nil, modelSol},
 		{"astra", []string{"-m", "astra"}, modelAstra},
 		{"sol", []string{"-m", "sol"}, modelSol},
 	} {
@@ -810,6 +810,31 @@ func TestDefaultModelIsAstraAndSolStaysSelectable(t *testing.T) {
 			t.Cleanup(func() { killLane(sdir) })
 			if argv := cmdArgv(t, sdir); !contains(argv, "model="+tc.want) {
 				t.Fatalf("argv = %v, want model=%s", argv, tc.want)
+			}
+		})
+	}
+}
+
+func TestFastTierOnlyUnderIncident(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		fast  bool
+	}{
+		{"standard", nil, false},
+		{"luna", []string{"-m", "luna"}, false},
+		{"incident", []string{"--incident"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sdir := filepath.Join(mustTempDir(t), "lane-"+tc.name)
+			args := append([]string{"-s", sdir}, tc.flags...)
+			_, stderr, code := askRun(t, mustTempDir(t), stubCodexSleep, append(args, "--dispatch", "ping")...)
+			if code != 0 {
+				t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+			}
+			t.Cleanup(func() { killLane(sdir) })
+			if argv := cmdArgv(t, sdir); contains(argv, "service_tier=fast") != tc.fast {
+				t.Fatalf("argv = %v, want service_tier=fast present=%v", argv, tc.fast)
 			}
 		})
 	}

@@ -17,7 +17,8 @@ import (
 )
 
 func askMode(args []string) {
-	model := modelAstra
+	model := modelSol
+	incident := false
 	scratch := ""
 	laneName := ""
 	dispatch := false
@@ -61,6 +62,9 @@ loop:
 			}
 			laneName = nxt
 			i += 2
+		case a == "--incident":
+			incident = true
+			i++
 		case a == "--image":
 			extraFlags = append(extraFlags, "--disable", "shell_tool")
 			i++
@@ -251,7 +255,6 @@ loop:
 		"codex", "exec",
 		"-c", "model=" + model,
 		"-c", "model_reasoning_effort=" + effort,
-		"-c", "service_tier=fast",
 		"-c", "developer_instructions=" + dev,
 		"-o", replyTmp,
 		"--json", "--color", "never",
@@ -259,6 +262,9 @@ loop:
 		// A non-repo cwd is a normal ad-hoc lane; never fail on codex's
 		// trusted-directory check.
 		"--skip-git-repo-check",
+	}
+	if incident {
+		argv = append(argv, "-c", "service_tier=fast")
 	}
 	argv = append(argv, mcpMounts...)
 	argv = append(argv, extraFlags...)
