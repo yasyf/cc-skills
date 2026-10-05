@@ -56,8 +56,8 @@ def key() -> str | None:
     return os.environ.get(KEY_ENV)
 
 
-def site_config(origin: str, token: str) -> dict:
-    return {"endpoint": f"{origin}/ai", "model": MODEL, "key": token}
+def site_config(token: str) -> dict:
+    return {"model": MODEL, "key": token}
 
 
 def relay(body: bytes) -> urllib.request.Request:
