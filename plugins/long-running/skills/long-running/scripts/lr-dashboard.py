@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.parse import unquote as unquote_url
 from zoneinfo import ZoneInfo
 
@@ -54,6 +54,8 @@ LANE_WINDOW = timedelta(hours=48)
 SLACK = timedelta(hours=2)
 FOLLOW = timedelta(hours=16)
 HEADER_CHARS = 80
+CCI_URL = "http://127.0.0.1:7377/v1"
+CCI_OPEN = ("open_defects", "open_blockers", "open_holds")
 NEW_YEAR = timedelta(days=180)
 CONTEXT_LINES = 25
 DOC_LIMIT = 20
@@ -185,7 +187,6 @@ class Line:
             "to": self.to,
             "verb": self.verb,
             "ref": self.ref,
-            "when": self.when,
             "at": iso(self.at),
             "approx": self.approx,
             "prs": self.prs,
@@ -626,12 +627,19 @@ class Collector:
             self.ancestry[key] = verdict.returncode == 0
         return self.ancestry[key]
 
+    def cci_blockers(self) -> list[dict]:
+        query = urlencode({"drive": program_of(self.entry), "since_time": self.entry["started_at"]})
+        with urllib.request.urlopen(f"{CCI_URL}/digest?{query}", timeout=HEALTH_TIMEOUT_SECONDS) as response:
+            digest = json.load(response)
+        records = [record for key in CCI_OPEN for record in digest[key] or [] if record["refs"].get("stacks") or record["refs"].get("targets")]
+        return sorted(records, key=lambda record: (views.stamp(record["at"]), record["seq"]), reverse=True)
+
     def platy(self, config: dict, builds: list[dict], lines: list[dict]) -> list[dict]:
         report = views.newest(self.state_dir, config["census"])
         if report is None:
             raise FileNotFoundError(f"no census report matches {config['census']} under {self.state_dir}")
         targets = platy.target_map(Path(self.entry["checkout"]) / config.get("targets", "release/targets.yaml"))
-        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, config.get("overrides") or {}, self.pipeline_change(config), self.contains)
+        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, self.cci_blockers(), config.get("overrides") or {}, self.pipeline_change(config), self.contains)
         return [row | {"cite": f"stack:{row['stack']}", "census_report": report.name} for row in rows]
 
     def owner(self, tasks: list[dict], asks: list[dict], lines: list[dict], boards: list[dict], config: dict, moment: datetime) -> list[dict]:
