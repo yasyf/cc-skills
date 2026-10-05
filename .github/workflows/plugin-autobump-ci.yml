@@ -5,16 +5,22 @@ on:
     branches: [main]
     paths:
       - ".github/scripts/plugin_autobump.py"
+      - ".github/scripts/release_tag.py"
+      - "plugins/repo-bootstrap/tests/test_release_tag.py"
       - ".github/workflows/plugin-autobump.yml"
       - ".github/workflows/autobump.yml"
       - ".github/workflows/plugin-autobump-ci.yml"
+      - ".github/workflows/plugin-release-tag.yml"
       - "plugins/repo-bootstrap/tests/test_plugin_autobump.py"
   pull_request:
     paths:
       - ".github/scripts/plugin_autobump.py"
+      - ".github/scripts/release_tag.py"
+      - "plugins/repo-bootstrap/tests/test_release_tag.py"
       - ".github/workflows/plugin-autobump.yml"
       - ".github/workflows/autobump.yml"
       - ".github/workflows/plugin-autobump-ci.yml"
+      - ".github/workflows/plugin-release-tag.yml"
       - "plugins/repo-bootstrap/tests/test_plugin_autobump.py"
   workflow_dispatch:
 
@@ -30,4 +36,4 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
 
       - name: Test plugin autobump
-        run: uvx pytest plugins/repo-bootstrap/tests/test_plugin_autobump.py -q
+        run: uvx pytest plugins/repo-bootstrap/tests/test_plugin_autobump.py plugins/repo-bootstrap/tests/test_release_tag.py -q
