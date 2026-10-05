@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, on
 from captain_hook.util import reqenv
 
 from .session_tree import own_name
@@ -73,7 +73,6 @@ def lane_name(evt: BaseHookEvent) -> str:
     return named or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or evt.session_id
 
 
-RECORDED = "The opened PRs are recorded in the drive ledger."
 UNRECORDED = "The opened PRs were not recorded in the drive ledger. Run `ledger.py register` for each by hand."
 
 
@@ -90,7 +89,7 @@ UNRECORDED = "The opened PRs were not recorded in the drive ledger. Run `ledger.
             session_id="900424b6-0000",
             cwd="/",
             commands={f"{sys.executable} {DRIVE} record": "registered deploy-experience #28534"},
-        ): Warn(pattern=r"^The opened PRs are recorded in the drive ledger\.$"),
+        ): Allow(),
         Input(
             command="ccx vcs stack submit",
             output=(FIXTURES / "ccx-stack-submit.txt").read_text(),
@@ -116,5 +115,5 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if done.returncode:
         return evt.context(UNRECORDED)
     if done.stdout.strip():
-        return evt.context(RECORDED)
+        return None
     return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
