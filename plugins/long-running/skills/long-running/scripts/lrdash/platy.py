@@ -22,6 +22,8 @@ BLOCKED = "blocked"
 VERDICTS = (PROVEN, UNPROVEN, BLOCKED)
 UNPLANNED_CAUSE = "not planned"
 UNSETTLED_PAGES = 10
+RETRACTION = re.compile(r"(?<!not )(?<!n't )\bretract\w*\s+(?:my\s+|the\s+|our\s+)?(?P<clock>\d{1,2}:[\dx]{2})(?![\d:])(?P<rest>[^.;]*)", re.IGNORECASE)
+CLOCK = re.compile(r"\d{1,2}:[\dx]{2}")
 
 
 def build_row(build: dict) -> dict:
@@ -121,13 +123,30 @@ def naming(target: str, components: list[str]) -> list[re.Pattern]:
     return [mentions(target), *(stack_of(component) for component in components)]
 
 
-def blocker_for(patterns: list[re.Pattern], lines: list[dict], after: str | None, verbs: frozenset[str]) -> dict | None:
+def blocking(line: dict, verbs: frozenset[str]) -> bool:
+    verb = line.get("verb") or ""
+    return verb in verbs or (verb == "MATRIX" and "FAILED" in line["text"])
+
+
+def retracted_by(found: re.Match, lane: str, older: dict, verbs: frozenset[str]) -> bool:
+    clock = CLOCK.search(older.get("when") or "")
+    return older.get("lane") == lane and blocking(older, verbs) and clock is not None and clock[0] == found["clock"] and mentions(older["verb"]).search(found["rest"]) is not None
+
+
+def retracted(lines: list[dict], verbs: frozenset[str]) -> set[int]:
+    withdrawn = set()
+    for position, line in enumerate(lines):
+        for found in RETRACTION.finditer(line["text"]) if line.get("lane") else ():
+            if target := next((older for older in lines[position + 1 :] if retracted_by(found, line["lane"], older, verbs)), None):
+                withdrawn.add(id(target))
+    return withdrawn
+
+
+def blocker_for(patterns: list[re.Pattern], lines: list[dict], after: str | None, verbs: frozenset[str], withdrawn: set[int]) -> dict | None:
     for line in lines:
         if after and (line.get("at") or "") <= after:
             return None
-        verb = line.get("verb") or ""
-        blocking = verb in verbs or (verb == "MATRIX" and "FAILED" in line["text"])
-        if blocking and any(pattern.search(line["text"]) for pattern in patterns):
+        if blocking(line, verbs) and id(line) not in withdrawn and any(pattern.search(line["text"]) for pattern in patterns):
             return line
     return None
 
@@ -166,11 +185,12 @@ def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], 
     deploys = [build for build in builds if build["kind"] == "deploy" and build.get("applies")]
     cited = {line["cite"]: line for line in lines if line.get("cite")}
     covering = {target: [build for build in releases if build["platy"] and target in build["targets"]] for target in set(targets.values())}
+    withdrawn = retracted(lines, BLOCK_VERBS | FAILURE_VERBS)
     by_target: dict[str, dict] = {}
     for target, builds_for in covering.items():
         latest = builds_for[0] if builds_for else None
         named = naming(target, [component for component, owner in targets.items() if owner == target])
-        blocker = blocker_for(named, lines, latest["at"] if latest else None, BLOCK_VERBS | FAILURE_VERBS)
+        blocker = blocker_for(named, lines, latest["at"] if latest else None, BLOCK_VERBS | FAILURE_VERBS, withdrawn)
         since = blocker or {"at": latest["at"] if latest else pipeline["at"]}
         by_target[target] = {"latest": latest, "blocker": blocker, "work": work_for(since, named, lines)}
     out = []
