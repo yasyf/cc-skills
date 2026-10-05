@@ -26,8 +26,9 @@ construction.
 Work the phases below in order. Each ends with an **Exit criteria** line —
 don't advance until it holds.
 
-The profile's prose runs on gpt-6-astra at `xhigh` through the codex
-skill, never through a Claude `model:` pin.
+The profile's prose runs on Claude Opus 5.5: a session on another model
+delegates it to an Opus 5.5 writer (`Agent` with `model: opus`), never to
+codex.
 
 ## Terminology
 

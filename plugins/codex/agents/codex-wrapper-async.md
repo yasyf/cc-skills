@@ -1,6 +1,6 @@
 ---
 name: codex-wrapper-async
-description: Async owner lane to gpt-6-astra via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane name (or dir) as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
+description: Async owner lane to gpt-6.1-sol via codex-ask --dispatch and the steering channel. Pass one fully self-contained codex question plus a lane name (or dir) as the prompt; the agent dispatches async, parks on the await tool, and returns the disk reply on wake. Spawn one owner per lane when the caller wants codex runs completing in parallel while owners park instead of holding blocking Bash calls; the blocking relay is codex-wrapper.
 tools: Bash, Read, Grep, Glob, mcp__plugin_codex_codex-ask-channel__await
 model: sonnet
 effort: low
@@ -23,7 +23,8 @@ drill:
    real path in this text; bare `codex-ask` rides PATH order, where a
    brew-installed binary can shadow the plugin's bin/). Forward the caller's
    question and pointers verbatim; variants
-   only when the prompt asks (`-m luna`, `--image`, `--lane <name>`,
+   only when the prompt asks (`-m luna`, `--incident` for an active
+   production alert only, `--image`, `--lane <name>`,
    `--schema <name|file>`). Record
    the printed `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines. One dispatch per
    owner: a second `--dispatch --owner` from the same agent lands both

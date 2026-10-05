@@ -323,8 +323,9 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "long-horizon agentic driving" in claude
     # The routing table is its own H2, mirroring the user's global CLAUDE.md.
     assert "\n## Model Routing\n" in claude
-    assert "crosses between opus `xhigh` and astra `xhigh`" in claude
-    assert "Fable remains limited to local top-level root orchestrators or extremely sensitive implementation" in claude
+    assert "crosses between opus `xhigh` and gpt-6.1-sol `xhigh` (standard tier)" in claude
+    assert "Fable remains limited to the most sensitive local implementation" in claude
+    assert "Roots run Opus 5.5." in claude
     assert "A missed attempt alone does not qualify." in claude
     assert "Select worker models explicitly" in claude
     assert "An omitted model can inherit the root's model." in claude
@@ -334,7 +335,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "Spawn convenience is not a routing input" in claude
     # A bounded N-unit sweep executes a written bar; opus is never its lane.
     assert "never runs on opus" in claude
-    assert "Select a Fable worker only for extremely sensitive local implementation" in claude
+    assert "Select a Fable worker only for the most sensitive local implementation" in claude
     # Context-window offload routes by task type, never by the fact of delegation.
     assert "not a routing cue" in claude
     # v6 2026-07-25 Opus 5 recalibration: bounded decision-light impl returns to
@@ -343,22 +344,21 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     assert "bug diagnosis" in claude
     assert "Also the default lane for individual bounded, decision-light implementation" in claude
     assert "the sweep lane: repetitive bounded implementation at scale" in claude
-    assert "sweeps fan out to gpt-6-astra" in claude
+    assert "sweeps fan out to gpt-6.1-sol" in claude
     assert "terminal/shell-heavy" in claude
     assert "ambiguous, exploratory, decision-dense, or large net-new" in claude
-    assert "| fable-5 | 2 | 9 | 9 | Local only, for top-level root orchestrators or extremely sensitive implementation" in claude
+    assert "| fable-5 | 2 | 9 | 9 | Exceptional only: the most sensitive local implementation" in claude
     assert "synthesis/accept-reject" in claude
-    # Prose routes to gpt-6-astra via the codex skill; capt-hook's prose gate
-    # blocks a Claude-model spawn that would write the prose itself.
     assert "never down-route writing" in claude
+    assert "written by Claude Opus 5.5" in claude
     assert "security review/audit" in claude
     assert "verification of security-sensitive code" in claude
-    assert "extremely sensitive implementation" in claude
+    assert "the most sensitive local implementation" in claude
     assert "very sensitive or error-prone implementation" not in claude
     assert "count as same-tier" in claude
-    # gpt-6-astra v7 (2026-09-05): astra Cost 3 and the prose lane, large net-new
-    # stays opus; recon lane defaults to luna. Ultra is not a retry rung.
-    assert "| gpt-6-astra | 3 | 9 | 9 |" in claude
+    assert "| gpt-6.1-sol | 5 | 8 | 7 |" in claude
+    assert "| gpt-6-astra | 3 | 9 | 9 | Exceptional only" in claude
+    assert "runs only in incident" in claude
     assert "gpt-5.6-luna" in claude
     assert "recon lane" in claude
     assert "net-new code stay on opus" in claude
@@ -370,7 +370,7 @@ def test_claude_md_routes_models_not_max_effort(templates_dir):
     conventions = (templates_dir.parent / "reference" / "base-conventions.md").read_text()
     assert "security review/audit" in conventions
     assert "verification of" in conventions and "security-sensitive code" in conventions
-    assert "gpt-6-astra" in conventions
+    assert "gpt-6.1-sol via the codex skill on the standard tier" in conventions
     assert "recon lane" in conventions
     assert "gpt-5.5" not in conventions
     codex_skill = (templates_dir.parents[3] / "codex" / "skills" / "codex" / "SKILL.md").read_text()
@@ -399,16 +399,12 @@ def test_claude_md_check_back_on_the_unexpected(templates_dir):
     assert "never absorbs a surprise" in skill.read_text()
 
 
-def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
-    # codex-ask (Go) pins model/effort/fast-tier flags + detached print-first launch;
-    # this golden inspects the Go source, not the built binary.
+def test_codex_ask_pins_model_and_quiet_exec(templates_dir):
     plugin_root = templates_dir.parents[3] / "codex"
     go_files = sorted(plugin_root.glob("*.go"))
     assert go_files, "no Go source found in plugins/codex"
     text = "\n".join(p.read_text() for p in go_files)
     for needle in (
-        # pinned model / effort / fast-tier / mcp-off (per-server disable + apps
-        # disable) / dev-instructions on the exec line
         "gpt-6-astra",
         "gpt-6.1-sol",
         "gpt-5.6-luna",
@@ -416,6 +412,7 @@ def test_codex_ask_pins_fast_tier_and_quiet_exec(templates_dir):
         '"model=" + model',
         '"model_reasoning_effort=" + effort',
         "service_tier=fast",
+        '"--incident"',
         '".enabled=false"',
         '"--disable", "apps"',
         '"developer_instructions=" + dev',
@@ -551,9 +548,9 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     assert not list(cwd.iterdir())
     assert Path(reply).read_text().strip() == "pong"
     log_text = Path(log).read_text()
-    assert "model=gpt-6-astra" in log_text
+    assert "model=gpt-6.1-sol" in log_text
     assert "model_reasoning_effort=xhigh" in log_text
-    assert "service_tier=fast" in log_text
+    assert "service_tier" not in log_text
     assert "STUB_KEY: UNSET" in log_text
     # AGENTS.md (developer_instructions feed) reaches codex, fail-closed and e2e:
     # its distinctive H1 rides the -c developer_instructions= arg into the stub.
@@ -576,7 +573,7 @@ def test_codex_ask_scratch_is_non_improvisable(templates_dir, tmp_path):
     luna_log = Path(re.search(r"^LOG_FILE: (.+)$", absr.stdout, re.M).group(1)).read_text()
     assert "model=gpt-5.6-luna" in luna_log
     assert "model_reasoning_effort=xhigh" in luna_log
-    assert "service_tier=fast" in luna_log
+    assert "service_tier" not in luna_log
     assert "--disable shell_tool" in luna_log
     assert "--skip-git-repo-check" in luna_log
 

@@ -12,8 +12,9 @@
 
 STDLIB ONLY. ``open`` records the incident in the :mod:`actions` store; ``run`` owns it.
 Each pass of ``run`` advances every step whose inputs are ready and records each side
-effect as an action before it runs: the comms events, the sol fix and evidence launches
-through ``orca-launch.sh`` (an Opus 5.5 backup at 15 minutes with no mechanism), the human
+effect as an action before it runs: the comms events, the fix and evidence launches on the
+``incident`` alias (gpt-6.1-sol, fast tier) through ``orca-launch.sh`` (an Opus 5.5 backup in
+fast mode at 15 minutes with no mechanism), the human
 review request a reviewer fix needs, the landing check, the single-pipeline ``ci sync``
 activation with its read-back, the canary, one rebuild per failed head in the outage window,
 the accounting of every rebuild, and the final reply. A merge never closes the incident:
@@ -62,10 +63,12 @@ from actions import Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "active-alert-brief.md"
 PACIFIC = ZoneInfo("America/Los_Angeles")
-SOL = "sol"
+INCIDENT = "incident"
 INCIDENT_ROLES = ("fix", "evidence")
-FORBIDDEN_MODELS = ("fable", "codex", "claude-fable-5-1", "gpt-6-astra")
-ROUTES = {"fix": (SOL, "xhigh"), "evidence": (SOL, "xhigh"), "backup": ("opus", "xhigh")}
+FORBIDDEN_MODELS = ("fable", "astra", "sol", "codex", "claude-fable-5-1", "gpt-6-astra")
+ROUTES = {"fix": (INCIDENT, "xhigh"), "evidence": (INCIDENT, "xhigh"), "backup": ("opus", "xhigh")}
+FAST_ROLES = ("backup",)
+CLAUDE_FAST_MODE = """--settings '{"fastMode":true}'"""
 ADOPTABLE = ("fix", "evidence")
 GRANTS = ("thread", "channel", "sync", "rebuild")
 BACKUP_AFTER = timedelta(minutes=15)
@@ -127,8 +130,8 @@ def pacific(value: str | datetime) -> str:
 
 
 def assert_route(role: str, model: str) -> None:
-    if role in INCIDENT_ROLES and model != SOL:
-        raise RouteRefused(f"the {role} lane runs on sol (gpt-6.1-sol, fast tier), never {model}")
+    if role in INCIDENT_ROLES and model != INCIDENT:
+        raise RouteRefused(f"the {role} lane runs on incident (gpt-6.1-sol, fast tier), never {model}")
     if model in FORBIDDEN_MODELS:
         raise RouteRefused(f"no incident lane runs on {model}")
 
@@ -147,10 +150,12 @@ class Orca:
     repo_id: str | None
     launcher: Path = SCRIPTS / "orca-launch.sh"
 
-    def launch(self, lane: str, model: str, effort: str, brief: Path) -> dict:
+    def launch(self, lane: str, model: str, effort: str, brief: Path, fast: bool = False) -> dict:
         if not (self.run_id and self.repo_id):
             raise EffectFailed("no Orca run: open the incident with --orca-run and --orca-repo")
         env = os.environ | {"ORCA_LAUNCH_RUN": self.run_id, "ORCA_LAUNCH_REPO": self.repo_id}
+        if fast:
+            env["ORCA_LAUNCH_CLAUDE_ARGS"] = " ".join(filter(None, [env.get("ORCA_LAUNCH_CLAUDE_ARGS"), CLAUDE_FAST_MODE]))
         line = self.shell.run([str(self.launcher), lane, model, effort, str(brief)], env=env).strip().splitlines()[-1]
         if not (match := LAUNCH.match(line)):
             raise EffectFailed(line)
@@ -565,7 +570,7 @@ class Runner:
         assert_route(role, model)
         brief = self.write_brief(incident, role, section)
         action_id = next_id(incident, base)
-        if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief)):
+        if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief, fast=role in FAST_ROLES)):
             with self.owned() as incident:
                 incident.verify(action_id, response)
 

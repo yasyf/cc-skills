@@ -15,8 +15,8 @@ At ~50 tool calls, a delegate stops and hands off rather than pressing on: it re
 
 ## Worker model defaults
 
-Fable is local only, for top-level root orchestrators or extremely sensitive
-implementation, using the Mac's existing interactive authentication. Ordinary
+Roots run Opus 5.5. Fable is for exceptional cases only: the most sensitive
+local implementation, using the Mac's existing interactive authentication. Ordinary
 Claude workers and subdesks use Opus or Sonnet per the routing table; Opus is the
 default for Claude implementation workers. Auth, migrations, concurrency, or error-prone code
 alone does not qualify for Fable. Preserve explicitly requested models and
@@ -24,4 +24,4 @@ effort within these roles. Never use Fable as a general fallback or set
 `fallbackModel`.
 
 Set the model explicitly on worker definitions or dispatches so ordinary
-workers do not inherit Fable from a root orchestrator.
+workers never inherit Fable.

@@ -2,7 +2,7 @@
 
 An active alert has one durable owner, the incident executor in
 `scripts/incident.py`. The root opens the incident and starts the executor. From
-then on the executor runs intake, the comms events, the sol fix and evidence
+then on the executor runs intake, the comms events, the incident fix and evidence
 launches, the landing check, activation, the canary, failed-work recovery, and the
 final reply. It reaches the root only with an unresolved decision. Its state lives
 in the `scripts/actions.py` store, one file per incident under
@@ -73,10 +73,13 @@ never a PR URL. Every such draft passes
   The executor asks the root once, and `incident.py grant` lets the next pass
   proceed.
 - The executor launches the fix and evidence lanes with
-  `scripts/orca-launch.sh <lane> sol xhigh <brief>`. Both run on `gpt-6.1-sol`
-  with the fast tier at `xhigh`. If 15 minutes pass without a mechanism or a PR, it
-  launches an Opus 5.5 backup on the same brief. It refuses any other model for
-  the fix or evidence role and never uses fable or astra.
+  `scripts/orca-launch.sh <lane> incident xhigh <brief>`. Both run on
+  `gpt-6.1-sol` with the fast tier at `xhigh`; only the `incident` alias runs
+  fast, and plain `sol` is the standard tier. If 15 minutes pass without a
+  mechanism or a PR, it launches an Opus 5.5 backup in Claude fast mode on the
+  same brief, passing `--settings '{"fastMode":true}'` through
+  `ORCA_LAUNCH_CLAUDE_ARGS`. It refuses any other model for the fix or evidence
+  role and never uses fable or astra.
 - It posts the fence for the target on the bus, and it reports `opened`, `pr`,
   `landed`, `activated`, `live`, `recovered`, and `closed` to the root lane as
   milestones. The root relays those to the owner as one line each, in Pacific
@@ -172,7 +175,7 @@ The executor posts each event as a cci `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
-the copy through astra and posts it with
+the copy through an Opus writer subagent (`Agent` with `model: opus`) and posts it with
 `cc-slack reply --url <thread> --grant <grant> --text <copy>`. For the `channel`
 surface it posts with `cc-slack send --channel <channel id> --grant <grant> --text
 <copy>`. Consecutive replies under one thread grant need no human message between
@@ -320,7 +323,7 @@ Do:
      executor records the verdicts. Never run `ccn sync`; the root syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
-  Opus 5.5 backup lane on this brief in parallel; keep working.
+  Opus 5.5 backup lane in fast mode on this brief in parallel; keep working.
   Never fable or astra.
 
 Do NOT touch: unrelated targets, files, branches, or another lane's worktree.
@@ -376,7 +379,7 @@ Do:
      executor records the verdicts. Never run `ccn sync`; the root syncs.
 
 Escalate: with no mechanism 15 minutes after launch, the executor launches an
-  Opus 5.5 backup fix lane in parallel; keep working. Never fable or astra.
+  Opus 5.5 backup fix lane in fast mode in parallel; keep working. Never fable or astra.
 
 Do NOT touch: code, monitor configuration, production state, deploys, or applies.
 Worktree: <absolute path, read-only>.

@@ -55,8 +55,8 @@ R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute pa
 
 The runner does what `launch --key R<n>` does with the same model, effort, and
 brief; `NOW` is `--owner-directed`, so the launch skips the load hold. An incident
-fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW sol xhigh brief=<path>`;
-sol always runs on the fast tier. A line without `R<n>` takes the key
+fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW incident xhigh brief=<path>`;
+only `incident` runs on the fast tier, and plain `sol` is the standard tier. A line without `R<n>` takes the key
 `inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
 <ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
 and launches nothing for a lane with a live dispatch or a launch still in flight,
@@ -64,17 +64,21 @@ a key that already holds an action, a model or effort `launch` refuses, or a bri
 that is not a file. A line that says `orca-desk: launch` outside the form logs
 `LAUNCH-FAILED <key> inbox`.
 
-An alert is one line in the same inbox:
+A monitor transition and an incident launch are each one line in the same inbox:
 
 ```text
 orca-desk: alert <slug> <link> :: <what fired>
+orca-desk: incident <slug> <link> :: <what fired>
 ```
 
-`monitor-watch.py --alert-inbox` and the Slack watch lane write these lines. The
-runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches it to the
-briefs log as `<slug>-fix.full.md` with `ccn log append --attach --replace`, and
-launches `<slug>-fix` on sol xhigh at once on that attachment's
-`ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
+`monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
+transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
+The alerts desk writes an `incident` line only when it judges a lane necessary,
+and the Slack watch lane writes one for each incident report. For an `incident`
+line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
+it to the briefs log as `<slug>-fix.full.md` with `ccn log append --attach
+--replace`, and launches `<slug>-fix` on incident xhigh at once on that
+attachment's `ccn attachment path`. Nothing goes under `~/.claude/scratch`. A brief that fails
 to attach logs `INCIDENT` with the ccn error and launches nothing. A repeat relays
 to the live lane and keeps its brief. The root ratifies from `INCIDENT`: evidence
 and incident-doc lanes, target fence, and comms in the affected account channels
@@ -82,7 +86,7 @@ and, for a platform-wide incident, `#outage` under R16. The evidence lane attach
 `<slug>-evidence.md` to the same briefs log, where the fix brief tells the fix
 lane to read it.
 The incident executor can adopt the launched lane with `--adopt fix=<lane>`.
-A malformed line logs `ALERT-FAILED` and launches nothing.
+A malformed line logs `ALERT-FAILED` or `INCIDENT-FAILED` and launches nothing.
 
 An urgent release hold is one line in the same inbox. The holding lane names
 itself or a dedicated decision-owner lane and states both the release and its
@@ -115,7 +119,7 @@ a decision clock; it does not change the landing holds file or authorize a relea
 questions on 2026-10-03 while executor shipped alone. cc-notes answer `5548bb2`,
 option 3; retro `849e294`.*
 
-Use `--model sol --effort xhigh` for fix and evidence lanes. A worker-question
+Use `--model incident --effort xhigh` for fix and evidence lanes. A worker-question
 `DECIDE` carries the question message id as its key; answer with
 `relay --reply-to <msg id>`. A `hold:<slug>` key names a release decision, not a
 question message id. Other relays carry guidance or a brief attachment pointer.
@@ -340,15 +344,15 @@ Stale unread mail gets one terminal wake per message; completed or failed
 dispatch mail emits `STALE-MAIL`.
 
 **O14. Hold launches under load, for a bounded time.** Before each launch, the
-runner reads the 1-minute load average. Sol and `--owner-directed` launches never
-wait. Above the core count any other launch stays accepted and `show` marks it
+runner reads the 1-minute load average. Incident and `--owner-directed` launches
+never wait. Above the core count any other launch stays accepted and `show` marks it
 `HELD`; after `deadlines.load_hold_minutes` it fails with a `LAUNCH-HELD`
 escalation and a Run mailbox message. It never kills a worker to lower load.
 
-**O15. Preserve codex and sol routes.** `codex` and `gpt-*` use Orca's codex
-agent. `sol xhigh` uses `gpt-6.1-sol`, a `--no-parent` worktree, and a terminal
-command with `--dangerously-bypass-approvals-and-sandbox` and
-`-c service_tier=fast`. An `unsupervised` result escalates; it is not a failed
+**O15. Preserve the codex and incident routes.** `sol`, `codex`, and `gpt-*` use
+Orca's codex agent on the standard tier. `incident xhigh` uses `gpt-6.1-sol`, a
+`--no-parent` worktree, and a terminal command with
+`--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. An `unsupervised` result escalates; it is not a failed
 launch to repeat. Leave Orca's runtime defaults unchanged.
 
 ## Landing passes

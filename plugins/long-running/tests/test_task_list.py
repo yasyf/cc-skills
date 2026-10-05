@@ -161,7 +161,7 @@ def test_task_naming_the_lane_in_its_description_covers_it(drive: Drive) -> None
 @pytest.mark.parametrize(
     "command",
     [
-        "scripts/orca-launch.sh alert-fix sol xhigh brief.md",
+        "scripts/orca-launch.sh alert-fix incident xhigh brief.md",
         "orca orchestration worker-start --spec x --display-name alert-fix --agent claude",
         "orca orchestration worker-start --spec x --name=alert-fix --agent claude",
     ],

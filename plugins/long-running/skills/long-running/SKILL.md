@@ -391,9 +391,10 @@ as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
 
 - It posts the fence and launches the fix and evidence lanes through
-  `scripts/orca-launch.sh` as Orca codex workers on `gpt-6.1-sol`, fast tier, `xhigh`.
-  With no mechanism after 15 minutes, it adds an Opus 5.5 backup lane
-  (`claude-opus-5-5`) and keeps the first running. It refuses Claude for the fix and
+  `scripts/orca-launch.sh <lane> incident xhigh` as Orca codex workers on
+  `gpt-6.1-sol`, fast tier, `xhigh`; plain `sol` is the standard tier and never
+  an incident route. With no mechanism after 15 minutes, it adds an Opus 5.5
+  backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running. It refuses Claude for the fix and
   evidence roles and never uses fable or astra.
 - It posts each comms event (ack, PR, review request, landing, live, final reply)
   to the comms lane on the bus with that event's cc-slack grant id. It confirms each
@@ -405,11 +406,15 @@ executor owns the incident, through the final reply:
   so a restart or a duplicate delivery never repeats one. A lost response stays
   `unverifiable` until a read of external state settles it.
 
-Alert intake runs before the root wakes. `monitor-watch.py --alert-inbox` and the
-Slack watch lane append `orca-desk: alert <slug> <link> :: <what fired>` to the
-orca desk inbox. The runner fills `reference/alert-fix-brief.md` with drive facts
-from `alert.facts`, attaches it to the briefs log as `<slug>-fix.full.md`, and
-launches `<slug>-fix` on sol xhigh at once; a repeat relays to the live lane. The root ratifies from `INCIDENT` in that turn:
+Alert intake runs before the root wakes. A monitor transition never launches a
+lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
+<link> :: <what fired>`, which the runner records and launches nothing on. The
+alerts desk appends `orca-desk: incident <slug> <link> :: <what fired>` only when
+it judges a lane necessary, and the Slack watch lane appends one for each incident
+report. For an `incident` line the runner fills `reference/alert-fix-brief.md` with
+drive facts from `alert.facts`, attaches it to the briefs log as
+`<slug>-fix.full.md`, and launches `<slug>-fix` on incident xhigh at once; a repeat
+relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
@@ -489,7 +494,7 @@ rebuild each had a different implied owner and every handoff waited on a root tu
 
 **R17. Owner routing applies to the next spawn and to every live lane on that problem.**
 An owner's routing or process instruction applies in the turn it arrives.
-Both "use Orca sol for incident response" and "pass the fast tier flag" count.
+Both "use Orca incident for incident response" and "pass the fast tier flag" count.
 Stand down every live lane on that problem and relaunch on the named route.
 Never record it for "new lanes" only or weigh it against the routing table.
 Never keep a lane because it is "already deep in the code" or defer the ruling to
@@ -726,8 +731,8 @@ checkout passes `ledger.py -C <checkout> <verb>`.
 
 Every script in `scripts/` is on PATH by name through the plugin's `bin/`, which Claude
 Code adds for the installed version, so briefs call `ledger.py` or
-`orca-launch.sh` and never a path. `orca-launch.sh` puts the same `bin/` on PATH for a
-sol worker's codex terminal. Lane messages use `cci` directly.
+`orca-launch.sh` and never a path. `orca-launch.sh` puts the same `bin/` on PATH for an
+incident worker's codex terminal. Lane messages use `cci` directly.
 
 The desk grades, lands, and tracks only through `ledger.py`, never scripts of its own;
 a gap in `ledger.py` is a `RULING NEEDED`, not a workaround.
@@ -1126,7 +1131,7 @@ relaunches a worker or guesses an answer to its prompt.
 (release v3, 2026-09-30).*
 
 **O14. Hold launches while load exceeds the core count, for a bounded time.** The
-runner reads the 1-minute load before each launch. A sol launch or one submitted with
+runner reads the 1-minute load before each launch. An incident launch or one submitted with
 `--owner-directed` starts whatever the load. Above the core count any other launch
 stays accepted, `show` marks it `HELD` with the load and its age, and after
 `deadlines.load_hold_minutes` (default 5) it fails with a `LAUNCH-HELD` escalation and
@@ -1134,11 +1139,11 @@ a Run mailbox message. It never kills a worker to lower load.
 
 *Prevents the load of 103 behind the 12:35Z mass kill (release-v3, 2026-09-30).*
 
-**O15. Preserve the codex and sol launch routes.** `codex` and `gpt-*` use
-`orca-launch.sh` on Orca's codex agent. Incident launches name `--model sol
---effort xhigh`: `gpt-6.1-sol`, a `--no-parent` worktree, and an explicit terminal
-command with `--dangerously-bypass-approvals-and-sandbox` and
-`-c service_tier=fast`. Keep Orca's runtime defaults unchanged. An unsupervised
+**O15. Preserve the codex and incident launch routes.** `sol`, `codex`, and
+`gpt-*` use `orca-launch.sh` on Orca's codex agent, on the standard tier.
+Incident launches name `--model incident --effort xhigh`: `gpt-6.1-sol`, a
+`--no-parent` worktree, and an explicit terminal command with
+`--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. Keep Orca's runtime defaults unchanged. An unsupervised
 launch needs a reporting route, never another launch. Inline lanes still use
 `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
@@ -1480,15 +1485,15 @@ Give a canonical remote worker the skill's complete VM brief and source-return
 contract. It returns an uncommitted patch and strict report; the root collects,
 reviews, and ships the source. Do not copy the Mac lane-ship template's paths or
 PR obligations into that brief. Retain every session, including explicit local
-root/Fable and extremely sensitive workers; completion or a cleanup recommendation
+root and extremely sensitive Fable workers; completion or a cleanup recommendation
 never authorizes closing one. Dedicated remote API keys belong only to the
 worker process; local Fable keeps existing Mac interactive authentication.
 
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different
-model explicitly when the assignment calls for it. Fable is local only, for
-top-level root orchestrators or extremely sensitive implementation. Ordinary
-workers and subdesks do not inherit Fable from the root.
+model explicitly when the assignment calls for it. Roots run Opus 5.5. Fable is
+for exceptional cases only: the most sensitive local implementation. Ordinary
+workers and subdesks never run Fable.
 
 The standing subagents, the desk's shards, sequencers, and pollers are
 `long-running:lane`. An implementation lane that ships a PR or calls a skill such as submit-pr, open-pr, or

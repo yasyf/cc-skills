@@ -1,7 +1,7 @@
 # The writing contract
 
-All drafting and revision in this reference belongs to `gpt-6-astra` at
-`xhigh`, including delegated writing passes. Follow the prose routing in
+All drafting and revision in this reference belongs to Claude Opus 5.5
+(`claude-opus-5-5`), including delegated writing passes. Follow the prose routing in
 `../SKILL.md`. While status is `ongoing`, `live init` and `live sync` derive
 the record from incident state and produce no LLM-authored prose. This
 writing flow starts after `live finalize` moves the same retro to `draft`.
@@ -11,7 +11,7 @@ changes that reduce recurrence. It does not grade the people involved.
 
 ## The headline names the failure and the subtitle states the mechanism
 
-Astra writes `meta.title` and `meta.subtitle` through `retro.py prose`.
+Opus writes `meta.title` and `meta.subtitle` through `retro.py prose`.
 The headline names the failure. The subtitle states what changed, what
 that change caused, and what broke in one sentence. Both must make sense
 to someone who was not in the response.
@@ -36,7 +36,7 @@ names in a cause, where readers look for that detail.
 Use the repeatable `--note "[ADDR=]TEXT"` flag to steer the writing without
 writing it. `ADDR=text` directs one field; bare text directs every field
 selected for the run. A later note replaces an earlier note for the same
-field. The work order marks the note `REQUIRED` and tells Astra that
+field. The work order marks the note `REQUIRED` and tells Opus that
 returning the current wording unchanged does not answer it. Select the
 field explicitly when revising it:
 
@@ -50,7 +50,7 @@ In a measured run, this changed "Read failures and resource exhaustion" to
 
 For a retro written before 0.3.0, move its old `meta.title` into
 `meta.subtitle`, clear `meta.title`, and run
-`retro.py prose <dir> --quick`. Astra writes the newly required prose.
+`retro.py prose <dir> --quick`. Opus writes the newly required prose.
 The old subtitle's browser-title suffix meaning is gone.
 Include a duration only when it helps explain the failure and follows
 the recorded endpoints.
@@ -269,7 +269,7 @@ the command's warning about a missing source does not clear the push.
 
 Run `retro.py prose <dir>` after assembling the record. It sends the authored
 fields listed in [reference/schema.md](schema.md#prose-authored-fields-and-provenance)
-through `codex-ask -m astra`, writes accepted wording directly, and records
+through `claude -p --model claude-opus-5-5`, writes accepted wording directly, and records
 its hashes in `prose.lock.json`. These fields include the headline and
 subtitle, action titles and notes, decision titles and alternatives,
 hypothesis titles, and sub-incident titles. `--stale` selects empty headlines
@@ -287,7 +287,7 @@ matters: without it, slop-cop enables its model pass when the Codex CLI is
 on `PATH`. The model lint pass runs once per batch over the fields joined
 with delimiters. Findings return to their fields by character offset.
 
-The command sends violations to Astra with the rule id, matched text, the
+The command sends violations to Opus with the rule id, matched text, the
 rule's directive, and the suggested change.
 `SLOP_ROUNDS = 2` allows two revision rounds per batch. The same model writes
 and revises the text within the subprocess pipeline, re-asking only the
@@ -314,14 +314,14 @@ does not change its facts. The fact freeze protects identifiers containing
 underscores, such as `manifest_section`, with or without backticks. The
 command still refuses a reply that drops the identifier or changes a number.
 It checks the tokens it recognizes; review the meaning too. Fields outside its enumeration
-still follow this writing contract and the Astra routing in `SKILL.md`.
+still follow this writing contract and the Opus routing in `SKILL.md`.
 
 For the headline and subtitle, the fact freeze checks grounding instead of
 requiring every fact from the previous text to survive compression.
 Grounding is the other field plus `summary.text` and `summary.p`.
 `over_budget()` decides whether the current text also belongs: within both
 budgets, it stays so a run can re-derive provenance; over either budget, it
-is excluded. Astra may omit facts when shortening these fields but may
+is excluded. Opus may omit facts when shortening these fields but may
 invent none. Review the meaning as well as the protected tokens.
 
 Run the generated Markdown through the prose gate after the structural edit
@@ -352,7 +352,7 @@ on demand, use `--field`, as in `prose --field meta.title`.
 71 seconds with zero lint findings on a copy of a real retro whose title
 the rollout had left empty.
 
-`--quick` asks Astra for empty or over-budget headlines and subtitles,
+`--quick` asks Opus for empty or over-budget headlines and subtitles,
 missing short names, the five summary panels, narrative section takeaways at
 `TAKEAWAY_WORDS = 18`, and timeline or cause text over 25 or 90 words.
 Fields with matching hashes stay as they are. The fact freeze remains on;
@@ -368,7 +368,7 @@ eligible retros. A later edit breaks the hash; send that field through
 `check` refuses any legacy provenance when the onset date, falling back to
 `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. The restriction applies
 without `--strict` and directs the author to run `prose` without `--quick`.
-The date gate keeps the migration path from skipping Astra on later incidents.
+The date gate keeps the migration path from skipping Opus on later incidents.
 The gate checks the incident date, not the writing date. Another `--quick`
 run preserves existing lock entries, including stale hashes; it cannot
 re-pin an edited field. The [migration reference](schema.md#--quick-migrate-a-retro-written-before-030)

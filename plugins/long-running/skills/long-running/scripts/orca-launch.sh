@@ -32,7 +32,7 @@ pointer must stay within 300 characters, so a brief path that pushes it over is
 replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca detects
 its agent, the script polls orca terminal list every 4 seconds until the terminal's
-agentIdentity reads claude, or codex for sol, up to ORCA_LAUNCH_BOOT_SECONDS.
+agentIdentity reads claude, or codex for incident, up to ORCA_LAUNCH_BOOT_SECONDS.
 Orca drops a terminal's startup command under load, leaving a shell prompt, so
 once a third of that ceiling has passed with no agent detected, the script reads
 the screen and, when it shows neither the command line nor the agent's own UI,
@@ -53,29 +53,31 @@ its own. Release v3 kept 279 of these idle shells, one per lane.
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
 already bypass approvals, so there is no custom command or bypass-permissions screen check.
-Its service tier comes from Orca's codex runtime config, since worker-start has
-no tier flag.
+Its service tier comes from Orca's codex runtime config, the standard tier,
+since worker-start has no tier flag.
 
-sol is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
+incident is the incident lane: gpt-6.1-sol in a top-level worktree, launched in a
 terminal running codex with -c service_tier=fast on its command line, so the
-fast tier never depends on Orca's runtime config. It also passes
+fast tier never depends on Orca's runtime config. No other alias runs the fast
+tier. It also passes
 -c check_for_update_on_startup=false to disable the startup update prompt,
 -c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}>, and then
 -c mcp_servers.<name>.enabled=false for every server config.toml names that
 ORCA_LAUNCH_CODEX_MCP does not. An -c table merges into config.toml rather than
 replacing it, so -c mcp_servers={} alone left node_repl, computer-use, and the
-Slack MCP running beside every sol lane. Servers a codex plugin bundles still
+Slack MCP running beside every incident lane. Servers a codex plugin bundles still
 start. A codex lane on Orca's agent keeps Orca's own command line.
 The command prepends the plugin bin to the terminal's own PATH, never the
-caller's expanded PATH. When Orca times out at agent_readiness on a codex or sol
+caller's expanded PATH. When Orca times out at agent_readiness on a codex or incident
 worker whose terminal is up, the script reads the screen first. If it contains
 "Update available!" or "Skip until next version", the launch fails with a
 single-line screen quote, whitespace squeezed and cut to 300 characters, without
 typing into the prompt. Otherwise, it types the spec pointer into that terminal
 itself and prints the lane as unsupervised: it runs, but Orca carries no worker_done for it.
 
-<model> is opus, sonnet, fable, a claude-* model id, astra or codex (gpt-6-astra), sol
-(gpt-6.1-sol), or a gpt-* model id. <effort> is low, medium,
+<model> is opus, sonnet, fable, a claude-* model id, sol or codex (gpt-6.1-sol on
+the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra,
+for exceptional cases only), or a gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
 because the runtime drops connections under load. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
@@ -102,14 +104,14 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_RUN            orchestration Run id, required
   ORCA_LAUNCH_REPO           Orca repo id, required
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
-  ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as sol always does, default unset
+  ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as incident always does, default unset
   ORCA_LAUNCH_PREFIX         worktree name prefix, default none
   ORCA_LAUNCH_ROOT           directory Orca creates worktrees in, default the parent's directory
   ORCA_LAUNCH_BASE           base branch, default the parent checkout's origin/HEAD
   ORCA_LAUNCH_STATE          receipt directory, default ~/.claude/scratch/orca-launch/<run>
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
-  ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for a sol worker's mcp_servers, default {}
+  ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
@@ -165,14 +167,15 @@ orca_error() {
 
 AGENT=claude
 case $MODEL in
-  codex | astra) AGENT=codex MODEL_ID=gpt-6-astra ;;
-  sol) AGENT=sol MODEL_ID=gpt-6.1-sol ;;
+  codex | sol) AGENT=codex MODEL_ID=gpt-6.1-sol ;;
+  astra) AGENT=codex MODEL_ID=gpt-6-astra ;;
+  incident) AGENT=incident MODEL_ID=gpt-6.1-sol ;;
   gpt-*) AGENT=codex MODEL_ID=$MODEL ;;
   opus) MODEL_ID=claude-opus-5-5 ;;
   sonnet) MODEL_ID=claude-sonnet-5-5 ;;
   fable) MODEL_ID=claude-fable-5-1 ;;
   claude-*) MODEL_ID=$MODEL ;;
-  *) fail "model $MODEL unknown: use opus, sonnet, fable, claude-*, astra, codex, sol, or gpt-*" ;;
+  *) fail "model $MODEL unknown: use opus, sonnet, fable, claude-*, sol, codex, incident, astra, or gpt-*" ;;
 esac
 case $EFFORT in
   low | medium | high | xhigh | max) ;;
@@ -187,7 +190,7 @@ COMMAND="env CLAUDE_LONG_RUNNING_LANE=$LANE${DRIVE:+ CLAUDE_LONG_RUNNING_DRIVE=$
 BIN=$(cd "$(dirname "$0")/../../../bin" && pwd)
 CODEX_MCP=${ORCA_LAUNCH_CODEX_MCP:-'{}'}
 CODEX_OFF=
-[ "$AGENT" != sol ] || CODEX_OFF=$(python3 - "${CODEX_HOME:-$HOME/.codex}/config.toml" "$CODEX_MCP" <<'PY'
+[ "$AGENT" != incident ] || CODEX_OFF=$(python3 - "${CODEX_HOME:-$HOME/.codex}/config.toml" "$CODEX_MCP" <<'PY'
 import pathlib, sys, tomllib
 config = pathlib.Path(sys.argv[1])
 servers = tomllib.loads(config.read_text()).get("mcp_servers", {}) if config.exists() else {}
@@ -195,7 +198,7 @@ named = tomllib.loads(f"named = {sys.argv[2]}")["named"]
 print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if name not in named))
 PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
-[ "$AGENT" != sol ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
+[ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
 pointer() {
   printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
 }
@@ -218,7 +221,7 @@ BOUND=$(jq -r '.result.run.id // empty' "$STATE/$LANE.binding.json" 2>/dev/null)
   fail "coordinator binding: terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${BOUND:-no Run}, not $RUN ($(orca_error "$STATE/$LANE.binding.json")); from the coordinator's Orca terminal run: orca orchestration run-use --id $RUN"
 
 set -- --parent-worktree "path:$PARENT"
-[ "$AGENT" != sol ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
+[ "$AGENT" != incident ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
 
 registered() {
   FOUND=$(orca worktree show --worktree "path:$WT" --json | jq -er '.result.worktree.path') || return 1

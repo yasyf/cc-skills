@@ -5,6 +5,7 @@
 """
 import contextlib, io, json, os, signal, subprocess, sys, tempfile, unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retro_prose
@@ -143,9 +144,9 @@ class Grandfathering(unittest.TestCase):
         self.assertEqual(retro_prose.grandfather(self.retro, {}, self.root, store, set(), lock), 0)
         self.assertNotEqual(lock["fields"]["C1.text"]["sha256"], retro_prose.digest("edited by hand"))
 
-    def test_an_astra_written_field_keeps_its_astra_provenance(self):
-        store = {"C1.text": {"kind": "prose", "text": "astra wording", "holder": {}, "key": "text"}}
-        lock = {"fields": {"C1.text": {"sha256": retro_prose.digest("astra wording"), "run": "/runs/x"}}}
+    def test_a_model_written_field_keeps_its_writer_provenance(self):
+        store = {"C1.text": {"kind": "prose", "text": "model wording", "holder": {}, "key": "text"}}
+        lock = {"fields": {"C1.text": {"sha256": retro_prose.digest("model wording"), "run": "/runs/x"}}}
         retro_prose.grandfather(self.retro, {}, self.root, store, set(), lock)
         self.assertNotIn("kind", lock["fields"]["C1.text"])
 
@@ -310,6 +311,34 @@ class DetachedRun(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()) as err:
             self.assertEqual(retro_prose.await_detached(self.root, self.lane, 0), 1)
         self.assertIn("--detach", err.getvalue())
+
+
+class OpusWriter(unittest.TestCase):
+    def setUp(self):
+        self.lane = Path(tempfile.mkdtemp())
+
+    def run_ask(self, stdout, code=0):
+        done = subprocess.CompletedProcess([], code, stdout=stdout, stderr="boom")
+        with patch.object(retro_prose.subprocess, "run", return_value=done) as run:
+            got = retro_prose.ask("Write it.", retro_prose.REPLY_SCHEMA, self.lane, 60, ["/r"])
+        return got, run.call_args
+
+    def test_the_structured_reply_comes_from_the_result_event(self):
+        reply = {"fields": [{"id": "summary.text", "text": "It broke."}]}
+        lines = [{"type": "system"}, {"type": "result", "is_error": False, "structured_output": reply}]
+        got, call = self.run_ask("\n".join(json.dumps(line) for line in lines))
+        argv = call.args[0]
+        self.assertEqual(got["reply"], reply)
+        self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
+        self.assertEqual(json.loads(argv[argv.index("--json-schema") + 1]), retro_prose.REPLY_SCHEMA)
+        self.assertEqual(call.kwargs["input"], "Write it.")
+        self.assertEqual((self.lane / retro_prose.REPLY_LOG).read_text().count("\n"), 1)
+
+    def test_a_reply_without_structured_output_raises(self):
+        for stdout, code in ((json.dumps({"type": "result", "is_error": True, "result": "overloaded"}), 1),
+                             (json.dumps({"type": "result", "is_error": False, "result": "prose"}), 0)):
+            with self.subTest(stdout=stdout), self.assertRaises(RuntimeError):
+                self.run_ask(stdout, code)
 
 
 if __name__ == "__main__":
