@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 
@@ -23,7 +24,10 @@ from .compaction_handoff import REGISTER_FENCE, RULINGS, SHORT, CompactionState,
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 DEFAULT_AGENT = "general-purpose"
-SPAWN_TTL_SECONDS = 120
+SPAWN_TTL_SECONDS = 60
+CONTEXT_CHARS = 9000
+MATCH_BYTES = 8000
+BLOCK = re.compile(r"^- ", re.MULTILINE)
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 MATCHED = "- 4ffc9a5 Release as it merges?\n  > Yes, every landing releases.\n"
 FOUND = {
@@ -50,10 +54,26 @@ def drive_args(evt: BaseHookEvent) -> list[str] | None:
 
 
 def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
+    if len(register["body"]) > CONTEXT_CHARS:
+        return evt.context(
+            f"Standing rules register `{register['id'][:SHORT]}` is over the injection budget and binds this lane; "
+            f"read it in full with `ccn doc show {register['id'][:SHORT]}` before acting."
+        )
     return evt.context(
         f"Standing rules register `{register['id'][:SHORT]}`, verbatim; it binds this lane and outranks any brief or summary.",
         f"{REGISTER_FENCE}\n{register['body'].rstrip()}\n{REGISTER_FENCE}",
     )
+
+
+def union(texts: list[str]) -> str:
+    blocks = dict.fromkeys(block for text in texts for block in BLOCK.split(text) if block)
+    kept, size = [], 0
+    for block in blocks:
+        if size + len(f"- {block}".encode()) > MATCH_BYTES:
+            break
+        kept.append(f"- {block}")
+        size += len(kept[-1].encode())
+    return "".join(kept)
 
 
 def rulings_context(evt: BaseHookEvent, matched: str) -> HookResult:
@@ -84,11 +104,10 @@ def match_lane_brief(evt: BaseHookEvent) -> HookResult | None:
 def claim(evt: BaseHookEvent) -> None:
     now = time.time()
     with LaneRulings.mutate(evt) as state:
-        live = [entry for entry in state.spawns if now - entry["at"] < SPAWN_TTL_SECONDS]
-        mine = next((entry for entry in live if entry["type"] == (evt.agent_type or DEFAULT_AGENT)), None)
-        state.spawns = [entry for entry in live if entry is not mine]
-        if mine and mine["rulings"] and evt.agent_id:
-            state.pending[evt.agent_id] = mine["rulings"]
+        state.spawns = [entry for entry in state.spawns if now - entry["at"] < SPAWN_TTL_SECONDS]
+        mine = union([entry["rulings"] for entry in state.spawns if entry["type"] == (evt.agent_type or DEFAULT_AGENT)])
+        if mine and evt.agent_id:
+            state.pending[evt.agent_id] = mine
 
 
 @on(
@@ -170,6 +189,8 @@ def match_worker_brief(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active or not (worker := reqenv.getenv(DRIVE_ENV)) or LaneRulings.load(evt).briefed:
         return None
     with LaneRulings.mutate(evt) as state:
+        if state.briefed:
+            return None
         state.briefed = True
     matched = rulings(str(evt.cwd), "match", "--drive", worker, stdin=evt.user_prompt or "")
     return rulings_context(evt, matched) if matched else None

@@ -116,7 +116,7 @@ def rule_findings(body: str, previous: str | None, register: dict | None) -> lis
     if (lines := section(body)) is None:
         problems.append("no `## Standing owner rules` section; regenerate the handoff with `handoff.py generate`")
         lines = []
-    if register and quoted(register["body"])[0] not in lines:
+    if register and "\n".join(quoted(register["body"])) not in "\n".join(lines):
         problems.append(
             f"the standing rules section does not quote register `{register['id'][:SHORT]}`; regenerate the handoff with `handoff.py generate`"
         )

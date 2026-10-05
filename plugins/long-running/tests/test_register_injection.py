@@ -100,7 +100,34 @@ def test_a_subagent_lane_receives_the_register_then_the_rulings_its_brief_matche
     assert delivered.message.startswith("Durable owner answers matched to this lane's brief")
     assert fenced(delivered.message) == "- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n"
     assert tool(session, "a1") is None
-    assert [entry["type"] for entry in injection.LaneRulings.load(started_event(session)).spawns] == ["Explore"]
+    assert [entry["type"] for entry in injection.LaneRulings.load(started_event(session)).spawns] == ["long-running:lane", "Explore"]
+
+
+def test_parallel_spawns_of_one_type_each_receive_the_union_of_their_matches(tools: Path) -> None:
+    session = tools / "session"
+    handoff.CompactionState(active=True, slug="brook").save(PostToolUseEvent(_raw=raw(tool_name="Bash", tool_input={}), ctx=ctx(session)))
+    injection.LaneRulings(
+        spawns=[
+            {"type": "long-running:lane", "at": injection.time.time(), "rulings": "- 1111111 First?\n  > yes\n"},
+            {"type": "long-running:lane", "at": injection.time.time(), "rulings": "- 2222222 Second?\n  > no\n- 1111111 First?\n  > yes\n"},
+            {"type": "long-running:lane", "at": injection.time.time() - 600, "rulings": "- 3333333 Stale?\n  > old\n"},
+        ]
+    ).save(started_event(session))
+
+    start(session, "a1")
+    start(session, "a2")
+
+    expected = "- 1111111 First?\n  > yes\n- 2222222 Second?\n  > no\n"
+    assert fenced(tool(session, "a1").message) == fenced(tool(session, "a2").message) == expected
+
+
+def test_a_register_over_the_injection_budget_is_named_not_truncated(tools: Path) -> None:
+    result = injection.register_context(started_event(tools / "session"), {"id": REGISTER_ID, "body": "1. rule\n" * 2000})
+
+    assert result.message == (
+        "Standing rules register `0cf17c9` is over the injection budget and binds this lane; "
+        "read it in full with `ccn doc show 0cf17c9` before acting."
+    )
 
 
 def test_a_session_outside_any_drive_injects_nothing(tools: Path) -> None:

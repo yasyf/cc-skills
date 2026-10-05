@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -69,11 +70,13 @@ def mirror(answers: list[dict], directory: Path) -> None:
     wanted = {f"{answer['id'][:SHORT]}.md": f"# {answer['title']}\n\n{answer.get('body') or ''}\n" for answer in answers}
     for path in directory.glob("*.md"):
         if path.name not in wanted:
-            path.unlink()
+            path.unlink(missing_ok=True)
     for name, text in wanted.items():
         path = directory / name
         if not path.is_file() or path.read_text() != text:
-            path.write_text(text)
+            staged = path.with_name(f".{name}.{os.getpid()}")
+            staged.write_text(text)
+            staged.replace(path)
 
 
 def search(shell: ledger.Shell, query: str, directory: Path, k: int) -> list[str]:

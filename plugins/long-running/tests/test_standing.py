@@ -70,6 +70,7 @@ def test_a_handoff_without_the_section_fails() -> None:
 def test_a_section_without_the_register_fails() -> None:
     assert standing.lint("## Standing owner rules\n- R312 deploy every landing\n", None, REGISTER, LIVE) == [UNQUOTED]
     assert standing.lint("## Standing owner rules\n- R312 deploy every landing\n", None, None, LIVE) == []
+    assert standing.lint("## Standing owner rules\n\n  > # Register\n", None, REGISTER, LIVE) == [UNQUOTED]
 
 
 def test_dropping_a_carried_rule_needs_a_superseded_by_line() -> None:
