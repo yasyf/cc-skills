@@ -1,92 +1,133 @@
 # Lane bus contracts
 
-`scripts/bus.py` is the drive's shared record between lanes: one cc-notes log, one
-entry per post, read by every lane from its own cursor. It exists because `SendMessage`
-is fire-and-forget into an inbox: a message lands while its reader is idle or mid-task,
-and the reader acts on the state the message described, not the state that holds now.
-On the bus, a message is a pointer and the log is the state.
+`cci` is the drive's shared record between lanes. Each post is one record; each
+lane reads deliveries from its own cci cursor. A `SendMessage` carries the record's
+sequence number, and the reader checks cci before acting. Durable owner rulings,
+decisions, runbooks, and design docs stay in cc-notes, linked with `--ccn <id>`.
+`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
 
 ## The entry
 
-Every post is one log entry holding JSON: `kind`, `topic`, `from`, `to`, `text`, `re`.
-Its number is its position in the log, `#12`, and the log is append-only, so `#12` is
-`#12` for the whole drive. `bus.py post` prints it; that number is the only thing a
-`SendMessage` about it needs to carry.
+Each record has a `seq`, `drive`, `lane`, `kind`, `at`, and `text`, with optional
+`topic`, `to`, `re`, and references. `cci post` prints its sequence number, such as
+`#12`; sequences increase across the local store, so a drive can have gaps. Keep
+text under 400 characters. Put a longer body in a file and attach it with `--path`.
 
 | kind | means | text | to |
 | --- | --- | --- | --- |
-| `decision` | a call your lane made that another lane could build on or contradict | the decision, one line | the lanes it binds, or broadcast |
-| `head` | the current head of a PR or branch you own | the full 40-hex sha | broadcast |
-| `contract` | an interface, schema, name, or invariant another lane consumes | the contract, one line, or a path to it | broadcast |
-| `blocker` | something that stops a lane and needs another lane's act | what is stuck and on whom | the lane that can clear it |
+| `decision` | a call your lane made that another lane could build on or contradict | the decision; link a durable decision with `--ccn` | the lanes it binds, or broadcast |
+| `head` | the current head of a PR or branch you own | the full 40-hex SHA | broadcast |
+| `contract` | an interface, schema, name, or invariant another lane consumes | the contract, with a longer body attached by `--path` | broadcast |
+| `blocker` | something that stops a lane and needs another lane's act | what is stuck and who can clear it | the lane that can clear it |
 | `ask` | a question another lane must answer | the question | the lane asked |
-| `answer` | closes an ask | the answer | defaults to the asker; `--re <ask>` |
-| `withdraw` | retracts your own earlier entry | why | defaults to the target's; `--re <entry>` |
+| `answer` | closes an ask or blocker | the answer; `--re <seq>` | explicitly name the asker or blocked lane with `--to` |
+| `withdraw` | retracts an earlier record | why; `--re <seq>` | repeat the original recipients, or broadcast if the original was broadcast |
 
-`topic` is what other lanes subscribe on: a PR number, a branch prefix, a contract name,
-an area. A reply inherits its target's topic. Only the poster withdraws an entry, and
-only once; a withdrawn entry stays in the log and renders `[WITHDRAWN #n]` wherever it
-is read, so a lane that already acted on it learns that it was retracted, and a lane
-that has not yet acted never acts on it. An answered ask renders `[ANSWERED #n]`.
+`topic` names a PR, branch, contract, or area. Set it explicitly on related posts;
+replies do not inherit topics or recipients. Use `--re` for the record being
+answered or withdrawn.
+
+Text reads show `[ANSWERED #n]` on an answered ask and
+`[WITHDRAWN #n]` on a withdrawn record; `n` is the reply's sequence number. JSON
+reads have no reply marks. Withdraw your own verdicts before replacing them.
+Use `decide` for a decision request; `decision` announces a call already made.
+
+An `answer`, `go`, or `withdraw` closes an ask. A `withdraw`, `answer`, or `done`
+closes a blocker. Pair the later record with `--re` or the same `--topic` in the
+same drive. Publishing a new head alone does not close a blocker.
 
 ## Delivery
 
-`bus.py read --lane <you>` returns the entries since your cursor that reach you, then
-moves the cursor. An entry reaches you when it is addressed to you; a broadcast entry
-reaches you when you subscribe to its topic or its kind, or when you filter on nothing.
-Your own posts never come back to you. An entry addressed to someone else never reaches
-you, however you filter; read it with `--all` and no `--lane` filter when a foreign
-thread matters, or read `state` and `summary`, which are unfiltered.
+A lane reads with `cci tail --drive <drive> --cursor <lane> --reader <lane>`.
+`--reader` delivers records addressed to that lane regardless of kind, posting
+lane, or topic filters, plus other lanes' broadcasts that match those filters.
 
-The cursor is `~/.cache/ccn-bus/<bus>/<lane>.cursor`. After compaction, the same lane
-continues from it; nothing is re-delivered and nothing is lost.
-`--peek` reads without moving it; `--since <seq>` and `--all` re-read from a point.
+A broadcast has no `--to`. Add `--topic` or `--kind` to select broadcasts; repeat
+each flag for multiple values. With no filters, all other lanes' broadcasts arrive.
+Your own broadcasts and records addressed only to other lanes do not arrive.
+Use `--to <desk>` instead of `--reader` for a desk's addressed inbox only.
 
-`bus.py watch` is the same read in a loop, for a Monitor: it prints each newly
-delivered entry the moment it lands, prints nothing otherwise, and exits after `--for`
-seconds so the Monitor's own deadline never cuts it mid-write. It says
-`bus unreachable: ...` and exits 1 when cc-notes stops answering; silence means only
-that nothing arrived.
+The cursor is a cci cursor named for the lane. It survives session compaction and
+advances only through printed records. A new tail cursor reads the past hour.
+Repeat a capped read with the same drive, cursor, and filters to continue.
+
+`--since <seq>` reads after that sequence without reading or advancing the cursor;
+`--since 0` replays retained records. Omit `--reader` for a drive-wide replay when
+another lane's thread matters. Tail defaults to a 4,000-byte budget, capped at
+16,000 with `--budget`.
+
+A top-level lane watches with
+`cci watch --drive <drive> --cursor <lane>-watch --reader <lane>` and the same
+subscription. The separate watch cursor preserves the lane's read position.
+The watch polls once a second and exits after 29 minutes; re-arm with the same
+cursor. Without a saved cursor, it starts at the current head. An in-process
+lane uses a foreground watch with `--for 50s`, then tails its lane cursor before
+acting. Each watch line is capped at 600 characters.
 
 ## State, not asks
 
-`bus.py state` folds the log into the live head and contract per lane and topic: the
-latest of each, minus the withdrawn. Before asking a lane what its head is or what its
-interface says, read `state`. A lane publishes a `head` on every push and a `contract`
-whenever it exposes something another lane consumes, and withdraws the contract before
-it changes the interface. Two lanes building contradicting models show up here as two
-contracts on one topic from two lanes, which is the collision a reader can see before
-either lane ships it.
+`cci state --drive <drive>` returns the latest non-withdrawn `head` and `contract`
+per lane and topic. Read it before asking a lane for its head or interface.
+Publish a `head` on every push and a `contract` whenever another lane consumes
+an interface. Broadcast both by omitting `--to`. Withdraw a contract with
+`cci post --drive <drive> --lane <lane> --kind withdraw --re <seq> --text "<reason>"`
+before changing the interface. A withdrawal reveals the previous non-withdrawn
+record in state, if one exists; publish the replacement when it is ready.
+Two lanes publishing conflicting contracts on the same topic need a root ruling
+before either ships.
 
 ## The root's view
 
-`bus.py summary` is at most ten lines: the counts, then every open ask and open blocker
-with its age, then the latest decisions in the window. The root reads it beside the
-desk's summary and never the log. An open ask older than the lane's cadence, or a
-blocker with nobody to clear it, is the root's to dispatch.
+`cci digest --drive <drive>` lists counts, open asks and decision requests,
+blockers, holds, incidents, and the latest record per lane. It covers 24 hours by
+default and counts older open items separately. Use `--since` for a longer window.
+Text output is bounded; narrow a follow-up read when the digest reports truncation.
+The root reads it beside the desk's summary. An ask older than its lane's cadence,
+or a blocker with nobody to clear it, is the root's to dispatch.
 
 ## Worked examples from one drive
 
-**An OK already given.** `pr-plans` asked `iam-structural` whether its stack could land
-before the IAM wave, and waited on a reply that had already gone to its inbox while it
-was mid-poll. On the bus: `pr-plans` posts `ask --to iam-structural`, keeps working, and
-at its next wake or watch event reads `answer #n re #m`. Had it read the bus before
-waiting, the `[ANSWERED #n]` mark on its own ask would have ended the wait.
+**An OK already given.** `pr-plans` asked `iam-structural` whether its stack could
+land before the IAM wave, then waited while the reply sat unread. Post the ask
+and address the answer back to `pr-plans`, using the ask's returned sequence:
+
+```sh
+cci post --drive <drive> --lane pr-plans --kind ask --topic iam-wave --to iam-structural --text 'Can this stack land before the IAM wave?'
+cci post --drive <drive> --lane iam-structural --kind answer --topic iam-wave --to pr-plans --re <ask seq> --text 'The stack can land before the IAM wave.'
+cci tail --drive <drive> --cursor pr-plans --reader pr-plans
+```
+
+The delivery includes the answer. Replay the ask with
+`cci tail --drive <drive> --since 0 --kind ask --lane pr-plans --topic iam-wave`.
+Its `[ANSWERED #n]` mark ends the wait even if the wake message was missed.
 
 **A verdict already withdrawn.** `partial-release` waited on `artifact-contract`'s
-verdict that a run's artifact reads were declared; `artifact-contract` had retracted it
-by message an hour before. On the bus: the verdict is a `decision --to partial-release`,
-its retraction a `withdraw --re <that decision>`, and `partial-release`'s read shows the
-decision with `[WITHDRAWN #n]` and the withdraw itself, in one read.
+verdict that a run's artifact reads were declared after its author had retracted
+it by message. Post the verdict and its withdrawal to the same recipient:
 
-**A red nobody saw.** The desk's `route` printed a `DESK #n <sha9>: <job>` line to send
-by `SendMessage`, and the lane was idle. On the bus, the desk also posts it as
-`blocker --topic <pr> --to <lane>`; the lane's wake read delivers it whatever became of
-the message, and the root's summary counts it open until the lane withdraws it or
-reports a new head.
+```sh
+cci post --drive <drive> --lane artifact-contract --kind decision --topic artifact-reads --to partial-release --text 'The run declares its artifact reads.'
+cci post --drive <drive> --lane artifact-contract --kind withdraw --topic artifact-reads --to partial-release --re <decision seq> --text 'The artifact-read verdict is withdrawn.'
+cci tail --drive <drive> --cursor partial-release --reader partial-release
+```
+
+The withdrawal reaches the lane even if it already read the decision. A text
+read that includes the decision marks it `[WITHDRAWN #n]`.
+
+**A red nobody saw.** The desk's `route` printed a `DESK #n <sha9>: <job>` line
+while the lane was idle. Post the blocker and close it explicitly after the fix:
+
+```sh
+cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text 'DESK #<pr> <sha9>: <job>'
+cci tail --drive <drive> --cursor <lane> --reader <lane>
+cci post --drive <drive> --lane <lane> --kind done --topic <pr> --to landing-desk --re <blocker seq> --text 'The blocker is fixed on the new head.'
+```
+
+The lane reads the blocker at its next wake. The root's digest keeps it open
+until an explicit closure, even after a new head is posted.
 
 ## What stays on `SendMessage`
 
-The one-line wake: `bus #n` or `read the bus`. The lane report to the desk under D1,
+A one-line wake says `bus #n` or `read the bus`. The lane report to the desk under D1,
 which the desk types into the ledger. A `RULING NEEDED` line to the root. Everything
-with a body goes on the bus first, and the message names the entry.
+with a body goes on cci first, and the message names the record.

@@ -69,7 +69,7 @@ Launch with `desk-runner.py launch --config C --key R<n> --lane L --model M
 
 You are one worker in <drive>. Read <plan path> in full before anything else; <owner
 plan or source of truth> is the source of truth behind it.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
+Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
 Authority: everything inside your Ownership below, without asking. Anything that
 changes the plan, touches production (<apply, deploy, Slack write, state move>) or

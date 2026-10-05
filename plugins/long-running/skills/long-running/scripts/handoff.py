@@ -60,7 +60,7 @@ import standing
 DIGEST_BUDGET = 2000
 RULING = re.compile(rf"^\s*(?:[-*]\s+)?\**`?({standing.ID})\b")
 RULINGS_PER_INBOX = 5
-CATCH_UP = "Catch up with `inbox-digest.py --state {directory}/.inbox-digest.json {directory}/*.md`; never tail, sed, or grep a whole inbox."
+CATCH_UP = "Catch up with `cci digest --drive {drive}`, then `cci tail --drive {drive}`; never tail, sed, or grep a whole inbox."
 RULING_CHARS = 400
 TASK_CHARS = 200
 SHORT = 7
@@ -249,7 +249,7 @@ def render(handoff: Handoff) -> str:
         out.append("- none running at the last stop")
     out += ["", "## Inboxes"]
     if handoff.inbox_dir:
-        out += ["", CATCH_UP.format(directory=handoff.inbox_dir)]
+        out += ["", CATCH_UP.format(drive=handoff.inbox_dir.parent.name)]
     for inbox in handoff.inboxes:
         out += ["", f"### {inbox.name}: head {inbox.head or '-'}, cursor {inbox.cursor or '-'}"]
         out += [f"- {line.lstrip('-* ')}" for line in inbox.rulings]

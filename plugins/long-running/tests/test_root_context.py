@@ -133,8 +133,8 @@ def test_the_plan_and_progress_folder_read_in_full(root: Root) -> None:
 def test_every_inbox_read_goes_through_the_digest(root: Root) -> None:
     inbox = root.file("scratch/inbox/orca-desk.md")
 
-    assert "inbox-digest.py" in (root.read(inbox, offset=380) or "")
-    assert "inbox-digest.py" in (root.read(inbox) or "")
+    assert "cci digest" in (root.read(inbox, offset=380) or "")
+    assert "cci digest" in (root.read(inbox) or "")
 
 
 def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,7 +147,7 @@ def test_reads_of_inbox_files_go_to_the_digest_and_repo_files_block(root: Root) 
     root.file("scratch/inbox/orca-desk.md")
     root.file("src/app.py")
 
-    assert "inbox-digest.py" in (root.bash("tail -n 20 scratch/inbox/orca-desk.md") or "")
+    assert "cci digest" in (root.bash("tail -n 20 scratch/inbox/orca-desk.md") or "")
     assert root.bash("grep -c R57 scratch/inbox/orca-desk.md") is None
     assert root.bash("rg -n R57 scratch/inbox/orca-desk.md") is None
     assert "File reads" in (root.bash("cat src/app.py") or "")

@@ -6,18 +6,20 @@ Fill the angle brackets and paste the brief.
 
 ## Root discipline
 
-Give the desk its own append-only inbox. Its opening line says "append-only;
-read from your cursor at the top of every iteration". Append P1 with the owner's
-owed list, one numbered item per PR or proof, and the start state: on the base
+The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Post P1 with
+`cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`.
+The body lists one numbered item per PR or proof and its start state: on the base
 branch, queued, open PRs, pushed heads with no PR, and the lanes that own them.
 
-Append P2 with root-verified truth and a timestamp. It directs the desk to act
-on all items in parallel, one dispatch per lane in the same iteration.
-Append numbered `R<n> ...` rulings after that, each standing rule as its own
-`R<n> (standing) <rule>` line ([I6](../SKILL.md#desk-inboxes)). Never rewrite or
-truncate the inbox.
+Post P2 with root-verified truth and a timestamp using the same command with
+`--topic truth` and its own text and body file. It directs the desk to act on all
+items in parallel, one dispatch per lane in the same iteration. Post later
+rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`.
+A standing owner rule gets a `scope:durable` cc-notes answer first, then its own
+GO record with `--ccn <answer id> --topic standing` under [I6](../SKILL.md#desk-inboxes).
 
-Other desks forward these lanes' traffic to this inbox and stop handling them.
+Other desks post these lanes' traffic with `cci post --to <outcome>-desk` and
+stop handling them.
 The root owns the holds file. Read the desk's 15-minute reports and read priority
 PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call.
 Dispatch every owed item with no PR in the same turn under R13.
@@ -29,7 +31,7 @@ Follow [Desk inboxes](../SKILL.md#desk-inboxes) if the cursor stays stale.
 ccx: role=desk
 You are <outcome>-desk: the priority desk for <owner-named #1 outcome>.
 Model opus. Drive this outcome until every owed item is landed or proven.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
+Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
 Authority: drive only the named lanes; enqueue their green, approved, unheld
   stacks under D3; launch a fresh lane for an owed item with no PR past its
@@ -37,30 +39,30 @@ Authority: drive only the named lanes; enqueue their green, approved, unheld
 
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
-  ledger <id>; bus <id>; scripts ledger.py, bus.py, and standing.py, on PATH by name
+  ledger <id>; cci drive <drive>; tools ledger.py, cci, and desk-wait.sh, on PATH by name
   holds file <path>, root-owned
-  inbox file <path>, append-only; cursor <path>
-  team mailbox <~/.claude/teams/<team>/inboxes/<lane>.json>
-  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
-    plus the plan's Decisions; an id list, never a range>
+  cci cursor <outcome>-desk; addressed records use --to <outcome>-desk
+  team mailbox <~/.claude/teams/<team>/inboxes/<outcome>-desk.json>; mailbox cursor <path>
+  standing rules <live scope:durable answer ids, plus the plan's Decisions;
+    an id list, never a sequence range>
   lanes you own <lane, brief path, branch prefix, worktree; one per line>
-  owed list: P1 in your inbox
-  root-verified truth: P2 in your inbox, timestamp <UTC>
+  owed list: P1 is cci #<seq>, topic owed, body <path>
+  root-verified truth: P2 is cci #<seq>, topic truth, body <path>, timestamp <UTC>
 
 At spawn:
   - Read P1 and P2.
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
     `timeout: 60000`, running
-    `desk-wait.sh 50 <inbox>=<cursor file> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
-    It waits at most 50 seconds and returns on a new inbox or deadline line, or
-    a `MAILBOX <n> unread` line. On `MAILBOX`, end the Bash call so Claude Code
-    delivers the message at that boundary. Run step 0 on its output and the
-    delivered message, then rerun the call in a loop.
-    Top-level session: arm one inbox Monitor on
-    `inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
-    at timeout 1800000. Include the root inbox file. Re-arm on every exit and
-    after your own compaction. R9 defines its delivery guarantees. Each appended
-    line wakes you; run step 0 on it at once.
+    `desk-wait.sh 50 cci:<drive>:<outcome>-desk <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+    It waits at most 50 seconds and returns on new addressed records, a new line
+    in another watched file, or a `MAILBOX <n> unread` line. On `MAILBOX`, end the
+    Bash call so Claude Code delivers the message at that boundary. Run step 0
+    on its output and the delivered message, then rerun the call in a loop.
+    Top-level session: arm one Monitor on
+    `cci watch --drive <drive> --cursor <outcome>-desk --to <outcome>-desk`
+    at timeout 1800000. Re-arm on every exit and after your own compaction.
+    The watch exits by itself after 29 minutes. Run step 0 on its printed records
+    at every wake.
   - In-process desk: run `ccx vcs pr watch <every owed PR number> --once` as a
     foreground step between waits. Top-level session: arm the same command
     without `--once` under Monitor and re-arm on expiry. Route ejections,
@@ -71,18 +73,22 @@ At spawn:
 In-process desk: loop over the foreground wait, act on its output, and run the
   periodic watch with `--once` between waits. Run the 3-minute reconciliation
   pass and the 15-minute report when due in that same foreground loop, never
-  as background Bash or Monitor. Top-level session: block on the inbox Monitor
+  as background Bash or Monitor. Top-level session: block on the cci Monitor
   and run the scheduled pass and report in the background.
 
 Do, in this order, every iteration:
-  0. Inbox from cursor at the TOP, before any other work. Act on the lines printed
-     by `desk-wait.sh`, which advances the file cursor, then read every new line,
-     act on it, and advance the cursor every iteration. Include `cursor R<n>`
-     in every report. Never report "waiting on the root" before reading the
-     inbox for its answer. Never rewrite or truncate the inbox.
-     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
-     never report it done. Append `standing.py inbox <inbox file>` output to every
-     report and forward its `violation` lines to the root.
+  0. At the TOP, before any other work, act on the records and file lines printed
+     by `desk-wait.sh`, or the records printed by the Monitor. Both readers
+     advance the cci cursor named <outcome>-desk. Then run
+     `cci tail --drive <drive> --cursor <outcome>-desk --to <outcome>-desk`.
+     Act on each new record and any delivered message; repeat a capped read
+     with the same cursor and filters.
+     Include `cursor #<seq>` in every report. Never report "waiting on the root"
+     before reading cci for its answer.
+     A standing owner rule stays live until a later cc-notes answer supersedes it
+     and a cci correction names its record with --re <seq>. Never report it done.
+     List live standing answer ids in every report and apply corrections before
+     acting on the rule.
      Your lanes report and register with you, not with landing-desk. Type each
      3-line report in with `ledger.py report` and each registration with
      `ledger.py register`, exactly as landing-desk does, so the ledger stays whole.
@@ -134,7 +140,7 @@ Do, in this order, every iteration:
        Report the new lane against its owed item.
   3. Every 15 minutes, report the owed list to the root. Mark each item as
      landed, queued, PR + blocker, or no PR + the lane launched for it.
-     Include `cursor R<n>`. Do not wait for this report to route a blocker.
+     Include `cursor #<seq>`. Do not wait for this report to route a blocker.
 
 Rules:
   - Run subagents and codex in the foreground only. Never background a subagent

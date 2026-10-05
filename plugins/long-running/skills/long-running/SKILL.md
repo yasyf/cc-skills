@@ -69,7 +69,7 @@ pass it. It blocks:
   over a file outside an `inbox/` directory.
 - A Read, or `cat`, `head`, `tail`, `sed`, `awk`, or `grep` except `grep -c`, over
   `inbox/*.md`, even with a bounded window; use
-  `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`.
+  `cci digest --drive <drive>` and `cci tail --drive <drive> --cursor root`.
 - A history or PR read: `git log`, `show`, `diff`, `blame`, or `grep`; `gh pr view`,
   `gh pr diff`, `gh run view`, or `gh issue view`; `ccx code`, `repo`, or `web`;
   `ccx vcs diff`, `show`, `history`, or `reviews`.
@@ -242,7 +242,8 @@ release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
 **R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
-and `launch` commands and watches its inbox files through one Monitor on
+and `launch` commands and watches the runner's and orca desk's markdown files
+through one Monitor on
 `inbox-watch.py --state <drive>/inbox/.inbox-watch.json [--match <extra regex>] [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
 at timeout 1800000, re-armed on every exit and after compaction. Its byte-offset
 cursor loses and replays nothing on re-arm; `ESCALATION`, `INCIDENT`, `URGENT`,
@@ -251,18 +252,20 @@ stage for a reaper to kill. After five minutes without a root turn since an urge
 line arrived, it pushes to the owner's DM and names any open question holding
 delivery.
 
-After compaction or a re-arm gap, catch up with
-`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`; never tail, sed,
-or grep whole inbox files. The digest keeps the newest appended lines within a
-6144-byte budget, clips each to 200 characters, counts omissions, and advances its
-state beside `.inbox-watch.json`. It starts at the live file's beginning on first
-use, skips archives, and reports unread archived bytes. A new lane orients with
-`inbox-digest.py --all <files>`, which reads archives and live files with the same
-caps and touches no state.
+The root also keeps one Monitor on
+`cci watch --drive <drive> --cursor root-watch --reader root --kind incident --kind decide --kind ask --kind blocker --kind defect`
+at timeout 1800000, re-armed on every exit and after compaction. Records addressed
+to root arrive regardless of kind.
 
-Use `--match '.*'` for all inbox traffic or a regex for extra lines. The root never
-runs the check/ack loop, relaunch sweeps, or helper scripts inline. No model desk
-sits between the root and Orca.
+After compaction or a re-arm gap, catch up with
+`cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`.
+The tail resumes from the root's cursor and ends with a resume trailer when capped.
+Never tail, sed, or grep whole inbox files. A new lane orients with
+`cci digest --drive <drive>`.
+
+For `inbox-watch.py`, use `--match '.*'` for all markdown inbox traffic or a regex
+for extra lines. The root never runs the check/ack loop, relaunch sweeps, or helper
+scripts inline. No model desk sits between the root and Orca.
 
 Start the orca runner before the first worker; keep its escalations
 under the drive's `inbox/`. Use `policy` for a landing rule and `show` for action
@@ -1193,28 +1196,35 @@ session open and idle.
 
 ## Desk inboxes
 
-These I-rules apply to the landing desk, priority desks, and shards. Orca traffic
-uses `desk-runner.py relay`, `launch`, and `policy` commands, or a relay or launch
-line in `inbox/orca-desk.md` in the one form the orca desk brief gives each. The runner's escalation and state files under `inbox/` are
-rendered views. Its action records hold authority. The root never `SendMessage`s
-a desk.
+These I-rules apply to the landing desk, priority desks, and shards. The owner ruled:
 
-**I1. Give every desk one append-only inbox file.** The root appends numbered lines
-`R<n> ...`. Only `inbox-rotate.py`, run by `desk-runner.py`, rewrites it, by atomic
-rename; nothing else ever rewrites or truncates it. Keep inbox lines under 400
-characters; put evidence in a file or cc-notes and leave a pointer in the line.
+> take all ephemeral stuff out of manual files and ccn, and move it into cci (cc-inbox)
 
-**I2. Read from the saved cursor at the top of every iteration.** Read before any
-other work, act on each line, and advance the cursor every iteration. Every report
-names the cursor as `cursor R<n>`.
+Durable owner rulings, decisions, runbooks, and design docs stay in cc-notes.
+The orca desk keeps its launch, relay, and hold lines in `inbox/orca-desk.md` in
+the `R<n>` form because the owner's CLAUDE.md Incident Turn names that file and format.
+The root never `SendMessage`s a desk.
+
+**I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling
+with `cci post --drive <drive> --lane root --kind go --to <desk> --text "<ruling>"`.
+Keep text under 400 characters; put a longer body in a file and attach it with
+`--path <file>`. Link durable records with `--ccn <id>`.
+
+**I2. Read from the saved cursor at the top of every iteration.** Before any other
+work, act on the records printed by `desk-wait.sh` or the cci Monitor. Both readers
+advance the cci cursor named for the desk. Then read with
+`cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new record
+and any delivered message. Repeat a capped read with the same cursor and filters.
+Every report names the last sequence read as `cursor #<seq>`.
 
 **I3. Read the inbox before reporting a wait on the root.** Check for the answer
 before saying an item is waiting on the root.
 
 **I4. Never `SendMessage` a running desk.** When its reported cursor stays behind
-the root's last line for more than one iteration, the root appends one inbox line
-naming the unread range and records the stall in its progress record. The desk
-reads that line at the top of its next iteration (I2). Resume only a desk that
+the root's last addressed record for more than one iteration, the root posts one
+`cci post --drive <drive> --lane root --kind go --to <desk> --text "Read unread range #<first>-#<last>."`
+and records the stall in its progress record. The desk reads that record at the top
+of its next iteration (I2). Resume only a desk that
 has already reported and ended its loop, through Scoped resume, in place with the
 same identity.
 
@@ -1223,19 +1233,21 @@ same identity.
 **I5. Keep about 15 lanes per desk.** Split early into a second desk or a priority
 desk.
 
-**I6. A standing rule is its own tagged line, and it is never done.** An owner rule
+**I6. A standing rule has its own durable answer, and it is never done.** An owner rule
 that holds until replaced ("from now on", "for the remainder", "every landing")
-gets its own id and line: `R<n> (standing) <rule>`. It never shares a line or an id
-with a one-off: "deploy everything now" and "deploy every landing from now on" are
-two lines. No line marks it done, complete, or closed. Only a later line
-`R<k> R<n> superseded by <id>`, or a later standing line `R<k> (standing) supersedes R<n> ...`,
-ends it. A desk brief names its standing rules as an
-id list, `standing: R40, R312`, plus the plan's Decisions, never as a range like
-"L65–L107 are standing". `standing.py inbox <inbox file>` prints the live ids and
-every line that breaks this rule; the desk appends its output to every summary.
+gets its own `scope:durable` cc-notes answer first, then one
+`cci post --drive <drive> --lane root --kind go --to <desk> --ccn <answer id> --topic standing --text "<rule>"`.
+It never shares a record or an answer id with a one-off. "Deploy everything now"
+and "deploy every landing from now on" are two records. No record marks the standing rule done, complete, or closed.
 
-A standing rule handed to a lane as a deliverable still gets its own `(standing)`
-line and its own `scope:durable` answer first. The lane's task cites that id, and
+Supersede its answer with a later answer, then post
+`cci post --drive <drive> --lane root --kind correction --to <desk> --re <seq> --ccn <later answer id> --topic standing --text "<replacement rule>"`.
+Here `<seq>` names the standing record being superseded. A desk brief and each
+summary list live standing rules by answer id, plus the plan's Decisions, never
+as a sequence range.
+
+A standing rule handed to a lane as a deliverable still gets its own durable
+answer and addressed cci record first. The lane's task cites that answer id, and
 completing the task never retires the rule.
 
 *Prevents the release-v3 "release everything as it merges" rule being lost three
@@ -1248,25 +1260,28 @@ toward it.*
 desk is in-process. Every in-process desk and lane names its own team mailbox,
 `~/.claude/teams/<team>/inboxes/<lane name>.json`, as a source. Run one foreground
 Bash call with `timeout: 60000`:
-`desk-wait.sh 50 <inbox>=<cursor file> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+`desk-wait.sh 50 cci:<drive>:<desk> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
 
-It waits at most 50 seconds for a new file line or `MAILBOX <n> unread`, where `n`
-counts all unread mailbox entries. It clips displayed file lines to 400 characters,
-ending clipped lines with an ellipsis. On `MAILBOX`, end the Bash call: Claude Code
-delivers the message at that tool-call boundary. Act on the output and delivered
-message, then rerun the call in a loop.
+It waits at most 50 seconds and returns on new addressed records, a new line in
+another watched file, or `MAILBOX <n> unread`, where `n` counts all unread mailbox
+entries. It clips displayed records and file lines to 400 characters, ending
+clipped lines with an ellipsis. On `MAILBOX`, end the Bash call: Claude Code
+delivers the message at that tool-call boundary. Run step 0 on the output and
+delivered message, then rerun the call in a loop.
 
-The script advances each file's cursor; act on the printed lines before
-reading beyond it (I2). Run the 3-minute reconciliation pass, the 30-minute
+The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk
+past the cci cursor named for it, advancing that cursor. The script also advances
+each file's cursor. Act on the printed records and file lines before reading
+beyond those cursors (I2). Run the 3-minute reconciliation pass, the 30-minute
 summary, and periodic sources such as `ledger.py watch ... --once` and
 `ccx vcs pr watch ... --once` as foreground steps in that same loop between
 waits, never as background Bash or Monitor.
 
-Only top-level sessions arm one inbox Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
-at timeout 1800000. Re-arm it on every exit and after compaction. R9 defines its
-delivery guarantees. Each appended `R<n>` line wakes the desk; read from the saved
-cursor and act in that turn.
+Only top-level session desks arm one Monitor on
+`cci watch --drive <drive> --cursor <desk> --to <desk>`
+at timeout 1800000. The watch exits by itself after 29 minutes; re-arm it on every
+exit and after compaction. It advances the desk's cci cursor as it prints records;
+run step 0 on those records at every wake.
 
 *Prevents the 34-minute miss of R956-R969 in a backgrounded desk pass on
 2026-10-02. The first fix armed a Monitor an in-process desk is never woken by.*
@@ -1275,55 +1290,70 @@ cursor and act in that turn.
 
 ## The lane bus
 
-`SendMessage` is fire-and-forget into an inbox. A message lands while its reader is
-idle or mid-poll, and when the reader finally acts it acts on the state the message
-described: one lane waited on an OK another lane had already given, and one waited on
-a verdict its author had already withdrawn. `scripts/bus.py` is the shared record
-between lanes: one cc-notes log per drive, one entry per post, each lane reading from
-its own cursor. It is R5 applied to what lanes tell each other.
-`reference/bus-contracts.md` holds the entry kinds and the delivery rule.
+The bus is `cci`. Each post is one record, and each lane reads deliveries from a
+cci cursor named for that lane. `SendMessage` can arrive while its reader is idle
+or mid-poll. The reader checks cci before acting on a message that may be stale.
+`reference/bus-contracts.md` holds the record kinds and the delivery rule.
 
-The root creates it once with `bus.py init --title "bus: <drive>"` and puts the id in
-every brief beside the ledger id. The records live on `refs/cc-notes/*` beside the
-ledger and survive compaction, rotation, and a session restart.
+The root puts the cci drive name in every brief beside the ledger id. Durable
+decisions stay in cc-notes; their bus records link them with `--ccn <id>`.
+`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
 
-**B1. Post the state, message the pointer.** A decision another lane could build on, a
-head after every push, a contract whenever a lane exposes something another lane
-consumes, a blocker, and an ask each go on the bus with `bus.py post`, addressed with
-`--to` when a named lane must act. The `SendMessage` that wakes that lane carries the
-entry number and nothing else. *Prevents a lane acting on the body of a stale message
+**B1. Post the state, message the pointer.** Use
+`cci post --drive <drive> --lane <lane> --kind <kind> --text "<text>"` for
+`decision`, `head`, `contract`, `blocker`, `ask`, `answer`, and `withdraw` records.
+Post decisions other lanes build on, heads after every push, and contracts for
+interfaces other lanes consume.
+
+Address records with `--to` when a named lane must act; link replies with `--re <seq>`.
+The `SendMessage` that wakes that lane carries the entry number and nothing else. *Prevents a lane acting on the body of a stale message
 when the log already holds the newer entry.*
 
 **B2. Read at every wake and before every decision or report.** A lane's first tool
-call on any wake is `bus.py read --lane <name>` with its brief's subscription, and it
-reads again before it decides, reports, or asks. A read that shows `[ANSWERED #n]` or
-`[WITHDRAWN #n]` on an entry ends any wait on it. A message is never acted on before
+call on any wake is `cci tail --drive <drive> --cursor <lane> --reader <lane>`.
+Add `--topic` or `--kind` filters to subscribe to broadcasts; addressed records
+arrive regardless of those filters. Read again before deciding, reporting, or
+asking.
+
+A read that shows `[ANSWERED #n]` or `[WITHDRAWN #n]` on an entry ends any wait on it. A message is never acted on before
 the read. *Prevents the wait on an answer already given and the act on a verdict
 already retracted.*
 
-**B3. Watch while running.** A lane arms one Monitor on `bus.py watch --lane <name>`
-with the same subscription, at the maximum timeout, and re-arms it when it expires. It
-prints an entry only when one is delivered, so a running lane hears a blocker or an
+**B3. Watch while running.** Landing desks, priority desks, and shards follow I7.
+Other top-level lanes arm one Monitor on
+`cci watch --drive <drive> --cursor <lane>-watch --reader <lane>` with the same
+subscription, at the maximum timeout, and re-arm it when it exits after 29 minutes.
+
+Other in-process lanes run the watch in the foreground with `--for 50s`, then read
+their lane cursor under B2. The separate watch cursor keeps wake events from
+advancing the lane's read cursor.
+
+The watch prints an entry only when one is delivered, so a running lane hears a blocker or an
 answer within the interval instead of at its next wake. This is the one Monitor a
 lane keeps; R3 still forbids one per build. *Prevents the idle lane that never saw its
 CI red until the owner did.*
 
 **B4. Withdraw, never overwrite.** A retracted verdict, a moved head, or a changed
-interface is a `withdraw --re <entry>` from its poster, then a new entry. Every read of
-the old entry shows the withdrawal, so a lane that already acted learns it and a lane
+interface is a `cci post --drive <drive> --lane <lane> --kind withdraw --re <seq> --text "<reason>"`
+from its poster, then a new record. Address the withdrawal to the original recipients.
+Every text read of the old entry shows the withdrawal, so a lane that already acted learns it and a lane
 that has not yet acted never does. *Prevents two lanes carrying two versions of one
 verdict.*
 
-**B5. Read `state` before asking, and `summary` instead of the log.** `bus.py state`
-is the live head and contract per lane and topic; a question it answers is never sent
-to a lane. The root reads `bus.py summary` beside the desk's summary: counts, every open
-ask and blocker with its age, the latest decisions, at most ten lines. An open ask
+**B5. Read `state` before asking, and `digest` for the root's view.**
+`cci state --drive <drive>` gives the latest non-withdrawn head and contract per
+lane and topic; a question it answers is never sent to a lane.
+
+The root reads `cci digest --drive <drive>` beside the desk's summary for open
+asks, blockers, holds, incidents, and the latest record per lane. The digest covers 24 hours by default
+and counts older open items; use a longer `--since` window to inspect them. An open ask
 past its lane's cadence is the root's to dispatch under R6. Two contracts on one topic
 from two lanes are a collision to rule on before either ships. *Prevents the root
 relaying by hand what any lane could read, and the contradiction found after both
 sides landed.*
 
-The desk posts each `route` line as `blocker --topic <pr> --to <lane>` in the pass
+The desk posts each `route` line with
+`cci post --drive <drive> --lane <desk> --kind blocker --topic <pr> --to <lane> --text "<route line>"` in the pass
 that prints it, so a red reaches an idle lane at its next wake whatever became of the
 message.
 
@@ -1352,7 +1382,7 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
+Keep record text under 400 characters; `cci post` refuses longer text. Attach the body with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register through hooks; above 9,000 characters, read it
   with `ccn doc show <id7>` before acting.
@@ -2201,7 +2231,7 @@ its `<file>.cursor` value, and its last five ruling lines. Sections run in this 
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
-`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <drive>/inbox/*.md`
+`cci digest --drive <drive>`, then `cci tail --drive <drive>`,
 and the instruction never to tail, sed, or grep a whole inbox.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`.

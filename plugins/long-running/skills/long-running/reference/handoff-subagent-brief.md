@@ -8,7 +8,7 @@ paste the brief.
 ## Root discipline
 
 Pass the drive checkout and previous handoff's doc id, or `none`, before spawning. Read
-nothing of the old lane yourself, neither its transcript, receipts, cursor files, nor
+nothing of the old lane yourself, neither its transcript, receipts, cci deliveries, nor
 runtime listings. The subagent's reply is at most two lines:
 `handoff <lane>: doc <id>; successor <lane>-<N+1>` and
 `unverified: <n> items (in the doc)`. The doc carries everything else.
@@ -29,10 +29,11 @@ Verified facts, do not re-derive:
   lane <lane>, team <team>, model <model>, running since <UTC>
   transcript <~/.claude/projects/<project>/<root session>/subagents/agent-<lane>-*.jsonl>
   reference brief <path, or "first user message of the transcript">
-  inbox file <path>, last relayed line <R<n> or line number>; cursor files <paths>
+  cci drive <drive>; cci cursor <lane>; last reported cursor #<seq>
+  standing rules <scope:durable answer ids from the brief and previous handoff>
   program <slug of the drive's `progress:<slug>` label>
   previous handoff <previous handoff doc id, or "none">; drive checkout <drive checkout>
-  lane state <ledger id, bus id, cc-notes log id, receipts dir, scripts it runs>
+  lane state <ledger id, cc-notes log id, receipts dir, scripts it runs>
   runtime commands <e.g. orca orchestration task-list --run <run>; worker-show --dispatch <id>>
 
 Do, in this order:
@@ -41,14 +42,18 @@ Do, in this order:
      spawn brief and `cc-transcript show <path> --signal --tail 40` for its last
      reports; use `cc-transcript grep '<pattern>' <path>` for anything else. Never
      cat or Read the jsonl.
-  3. Read the inbox with `inbox-digest.py --all <inbox file>`, then read the cursor
-     files, the receipts dir, and its ledger rows. Run each runtime command once.
+  3. Read deliveries with
+     `cci tail --drive <drive> --cursor <lane> --reader <lane> --since <last reported seq>`.
+     The explicit --since leaves the lane's saved cursor untouched. If capped,
+     repeat with --since set to the last printed sequence. Read the receipts dir
+     and ledger rows. Run each runtime command once.
   4. Run from the drive checkout:
      `ccn -R <drive checkout> doc add "<lane> handoff <UTC>" \
        --label handoff --label lane:<lane family> --label program:<slug> \
        --when "Starting <lane>-<N+1> on the <slug> drive" --checkout`.
      Write these sections into the printed edit-buffer path, the only file you write:
-     - Identity and facts: ids, paths, scripts, cursor values the successor sets.
+     - Identity and facts: ids, paths, scripts, cci drive and cursor name the
+       successor reuses, and the last reported sequence.
      - Live work: one table row per worker, PR, or dispatch it owns, with its ids
        and state as the runtime reported it.
      - Next actions, in order, with the gate each one waits on.
@@ -57,10 +62,12 @@ Do, in this order:
        and quote its whole body verbatim, in order, with `  >` on each line.
        The lint rejects a quote of only the first line. If the result is null,
        state that no register doc exists. Never build or edit the register.
-       Then carry every live rule from `standing.py inbox <inbox file>` as a bullet.
-       Read the whole inbox, not only from the last relayed line. Name each standing
-       inbox id, never a range. Carry each inbox id from the previous handoff or write
-       `- <id> superseded by <id>`. Do not add a separate list of durable answer titles.
+       Read the brief's standing answers with `ccn answer show <id>` and check
+       `ccn answer list --label scope:durable` for their successors. Carry each live
+       rule as a bullet with its answer id. Carry every answer id from the previous
+       handoff or write `- <answer id> superseded by <answer id>`. cci GO records
+       with --topic standing link these answers; corrections name the replaced
+       record with --re. Never use a sequence range as the standing-rule list.
      - Pending items the old lane was holding, and where to look for traffic
        after its last turn at <UTC>.
      Put every value you could not verify or reconstruct in one `## Unverified`
@@ -71,8 +78,8 @@ Do, in this order:
   5. Run `standing.py lint --file <buffer> --program <slug>
      [--previous-doc <previous handoff doc id>]` and fix the buffer until it exits 0.
   6. Run `ccn doc add --apply <buffer>`; it creates the doc and prints its id.
-     If the successor needs an inbox snapshot, add `--attach <inbox file>` on apply;
-     cc-notes snapshots that file. Never write a separate snapshot.
+     The successor reads deliveries from the named cci cursor. Keep ephemeral
+     inbox traffic in cci; the handoff links durable answers by id.
   7. If there was a previous handoff, run
      `ccn doc supersede <previous handoff doc id> --by <new id>`.
 

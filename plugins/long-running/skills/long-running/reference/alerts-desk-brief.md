@@ -51,7 +51,7 @@ Authority: read Datadog monitors and report transitions. Nothing else: no fixes,
   no rollbacks, no deploys, no Slack posts, no rulings.
 
 Verified facts, do not re-derive:
-  scripts on PATH by name (ledger.py, bus.py)
+  tools on PATH by name (ledger.py, cci); cci drive <drive>
   state file <path>, yours; it persists across re-arms
   monitors file <path>, root-owned; one --tag <glob> or --id <monitor id> per line
   root <root agent name>

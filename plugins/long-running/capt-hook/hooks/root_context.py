@@ -422,10 +422,10 @@ def root_block(
 
 
 root_block(
-    message="Drive roots read inboxes through `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`.",
+    message="Drive roots read inboxes through `cci digest --drive <drive>` and `cci tail --drive <drive>`.",
     only_if=[ReadsInbox()],
     tests={
-        Input(command="tail -n 40 ~/.claude/scratch/drive/inbox/deploy-go.md", state=ACTIVE): Block(pattern=r"inbox-digest"),
+        Input(command="tail -n 40 ~/.claude/scratch/drive/inbox/deploy-go.md", state=ACTIVE): Block(pattern=r"cci digest"),
         Input(command="grep -n G12 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
         Input(command="sed -n '1,400p' /drive/inbox/runner.md", state=ACTIVE): Block(),
         Input(command="cat /drive/inbox/*.md", state=ACTIVE): Block(),

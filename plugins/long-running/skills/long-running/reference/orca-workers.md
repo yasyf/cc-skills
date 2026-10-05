@@ -151,7 +151,9 @@ Orca's readiness check does not recognize codex. Dispatch `ctx_a1c0260ecb02` and
 ended `state=failed`, `failedStage=agent_readiness`, `lastError=timeout` with codex at its prompt and
 the spec undelivered. On that timeout with a live codex or sol terminal, the script types the
 spec pointer itself and prints `<lane> unsupervised task=... dispatch=... terminal=... worktree=...`.
-Count it as launched; it reports through its inbox/bus file, with no Orca `worker_done` or escalation plumbing.
+Count it as launched; it reports with
+`cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"`,
+with no Orca `worker_done` or escalation plumbing.
 A `desk-runner.py launch` action starts the script detached; the runner never
 waits on readiness in its mailbox loop.
 
@@ -283,7 +285,9 @@ A successful launch prints one of these result lines:
 Count the launch only after one of those lines. A supervised result reads `ready`;
 Claude's screen must also show `bypass permissions on`. An `unsupervised` codex
 result means the script sent the spec after the readiness timeout; report it to
-the root and use the lane's inbox/bus file. A failed launch prints
+the root through `cci post --drive <drive> --lane <lane> --kind report --to root --text "<report>"`.
+Read deliveries with `cci tail --drive <drive> --cursor <lane> --reader <lane>`.
+A failed launch prints
 `<lane> failed <step and reason>` and exits 1; invalid usage exits 2.
 
 The receipt is `<receipt dir>/<lane>.json`; `<lane>.terminal` holds the handle that
