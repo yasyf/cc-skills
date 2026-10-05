@@ -94,7 +94,7 @@ the rendered page URL from the successful `publish` command's `RENDERED:` line.
    reach disk when the run ends. A later fact edit sends the affected fields
    back through Astra.
 5. Run `$TOOL publish <dir>`. It runs the gates before pushing, refreshes
-   both cards, opens or updates a ready PR, enables squash auto-merge, and
+   both cards, opens or updates a ready PR, enables auto-merge with the merge method the repository allows, and
    waits for merge and a successful Pages deployment containing the merge
    commit. If it exits 75, resume with the printed `AWAIT:` command until
    it succeeds or reports a failure. Phase 5 gives the wait and exit rules.
@@ -460,7 +460,7 @@ After the Phase 4 gates pass, `publish` refreshes both index cards from
 `retro.json`, using `meta.title`, `meta.subtitle`, `meta.date`, and
 `meta.status`. It commits only the retro directory and the two index pages
 as `incident retros: 📝 <meta.title>`, then pushes. It opens a ready PR or
-edits the existing PR and marks it ready, then enables squash auto-merge.
+edits the existing PR and marks it ready, then enables auto-merge with the merge method the repository allows.
 The PR body contains the summary panels rendered as Markdown with Astra's
 text verbatim, plus the page URL from `CNAME`.
 

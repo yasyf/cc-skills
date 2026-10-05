@@ -19,7 +19,7 @@ and fill Remediation before the prose pass and the first retro PR.
 `publish` runs check --strict, render-check, and a whole-page slop-cop count before pushing anything.
 After the gates pass, it refreshes both index cards, commits only the retro directory and the two
 index pages, pushes, and opens a ready PR or edits the existing PR and marks it ready. It writes
-the PR body from the summary panels and enables squash auto-merge. A retro PR is never draft.
+the PR body from the summary panels and enables auto-merge with the merge method the repository allows. A retro PR is never draft.
 
 The wait ends when the PR merges and a successful github-pages deployment contains the merge
 commit. GitHub sign-in protects the site, so the deployment record proves the merged revision is
@@ -63,6 +63,7 @@ AWAIT_SECONDS = 540
 AWAIT_POLL = 10
 STILL_WAITING = 75
 PAGES_ENV = "github-pages"
+MERGE_METHODS = ("squash", "rebase", "merge")
 
 
 def run(argv, cwd=None, check=True) -> str:
@@ -330,10 +331,15 @@ def publish(args) -> int:
         run(["gh", "pr", "ready", url], cwd=docs, check=False)
     else:
         url = run(["gh", "pr", "create", "--title", title, "--body", body], cwd=docs).strip().splitlines()[-1]
-    run(["gh", "pr", "merge", url, "--squash", "--delete-branch", "--auto"], cwd=docs)
+    run(["gh", "pr", "merge", url, merge_flag(url), "--delete-branch", "--auto"], cwd=docs)
     print(f"publish: {url} is ready and set to merge once its checks pass")
     print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
     return await_rendered(root, url, args.seconds)
+
+
+def merge_flag(url: str) -> str:
+    allowed = json.loads(run(["gh", "api", f"repos/{'/'.join(url.split('/')[3:5])}"]))
+    return next(f"--{m}" for m in MERGE_METHODS if allowed[f"allow_{m}_merge"])
 
 
 def pages_live(repo: str, sha: str) -> bool:
