@@ -26,7 +26,13 @@ six-hour window, archival starts about six hours after the first mark.
 wait advances line-count cursors over the same stream and prints new nonblank
 lines clipped to 400 characters, ending clipped lines with an ellipsis. It returns
 when lines arrive or prints QUIET with the Pacific time at the deadline. Display
-clipping never cuts lines stored in the inbox.
+clipping never cuts lines stored in the inbox. A .json file in an inboxes directory
+is a team mailbox whose cursor counts seen entries, starting at 0 if missing or
+if the mailbox shrinks below it. An entry past the cursor with read=false ends
+the call with MAILBOX <n> unread (n counts all read=false entries), letting Claude
+Code deliver the message at that tool-call boundary. The stat check runs every
+0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
+never wake it.
 """
 
 from __future__ import annotations
@@ -52,6 +58,8 @@ DIGEST_BYTES = 6144
 ROTATE_HOURS = 6.0
 WAIT_USAGE = "usage: desk-wait.sh <seconds> <file>=<cursor-file>..."
 WAIT_SOURCE = re.compile(r"(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
+WAIT_SLICE = 2.0
+MAILBOX_POLL = 0.2
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -142,6 +150,44 @@ class Inbox:
             return cut
 
 
+class Mailbox:
+    def __init__(self, path: Path):
+        self.path = path
+
+    @staticmethod
+    def holds(path: Path) -> bool:
+        return path.suffix == ".json" and path.parent.name == "inboxes"
+
+    def mark(self) -> tuple[int, int] | None:
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_mtime_ns, stat.st_size
+
+    def poll(self, seen: int | None) -> tuple[int, int] | None:
+        try:
+            entries = json.loads(self.path.read_text())
+        except FileNotFoundError:
+            return 0, 0
+        except ValueError:
+            return None
+        if seen is None:
+            return len(entries), 0
+        fresh = entries[seen:] if seen <= len(entries) else entries
+        unread = sum(not entry["read"] for entry in entries)
+        return len(entries), unread if any(not entry["read"] for entry in fresh) else 0
+
+
+def pause(seconds: float, mailboxes: list[Mailbox]) -> None:
+    marks = [mailbox.mark() for mailbox in mailboxes]
+    until = time.monotonic() + seconds
+    while (left := until - time.monotonic()) > 0:
+        time.sleep(min(MAILBOX_POLL, left))
+        if [mailbox.mark() for mailbox in mailboxes] != marks:
+            return
+
+
 def cost(texts: list[str]) -> int:
     return sum(len(text.encode()) + 1 for text in texts)
 
@@ -198,9 +244,20 @@ def wait(argv: list[str]) -> int:
         print(WAIT_USAGE, file=sys.stderr)
         return 2
     deadline = time.monotonic() + int(argv[0])
+    files = [source for source in sources if not Mailbox.holds(Path(source["file"]))]
+    mailboxes = [(Mailbox(Path(source["file"])), Path(source["cursor"])) for source in sources if Mailbox.holds(Path(source["file"]))]
     while True:
         changed = False
-        for source in sources:
+        for mailbox, cursor in mailboxes:
+            polled = mailbox.poll(int(cursor.read_text()) if cursor.is_file() else 0)
+            if polled is None:
+                continue
+            count, unread = polled
+            cursor.write_text(f"{count}\n")
+            if unread:
+                print(f"MAILBOX {unread} unread", flush=True)
+                changed = True
+        for source in files:
             watched, cursor = Path(source["file"]), Path(source["cursor"])
             seen = int(cursor.read_text()) if cursor.is_file() else 0
             lines = Inbox(watched).lines() if watched.is_file() else []
@@ -216,7 +273,7 @@ def wait(argv: list[str]) -> int:
         if remaining <= 0:
             print(f"QUIET {datetime.now(PACIFIC):%-I:%M %p}")
             return 0
-        time.sleep(min(2.0, remaining))
+        pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes])
 
 
 def main(argv: list[str] | None = None) -> int:

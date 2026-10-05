@@ -16,6 +16,11 @@ seen starts at its end. A stream that shrinks below its offset prints one RESET 
 and resumes at its new end. Beyond --burst matching
 lines in one pass, the urgent lines still print and the rest fold into one count.
 
+A .json FILE in an inboxes directory is a team mailbox; its saved offset counts
+entries, and an unseen mailbox starts at its current entry count. A new read=false
+entry prints one MAILBOX <n> unread line, with n counting all read=false entries.
+That line bypasses --match and is never urgent or pushed.
+
 A --heartbeat file older than its SECONDS prints one WATCH-STALE line per stale
 streak, and one WATCH-LIVE line when it is written again.
 
@@ -45,7 +50,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from inboxes import Inbox, clip
+from inboxes import Inbox, Mailbox, clip
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 URGENT = re.compile(r"\b(?:ESCALATION|INCIDENT|URGENT|DECIDE|ALERT)\b|\bASK root\b")
@@ -145,8 +150,18 @@ class Watch:
     def matches(self, line: str) -> bool:
         return bool(URGENT.search(line)) or any(pattern.search(line) for pattern in self.extra)
 
+    def mail(self, path: Path) -> list[tuple[bool, str]]:
+        polled = Mailbox(path).poll(self.state["offsets"].get(str(path)))
+        if polled is None:
+            return []
+        count, unread = polled
+        self.state["offsets"][str(path)] = count
+        return [(False, f"MAILBOX {unread} unread")] if unread else []
+
     def read(self, path: Path) -> list[tuple[bool, str]]:
         key = str(path)
+        if Mailbox.holds(path):
+            return self.mail(path)
         if not path.is_file():
             self.state["offsets"].setdefault(key, 0)
             return []

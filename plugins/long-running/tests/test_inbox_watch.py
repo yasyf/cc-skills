@@ -249,3 +249,16 @@ def test_one_oversized_line_costs_at_most_the_display_cap(inbox):
     inbox.run()
     inbox.append(inbox.deploy, "DECIDE " + "z" * 1500)
     assert inbox.run() == ["deploy-go.md: DECIDE " + "z" * 392 + "…"]
+
+
+def test_a_mailbox_gaining_an_unread_message_prints_one_mailbox_line(inbox):
+    inboxes_dir = inbox.root / "teams" / "session-1" / "inboxes"
+    inboxes_dir.mkdir(parents=True)
+    mailbox = inboxes_dir / "team-lead.json"
+    mailbox.write_text(json.dumps([{"text": "old", "read": False}]))
+    assert inbox.run(str(mailbox)) == []
+    mailbox.write_text(json.dumps([{"text": "old", "read": False}, {"text": "seen", "read": True}]))
+    assert inbox.run(str(mailbox)) == []
+    mailbox.write_text(json.dumps([{"text": "old", "read": False}, {"text": "seen", "read": True}, {"text": "pick", "read": False}]))
+    assert inbox.run(str(mailbox)) == ["MAILBOX 2 unread"]
+    assert inbox.run(str(mailbox)) == []

@@ -100,6 +100,7 @@ Verified facts, do not re-derive:
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
   holds file <path>, root-owned; root inbox <path>; cursor <path>
+  team mailbox <~/.claude/teams/<team>/inboxes/<lane>.json>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
     plus the plan's Decisions; an id list, never a range>
@@ -115,9 +116,11 @@ After your own compaction, resume in place. The ledger holds your inbox, holds,
 At spawn:
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
     `timeout: 60000`, running
-    `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
-    It waits at most 50 seconds and returns on a new inbox, mailbox, or deadline
-    line. Run step 0 on its output, then rerun the call in a loop.
+    `desk-wait.sh 50 <inbox>=<cursor file> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+    It waits at most 50 seconds and returns on a new inbox or deadline line, or
+    a `MAILBOX <n> unread` line. On `MAILBOX`, end the Bash call so Claude Code
+    delivers the message at that boundary. Run step 0 on its output and the
+    delivered message, then rerun the call in a loop.
     Top-level session: arm one inbox Monitor on
     `inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
     at timeout 1800000. Include the root inbox file. Re-arm on every exit and

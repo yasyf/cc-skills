@@ -1245,12 +1245,16 @@ marked "R312 done" once deploy-experience's `tools/deploy --since` task built
 toward it.*
 
 **I7. In-process teammate desks wait in the foreground.** Every Agent-spawned
-desk is in-process. Run one foreground Bash call with `timeout: 60000`:
-`desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
-It blocks for at most 50 seconds and exits on the first new line in any named
-file: inbox, mailbox, or deadlines. It clips displayed lines to 400 characters,
-ending clipped lines with an ellipsis. Act on its output, then rerun the call in a
-loop.
+desk is in-process. Every in-process desk and lane names its own team mailbox,
+`~/.claude/teams/<team>/inboxes/<lane name>.json`, as a source. Run one foreground
+Bash call with `timeout: 60000`:
+`desk-wait.sh 50 <inbox>=<cursor file> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+
+It waits at most 50 seconds for a new file line or `MAILBOX <n> unread`, where `n`
+counts all unread mailbox entries. It clips displayed file lines to 400 characters,
+ending clipped lines with an ellipsis. On `MAILBOX`, end the Bash call: Claude Code
+delivers the message at that tool-call boundary. Act on the output and delivered
+message, then rerun the call in a loop.
 
 The script advances each file's cursor; act on the printed lines before
 reading beyond it (I2). Run the 3-minute reconciliation pass, the 30-minute
@@ -1266,6 +1270,8 @@ cursor and act in that turn.
 
 *Prevents the 34-minute miss of R956-R969 in a backgrounded desk pass on
 2026-10-02. The first fix armed a Monitor an in-process desk is never woken by.*
+
+*Prevents root `SendMessage` picks sitting unread for 20-60 minutes while lanes wait, as happened to sweepers-delete, inference-delete, lr-dashboard, applied-from-pulumi, and platy-ux-promises-3 on 2026-10-04.*
 
 ## The lane bus
 
@@ -1542,6 +1548,8 @@ other lanes were deleting both.*
 
 Lanes poll in the foreground. The Bash tool caps `timeout` at 600000 ms, so a call
 budgets about nine minutes and the lane re-runs it until a terminal state.
+A lane loop waits through `desk-wait.sh` on its own team mailbox instead of `sleep`,
+so a `SendMessage` ends the call.
 
 ```sh
 deadline=$(( SECONDS + 540 ))
@@ -1551,7 +1559,10 @@ while (( SECONDS < deadline )); do
     passed|merged|CREATE_COMPLETE|UPDATE_COMPLETE) echo "TERMINAL ok $state"; exit 0 ;;
     failed|broken|canceled|timed_out|ROLLBACK_*|*_FAILED) echo "TERMINAL bad $state"; exit 1 ;;
   esac
-  sleep 30
+  wake=$(desk-wait.sh 30 "<team mailbox>=<cursor file>")
+  case "$wake" in
+    MAILBOX*) echo "$wake"; exit 0 ;;
+  esac
 done
 echo "STILL_RUNNING $state"
 ```
