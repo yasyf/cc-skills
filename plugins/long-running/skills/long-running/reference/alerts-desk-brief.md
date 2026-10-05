@@ -89,4 +89,6 @@ Do NOT touch: any repo, worktree, deploy, release, or Slack channel.
 Worktree: none.
 Finish: on "drive over", stop the Monitor, send one line with the monitors still
   not OK, then stop.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 ```

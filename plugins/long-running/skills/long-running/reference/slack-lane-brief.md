@@ -147,6 +147,8 @@ Never: a post without the matching channel or thread grant; a reply to a from_cl
   lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
   unglossed code nouns.
 Finish: after the resolution update, doc-link handoff, and answer to `recovered`.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 ```
 
 *Prevents the first account update waiting for a mechanism, an executor event,

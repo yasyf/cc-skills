@@ -63,6 +63,9 @@ A message from any lane gets a one-line answer. Continue the poll loop in the
 Rotation: the handoff carries the cursor file path and the channel list. It never
   carries a thread list; the next lane reads the file.
 
+Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
+
 Never: post, react, or edit in Slack; drop a thread from the list because it went
   quiet; relay a Claude or bot message as a human reply.
 ```

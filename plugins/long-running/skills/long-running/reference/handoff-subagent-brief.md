@@ -9,8 +9,11 @@ paste the brief.
 
 Pass the drive checkout and previous handoff's doc id, or `none`, before spawning. Read
 nothing of the old lane yourself, neither its transcript, receipts, cursor files, nor
-runtime listings. The subagent's reply is one doc id line plus at most three lines
-naming what it could not reconstruct. Then do only the swap. Spawn
+runtime listings. The subagent's reply is at most two lines:
+`handoff <lane>: doc <id>; successor <lane>-<N+1>` and
+`unverified: <n> items (in the doc)`. The doc carries everything else.
+
+Then do only the swap. Spawn
 `<lane>-N+1` with its reference brief, `ccn doc show <id>` as its handoff, and the cursor the
 handoff names. Wait for its first report, then send the old lane a stand-down with
 `SendMessage` to its name.
@@ -60,10 +63,11 @@ Do, in this order:
        `- <id> superseded by <id>`. Do not add a separate list of durable answer titles.
      - Pending items the old lane was holding, and where to look for traffic
        after its last turn at <UTC>.
-     Name every value you could not verify as unverified.
+     Put every value you could not verify or reconstruct in one `## Unverified`
+     section of the doc.
      Every line that gates on the owner ("owner's word", "owner approval", "owner
      sign-off", "owner GO", "reserved for the owner") cites a live answer id;
-     otherwise drop it and list it in your reply.
+     otherwise drop it and list it in the doc's `## Unverified` section.
   5. Run `standing.py lint --file <buffer> --program <slug>
      [--previous-doc <previous handoff doc id>]` and fix the buffer until it exits 0.
   6. Run `ccn doc add --apply <buffer>`; it creates the doc and prints its id.
@@ -72,9 +76,11 @@ Do, in this order:
   7. If there was a previous handoff, run
      `ccn doc supersede <previous handoff doc id> --by <new id>`.
 
-Return exactly this, nothing else:
-  line 1: the new doc id (7 chars)
-  lines 2-4, only if any: what you could not reconstruct, one item per line
+Your last action is one SendMessage to `main` with exactly these lines and nothing else:
+  handoff <lane>: doc <new doc id>; successor <lane>-<N+1>
+  unverified: <n> items (in the doc)
+Final text after it is empty or that same first line.
+Never paste doc content, findings, or a summary into either.
 
 Do NOT: message <lane> or any other lane; stop, signal, or relaunch anything;
   edit inboxes, cursors, ledgers, or receipts.

@@ -151,4 +151,6 @@ Worktree: none. The checkout is for reads and fetching the base branch.
 Finish: when every owed item is landed or proven, send the complete owed list
   with the squash or proof for each item and your cursor, then keep the session
   open and idle.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 ```

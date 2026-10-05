@@ -160,6 +160,11 @@ done, READY, GREEN, or landed completes nothing. Lanes report through `SendMessa
 and leave the root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a
 lane-owned task.
 
+A named lane's final text reaches the root as an idle notification on every stop.
+Ending on `SendMessage` with no trailing text omits that text. During a drive,
+`lane_reports` refuses lane final text over 300 characters. Read the `SendMessage`
+report, not the idle notification.
+
 At every handoff, milestone report, and compaction, the root reconciles the list:
 every `in_progress` task has a working lane, and every running lane has an open task.
 Complete what was consumed; re-own or delete the rest. Every lane receives the live
@@ -1418,7 +1423,9 @@ Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk pat
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
   Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
-  action. Do not end a turn waiting. Every push to a reported PR re-reports the new
+  action. Final text after that SendMessage is empty or one line under 300
+  characters (outcome + pointer), never the report again.
+  Do not end a turn waiting. Every push to a reported PR re-reports the new
   head with `ledger.py report` in the same turn; the desk grades without waiting for it.
 ```
 
@@ -2306,8 +2313,9 @@ a new ask does not reset it. The escalation has three steps:
 
 0. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
-   a cc-notes doc. Pass the previous handoff's doc id, if any. It returns the new
-   doc id, plus at most three lines on what it could not reconstruct.
+   a cc-notes doc. Pass the previous handoff's doc id, if any. Its reply is at most
+   two lines: `handoff <lane>: doc <id>; successor <lane>-<N+1>` and
+   `unverified: <n> items (in the doc)`.
 1. Spawn `<lane>-N+1` from the old lane's brief plus that doc id, read with
    `ccn doc show <id>`, and the cursor it names. `alerts-watch` becomes
    `alerts-watch-2`; `desk-3` becomes `desk-4`.
