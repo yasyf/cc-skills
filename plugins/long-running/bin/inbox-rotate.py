@@ -1,2 +1,2 @@
 #!/bin/sh
-exec python3 "$(dirname "$0")/../skills/long-running/scripts/inboxes.py" rotate "$@"
+exec python3 "$(dirname "$0")/../skills/long-running/scripts/inbox-rotate.py" "$@"

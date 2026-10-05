@@ -112,9 +112,7 @@ def test_logged_misfires_pass_once_their_role_is_declared(root: Root, name: str)
 
 @pytest.mark.parametrize("name", MISFIRES)
 def test_logged_misfires_without_a_role_go_to_the_model(root: Root, name: str) -> None:
-    assert root.spawn(name, MISFIRES[name], block=False) == (
-        "route_incident_fix_lanes_to_sol: allowed, the model found the call outside the rule"
-    )
+    assert root.spawn(name, MISFIRES[name], block=False) is None
 
 
 @pytest.mark.parametrize("name", MISFIRES)
@@ -131,9 +129,7 @@ def test_a_fix_lane_with_incident_turn_authority_blocks_without_the_model(root: 
 def test_a_fix_lane_naming_an_outage_without_authority_goes_to_the_model(root: Root) -> None:
     prompt = "ccx: role=fix\nYou are api-1n80-fix, fixing the outage behind API-1N80."
 
-    assert root.spawn("api-1n80-fix", prompt, block=False) == (
-        "route_incident_fix_lanes_to_sol: allowed, the model found the call outside the rule"
-    )
+    assert root.spawn("api-1n80-fix", prompt, block=False) is None
 
 
 @pytest.mark.parametrize(

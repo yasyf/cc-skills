@@ -130,11 +130,11 @@ def test_the_plan_and_progress_folder_read_in_full(root: Root) -> None:
     assert root.read(root.file(".claude/plans/brook-progress/2026-10-01.md")) is None
 
 
-def test_an_inbox_tail_passes_and_a_full_inbox_read_blocks(root: Root) -> None:
+def test_every_inbox_read_goes_through_the_digest(root: Root) -> None:
     inbox = root.file("scratch/inbox/orca-desk.md")
 
-    assert root.read(inbox, offset=380) is None
-    assert "A read this large" in (root.read(inbox) or "")
+    assert "inbox-digest.py" in (root.read(inbox, offset=380) or "")
+    assert "inbox-digest.py" in (root.read(inbox) or "")
 
 
 def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,11 +143,12 @@ def test_threshold_is_configurable(root: Root, monkeypatch: pytest.MonkeyPatch) 
     assert root.read(root.file("notes.md")) is None
 
 
-def test_reads_of_inbox_files_pass_and_repo_files_block(root: Root) -> None:
+def test_reads_of_inbox_files_go_to_the_digest_and_repo_files_block(root: Root) -> None:
     root.file("scratch/inbox/orca-desk.md")
     root.file("src/app.py")
 
-    assert root.bash("tail -n 20 scratch/inbox/orca-desk.md") is None
+    assert "inbox-digest.py" in (root.bash("tail -n 20 scratch/inbox/orca-desk.md") or "")
+    assert root.bash("grep -c R57 scratch/inbox/orca-desk.md") is None
     assert root.bash("rg -n R57 scratch/inbox/orca-desk.md") is None
     assert "File reads" in (root.bash("cat src/app.py") or "")
     assert "Searches" in (root.bash("rg -n R57 scratch/inbox/orca-desk.md src") or "")
@@ -156,7 +157,6 @@ def test_reads_of_inbox_files_pass_and_repo_files_block(root: Root) -> None:
     assert "File reads" in (root.bash("cat src/*.py") or "")
 
 
-OUTSIDE_THE_RULE = "allowed, the model found the call outside the rule"
 
 
 @pytest.mark.parametrize(
@@ -220,7 +220,7 @@ def test_logged_control_plane_reads_go_to_the_model(
 
     result = root.pre(tool, tool_input) or ""
 
-    assert result.startswith(message) if block else OUTSIDE_THE_RULE in result
+    assert result.startswith(message) if block else result == ""
 
 
 @pytest.mark.parametrize("command", ["ls -d {home}/scratch", "ls {home}/scratch", "ls -la {home}/scratch"])

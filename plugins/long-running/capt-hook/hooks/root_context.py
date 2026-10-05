@@ -477,7 +477,7 @@ root_block(
         ),
         Input(
             command="cat {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE, llm={"block": False}
-        ): Warn(pattern=r"allowed, the model found the call outside the rule"),
+        ): Allow(),
         Input(command="cat {file} # ccx:raw", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
         Input(command="head -c 1200 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command="head -c 4001 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
@@ -516,9 +516,7 @@ root_block(
     confirm=ROOT_READ,
     tests={
         Input(command="rg -n LAUNCH plugins", state=ACTIVE): Block(pattern=r"^Searches belong"),
-        Input(command="rg -n LAUNCH plugins", state=ACTIVE, llm={"confident": False}): Warn(
-            pattern=r"allowed, the model could not confirm"
-        ),
+        Input(command="rg -n LAUNCH plugins", state=ACTIVE, llm={"confident": False}): Allow(),
         Input(tool="Grep", tool_input={"pattern": "LAUNCH", "path": "plugins"}, state=ACTIVE): Block(),
         Input(command="rg -n '# ccx:raw' plugins", state=ACTIVE): Block(),
         Input(command="rg -n LAUNCH plugins # ccx:raw", state=ACTIVE): Allow(),
@@ -535,7 +533,7 @@ root_block(
     confirm=ROOT_READ,
     tests={
         Input(command="git log --oneline -20", state=ACTIVE): Block(pattern=r"Git history"),
-        Input(command="git log --oneline -20", state=ACTIVE, llm={"block": False}): Warn(pattern=r"allowed"),
+        Input(command="git log --oneline -20", state=ACTIVE, llm={"block": False}): Allow(),
         Input(command="git -C /tmp/repo diff --stat", state=ACTIVE): Block(),
         Input(command="git --no-optional-locks log -1", state=ACTIVE): Block(),
         Input(command="git --literal-pathspecs show HEAD", state=ACTIVE): Block(),
@@ -611,7 +609,7 @@ root_block(
         Input(tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE): Block(),
         Input(
             tool="mcp__slack__slack_get_thread", tool_input={"channel": "C1", "ts": "1.2"}, state=ACTIVE, llm={"block": False}
-        ): Warn(pattern=r"allowed"),
+        ): Allow(),
         Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
         Input(command="cc-slack thread C0B/p1 # ccx:raw", state=ACTIVE): Allow(),
     },
