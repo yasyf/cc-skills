@@ -69,7 +69,7 @@ pass it. It blocks:
   over a file outside an `inbox/` directory.
 - A Read, or `cat`, `head`, `tail`, `sed`, `awk`, or `grep` except `grep -c`, over
   `inbox/*.md`, even with a bounded window; use
-  `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`.
+  `cci digest --drive <drive>` and `cci tail --drive <drive> --cursor root`.
 - A history or PR read: `git log`, `show`, `diff`, `blame`, or `grep`; `gh pr view`,
   `gh pr diff`, `gh run view`, or `gh issue view`; `ccx code`, `repo`, or `web`;
   `ccx vcs diff`, `show`, `history`, or `reviews`.
@@ -247,7 +247,8 @@ release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
 **R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
-and `launch` commands and watches its inbox files through one Monitor on
+and `launch` commands and watches the runner's and orca desk's markdown files
+through one Monitor on
 `inbox-watch.py --state <drive>/inbox/.inbox-watch.json [--match <extra regex>] [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
 at timeout 1800000, re-armed on every exit and after compaction. Its byte-offset
 cursor loses and replays nothing on re-arm; `ESCALATION`, `INCIDENT`, `URGENT`,
@@ -256,18 +257,20 @@ stage for a reaper to kill. After five minutes without a root turn since an urge
 line arrived, it pushes to the owner's DM and names any open question holding
 delivery.
 
-After compaction or a re-arm gap, catch up with
-`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`; never tail, sed,
-or grep whole inbox files. The digest keeps the newest appended lines within a
-6144-byte budget, clips each to 200 characters, counts omissions, and advances its
-state beside `.inbox-watch.json`. It starts at the live file's beginning on first
-use, skips archives, and reports unread archived bytes. A new lane orients with
-`inbox-digest.py --all <files>`, which reads archives and live files with the same
-caps and touches no state.
+The root also keeps one Monitor on
+`cci watch --drive <drive> --cursor root-watch --reader root --kind incident --kind decide --kind ask --kind blocker --kind defect`
+at timeout 1800000, re-armed on every exit and after compaction. Records addressed
+to root arrive regardless of kind.
 
-Use `--match '.*'` for all inbox traffic or a regex for extra lines. The root never
-runs the check/ack loop, relaunch sweeps, or helper scripts inline. No model desk
-sits between the root and Orca.
+After compaction or a re-arm gap, catch up with
+`cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`.
+The tail resumes from the root's cursor and ends with a resume trailer when capped.
+Never tail, sed, or grep whole inbox files. A new lane orients with
+`cci digest --drive <drive>`.
+
+For `inbox-watch.py`, use `--match '.*'` for all markdown inbox traffic or a regex
+for extra lines. The root never runs the check/ack loop, relaunch sweeps, or helper
+scripts inline. No model desk sits between the root and Orca.
 
 Start the orca runner before the first worker; keep its escalations
 under the drive's `inbox/`. Use `policy` for a landing rule and `show` for action
@@ -1385,7 +1388,7 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
+Keep record text under 400 characters; `cci post` refuses longer text. Attach the body with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   The owner-approved register has at most 30 rules. Carry its wording, never full answers.
   Claude subagents, including planning agents, receive it once at SubagentStart.
@@ -2163,7 +2166,7 @@ its `<file>.cursor` value, and its last five ruling lines. Sections run in this 
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
-`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <drive>/inbox/*.md`
+`cci digest --drive <drive>`, then `cci tail --drive <drive>`,
 and the instruction never to tail, sed, or grep a whole inbox.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`.
