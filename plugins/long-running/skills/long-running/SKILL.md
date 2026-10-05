@@ -136,8 +136,8 @@ Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
 Never run `mkdir` or `cat >` to create a markdown record under `~/.claude/scratch`.
 Desk inboxes (`inbox/*.md`) stay files because readers use `inboxes.py`'s stream:
 sorted `<file>.archive/YYYY-MM-DD.md` files, oldest first, then the live file.
-Byte offsets and line counts survive rotation; `standing.py` reads the same stream.
-`desk-runner.py` posts escalations to root through `cci`.
+Byte offsets and line counts survive rotation. `standing.py` reads rules from cci,
+and `desk-runner.py` posts root escalations there.
 
 The orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
 their stream and state readers. The executor's actions JSON stays a file because
@@ -1246,12 +1246,12 @@ and "deploy every landing from now on" are two records. No record marks the stan
 
 Supersede its answer with a later answer, then post
 `cci post --drive <drive> --lane root --kind correction --to <desk> --re <seq> --ccn <later answer id> --topic standing --text "<replacement rule>"`.
-Here `<seq>` names the standing record being superseded. A desk brief and each
-summary list live standing rules by answer id, plus the plan's Decisions, never
-as a sequence range.
+Here `<seq>` names the standing record being superseded. Rule ids are `#<seq>`.
+A desk brief and each summary list live standing rules by these ids with their
+answer ids, plus the plan's Decisions, never as a sequence range.
 
 A standing rule handed to a lane as a deliverable still gets its own durable
-answer and addressed cci record first. The lane's task cites that answer id, and
+answer and addressed cci record first. The lane's task cites the rule and answer ids, and
 completing the task never retires the rule.
 
 *Prevents the release-v3 "release everything as it merges" rule being lost three
@@ -1393,7 +1393,7 @@ Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
-Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
+Standing rules served: <`#<seq>` ids with their answer ids, or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
@@ -2164,7 +2164,7 @@ once used tokens cross 80% of that threshold.
 **Nudge.** At 80% of the threshold, the hook sends the root one nudge, as context
 on its next tool call or prompt. It gives used tokens against the threshold and asks
 for a new progress doc with the root's narrative when convenient. The hook fills the
-handoff from the owner-approved register, live standing inbox rules, open asks, tasks,
+handoff from the owner-approved register, live standing cci rules, open asks, tasks,
 lanes, monitors, inbox heads and cursors, and lint findings. The root writes only what
 those sources lack. The slug comes from `progress:<slug>` in the plan's existing
 progress pointer line, or from the plan's file stem if that line has no slug. The nudge is not repeated,
@@ -2244,11 +2244,15 @@ It carries one pointer line:
 Register `ccn doc show <id7>`: N owner-approved rules, delivered verbatim after every compaction.
 ```
 
-With no register doc, the section says so. Every live `(standing)` inbox rule
-follows by id and inbox filename only, as `- R584 [orca-desk.md]`; its text stays in
-the inbox. Each inbox rule missing since the previous handoff appears last as
+With no register doc, the section says so. `generate` reads live standing rules from
+cci on the drive named by `--program`. Each follows as `- #<seq> [<source>]`, where
+the source is `ccn <answer id>` when cited or `cci #<seq>` otherwise. The rule's text
+stays in cci.
+
+Each rule missing since the previous handoff appears last, once, as
 `- <id> superseded by <successor id>` or
 `- <id> superseded by nothing: the sources dropped it ...`.
+Old `R<n>` ids retire this way once.
 The handoff carries no separate list of durable answer titles.
 
 The lint requires this pointer for the current register. A missing or stale pointer
@@ -2367,22 +2371,23 @@ Folding that record reduced it to 39,466 bytes.*
 
 The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
 prompts the root to record standing rules. Durable answers feed brief matching.
-The handoff reads the approved register and live `(standing)` inbox lines.
+The handoff reads the approved register and live standing cci records.
 
 **Lint.** Generation checks that `## Standing owner rules` exists and carries the
-pointer for the current register doc. It checks that inbox ids such as `R123` from
-the previous handoff are carried or superseded. Durable answer titles are not required.
+pointer for the current register doc. It checks that rule ids from the previous
+handoff, including `#<seq>` and old `R<n>` ids, are carried or superseded. Durable
+answer titles are not required.
 The owner-gate check skips quoted lines prefixed with `  >`, inbox quotes, tasks,
-and asks. A narrative line or live `(standing)` inbox rule that gates on `owner's word`,
+and asks. A narrative line or live standing cci rule that gates on `owner's word`,
 `owner approval`, `owner sign-off`, `owner GO`, or `reserved for the owner` needs a live
-answer id; a missing citation is a finding. Each finding names its source: the inbox file and
-line, or the narrative doc and line.
+answer id; a missing citation is a finding. Each finding names its source: the rule's
+`ccn <answer id>` or `cci #<seq>`, or the narrative doc and line.
 
-The Stop path runs with `--strict`. On a narrative or inbox finding it writes nothing and
-blocks the `Stop` with each finding and its edit until fixed: end the line with
-`(answer <id>)`, or for an inbox rule append a standing line that supersedes it and cites
-the answer. The plan's own
-owner-gate lines without live answer ids appear under `## Lint findings` and count in the
+The Stop path runs with `--strict`. On a narrative or standing-rule finding it writes
+nothing and blocks the `Stop` with each finding and its remedy until fixed. End a
+narrative line with `(answer <id>)`. For a standing rule, post
+`cci post --drive <drive> --lane root --kind correction --re <seq> --topic standing --ccn <answer id> --text "<replacement rule>"`.
+The plan's own owner-gate lines without live answer ids appear under `## Lint findings` and count in the
 restore, but never block generation. `handoff.py lint` runs the same checks on any doc
 or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 
@@ -2438,7 +2443,7 @@ Read the progress doc next, then the plan.
 Without a register, the digest starts with the progress record.
 Reload Skill `long-running` if its rules are gone.
 
-The second line reads `Register: N owner-approved rules, M live standing inbox rules.`
+Digest line two reads `Register: N owner-approved rules, M live standing rules.`
 The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
 The digest carries no clipped title list.
 
@@ -2686,14 +2691,16 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (AskUserQuestion, a board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
-19. Before writing an inbox line, desk brief, or handoff with an owner rule, give each
-    standing rule its own `R<n> (standing)` line under I6. Never mark it done.
+19. Before writing a desk brief or handoff with an owner rule, record each standing
+    rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`
+    under I6. Never mark it done. Only a later `correction` record with
+    `--topic standing --re <seq>` and a later answer replaces it.
     A consolidation lane proposes at most 30 register rules for the owner to approve.
     Handoff generation only reads the newest `standing-rules:<slug>` doc.
     Claude lane hooks inject the register once at start, or a read instruction
     above 9,000 characters. They also deliver matched answers.
     Codex briefs must paste the register body verbatim.
-    List each standing inbox id, never a range.
+    List each standing rule's `#<seq>` id, never a range.
     READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never composes Slack copy.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone

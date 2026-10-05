@@ -14,46 +14,6 @@ CARRIED = standing.section_of(REGISTER, ["- R312 deploy every landing"])
 UNQUOTED = "the standing rules section does not name register `0cf17c9`; regenerate the handoff with `handoff.py generate`"
 
 
-def test_a_standing_line_stays_live_until_superseded_by_id() -> None:
-    inbox = standing.read_inbox(
-        [
-            "R311 deploy everything at dev head now",
-            "R312 (standing): every landed PR is deployed in the same pass it lands",
-            "R313 (standing) the landing desk is the single enqueuer",
-            "R400 R313 superseded by R399",
-        ]
-    )
-
-    assert inbox.live() == {"R312": "R312 (standing): every landed PR is deployed in the same pass it lands"}
-    assert inbox.violations == []
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "R311/R312 (standing) deploy now, and deploy every landing",
-        "R311 deploy everything now; R312 (standing) deploy every landing",
-        "- rulings L65–L107 (standing)",
-    ],
-)
-def test_a_standing_tag_sharing_a_line_is_a_violation(line: str) -> None:
-    inbox = standing.read_inbox([line])
-
-    assert inbox.live() == {}
-    assert inbox.violations == [f"1: `(standing)` must follow the line's own single id: {line}"]
-
-
-def test_marking_a_standing_rule_done_is_a_violation() -> None:
-    inbox = standing.read_inbox(["R312 (standing) deploy every landing", "R348 receiver at 340f5f37b8 live — R312 done"])
-
-    assert inbox.live() == {"R312": "R312 (standing) deploy every landing"}
-    assert inbox.violations == ["2: standing rule R312 is marked done; it ends only with `R312 superseded by <id>`"]
-
-
-def test_done_on_a_one_off_is_fine() -> None:
-    assert standing.read_inbox(["R311 deploy everything now", "R348 R311 done"]).violations == []
-
-
 def test_a_handoff_quoting_the_register_passes() -> None:
     body = CARRIED + "\n## Owner asks\nSoFi releases as it merges (4ffc9a5), never on the owner's word\n"
 
@@ -119,68 +79,29 @@ def test_cli_lint_reads_the_register(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert standing.main(["lint", "--file", str(tmp_path / "handoff.md"), "--program", "v3"]) == 0
 
 
-def test_cli_inbox_prints_live_ids_and_exits_on_violations(tmp_path: Path, capsys) -> None:
-    inbox = tmp_path / "orca-desk.md"
-    inbox.write_text("R40 (standing) hand-apply every landing\nR41 R40 done\nR42 (standing) one enqueuer\n")
+def standing_records(*records: dict):
+    def run(argv: list[str]) -> str:
+        assert argv[:3] == ["cci", "tail", "--drive"] and argv[3] == "brook"
+        assert argv[-3:] == ["--topic=standing", "--kind=go", "--kind=correction"]
+        since = int(argv[argv.index("--since") + 1])
+        return "".join(json.dumps(record) + "\n" for record in records if record["seq"] > since)
 
-    assert standing.main(["inbox", str(inbox)]) == standing.VIOLATIONS
-    out = capsys.readouterr().out.splitlines()
-    assert out[0] == "live standing: R40, R42"
-    assert out[-1] == f"violation {inbox}:2: standing rule R40 is marked done; it ends only with `R40 superseded by <id>`"
-
-
-def test_a_provenance_parenthetical_ending_in_standing_is_a_standing_line() -> None:
-    line = "- R575 (root, 05:0xZ Oct 2 label / 14:50Z, standing) → all desks: owner-word gates are superseded by 4ffc9a5"
-
-    inbox = standing.read_inbox([line])
-
-    assert inbox.live() == {"R575": line}
-    assert inbox.violations == []
+    return run
 
 
-def test_a_later_supersede_clears_an_earlier_done_mark() -> None:
-    lines = ["R312 (standing) deploy every landing", "R348 receiver live — R312 done", "- R591 R312 superseded by G122"]
-
-    inbox = standing.read_inbox(lines)
-
-    assert inbox.live() == {}
-    assert inbox.violations == []
-
-
-def test_a_done_mark_after_the_supersede_is_still_flagged() -> None:
-    lines = ["R312 (standing) deploy every landing", "R591 R312 superseded by G122", "R600 R312 done"]
-
-    assert standing.read_inbox(lines).violations == [
-        "3: standing rule R312 is marked done; it ends only with `R312 superseded by <id>`"
-    ]
+def test_a_standing_rule_stays_live_until_a_correction_replaces_it() -> None:
+    found = standing.read(
+        standing_records(
+            {"seq": 4, "kind": "go", "text": "deploy every landing", "refs": {"ccn": "4ffc9a5"}},
+            {"seq": 7, "kind": "go", "text": "dev is always releasable", "refs": {}},
+            {"seq": 9, "kind": "correction", "re": 4, "text": "deploy every landing within five minutes", "refs": {"ccn": "87833ea"}},
+        ),
+        "brook",
+    )
+    assert found.rules == {"#7": "#7 dev is always releasable", "#9": "#9 deploy every landing within five minutes"}
+    assert found.sources == {"#7": "cci #7", "#9": "ccn 87833ea"}
+    assert found.superseded == {"#4": "#9"}
 
 
-def test_a_tag_quoted_in_prose_is_not_a_misplaced_tag() -> None:
-    line = "- R575 (root, 14:50Z, standing) → all desks: standing rules get their own `(standing)` ID line"
-
-    inbox = standing.read_inbox([line, "R576 note: a line tagged (standing) never shares its id"])
-
-    assert inbox.live() == {"R575": line}
-    assert inbox.violations == []
-
-
-def test_a_later_standing_line_that_supersedes_a_rule_ends_it() -> None:
-    lines = [
-        "- G115 (root, 14:30Z, binding, standing) release everything as we merge it, on the owner's word",
-        "- G138 (standing) supersedes G115 as the cited form: no owner-word gate on any release, answer 4ffc9a5",
-    ]
-
-    inbox = standing.read_inbox(lines)
-
-    assert inbox.live() == {"G138": lines[1].strip()}
-    assert inbox.at == {"G115": 1, "G138": 2}
-    assert inbox.violations == []
-
-
-def test_restating_a_standing_rule_under_its_own_id_replaces_it() -> None:
-    lines = ["- R576 (standing) no PR waits for an owner click", "- R576 (standing) no PR waits for an owner click (answer 104926a)"]
-
-    inbox = standing.read_inbox(lines)
-
-    assert inbox.live() == {"R576": lines[1]}
-    assert inbox.at == {"R576": 2}
+def test_a_carried_cci_rule_id_is_a_bullet_id() -> None:
+    assert standing.carried(["- #9 deploy every landing within five minutes [ccn 87833ea]"]) == {"#9": "- #9 deploy every landing within five minutes [ccn 87833ea]"}

@@ -225,7 +225,7 @@ Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none
   Codex workers have no hooks. Claude drive sessions receive a relevant full answer
   only when the key-moment judge selects it, once per lane per answer.
 Every rule binds this lane. Your READY names the rulings your diff touches.
-Standing rules served: <`R<n>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
+Standing rules served: <`#<seq>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
 
