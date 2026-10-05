@@ -31,9 +31,11 @@ from zoneinfo import ZoneInfo
 
 import drive
 import ledger
+from lrdash import chat
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 PAGE = Path(__file__).with_name("lr-dashboard.html")
+CHAT_PAGE = Path(__file__).resolve().parents[1] / "templates" / "lr-dashboard-chat.html"
 SERVER_FILE = Path("dashboard") / "server.json"
 SERVER_LOG = Path("dashboard") / "server.log"
 START_LOCK = Path("dashboard") / "start.lock"
@@ -356,6 +358,9 @@ class Collector:
     inbox_cache: dict[str, tuple[float, int, list[Line]]] = field(default_factory=dict)
     seen: dict[str, list[tuple[int, datetime]]] | None = None
     compaction_cache: dict[str, tuple[int, list[dict]]] = field(default_factory=dict)
+    lines: list[Line] = field(default_factory=list)
+    task_rows: list[dict] = field(default_factory=list)
+    ledger_rows: dict[str, dict] = field(default_factory=dict)
 
     @property
     def state_dir(self) -> Path:
@@ -432,7 +437,9 @@ class Collector:
         return {"lines": flagged[:FEED_LIMIT], "folders": folders[:60]}
 
     def ledger(self, moment: datetime) -> dict:
+        self.ledger_rows = {}
         rows = {row["key"]: row["fields"] for row in json.loads(run(["ccn", "-R", self.entry["checkout"], "ledger", "show", self.entry["ledger"], "--json"]))["rows"]}
+        self.ledger_rows = rows
         prs = {key: fields for key, fields in rows.items() if key.isdigit()}
         live = ledger.live_since(rows)
         asks = [
@@ -592,6 +599,7 @@ class Collector:
 
         lines = guarded("inbox", self.inbox, [])
         tasks, task_dir = guarded("tasks", lambda: self.tasks(sessions), ([], None))
+        self.lines, self.task_rows = lines, tasks
         open_tasks = sorted((task for task in tasks if task.get("status") in ("in_progress", "pending")), key=lambda task: (task.get("status") != "in_progress", -int(task["id"]) if str(task["id"]).isdigit() else 0))
         completed = sorted((task for task in tasks if task.get("status") == "completed"), key=lambda task: task.get("updated_at") or "", reverse=True)
         compactions = guarded("compactions", lambda: self.compactions(sessions), [])
@@ -630,6 +638,7 @@ class Dashboard(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], collector: Collector, interval: float):
         super().__init__(address, Handler)
         self.token = secrets.token_hex(16)
+        self.chat_token = secrets.token_hex(16)
         self.collector = collector
         self.interval = interval
         self.state: dict = {"generated_at": None, "drive": {"drive": collector.entry["drive"]}}
@@ -658,6 +667,22 @@ class Handler(BaseHTTPRequestHandler):
     def text(self, status: int, body: str) -> None:
         self.send(status, body.encode(), "text/plain; charset=utf-8")
 
+    @property
+    def origin(self) -> str:
+        host, port = self.server.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def sources(self) -> chat.Sources:
+        collector = self.server.collector
+        return chat.Sources(
+            state=self.server.state,
+            state_dir=collector.state_dir,
+            inbox=lambda: collector.lines,
+            tasks=lambda: collector.task_rows,
+            ledger_rows=lambda: collector.ledger_rows,
+            ccn=chat.run_ccn(collector.entry["checkout"]),
+        )
+
     def do_GET(self) -> None:
         url = urlparse(self.path)
         entry = self.server.collector.entry
@@ -674,22 +699,71 @@ class Handler(BaseHTTPRequestHandler):
                 self.text(404, failure.stderr)
         elif url.path.startswith("/inbox/"):
             self.inbox_excerpt(unquote_url(url.path.removeprefix("/inbox/")), parse_qs(url.query))
+        elif url.path == "/chat":
+            self.send(200, CHAT_PAGE.read_bytes(), "text/html; charset=utf-8")
+        elif url.path == "/ai.json":
+            if chat.key():
+                self.send(200, json.dumps(chat.site_config(self.origin, self.server.chat_token)).encode(), "application/json")
+            else:
+                self.text(404, f"{chat.KEY_ENV} is not set in the dashboard's environment\n")
+        elif url.path.startswith("/ask/"):
+            self.ask(url.path.removeprefix("/ask/"), {name: values[0] for name, values in parse_qs(url.query).items()})
         else:
             self.text(404, "not found")
+
+    def ask(self, verb: str, query: dict[str, str]) -> None:
+        sources = self.sources()
+        try:
+            if verb == "digest":
+                self.text(200, chat.digest(sources.state))
+            elif verb == "search":
+                self.send(200, json.dumps(chat.search(sources, query.get("query", ""))).encode(), "application/json")
+            elif verb == "read":
+                self.text(200, chat.read(sources, query.get("ref", "")))
+            elif verb == "state":
+                self.send(200, chat.section(sources.state, query.get("section")).encode(), "application/json")
+            else:
+                self.text(404, "not found")
+        except (LookupError, ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
+            detail = getattr(failure, "stderr", "") or str(failure)
+            self.text(404, f"{detail}".strip() + "\n")
 
     def inbox_excerpt(self, name: str, query: dict[str, list[str]]) -> None:
         inbox = Path(self.server.collector.entry["state_dir"]) / "inbox"
         if name not in {str(path.relative_to(inbox)) for path in inbox_files(inbox)}:
             self.text(404, "not found")
             return
-        lines = (inbox / name).read_text(errors="replace").splitlines()
         requested = query.get("line", [""])[0]
-        target = int(requested) if requested.isdigit() else len(lines)
-        start = max(target - CONTEXT_LINES, 1)
-        excerpt = [f"{'>' if number == target else ' '} {number:>6}  {lines[number - 1]}" for number in range(start, min(target + CONTEXT_LINES, len(lines)) + 1)]
-        self.text(200, "\n".join(excerpt) + "\n")
+        self.text(200, chat.excerpt(inbox, name, int(requested) if requested.isdigit() else None, CONTEXT_LINES))
+
+    def relay(self) -> None:
+        if self.headers.get("Authorization") != f"Bearer {self.server.chat_token}" or self.headers.get("Origin", self.origin) != self.origin:
+            self.text(403, "forbidden\n")
+            return
+        request = chat.relay(self.rfile.read(int(self.headers["Content-Length"])))
+        try:
+            upstream = urllib.request.urlopen(request, timeout=chat.UPSTREAM_TIMEOUT_SECONDS)
+        except urllib.error.HTTPError as failure:
+            self.send_response(failure.code)
+            for name in ("Content-Type", "Retry-After"):
+                if value := failure.headers.get(name):
+                    self.send_header(name, value)
+            self.end_headers()
+            self.wfile.write(failure.read())
+            return
+        with upstream:
+            self.send_response(upstream.status)
+            self.send_header("Content-Type", upstream.headers.get("Content-Type", "text/event-stream"))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            for chunk in chat.stream(upstream):
+                self.wfile.write(chunk)
+                self.wfile.flush()
 
     def do_POST(self) -> None:
+        if urlparse(self.path).path == "/ai/chat/completions":
+            self.relay()
+            return
         if urlparse(self.path).path != "/shutdown":
             self.text(404, "not found")
             return

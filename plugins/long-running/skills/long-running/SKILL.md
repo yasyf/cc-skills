@@ -1737,6 +1737,14 @@ drive. No agent step is needed. The hooks start it detached so they never block 
 session and print no URL. Get the URL with `lr-dashboard.py url`.
 Open it to read the drive's state.
 
+Open `/chat` on the dashboard server to ask about owner asks, quiet lanes, recent
+landings, or the latest census. Each question starts with a digest of the drive; the
+chat can search inbox history, tasks, ledger rows, boards, and cc-notes, read source
+records, and inspect state sections. Answers link back to the refs they cite. The
+server uses Cerebras's `gpt-oss-120b` with `CEREBRAS_API_KEY` set in its environment;
+the browser receives a local chat token, never that key. If the server started
+without the key, restart it with the variable set and reload the page.
+
 Run `lr-dashboard.py start --drive <id>` to start it by hand. Use `lr-dashboard.py url`
 to print the running URL, `lr-dashboard.py snapshot` for JSON, and `lr-dashboard.py serve`
 to serve in the foreground.
