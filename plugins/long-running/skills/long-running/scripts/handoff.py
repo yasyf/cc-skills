@@ -1,43 +1,44 @@
 #!/usr/bin/env python3
-"""The generated handoff: a drive root's restart state, built from its sources at every compaction.
+"""Build a drive's progress record from its register, inboxes, and live work.
 
     handoff.py generate --program SLUG --plan PATH [--inbox-dir DIR] [--ledger ID] [--session FILE|-]
                         [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO]
                         [--strict] [--folder] [--repo PATH]
     handoff.py lint     (--doc ID | --file PATH) --program SLUG [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-STDLIB ONLY. ``generate`` reads ``scope:durable`` answers labelled with the program or
-``progress:<program>``, plus durable owner answers created in the drive's root sessions.
-It quotes each answer in full, then adds live ``(standing)`` inbox rules and retired rules.
-This register is a doc labelled ``standing-rules:<program>`` and a file at
-``<plan-stem>-standing-rules.md`` beside the plan, copied verbatim as the first progress section.
-It also reads the ledger's open owner asks, the root's open tasks, its lanes and monitors,
-each inbox's head, cursor, and newest rulings, and the drive registry. It writes a ``(generated)`` progress
-doc under ``progress:<program>``, plus the same markdown at ``<plan-stem>-progress/<UTC>-generated.md``.
-Exactly one progress doc stays active. The record is ``--narrative-doc``, else the newest
-hand-written progress doc this session created since ``--fresh-since`` or within
-:data:`FRESH_MINUTES`; when there is one, generation edits it in place, its narrative under the
-generated sections. Otherwise it edits ``--generated-doc``, the session's generated doc, while that
-is active, or adds one. That doc supersedes every other, and generation exits
-:data:`SEVERAL_ACTIVE` when the label still lists another. The root's narrative is the last
-section: the record's narrative or ``--narrative-file``, else the narrative the newest progress doc
-carries. ``--folder`` skips cc-notes and writes only the files. ``--session`` is the hook's JSON,
-``{"session_id", "tasks": [...], "background": [...]}``.
+``generate`` reads the newest cc-notes doc labelled ``standing-rules:<program>``.
+The register holds at most 30 owner-approved rules with answer ids linking to the full
+rulings in cc-notes. Generation never builds or writes a register doc or file.
+The progress record's ``## Standing owner rules`` section names the register doc and
+quotes its body verbatim with ``  >`` on each line. Live ``(standing)`` inbox rules
+follow, then retired rules. With no register doc, the section says so.
 
-A rule the previous handoff carried and the sources no longer hold is written once as
-``<id> superseded by ...``, so :func:`standing.lint` passes on every generated doc. Its other
-findings, owner-gate lines in the narrative or a live inbox rule that cite no live answer, each
-named by its file and line, and the plan's own uncited owner-gate lines go under
-``## Lint findings``; with ``--strict`` a narrative or inbox finding writes nothing and exits
-:data:`standing.VIOLATIONS`.
+The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
+drive registry. Generation writes a progress doc under ``progress:<program>`` and the
+same markdown at ``<plan-stem>-progress/<UTC>-generated.md``. It augments
+``--narrative-doc`` or the newest hand-written progress doc this session created since
+``--fresh-since`` or within :data:`FRESH_MINUTES`. Otherwise it edits the active
+``--generated-doc`` or adds a doc. The written doc supersedes every other active progress
+doc. Generation exits :data:`SEVERAL_ACTIVE` if another remains active.
 
-It prints ``{"id", "file", "register", "register_file", "digest"}``: ``id`` is the active progress
-doc and ``register`` is the register doc; both are null in folder mode. ``digest`` names the
-register first, then the progress doc and plan, followed by rule and open-work counts.
-The register binds every lane brief and outranks the summary. Its body arrives verbatim
-in parts after compaction or resume, outside the capped SessionStart restore.
+The root narrative comes last. It comes from the chosen record or ``--narrative-file``,
+else from the newest progress doc. ``--folder`` skips cc-notes and writes only the
+progress file. ``--session`` reads the hook's JSON fields ``session_id``, ``tasks``,
+and ``background`` from a file or stdin.
 
-``lint`` runs the same checks over any handoff and exits :data:`standing.VIOLATIONS` on a finding.
+An inbox rule missing since the previous handoff appears once as ``<id> superseded by
+...``. Lint checks the standing section, register quote, carried inbox ids, and citations
+for lines requiring owner approval. Findings go under ``## Lint findings``.
+With ``--strict``, register, carry, narrative, or inbox findings write nothing and exit
+:data:`standing.VIOLATIONS`. Plan findings never block generation.
+
+Output has fields ``{id, file, register, digest}``. ``register`` is the register doc id
+or null. ``id`` is the progress doc id. Both are null in folder mode. The digest names
+the register first when one exists, then the progress record and plan. Its second line
+reads ``Register: N owner-approved rules, M live standing inbox rules.``
+
+``lint`` checks any handoff and the optional plan. It exits :data:`standing.VIOLATIONS`
+on a finding. Both commands use only the Python standard library.
 """
 
 from __future__ import annotations

@@ -49,11 +49,14 @@ Do, in this order:
      - Live work: one table row per worker, PR, or dispatch it owns, with its ids
        and state as the runtime reported it.
      - Next actions, in order, with the gate each one waits on.
-     - `## Standing owner rules`: `standing.py titles --program <slug>` output pasted
-       verbatim, then the `live standing:` ids of `standing.py inbox <inbox file>`
-       read over the whole file, not only from the last relayed line. Never
-       re-summarize a title or name the rules as a range. Every id the previous
-       handoff carried is carried again or written `- <id> superseded by <id>`.
+     - `## Standing owner rules`: read the newest owner-approved register with
+       `rulings.py register --program <slug>`. Add a pointer to `ccn doc show <id>`
+       and quote its body verbatim with `  >` on each line. If the result is null,
+       state that no register doc exists. Never build or edit the register.
+       Then carry every live rule from `standing.py inbox <inbox file>` as a bullet.
+       Read the whole inbox, not only from the last relayed line. Name each standing
+       inbox id, never a range. Carry each inbox id from the previous handoff or write
+       `- <id> superseded by <id>`. Do not add a separate list of durable answer titles.
      - Pending items the old lane was holding, and where to look for traffic
        after its last turn at <UTC>.
      Name every value you could not verify as unverified.

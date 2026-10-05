@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Standing owner rules: the live set in a desk inbox, and the handoff lint that carries them.
+"""Read live standing inbox rules and lint their handoff.
 
     standing.py inbox  FILE... [--repo PATH]
-    standing.py titles --program SLUG [--repo PATH]
     standing.py lint   (--doc ID | --file PATH) --program SLUG [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-STDLIB ONLY. A standing rule is one inbox line, ``R<n> (standing) <rule>`` or
-``R<n> (<who, when>, standing) <rule>``, carrying no other ruling; it is never done, and
-only a later line ``R<k> R<n> superseded by <id>``, or a later standing line saying
-``supersedes R<n>``, ends it.
-``inbox`` prints the live standing ids with their text and exits 3 on any line that breaks the
-convention. ``titles`` prints the program's ``scope:durable`` answers as ``- <id> <title>``, the
-verbatim body of a handoff's Standing owner rules section. ``lint`` exits 3 when a progress doc
-or handoff file drops a durable title, drops a rule the previous handoff carried without a
-``superseded by`` line, or has an owner-gate line that cites no live answer.
+A standing rule has its own inbox line: ``R<n> (standing) <rule>`` or
+``R<n> (<who, when>, standing) <rule>``. It is never done. Only a later line
+``R<k> R<n> superseded by <id>`` or a later standing line saying ``supersedes R<n>``
+ends it. ``inbox`` prints the live ids and their text. It exits 3 on a convention
+violation.
+
+``lint`` checks that ``## Standing owner rules`` exists and quotes the current
+``standing-rules:<program>`` doc. It checks that inbox ids such as ``R123`` from the
+previous handoff are carried or superseded. Lines requiring owner approval must cite
+a live answer id. The citation check skips quoted register lines prefixed with ``  >``.
+Durable answer titles are not required in the handoff. ``lint`` exits 3 on a finding.
+Both commands use only the Python standard library.
 """
 
 from __future__ import annotations

@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""A drive's standing rules: the owner-approved register, and the durable rulings relevant to one lane's brief.
+"""Read the owner-approved register and match durable rulings to a lane's brief.
 
-    rulings.py register --repo PATH (--program SLUG | --drive ID)
-    rulings.py match    --repo PATH (--program SLUG | --drive ID) [-k N] [--budget BYTES] < BRIEF
+    rulings.py register (--program SLUG | --drive ID) [--repo PATH]
+    rulings.py match    (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--repo PATH] < BRIEF
 
-STDLIB ONLY. The register is the newest doc labelled ``standing-rules:<program>``, a set of at most 30
-rules the owner approved; ``register`` prints ``{"id", "body"}``, or ``null`` when the drive has none.
-``match`` mirrors every ``scope:durable`` answer into ``<state dir>/rulings/<id7>.md``, asks
-``ccx code search --semantic`` which of them the brief on stdin is about, and prints the matches the
-register does not already cite, each as ``- <id7> <title>`` over its quoted body, within ``--budget``
-bytes. ``--drive`` resolves the program from the drive registry, for Orca workers that carry
-``CLAUDE_LONG_RUNNING_DRIVE``.
+The register is the newest cc-notes doc labelled ``standing-rules:<program>``.
+A consolidation lane proposes at most 30 rules for the owner to approve.
+The full answers stay in cc-notes, linked by id. ``register`` reads the doc and
+prints JSON with fields ``{id, body}``, or ``null`` when no register exists.
+
+``match`` mirrors every ``scope:durable`` answer into ``<state dir>/rulings/<id7>.md``.
+It reads the brief from stdin and uses its first 2,000 characters as the query for
+``ccx code search --semantic``. The default ``-k`` is 8. It excludes answers already
+cited by the register. Each match is printed as ``- <id7> <title>`` followed by its
+body quoted with ``  >``. Output stops before an answer would exceed ``--budget``,
+which defaults to 8,000 bytes.
+
+``--program`` uses ``~/.claude/scratch/<program>`` as the state directory.
+``--drive`` resolves the program and state directory from the drive registry for
+Orca workers carrying ``CLAUDE_LONG_RUNNING_DRIVE``. ``--repo`` defaults to the
+current directory. Both commands use only the Python standard library.
 """
 
 from __future__ import annotations
