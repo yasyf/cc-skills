@@ -554,8 +554,8 @@ def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path
     parts = []
     while delivered := handoff.deliver_register(bash(session)):
         number = len(parts) + 1
-        header, begin, rest = delivered.message.partition(f"\n--- begin part {number} ---\n")
-        part, end, tail = rest.partition(f"--- end part {number} ---")
+        header, begin, rest = delivered.message.partition(f"\n{handoff.REGISTER_FENCE}\n")
+        part, end, tail = rest.partition(handoff.REGISTER_FENCE)
         assert header == f"Standing rules register `9999999`, part {number} of {state(session).register_total}, verbatim; it binds every lane brief."
         assert begin and end and not tail
         assert len(part.encode()) <= handoff.REGISTER_PART_BYTES
@@ -628,7 +628,6 @@ def test_a_hand_written_doc_minutes_old_gains_the_generated_sections_and_the_sum
     assert augmented.endswith("_From doc 6666666._\n\n## Root's next actions\n1. 12-item plan\n")
     assert instructions == (
         f"Resume from `{plan}`, then `ccn doc show 66666666`; keep only in-flight details they lack. "
-        "The standing rules register `ccn doc show 99999999` returns verbatim after compaction; never restate a ruling from this summary. "
         "Quote: active progress doc: 66666666; the id in this summary wins over any id captured earlier in the conversation."
     )
     [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]

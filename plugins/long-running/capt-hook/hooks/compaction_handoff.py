@@ -64,6 +64,7 @@ COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 RESTORE_BUDGET = 2000
 SHORT = 7
 REGISTER_PART_BYTES = 8000
+REGISTER_FENCE = "~" * 12
 
 
 @workflow_state("long_running_compaction")
@@ -193,22 +194,16 @@ def resume_restore(state: CompactionState, cwd: str) -> str:
 
 
 def compact_instructions(state: CompactionState) -> str:
-    rules = (
-        f" The standing rules register `ccn doc show {state.register_doc[:8]}` returns verbatim after compaction; "
-        "never restate a ruling from this summary."
-        if state.register_doc
-        else ""
-    )
     if state.store == "ccn" and state.active_doc:
         doc = state.active_doc[:8]
         return (
-            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack.{rules} "
+            f"Resume from `{state.plan_path}`, then `ccn doc show {doc}`; keep only in-flight details they lack. "
             f"Quote: active progress doc: {doc}; the id in this summary wins over any id captured earlier in the conversation."
         )
     failed = f"The generated handoff failed: {state.failure}. " if state.failure else ""
     return (
         f"{failed}Resume the drive from `{state.plan_path}` and its progress record: read the plan, "
-        f"{resume_steps(state)}. Keep only in-flight details they lack.{rules}"
+        f"{resume_steps(state)}. Keep only in-flight details they lack."
     )
 
 
@@ -507,11 +502,11 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["## Standing owner rules\n", "- 4ffc9a5 Q?\n"], register_total=2)],
         ): Warn(
             pattern=r"^Standing rules register `eeeeeee`, part 1 of 2, verbatim; it binds every lane brief\.\n"
-            r"--- begin part 1 ---\n## Standing owner rules\n--- end part 1 ---$"
+            r"~{12}\n## Standing owner rules\n~{12}$"
         ),
         Input(prompt="continue", state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["- 4ffc9a5 Q?\n"], register_total=2)]): Warn(
             pattern=r"^Standing rules register `eeeeeee`, part 2 of 2, verbatim; it binds every lane brief\.\n"
-            r"--- begin part 2 ---\n- 4ffc9a5 Q\?\n--- end part 2 ---$"
+            r"~{12}\n- 4ffc9a5 Q\?\n~{12}$"
         ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
         Input(
@@ -530,8 +525,8 @@ def deliver_register(evt: BaseHookEvent) -> HookResult | None:
         part, state.register_parts = state.register_parts[0], state.register_parts[1:]
         total, name = state.register_total, (state.register_doc or "")[:SHORT] or state.register_file
     return evt.context(
-        f"Standing rules register `{name}`, part {number} of {total}, verbatim; it binds every lane brief.\n"
-        f"--- begin part {number} ---\n{part}--- end part {number} ---"
+        f"Standing rules register `{name}`, part {number} of {total}, verbatim; it binds every lane brief.",
+        f"{REGISTER_FENCE}\n{part}{REGISTER_FENCE}",
     )
 
 
@@ -608,8 +603,7 @@ def compact_when_idle(evt: BaseHookEvent) -> HookResult | None:
             commands={f"{sys.executable} {HANDOFF} generate": GENERATED_STUB},
         ): Warn(
             pattern=r"^Resume from `~/brook\.md`, then `ccn doc show dddddddd`; keep only in-flight details they lack\. "
-            r"The standing rules register `ccn doc show eeeeeeee` returns verbatim after compaction; "
-            r"never restate a ruling from this summary\. Quote: active progress doc: dddddddd; "
+            r"Quote: active progress doc: dddddddd; "
             r"the id in this summary wins over any id captured earlier in the conversation\.$"
         ),
         Input(transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]): Allow(),

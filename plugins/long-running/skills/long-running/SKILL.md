@@ -2076,27 +2076,36 @@ by hand and blocks nothing.
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes. It
 carries the narrative forward, so every compaction has a fresh generated record,
-including Claude Code's own auto-compaction before the root writes anything. The
-instructions name the register doc, say it returns verbatim after compaction, and
-forbid restating a ruling from the summary. They end with
+including Claude Code's own auto-compaction before the root writes anything.
+
+The instructions point to the plan and active progress doc. They ask the summary to
+keep only in-flight details those records lack. They carry no register text or
+title list. The copy bar caps hook messages at two sentences and 300 characters.
+The instructions end with
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured
 earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
-`generate` printed. It names the register first, with `ccn doc show <register id>`
-or the register file path: it arrives verbatim with the next tool results, binds
-every lane brief, and outranks the summary. Read the progress doc next, then the
-plan. Reload Skill `long-running` if its rules are gone.
+`generate` printed. It names the register first with `ccn doc show <register id>`
+or the register file path. The register arrives verbatim with the next tool results.
+It binds every lane brief and outranks the summary. Read the progress doc next,
+then the plan. Reload Skill `long-running` if its rules are gone.
 
 The next line reads `Register: N owner answers, M live standing inbox rules.`
 The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
 The digest carries no clipped title list.
 
 On `SessionStart` with source `compact` or `resume`, the hook queues the register
-file in parts of at most 8,000 bytes (`REGISTER_PART_BYTES`), split at line boundaries.
-Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part between
-`--- begin part i ---` and `--- end part i ---`. The part bodies join to the register
-file byte for byte. Delivery continues until the whole register reaches context.
+file in parts of at most 8,000 bytes. It splits at line boundaries unless a line
+exceeds that limit.
+
+Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part after a
+one-sentence header. The part sits inside identical 12-tilde fences spelled
+`~~~~~~~~~~~~`. The copy bar exempts the fenced part.
+
+Delivery preserves the part's trailing newline. The part bodies join to the
+register file byte for byte. Delivery continues until the whole register reaches
+context.
 
 *Prevents the release-v3 loss of October 4, 2026: titles-only carry dropped the
 ec2881e ruling "No: Pulumi state is the only truth" and left later lane briefs
