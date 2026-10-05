@@ -1856,10 +1856,13 @@ Read each stack's last included Platy release, last Platy pass, last successful
 CLI deploy, and `0/0`/`drift`/`unplanned` against `dev`. Deselection never counts
 as release.
 
-`deployable` is `proven`, `unproven`, or `blocked`. An open
-`DEFECT`/`BLOCKED`/`FAILED`/`MATRIX ... FAILED`/`HOLD` newer than the target's
-last Platy release and naming the target or one of its stacks makes it `blocked`.
-`blocked_by` carries the newest matching line, which also supplies `reason`.
+`deployable` is `proven`, `unproven`, or `blocked`. The view reads cci's
+digest for the drive's program since the drive started: `open_defects`,
+`open_blockers` (`blocker` and `blocked`), and `open_holds`. A record makes a
+stack `blocked` when `refs.targets` names its target or `refs.stacks` names
+that stack. A stack-only record blocks only that stack. The newest matching
+record supplies `blocked_by` and `reason`; `blocked_seq` carries its seq,
+and `reason_url` comes from `refs.url`.
 
 Without a blocker, a stack is `unproven` if the target's last Platy release
 did not pass, no Platy release has converged the stack, or its last converged
@@ -1883,10 +1886,10 @@ attempt. Matches use whole target names and components only as stacks
 
 `platy_targets` counts `proven`/`unproven`/`blocked` stacks. A target is `blocked`
 if any stack is, `proven` only if all are, and otherwise `unproven`.
-A blocker is withdrawn when a later line from the same lane contains a word
-starting with `retract` and names the blocker's verb and header time (`H:MM`).
-cci's typed records with `resolves` remain the planned closure path for other
-blockers.
+cci decides which records remain open. Records close through typed closers
+such as `fix-live`, `done`, `lift`, `unblock`, and `withdraw`, or any record's
+`--resolves`. These open items exclude markdown imports, with no markdown
+fallback. If cci is unavailable, the Platy source reports an error.
 
 `GET /sources/<name>.json` returns any collected source as JSON, including
 `/sources/platy.json` and `/sources/platy_targets.json`. A 404 names the available sources.

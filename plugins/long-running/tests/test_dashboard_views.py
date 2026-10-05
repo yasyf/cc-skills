@@ -164,8 +164,12 @@ def contains(ancestor: str, commit: str) -> bool:
     return commit in AFTER_CHANGE
 
 
-def rows_of(census, targets, builds, lines, overrides, pipeline_contains=contains):
-    return platy.stack_rows(census, targets, builds, lines, overrides, PIPELINE, pipeline_contains)
+def rows_of(census, targets, builds, lines, overrides, pipeline_contains=contains, blockers=()):
+    return platy.stack_rows(census, targets, builds, lines, list(blockers), overrides, PIPELINE, pipeline_contains)
+
+
+def record(seq: int, text: str, at: str, lane: str = "sweep", to: tuple[str, ...] = (), stacks: tuple[str, ...] = (), targets: tuple[str, ...] = ()) -> dict:
+    return {"seq": seq, "kind": "defect", "lane": lane, "at": at, "text": text, "to": list(to), "refs": {"stacks": list(stacks), "targets": list(targets)}}
 
 
 def test_build_row_tells_a_platy_start_from_a_cli_start_and_a_deploy():
@@ -216,14 +220,12 @@ def test_stack_rows_answer_deployable_reason_and_work():
         platy.build_row(build(574, "release dashboard, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z")),
         platy.build_row(build(990, "deploy receiver to plat at 9f8e7d1", branch="releases/deploy-r", at="2026-10-04T06:00:00Z")),
     ]
-    lines = [
-        {"at": "2026-10-05T06:30:00Z", "lane": "platy-fix", "verb": "OPENED", "text": "OPENED platy-fix #30481 retry infra approval", "url": "/i?2", "to": None},
-        {"at": "2026-10-05T05:30:00Z", "lane": "sweep", "verb": "DEFECT", "text": "DEFECT sweep -> platy-fix: infra approval step crashed", "url": "/i?1", "to": "platy-fix"},
-    ]
-    rows = {row["stack"]: row for row in rows_of(census, targets, builds, lines, {"dashboard": {"doing": "nothing needed"}})}
+    lines = [{"at": "2026-10-05T06:30:00Z", "lane": "platy-fix", "verb": "OPENED", "text": "OPENED platy-fix #30481 retry approval", "url": "/i?2", "to": None}]
+    defect = record(25100, "infra approval step crashed", "2026-10-05T05:30:00.120Z", to=("platy-fix",), targets=("infra",))
+    rows = {row["stack"]: row for row in rows_of(census, targets, builds, lines, {"dashboard": {"doing": "nothing needed"}}, blockers=[defect])}
     infra = rows["infra/core-usw2-auto"]
     assert (infra["deployable"], infra["platy_build"], infra["platy_state"], infra["zero"]) == ("blocked", 1251, "failed", "drift")
-    assert infra["blocked_by"].startswith("DEFECT sweep") and infra["doing"].startswith("OPENED platy-fix") and infra["doing_lane"] == "platy-fix"
+    assert (infra["blocked_by"], infra["blocked_seq"], infra["doing_lane"]) == ("infra approval step crashed", 25100, "platy-fix")
     assert infra["cell"] == "blocked · drift"
     dashboard = rows["dashboard/plat"]
     assert (dashboard["deployable"], dashboard["proven_at"], dashboard["reason"], dashboard["doing"]) == ("proven", "abcdef123456", None, "nothing needed")
@@ -232,21 +234,12 @@ def test_stack_rows_answer_deployable_reason_and_work():
     assert rows["escape-hatch/plat"]["target"] == platy.UNTARGETED
 
 
-def test_a_defect_its_own_lane_retracts_blocks_nothing():
+def test_a_record_naming_one_stack_blocks_only_that_stack():
     census = platy.census_rows(report_of(CENSUS_REPORT))
-    builds = [platy.build_row(build(1251, "release infra, started by ym@poetic.com", state="failed", branch="releases/x", thread=True, at="2026-10-05T05:00:00Z"))]
-    defect = {"at": "2026-10-05T07:32:00Z", "lane": "sweep-8", "verb": "DEFECT", "when": "12:32 AM PT", "text": "DEFECT sweep-8 (12:32 AM PT) -> platy-fix: infra wizard hangs", "url": "/i?1", "to": "platy-fix"}
-    claim = {"at": "2026-10-05T08:06:00Z", "lane": "sweep-8", "verb": "CLAIM", "when": "1:06 AM PT", "text": "CLAIM sweep-8 (1:06 AM PT) row 3. Retracting my 12:32 wizard DEFECT: it was a stale tab.", "url": "/i?2", "to": None}
-    other = claim | {"lane": "sweep-9"}
-    [kept] = [row for row in rows_of(census, {"infra": "infra"}, builds, [other, defect], {}) if row["stack"] == "infra/core-usw2-auto"]
-    assert (kept["deployable"], kept["blocked_by"]) == ("blocked", defect["text"])
-    [cleared] = [row for row in rows_of(census, {"infra": "infra"}, builds, [claim, defect], {}) if row["stack"] == "infra/core-usw2-auto"]
-    assert (cleared["deployable"], cleared["blocked_by"], cleared["reason"]) == ("unproven", None, "the last Platy release of infra, #1251, failed")
-    refused = claim | {"text": "CLAIM sweep-8 (1:06 AM PT) not retracting my 12:32 wizard DEFECT."}
-    later = defect | {"at": "2026-10-05T08:07:00Z"}
-    for lines in ([refused, defect], [later, claim]):
-        [row] = [row for row in rows_of(census, {"infra": "infra"}, builds, lines, {}) if row["stack"] == "infra/core-usw2-auto"]
-        assert row["deployable"] == "blocked"
+    release = build(574, "release infra, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z")
+    hold = record(25200, "receiver/plat waits on the owner", "2026-10-05T01:00:00Z", stacks=("receiver/plat",))
+    rows = {row["stack"]: row for row in rows_of(census, {"dashboard": "infra", "receiver": "infra"}, [platy.build_row(release)], [], {}, blockers=[hold])}
+    assert (rows["dashboard/plat"]["deployable"], rows["receiver/plat"]["deployable"], rows["receiver/plat"]["blocked_seq"]) == ("proven", "blocked", 25200)
 
 
 def test_a_release_that_predates_a_pipeline_change_is_unproven_since_that_change():
