@@ -10,10 +10,10 @@ A standing rule has its own inbox line: ``R<n> (standing) <rule>`` or
 ends it. ``inbox`` prints the live ids and their text. It exits 3 on a convention
 violation.
 
-``lint`` checks that ``## Standing owner rules`` exists and quotes the current
+``lint`` checks that ``## Standing owner rules`` exists and names the current
 ``standing-rules:<program>`` doc. It checks that inbox ids such as ``R123`` from the
 previous handoff are carried or superseded. Lines requiring owner approval must cite
-a live answer id. The citation check skips quoted register lines prefixed with ``  >``.
+a live answer id. The citation check skips quoted lines prefixed with ``  >``.
 Durable answer titles are not required in the handoff. ``lint`` exits 3 on a finding.
 Both commands use only the Python standard library.
 """
@@ -30,6 +30,7 @@ from pathlib import Path
 
 import inboxes
 import ledger
+import progress
 import rulings
 
 ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
@@ -116,9 +117,9 @@ def rule_findings(body: str, previous: str | None, register: dict | None) -> lis
     if (lines := section(body)) is None:
         problems.append("no `## Standing owner rules` section; regenerate the handoff with `handoff.py generate`")
         lines = []
-    if register and "\n".join(quoted(register["body"])) not in "\n".join(lines):
+    if register and pointer(register) not in lines:
         problems.append(
-            f"the standing rules section does not quote register `{register['id'][:SHORT]}`; regenerate the handoff with `handoff.py generate`"
+            f"the standing rules section does not name register `{register['id'][:SHORT]}`; regenerate the handoff with `handoff.py generate`"
         )
     if previous is not None:
         now = carried(lines)
@@ -134,7 +135,7 @@ def lint(body: str, previous: str | None, register: dict | None, live: set[str])
     return rule_findings(body, previous, register) + [
         f"owner-gate line cites no live answer id: {line.strip()[:200]}"
         for line in body.splitlines()
-        if not line.startswith(QUOTE) and gated(line, live)
+        if not line.startswith(QUOTE) and not progress.DIGEST.match(line) and gated(line, live)
     ]
 
 
@@ -151,8 +152,8 @@ def doc_body(repo: str, doc_id: str) -> str:
     return json.loads(ccn(repo, "doc", "show", doc_id, "--json"))["body"]
 
 
-def quoted(body: str) -> list[str]:
-    return [f"{QUOTE} {line}".rstrip() for line in body.strip("\n").splitlines()]
+def pointer(register: dict) -> str:
+    return f"Register `ccn doc show {register['id'][:SHORT]}`: {rule_count(register)} owner-approved rules, delivered verbatim after every compaction."
 
 
 def rule_count(register: dict | None) -> int:
@@ -162,7 +163,7 @@ def rule_count(register: dict | None) -> int:
 def section_of(register: dict | None, lines: list[str]) -> str:
     out = [REGISTER_HEADING, ""]
     if register:
-        out += [f"Register `ccn doc show {register['id'][:SHORT]}`, quoted verbatim:", "", *quoted(register["body"]), ""]
+        out += [pointer(register), ""]
     else:
         out += ["- no `standing-rules` register doc", ""]
     return "\n".join(out + lines) + "\n"

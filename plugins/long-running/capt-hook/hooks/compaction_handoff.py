@@ -44,6 +44,7 @@ RULINGS = SCRIPTS / "rulings.py"
 NO_REGISTER = {f"{sys.executable} {RULINGS} register": "null"}
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
+OVERSIZED = 5
 GENERATE_TIMEOUT_SECONDS = 120
 GENERATED_STEM = "-generated"
 GENERATED_TITLE = "(generated)"
@@ -295,6 +296,8 @@ def record(state: CompactionState, evt: BaseHookEvent) -> bool | str:
         )
     if generated.returncode == SEVERAL_ACTIVE:
         return f"The drive's handoff left more than one active progress doc. Fix it, then stop again:\n{generated.stdout.strip()}"
+    if generated.returncode == OVERSIZED:
+        return f"The drive's progress record is over its size cap. Trim the section it names, then stop again:\n{generated.stdout.strip()}"
     adopt(state, generated)
     return generated.returncode == 0
 

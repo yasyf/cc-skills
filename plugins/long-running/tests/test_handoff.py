@@ -6,6 +6,7 @@ from pathlib import Path
 
 import handoff
 import ledger
+import progress
 import pytest
 import standing
 
@@ -151,14 +152,14 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert Path(out["file"]).parent == drive_home / ".claude/plans/brook-progress"
     assert shell.added[out["id"]].startswith("brook: progress ") and shell.added[out["id"]].endswith(" (generated)")
     for line in (
-        "Register `ccn doc show ccccccc`, quoted verbatim:\n\n  > # brook register\n  >\n  > 1. Release as it merges, never on the owner's word (4ffc9a5).\n",
+        "Register `ccn doc show ccccccc`: 2 owner-approved rules, delivered verbatim after every compaction.\n",
         "- R2 (standing) every landed PR is deployed in the same pass it lands [orca-desk.md]",
         "- ask/000001 lane-a: ask 000001",
         "- #7 [pending] OWNER: release as merged",
         "- teammate: orca-desk-6 (running)",
         "- monitor: batches.jsonl grep (running)",
-        "### orca-desk.md: head R3, cursor R2",
-        "### landing-desk.md: head L1, cursor -",
+        "- orca-desk.md: head R3, cursor R2",
+        "- landing-desk.md: head L1, cursor -",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root",
     ):
@@ -167,7 +168,7 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert "Unrelated" not in body
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]
-    assert body.split("## Root narrative\n")[1].strip() == f"_From doc aaaaaaa, carried forward._\n\n{shell.docs['a' * 40]}"
+    assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi"
 
 
 def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_rest(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -431,7 +432,7 @@ def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: 
     )
 
 
-def test_the_handoff_quotes_the_register_doc_and_never_writes_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     shell.registers.insert(0, "e" * 40)
     shell.docs["e" * 40] = "# an older draft\n"
@@ -443,7 +444,79 @@ def test_the_handoff_quotes_the_register_doc_and_never_writes_it(drive_home: Pat
     assert not any(call[3:5] in (["doc", "add"], ["doc", "edit"], ["doc", "supersede"]) and REGISTER_DOC in call for call in shell.calls)
     assert shell.docs[REGISTER_DOC] == REGISTER_BODY
     section = "\n".join(standing.section(shell.docs[after["id"]]))
-    assert "\n".join(standing.quoted(REGISTER_BODY)) in section
+    assert standing.pointer({"id": REGISTER_DOC, "body": REGISTER_BODY}) in section
+    assert REGISTER_BODY.splitlines()[2] not in shell.docs[after["id"]]
     assert "an older draft" not in section
     body = handoff.lint_view(shell.docs[after["id"]])
     assert standing.lint(body, shell.docs[before["id"]], {"id": REGISTER_DOC, "body": REGISTER_BODY}, {RULE["id"]}) == []
+
+
+def test_generate_folds_the_carried_narrative_so_the_newest_dump_replaces_the_last(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with(
+        "## 10:17 PM dump 2\n\n### Owner rulings since 9 PM (verbatim, binding)\n- \"ship it\"\n\n### Program state\nCensus 231/293. Lanes a, b.\n\n"
+        "## 11:57 PM dump 3\n\n### Program state\nCensus 240/293.\n"
+    )
+
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    narrative = body.split("## Root narrative\n")[1]
+    assert narrative.count('- "ship it"') == 1
+    assert "Lanes a, b." not in narrative
+    assert "\n- 20" in narrative.split(progress.FOLDED)[1]
+    assert narrative.endswith("## 11:57 PM dump 3\n\n### Program state\nCensus 240/293.\n")
+    assert "`ccn doc history aaaaaaa --json --full`" in narrative
+
+
+def test_generate_refuses_a_record_over_the_cap_and_writes_nothing(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with(f"## dump\n\n### Program state\n{'x' * progress.CAP}\n")
+    argv = ["generate", "--program", "brook", "--plan", str(drive_home / ".claude/plans/brook.md"), "--session", str(drive_home / "session.json"), "--repo", REPO]
+
+    assert handoff.main(argv, shell) == handoff.OVERSIZED
+
+    assert capsys.readouterr().out.strip().endswith("its largest section is `dump` at 40027 bytes, most of it `Program state` at 40018 bytes; trim that section, then write the record again")
+    assert not any(call[3:5] in (["doc", "add"], ["doc", "edit"]) for call in shell.calls)
+    assert not (drive_home / ".claude/plans/brook-progress").exists()
+
+
+def test_open_tasks_and_lanes_list_ten_with_in_progress_first(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    session = json.loads((drive_home / "session.json").read_text())
+    session["tasks"] = [{"id": str(n), "status": "pending" if n < 12 else "in_progress", "subject": f"task {n}"} for n in range(13)]
+    session["background"] = [{"type": "teammate", "status": "running", "description": f"lane-{n}"} for n in range(14)]
+    (drive_home / "session.json").write_text(json.dumps(session))
+
+    shell = shell_with()
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
+
+    tasks = body.split("## Open tasks\n")[1].split("\n\n")[0].splitlines()
+    assert tasks[0] == "- #12 [in_progress] task 12"
+    assert tasks[-1] == "- 3 more in `TaskList`" and len(tasks) == 11
+    lanes = body.split("## Lanes and monitors\n")[1].split("\n\n")[0].splitlines()
+    assert lanes[0] == "- teammate: lane-13 (running)"
+    assert lanes[-1] == "- 4 more lanes" and len(lanes) == 11
+
+
+def test_fold_rewrites_a_doc_in_place_and_refuses_one_over_the_cap(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    record = "# p\n\n## Open tasks\n- none\n\n## Root narrative\n\n_From doc aaaaaaa._\n\n## dump 3\n\n### Program state\nold one. old two.\n\n## dump 4\n\n### Program state\nnew.\n"
+    shell = shell_with(record)
+
+    assert handoff.main(["fold", "--doc", "a" * 40, "--repo", REPO], shell) == 0
+
+    folded = shell.docs["a" * 40]
+    assert folded.startswith("# p\n\n## Open tasks\n- none\n\n## Root narrative\n\n_From doc aaaaaaa._\n\n## Folded narrative\n")
+    assert folded.endswith("## dump 4\n\n### Program state\nnew.\n")
+    assert "old two." not in folded
+    assert capsys.readouterr().out == f"folded aaaaaaa: {len(record)} -> {len(folded)} bytes\n"
+
+    shell.docs["a" * 40] = record + f"\n### huge\n{'h' * progress.CAP}\n"
+    assert handoff.main(["fold", "--doc", "a" * 40, "--repo", REPO], shell) == handoff.OVERSIZED
+    assert shell.docs["a" * 40].endswith("h\n")
+    assert "most of it `huge`" in capsys.readouterr().out
+
+
+def test_a_clipped_standing_rule_keeps_its_answer_citation() -> None:
+    text = "every release ships on the owner's word " + "x " * 150 + "(answer 4ffc9a5)"
+
+    clipped = handoff.cited_clip(text, handoff.STANDING_CHARS)
+
+    assert clipped.endswith("… (4ffc9a5)")
+    assert standing.cites(clipped, {RULE["id"]})

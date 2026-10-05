@@ -4,14 +4,15 @@
     handoff.py generate --program SLUG --plan PATH [--inbox-dir DIR] [--ledger ID] [--session FILE|-]
                         [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO]
                         [--strict] [--folder] [--repo PATH]
+    handoff.py fold     (--doc ID | --file PATH) [--repo PATH]
     handoff.py lint     (--doc ID | --file PATH) --program SLUG [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
 ``generate`` reads the newest cc-notes doc labelled ``standing-rules:<program>``.
 The register holds at most 30 owner-approved rules with answer ids linking to the full
 rulings in cc-notes. Generation never builds or writes a register doc or file.
-The progress record's ``## Standing owner rules`` section names the register doc and
-quotes its body verbatim with ``  >`` on each line. Live ``(standing)`` inbox rules
-follow, then retired rules. With no register doc, the section says so.
+The progress record's ``## Standing owner rules`` section names the register doc and its
+rule count; the register itself arrives verbatim after compaction. Live ``(standing)``
+inbox rules follow, then retired rules. With no register doc, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
 drive registry. Generation writes a progress doc under ``progress:<program>`` and the
@@ -22,7 +23,10 @@ same markdown at ``<plan-stem>-progress/<UTC>-generated.md``. It augments
 doc. Generation exits :data:`SEVERAL_ACTIVE` if another remains active.
 
 The root narrative comes last. It comes from the chosen record or ``--narrative-file``,
-else from the newest progress doc. ``--folder`` skips cc-notes and writes only the
+else from the newest progress doc, folded by :func:`progress.fold`: the last dump stays
+whole, binding sections are carried once, and earlier dumps become dated digest lines.
+A record over :data:`progress.CAP` bytes writes nothing and exits :data:`OVERSIZED`
+naming its largest section. ``fold`` folds an existing record in place under the same cap. ``--folder`` skips cc-notes and writes only the
 progress file. ``--session`` reads the hook's JSON fields ``session_id``, ``tasks``,
 and ``background`` from a file or stdin.
 
@@ -54,18 +58,21 @@ from pathlib import Path
 import drive
 import inboxes
 import ledger
+import progress
 import rulings
 import standing
 
 DIGEST_BUDGET = 2000
 RULING = re.compile(rf"^\s*(?:[-*]\s+)?\**`?({standing.ID})\b")
-RULINGS_PER_INBOX = 5
 CATCH_UP = "Catch up with `cci digest --drive {drive}`, then `cci tail --drive {drive}`; never tail, sed, or grep a whole inbox."
 RULING_CHARS = 400
-TASK_CHARS = 200
+STANDING_CHARS = 240
+TASK_CHARS = 120
 SHORT = 7
 FRESH_MINUTES = 30
 SEVERAL_ACTIVE = 4
+OVERSIZED = 5
+SHOWN = 10
 NARRATIVE = "## Root narrative"
 FINDINGS = "## Lint findings"
 GENERATED_MARK = "(generated)"
@@ -79,7 +86,6 @@ class Inbox:
     name: str
     head: str | None
     cursor: str | None
-    rulings: list[str]
 
 
 @dataclass
@@ -103,6 +109,7 @@ class Handoff:
     plan_findings: list[str] = field(default_factory=list)
     narrative: str = ""
     narrative_from: str = ""
+    history: str = ""
     narrative_edit: str = "in your next progress record"
     record: str | None = None
     generated: str | None = None
@@ -120,6 +127,14 @@ class Handoff:
 def clip(text: str, limit: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def cited_clip(text: str, limit: int) -> str:
+    clipped = clip(text, limit)
+    if not clipped.endswith("…"):
+        return clipped
+    cited = dict.fromkeys(standing.HEX.findall(" ".join(text.split())[limit - 1 :]))
+    return f"{clipped} ({', '.join(cited)})" if cited else clipped
 
 
 def ccn_json(shell: ledger.Shell, repo: str, *args: str) -> object:
@@ -147,18 +162,13 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
     for path in sorted(directory.glob("*.md")):
         lines = [line.text for line in inboxes.Inbox(path).lines()]
         inbox = standing.read_inbox(lines, path.name)
-        handoff.standing |= {rid: f"{text.lstrip('-* ')} [{path.name}]" for rid, text in inbox.live().items()}
+        handoff.standing |= {rid: text.lstrip("-* ") for rid, text in inbox.live().items()}
         handoff.sources |= {rid: f"{path}:{inbox.at[rid]}" for rid in inbox.live()}
         handoff.superseded |= inbox.superseded
-        rulings = [line.strip() for line in lines if RULING.match(line)]
+        heads = [match[1] for line in lines if (match := RULING.match(line))]
         cursor = path.with_name(f"{path.name}.cursor")
         handoff.inboxes.append(
-            Inbox(
-                name=path.name,
-                head=RULING.match(rulings[-1])[1] if rulings else None,
-                cursor=cursor.read_text().strip() if cursor.is_file() else None,
-                rulings=[clip(line, RULING_CHARS) for line in rulings[-RULINGS_PER_INBOX:]],
-            )
+            Inbox(name=path.name, head=heads[-1] if heads else None, cursor=cursor.read_text().strip() if cursor.is_file() else None)
         )
 
 
@@ -182,6 +192,18 @@ def lint_view(body: str) -> str:
 def narrative_of(body: str) -> str:
     _, marker, rest = body.partition(f"\n{NARRATIVE}\n")
     return PROVENANCE.sub("", rest.strip()) if marker else body.strip()
+
+
+def folded(body: str, at: datetime, history: str) -> str:
+    head, marker, rest = body.partition(f"\n{NARRATIVE}\n")
+    if not marker:
+        return f"{progress.fold(body, at, history)}\n"
+    provenance = match[0] if (match := PROVENANCE.match(rest.strip())) else ""
+    return f"{head}\n{NARRATIVE}\n\n{provenance}{progress.fold(narrative_of(body), at, history)}\n"
+
+
+def doc_history(doc_id: str) -> str:
+    return f"`ccn doc history {doc_id[:SHORT]} --json --full`"
 
 
 def carried_from(body: str, record: str) -> str:
@@ -219,8 +241,14 @@ def fresh_record(shell: ledger.Shell, repo: str, docs: list[dict], session: str 
     return max(fresh, key=lambda doc: doc["updated_at"])["id"] if fresh else None
 
 
+def shown(lines: list[str], more: str) -> list[str]:
+    return lines[:SHOWN] + ([f"- {len(lines) - SHOWN} more {more}"] if len(lines) > SHOWN else [])
+
+
 def rule_lines(handoff: Handoff) -> list[str]:
-    return [f"- {text}" for text in handoff.standing.values()] + [f"- {line}" for line in handoff.retired]
+    return [
+        f"- {cited_clip(text, STANDING_CHARS)} [{Path(handoff.sources[rid].rpartition(':')[0]).name}]" for rid, text in handoff.standing.items()
+    ] + [f"- {line}" for line in handoff.retired]
 
 
 def render(handoff: Handoff) -> str:
@@ -241,20 +269,18 @@ def render(handoff: Handoff) -> str:
             f"checkout `{registry['checkout']}`, root sessions {', '.join(session[:8] for session in registry['sessions'])}"
         )
     out += ["", "## Open owner asks"] + ([f"- {line}" for line in handoff.asks] or ["- none"])
+    tasks = sorted(handoff.tasks, key=lambda task: task["status"] != "in_progress")
     out += ["", "## Open tasks"]
-    out += [f"- #{task['id']} [{task['status']}] {clip(task['subject'], TASK_CHARS)}" for task in handoff.tasks] or ["- none"]
+    out += shown([f"- #{task['id']} [{task['status']}] {clip(task['subject'], TASK_CHARS)}" for task in tasks], "in `TaskList`") or ["- none"]
     out += ["", "## Lanes and monitors"]
-    out += [f"- {task['type']}: {clip(task['description'], TASK_CHARS)} ({task['status']})" for task in handoff.lanes + handoff.monitors]
-    if not (handoff.lanes or handoff.monitors):
+    running = handoff.monitors + handoff.lanes[::-1]
+    out += shown([f"- {task['type']}: {clip(task['description'], TASK_CHARS)} ({task['status']})" for task in running], "lanes")
+    if not running:
         out.append("- none running at the last stop")
-    out += ["", "## Inboxes"]
+    out += ["", "## Inboxes", ""]
     if handoff.inbox_dir:
-        out += ["", CATCH_UP.format(drive=handoff.inbox_dir.parent.name)]
-    for inbox in handoff.inboxes:
-        out += ["", f"### {inbox.name}: head {inbox.head or '-'}, cursor {inbox.cursor or '-'}"]
-        out += [f"- {line.lstrip('-* ')}" for line in inbox.rulings]
-    if not handoff.inboxes:
-        out.append("- no inbox directory")
+        out += [CATCH_UP.format(drive=handoff.inbox_dir.parent.name), ""]
+    out += [f"- {inbox.name}: head {inbox.head or '-'}, cursor {inbox.cursor or '-'}" for inbox in handoff.inboxes] or ["- no inbox directory"]
     out += ["", FINDINGS] + ([f"- {line}" for line in handoff.findings + handoff.plan_findings] or ["- none"])
     out += ["", NARRATIVE, ""]
     out.append(
@@ -286,7 +312,7 @@ def uncited_narrative_lines(handoff: Handoff, live: set[str]) -> list[str]:
         f"narrative ({handoff.narrative_from}) line {number}: owner-gate line cites no live answer id: "
         f"{clip(line, RULING_CHARS)}; end that line with `(answer <id>)` {handoff.narrative_edit}"
         for number, line in enumerate(handoff.narrative.splitlines(), 1)
-        if standing.gated(line, live)
+        if not progress.DIGEST.match(line) and standing.gated(line, live)
     ]
 
 
@@ -338,12 +364,15 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
         handoff.narrative_edit = f"in `{args.narrative_file}`"
+        handoff.history = f"the earlier records in `{Path(args.narrative_file).parent}`"
     if args.folder:
         files = sorted(progress_folder(plan).glob("*-generated.md"), key=lambda path: path.stat().st_mtime)
         previous = files[-1].read_text() if files else None
         if previous and not args.narrative_file:
             handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"file {files[-1].name}")
+            handoff.history = f"the earlier records in `{progress_folder(plan)}`"
         check(handoff, previous, set())
+        handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.narrative else ""
         return handoff, previous
     handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
@@ -359,10 +388,13 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if handoff.record and not args.narrative_file:
         handoff.narrative, handoff.narrative_from = narrative_of(doc_body(shell, args.repo, handoff.record)), f"doc {handoff.record[:SHORT]}"
         handoff.narrative_edit = f"via `ccn doc edit {handoff.record[:8]} --body -`"
+        handoff.history = doc_history(handoff.record)
     elif previous and not args.narrative_file:
         newest = max(active, key=lambda doc: doc["updated_at"])
         handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"doc {newest['id'][:SHORT]}")
+        handoff.history = doc_history(newest["id"])
     check(handoff, previous, live_answer_ids(shell, args.repo))
+    handoff.narrative = progress.fold(handoff.narrative, handoff.at, handoff.history) if handoff.narrative else ""
     return handoff, previous
 
 
@@ -372,6 +404,9 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print("\n".join(handoff.findings))
         return standing.VIOLATIONS
     markdown = render(handoff)
+    if refusal := progress.oversized(markdown):
+        print(refusal)
+        return OVERSIZED
     path = progress_file(Path(handoff.plan), handoff.stamp)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown)
@@ -403,6 +438,26 @@ def write_progress(handoff: Handoff, shell: ledger.Shell, repo: str, markdown: s
     when = f"Resuming or compacting the {handoff.program} drive: read before anything else, after the plan"
     argv = ["ccn", "-R", repo, "doc", "add", handoff.title, "--label", f"progress:{handoff.program}", "--when", when, "--body", "-", "--json"]
     return json.loads(shell.run(argv, stdin=markdown))["id"]
+
+
+def cmd_fold(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    at = datetime.now(timezone.utc)
+    if args.file:
+        path = Path(args.file).expanduser()
+        before = path.read_text()
+        after = folded(before, at, f"the earlier records in `{path.parent}`")
+    else:
+        before = doc_body(shell, args.repo, args.doc)
+        after = folded(before, at, doc_history(args.doc))
+    if refusal := progress.oversized(after):
+        print(refusal)
+        return OVERSIZED
+    if args.file:
+        path.write_text(after)
+    else:
+        shell.run(["ccn", "-R", args.repo, "doc", "edit", args.doc, "--body", "-"], stdin=after)
+    print(f"folded {args.file or args.doc[:SHORT]}: {len(before.encode())} -> {len(after.encode())} bytes")
+    return 0
 
 
 def cmd_lint(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -440,6 +495,12 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--folder", action="store_true", help="no cc-notes: write the progress file alone")
     generate.set_defaults(handler=cmd_generate)
 
+    fold = subparsers.add_parser("fold", help="fold a progress record's narrative in place: last dump whole, binding sections once")
+    record = fold.add_mutually_exclusive_group(required=True)
+    record.add_argument("--doc", metavar="ID")
+    record.add_argument("--file", metavar="PATH")
+    fold.set_defaults(handler=cmd_fold)
+
     check_cmd = subparsers.add_parser("lint", help="standing-rule and owner-gate findings for a handoff and its plan")
     body = check_cmd.add_mutually_exclusive_group(required=True)
     body.add_argument("--doc", metavar="ID")
@@ -451,7 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_cmd.add_argument("--plan", metavar="PATH")
     check_cmd.set_defaults(handler=cmd_lint)
 
-    for sub in (generate, check_cmd):
+    for sub in (generate, fold, check_cmd):
         sub.add_argument("--repo", default=".", metavar="PATH")
     return parser
 

@@ -561,7 +561,7 @@ def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Pa
     assert len(delivered.message) < 10_000
     assert handoff.deliver_register(bash(session)) is None
     assert handoff.deliver_register(bash(session, agent_id="a1")) is None
-    assert "\n".join(standing.quoted(body)) in (docs / ("d" * 40 + ".md")).read_text()
+    assert standing.pointer({"id": REGISTER_ID, "body": body}) in (docs / ("d" * 40 + ".md")).read_text()
     assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
 
 
