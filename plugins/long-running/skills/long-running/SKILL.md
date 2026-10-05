@@ -1883,8 +1883,10 @@ attempt. Matches use whole target names and components only as stacks
 
 `platy_targets` counts `proven`/`unproven`/`blocked` stacks. A target is `blocked`
 if any stack is, `proven` only if all are, and otherwise `unproven`.
-A `DEFECT` retracted later in prose still blocks: inbox lines carry no closing
-record. cci's typed records supply that closure.
+A blocker is withdrawn when a later line from the same lane contains a word
+starting with `retract` and names the blocker's verb and header time (`H:MM`).
+cci's typed records with `resolves` remain the planned closure path for other
+blockers.
 
 `GET /sources/<name>.json` returns any collected source as JSON, including
 `/sources/platy.json` and `/sources/platy_targets.json`. A 404 names the available sources.

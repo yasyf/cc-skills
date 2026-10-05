@@ -185,6 +185,7 @@ class Line:
             "to": self.to,
             "verb": self.verb,
             "ref": self.ref,
+            "when": self.when,
             "at": iso(self.at),
             "approx": self.approx,
             "prs": self.prs,

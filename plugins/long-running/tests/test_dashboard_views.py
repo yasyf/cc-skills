@@ -232,6 +232,23 @@ def test_stack_rows_answer_deployable_reason_and_work():
     assert rows["escape-hatch/plat"]["target"] == platy.UNTARGETED
 
 
+def test_a_defect_its_own_lane_retracts_blocks_nothing():
+    census = platy.census_rows(report_of(CENSUS_REPORT))
+    builds = [platy.build_row(build(1251, "release infra, started by ym@poetic.com", state="failed", branch="releases/x", thread=True, at="2026-10-05T05:00:00Z"))]
+    defect = {"at": "2026-10-05T07:32:00Z", "lane": "sweep-8", "verb": "DEFECT", "when": "12:32 AM PT", "text": "DEFECT sweep-8 (12:32 AM PT) -> platy-fix: infra wizard hangs", "url": "/i?1", "to": "platy-fix"}
+    claim = {"at": "2026-10-05T08:06:00Z", "lane": "sweep-8", "verb": "CLAIM", "when": "1:06 AM PT", "text": "CLAIM sweep-8 (1:06 AM PT) row 3. Retracting my 12:32 wizard DEFECT: it was a stale tab.", "url": "/i?2", "to": None}
+    other = claim | {"lane": "sweep-9"}
+    [kept] = [row for row in rows_of(census, {"infra": "infra"}, builds, [other, defect], {}) if row["stack"] == "infra/core-usw2-auto"]
+    assert (kept["deployable"], kept["blocked_by"]) == ("blocked", defect["text"])
+    [cleared] = [row for row in rows_of(census, {"infra": "infra"}, builds, [claim, defect], {}) if row["stack"] == "infra/core-usw2-auto"]
+    assert (cleared["deployable"], cleared["blocked_by"], cleared["reason"]) == ("unproven", None, "the last Platy release of infra, #1251, failed")
+    refused = claim | {"text": "CLAIM sweep-8 (1:06 AM PT) not retracting my 12:32 wizard DEFECT."}
+    later = defect | {"at": "2026-10-05T08:07:00Z"}
+    for lines in ([refused, defect], [later, claim]):
+        [row] = [row for row in rows_of(census, {"infra": "infra"}, builds, lines, {}) if row["stack"] == "infra/core-usw2-auto"]
+        assert row["deployable"] == "blocked"
+
+
 def test_a_release_that_predates_a_pipeline_change_is_unproven_since_that_change():
     census = platy.census_rows(report_of(CENSUS_REPORT))
     builds = [platy.build_row(build(574, "release dashboard, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z"))]
