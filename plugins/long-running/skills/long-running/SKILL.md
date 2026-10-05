@@ -1384,8 +1384,8 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Keep record text under 400 characters; `cci post` refuses longer text. Attach the body with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Claude lanes receive the register through hooks; above 9,000 characters, read it
-  with `ccn doc show <id7>` before acting.
+  Claude lanes receive the register once at start through hooks.
+  Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
@@ -2222,9 +2222,18 @@ over its quoted body. `--budget` defaults to 8,000 bytes.
 `--drive <id>` replaces `--program` for workers carrying `CLAUDE_LONG_RUNNING_DRIVE`.
 It resolves the program and state directory from the drive registry.
 
-Claude subagents, including planning agents, receive the register at `SubagentStart`.
+Claude lane subagents receive the register once at `SubagentStart`.
+This includes `long-running:lane`, `long-running:lane-ship`, `general-purpose`,
+and all other types except the helpers and relays below.
+
+These helper and relay subagents receive no register:
+
+- `Explore`, `Plan`, `claude-code-guide`, `statusline-setup`, and `output-style-setup`.
+- Every agent type from `cc-context`, `cc-review`, `cc-slack`, `cc-present`, and `codex`.
+- `open-pr:pr-style-scout`.
+
 Orca Claude worker sessions carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at
-`SessionStart`. If the body exceeds 9,000 characters, the hook names the register and
+`SessionStart`, once at start. If the body exceeds 9,000 characters, the hook names the register and
 tells the lane to read it in full with `ccn doc show <id7>` before acting. Within that
 budget, the body arrives verbatim. Claude Code moves context over 10,000 characters
 to a file with a 2 KB preview.
@@ -2337,10 +2346,10 @@ The instructions end with
 `Quote: active progress doc: <id8>; the id in this summary wins over any id captured
 earlier in the conversation.` so the summary carries the id the hook just wrote.
 
-**Resume.** On `SessionStart` with source `compact`, the hook injects the digest
+**After compaction.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed. When a register exists, the digest names it first with
-`ccn doc show <register id>`. The register arrives verbatim with the next tool
-results. It binds every lane brief and outranks the summary.
+`ccn doc show <register id>`. The next main-session tool result or prompt delivers
+the register once. It binds every lane brief and outranks the summary.
 
 Read the progress doc next, then the plan.
 Without a register, the digest starts with the progress record.
@@ -2351,18 +2360,14 @@ The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
 The digest carries no clipped title list.
 
 Claude Code's `PostCompact` hook cannot return context. Delivery after compaction
-uses `SessionStart` with source `compact`, followed by the next main-session tool
-result. On `SessionStart` with source `compact` or `resume`, the hook reads the newest
-register doc and queues its body in parts of at most 8,000 bytes.
-A register of about 7 KB fits in one part. Splits fall at line boundaries unless a
-line exceeds the limit.
+starts at `SessionStart` with source `compact`. The hook reads the newest register
+doc and queues its body. Only compaction queues it again.
 
-Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part after a
-one-sentence header. The part sits inside identical 12-tilde fences spelled
-`~~~~~~~~~~~~`. The copy bar exempts the fenced part.
-
-Delivery preserves the part's trailing newline. The part bodies join to the register
-doc body byte for byte. Delivery continues until the whole register reaches context.
+The next main-session `PostToolUse` or `UserPromptSubmit` clears the queue and
+delivers the register once. Above 9,000 characters, the hook names the register
+and tells the lane to read it in full with `ccn doc show <id7>` before acting.
+Within that budget, the body follows a one-sentence header inside identical
+12-tilde fences spelled `~~~~~~~~~~~~`. The copy bar exempts the fenced body.
 
 *Prevents the release-v3 loss of October 4, 2026: titles-only carry dropped the
 ec2881e ruling "No: Pulumi state is the only truth" and left later lane briefs
@@ -2381,7 +2386,8 @@ the root should write one when convenient. The skill stays active across compact
 On `SessionStart` with source `resume`, an active drive's newest progress record, by
 `ccn doc list --label progress:<program>` or the newest file in the progress folder,
 is injected under the same 2,000-byte budget: a line naming `ccn doc show <id7>` and
-the plan, then the head of the record's body.
+the plan, then the head of the record's body. Resume keeps the prior context,
+so the hook does not re-inject the register.
 
 ### Lane rotation
 
@@ -2601,8 +2607,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     standing rule its own `R<n> (standing)` line under I6. Never mark it done.
     A consolidation lane proposes at most 30 register rules for the owner to approve.
     Handoff generation only reads the newest `standing-rules:<slug>` doc.
-    Claude hooks inject the register, or a read instruction above 9,000 characters,
-    and matched answers. Codex briefs must paste the register body verbatim.
+    Claude lane hooks inject the register once at start, or a read instruction
+    above 9,000 characters. They also deliver matched answers.
+    Codex briefs must paste the register body verbatim.
     List each standing inbox id, never a range.
     READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.

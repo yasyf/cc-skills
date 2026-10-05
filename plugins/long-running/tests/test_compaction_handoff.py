@@ -580,9 +580,11 @@ def test_a_resumed_drive_restores_its_newest_progress_doc_within_budget(home: Pa
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z"), doc("b" * 40, "2026-09-30T05:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. stale\n")
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n" + "- lane row\n" * 400)
+    add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     restored = handoff.reground(session_start(session, "resume")).message
+    assert handoff.deliver_register(bash(session)) is None
 
     assert restored.startswith("Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`")
     assert "\n## Root's next actions\n1. watch SoFi\n- lane row\n" in restored
