@@ -527,7 +527,7 @@ the root never records one by hand.
 
 *Prevents the release-v3 parity board of 2026-10-01 (05:51Z), which asked the owner seven keep-or-drop questions (ack gate, finish, on-call swap, dev-check card, divider rows, Start button, start refusals) and a DAG question the plan's Decisions and §TM-dag already answered, because the root encoded "nothing is dropped" with an "or an explicit owner drop" exit and forwarded the audit lane's question list unfiltered: "the board showed those cards because you asked those questions in the first place instead of following the plan."*
 
-**R20. A Slack link from the owner is an assignment, and every Slack write is a lane.**
+**R20. A Slack link from the owner is an assignment, and Slack drafting is a lane.**
 A Slack permalink the owner pastes, bare or with words, is the root's to own, whoever
 wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
 handed it to the drive, never "the owner has it". It is never informational.
@@ -569,13 +569,13 @@ The incident comms lane posts with the cc-slack grant id on each executor event
 (`--grant <id>`) and never returns drafts for a granted thread. The grant comes
 from the owner through cc-slack, never from owner words a lane relays.
 
-The root never writes to Slack or composes Slack copy: no cc-slack MCP writes
-(`slack_send`, `slack_reply`, `slack_edit`, `slack_unreact`, or reactions), no
-`cc-slack send|reply|edit|react|unreact`, and no user-level MCP
-`mcp__slack__slack_send_message`, `slack_add_reaction`, or `slack_remove_reaction`.
-`cc-slack dm-status` to the user's own DM stays the root's. The lane posts as the
-cc-slack bot; the user-level Slack MCP is only the cc-slack skill's fallback for a
-conversation the bot cannot join.
+The root does not compose Slack copy; the Slack lane drafts and posts as the cc-slack
+bot. A write the owner approved, through an `AskUserQuestion` `Send` preview or an
+explicit instruction in the turn, the root may run itself with the cc-slack tools. The
+permission hook owns that approval check, and no pack hook reroutes an approved root
+write to a lane. `cc-slack dm-status` to the user's own DM stays the root's. The
+user-level Slack MCP is only the cc-slack skill's fallback for a conversation the bot
+cannot join.
 
 The Slack lane runs the CLI by path for `thread`, `react`, `unreact`, `reply`, and `whoami`:
 `~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack`.
@@ -608,10 +608,7 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
   event and posts without a root turn; the root is told, not asked
   (`reference/active-alert-brief.md`).
 
-The pack's `root_context` hook blocks every Slack write in a drive's root with
-`delegate to a lane: long-running:lane-ship (model: sonnet) briefed from
-reference/slack-lane-brief.md — ... (R20: the drive root never writes to Slack)`;
-`# ccx:raw` does not bypass it; lanes pass.
+The pack's `root_context` hook blocks the root's Slack reads and never its approved Slack writes.
 
 The pack's `slack_threads` hook appends every thread a drive session posts in to
 `<state dir>/slack/watched-threads.jsonl`, whether the post went through the cc-slack
@@ -2580,7 +2577,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     and matched answers. Codex briefs must paste the register body verbatim.
     List each standing inbox id, never a range.
     READY names the rulings the diff touches.
-20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
+20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never composes Slack copy.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone
     label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
     answered in this turn in my own words; a delay I caused named as mine.

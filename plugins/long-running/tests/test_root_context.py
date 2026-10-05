@@ -321,11 +321,8 @@ def test_an_approved_slack_preview_never_nudges(root: Root, preview: str) -> Non
         ("Bash", {"command": "cc-slack reply --url C0B/p1 --text 'On it' # ccx:raw"}),
     ],
 )
-def test_the_root_never_writes_to_slack(root: Root, tool: str, tool_input: dict) -> None:
-    message = root.pre(tool, tool_input) or ""
-
-    assert message.startswith("The drive root never writes to Slack.")
-    assert "long-running:lane-ship" in message
+def test_an_approved_root_slack_write_runs(root: Root, tool: str, tool_input: dict) -> None:
+    assert root.pre(tool, tool_input) is None
 
 
 @pytest.mark.parametrize(
