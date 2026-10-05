@@ -7,9 +7,10 @@
 A host is plugins/<plugin>/skills/<skill>/templates/src/<name>.html. Its
 `<!-- @include html/x.js -->` and `/* @include html/x.css */` markers are
 replaced by the partial's text and the result is written to
-templates/<name>.html, stamped on line 2. The host plugin also receives
-scripts/ddshared.py and scripts/build-pdf.py from py/, and a copy of every
-components/dd.*.json under reference/components/. Each JS partial opens with
+templates/<name>.html, stamped on line 2. Only hosts that include
+html/components.js also receive scripts/ddshared.py and scripts/build-pdf.py
+from py/, and a copy of every components/dd.*.json under reference/components/.
+Each JS partial opens with
 `// @requires a,b` and `// @defines x,y`; check verifies that every required
 name is declared by the host source or by a partial the host includes before
 it, and that no generated file outlives the source that produced it.
@@ -40,6 +41,7 @@ JS_TOKEN = re.compile(
     re.S,
 )
 PY_OUTPUTS = {"ddshared.py": "ddshared.py", "build_pdf.py": "build-pdf.py"}
+COMPONENTS_KIT = "html/components.js"
 
 
 def digest(*parts: bytes) -> str:
@@ -136,7 +138,8 @@ def outputs() -> dict[Path, str]:
     plugins = set()
     for src in sorted(ROOT.glob(HOST_GLOB)):
         out[src.parents[1] / src.name] = render_host(src)
-        plugins.add(src.parents[2])
+        if COMPONENTS_KIT in partial_names(src.read_text()):
+            plugins.add(src.parents[2])
     for skill in sorted(plugins):
         for source, target in PY_OUTPUTS.items():
             out[skill / "scripts" / target] = render_py(source)
