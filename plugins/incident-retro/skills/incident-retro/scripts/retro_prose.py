@@ -14,6 +14,7 @@ model, run directory, log and per-field digest in prose.lock.json. `check
 gate until this command runs again.
 """
 import fcntl, hashlib, json, os, re, shlex, shutil, subprocess, sys, time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CODEX_ASK = "codex-ask"
@@ -22,7 +23,7 @@ PROSE_MODEL = "astra"
 PROSE_LOCK = "prose.lock.json"
 WRITE_LOCK = ".prose.lock"
 PROSE_TIMEOUT = 1800
-PROSE_BATCH = 36
+PROSE_BATCH = 0
 SLOP_ROUNDS = 2
 SLOP_BUDGET = 3
 FIELD_MARK = "<!-- field:"
@@ -180,7 +181,7 @@ def facts(text: str):
     """The tokens a rewrite may not move. Backticks are markup, so `8 GiB` and 8 GiB weigh the same."""
     bare = FENCE.sub("", TAG.sub(" ", text))
     tokens = sorted(FACT.findall(bare))
-    heads = set(SENTENCE_HEAD.findall(bare))
+    heads = {h.rstrip(".-") for h in SENTENCE_HEAD.findall(bare)}
     names = {n for n in NAME.findall(bare) if n not in heads or any(c.isupper() for c in n[1:])}
     return tokens, names
 
@@ -232,7 +233,8 @@ def budgets(retro) -> list:
         f"a cause's text is {retro.CAUSE_BODY_WORDS} words or fewer; a decision's why is {retro.DECISION_BODY_WORDS}; "
         f"an unknown's why is {retro.UNKNOWN_BODY_WORDS}",
         f"a plain twin (p) is {retro.TWIN_WORDS} words or fewer, or a third of the wording it twins, and it names no "
-        f"register id and no file path",
+        f"register id and no file path; a cause's twin, and the first sentence of a cause's text, is "
+        f"{retro.STATEMENT_WORDS} words or fewer because the cause chain shows it as one line",
         f"a summary panel is one <h3 class=\"xs-head\"> headline of {retro.XS_HEAD_WORDS} words or fewer over a "
         f"<ul class=\"xs-points\"> of {retro.XS_POINTS} or fewer <li> points, each {retro.XS_POINT_WORDS} words or "
         f"fewer; the headline is the answer and the points are the evidence, with no prose outside them",
@@ -603,7 +605,7 @@ def prose(args) -> int:
             print(f"{state:9} {store[addr]['kind']:16} {addr}")
         return 0
     if args.field:
-        wanted = [f for f in args.field if f in store]
+        wanted = list(dict.fromkeys(f for f in args.field if f in store))
         for f in args.field:
             if f not in store:
                 print(f"prose: {f} is not a prose field; retro.py prose {root} --list names them", file=sys.stderr)
@@ -619,7 +621,7 @@ def prose(args) -> int:
         return 0
     rules_file = rule_catalogue(lane_root)
     if args.dry_run:
-        print(work_order(retro, R, root, wanted[:args.batch], store, rules_file))
+        print(work_order(retro, R, root, wanted[:args.batch or len(wanted)], store, rules_file))
         return 0
     try:
         with Owner(root):
@@ -693,71 +695,84 @@ def await_detached(root: Path, runs: Path, seconds: float = AWAIT_SECONDS) -> in
     return STILL_RUNNING
 
 
+def write_batch(retro, R: dict, root: Path, args, store: dict, batch: list, lane: Path, rules_file: Path,
+                rules: dict) -> dict:
+    """Ask for one batch and run its lint rounds. Touches only its own fields, so batches run side by side."""
+    refused, fields, landed = [], {}, {}
+    say = lambda line: print(f"{lane.name}: {line}", flush=True)
+    question = work_order(retro, R, root, batch, store, rules_file)
+    for attempt in range(SLOP_ROUNDS + 1):
+        got = ask(question, REPLY_SCHEMA, lane / f"round-{attempt + 1}", args.timeout)
+        say(f"{PROSE_MODEL} answered in {got['seconds']}s, run {got['run']}")
+        answered = set()
+        for item in got["reply"].get("fields") or []:
+            addr, text = item.get("id"), (item.get("text") or "").strip()
+            if addr not in batch or not text:
+                refused.append(f"{addr}: the reply named a field this batch does not carry" if addr not in batch
+                               else f"{addr}: the reply is empty")
+                continue
+            spec = store[addr]
+            before = "" if spec.get("grounded") else spec["text"]
+            drift = fact_drift(before, text, json.dumps(spec.get("source_obj") or {}))
+            if drift:
+                refused += [f"{addr}: {d}" for d in drift]
+                continue
+            answered.add(addr)
+            landed[addr] = text
+            spec["landed"] = text
+            fields[addr] = {"sha256": digest(text), "run": got["run"], "log": got["log"]}
+        findings = lint({a: landed[a] for a in sorted(answered)}, not args.quick)
+        for addr in answered:
+            fields[addr]["slop"] = len(findings.get(addr) or [])
+        if not findings or attempt == SLOP_ROUNDS:
+            if findings:
+                say(f"{sum(len(v) for v in findings.values())} lint finding(s) survived "
+                           f"{SLOP_ROUNDS} revision round(s) in {len(findings)} field(s)")
+            break
+        say(f"slop-cop flagged {sum(len(v) for v in findings.values())} passage(s) in "
+                   f"{len(findings)} field(s); asking {PROSE_MODEL} to rewrite those")
+        question = revision_order(work_order(retro, R, root, sorted(findings), store, rules_file),
+                                  findings, rules, store)
+    for addr in batch:
+        if addr not in landed and not any(r.startswith(addr + ":") for r in refused):
+            refused.append(f"{addr}: the reply never answered")
+    return {"landed": landed, "fields": fields, "refused": refused}
+
+
 def write_prose(retro, R: dict, root: Path, args, store: dict, wanted: list, lane_root: Path, rules_file: Path) -> int:
     lock = load_lock(root)
     rules = rule_directives()
-    landed, refused, reported, written = {}, [], [], set()
-    for n in range(0, len(wanted), args.batch):
-        batch = wanted[n:n + args.batch]
-        lane = lane_root / f"batch-{n // args.batch + 1}"
-        order = work_order(retro, R, root, batch, store, rules_file)
-        print(f"prose: asking {PROSE_MODEL} for {len(batch)} field(s) ({n + 1}–{n + len(batch)} of {len(wanted)})")
-        batch_landed, question = {}, order
-        for attempt in range(SLOP_ROUNDS + 1):
-            try:
-                got = ask(question, REPLY_SCHEMA, lane / f"round-{attempt + 1}", args.timeout)
-            except (RuntimeError, subprocess.TimeoutExpired, ValueError) as e:
-                print(f"ERROR: {e}", file=sys.stderr)
-                return 1
-            print(f"prose: {PROSE_MODEL} answered in {got['seconds']}s, run {got['run']}")
-            answered = set()
-            for item in got["reply"].get("fields") or []:
-                addr, text = item.get("id"), (item.get("text") or "").strip()
-                if addr not in store or not text:
-                    refused.append(f"{addr}: the reply named a field this retro does not carry" if addr not in store
-                                   else f"{addr}: the reply is empty")
-                    continue
-                spec = store[addr]
-                before = "" if spec.get("grounded") else spec["text"]
-                drift = fact_drift(before, text, json.dumps(spec.get("source_obj") or {}))
-                if drift:
-                    refused += [f"{addr}: {d}" for d in drift]
-                    continue
-                answered.add(addr)
-                batch_landed[addr] = text
-                spec["landed"] = text
-                lock["fields"][addr] = {"sha256": digest(text), "run": got["run"], "log": got["log"],
-                                        "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-            findings = lint({a: batch_landed[a] for a in sorted(answered)}, not args.quick)
-            for addr in answered:
-                lock["fields"][addr]["slop"] = len(findings.get(addr) or [])
-            if not findings or attempt == SLOP_ROUNDS:
-                if findings:
-                    print(f"prose: {sum(len(v) for v in findings.values())} lint finding(s) survived "
-                          f"{SLOP_ROUNDS} revision round(s) in {len(findings)} field(s)")
-                break
-            print(f"prose: slop-cop flagged {sum(len(v) for v in findings.values())} passage(s) in "
-                  f"{len(findings)} field(s); asking {PROSE_MODEL} to rewrite those")
-            question = revision_order(work_order(retro, R, root, sorted(findings), store, rules_file),
-                                      findings, rules, store)
-        for addr in batch:
-            if addr not in batch_landed and not any(r.startswith(addr + ":") for r in refused):
-                refused.append(f"{addr}: the reply never answered")
-        for r in refused[len(reported):]:
+    size = args.batch or max(len(wanted), 1)
+    batches = [wanted[n:n + size] for n in range(0, len(wanted), size)]
+    print(f"prose: asking {PROSE_MODEL} for {len(wanted)} field(s) in {len(batches)} call(s) at once")
+    with ThreadPoolExecutor(max_workers=len(batches) or 1) as pool:
+        jobs = [pool.submit(write_batch, retro, R, root, args, store, batch, lane_root / f"batch-{i + 1}",
+                            rules_file, rules) for i, batch in enumerate(batches)]
+        try:
+            results = [job.result() for job in jobs]
+        except (RuntimeError, subprocess.TimeoutExpired, ValueError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+    landed, refused, written = {}, [], set()
+    merged_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for result in results:
+        for entry in result["fields"].values():
+            entry["at"] = merged_at
+        for r in result["refused"]:
             print(f"warn:  {r}")
-        reported = list(refused)
-
-        for addr, text in batch_landed.items():
-            spec = store[addr]
-            if spec["holder"] is not None:
-                spec["holder"][spec["key"]] = text
-        written |= write_summary(root, {a: t for a, t in batch_landed.items() if a.startswith("summary.html#")})
-        retro.write_retro(root, R)
-        lock["model"] = "gpt-6-astra"
-        lock["command"] = f"{CODEX_ASK} -m {PROSE_MODEL}"
-        lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
-        write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
-        landed.update(batch_landed)
+        refused += result["refused"]
+        lock["fields"].update(result["fields"])
+        landed.update(result["landed"])
+    for addr, text in landed.items():
+        spec = store[addr]
+        if spec["holder"] is not None:
+            spec["holder"][spec["key"]] = text
+    written |= write_summary(root, {a: t for a, t in landed.items() if a.startswith("summary.html#")})
+    retro.write_retro(root, R)
+    lock["model"] = "gpt-6-astra"
+    lock["command"] = f"{CODEX_ASK} -m {PROSE_MODEL}"
+    lock["slop"] = sum(f.get("slop", 0) for f in lock["fields"].values())
+    write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
 
     if args.quick:
         stamped = grandfather(retro, R, root, store, set(landed), lock)
@@ -781,7 +796,8 @@ def add_prose_parser(sub, retro):
     p.add_argument("--quick", action="store_true", help="migrate a pre-0.3.0 retro: ask astra only for what this "
                    "version newly requires, skip the model lint rounds, and pin the rest as legacy provenance")
     p.add_argument("--list", action="store_true", help="print every prose field and whether it is locked")
-    p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call")
+    p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call, the calls running side by "
+                   "side; the default 0 sends every field in one call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")
     p.add_argument("--note", action="append", metavar="[ADDR=]TEXT", help="steer the writing without writing it: "
                    "'ADDR=text' for one field, bare text for every field in this run; repeatable")

@@ -2,8 +2,8 @@
 
 `retro.json` is the contract shared by the evidence snapshots and
 `incident-retro.html`. The `retro.py` driver reads the same contract through
-`check`, `prose`, `text`, `snapshot`, `links`, `render-check`, `live`, and
-`pdf`.
+`new`, `check`, `prose`, `text`, `snapshot`, `links`, `render-check`, `live`,
+`publish`, `board`, and `pdf`.
 Markdown-bearing string fields accept `[text](url)` links and `` `code` ``.
 They also accept `**bold**` and `*italic*`. The same mini dialect as the
 design-doc renderer handles `[^n]` footnote tokens. Run
@@ -34,7 +34,7 @@ here.
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
-| `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer (`TAKEAWAY_WORDS = 18`). Reference sections carry no takeaway. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
+| `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
 | `ai` | no | `{suggest?: {<sectionId>: ["…"]}}` the questions the assistant offers while a section is on screen; the endpoint and keys live in `ai.json`, never here |
 | `acronyms` | no | words the capitalization lint holds to their own spelling, on top of the built-in list plus `TTD`, `TTE`, `TTM`, `TTR`, `SEV` |
 | `draft` | no | boolean; pins a draft banner as in design-doc |
@@ -59,11 +59,9 @@ empty. `import-gdoc` puts the source document's heading into `subtitle`,
 leaves `title` and `tags` empty, and records that work in the import notes.
 
 The page shows tag chips below the subtitle and sets the space-separated
-tags on `document.documentElement.dataset.tags`. The design-docs retro index
-is hand-maintained HTML whose cards fetch each retro's `retro.json`. The
-card convention is to read `meta.title`, `meta.subtitle`, and `meta.tags`;
-the retro page exposes `data-tags` for filtering. Update older card readers
-that still take their description from `summary.p` to follow that convention.
+tags on `document.documentElement.dataset.tags`. `retro.py publish` refreshes
+the cards in both `index.html` and `incident-retros/index.html` from
+`meta.title`, `meta.subtitle`, `meta.date`, and `meta.status` in `retro.json`.
 
 The page reads four `localStorage` keys: `design-doc-ai`, `design-doc-github`, `design-doc-theme`, and `design-doc-wording`. They keep their design-doc names so one browser override works on both kinds of page.
 
@@ -238,6 +236,46 @@ Each action entry follows `[{id, t, h, owner, source, state, links?, due?, note?
 - `links`: links as below; `closes: true` marks the pull request or issue whose landing completes the action. `retro.py links --fetch` reports an action `done` whose closing change is still open, and one `todo` or `in-progress` whose closing change merged.
 - `due`: `YYYY-MM-DD`. `note`: one sentence, for a dropped action the reason.
 
+## `prevention`: options the owner picks from
+
+The top-level list follows `[{id, t, h, text, options}]`. Each question's
+`id` is `P\d+`, such as `P1`, and is citable like `C1`. `t` is the question,
+`h` its short name, and `text` the lede with the facts that pose it. The
+page renders Prevention options after Action items.
+
+`options` holds two to four answers, each with this shape:
+
+| Field | Meaning |
+|---|---|
+| `id` | The question's id plus one lowercase letter, such as `P1a` |
+| `t` | The option label, eight words or fewer |
+| `hint` | One line that distinguishes the option |
+| `text` | The option's detail |
+| `pros`, `cons` | Lists of `{text}` objects; each item is one line |
+| `buys` | What the option gains, on one line |
+| `costs` | What the option costs, on one line |
+| `loses` | What the option gives up, on one line |
+| `first` | What must land first, on one line |
+| `alternatives` | Other ways to answer the question, on one line |
+| `recommended` | `true` on at most one option per question |
+
+Astra writes every prose string in the question and its options through
+`prose`; ids and `recommended` remain data. `check` errors on fewer than
+two or more than four options, or more than one recommended option.
+An option id other than its question's id plus one lowercase letter also
+errors. Newlines in `hint`, any of the five fact fields, or a `pros` or
+`cons` item are errors.
+
+A label over eight words or an option with no pros, cons, or facts draws
+a strict warning. `text` alone does not satisfy that last check.
+
+`retro.py board <dir> --out <file>` writes a cc-present board from this list.
+Each question becomes a card and each answer an option. `buys`, `costs`,
+`loses`, `first`, and `alternatives` become facts, with `first` labeled
+"must land first" on the board. `pros`, `cons`, and `text` become detail, and
+`recommended` carries through. The root presents the file without a
+second writing pass.
+
 ## `decisions`: choices made during the response
 
 Each entry follows `[{id, t, h, who, when, why, alternatives?, refs?, links?}]`.
@@ -334,10 +372,10 @@ Tiles, the windows gantt, the swimlane, notebooks, monitors, Slack threads, the 
 
 ## Ids, handles and citations
 
-Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, `I\d+`, `D\d+`, `H\d+`, and `U\d+`, unique across the file. On the page, `(C1)` or `(C1, T7)` renders as the handles in parentheses. `retro.py text` uses handles except for timeline citations, which remain local times.
+Citeable ids are `W\d+`, `T\d+`, `C\d+`, `AI\d+`, `I\d+`, `D\d+`, `H\d+`, `U\d+`, and `P\d+`, unique across the file. On the page, `(C1)` or `(C1, T7)` renders as the handles in parentheses. `retro.py text` uses handles except for timeline citations, which remain local times.
 
 A handle `h` is required on every window, timeline entry, cause, action,
-decision, hypothesis, unknown, sub-incident, and entry in `evidence.notebooks`,
+decision, hypothesis, prevention question, unknown, sub-incident, and entry in `evidence.notebooks`,
 `evidence.monitors`, `evidence.builds`, and `evidence.prs`. Missing handles draw
 strict warnings. A nonempty handle must contain 2 to 6 words excluding URLs
 and inline code. A count outside that range is an error without `--strict`.
@@ -375,6 +413,8 @@ including empty fields whose containing objects exist.
 | Causes | `C1.text`, `C1.p`, `C1.code.caption` when `code` exists |
 | Impact per team | `impact.teams[<index>].text` |
 | Actions and sub-incidents | `AI1.t`, `AI1.note`, `I1.t` |
+| Prevention questions | `P1.t`, `P1.text`, `P1.h` |
+| Prevention options | `P1a.t`, `P1a.hint`, `P1a.text`, `P1a.buys`, `P1a.costs`, `P1a.loses`, `P1a.first`, `P1a.alternatives`, `P1a.pros[i].text`, `P1a.cons[i].text` |
 | Decisions, hypotheses, unknowns | `D1.t`, `D1.why`, `D1.alternatives`, `H1.t`, `H1.exonerated`, `U1.q`, `U1.why` |
 | Recognition and glossary | `recognize[<index>].signal`, `.means`, `.do`; `glossary[<index>].def` |
 | Lessons | `lessons.<column>[<index>].text`, with column `well`, `wrong`, or `lucky` |
@@ -393,8 +433,10 @@ remain in the field list.
 Slack snapshots and their mechanically derived row labels are outside the
 prose field list.
 
-The command builds work orders for one retro, split into batches. Each
-points the model at this skill's writing contract and `SKILL.md`, plus the
+The command sends every selected field for one retro in one call by
+default (`PROSE_BATCH = 0`). `--batch N` splits the fields into calls that
+run side by side. Each work order points the model at this skill's writing
+contract and `SKILL.md`, plus the
 cached `writing-docs` contract and references when available. The work order
 also names `slop-cop-rules.json`, generated by `slop-cop rules --pretty`.
 The command reuses that file when it exists.
@@ -403,7 +445,8 @@ The linter's full catalog contains 226 rules, each with a `description`, a
 `tip`, and an `llmDirective`. The model must write to those rules in its first
 draft. The command calls `codex-ask -m astra` as a subprocess with a JSON reply schema of
 `{"fields": [{"id": "<address>", "text": "<wording>"}]}`. It writes accepted
-text directly into `retro.json` and `summary.html`.
+text into `retro.json` and `summary.html` when all calls finish, along with
+the provenance in `prose.lock.json`.
 
 The fact freeze strips HTML tags and backticks before comparing tokens.
 Existing fields other than the headline and subtitle must preserve
@@ -442,7 +485,7 @@ Review the returned wording against the record.
 | `--note "[ADDR=]TEXT"` | Steer one field with `ADDR=text`, or every selected field with bare text; repeatable. A later note replaces an earlier note for the same field |
 | `--stale` | Rewrite nonempty fields without a matching digest, empty headlines and subtitles, and required short names `h` that are missing or empty. Leave absent optional prose alone |
 | `--quick` | Migrate a retro written before 0.3.0: rewrite newly required fields, run deterministic lint only, and pin remaining pre-existing prose as legacy provenance |
-| `--batch <N>` | Fields per model call; `PROSE_BATCH = 36` |
+| `--batch <N>` | Fields per model call, with calls running side by side; `PROSE_BATCH = 0` sends every selected field in one call |
 | `--dry-run` | Prepare the rule catalog and print the first selected batch's work order without calling the model or changing the retro |
 | `--timeout <seconds>` | Timeout per model call; `PROSE_TIMEOUT = 1800` |
 
@@ -738,3 +781,4 @@ Errors unless noted; `--strict` promotes the strict warnings.
 20. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
 21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
 22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
+23. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. Missing pros, cons, and facts or an option label over eight words draw strict warnings.

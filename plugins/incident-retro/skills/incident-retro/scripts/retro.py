@@ -11,6 +11,9 @@
   retro.py evidence fetch|slack … (scripts/retro_evidence.py)
   retro.py import-gdoc <exported.md> [<docs.json>] --out <dir> [--tz Z] [--date YYYY-MM-DD]
   retro.py live init|sync|finalize <incident-dir> --docs <checkout> (scripts/retro_live.py)
+  retro.py new --incident SRC… --docs <checkout> --title T [--pr] (scripts/retro_new.py)
+  retro.py publish <dir> [--ready]
+  retro.py board <dir> [--out FILE]
 
 scaffold creates a directory for one retro holding the renderer, retro.json,
 NOTES.md and an empty evidence tree, or the Acme worked example. check lints
@@ -52,10 +55,11 @@ SUMMARY_PAGE = "summary.html"
 EVIDENCE_DIRS = ("datadog", "slack", "images")
 EVIDENCE_TEXT = {".json", ".md", ".txt", ".csv"}
 SECTION_IDS = ("overview", "timeline", "causes", "impact", "resolution", "lessons", "recognize", "actions",
-               "evidence", "unknowns", "glossary", "notes")
+               "prevention", "evidence", "unknowns", "glossary", "notes")
 SECTION_TITLES = {"overview": "Overview", "timeline": "Timeline", "causes": "Causes", "impact": "Impact",
                   "resolution": "Detection and response", "lessons": "Lessons",
                   "recognize": "How to recognize this next time", "actions": "Action items",
+                  "prevention": "Prevention options",
                   "evidence": "Evidence", "unknowns": "Still unknown", "glossary": "Glossary", "notes": "Notes"}
 STATUSES = ("ongoing", "draft", "in-review", "reviewed", "resolved")
 STATUS_LABEL = {"ongoing": "Ongoing", "draft": "Draft", "in-review": "Under review", "reviewed": "Reviewed",
@@ -89,7 +93,7 @@ COMPONENT_LISTS = ("causes", "notes")
 RETRO_ACRONYMS = ("TTD", "TTE", "TTM", "TTR", "SEV")
 HYPOTHESIS_STATES = ("ruled-out", "confirmed", "open")
 HYPOTHESIS_LABEL = {"ruled-out": "Ruled out", "confirmed": "Confirmed", "open": "Still open"}
-ID_SHAPES = (r"W\d+", r"T\d+", r"C\d+", r"AI\d+", r"I\d+", r"D\d+", r"H\d+", r"U\d+")
+ID_SHAPES = (r"W\d+", r"T\d+", r"C\d+", r"AI\d+", r"I\d+", r"D\d+", r"H\d+", r"U\d+", r"P\d+")
 ID_TOKEN = re.compile(r"(?<![\w-])(?:" + "|".join(ID_SHAPES) + r")(?![\w-])")
 CITE_GROUP = re.compile(r"\(((?:\s*(?:" + "|".join(ID_SHAPES) + r")\s*[,;]?)+)\s*\)")
 FN_TOKEN = re.compile(r"\[\^(\d+)\]")
@@ -138,7 +142,7 @@ TEMPLATE_STAMP = re.compile(r"<!-- built by plugins/_shared/build\.py .*?sha256:
 TWINNED = (("summary", "the summary"), ("impact", "the impact"), ("resolution", "the resolution"),
            ("detection", "the detection story"))
 HANDLED = (("windows", "W"), ("causes", "C"), ("actions", "AI"), ("decisions", "D"), ("hypotheses", "H"),
-           ("unknowns", "U"))
+           ("unknowns", "U"), ("prevention", "P"))
 HANDLE_WORDS = 6
 TITLE_WORDS = 12
 ACTION_TITLE_WORDS = 16
@@ -167,6 +171,10 @@ STATEMENT_WORDS = 25
 KEY_MOMENTS = 8
 DECISION_TITLE_WORDS = 16
 RECOGNIZE_WORDS = 25
+PREVENTION_OPTIONS = (2, 4)
+OPTION_LABEL_WORDS = 8
+OPTION_FACTS = ("buys", "costs", "loses", "first", "alternatives")
+OPTION_LISTS = ("pros", "cons")
 UNKNOWN_WORDS = 25
 GLOSSARY_WORDS = 30
 ENTRY_WORDS = 25
@@ -406,6 +414,17 @@ def prose_slots(R: dict):
     for i, row in enumerate(R.get("recognize") or []):
         for key in ("signal", "means", "do"):
             yield from slot(f"recognize[{i}].{key}", row, key)
+    for q in entries(R, "prevention"):
+        yield from slot(f"{q.get('id')}.t", q, "t")
+        yield from slot(f"{q.get('id')}.text", q, "text")
+        for o in q.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            for key in ("t", "hint", "text") + OPTION_FACTS:
+                yield from slot(f"{o.get('id')}.{key}", o, key)
+            for key in OPTION_LISTS:
+                for i, item in enumerate(o.get(key) or []):
+                    yield from slot(f"{o.get('id')}.{key}[{i}].text", item, "text")
     for e in entries(R, "unknowns"):
         yield from slot(f"{e.get('id')}.q", e, "q")
         yield from slot(f"{e.get('id')}.why", e, "why")
@@ -1522,6 +1541,51 @@ def check_recognize(rep, R):
                 rep.strict_warn(f"{where}.{key} is {words(value)} words; each column is {RECOGNIZE_WORDS} or fewer")
 
 
+def check_prevention(rep, R) -> set:
+    items = entries(R, "prevention")
+    if R.get("prevention") is not None and not isinstance(R["prevention"], list):
+        rep.err("prevention must be a list of {id, t, h, text, options}")
+        return set()
+    ids = check_ids(rep, items, r"P\d+", "prevention")
+    option_ids = set()
+    for q in items:
+        qid = q.get("id")
+        if not (isinstance(q.get("t"), str) and q["t"].strip()):
+            rep.err(f"{qid}.t is missing; a prevention entry is the question the owner picks an answer to")
+        elif words(q["t"]) > DECISION_TITLE_WORDS:
+            rep.warn(f"{qid}.t is {words(q['t'])} words; the question reads as one line of {DECISION_TITLE_WORDS} or fewer")
+        options = [o for o in q.get("options") or [] if isinstance(o, dict)]
+        if not PREVENTION_OPTIONS[0] <= len(options) <= PREVENTION_OPTIONS[1]:
+            rep.err(f"{qid} offers {len(options)} option(s); a choice carries {PREVENTION_OPTIONS[0]} to "
+                    f"{PREVENTION_OPTIONS[1]}")
+        if sum(1 for o in options if o.get("recommended") is True) > 1:
+            rep.err(f"{qid} recommends more than one option; recommend one or none")
+        for o in options:
+            oid = o.get("id")
+            if not (isinstance(oid, str) and re.fullmatch(rf"{re.escape(str(qid))}[a-z]", oid)):
+                rep.err(f"{qid}: option id {oid!r} is not {qid} followed by one letter")
+            elif oid in option_ids:
+                rep.err(f"{qid}: option id {oid} repeats")
+            option_ids.add(oid)
+            if not (isinstance(o.get("t"), str) and o["t"].strip()):
+                rep.err(f"{oid}.t is missing; the option needs a label")
+            elif words(o["t"]) > OPTION_LABEL_WORDS:
+                rep.strict_warn(f"{oid}.t is {words(o['t'])} words; an option label is {OPTION_LABEL_WORDS} or fewer")
+            for key in ("hint",) + OPTION_FACTS:
+                if "\n" in str(o.get(key) or ""):
+                    rep.err(f"{oid}.{key} carries a newline; it renders on one line")
+            for key in OPTION_LISTS:
+                for i, item in enumerate(o.get(key) or []):
+                    if not (isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"].strip()):
+                        rep.err(f"{oid}.{key}[{i}] must be {{text}}")
+                    elif "\n" in item["text"]:
+                        rep.err(f"{oid}.{key}[{i}].text carries a newline; it renders on one line")
+            if not any(o.get(k) for k in OPTION_FACTS + OPTION_LISTS):
+                rep.strict_warn(f"{oid} carries no pros, cons, buys, costs, loses, first or alternatives; the owner "
+                                f"picks from those")
+    return ids
+
+
 def check_unknowns(rep, R, known: set) -> set:
     items = entries(R, "unknowns")
     if R.get("unknowns") is not None and not isinstance(R["unknowns"], list):
@@ -2216,7 +2280,9 @@ def check(args) -> int:
     d_ids = check_decisions(rep, R, all_ids)
     h_ids = check_hypotheses(rep, R, all_ids)
     u_ids = check_unknowns(rep, R, all_ids)
-    known = window_ids | {str(i) for group in (t_ids, c_ids, a_ids, sub_ids, d_ids, h_ids, u_ids) for i in group}
+    p_ids = check_prevention(rep, R)
+    known = window_ids | {str(i) for group in (t_ids, c_ids, a_ids, sub_ids, d_ids, h_ids, u_ids, p_ids)
+                          for i in group}
     check_impact(rep, R, known)
     check_resolution(rep, R)
     check_recognize(rep, R)
@@ -2494,6 +2560,25 @@ def text_sections(R: dict, root: Path) -> dict:
     out["actions"] = lines
 
     lines = []
+    for q in entries(R, "prevention"):
+        lines += [f"### {q.get('t', '')}", ""] + ([cite(q["text"]), ""] if q.get("text") else [])
+        for o in q.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            head = f"- **{o.get('t', '')}**" + (" (recommended)" if o.get("recommended") else "")
+            lines.append(head + (f": {o['hint']}" if o.get("hint") else ""))
+            if o.get("text"):
+                lines.append(f"  {cite(o['text'])}")
+            for key in OPTION_FACTS:
+                if o.get(key):
+                    lines.append(f"  - {'must land first' if key == 'first' else key}: {o[key]}")
+            for key in OPTION_LISTS:
+                for item in o.get(key) or []:
+                    lines.append(f"  - {key[:-1]}: {item.get('text', '')}")
+        lines.append("")
+    out["prevention"] = lines
+
+    lines = []
     lessons = R.get("lessons") or {}
     for key, label in LESSON_COLUMNS:
         column = [e for e in lessons.get(key) or [] if isinstance(e, dict) and e.get("text")]
@@ -2689,6 +2774,7 @@ def main():
         ev = sub.add_parser("evidence", help="fetch Datadog snapshots and check or start Slack ones (scripts/retro_evidence.py)")
         ev.add_argument("rest", nargs=argparse.REMAINDER)
         ev.set_defaults(fn=evidence_missing)
+    sibling_module("retro_new").add_new_parsers(sub, sys.modules[__name__])
     args = ap.parse_args()
     sys.exit((getattr(args, "fn", None) or args.func)(args))
 
