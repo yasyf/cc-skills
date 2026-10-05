@@ -158,9 +158,16 @@ lane-owned task.
 
 At every handoff, milestone report, and compaction, the root reconciles the list:
 every `in_progress` task has a working lane, and every running lane has an open task.
-Complete what was consumed; re-own or delete the rest. Every lane receives the whole
-task list on every wake. The root deletes a completed task with `TaskUpdate` status
-`deleted` once its result is in cc-notes or the plan.
+Complete what was consumed; re-own or delete the rest. Every lane receives the live
+task list on every wake.
+
+In a live drive, `task_archive` moves completed tasks whose files are older than two
+hours from `~/.claude/tasks/<list>/` to its `.archive.ndjson` on
+`SessionStart`, `PreCompact`, and at most once per 30 minutes on `Stop`. This keeps
+Claude Code's built-in reminder small. It reprints the live list every 10 assistant
+messages without `TaskCreate` or `TaskUpdate`, to the root and each in-process teammate.
+The owner's switch is `CLAUDE_CODE_TODO_REMINDER_MODE=off` in the `env` block of
+`~/.claude/settings.json`; it disables that reminder for the whole Claude Code process.
 
 Report to the user on milestones or when they must act, never per event. Once
 `long-running` is invoked, the compaction hook nudges the root to write a new progress
@@ -170,8 +177,13 @@ mid-drive handoff with nothing written down to hand over.*
 
 The pack's `task_list` hooks enforce this. They nudge when a spawned lane has no task by
 turn end, when a lane's done report names a task still `in_progress`, and when an owner
-ask has no task after three tool calls or by turn end. Every 20 turns they list the drift
-in one line. Treat each nudge as a `TaskCreate` or `TaskUpdate` due now.
+ask has no task after three tool calls or by turn end. The owner-ask nudge is dropped
+when a `TaskCreate` happened in the last 10 minutes. Every 20 turns they check for drift
+and busy lanes with no open task.
+
+All lane nags share a limit of at most one per lane per hour. A lane that has reported
+done twice is never nagged again. Done reports share one line listing the lanes, and
+the drift line names the lanes. Treat each nudge as a `TaskCreate` or `TaskUpdate` due now.
 
 *Prevents lanes running with no task, completed lanes left `in_progress` for hours,
 mid-turn owner asks with no task, and lanes completing tasks the root still owed
@@ -2114,9 +2126,10 @@ A lane that drops below its line through its own compaction or leaves
 the line clears its flush record, so a later crossing starts a fresh cycle.
 
 A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
-without a reply starting `flushed` to its first ask. A later main-session `Stop`
-queues ``ROOT-ACTION `<lane>`: Rotate it by hand: ...``. The line repeats every
-15 minutes or after a new ask, with three steps:
+without a reply starting `flushed` to its first ask, subject to the cap below. A later
+main-session `Stop` queues ``ROOT-ACTION `<lane>`: Rotate it by hand: ...``. This line
+and the no-inbox `ROOT-ACTION` ask share a cap of one line per lane per two hours;
+a new ask does not reset it. The escalation has three steps:
 
 0. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write

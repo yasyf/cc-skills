@@ -310,7 +310,8 @@ def test_status_questions_and_relayed_messages_are_not_asks(drive: Drive, text: 
     assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, None]
 
 
-DRIFT_LINE = task_list.DRIFT_LINE
+def drift_line(*lanes: str) -> str:
+    return task_list.DRIFT_LINE.format(lanes=", ".join(f"`{lane}`" for lane in lanes))
 
 
 def reconcile(drive: Drive) -> list[str]:
@@ -328,25 +329,25 @@ def test_reconciliation_flags_stale_tasks(drive: Drive) -> None:
     drive.task("3", "Gone work — lane gone-lane")
     drive.task("4", "Root-held decision")
 
-    assert reconcile(drive) == [DRIFT_LINE]
+    assert reconcile(drive) == [drift_line("quiet-lane", "gone-lane")]
 
 
 def test_unchanged_drift_is_flagged_once(drive: Drive) -> None:
     drive.lane("quiet-lane", behind=timedelta(hours=2))
     drive.task("2", "Quiet work", owner="quiet-lane")
 
-    assert reconcile(drive) == [DRIFT_LINE]
+    assert reconcile(drive) == [drift_line("quiet-lane")]
     assert reconcile(drive) == []
 
     drive.task("2", "Quiet work", status="completed", owner="quiet-lane")
     assert reconcile(drive) == []
     drive.task("2", "Quiet work", owner="quiet-lane")
-    assert reconcile(drive) == [DRIFT_LINE]
+    assert reconcile(drive) == []
 
     drive.lane("gone-lane", busy=False)
     drive.task("3", "Gone work — lane gone-lane")
 
-    assert reconcile(drive) == [DRIFT_LINE]
+    assert reconcile(drive) == [drift_line("gone-lane")]
 
 
 def test_unchanged_untracked_lanes_are_flagged_once(drive: Drive) -> None:
@@ -357,9 +358,7 @@ def test_unchanged_untracked_lanes_are_flagged_once(drive: Drive) -> None:
 
     drive.lane("second-lane")
 
-    assert reconcile(drive) == [
-        "Busy lanes have no open task: `loose-lane`, `second-lane`. Run `TaskCreate` with `owner=<lane>` for each."
-    ]
+    assert reconcile(drive) == ["Busy lanes have no open task: `second-lane`. Run `TaskCreate` with `owner=<lane>` for each."]
 
 
 def test_busy_lane_without_a_task_is_flagged(drive: Drive) -> None:
@@ -452,3 +451,62 @@ def test_lane_cannot_complete_the_roots_task_for_it(drive: Drive) -> None:
     )
     assert gate(drive, "62", status="in_progress") is None
     assert gate(drive, "90") is None
+
+
+def age_nags(drive: Drive, seconds: float) -> None:
+    with task_list.LaneNagState.mutate(drive.event(StopEvent)) as state:
+        state.nagged = {lane: at - seconds for lane, at in state.nagged.items()}
+
+
+def test_lane_is_nagged_at_most_once_an_hour(drive: Drive) -> None:
+    spawn = {"name": "ledger-fix", "description": "fix ledger", "prompt": "go", "team_name": TEAM}
+    drive.tool("Agent", spawn)
+    assert drive.stop() == ["Lane `ledger-fix` has no task. Run `TaskCreate` with `owner=ledger-fix`."]
+
+    drive.tool("Agent", spawn)
+    assert drive.stop() == []
+
+    age_nags(drive, task_list.LANE_NAG_SECONDS)
+    drive.tool("Agent", spawn)
+    assert drive.stop() == ["Lane `ledger-fix` has no task. Run `TaskCreate` with `owner=ledger-fix`."]
+
+
+def test_done_reports_from_several_lanes_share_one_line(drive: Drive) -> None:
+    drive.task("12", "Land the stack", owner="stack-lander")
+    drive.task("13", "Fix the ledger", owner="ledger-fix")
+    drive.say('<teammate-message teammate_id="stack-lander">\n#28398 landed on dev\n</teammate-message>')
+    drive.say('<teammate-message teammate_id="ledger-fix">\nREADY #28400\n</teammate-message>')
+
+    assert drive.bash() == (
+        "Lanes `stack-lander`, `ledger-fix` reported their tasks done. Consume each deliverable, then run `TaskUpdate`."
+    )
+
+
+def test_lane_that_reported_done_twice_is_never_nagged_again(drive: Drive) -> None:
+    drive.task("12", "Land the stack", owner="stack-lander")
+    drive.say('<teammate-message teammate_id="stack-lander">\n#28398 landed on dev\n</teammate-message>')
+    assert drive.bash().startswith("Lane `stack-lander` reported its task done")
+    drive.say('<teammate-message teammate_id="stack-lander">\nall done\n</teammate-message>')
+    assert drive.bash() is None
+
+    age_nags(drive, task_list.LANE_NAG_SECONDS)
+    drive.say('<teammate-message teammate_id="stack-lander">\nstill done\n</teammate-message>')
+    drive.tool("Agent", {"name": "stack-lander", "description": "land", "prompt": "go", "team_name": TEAM})
+    drive.task("12", "Land the stack", status="completed", owner="stack-lander")
+
+    assert drive.bash() is None
+    assert drive.stop() == []
+
+
+def test_owner_ask_soon_after_a_task_create_is_not_flagged(drive: Drive) -> None:
+    drive.tool("TaskCreate", {"subject": "Earlier ask", "description": "x"})
+    drive.say("fix the ledger hook")
+
+    assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, None]
+    drive.say("also sweep every monitor")
+    assert drive.stop() == []
+
+    with task_list.AskState.mutate(drive.event(StopEvent)) as state:
+        state.created_at -= task_list.ASK_GRACE_SECONDS
+    drive.say("fix the ledger hook again")
+    assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, ASK_LINE]

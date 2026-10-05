@@ -33,12 +33,14 @@ from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, covered, lane_of,
 
 ASK_CALLS = 3
 ASK_LINE = "Every owner ask gets a task. Run `TaskCreate` for it."
+ASK_GRACE_SECONDS = 10 * 60
 RECONCILE_TURNS = 20
 LISTED_LANES = 5
-DONE_COOLDOWN_SECONDS = 30 * 60
+LANE_NAG_SECONDS = 60 * 60
+SILENCING_DONE_REPORTS = 2
 IDLE_SECONDS = 30 * 60
 HELPER_ROLES = frozenset({"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"})
-DRIFT_LINE = "The task list has drifted from the running lanes. Run `TaskUpdate` to complete, re-own, or delete the stale tasks."
+DRIFT_LINE = "The task list has drifted from the running lanes ({lanes}). Run `TaskUpdate` to complete, re-own, or delete their stale tasks."
 TASK_TOOLS = frozenset({"TaskCreate", "TaskUpdate"})
 NAME_FLAGS = ("--display-name", "--name", "--task-title")
 DESK = re.compile(r"(?:^|-)desk(?:-|$)")
@@ -61,6 +63,7 @@ class AskState(WorkflowState):
     pending: bool = False
     calls: int = 0
     cursor: str | None = None
+    created_at: float = 0.0
 
 
 @workflow_state("long_running_task_unowned")
@@ -70,8 +73,13 @@ class UnownedState(WorkflowState):
 
 @workflow_state("long_running_task_done")
 class DoneState(WorkflowState):
-    nudged: dict[str, float] = {}
     cursor: str | None = None
+
+
+@workflow_state("long_running_task_lane_nags")
+class LaneNagState(WorkflowState):
+    nagged: dict[str, float] = {}
+    done_reports: dict[str, int] = {}
 
 
 @workflow_state("long_running_task_drift")
@@ -150,32 +158,53 @@ def reported(tasks: tuple[Task, ...], lane: str, body: str) -> list[Task]:
     return [task for task in owned if refs & set(REF.findall(task.subject))]
 
 
-def finished(evt: BaseHookEvent, state: DoneState, text: str, now: float) -> list[str]:
-    if not (reports := done_reports(text)):
+def nag_due(evt: BaseHookEvent, lanes: Iterable[str], now: float, *, reporting: Iterable[str] = ()) -> list[str]:
+    with LaneNagState.mutate(evt) as state:
+        due = [
+            lane
+            for lane in dict.fromkeys(lanes)
+            if state.done_reports.get(lane, 0) < SILENCING_DONE_REPORTS
+            and now - state.nagged.get(lane, 0.0) >= LANE_NAG_SECONDS
+        ]
+        state.nagged |= dict.fromkeys(due, now)
+        for lane in reporting:
+            state.done_reports[lane] = state.done_reports.get(lane, 0) + 1
+    return due
+
+
+def listed(names: list[str]) -> str:
+    shown = ", ".join(f"`{name}`" for name in names[:LISTED_LANES])
+    return shown + (f" (+{len(names) - LISTED_LANES} more)" if len(names) > LISTED_LANES else "")
+
+
+def done_line(lanes: list[str]) -> str:
+    if len(lanes) == 1:
+        return f"Lane `{lanes[0]}` reported its task done. Consume its deliverable, then run `TaskUpdate`."
+    return f"Lanes {listed(lanes)} reported their tasks done. Consume each deliverable, then run `TaskUpdate`."
+
+
+def finished(evt: BaseHookEvent, texts: list[str]) -> list[str]:
+    if not (reports := [report for text in texts for report in done_reports(text)]):
         return []
     tasks = evt.tasks.in_progress
     lanes = {lane for task in tasks if (lane := lane_of(task)) and not DESK.search(lane)}
-    lines = []
-    for sender, body in reports:
-        for lane in [sender] if sender else [lane for lane in lanes if mentions(body, lane)]:
-            for task in reported(tasks, lane, body):
-                if now - state.nudged.get(task.id, 0.0) >= DONE_COOLDOWN_SECONDS:
-                    state.nudged[task.id] = now
-                    lines.append(
-                        f"Lane `{lane}` reported its task done. Consume its deliverable, then run `TaskUpdate`."
-                    )
-    return lines
+    return [
+        lane
+        for sender, body in reports
+        for lane in ([sender] if sender else [lane for lane in lanes if mentions(body, lane)])
+        if reported(tasks, lane, body)
+    ]
 
 
-def drifted(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
+def drifted(evt: BaseHookEvent, tasks: Tasks, now: float) -> dict[str, str]:
     lanes = {lane.name: lane for lane in live_lanes(evt)}
     known = spawned_names(evt)
-    return sorted(
-        task.id
-        for task in tasks.in_progress
+    return {
+        task.id: lane
+        for task in sorted(tasks.in_progress, key=lambda task: int(task.id) if task.id.isdigit() else 0)
         if (lane := lane_of(task)) in known
         and (lane not in lanes or now - lanes[lane].turn.at.timestamp() > IDLE_SECONDS)
-    )
+    }
 
 
 def untracked(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
@@ -187,9 +216,7 @@ def untracked(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
 
 
 def untracked_line(names: list[str]) -> str:
-    shown = ", ".join(f"`{name}`" for name in names[:LISTED_LANES])
-    more = f" (+{len(names) - LISTED_LANES} more)" if len(names) > LISTED_LANES else ""
-    return f"Busy lanes have no open task: {shown}{more}. Run `TaskCreate` with `owner=<lane>` for each."
+    return f"Busy lanes have no open task: {listed(names)}. Run `TaskCreate` with `owner=<lane>` for each."
 
 
 def deliver(evt: BaseHookEvent, lines: list[str]) -> HookResult | None:
@@ -216,13 +243,17 @@ def fresh_prompts(evt: BaseHookEvent, cursor: str | None) -> tuple[list[str], st
     },
 )
 def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
+    now = time.time()
     with AskState.mutate(evt) as state:
         texts, state.cursor = fresh_prompts(evt, state.cursor)
         if any(is_ask(text) for text in texts):
             state.pending, state.calls = True, 0
+        if evt.tool_name == "TaskCreate":
+            state.created_at = now
+        recent = now - state.created_at < ASK_GRACE_SECONDS
         if evt.event == Event.Stop:
             asked, state.pending = state.pending, False
-            return deliver(evt, [ASK_LINE] * asked)
+            return deliver(evt, [ASK_LINE] * (asked and not recent))
         if evt.tool_name in TASK_TOOLS and (
             not (update := evt.as_input(TaskUpdateCall)) or update.status not in ("completed", "deleted")
         ):
@@ -231,7 +262,7 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
             state.calls += 1
             if state.calls >= ASK_CALLS:
                 state.pending = False
-                return deliver(evt, [ASK_LINE])
+                return None if recent else deliver(evt, [ASK_LINE])
     return None
 
 
@@ -248,9 +279,9 @@ def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
     with UnownedState.mutate(evt) as state:
         if evt.event == Event.Stop:
             tasks = evt.tasks
-            lines = [f"Lane `{name}` has no task. Run `TaskCreate` with `owner={name}`." for name in state.lanes if not covered(tasks, name)]
+            missing = nag_due(evt, [name for name in state.lanes if not covered(tasks, name)], time.time())
             state.lanes = []
-            return deliver(evt, lines)
+            return deliver(evt, [f"Lane `{name}` has no task. Run `TaskCreate` with `owner={name}`." for name in missing])
         if evt.tool_name in TASK_TOOLS:
             tasks = evt.tasks
             state.lanes = [name for name in state.lanes if not covered(tasks, name)]
@@ -270,11 +301,12 @@ def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def flag_lane_done_reports(evt: BaseHookEvent) -> HookResult | None:
-    now = time.time()
     with DoneState.mutate(evt) as state:
         texts, state.cursor = fresh_prompts(evt, state.cursor)
-        lines = [line for text in texts for line in finished(evt, state, text, now)]
-    return deliver(evt, lines)
+    if not (lanes := finished(evt, texts)):
+        return None
+    due = nag_due(evt, lanes, time.time(), reporting=lanes)
+    return deliver(evt, [done_line(due)] if due else [])
 
 
 @on(
@@ -289,11 +321,12 @@ def flag_task_list_drift(evt: BaseHookEvent) -> HookResult | None:
         if state.turns < RECONCILE_TURNS:
             return None
         state.turns = 0
-    stale = drifted(evt, evt.tasks, time.time())
+    now = time.time()
+    stale = drifted(evt, evt.tasks, now)
     with DriftState.mutate(evt) as state:
-        if stale and stale != state.flagged:
-            queue_nudge(evt, DRIFT_LINE)
-        state.flagged = stale
+        if stale and list(stale) != state.flagged and (lanes := nag_due(evt, stale.values(), now)):
+            queue_nudge(evt, DRIFT_LINE.format(lanes=listed(lanes)))
+        state.flagged = list(stale)
     return None
 
 
@@ -309,10 +342,11 @@ def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
         if state.turns < RECONCILE_TURNS:
             return None
         state.turns = 0
-    names = untracked(evt, evt.tasks, time.time())
+    now = time.time()
+    names = untracked(evt, evt.tasks, now)
     with UntrackedState.mutate(evt) as state:
-        if names and sorted(names) != state.flagged:
-            queue_nudge(evt, untracked_line(names))
+        if names and sorted(names) != state.flagged and (due := nag_due(evt, names, now)):
+            queue_nudge(evt, untracked_line(due))
         state.flagged = sorted(names)
     return None
 
