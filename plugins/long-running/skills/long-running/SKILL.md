@@ -966,7 +966,9 @@ minute at `:00`, `:01`, and `:02`. Each pass reads every PR number in one batche
 
 Every lane that enqueues or reports a PR runs
 `ccx vcs pr watch --lane-prefix <prefix> --until landed` under
-Monitor, re-armed on expiry, or in a foreground loop instead of ad-hoc polling.
+Monitor, re-armed on expiry, or in the foreground as `desk-wait.sh 540 "<team mailbox>=<cursor
+file>" -- ccx vcs pr watch --lane-prefix <prefix> --until landed` with `timeout: 570000`,
+instead of ad-hoc polling. An in-process lane never runs that watch as a bare foreground command.
 `ejected` or `conflicting` means rebase now. The lane watches until its PRs land.
 
 *Prevents the #27949 incident in Forge-AI/monorepo on 2026-09-30: priority #1 was
@@ -1279,6 +1281,7 @@ entries. It clips displayed records and file lines to 400 characters, ending
 clipped lines with an ellipsis. On `MAILBOX`, end the Bash call: Claude Code
 delivers the message at that tool-call boundary. Run step 0 on the output and
 delivered message, then rerun the call in a loop.
+A foreground watch in the same loop appends `-- <command>` to that call, so the mailbox ends the watch.
 
 The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk
 past the cci cursor named for it, advancing that cursor. The script also advances
@@ -1537,7 +1540,8 @@ example, landing a PR through a merge queue:
 ```
 Do:
   1. gh pr edit <n> --repo <repo> --add-label merge
-  2. Poll origin/dev for the squash commit "(#<n>)" until it appears or 40 min pass.
+  2. Poll origin/dev for the squash commit "(#<n>)" until it appears or 40 min pass,
+     waiting between polls with `desk-wait.sh 30 <team mailbox>=<cursor file>`.
      A queue-merged PR reads state=CLOSED, mergedAt=null; the commit is the truth.
   3. On landing, <the dependent step this chain exists to trigger>.
 Finish: one report - landed sha, dependent step result, or the blocking state.
@@ -1595,6 +1599,23 @@ Lanes poll in the foreground. The Bash tool caps `timeout` at 600000 ms, so a ca
 budgets about nine minutes and the lane re-runs it until a terminal state.
 A lane loop waits through `desk-wait.sh` on its own team mailbox instead of `sleep`,
 so a `SendMessage` ends the call.
+
+A plain Bash wait, whether `sleep`, a watch command, or a poll loop, never blocks longer than 60
+seconds. Any longer wait goes through `desk-wait.sh` on the lane's own team mailbox. A blocking
+watch runs after `--`, and the mailbox ends it within about two seconds:
+
+```sh
+desk-wait.sh 540 "<team mailbox>=<cursor file>" -- bk build watch <build>
+```
+
+Run it with `timeout: 570000`. The helper passes the command's output and exit status
+through, and on `MAILBOX` or the deadline it ends the command's process group and prints
+`MAILBOX <n> unread` or `QUIET`. Wrap read-only watches only, never a ship, push, or apply.
+On `MAILBOX`, read the message before re-running the watch.
+
+*Prevents the 2026-10-04 cases where cci-fix-1, cc-inbox-2, sweepers-delete,
+api-declarations-502-fix, and test-slow-41463-2 got rulings and stand-downs only after a
+CI or build watch ended.*
 
 ```sh
 deadline=$(( SECONDS + 540 ))

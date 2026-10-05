@@ -26,6 +26,14 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     assert "tail -n 0 -F" not in text
 
 
+@pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md"])
+def test_lanes_never_block_a_plain_wait_past_sixty_seconds(path):
+    text = (Path(__file__).resolve().parents[1] / "skills/long-running" / path).read_text()
+    assert "never blocks longer than 60" in text
+    assert "desk-wait.sh" in text
+    assert "-- <command>" in text
+
+
 def stamp(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 

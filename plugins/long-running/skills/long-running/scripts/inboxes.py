@@ -3,7 +3,7 @@
 
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...
     inbox-rotate.py [--hours 6] FILE...
-    desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)...
+    desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]
 
 STDLIB ONLY. The shims call this module's digest, rotate, and wait commands.
 An inbox's sorted <file>.archive/YYYY-MM-DD.md files, oldest first, followed by
@@ -34,6 +34,13 @@ Code deliver the message at that tool-call boundary. The stat check runs every
 0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
 never wake it. A cci:<drive>:<lane> source prints the cci records addressed to
 <lane> past the cursor named <lane>, through `cci tail`, which advances it.
+
+wait ... -- <command> runs the command in its own process group, with its output
+passing through, and returns with its exit status when it exits first. When a source
+wakes the call or the deadline passes, wait prints what it prints without a command
+(MAILBOX, lines, or QUIET), ends the command's process group with SIGTERM, then
+SIGKILL after 5 s, and exits 0. Use it for read-only watches such as `bk build watch`
+or `ccx vcs pr watch`, never for a command that writes.
 """
 
 from __future__ import annotations
@@ -43,6 +50,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -58,10 +66,11 @@ DISPLAY_CHARS = 400
 DIGEST_CHARS = 200
 DIGEST_BYTES = 6144
 ROTATE_HOURS = 6.0
-WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)..."
+WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]"
 WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
+CHILD_GRACE = 5.0
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -181,13 +190,23 @@ class Mailbox:
         return len(entries), unread if any(not entry["read"] for entry in fresh) else 0
 
 
-def pause(seconds: float, mailboxes: list[Mailbox]) -> None:
+def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | None) -> None:
     marks = [mailbox.mark() for mailbox in mailboxes]
     until = time.monotonic() + seconds
     while (left := until - time.monotonic()) > 0:
         time.sleep(min(MAILBOX_POLL, left))
-        if [mailbox.mark() for mailbox in mailboxes] != marks:
+        if [mailbox.mark() for mailbox in mailboxes] != marks or (child and child.poll() is not None):
             return
+
+
+def end(child: subprocess.Popen) -> None:
+    if child.poll() is None:
+        os.killpg(child.pid, signal.SIGTERM)
+        try:
+            child.wait(CHILD_GRACE)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
 
 
 def cost(texts: list[str]) -> int:
@@ -241,8 +260,11 @@ def digest(paths: list[Path], state: Path | None, cap: int, budget: int) -> str:
 
 
 def wait(argv: list[str]) -> int:
+    guarded = "--" in argv
+    split = argv.index("--") if guarded else len(argv)
+    argv, command = argv[:split], argv[split + 1 :]
     sources = [WAIT_SOURCE.fullmatch(source) for source in argv[1:]]
-    if len(argv) < 2 or not re.fullmatch(r"[0-9]+", argv[0]) or not all(sources):
+    if len(argv) < 2 or not re.fullmatch(r"[0-9]+", argv[0]) or not all(sources) or (guarded and not command):
         print(WAIT_USAGE, file=sys.stderr)
         return 2
     deadline = time.monotonic() + int(argv[0])
@@ -250,6 +272,7 @@ def wait(argv: list[str]) -> int:
     paths = [source for source in sources if source["file"]]
     files = [source for source in paths if not Mailbox.holds(Path(source["file"]))]
     mailboxes = [(Mailbox(Path(source["file"])), Path(source["cursor"])) for source in paths if Mailbox.holds(Path(source["file"]))]
+    child = subprocess.Popen(command, start_new_session=True) if command else None
     while True:
         changed = False
         for drive, lane in feeds:
@@ -276,13 +299,17 @@ def wait(argv: list[str]) -> int:
                         print(clip(line.text), flush=True)
                 cursor.write_text(f"{len(lines)}\n")
                 changed = True
-        if changed:
-            return 0
+        if not changed and child and child.poll() is not None:
+            return child.returncode if child.returncode >= 0 else 128 - child.returncode
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if not changed and remaining <= 0:
             print(f"QUIET {datetime.now(PACIFIC):%-I:%M %p}")
+            changed = True
+        if changed:
+            if child:
+                end(child)
             return 0
-        pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes])
+        pause(min(WAIT_SLICE, remaining), [mailbox for mailbox, _ in mailboxes], child)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -171,12 +171,12 @@ def test_unread_messages_waiting_before_the_call_wake_it_once(tmp_path):
     assert again.stdout.startswith("QUIET ")
 
 
-@pytest.mark.parametrize("args", [[], ["1"], ["bad", "inbox=cursor"], ["-1", "inbox=cursor"], ["1.5", "inbox=cursor"], ["1", "inbox"], ["1", "=cursor"], ["1", "inbox="]])
+@pytest.mark.parametrize("args", [[], ["1"], ["bad", "inbox=cursor"], ["-1", "inbox=cursor"], ["1.5", "inbox=cursor"], ["1", "inbox"], ["1", "=cursor"], ["1", "inbox="], ["1", "--"], ["1", "inbox=cursor", "--"]])
 def test_bad_arguments_print_usage_and_exit_two(tmp_path, args):
     result = subprocess.run([str(SCRIPT), *args], cwd=tmp_path, capture_output=True, text=True, timeout=3)
 
     assert result.returncode == 2
-    assert result.stderr == "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)...\n"
+    assert result.stderr == "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)... [-- <command> [<arg>...]]\n"
 
 
 def test_cci_source_prints_addressed_records_through_cci_tail(tmp_path):
@@ -204,3 +204,85 @@ def test_quiet_cci_source_waits_for_the_deadline(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("QUIET ")
+
+
+def guarded(tmp_path: Path, mailbox: Path, script: str, write=None, seconds: str = "10") -> tuple[subprocess.CompletedProcess, float]:
+    started = time.monotonic()
+    with subprocess.Popen(
+        [str(SCRIPT), seconds, f"{mailbox}={tmp_path / 'mailbox.cursor'}", "--", "sh", "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as process:
+        time.sleep(0.5)
+        appended = time.monotonic()
+        if write:
+            write()
+        stdout, stderr = process.communicate(timeout=15)
+    result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    return result, time.monotonic() - (appended if write else started)
+
+
+def test_a_command_that_finishes_first_passes_its_output_and_exit_status_through(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    mailbox.write_text("[]")
+
+    result, elapsed = guarded(tmp_path, mailbox, "echo build passed; exit 3")
+
+    assert result.returncode == 3
+    assert result.stdout == "build passed\n"
+    assert elapsed < 3
+
+
+def test_an_unread_message_ends_a_running_command_within_two_seconds(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    mailbox.write_text("[]")
+    marker = tmp_path / "survived"
+
+    result, elapsed = guarded(
+        tmp_path,
+        mailbox,
+        f"echo watching; sleep 30; touch {marker}",
+        write=lambda: mailbox.write_text(json.dumps([message(read=False)])),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "watching\nMAILBOX 1 unread\n"
+    assert elapsed < 2
+    time.sleep(0.5)
+    assert not marker.exists()
+
+
+def test_a_command_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    mailbox.write_text("[]")
+
+    result, elapsed = guarded(
+        tmp_path,
+        mailbox,
+        "trap '' TERM; while :; do sleep 1; done",
+        write=lambda: mailbox.write_text(json.dumps([message(read=False)])),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "MAILBOX 1 unread\n"
+    assert elapsed < 8
+
+
+def test_the_deadline_ends_a_running_command_with_quiet(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+
+    result, elapsed = guarded(tmp_path, mailbox, "sleep 30", seconds="1")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("QUIET ")
+    assert elapsed < 4
+
+
+def test_a_read_message_does_not_end_a_running_command(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    mailbox.write_text("[]")
+
+    result, _ = guarded(tmp_path, mailbox, "sleep 1.5; echo done", write=lambda: mailbox.write_text(json.dumps([message(read=True)])))
+
+    assert result.stdout == "done\n"
