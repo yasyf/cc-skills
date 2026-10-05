@@ -1762,16 +1762,17 @@ function preventionOption(o){
 function renderRemediation(){
  const done=REMEDIATION.done||[],lanes=REMEDIATION.lanes||[],picks=PICKS();
  const block=(label,items)=>items.length?`<p class="lbl">${label}</p><ul class="ir-rem">${items.join("")}</ul>`:"";
- $("#remediationHost").innerHTML=
+ const n=(k,w)=>`${k} ${w}${k===1?"":"s"}`;
+ $("#remediationHost").innerHTML=(done.length||picks.length||lanes.length)?folded(`${n(done.length,"step")} taken, ${n(picks.length,"pick")}, ${n(lanes.length,"follow-up lane")}`,
   block("What was done",done.map(e=>`<li>${inline(e.text||"")} ${linkChips(e)}</li>`))+
   block("Prevention picks",picks.map(([q,o])=>`<li><a href="#${esc(q.id||"")}">${esc(q.t||"")}</a>: <strong>${esc(o.t||"")}</strong> <span class="hint">${esc(o.owner||"")}</span> ${linkChips(o)}</li>`))+
-  block("Follow-up lanes",lanes.map(e=>`<li><code>${esc(e.name||"")}</code> ${inline(e.text||"")} ${linkChips(e)}</li>`));
+  block("Follow-up lanes",lanes.map(e=>`<li><code>${esc(e.name||"")}</code> ${inline(e.text||"")} ${linkChips(e)}</li>`))):"";
  termify($("#remediation"));
 }
 function renderPrevention(){
  const host=$("#preventionHost");
- host.innerHTML=PREVENTION.map(q=>`<div class="ir-prev" id="${esc(q.id||"")}"><h3>${esc(q.t||"")} <span class="idchip">${esc(q.id||"")}</span></h3>`+
-  `${q.text?`<p>${inline(q.text)}</p>`:""}<ul class="ir-options">${(q.options||[]).map(preventionOption).join("")}</ul></div>`).join("");
+ host.innerHTML=PREVENTION.length?folded(`${PREVENTION.length} question${PREVENTION.length===1?"":"s"} the owner picked from`,PREVENTION.map(q=>`<div class="ir-prev" id="${esc(q.id||"")}"><h3>${esc(q.t||"")} <span class="idchip">${esc(q.id||"")}</span></h3>`+
+  `${q.text?`<p>${inline(q.text)}</p>`:""}<ul class="ir-options">${(q.options||[]).map(preventionOption).join("")}</ul></div>`).join("")):"";
  termify($("#prevention"));
 }
 function renderUnknowns(){

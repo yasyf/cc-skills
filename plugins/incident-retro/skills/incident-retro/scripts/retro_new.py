@@ -31,7 +31,7 @@ Only the URL from RENDERED: goes to comms. Every retro comms draft passes comms-
 it exits 1 for any GitHub or Graphite PR link or a missing rendered URL. A PR link is never posted.
 The draft comes from a file or stdin (-). Stdlib only.
 """
-import argparse, datetime, html, json, re, shutil, subprocess, sys, time, zoneinfo
+import argparse, datetime, html, json, re, shutil, subprocess, sys, tempfile, time, zoneinfo
 from pathlib import Path
 
 RETRO_DIR = "incident-retros"
@@ -284,14 +284,23 @@ def pr_body(root: Path, retro) -> str:
     return "\n".join(lines + [f"\nRendered page, live once this merges and Pages deploys: {rendered_url(root)}"])
 
 
+def render_with_plugin_template(root: Path, retro) -> int:
+    """A docs repo serves the renderer its own pin names, which can lag this plugin; render-check against this
+    plugin's template so a section the pinned renderer cannot draw still counts against the page budget."""
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(scratch) / root.name
+        shutil.copytree(root, copy, ignore=shutil.ignore_patterns("index.html"))
+        shutil.copy(retro.TEMPLATES / retro.PAGE, copy / retro.PAGE)
+        return retro.render_check(argparse.Namespace(dir=str(copy), timeout=retro.RENDER_TIMEOUT,
+                                                     words=retro.VISIBLE_WORDS))
+
+
 def gate(root: Path, retro) -> int:
     failed = 0
     for name, call in (
             ("check --strict", lambda: retro.check(argparse.Namespace(dir=str(root), strict=True,
                                                                       forbidden_terms=None))),
-            ("render-check", lambda: retro.render_check(argparse.Namespace(dir=str(root),
-                                                                           timeout=retro.RENDER_TIMEOUT,
-                                                                           words=retro.VISIBLE_WORDS)))):
+            ("render-check", lambda: render_with_plugin_template(root, retro))):
         started = time.monotonic()
         code = call()
         print(f"publish: {name} exited {code} in {time.monotonic() - started:.1f}s")
