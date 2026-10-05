@@ -437,6 +437,7 @@ class Collector:
         return {"lines": flagged[:FEED_LIMIT], "folders": folders[:60]}
 
     def ledger(self, moment: datetime) -> dict:
+        self.ledger_rows = {}
         rows = {row["key"]: row["fields"] for row in json.loads(run(["ccn", "-R", self.entry["checkout"], "ledger", "show", self.entry["ledger"], "--json"]))["rows"]}
         self.ledger_rows = rows
         prs = {key: fields for key, fields in rows.items() if key.isdigit()}

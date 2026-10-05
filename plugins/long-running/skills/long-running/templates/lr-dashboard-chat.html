@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard-chat.html + 4 partials sha256:3146b7ac9a28 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard-chat.html + 4 partials sha256:b74c77c298b5 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -357,13 +357,17 @@ async function answer(question,onText,onTool){
  if(!AI.endpoint)throw new Error("CEREBRAS_API_KEY is missing from the dashboard server's environment. Restart the dashboard server with it set, then reload this page.");
  const digest=await tool("digest",{});
  const msgs=[{role:"system",content:SYSTEM+"\n\nDigest of the drive right now:\n"+digest},...view.history.slice(-HISTORY_TURNS*2),{role:"user",content:question}];
- let spent=0;
+ let spent=0,effort=null;
  for(let round=0;round<AI_ROUNDS;round++){
   const body=aiBody("chat");
+  if(effort)body.reasoning_effort=effort;
   if(round===AI_ROUNDS-1){msgs.push({role:"user",content:AI_LAST_TURN});body.tool_choice="none"}
   body.messages=msgs;
   const res=await aiStream(body,view.busy.signal,onText);
   const calls=res.calls.map(c=>({id:c.id,name:c.name.replace(/^functions\./,""),args:c.args||"{}"}));
+  const lower=lowerEffort(body.reasoning_effort);
+  if(res.finish==="length"&&!res.text&&!calls.length&&lower){effort=lower;round--;continue}
+  if(!calls.length&&res.finish!=="stop")throw new Error(`the answer stopped early (${res.finish||"stream closed"})`);
   if(!calls.length)return res.text;
   msgs.push({role:"assistant",content:res.text,tool_calls:calls.map(c=>({id:c.id,type:"function",function:{name:c.name,arguments:c.args}}))});
   for(const c of calls){
@@ -413,7 +417,7 @@ async function boot(){
  $("#suggest").innerHTML=SUGGESTIONS.map(s=>`<button type="button">${esc(s)}</button>`).join("");
 }
 $("#suggest").addEventListener("click",e=>{const b=e.target.closest("button");if(b)submit(b.textContent)});
-$("#ask").addEventListener("submit",e=>{e.preventDefault();const q=$("#question").value;$("#question").value="";submit(q)});
+$("#ask").addEventListener("submit",e=>{e.preventDefault();if(view.busy)return;const q=$("#question").value;$("#question").value="";submit(q)});
 $("#question").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#ask").requestSubmit()}});
 boot();
 </script>
