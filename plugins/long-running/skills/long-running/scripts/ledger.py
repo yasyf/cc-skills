@@ -7,13 +7,13 @@
     ledger.py drop    --ledger ID --ask ID --reason ...
     ledger.py answer  --ledger ID --ask ID --text ...
     ledger.py live    --ledger ID --at ISO [--text ...]
-    ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
+    ledger.py report  --ledger ID --drive D --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
     ledger.py register --ledger ID --lane NAME [--branch-prefix PREFIX [--repo owner/name]] [--pr N]... [--head SHA]
     ledger.py unregister --ledger ID --lane NAME [--branch-prefix PREFIX]
-    ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
-    ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
-    ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
-    ledger.py ack     --ledger ID KEY...
+    ledger.py enqueue --ledger ID --drive D --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
+    ledger.py ruling  --ledger ID --drive D --lane NAME --text ... --options "A|B|C" [--pr N]
+    ledger.py inbox   --ledger ID --drive D [--take] [--all] [--json] [--shard LANES]
+    ledger.py ack     --ledger ID --drive D KEY...
     ledger.py refresh --repo owner/name --ledger ID [--pr N]... [--lane PR=NAME]... [--lock PATH] [--shard LANES] [--ccx BIN]
     ledger.py hold    --ledger ID --pr N --reason ... (--until ISO | --hours H) [--stack]
     ledger.py lift    --ledger ID --pr N
@@ -23,10 +23,10 @@
     ledger.py unlabel --repo owner/name --ledger ID --pr N --reason ...
     ledger.py landed  --repo owner/name --ledger ID --checkout DIR [--pr N]... [--shard LANES]
     ledger.py reconcile --repo owner/name --ledger ID [--checkout DIR] [--dry-run] [--shard LANES] [--ccx BIN]
-    ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
+    ledger.py watch   --repo owner/name --ledger ID --drive D --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
-    ledger.py summary --repo owner/name --ledger ID [--checkout DIR] [--window-seconds N] [--stale-minutes N] [--shard LANES]
+    ledger.py summary --repo owner/name --ledger ID --drive D [--checkout DIR] [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--red | --asks] [--json]
     ledger.py list    --ledger ID [--lane NAME] [--open] [--json]
 
@@ -35,7 +35,8 @@ branch under a lane's registered prefix, or because refresh was handed its numbe
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
-lane messages are ``msg/<seq>`` rows, owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
+lane messages are ``cci`` records on ``--drive D``, keyed ``#<seq>`` and pending until lane ``ledger``
+posts an ``answer`` with ``--re <seq>``; owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
 ``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. It marks an open PR ``ours`` only when a drive lane registered it here or posted it ``opened`` on cci, and ``label`` refuses a stack holding any PR that is not. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. A verb's ``--repo`` defaults to the origin of its
@@ -83,6 +84,8 @@ from pathlib import Path
 from statistics import median
 from urllib.parse import urlencode
 
+import cci
+
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
 STACK_MERGEABILITY_CHECK = "Graphite / mergeability_check"
@@ -104,7 +107,10 @@ SUMMARY_LINES = 10
 WINDOW_SECONDS = 3600
 STALE_MINUTES = 30
 NO_PR = "-"
-MESSAGE_PREFIX = "msg/"
+MESSAGE_KINDS = {"p0": "blocker", "ruling": "decide", "report": "report", "idle": "note"}
+LEDGER_KINDS = {kind: name for name, kind in MESSAGE_KINDS.items()}
+MESSAGE_ANSWERER = "ledger"
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 CCN_READ_ATTEMPTS = 4
 CCN_READ_BACKOFF_SECONDS = 0.5
 LANE_PREFIX = "lane/"
@@ -317,10 +323,10 @@ def origin_repo(shell: Shell, checkout: Path) -> str:
 
 
 def is_malformed(key: str) -> bool:
-    """A PR key that is not a bare number, or a message or ask key whose sequence is not one."""
+    """A PR key that is not a bare number, or an ask key whose sequence is not one."""
     if key[:1].isdigit():
         return not key.isdigit()
-    return any(key.startswith(prefix) and not key[len(prefix) :].isdigit() for prefix in (MESSAGE_PREFIX, ASK_PREFIX))
+    return key.startswith(ASK_PREFIX) and not key[len(ASK_PREFIX) :].isdigit()
 
 
 @dataclass
@@ -343,8 +349,6 @@ class Notes:
     def pr_rows(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.isdigit()}
 
-    def messages(self) -> dict[str, dict[str, str]]:
-        return {key: fields for key, fields in self.rows().items() if key.startswith(MESSAGE_PREFIX)}
 
     def lanes(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.startswith(LANE_PREFIX)}
@@ -366,6 +370,41 @@ class Notes:
 
     def remove(self, key: str) -> None:
         self.shell.run(["ccn", "ledger", "row", "rm", self.ledger, "--key", key])
+
+
+@dataclass
+class Messages:
+    """Lane messages on the drive's cci records: a p0 is a blocker, a ruling a decide, an idle a note; an answer from `ledger` takes one."""
+
+    shell: Shell
+    drive: str
+
+    def post(self, fields: dict[str, str]) -> str:
+        argv = ["cci", "post", "--drive", self.drive, "--lane", fields["lane"], "--kind", MESSAGE_KINDS[fields["kind"]], "--topic", fields["pr"], "--text", fields["text"]]
+        argv += ["--pr", fields["pr"]] if fields["pr"].isdigit() else []
+        argv += ["--commit", fields["head"]] if FULL_SHA.match(fields["head"]) else []
+        return self.shell.run(argv).strip()
+
+    def answer(self, key: str, fields: dict[str, str], text: str) -> None:
+        self.shell.run(["cci", "post", "--drive", self.drive, "--lane", MESSAGE_ANSWERER, "--kind", "answer", "--re", key.lstrip("#"), "--topic", fields["pr"], "--text", f"{text} {key}"])
+
+    def read(self, shard: frozenset[str] | None) -> dict[str, dict[str, str]]:
+        """Every lane message, oldest first, keyed `#<seq>`; one is pending until `ledger` answers it."""
+        lanes = [f"--lane={lane}" for lane in sorted(shard or ())]
+        records = cci.records(self.shell.run, self.drive, *(f"--kind={kind}" for kind in LEDGER_KINDS), *lanes)
+        answered = {record["re"] for record in cci.records(self.shell.run, self.drive, "--kind=answer", f"--lane={MESSAGE_ANSWERER}") if record.get("re")}
+        return {
+            f"#{record['seq']}": {
+                "kind": LEDGER_KINDS[record["kind"]],
+                "pr": record.get("topic") or NO_PR,
+                "head": record.get("fields", {}).get("commit") or NO_PR,
+                "lane": record["lane"],
+                "text": record["text"],
+                "at": record["at"],
+                "state": "acked" if record["seq"] in answered else "pending",
+            }
+            for record in records
+        }
 
 
 def now() -> datetime:
@@ -734,9 +773,9 @@ def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str
     return FAILURE_TEXT.format(head=head[:9], url=url, error=error), "fix: " + error[:120]
 
 
-def priority(item: tuple[str, dict[str, str]]) -> tuple[int, str]:
+def priority(item: tuple[str, dict[str, str]]) -> tuple[int, int]:
     key, fields = item
-    return KINDS.index(fields["kind"]), key
+    return KINDS.index(fields["kind"]), int(key.lstrip("#"))
 
 
 def next_key(prefix: str, rows: dict[str, dict[str, str]]) -> str:
@@ -750,12 +789,12 @@ def same_report(existing: dict[str, str], fields: dict[str, str]) -> bool:
 
 def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> str | None:
     if fields["kind"] == "report":
-        latest = max((key for key, existing in messages.items() if same_report(existing, fields)), default=None)
+        latest = next((key for key, existing in reversed(messages.items()) if same_report(existing, fields)), None)
         return latest if latest and messages[latest]["text"] == fields["text"] else None
     if fields["kind"] == "ruling":
         identity = ("kind", "pr", "text")
     elif "event" in fields:
-        identity = ("kind", "pr", "head", "event")
+        identity = ("kind", "pr", "head", "text")
     else:
         identity = ("kind", "pr", "head")
     wanted = tuple(fields[name] for name in identity)
@@ -765,18 +804,12 @@ def duplicate(messages: dict[str, dict[str, str]], fields: dict[str, str]) -> st
     return None
 
 
-def enqueue(notes: Notes, fields: dict[str, str]) -> str:
-    messages = notes.messages()
-    seen = duplicate(messages, fields)
+def enqueue(messages: Messages, fields: dict[str, str]) -> str:
+    seen = duplicate(messages.read(None), fields)
     if seen:
         print(f"duplicate of {seen}; nothing recorded, nothing to answer")
         return seen
-    key = next_key(MESSAGE_PREFIX, messages)
-    notes.set_fields(key, dict(fields, at=utc_stamp(), state="pending"))
-    if fields["kind"] == "report":
-        for earlier, existing in messages.items():
-            if existing["state"] == "pending" and (existing.get("kind"), existing.get("pr")) == ("report", fields["pr"]):
-                notes.set_fields(earlier, {"state": "acked", "acked_at": utc_stamp(), "superseded_by": key})
+    key = messages.post(fields)
     print(f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} from {fields['lane']}")
     return key
 
@@ -784,7 +817,7 @@ def enqueue(notes: Notes, fields: dict[str, str]) -> str:
 def moot_reports(messages: dict[str, dict[str, str]], rows: dict[str, dict[str, str]]) -> frozenset[str]:
     latest: dict[str, str] = {}
     moot: set[str] = set()
-    for key, fields in sorted(messages.items()):
+    for key, fields in messages.items():
         if fields["kind"] != "report" or fields["state"] != "pending":
             continue
         if rows.get(fields["pr"], {}).get("state") in TERMINAL_STATES:
@@ -800,9 +833,12 @@ def message_line(key: str, fields: dict[str, str]) -> str:
     return f"{key} {fields['kind']} #{fields['pr']} {fields['head'][:9]} {fields['lane']}: {fields['text']}"
 
 
+def ruling_text(text: str, options: str) -> str:
+    return f"{text}; options: {' / '.join(part.strip() for part in options.split('|'))}"
+
+
 def ruling_line(fields: dict[str, str]) -> str:
-    options = " / ".join(part.strip() for part in fields["options"].split("|"))
-    return f"RULING NEEDED: {fields['text']}; options: {options}"
+    return f"RULING NEEDED: {fields['text']}"
 
 
 def hold_line(pr: str, fields: dict[str, str], moment: datetime) -> str:
@@ -972,7 +1008,9 @@ def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozense
     return lines
 
 
-def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta, prompts: list[str]) -> list[str]:
+def summary_lines(
+    rows: dict[str, dict[str, str]], messages: dict[str, dict[str, str]], moment: datetime, window: timedelta, stale_after: timedelta, prompts: list[str]
+) -> list[str]:
     cutoff = moment - window
     prs = {key: fields for key, fields in rows.items() if key.isdigit()}
     asks = {key: fields for key, fields in rows.items() if key.startswith(ASK_PREFIX)}
@@ -988,7 +1026,7 @@ def summary_lines(rows: dict[str, dict[str, str]], moment: datetime, window: tim
     labelled = sorted((pr for pr, fields in open_rows.items() if carries_label(fields)), key=int)
     holds = {pr: fields for pr, fields in open_rows.items() if is_held(fields)}
     routed = sorted((pr for pr, fields in open_rows.items() if fields.get("routed_head") and fields["routed_head"] == current_head(fields)), key=int)
-    pending = [fields for key, fields in sorted(rows.items()) if key.startswith(MESSAGE_PREFIX) and fields["state"] == "pending"]
+    pending = [fields for fields in messages.values() if fields["state"] == "pending"]
     rulings = [fields for fields in pending if fields["kind"] == "ruling"]
     p0s = [fields for fields in pending if fields["kind"] == "p0"]
     lines = [
@@ -1034,7 +1072,7 @@ def cmd_report(args: argparse.Namespace, shell: Shell) -> int:
             raise SystemExit(f"#{args.pr} already carries {held_by}, still IN-PR; open a stacked follow-up PR for {args.ask}")
         prs = linked_prs(asks[args.ask])
         notes.set_fields(args.ask, {"prs": ",".join(prs if args.pr in prs else [*prs, args.pr])})
-    enqueue(notes, {"kind": "report", "pr": args.pr, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
+    enqueue(Messages(shell, args.drive), {"kind": "report", "pr": args.pr, "head": args.head, "lane": args.lane, "text": f"{args.verdict} {args.text}".strip()})
     notes.set_fields(args.pr, {"lane": args.lane, "reported_head": args.head, "reported_verdict": args.verdict, "reported_at": utc_stamp()})
     return 0
 
@@ -1088,43 +1126,44 @@ def cmd_live(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_enqueue(args: argparse.Namespace, shell: Shell) -> int:
-    enqueue(Notes(shell, args.ledger), {"kind": args.kind, "pr": args.pr, "head": args.head, "lane": args.lane, "text": args.text})
+    enqueue(Messages(shell, args.drive), {"kind": args.kind, "pr": args.pr, "head": args.head, "lane": args.lane, "text": args.text})
     return 0
 
 
 def cmd_ruling(args: argparse.Namespace, shell: Shell) -> int:
-    fields = {"kind": "ruling", "pr": args.pr, "head": NO_PR, "lane": args.lane, "text": args.text, "options": args.options}
-    enqueue(Notes(shell, args.ledger), fields)
+    fields = {"kind": "ruling", "pr": args.pr, "head": NO_PR, "lane": args.lane, "text": ruling_text(args.text, args.options)}
+    enqueue(Messages(shell, args.drive), fields)
     print(ruling_line(fields))
     return 0
 
 
 def cmd_inbox(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
-    rows = notes.rows()
-    inbox = sharded({key: fields for key, fields in rows.items() if key.startswith(MESSAGE_PREFIX)}, args.shard)
+    rows = Notes(shell, args.ledger).rows()
+    messages = Messages(shell, args.drive)
+    inbox = messages.read(args.shard)
     moot = frozenset() if args.all else moot_reports(inbox, rows)
-    messages = sorted(((key, fields) for key, fields in inbox.items() if key not in moot and (args.all or fields["state"] == "pending")), key=priority)
+    shown = sorted(((key, fields) for key, fields in inbox.items() if key not in moot and (args.all or fields["state"] == "pending")), key=priority)
     if args.json:
-        print(json.dumps([dict(fields, key=key) for key, fields in messages]))
+        print(json.dumps([dict(fields, key=key) for key, fields in shown]))
     else:
-        for key, fields in messages:
+        for key, fields in shown:
             print(ruling_line(fields) if fields["kind"] == "ruling" else message_line(key, fields))
     if args.take:
-        taken = utc_stamp()
-        for key in sorted(moot):
-            notes.set_fields(key, {"state": "acked", "acked_at": taken, "moot": "true"})
-        for key, fields in messages:
+        for key in sorted(moot, key=lambda key: int(key.lstrip("#"))):
+            messages.answer(key, inbox[key], "moot")
+        for key, fields in shown:
             if fields["state"] == "pending":
-                notes.set_fields(key, {"state": "acked", "acked_at": taken})
+                messages.answer(key, fields, "taken")
     return 0
 
 
 def cmd_ack(args: argparse.Namespace, shell: Shell) -> int:
-    notes = Notes(shell, args.ledger)
-    acked = utc_stamp()
+    messages = Messages(shell, args.drive)
+    inbox = messages.read(None)
     for key in args.keys:
-        notes.set_fields(key, {"state": "acked", "acked_at": acked})
+        if key not in inbox:
+            raise SystemExit(f"no lane message {key} on drive {args.drive}")
+        messages.answer(key, inbox[key], "acked")
     return 0
 
 
@@ -1774,18 +1813,22 @@ def is_watch_p0(event: dict, fields: dict[str, str], priority: frozenset[str]) -
     return event["event"] in WATCH_P0_EVENTS and (str(event["pr"]) in priority or carries_label(fields) or fields.get("watch_queued") == "true")
 
 
-def announce_reports(notes: Notes, rows: dict[str, dict[str, str]], shard: frozenset[str] | None) -> None:
-    inbox = sharded({key: fields for key, fields in rows.items() if key.startswith(MESSAGE_PREFIX)}, shard)
-    moot = moot_reports(inbox, rows)
-    for key, fields in sorted(inbox.items()):
-        if fields["kind"] == "report" and fields["state"] == "pending" and key not in moot and not fields.get("announced_at"):
+def announce_reports(messages: Messages, cursor: str, rows: dict[str, dict[str, str]], shard: frozenset[str] | None) -> None:
+    """Each report lands once on the watch's own cci cursor; one whose PR is already settled stays quiet."""
+    lanes = [f"--lane={lane}" for lane in sorted(shard or ())]
+    out = messages.shell.run(["cci", "tail", "--drive", messages.drive, "--cursor", cursor, "--json", "--budget", str(cci.PAGE_BYTES), "--kind=report", *lanes])
+    for record in (json.loads(line) for line in out.splitlines() if line.strip()):
+        fields = {"pr": record.get("topic") or NO_PR, "head": record.get("fields", {}).get("commit") or NO_PR, "lane": record["lane"], "text": record["text"], "kind": "report"}
+        if rows.get(fields["pr"], {}).get("state") not in TERMINAL_STATES:
+            key = f"#{record['seq']}"
             print(f"REPORT {message_line(key, fields)}", flush=True)
-            notes.set_fields(key, {"announced_at": utc_stamp()})
 
 
-def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str], shard: frozenset[str] | None) -> None:
+def watch_pass(
+    shell: Shell, notes: Notes, messages: Messages, gh: Github, checkout: Path, ccx: str, state: Path, priority: frozenset[str], shard: frozenset[str] | None
+) -> None:
     ledger_rows = notes.rows()
-    announce_reports(notes, ledger_rows, shard)
+    announce_reports(messages, f"ledger-watch:{state.name}", ledger_rows, shard)
     rows = sharded({key: fields for key, fields in ledger_rows.items() if key.isdigit()}, shard)
     watched = sorted((pr for pr, fields in rows.items() if fields.get("state") not in TERMINAL_STATES), key=int)
     if not watched:
@@ -1825,7 +1868,7 @@ def watch_pass(shell: Shell, notes: Notes, gh: Github, checkout: Path, ccx: str,
         if is_watch_p0(event, fields, priority):
             lane = fields.get("lane", "?")
             with redirect_stdout(sys.stderr):
-                enqueue(notes, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"#{pr} {line}: rebase or fix now"})
+                enqueue(messages, {"kind": "p0", "pr": pr, "head": event.get("head") or current_head(fields), "lane": lane, "event": line, "text": f"#{pr} {line}: rebase or fix now"})
             print(f"P0 #{pr} {line} {lane}", flush=True)
         else:
             print(f"#{pr} {line}", file=sys.stderr)
@@ -1848,7 +1891,7 @@ def cmd_watch(args: argparse.Namespace, shell: Shell) -> int:
     state = args.state or watch_state(args.ledger, args.shard)
     while True:
         try:
-            watch_pass(shell, notes, gh, args.checkout, args.ccx, state, priority, args.shard)
+            watch_pass(shell, notes, Messages(shell, args.drive), gh, args.checkout, args.ccx, state, priority, args.shard)
         except (subprocess.CalledProcessError, ForgeUnreachable) as failure:
             detail = failure.stderr.strip() if isinstance(failure, subprocess.CalledProcessError) and failure.stderr else str(failure)
             print(f"watch pass failed, retrying next pass: {detail}", file=sys.stderr)
@@ -1920,7 +1963,8 @@ def cmd_summary(args: argparse.Namespace, shell: Shell) -> int:
     moment = now()
     lanes = {key: fields for key, fields in rows.items() if key.startswith(LANE_PREFIX)}
     prompts = prompt_lines(shell, lanes, args.shard, moment) if os.environ.get(ORCA_TERMINAL) else []
-    print("\n".join(summary_lines(rows, moment, timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
+    messages = Messages(shell, args.drive).read(args.shard)
+    print("\n".join(summary_lines(rows, messages, moment, timedelta(seconds=args.window_seconds), timedelta(minutes=args.stale_minutes), prompts)))
     return 0
 
 
@@ -1969,10 +2013,12 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
     return 0
 
 
-def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
+def add_ledger(parser: argparse.ArgumentParser, repo: bool = False, drive: bool = False) -> None:
     if repo:
         parser.add_argument("--repo", metavar="OWNER/NAME", help="default: the origin of --checkout, else of the working directory")
     parser.add_argument("--ledger", required=True)
+    if drive:
+        parser.add_argument("--drive", required=True, help="the cci drive that carries the lane messages")
 
 
 def ask_key(value: str) -> str:
@@ -2007,7 +2053,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.set_defaults(handler=cmd_init)
 
     report = subparsers.add_parser("report", help="record a lane's 3-line ship report; the only way a PR row is opened by hand")
-    add_ledger(report)
+    add_ledger(report, drive=True)
     report.add_argument("--pr", required=True, type=pr_number)
     report.add_argument("--head", required=True, type=head_prefix)
     report.add_argument("--lane", required=True)
@@ -2061,7 +2107,7 @@ def build_parser() -> argparse.ArgumentParser:
     unregister.set_defaults(handler=cmd_unregister)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
-    add_ledger(enqueue_cmd)
+    add_ledger(enqueue_cmd, drive=True)
     enqueue_cmd.add_argument("--kind", required=True, choices=KINDS)
     enqueue_cmd.add_argument("--pr", required=True, type=pr_number)
     enqueue_cmd.add_argument("--head", required=True)
@@ -2070,7 +2116,7 @@ def build_parser() -> argparse.ArgumentParser:
     enqueue_cmd.set_defaults(handler=cmd_enqueue)
 
     ruling = subparsers.add_parser("ruling", help="record a question only the root can answer and print the RULING NEEDED line")
-    add_ledger(ruling)
+    add_ledger(ruling, drive=True)
     ruling.add_argument("--lane", required=True)
     ruling.add_argument("--text", required=True)
     ruling.add_argument("--options", required=True, metavar="A|B|C")
@@ -2078,7 +2124,7 @@ def build_parser() -> argparse.ArgumentParser:
     ruling.set_defaults(handler=cmd_ruling)
 
     inbox = subparsers.add_parser("inbox", help="pending messages, P0 first, then rulings, reports, idles")
-    add_ledger(inbox)
+    add_ledger(inbox, drive=True)
     inbox.add_argument("--take", action="store_true")
     inbox.add_argument("--all", action="store_true")
     inbox.add_argument("--json", action="store_true")
@@ -2086,7 +2132,7 @@ def build_parser() -> argparse.ArgumentParser:
     inbox.set_defaults(handler=cmd_inbox)
 
     ack = subparsers.add_parser("ack", help="mark messages handled")
-    add_ledger(ack)
+    add_ledger(ack, drive=True)
     ack.add_argument("keys", nargs="+")
     ack.set_defaults(handler=cmd_ack)
 
@@ -2167,7 +2213,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="subscribe to every non-terminal row through ccx vcs pr watch: record each transition on its row, "
         "and print a P0 line (with a p0 inbox message) for an ejection, or a conflict or red on a priority, labelled, or queued row",
     )
-    add_ledger(watch, repo=True)
+    add_ledger(watch, repo=True, drive=True)
     watch.add_argument("--checkout", type=Path, required=True)
     watch.add_argument("--priority", action="append", metavar="N", help="a PR whose conflict or red is always a P0; repeatable")
     watch.add_argument("--interval", type=float, default=60, help="seconds between passes")
@@ -2186,7 +2232,7 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.set_defaults(handler=cmd_reconcile)
 
     summary = subparsers.add_parser("summary", help="the desk-to-root report every 30 minutes, at most ten lines")
-    add_ledger(summary, repo=True)
+    add_ledger(summary, repo=True, drive=True)
     summary.add_argument("--checkout", type=Path, default=Path("."), help="a full clone of the repo (default: the working directory)")
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
     summary.add_argument("--stale-minutes", type=int, default=STALE_MINUTES)

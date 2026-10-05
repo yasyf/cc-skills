@@ -123,8 +123,8 @@ Verified facts, do not re-derive:
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
-After your own compaction, resume in place. `cci` holds your addressed records and
-  cursor; the ledger holds reports, holds, routes, labels, and landings.
+After your own compaction, resume in place. `cci` holds your addressed records, lane reports, and
+  cursor; the ledger holds PR rows, holds, routes, labels, and landings.
   Start at step 0 from your saved cci cursor and the ledger
   as it stands; never ask the root to reconstruct your state.
 
@@ -142,13 +142,13 @@ At spawn:
     The watch exits by itself after 29 minutes. Run step 0 on its printed records
     at every wake.
   - In-process desk: run
-    `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... --once`
+    `ledger.py watch --repo <repo> --ledger <id> --drive <drive> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command
     without `--once` under Monitor at its maximum timeout (at most 30 minutes);
     re-arm on every expiry.
     Pass each priority PR the root names with `--priority`. Send every `P0 #n ...`
-    line to the root the moment it prints. A `REPORT msg/<n> ...` line is a lane's
-    own `ledger.py report`: run step 1 on it at once. The watch is the detector; the
+    line to the root the moment it prints. A `REPORT #<seq> ...` line is a lane's
+    own `ledger.py report --drive <drive>`: run step 1 on it at once. The watch is the detector; the
     3-minute pass (inbox, refresh, landed, route, label) is reconciliation.
   - Stagger desks and shards by a minute at :00, :01, and :02. Each pass reads every
     PR number in one `ccx vcs pr status <n1> <n2> ...` call and the Buildkite build
@@ -181,17 +181,17 @@ Do, in this order, forever:
      Never edit the holds file. Forward a priority desk's lane traffic with
      `cci post --drive <drive> --lane <desk> --kind <kind> --to <priority desk> --text "<traffic>"`
      and stop handling those lanes.
-  1. Inbox. Lanes and Orca workers write their own reports into the ledger with
-     `ledger.py report`; none reaches you as a message. Run
-     `ledger.py inbox --ledger <id> --take` every iteration, right after step 0,
+  1. Inbox. Lanes and Orca workers write their own reports to cci with
+     `ledger.py report --drive <drive>`; none reaches you as a message. Run
+     `ledger.py inbox --ledger <id> --drive <drive> --take` every iteration, right after step 0,
      and act on every line it prints. A message that does arrive is typed in first:
      a 3-line report as
-     `ledger.py report`, with `--ask <id>` when the report names an ask id;
+     `ledger.py report --drive <drive>`, with `--ask <id>` when the report names an ask id;
      a lane's registration as
      `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`,
      with opened PRs recorded by the hook and hand registration as the fallback;
-     a question as `ledger.py ruling`, an idle notice as
-     `ledger.py enqueue --kind idle`, an outage as `--kind p0`. The tool drops
+     a question as `ledger.py ruling --drive <drive>`, an idle notice as
+     `ledger.py enqueue --drive <drive> --kind idle`, an outage as `--kind p0`. The tool drops
      duplicates; you answer none of them. The inbox lists P0 first, then rulings,
      reports, idles, and takes without listing any report a newer one on the same PR
      or the PR's landing made moot. Where stack-enqueue exists, record clean
@@ -331,7 +331,7 @@ Do, in this order, forever:
      names every open PR opened 60 or more hours ago; ask the root once per PR to
      land it through the next train or close it as superseded, gone by 72 hours.
   6. Every 30 minutes:
-     `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` to the
+     `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` to the
      root, unchanged. `--checkout` defaults to the working directory and `--repo` to
      its origin; summary settles landings first so it never reports a landed row as pending. This sweep
      reclassifies every ask from the forge and the release/deploy record.
@@ -404,12 +404,13 @@ Do NOT touch: any lane's worktree or branch; any other engineer's PR; the `merge
 Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`, and
   `git log` only.
 Finish: never. If the root tells you the drive is over,
-  `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` once more,
+  `ledger.py summary --repo <owner/name> --ledger <id> --drive <drive> --checkout <path>` once more,
   `ccn ledger archive <ledger id>`, and stop.
   Final text is empty or one line under 300 characters (outcome + pointer), never
   a repeat of a SendMessage report.
 Rotate: on a `ROTATE` message from the root, type every message you have not yet
-  recorded into the ledger (`ledger.py report`, `register`, `ruling`, `enqueue`), write
+  recorded through `ledger.py` (`report --drive <drive>`, `register`,
+  `ruling --drive <drive>`, `enqueue --drive <drive>`), write
   any finding still only in your context to cc-notes, reply `flushed <ledger id>`, and
   keep working. After your own compaction, resume in place from the ledger and your
   saved cursor.
