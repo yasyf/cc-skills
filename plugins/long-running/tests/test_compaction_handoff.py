@@ -141,6 +141,24 @@ if args[:2] == ["answer", "list"]:
 """
 
 
+FAKE_CCI = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+since = int(args[args.index("--since") + 1])
+path = os.path.join(os.environ["FAKE_CCN"], "cci.jsonl")
+for line in open(path) if os.path.exists(path) else []:
+    if json.loads(line)["seq"] > since:
+        print(line, end="")
+"""
+
+
+def standing_rule(docs: Path, kind: str, text: str, **fields) -> None:
+    path = docs / "cci.jsonl"
+    seq = len(path.read_text().splitlines()) + 1 if path.exists() else 1
+    with path.open("a") as out:
+        out.write(json.dumps({"seq": seq, "kind": kind, "text": text, "topic": "standing", "refs": {}, **fields}) + "\n")
+
+
 @pytest.fixture
 def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     state_dir = home / "ccn"
@@ -149,6 +167,8 @@ def docs(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     bin_dir.mkdir()
     (bin_dir / "ccn").write_text(FAKE_CCN)
     (bin_dir / "ccn").chmod(0o755)
+    (bin_dir / "cci").write_text(FAKE_CCI)
+    (bin_dir / "cci").chmod(0o755)
     (state_dir / "docs.json").write_text("[]")
     (state_dir / "answers.json").write_text("[]")
     (state_dir / "created.json").write_text("{}")
@@ -492,24 +512,22 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
     assert "## Standing owner rules\n\n- no `standing-rules` register doc\n" in (docs / ("b" * 40 + ".md")).read_text()
 
 
-def test_an_uncited_inbox_rule_blocks_the_stop_at_its_inbox_line_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
+def test_an_uncited_standing_rule_blocks_the_stop_at_its_record_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     rule = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"]}
     (docs / "answers.json").write_text(json.dumps([rule]))
     (docs / "docs.json").write_text(json.dumps([doc("b" * 40, "2026-09-30T05:44:08Z")]))
     (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
-    inbox = home / ".claude" / "scratch" / "brook" / "inbox" / "deploy-go.md"
-    inbox.parent.mkdir(parents=True)
-    inbox.write_text("- G114 (root) → desk: roll api\n- G115 (root, 14:30Z, binding, standing) release on the owner's word\n")
+    standing_rule(docs, "go", "release on the owner's word")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook", phase="due").save(bash(session))
 
     blocked = handoff.compact_when_idle(stop_event(session))
 
     assert blocked.action.name == "block"
-    assert f"\n{inbox}:2: standing rule G115 is an owner-gate line that cites no live answer id: " in blocked.message
+    assert "\ncci #1: standing rule #1 requires owner approval but cites no live answer id: " in blocked.message
     assert "ccn doc edit" not in blocked.message
 
-    inbox.write_text(inbox.read_text() + "- G138 (standing) supersedes G115: every merged PR is released as it merges (answer 4ffc9a5)\n")
+    standing_rule(docs, "correction", "every merged PR is released as it merges (answer 4ffc9a5)", re=1)
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
 
 
@@ -523,7 +541,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     session = home / "session"
     inbox = home / ".claude" / "scratch" / "brook" / "inbox"
     inbox.mkdir(parents=True)
-    (inbox / "orca-desk.md").write_text("- R7 (standing) release every landing as it merges\n")
+    standing_rule(docs, "go", "release every landing as it merges")
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
     add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
@@ -532,7 +550,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     handoff.compaction_instructions(precompact(session))
 
     generated = (docs / ("d" * 40 + ".md")).read_text()
-    assert "- R7 [orca-desk.md]" in generated
+    assert "- #1 [cci #1]" in generated
     assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
     assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
 
@@ -540,7 +558,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show 9999999`")
     assert "Then read the progress doc `ccn doc show ddddddd`" in restored
-    assert "\nRegister: 1 owner-approved rules, 1 live standing inbox rules.\n" in restored
+    assert "\nRegister: 1 owner-approved rules, 1 live standing rules.\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
 

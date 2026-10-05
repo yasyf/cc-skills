@@ -312,8 +312,7 @@ def test_folder_mode_calls_no_ccn(drive_home: Path, capsys: pytest.CaptureFixtur
     out = generate(drive_home, shell, "--folder", capsys=capsys)
 
     assert out["id"] is None
-    assert [call for call in shell.calls if call[0] == "ccn"] == []
-    assert "- #2 [cci #2]" in Path(out["file"]).read_text()
+    assert shell.calls == []
     assert out["register"] is None
     assert out["digest"].startswith(f"Compacted long-running drive `brook`. Before acting, read the generated handoff `{out['file']}`, then ")
     assert "- no `standing-rules` register doc" in Path(out["file"]).read_text()

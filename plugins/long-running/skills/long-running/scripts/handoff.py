@@ -363,7 +363,8 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     inbox_dir = Path(args.inbox_dir).expanduser() if args.inbox_dir else Path.home() / ".claude" / "scratch" / args.program / "inbox"
     if inbox_dir.is_dir():
         read_inboxes(handoff, inbox_dir)
-    read_standing(handoff, shell)
+    if not args.folder:
+        read_standing(handoff, shell)
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
         handoff.narrative_edit = f"in `{args.narrative_file}`"
