@@ -23,7 +23,7 @@ def test_new_lines_advance_the_cursor_and_return_before_the_deadline(tmp_path, s
     result = subprocess.run([str(script), "3", f"{inbox}={cursor}"], capture_output=True, text=True, timeout=5)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "  R1 raw \\text  \n" + "x" * 2500 + "\n"
+    assert result.stdout == "  R1 raw \\text  \n" + "x" * 399 + "…\n"
     assert cursor.read_text() == "4\n"
     assert time.monotonic() - started < 3
 

@@ -61,13 +61,15 @@ rulings, dispatch, and the handoff record.
 question: "stop polluting your main context by reading PRs etc" (release-v3, 2026-09-30).*
 
 The pack's `root_context` hook enforces R1-R2 in a drive's root, and lanes and subagents
-pass it. It blocks each of these with `delegate to a lane: <agent> — <what> belongs to a
-lane, not the drive root`.
+pass it. It blocks:
 - A Read whose window passes 150 lines.
 - A Read of a lane artifact: anything under `audits/`, `briefs/`, `handoffs/`,
   `tool-results/`, `subagents/`, or `transcripts/`, a `matrix.md`, or a `.jsonl` transcript.
 - A search with `rg` or `ag`, and `cat`, `head`, `tail`, `sed`, `awk`, `grep`, or `jq`
   over a file outside an `inbox/` directory.
+- A Read, or `cat`, `head`, `tail`, `sed`, `awk`, or `grep` except `grep -c`, over
+  `inbox/*.md`, even with a bounded window; use
+  `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`.
 - A history or PR read: `git log`, `show`, `diff`, `blame`, or `grep`; `gh pr view`,
   `gh pr diff`, `gh run view`, or `gh issue view`; `ccx code`, `repo`, or `web`;
   `ccx vcs diff`, `show`, `history`, or `reviews`.
@@ -76,11 +78,11 @@ lane, not the drive root`.
 - A Claude Docs, Datadog notebook, Linear document, or Capacities fetch, and any MCP
   tool after one of its responses passed 8000 characters.
 
-These pass: the plan and its progress folder, an inbox tail, a filter over piped output
+The plan and its progress folder pass, as do filters over piped output
 such as `ccx vcs status | grep`, heredoc appends, `ls`, `date`, `ccn`, `ccx vcs status`,
 `ccx vcs pr status`, `cc-present`, `Agent`, `SendMessage`, the task tools, and `Monitor`.
-One bounded read of one file passes too: `head -n`/`tail -n` up to 40 lines, `head -c`
-up to 4000 bytes, `grep -c`, `grep -m` up to 20, `wc`, or a read piped into such a
+One bounded read of one file outside `inbox/` passes too, including `head -n`/`tail -n`
+up to 40 lines, `head -c` up to 4000 bytes, `grep -c`, `grep -m` up to 20, `wc`, or a read piped into such a
 `head` or `tail`. Any other file read, search, history read, or Slack read is shown to a
 small model first, and blocks only when the model is confident it is an investigation
 rather than a one-shot control-plane read.
@@ -132,8 +134,10 @@ Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
   A tool that needs a file reads `ccn attachment path <id> <name>`.
 
 Never run `mkdir` or `cat >` to create a markdown record under `~/.claude/scratch`.
-Desk inboxes (`inbox/*.md`) stay files because readers tail them by line cursor,
-`standing.py` reads them, and `desk-runner.py` appends escalations. The
+Desk inboxes (`inbox/*.md`) stay files because readers use `inboxes.py`'s stream:
+sorted `<file>.archive/YYYY-MM-DD.md` files, oldest first, then the live file.
+Byte offsets and line counts survive rotation; `standing.py` reads the same stream,
+and `desk-runner.py` appends escalations. The
 orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
 their stream and state readers. The executor's actions JSON stays a file because
 it needs `flock` and generation compare-and-swap, which cc-notes lacks. Lanes never run
@@ -246,6 +250,15 @@ cursor loses and replays nothing on re-arm; `ESCALATION`, `INCIDENT`, `URGENT`,
 stage for a reaper to kill. After five minutes without a root turn since an urgent
 line arrived, it pushes to the owner's DM and names any open question holding
 delivery.
+
+After compaction or a re-arm gap, catch up with
+`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`; never tail, sed,
+or grep whole inbox files. The digest keeps the newest appended lines within a
+6144-byte budget, clips each to 200 characters, counts omissions, and advances its
+state beside `.inbox-watch.json`. It starts at the live file's beginning on first
+use, skips archives, and reports unread archived bytes. A new lane orients with
+`inbox-digest.py --all <files>`, which reads archives and live files with the same
+caps and touches no state.
 
 Use `--match '.*'` for all inbox traffic or a regex for extra lines. The root never
 runs the check/ack loop, relaunch sweeps, or helper scripts inline. No model desk
@@ -986,6 +999,11 @@ let an existing desk finish its pass and end its loop before starting it. Keep
 the old session open. The landing process runs D3, D14, and D16 where the
 checkout carries `stack-enqueue`.
 
+The orca runner rotates every `*.md` file beside its escalations file once an hour.
+`inbox-rotate.py` records time and stream-end marks and archives through the newest
+mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first
+archival happens about six hours after the first mark.
+
 The root issues `relay`, `launch`, and `policy` commands with the drive's R/L
 keys. A repeated key in the same lane is one action. A relay can also be one
 `R<n> orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line appended to
@@ -1182,7 +1200,9 @@ rendered views. Its action records hold authority. The root never `SendMessage`s
 a desk.
 
 **I1. Give every desk one append-only inbox file.** The root appends numbered lines
-`R<n> ...`. It never rewrites or truncates the file.
+`R<n> ...`. Only `inbox-rotate.py`, run by `desk-runner.py`, rewrites it, by atomic
+rename; nothing else ever rewrites or truncates it. Keep inbox lines under 400
+characters; put evidence in a file or cc-notes and leave a pointer in the line.
 
 **I2. Read from the saved cursor at the top of every iteration.** Read before any
 other work, act on each line, and advance the cursor every iteration. Every report
@@ -1228,7 +1248,8 @@ toward it.*
 desk is in-process. Run one foreground Bash call with `timeout: 60000`:
 `desk-wait.sh 50 <inbox>=<cursor file> [<mailbox/other file>=<cursor file>...]`.
 It blocks for at most 50 seconds and exits on the first new line in any named
-file: inbox, mailbox, or deadlines. Act on its output, then rerun the call in a
+file: inbox, mailbox, or deadlines. It clips displayed lines to 400 characters,
+ending clipped lines with an ellipsis. Act on its output, then rerun the call in a
 loop.
 
 The script advances each file's cursor; act on the printed lines before
@@ -1325,6 +1346,7 @@ AskUserQuestion is unavailable; on a decision, take the brief's default, log it 
   `ccn log append <drive log id>`, and report it.
 Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
+Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
@@ -1967,6 +1989,9 @@ For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head
 its `<file>.cursor` value, and its last five ruling lines. Sections run in this order:
 `Read first`, `Standing owner rules`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
+The `Inboxes` section starts with
+`inbox-digest.py --state <drive>/inbox/.inbox-digest.json <drive>/inbox/*.md`
+and the instruction never to tail, sed, or grep a whole inbox.
 
 The script writes the same markdown to `<plan-stem>-progress/<UTC>-generated.md`;
 without cc-notes, `--folder` writes only that file. Each generation run is capped at

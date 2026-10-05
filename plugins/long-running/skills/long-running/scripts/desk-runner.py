@@ -22,7 +22,7 @@ A relay is accepted, then started and completed by the lane itself: it replies
 never resent blindly.
 
 `run --desk orca` relays, launches, consumes the Run mailbox, sweeps stale mail and
-prompts, and checks relay deadlines. It also tails the drive's desk inbox file and turns
+prompts, and checks relay deadlines. It also reads the drive's desk inbox stream and turns
 each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question when it has one, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`
@@ -43,7 +43,8 @@ prefixes under the accepted landing policy, verifies landings by squash, and rou
 blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options. Escalations append one line each
 to the config's escalations file, once per cause, with Pacific times and no zone label;
-a quiet pass writes nothing.
+a quiet pass writes nothing. The orca runner rotates every *.md inbox beside the
+escalations file once an hour, using the default six-hour window.
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import actions
+import inboxes
 
 SCRIPTS = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -82,6 +84,7 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
 RETRYABLE = frozenset({"blocked", "superseded"})
 SWEEP_EVERY = timedelta(minutes=5)
+ROTATE_EVERY = timedelta(hours=1)
 ORPHANED_SEND = timedelta(minutes=2)
 ORPHANED_JUDGE = timedelta(minutes=5)
 SEND_ATTEMPTS = 3
@@ -479,21 +482,14 @@ class Runner:
         fact = f"desk-inbox:{path}"
         cursor = self.book.load(RUNNER).facts.get(fact)
         if cursor is None:
-            start = path.stat().st_size if path.is_file() else 0
+            start = inboxes.Inbox(path).end() if path.is_file() else 0
             self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: start}))
             return
         if not path.is_file():
             return
-        with path.open("rb") as inbox:
-            inbox.seek(cursor)
-            appended = inbox.read()
-        offset = cursor
-        for raw in appended.splitlines(keepends=True):
-            if not raw.endswith(b"\n"):
-                break
-            self.inbox_line(offset, raw.decode().strip())
-            offset += len(raw)
-            self.book.edit(RUNNER, lambda incident, at=offset: incident.facts.update({fact: at}))
+        for line in inboxes.Inbox(path).lines(cursor):
+            self.inbox_line(line.start, line.text.strip())
+            self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
 
     def inbox_line(self, offset: int, line: str) -> None:
         directive = INBOX_DIRECTIVE.match(line)
@@ -617,11 +613,9 @@ class Runner:
             if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
                 return other
         inbox = self.config.desk_inbox
-        position = 0
-        for raw in inbox.read_bytes().splitlines(keepends=True) if inbox.is_file() else []:
-            start, position = position, position + len(raw)
-            directive = INBOX_DIRECTIVE.match(raw.decode().strip())
-            if start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
+        for line in inboxes.Inbox(inbox).lines(offset) if inbox.is_file() else []:
+            directive = INBOX_DIRECTIVE.match(line.text.strip())
+            if line.start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
                 continue
             if brief_incidents(Path(spec["brief"])) & monitors:
                 return spec["lane"]
@@ -967,6 +961,10 @@ class Runner:
             elif judged.status == "completed":
                 self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} | {judged.response['text']}")
 
+    def rotate_inboxes(self) -> None:
+        for path in sorted(self.config.escalations.parent.glob("*.md")):
+            inboxes.Inbox(path).rotate(self.now().timestamp())
+
     def sweep(self) -> None:
         """Unread mail on a live dispatch gets one wake; mail a settled dispatch never read, a prompt, or a dispatch that is not live escalates once."""
         done = self.shell.run([str(SCRIPTS / "orca-check.sh"), "--stale"], env={"ORCA_CHECK_STATE": str(self.config.receipts), "ORCA_LAUNCH_RUN": self.config.run})
@@ -1276,8 +1274,11 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.flush()
         print(runner.unbound(state), file=sys.stderr)
         return 3
-    swept = datetime.min.replace(tzinfo=timezone.utc)
+    swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     while True:
+        if runner.now() - rotated >= ROTATE_EVERY:
+            runner.rotate_inboxes()
+            rotated = runner.now()
         if runner.check():
             runner.reap()
             runner.resume_judges()

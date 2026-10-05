@@ -38,8 +38,8 @@ Do, in this order:
      spawn brief and `cc-transcript show <path> --signal --tail 40` for its last
      reports; use `cc-transcript grep '<pattern>' <path>` for anything else. Never
      cat or Read the jsonl.
-  3. Read the inbox from the last relayed line to the end, the cursor files, the
-     receipts dir, and its ledger rows. Run each runtime command once.
+  3. Read the inbox with `inbox-digest.py --all <inbox file>`, then read the cursor
+     files, the receipts dir, and its ledger rows. Run each runtime command once.
   4. Run from the drive checkout:
      `ccn -R <drive checkout> doc add "<lane> handoff <UTC>" \
        --label handoff --label lane:<lane family> --label program:<slug> \
