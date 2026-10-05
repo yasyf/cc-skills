@@ -16,12 +16,6 @@ from hooks import nudges, root_context
 from hooks.compaction_handoff import CompactionState
 from hooks.tests.root_fixtures import LONG
 
-RULE_NUDGE = (
-    "A standing rule stated by the owner must be recorded. "
-    "Run `answer_add` with `scope:durable`."
-)
-
-
 def fire(evt) -> list:
     return [
         result
@@ -42,6 +36,7 @@ class Root:
         self.plan = home / ".claude" / "plans" / "brook.md"
         self.plan.parent.mkdir(parents=True)
         self.plan.write_text(LONG)
+        (home / "src" / ".git").mkdir(parents=True)
         self.verdict: dict = {}
         CompactionState(active=True, plan_path=str(self.plan)).save(self.event(PostToolUseEvent, tool_name="Bash"))
 
@@ -200,15 +195,6 @@ def test_logged_bounded_single_file_reads_pass_without_the_model(root: Root, fil
         ),
         ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C0BQSADC7SS", "thread_ts": "1790875497.353829"}),
         ("Slack reads", "mcp__slack__slack_get_thread", {"channel_id": "C09G3N98YM6", "thread_ts": "1790890875.742979"}),
-        (
-            "File reads",
-            "Bash",
-            {
-                "command": "ccn doc list --label progress:release-v3 2>&1 | head -5; echo ---; "
-                "grep -E 'msg_0b1fc02709f3|msg_e7192ebb5a23' ~/scratch/release-v3/orca-waiter/batches.jsonl | "
-                "python3 -c 'import sys; print(sys.stdin.read())'"
-            },
-        ),
     ],
 )
 @pytest.mark.parametrize("block", [True, False])
@@ -265,15 +251,6 @@ def test_oversized_mcp_response_blocks_its_next_call(root: Root) -> None:
     assert "fetch is too large" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
 
 
-def test_unrecorded_standing_rule_nudges_at_stop(root: Root, notes: Notes) -> None:
-    assert root.say("From now on, release everything as it merges.") is None
-    root.post("Bash", {"command": "date"})
-
-    assert notes.adds == []
-    assert root.stop() == [RULE_NUDGE]
-    assert root.stop() == []
-
-
 def test_a_titled_standing_rule_records_itself(root: Root, notes: Notes) -> None:
     root.verdict["title"] = "When does a merged PR get released?"
     prompt = "From now on, release everything as it merges.\n  Every target."
@@ -304,22 +281,6 @@ def test_a_rerun_of_one_message_records_one_answer(root: Root, notes: Notes) -> 
 
 
 @pytest.mark.parametrize(
-    ("tool", "tool_input"),
-    [
-        ("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes"}),
-        ("mcp__plugin_cc-notes_cc-notes__answer_edit", {"id": "4ffc9a5", "body": "yes"}),
-        ("Bash", {"command": "ccn answer add 'Release as merged?' --body yes --label scope:durable"}),
-        ("Bash", {"command": "ccn -R ~/Code/monorepo answer edit 4ffc9a5 --body yes"}),
-    ],
-)
-def test_recorded_standing_rule_is_quiet(root: Root, tool: str, tool_input: dict) -> None:
-    root.say("I told you: the plan is to release as merged")
-    root.post(tool, tool_input)
-
-    assert root.stop() == []
-
-
-@pytest.mark.parametrize(
     "prompt",
     [
         "what is the status of l17?",
@@ -331,14 +292,6 @@ def test_non_owner_or_non_rule_prompts_are_quiet(root: Root, prompt: str) -> Non
     root.say(prompt)
 
     assert root.stop() == []
-
-
-def test_an_answer_from_an_interrupted_turn_does_not_cover_the_next_rule(root: Root) -> None:
-    root.say("from now on, release as merged")
-    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Release as merged?", "body": "yes"})
-    root.say("never skip review")
-
-    assert root.stop() == [RULE_NUDGE]
 
 
 def approval(*previews: str) -> dict:
@@ -383,9 +336,34 @@ def test_the_root_keeps_its_own_dm_status_and_identity_checks(root: Root, comman
     assert root.bash(command) is None
 
 
-def test_an_approved_slack_preview_does_not_record_a_typed_standing_rule(root: Root) -> None:
-    root.post("mcp__plugin_cc-notes_cc-notes__answer_add", {"title": "Earlier", "body": "yes"})
-    root.say("from now on, release as merged")
-    root.post("AskUserQuestion", approval("From now on we release as merged."))
+def test_an_unrecorded_standing_rule_leaves_no_stop_nudge(root: Root, notes: Notes) -> None:
+    assert root.say("From now on, release everything as it merges.") is None
 
-    assert root.stop() == [RULE_NUDGE]
+    assert notes.adds == []
+    assert root.stop() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > {home}/scratch/release-v3/register/dump-1015.md <<EOF\n## pre-compact dump\nEOF\n"
+        "sed -n '3,$p' {home}/scratch/release-v3/register/rules.md >> {plan}\n"
+        "ccn doc edit 91b9194 --body - < {home}/scratch/release-v3/register/dump-1015.md",
+        "cd {home}/scratch/release-v3/structural-fixes && grep -n '^## \\|^### ' audit.md | cut -c1-120 | head -n 40",
+        "grep -n '^## ' {home}/scratch/release-v3/structural-fixes/audit.md",
+        "grep -n pending {home}/projects/s/tool-results/toolu_01.txt | grep -i hsbc | cut -c1-260",
+        "sed -n '1,569p' {home}/scratch/release-v3/release-simplify/owner-cards.md",
+        "grep -n x src/app.py > {home}/scratch/hits.txt",
+    ],
+)
+def test_writes_and_drive_scratch_reads_never_block(root: Root, command: str) -> None:
+    for relative in (
+        "scratch/release-v3/register/rules.md",
+        "scratch/release-v3/structural-fixes/audit.md",
+        "projects/s/tool-results/toolu_01.txt",
+        "scratch/release-v3/release-simplify/owner-cards.md",
+        "src/app.py",
+    ):
+        root.file(relative, LONG * 20)
+
+    assert root.bash(command.format(home=root.home, plan=root.plan)) is None

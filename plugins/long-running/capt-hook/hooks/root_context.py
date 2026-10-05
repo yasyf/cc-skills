@@ -42,7 +42,6 @@ from captain_hook.util import reqenv
 from pydantic import BaseModel
 
 from .compaction_handoff import CompactionState, ccn, progress_folder
-from .nudges import queue_nudge
 from .tests.root_fixtures import ACTIVE, LONG
 
 READ_LINES = 150
@@ -51,6 +50,10 @@ ARTIFACT_DIRS = "audits,briefs,handoffs,tool-results,subagents,transcripts"
 ARTIFACT_FILES = frozenset({"matrix.md"})
 ARTIFACT_EXTENSIONS = frozenset({"jsonl"})
 READ_DEFAULT_LIMIT = 2000
+SOURCE = Path(__file__)
+FILE_WRITES = frozenset({">", ">>", ">|"})
+NOTE_CLIS = frozenset({"ccn", "cc-notes"})
+NOTE_WRITES = frozenset({"add", "edit", "append", "supersede"})
 FILE_READERS = frozenset({"cat", "head", "tail", "sed", "awk", "grep", "egrep", "fgrep", "less", "more", "bat", "jq", "yq"})
 SEARCHERS = frozenset({"rg", "ag", "ack"})
 GREPS = frozenset({"grep", "egrep", "fgrep"})
@@ -89,7 +92,6 @@ DOC_TOOLS = (
     "mcp__claude_ai_Capacities__readObjectBlocks",
 )
 MCP_EXEMPT = ("mcp__plugin_cc-notes_", "mcp__plugin_cc-present_", "mcp__plugin_codex_")
-ANSWER_TOOLS = ("mcp__plugin_cc-notes_cc-notes__answer_add", "mcp__plugin_cc-notes_cc-notes__answer_edit")
 STANDING = r"\b(?:from now on|always|never|I told you|the plan is)\b"
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
 RULING_LABELS = ("scope:durable", "owner-ruling")
@@ -146,7 +148,6 @@ CCX = CommandSchema("ccx", operands=WORDS)
 CC_SLACK = CommandSchema("cc-slack", operands=WORDS)
 CCN = CommandSchema("ccn", operands=WORDS, options=(REPO_OPTION,))
 CC_NOTES = CommandSchema("cc-notes", operands=WORDS, options=(REPO_OPTION,))
-ANSWER_WRITES = (("answer", "add"), ("answer", "edit"))
 HEAD = CommandSchema(
     "head", operands=WORDS, options=(Option("bytes", ("-c", "--bytes")), Option("lines", ("-n", "--lines")))
 )
@@ -178,8 +179,6 @@ READ_SCHEMAS = {"head": HEAD, "tail": TAIL, "wc": WC, "cat": CAT} | dict.fromkey
 @workflow_state("long_running_root_context")
 class RootContextState(WorkflowState):
     oversized: dict[str, int] = {}
-    rule_pending: bool = False
-    rule_recorded: bool = False
 
 
 def verb(*prefixes: tuple[str, ...]) -> Callable[[Arguments], bool]:
@@ -243,6 +242,23 @@ def exempt(path: Path, plan: Path | None) -> bool:
     return pinned(path, plan) or "inbox" in path.parts
 
 
+def in_repository(path: Path) -> bool:
+    resolved = path.resolve()
+    return any((parent / ".git").exists() for parent in (resolved, *resolved.parents))
+
+
+def source_file(path: Path, plan: Path | None) -> bool:
+    return in_repository(path) and not exempt(path, plan)
+
+
+def writes(call: Call) -> bool:
+    if any(redirect.op in FILE_WRITES and redirect.fd in (None, 1) for redirect in call.redirects):
+        return True
+    if call.name == "tee":
+        return any(target.path is None or not target.path.is_relative_to("/dev") for target in call.targets)
+    return call.name in NOTE_CLIS and bool(NOTE_WRITES & set(call.args))
+
+
 def is_artifact(path: Path) -> bool:
     return bool(artifact_dirs() & set(path.parts)) or path.name in ARTIFACT_FILES or path.suffix.removeprefix(".") in ARTIFACT_EXTENSIONS
 
@@ -302,10 +318,13 @@ class SearchesRepo:
         if grep := evt.as_input(GrepCall):
             root = Path(grep.path).expanduser() if grep.path else None
             return not (root and exempt(root, plan))
-        for call in evt.command.calls():
+        calls = evt.command.calls()
+        if any(writes(call) for call in calls):
+            return False
+        for call in calls:
             if call.name in SEARCHERS:
                 found = paths(call)
-                if not found or not all(exempt(path, plan) for path in found):
+                if not found or any(source_file(path, plan) for path in found):
                     return True
         return False
 
@@ -376,12 +395,14 @@ class ReadsRepoFiles:
     def check(self, evt: BaseHookEvent) -> bool:
         plan = drive_plan(evt)
         calls = evt.command.calls()
+        if any(writes(call) for call in calls):
+            return False
         reads = [
             call
             for call in calls
             if call.name in FILE_READERS
             and not (call.name == "sed" and "-i" in call.flags)
-            and not all(exempt(path, plan) for path in paths(call))
+            and any(source_file(path, plan) for path in paths(call))
         ]
         return bool(reads) and not (len(reads) == 1 and bounded_read(reads[0], calls, evt.command.raw))
 
@@ -472,36 +493,34 @@ root_block(
     only_if=[ReadsRepoFiles()],
     confirm=ROOT_READ,
     tests={
-        Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Block(
-            pattern=r"File reads"
-        ),
-        Input(
-            command="cat {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE, llm={"block": False}
-        ): Allow(),
-        Input(command="cat {file} # ccx:raw", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
+        Input(command=f"cat {SOURCE}", state=ACTIVE): Block(pattern=r"File reads"),
+        Input(command=f"cat {SOURCE}", state=ACTIVE, llm={"block": False}): Allow(),
+        Input(command=f"cat {SOURCE} # ccx:raw", state=ACTIVE): Allow(),
+        Input(command="cat {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
+        Input(command=f"grep -n line {SOURCE} > /tmp/lines.txt", state=ACTIVE): Allow(),
+        Input(command=f"sed -n '3,$p' {SOURCE} >> plan.md", state=ACTIVE): Allow(),
+        Input(command=f"sed -n '3,$p' {SOURCE} | ccn doc edit 91b9194 --body -", state=ACTIVE): Allow(),
         Input(command="head -c 1200 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command="head -c 4001 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command=f"head -c 4001 {SOURCE}", state=ACTIVE): Block(),
         Input(command="head -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command="head -n 41 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command=f"head -n 41 {SOURCE}", state=ACTIVE): Block(),
         Input(command="tail -n 40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command="tail -n +40 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="tail -f {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command=f"tail -n +40 {SOURCE}", state=ACTIVE): Block(),
+        Input(command=f"tail -f {SOURCE}", state=ACTIVE): Block(),
         Input(command="grep -c line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command="grep -n -m 20 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command="grep -m 21 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="grep -m 5 -A 9 line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="grep -n line {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command=f"grep -m 21 line {SOURCE}", state=ACTIVE): Block(),
+        Input(command=f"grep -m 5 -A 9 line {SOURCE}", state=ACTIVE): Block(),
+        Input(command=f"grep -n line {SOURCE}", state=ACTIVE): Block(),
         Input(command="grep -n line {file} | head -n 12", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(command="grep -m 1 -o . {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="cat {file} >&2 | head -n 1", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="cat {file} | tee /dev/stderr | head -n 1", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="cat {file} | (head -n 1; cat)", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
-        Input(command="for i in 1 2; do head -n 40 {file}; done", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Block(),
+        Input(command=f"grep -m 1 -o . {SOURCE}", state=ACTIVE): Block(),
+        Input(command=f"cat {SOURCE} >&2 | head -n 1", state=ACTIVE): Block(),
+        Input(command=f"cat {SOURCE} | tee /dev/stderr | head -n 1", state=ACTIVE): Block(),
+        Input(command=f"cat {SOURCE} | (head -n 1; cat)", state=ACTIVE): Block(),
+        Input(command=f"for i in 1 2; do head -n 40 {SOURCE}; done", state=ACTIVE): Block(),
         Input(command="grep -c line {file} 2>/dev/null # count", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
         Input(command="wc -l {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE): Allow(),
-        Input(
-            command="head -n 5 {file} && head -n 5 {file}", file=FileFixture(name="notes.md", content=LONG), state=ACTIVE
-        ): Block(),
+        Input(command=f"head -n 5 {SOURCE} && head -n 5 {SOURCE}", state=ACTIVE): Block(),
         Input(command="sed -i '' s/a/b/ {file}", file=FileFixture(name="notes.md", content="a\n"), state=ACTIVE): Allow(),
         Input(command="cat {file}", file=FileFixture(name="notes.md", content="a\n")): Allow(),
         Input(command="cat >> inbox.md <<'EOF'\nlaunch l17 NOW\nEOF", state=ACTIVE): Allow(),
@@ -738,48 +757,6 @@ def record_ruling(evt: BaseHookEvent) -> str:
 def capture_standing_rule(evt: BaseHookEvent) -> HookResult | None:
     if not evt.ctx.nlp(evt.user_prompt, STANDING):
         return None
-    with RootContextState.mutate(evt) as state:
-        state.rule_pending = True
-        state.rule_recorded = False
     if not (answer_id := record_ruling(evt)):
         return None
-    with RootContextState.mutate(evt) as state:
-        state.rule_recorded = True
     return evt.context(f"Recorded this standing rule as cc-notes answer `{answer_id[:7]}`; never record it again by hand.")
-
-
-@on(
-    Event.PostToolUse,
-    only_if=[
-        DriveActive(),
-        Or(Tool(*ANSWER_TOOLS), runs_verb(CCN, *ANSWER_WRITES), runs_verb(CC_NOTES, *ANSWER_WRITES)),
-    ],
-    skip_if=[FromSubagent()],
-    tests={
-        Input(command="ccn answer add 'Release as merged?' --body yes", state=ACTIVE): Allow(),
-        Input(command="ccn doc show 4ffc9a5", state=ACTIVE): Allow(),
-    },
-)
-def record_answer(evt: BaseHookEvent) -> None:
-    with RootContextState.mutate(evt) as state:
-        state.rule_recorded = True
-
-
-@on(
-    Event.Stop,
-    only_if=[DriveActive()],
-    skip_if=[FromSubagent()],
-    tests={
-        Input(state=[*ACTIVE, RootContextState(rule_pending=True)]): Allow(),
-        Input(state=ACTIVE): Allow(),
-    },
-)
-def nudge_unrecorded_standing_rule(evt: BaseHookEvent) -> None:
-    with RootContextState.mutate(evt) as state:
-        if state.rule_pending and not state.rule_recorded:
-            queue_nudge(
-                evt,
-                "A standing rule stated by the owner must be recorded. "
-                "Run `answer_add` with `scope:durable`.",
-            )
-        state.rule_pending = state.rule_recorded = False
