@@ -2,8 +2,10 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/yasyf/cc-interact/agent"
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/daemonkit"
 )
@@ -33,4 +35,12 @@ func TestConsumerRoutesStop(t *testing.T) {
 		}
 	}
 	t.Fatal("consumer tree is missing the stop command")
+}
+
+func TestAgentGreetingIsOneShortLine(t *testing.T) {
+	id := "a74f3ecc92e9dfc1c"
+	got := agentGreeting(agent.Info{AgentID: id})
+	if strings.Count(got, id) != 1 || !strings.Contains(got, "await") || strings.Contains(got, "\n") || len(got) >= 200 {
+		t.Fatalf("greeting (%d bytes) = %q", len(got), got)
+	}
 }
