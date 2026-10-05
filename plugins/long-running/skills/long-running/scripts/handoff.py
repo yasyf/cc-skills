@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a drive's progress record from its register, inboxes, and live work.
+"""Build a drive's progress record from its register, cci rules, inboxes, and live work.
 
     handoff.py generate --program SLUG --plan PATH [--inbox-dir DIR] [--ledger ID] [--session FILE|-]
                         [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO]
@@ -11,8 +11,10 @@
 The register holds at most 30 owner-approved rules with answer ids linking to the full
 rulings in cc-notes. Generation never builds or writes a register doc or file.
 The progress record's ``## Standing owner rules`` section names the register doc and its
-rule count; the register itself arrives verbatim after compaction. Live ``(standing)``
-inbox rules follow by id and inbox file, then retired rules. With no register doc, the section says so.
+rule count; the register itself arrives verbatim after compaction. Live standing rules
+come from cci on the drive named by ``--program``. Each follows as ``- #<seq> [<source>]``,
+where the source is ``ccn <answer id>`` or ``cci #<seq>``. Retired rules follow.
+With no register doc, the section says so.
 
 The record also carries open owner asks, tasks, lanes, monitors, inbox state, and the
 drive registry. Generation writes a progress doc under ``progress:<program>`` and the
@@ -30,16 +32,18 @@ naming its largest section. ``fold`` folds an existing record in place under the
 progress file. ``--session`` reads the hook's JSON fields ``session_id``, ``tasks``,
 and ``background`` from a file or stdin.
 
-An inbox rule missing since the previous handoff appears once as ``<id> superseded by
-...``. Lint checks the standing section, register pointer, carried inbox ids, and citations
-for lines requiring owner approval. Findings go under ``## Lint findings``.
-With ``--strict``, register, carry, narrative, or inbox findings write nothing and exit
+A standing rule missing since the previous handoff appears once as
+``- <id> superseded by <id>`` or ``- <id> superseded by nothing: ...`` when no replacement
+is known. Old ``R<n>`` ids retire this way once. Lint checks the standing section,
+register pointer, carried rule ids, and citations for lines requiring owner approval.
+Findings go under ``## Lint findings``.
+With ``--strict``, register, carry, narrative, or standing-rule findings write nothing and exit
 :data:`standing.VIOLATIONS`. Plan findings never block generation.
 
 Output has fields ``{id, file, register, digest}``. ``register`` is the register doc id
 or null. ``id`` is the progress doc id. Both are null in folder mode. The digest names
 the register first when one exists, then the progress record and plan. Its second line
-reads ``Register: N owner-approved rules, M live standing inbox rules.``
+reads ``Register: N owner-approved rules, M live standing rules.``
 
 ``lint`` checks any handoff and the optional plan. It exits :data:`standing.VIOLATIONS`
 on a finding. Both commands use only the Python standard library.
@@ -153,14 +157,15 @@ def read_inboxes(handoff: Handoff, directory: Path) -> None:
     handoff.inbox_dir = directory
     for path in sorted(directory.glob("*.md")):
         lines = [line.text for line in inboxes.Inbox(path).lines()]
-        inbox = standing.read_inbox(lines, path.name)
-        handoff.standing |= {rid: text.lstrip("-* ") for rid, text in inbox.live().items()}
-        handoff.sources |= {rid: f"{path}:{inbox.at[rid]}" for rid in inbox.live()}
-        handoff.superseded |= inbox.superseded
         rulings = [(match[1], line.strip()) for line in lines if (match := RULING.match(line))]
         cursor = path.with_name(f"{path.name}.cursor")
         head, last = rulings[-1] if rulings else (None, None)
         handoff.inboxes.append(Inbox(name=path.name, head=head, cursor=cursor.read_text().strip() if cursor.is_file() else None, last=last))
+
+
+def read_standing(handoff: Handoff, shell: ledger.Shell) -> None:
+    found = standing.read(shell.run, handoff.program)
+    handoff.standing, handoff.sources, handoff.superseded = found.rules, found.sources, found.superseded
 
 
 def uncited_plan_lines(plan: Path, live: set[str]) -> list[str]:
@@ -237,9 +242,7 @@ def shown(lines: list[str], more: str) -> list[str]:
 
 
 def rule_lines(handoff: Handoff) -> list[str]:
-    return [f"- {rid} [{Path(handoff.sources[rid].rpartition(':')[0]).name}]" for rid in handoff.standing] + [
-        f"- {line}" for line in handoff.retired
-    ]
+    return [f"- {rid} [{handoff.sources[rid]}]" for rid in handoff.standing] + [f"- {line}" for line in handoff.retired]
 
 
 def render(handoff: Handoff) -> str:
@@ -298,9 +301,9 @@ def retire(handoff: Handoff, previous: str | None) -> None:
 
 def uncited_inbox_rules(handoff: Handoff, live: set[str]) -> list[str]:
     return [
-        f"{handoff.sources[rid]}: standing rule {rid} is an owner-gate line that cites no live answer id: "
-        f"{clip(text, RULING_CHARS)}; end that line with `(answer <id>)`, or append `- <new id> (standing) supersedes {rid} "
-        "…, answer <id>` to the inbox"
+        f"{handoff.sources[rid]}: standing rule {rid} requires owner approval but cites no live answer id: "
+        f"{clip(text, RULING_CHARS)}; post a replacement rule with `cci post --drive {handoff.program} --lane root --kind correction "
+        f"--re {rid.lstrip('#')} --topic standing --ccn <answer id> --text \"<rule>\"`"
         for rid, text in handoff.standing.items()
         if standing.gated(text, live)
     ]
@@ -333,7 +336,7 @@ def digest(handoff: Handoff, doc: str) -> str:
         [
             f"Compacted long-running drive `{handoff.program}`. Before acting, {first}, then `{handoff.plan}`. "
             "Reload Skill `long-running` if its rules are gone.",
-            f"Register: {standing.rule_count(handoff.register)} owner-approved rules, {len(handoff.standing)} live standing inbox rules.",
+            f"Register: {standing.rule_count(handoff.register)} owner-approved rules, {len(handoff.standing)} live standing rules.",
             f"Open: {len(handoff.asks)} owner asks, {len(handoff.tasks)} tasks, {len(handoff.lanes)} lanes, "
             f"{len(handoff.monitors)} monitors, {len(handoff.findings) + len(handoff.plan_findings)} lint findings.",
         ]
@@ -360,6 +363,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     inbox_dir = Path(args.inbox_dir).expanduser() if args.inbox_dir else Path.home() / ".claude" / "scratch" / args.program / "inbox"
     if inbox_dir.is_dir():
         read_inboxes(handoff, inbox_dir)
+    read_standing(handoff, shell)
     if args.narrative_file:
         handoff.narrative, handoff.narrative_from = Path(args.narrative_file).read_text().strip(), f"file {Path(args.narrative_file).name}"
         handoff.narrative_edit = f"in `{args.narrative_file}`"

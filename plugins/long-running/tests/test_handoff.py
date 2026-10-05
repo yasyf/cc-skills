@@ -43,9 +43,17 @@ class FakeCcn(ledger.Shell):
         self.stuck: set[str] = set()
         self.created: dict[str, dict] = {}
         self.registers: list[str] = []
+        self.standing: list[dict] = [{"seq": 2, "kind": "go", "text": "every landed PR is deployed in the same pass it lands", "refs": {}}]
+
+    def rule(self, kind: str, text: str, **fields) -> None:
+        self.standing.append({"seq": len(self.standing) + 2, "kind": kind, "text": text, "refs": {}, **fields})
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
+        if argv[:2] == ["cci", "tail"]:
+            assert argv[3] == "brook"
+            since = int(argv[argv.index("--since") + 1])
+            return "".join(json.dumps(record) + "\n" for record in self.standing if record["seq"] > since)
         if argv[1:3] == ["ledger", "show"]:
             return json.dumps({"id": argv[3], "rows": self.rows})
         assert argv[1:3] == ["-R", REPO], argv
@@ -95,7 +103,6 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     inbox.mkdir(parents=True)
     (inbox / "orca-desk.md").write_text(
         "- R1 (root) → desk: launch l01\n"
-        "- R2 (standing) every landed PR is deployed in the same pass it lands\n"
         "- R3 (root) → desk: launch l02\n"
     )
     (inbox / "orca-desk.md.cursor").write_text("R2\n")
@@ -153,7 +160,7 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert shell.added[out["id"]].startswith("brook: progress ") and shell.added[out["id"]].endswith(" (generated)")
     for line in (
         "Register `ccn doc show ccccccc`: 2 owner-approved rules, delivered verbatim after every compaction.\n",
-        "- R2 [orca-desk.md]",
+        "- #2 [cci #2]",
         "- ask/000001 lane-a: ask 000001",
         "## Open tasks\n- none in progress\n- 1 pending in `TaskList`\n",
         "- teammate: orca-desk-6",
@@ -305,8 +312,8 @@ def test_folder_mode_calls_no_ccn(drive_home: Path, capsys: pytest.CaptureFixtur
     out = generate(drive_home, shell, "--folder", capsys=capsys)
 
     assert out["id"] is None
-    assert shell.calls == []
-    assert "- R2 [orca-desk.md]" in Path(out["file"]).read_text()
+    assert [call for call in shell.calls if call[0] == "ccn"] == []
+    assert "- #2 [cci #2]" in Path(out["file"]).read_text()
     assert out["register"] is None
     assert out["digest"].startswith(f"Compacted long-running drive `brook`. Before acting, read the generated handoff `{out['file']}`, then ")
     assert "- no `standing-rules` register doc" in Path(out["file"]).read_text()
@@ -320,7 +327,7 @@ def test_digest_names_the_register_first(drive_home: Path, capsys: pytest.Captur
         "it arrives verbatim with your next tool result, binds every lane brief, and outranks the summary. "
         f"Then read the progress doc `ccn doc show {out['id'][:7]}`, then `{drive_home}/.claude/plans/brook.md`. "
         "Reload Skill `long-running` if its rules are gone.",
-        "Register: 2 owner-approved rules, 1 live standing inbox rules.",
+        "Register: 2 owner-approved rules, 1 live standing rules.",
         "Open: 1 owner asks, 1 tasks, 1 lanes, 1 monitors, 1 lint findings.",
     ]
 
@@ -331,7 +338,7 @@ def test_digest_stays_inside_the_injected_context_budget() -> None:
         plan="/Users/someone/.claude/plans/" + "x" * 120 + ".md",
         at=handoff.datetime.now(handoff.timezone.utc),
         register={"id": "7654321" + "0" * 33, "body": "".join(f"{n}. rule\n" for n in range(1, 31))},
-        standing={f"R{n}": f"R{n} (standing) " + "rule text " * 60 for n in range(80)},
+        standing={f"#{n}": f"#{n} " + "rule text " * 60 for n in range(80)},
         asks=["ask"] * 40,
         tasks=[{}] * 200,
     )
@@ -340,7 +347,7 @@ def test_digest_stays_inside_the_injected_context_budget() -> None:
 
     assert len(text.encode()) <= handoff.DIGEST_BUDGET
     assert text.startswith("Compacted long-running drive `release-v3`. Before acting, read the standing rules register `ccn doc show 7654321`")
-    assert text.splitlines()[-2] == "Register: 30 owner-approved rules, 80 live standing inbox rules."
+    assert text.splitlines()[-2] == "Register: 30 owner-approved rules, 80 live standing rules."
     assert text.splitlines()[-1].startswith("Open: 40 owner asks, 200 tasks")
     assert handoff.DIGEST_BUDGET + 4500 + 3000 + 2 * len("\n\n") < 10_000
 
@@ -373,15 +380,14 @@ def test_strict_refuses_a_narrative_with_an_uncited_owner_gate(drive_home: Path,
 def test_a_rule_the_sources_dropped_is_carried_once_as_superseded(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     first = generate(drive_home, shell, capsys=capsys)
-    inbox = drive_home / ".claude/scratch/brook/inbox/orca-desk.md"
-    inbox.write_text(inbox.read_text() + "- R4 R2 superseded by R5\n- R5 (standing) deploy every landing within five minutes\n")
+    shell.rule("correction", "deploy every landing within five minutes", re=2, refs={"ccn": "4ffc9a5"})
 
     second = generate(drive_home, shell, capsys=capsys)
     third = generate(drive_home, shell, capsys=capsys)
 
     body = shell.docs[second["id"]]
-    assert "- R2 superseded by R5" in body
-    assert "- R5 [orca-desk.md]" in body
+    assert "- #2 superseded by #3" in body
+    assert "- #3 [ccn 4ffc9a5]" in body
     assert "## Lint findings\n- plan owner-gate line" in body
     assert "superseded by" not in "\n".join(handoff.standing.section(shell.docs[third["id"]]))
     assert first["id"] != second["id"] != third["id"]
@@ -395,26 +401,28 @@ def strict(home: Path, shell: FakeCcn) -> int:
 @pytest.mark.parametrize(
     "fix",
     [
-        "- R9 (standing) supersedes R8 as the cited form: no release waits on the owner's word (answer 4ffc9a5)\n",
-        "- R8 (standing) every release ships on the owner's word only once (answer 4ffc9a5)\n",
+        ("correction", "no release waits on the owner's word (answer 4ffc9a5)", {"re": 3}),
+        ("go", "every release ships on the owner's word only once (answer 4ffc9a5)", {}),
     ],
 )
-def test_strict_names_an_uncited_inbox_rule_by_file_and_line_until_a_cited_line_supersedes_it(
-    drive_home: Path, capsys: pytest.CaptureFixture[str], fix: str
+def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
+    drive_home: Path, capsys: pytest.CaptureFixture[str], fix: tuple[str, str, dict]
 ) -> None:
     shell = shell_with()
     shell.docs["b" * 40] = "## Root's next actions\n1. land l11"
     shell.active.append("b" * 40)
-    inbox = drive_home / ".claude/scratch/brook/inbox/orca-desk.md"
-    inbox.write_text(inbox.read_text() + "- R8 (standing) every release ships on the owner's word only once\n")
+    shell.rule("go", "every release ships on the owner's word only once")
 
     assert strict(drive_home, shell) == 3
 
     [finding] = capsys.readouterr().out.splitlines()
-    assert finding.startswith(f"{inbox}:4: standing rule R8 is an owner-gate line that cites no live answer id: ")
-    assert "supersedes R8" in finding and "ccn doc edit" not in finding
+    assert finding.startswith("cci #3: standing rule #3 requires owner approval but cites no live answer id: ")
+    assert "--kind correction --re 3 --topic standing" in finding and "ccn doc edit" not in finding
 
-    inbox.write_text(inbox.read_text() + fix)
+    kind, text, fields = fix
+    if kind == "go":
+        shell.standing.pop()
+    shell.rule(kind, text, **fields)
 
     assert strict(drive_home, shell) == 0
 
@@ -514,10 +522,10 @@ def test_fold_rewrites_a_doc_in_place_and_refuses_one_over_the_cap(drive_home: P
     assert "most of it `huge`" in capsys.readouterr().out
 
 
-def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_the_inbox(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_cci(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
 
     body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
-    assert "\n".join(standing.section(body)).endswith("- R2 [orca-desk.md]")
+    assert "\n".join(standing.section(body)).endswith("- #2 [cci #2]")
     assert "every landed PR is deployed" not in body

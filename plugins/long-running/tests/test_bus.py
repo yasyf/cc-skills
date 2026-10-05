@@ -52,7 +52,7 @@ def test_read_pages_every_delivery_into_one_json_list(capsys):
     argv = ["read", "--bus", "d1", "--lane", "incident-x", "--kind", "answer", "--kind", "ask", "--all", "--peek", "--json", "--repo", "/m"]
     assert bus.main(argv, shell) == 0
     assert [call[call.index("--since") + 1] for call in shell.calls] == ["0", "9", "12"]
-    assert shell.calls[0][2:] == ["--drive", "d1", "--reader", "incident-x", "--since", "0", "--json", "--budget", "16000", "--kind=answer", "--kind=ask"]
+    assert shell.calls[0][2:] == ["--drive", "d1", "--since", "0", "--json", "--budget", "16000", "--reader", "incident-x", "--kind=answer", "--kind=ask"]
     entries = json.loads(capsys.readouterr().out)
     assert [entry["seq"] for entry in entries] == [3, 9, 12]
     assert entries[1] == {"seq": 9, "at": "2026-10-05T09:00:00Z", "kind": "answer", "topic": "", "from": "comms", "to": [], "text": "t", "re": 3}

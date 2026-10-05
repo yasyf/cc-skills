@@ -18,8 +18,9 @@ import json
 import subprocess
 import sys
 
+import cci
+
 KINDS = ("decision", "head", "contract", "blocker", "ask", "answer", "withdraw")
-PAGE_BYTES = 16000
 
 
 class Shell:
@@ -53,16 +54,7 @@ def cmd_post(args: argparse.Namespace, shell: Shell) -> int:
 
 def cmd_read(args: argparse.Namespace, shell: Shell) -> int:
     filters = [*(f"--kind={kind}" for kind in args.kind), *(f"--topic={topic}" for topic in args.topic)]
-    entries: list[dict] = []
-    since = 0
-    while True:
-        out = shell.run(["cci", "tail", "--drive", args.bus, "--reader", args.lane, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
-        page = [entry(json.loads(line)) for line in out.splitlines() if line.strip()]
-        if not page:
-            break
-        entries += page
-        since = page[-1]["seq"]
-    print(json.dumps(entries))
+    print(json.dumps([entry(record) for record in cci.records(shell.run, args.bus, "--reader", args.lane, *filters)]))
     return 0
 
 

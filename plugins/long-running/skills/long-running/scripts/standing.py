@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Read live standing inbox rules and lint their handoff.
+"""Read live standing rules from cci and lint their handoff.
 
-    standing.py inbox  FILE... [--repo PATH]
+    standing.py live   --drive DRIVE
     standing.py lint   (--doc ID | --file PATH) --program SLUG [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-A standing rule has its own inbox line: ``R<n> (standing) <rule>`` or
-``R<n> (<who, when>, standing) <rule>``. It is never done. Only a later line
-``R<k> R<n> superseded by <id>`` or a later standing line saying ``supersedes R<n>``
-ends it. ``inbox`` prints the live ids and their text. It exits 3 on a convention
-violation.
+A standing rule is a cci ``go`` record with topic ``standing``. The root addresses it
+to a desk and cites its durable answer with ``--ccn <answer id>``. It is never done.
+Only a later ``correction`` record with ``--topic standing --re <seq>`` and a later
+answer replaces it. Rule ids are ``#<seq>``. ``live`` prints each live rule's id, text,
+and source: ``ccn <answer id>`` when cited, otherwise ``cci #<seq>``.
 
 ``lint`` checks that ``## Standing owner rules`` exists and names the current
-``standing-rules:<program>`` doc. It checks that inbox ids such as ``R123`` from the
-previous handoff are carried or superseded. Lines requiring owner approval must cite
-a live answer id. The citation check skips quoted lines prefixed with ``  >``.
+``standing-rules:<program>`` doc. It checks that rule ids from the previous handoff,
+including ``#<seq>`` and old ``R<n>`` ids, are carried or superseded. Lines requiring
+owner approval must cite a live answer id. The citation check skips quoted lines
+prefixed with ``  >``.
 Durable answer titles are not required in the handoff. ``lint`` exits 3 on a finding.
 Both commands use only the Python standard library.
 """
@@ -25,21 +26,16 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import inboxes
+import cci
 import ledger
 import progress
 import rulings
 
-ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
-STANDING_TAG = r"\((?:[^()]*,\s*)?standing\)"
-STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+{STANDING_TAG}:?\s+\S")
-MISPLACED_TAG = re.compile(rf"\b{ID}`?[\s/]*{STANDING_TAG}")
-SUPERSEDED = re.compile(rf"\b({ID}|[0-9a-f]{{7,40}})`?\s+(?:is\s+)?superseded by\s+`?({ID}|[0-9a-f]{{7,40}})\b")
-SUPERSEDES = re.compile(rf"\bsupersedes\s+`?({ID})\b", re.IGNORECASE)
-DONE = re.compile(rf"\b({ID})`?\s*(?:[:=—–-]\s*|is\s+)?(?:done|completed?|closed|finished|retired)\b", re.IGNORECASE)
+ID = r"(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)"
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
 NEXT_SECTION = re.compile(r"^#{1,2}\s", re.MULTILINE)
 BULLET_ID = re.compile(rf"^\s*[-*]\s+`?({ID})`?\b")
@@ -56,41 +52,21 @@ QUOTE = "  >"
 
 
 @dataclass
-class Inbox:
+class Standing:
     rules: dict[str, str] = field(default_factory=dict)
-    at: dict[str, int] = field(default_factory=dict)
+    sources: dict[str, str] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
-    violations: list[str] = field(default_factory=list)
-
-    def live(self) -> dict[str, str]:
-        return {rid: text for rid, text in self.rules.items() if rid not in self.superseded}
 
 
-def read_inbox(lines: list[str], source: str = "") -> Inbox:
-    inbox = Inbox()
-    done: list[tuple[int, str, str]] = []
-    superseded_at: dict[str, int] = {}
-    for number, line in enumerate(lines, 1):
-        where = f"{source}:{number}" if source else str(number)
-        if match := STANDING_LINE.match(line):
-            inbox.rules[match[1]] = line.strip()
-            inbox.at[match[1]] = number
-            for old in SUPERSEDES.findall(line):
-                inbox.superseded[old] = match[1]
-                superseded_at[old] = number
-            continue
-        if MISPLACED_TAG.search(line):
-            inbox.violations.append(f"{where}: `(standing)` must follow the line's own single id: {line.strip()}")
-        for old, new in SUPERSEDED.findall(line):
-            inbox.superseded[old] = new
-            superseded_at[old] = number
-        done += [(number, where, rid) for rid in DONE.findall(line) if rid in inbox.rules]
-    inbox.violations += [
-        f"{where}: standing rule {rid} is marked done; it ends only with `{rid} superseded by <id>`"
-        for number, where, rid in done
-        if superseded_at.get(rid, 0) <= number
-    ]
-    return inbox
+def read(run: Callable[[list[str]], str], drive: str) -> Standing:
+    records = cci.records(run, drive, "--topic=standing", "--kind=go", "--kind=correction")
+    found = Standing(superseded={f"#{record['re']}": f"#{record['seq']}" for record in records if record["kind"] == "correction" and record.get("re")})
+    for record in records:
+        rid = f"#{record['seq']}"
+        if rid not in found.superseded:
+            found.rules[rid] = f"{rid} {record['text']}"
+            found.sources[rid] = f"ccn {ccn_id}" if (ccn_id := record.get("refs", {}).get("ccn")) else f"cci {rid}"
+    return found
 
 
 def section(body: str) -> list[str] | None:
@@ -169,19 +145,12 @@ def section_of(register: dict | None, lines: list[str]) -> str:
     return "\n".join(out + lines) + "\n"
 
 
-def cmd_inbox(args: argparse.Namespace) -> int:
-    violations = []
-    live: dict[str, str] = {}
-    for path in args.files:
-        inbox = read_inbox([line.text for line in inboxes.Inbox(Path(path)).lines()], path)
-        live |= inbox.live()
-        violations += inbox.violations
-    print(f"live standing: {', '.join(live) or 'none'}")
-    for text in live.values():
-        print(text)
-    for violation in violations:
-        print(f"violation {violation}")
-    return VIOLATIONS if violations else 0
+def cmd_live(args: argparse.Namespace) -> int:
+    found = read(ledger.Shell().run, args.drive)
+    print(f"live standing: {', '.join(found.rules) or 'none'}")
+    for rid, text in found.rules.items():
+        print(f"{text} [{found.sources[rid]}]")
+    return 0
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
@@ -202,9 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(required=True)
 
-    inbox = subparsers.add_parser("inbox", help="print the live standing ids and every convention violation")
-    inbox.add_argument("files", nargs="+", metavar="FILE")
-    inbox.set_defaults(handler=cmd_inbox)
+    live = subparsers.add_parser("live", help="print the live standing rules on a cci drive")
+    live.add_argument("--drive", required=True)
+    live.set_defaults(handler=cmd_live)
 
     check = subparsers.add_parser("lint", help="lint a progress doc or handoff file against the durable answers")
     body = check.add_mutually_exclusive_group(required=True)
@@ -216,8 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--program", required=True, metavar="SLUG")
     check.set_defaults(handler=cmd_lint)
 
-    for sub in (inbox, check):
-        sub.add_argument("--repo", default=".", metavar="PATH")
+    check.add_argument("--repo", default=".", metavar="PATH")
     args = parser.parse_args(argv)
     return args.handler(args)
 
