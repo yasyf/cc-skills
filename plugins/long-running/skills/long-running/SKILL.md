@@ -2524,17 +2524,17 @@ into the root's context on its next tool call or prompt. The root sends the requ
 with `SendMessage` to the lane's name in that turn.
 
 **Handoff.** A reply starting `flushed` confirms the lane recorded its state and
-keeps working; it ends the rotation cycle. The hook records the lane's token count
-at the flush and asks again only after its context grows by at least 10% of its
-rotation line from that count. The hook nudges the root once: the lane keeps
-running in place, nothing to do. After its own compaction, the lane reads its ledger
+keeps working; it ends the rotation cycle for good. The hook never asks that lane
+again, whatever its context does afterwards. The hook nudges the root once: the lane
+keeps running in place, nothing to do. After its own compaction, the lane reads its ledger
 and saved cursor and continues. Never `TaskStop` or respawn a flushed lane, and
 never spawn a second agent under a live lane's name. An `open-pr:pr-watcher` resumes
 from its state file after its own compaction.
 
 A lane that drops below its line through its own compaction or leaves
-`background_tasks` because it stopped or rotated also ends the cycle. Dropping below
-the line clears its flush record, so a later crossing starts a fresh cycle.
+`background_tasks` because it stopped or rotated also ends the cycle. A lane whose
+teammate inbox holds a `STAND-DOWN` message from `team-lead` is never asked or
+escalated, since its successor already owns the work.
 
 A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
 without a reply starting `flushed` to its first ask, subject to the cap below. A later

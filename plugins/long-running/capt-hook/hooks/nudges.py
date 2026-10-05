@@ -40,6 +40,12 @@ def queue_nudge(evt: BaseHookEvent, text: str) -> None:
         state.pending.append(text)
 
 
+def cancel_root_action(evt: BaseHookEvent, lane: str) -> None:
+    key = root_action_key(lane)
+    with NudgeState.mutate(evt) as state:
+        state.pending = [line for line in state.pending if not line.startswith(key)]
+
+
 @on(
     Event.UserPromptSubmit | Event.PostToolUse,
     skip_if=[FromSubagent()],

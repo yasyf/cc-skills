@@ -799,7 +799,12 @@ def test_lane_that_finishes_after_its_ask_is_dropped_without_escalation(tree: Tr
     assert lane_rotation.RotationState.load(evt.evt()).asks == {}
 
 
-def test_flushed_lane_is_not_asked_again_until_its_context_grows(tree: Tree, clock: list[float]) -> None:
+def stand_down(tree: Tree, name: str, at: datetime = ROOT_AT) -> None:
+    message = {"from": "team-lead", "text": "STAND-DOWN, root: your successor owns this.", "timestamp": stamp(at), "msg_id": str(uuid.uuid4())}
+    assert session_tree.append_inbox(tree.claude / "teams" / TEAM / "inboxes" / f"{name}.json", message)
+
+
+def test_flushed_lane_is_never_asked_again(tree: Tree, clock: list[float]) -> None:
     evt = stop(tree, [tree.lane("b-platy-page-route", 450_000)])
     rotate_lanes(evt)
     tree.read("b-platy-page-route")
@@ -812,21 +817,31 @@ def test_flushed_lane_is_not_asked_again_until_its_context_grows(tree: Tree, clo
     rotate_lanes(evt)
     nudges.NudgeState(pending=[]).save(evt.evt())
 
-    growth = 396_900 * lane_rotation.REFLUSH_GROWTH_PERCENT // 100
-    tree.grow("b-platy-page-route", 450_000 + growth - 1)
+    tree.grow("b-platy-page-route", 900_000)
     for _ in range(3):
         clock[0] += lane_rotation.ASK_GAP_SECONDS
         rotate_lanes(evt)
     assert (len(tree.inbox("b-platy-page-route")), pending(evt)) == (1, [])
-    assert lane_rotation.RotationState.load(evt.evt()).flushed_tokens == {timeline(evt)[0]["agent_id"]: 450_000}
+    assert lane_rotation.RotationState.load(evt.evt()).flushed == ["b-platy-page-route"]
+    assert [entry["event"] for entry in timeline(evt)] == ["ask", "flushed"]
 
-    tree.grow("b-platy-page-route", 450_000 + growth)
+
+def test_a_flush_cancels_the_lanes_queued_root_action(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("landing-desk", 450_000)])
     rotate_lanes(evt)
-    assert len(tree.inbox("b-platy-page-route")) == 2
-    assert [entry["event"] for entry in timeline(evt)] == ["ask", "flushed", "ask"]
+    tree.read("landing-desk")
+    clock[0] += lane_rotation.ACK_WINDOW_SECONDS
+    rotate_lanes(evt)
+    assert [line.split(":")[0] for line in pending(evt)] == ["ROOT-ACTION `landing-desk`"]
+
+    deliver(tree, '<teammate-message teammate_id="landing-desk">\nflushed 74de6071\n</teammate-message>', ROOT_AT + timedelta(minutes=12))
+    clock[0] += 60
+    rotate_lanes(evt)
+
+    assert pending(evt) == ["Lane `landing-desk` flushed its context. Leave it running; do not `TaskStop` it."]
 
 
-def test_flushed_lane_that_compacts_starts_a_fresh_cycle(tree: Tree, clock: list[float]) -> None:
+def test_flushed_lane_that_compacts_is_still_never_asked_again(tree: Tree, clock: list[float]) -> None:
     evt = stop(tree, [tree.lane("desk", 450_000)])
     rotate_lanes(evt)
     tree.read("desk")
@@ -836,9 +851,47 @@ def test_flushed_lane_that_compacts_starts_a_fresh_cycle(tree: Tree, clock: list
 
     tree.grow("desk", 30_000)
     rotate_lanes(evt)
-    assert lane_rotation.RotationState.load(evt.evt()).flushed_tokens == {}
-
     tree.grow("desk", 400_000)
     clock[0] += lane_rotation.PACE_SECONDS
     rotate_lanes(evt)
-    assert len(tree.inbox("desk")) == 2
+    assert len(tree.inbox("desk")) == 1
+
+
+def test_a_flush_reply_to_an_ask_the_state_forgot_still_ends_the_asks(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("hook-diet", 450_000)])
+    rotate_lanes(evt)
+    forgotten = lane_rotation.RotationState.load(evt.evt())
+    forgotten.names, forgotten.asks = {}, {}
+    forgotten.save(evt.evt())
+    deliver(tree, '<teammate-message teammate_id="hook-diet">\nflushed 74de6071\n</teammate-message>', ROOT_AT + timedelta(minutes=2))
+
+    for _ in range(3):
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+        rotate_lanes(evt)
+
+    assert len(tree.inbox("hook-diet")) == 1
+
+
+def test_lane_with_a_stand_down_on_disk_is_never_asked(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("lr-dashboard", 550_000)
+    stand_down(tree, "lr-dashboard")
+    evt = stop(tree, [task])
+
+    for _ in range(3):
+        rotate_lanes(evt)
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+
+    assert ([m["text"] for m in tree.inbox("lr-dashboard")], pending(evt), timeline(evt)) == (["STAND-DOWN, root: your successor owns this."], [], [])
+
+
+def test_lane_stood_down_after_its_ask_is_neither_asked_again_nor_escalated(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("lr-dashboard-2", 450_000)])
+    rotate_lanes(evt)
+    tree.read("lr-dashboard-2")
+    stand_down(tree, "lr-dashboard-2")
+
+    for _ in range(4):
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+        rotate_lanes(evt)
+
+    assert ([m["from"] for m in tree.inbox("lr-dashboard-2")], pending(evt)) == (["long-running", "team-lead"], [])

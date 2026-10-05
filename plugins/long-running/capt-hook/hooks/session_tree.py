@@ -21,6 +21,8 @@ from captain_hook.tasks import Task, Tasks
 __capt_hook_skip__ = True
 
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+STAND_DOWN = re.compile(r"\s*STAND-DOWN\b", re.IGNORECASE)
+STAND_DOWN_SENDER = "team-lead"
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 IDLE_NOTIFICATION = '{"type":"idle_notification"'
 ROOT_NAMES = frozenset({"team-lead", "main"})
@@ -95,6 +97,14 @@ def team_members(evt: BaseHookEvent, team: str) -> dict[str, str]:
 
 def inbox_path(evt: BaseHookEvent, team: str, lane: str) -> Path:
     return team_dir(evt, team) / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json"
+
+
+def stood_down(inbox: Path) -> bool:
+    try:
+        messages = json.loads(inbox.read_text() or "[]")
+    except (OSError, ValueError):
+        return False
+    return any(message["from"] == STAND_DOWN_SENDER and STAND_DOWN.match(message["text"]) for message in messages)
 
 
 def acquire(lock: Path) -> bool:
