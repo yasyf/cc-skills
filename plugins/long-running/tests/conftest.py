@@ -24,6 +24,7 @@ LISTED_HEAD = "e8ad88696bf85732fc0bec48b8486977b94b6f1b"
 DIRTY_HEAD = "ab0de038c1100e5c66e9ad3b21b1b8bb1b1ad0bb"
 GREEN_HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
 LEDGER = "1a2b3c4d"
+DRIVE = "d1"
 
 
 def fixture(name: str) -> str:
@@ -68,9 +69,13 @@ class FakeShell(ledger.Shell):
         self.pr_state_error = ""
         self.orca: dict[tuple[str, ...], dict] = {}
         self.calls: list[list[str]] = []
+        self.cci: list[dict] = []
+        self.cci_cursors: dict[str, int] = {}
 
     def run(self, argv, stdin=None):
         self.calls.append(list(argv))
+        if argv[0] == "cci":
+            return self._cci(argv)
         if argv[0] == "gh":
             return self._gh(argv, stdin)
         if argv[0] == "bk":
@@ -91,6 +96,53 @@ class FakeShell(ledger.Shell):
         if argv[0] == "orca":
             return json.dumps({"ok": True, "result": self.orca[tuple(argv[1:-1])]})
         raise AssertionError(f"unexpected command: {argv}")
+
+    def _cci(self, argv):
+        flags: dict[str, list[str]] = {}
+        rest = list(argv[2:])
+        while rest:
+            flag = rest.pop(0)
+            name, _, value = flag.partition("=")
+            flags.setdefault(name, []).append(value or ("" if name == "--json" else rest.pop(0)))
+        one = {name: values[-1] for name, values in flags.items()}
+        assert one["--drive"] == DRIVE, argv
+        if argv[1] == "post":
+            record = {
+                "seq": len(self.cci) + 1,
+                "drive": DRIVE,
+                "lane": one["--lane"],
+                "kind": one["--kind"],
+                "at": "2026-10-05T09:00:00Z",
+                "text": one["--text"],
+                "topic": one.get("--topic", ""),
+                "re": int(one["--re"]) if "--re" in one else None,
+                "fields": {"commit": one["--commit"]} if "--commit" in one else {},
+            }
+            assert len(record["text"]) <= 400
+            self.cci.append(record)
+            return f"#{record['seq']}\n"
+        assert argv[1] == "tail", argv
+        if "--since" in one:
+            after = int(one["--since"])
+        else:
+            after = self.cci_cursors.get(one["--cursor"], 0)
+        found = [
+            record
+            for record in self.cci
+            if record["seq"] > after
+            and ("--kind" not in flags or record["kind"] in flags["--kind"])
+            and ("--lane" not in flags or record["lane"] in flags["--lane"])
+            and ("--topic" not in flags or record["topic"] in flags["--topic"])
+        ]
+        if "--since" not in one and found:
+            self.cci_cursors[one["--cursor"]] = found[-1]["seq"]
+        return "".join(json.dumps(record) + "\n" for record in found)
+
+    def messages(self) -> list[dict]:
+        return [record for record in self.cci if record["kind"] != "answer"]
+
+    def answered(self) -> set[int]:
+        return {record["re"] for record in self.cci if record["kind"] == "answer"}
 
     @property
     def store(self) -> dict:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from conftest import LEDGER
+from conftest import DRIVE, LEDGER
 from test_desk import HEAD, LANE, PR, desk_shell, run, stamp, summarize
 
 ASK = "one post and one approval per release"
@@ -15,7 +15,7 @@ def ask(shell, text=ASK, lane=LANE) -> int:
 
 
 def report(shell, pr=PR, ask_id="ask/000001") -> int:
-    return run(shell, "report", "--ledger", LEDGER, "--pr", pr, "--head", HEAD, "--lane", LANE, "--verdict", "clean", "--ask", ask_id)
+    return run(shell, "report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", pr, "--head", HEAD, "--lane", LANE, "--verdict", "clean", "--ask", ask_id)
 
 
 def aged(shell, key: str, minutes: int) -> None:

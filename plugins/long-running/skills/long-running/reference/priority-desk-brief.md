@@ -90,10 +90,10 @@ Do, in this order, every iteration:
      List live standing answer ids in every report and apply corrections before
      acting on the rule.
      Your lanes report and register with you, not with landing-desk. Type each
-     3-line report in with `ledger.py report` and each registration with
+     3-line report in with `ledger.py report --drive <drive>` and each registration with
      `ledger.py register`, exactly as landing-desk does, so the ledger stays whole.
-     Lanes that write their own `ledger.py report` reach you only through
-     `ledger.py inbox --ledger <id> --shard <your lanes> --take`; run it here.
+     Lanes that write their own `ledger.py report --drive <drive>` reach you only through
+     `ledger.py inbox --ledger <id> --drive <drive> --shard <your lanes> --take`; run it here.
   1. Read every owed PR in one batched
      `ccx vcs pr status <n1> <n2> ...` call and read the Buildkite build list.
      Never make one REST status call per PR. Check landed claims against the
@@ -114,7 +114,7 @@ Do, in this order, every iteration:
        each backgrounded with `&`, then `wait` and collect each output. Drop
        `--hold` when the numeric file is empty; it takes one or more PR numbers,
        never a filename. Argparse exit 2 otherwise reads as unsettled. Report
-       each enqueue with `ledger.py report`; refresh records it as labelled
+       each enqueue with `ledger.py report --drive <drive>`; refresh records it as labelled
        outside the desk. `ledger.py label` cannot pass `--hold` yet. Where the
        repo has no script, use `ledger.py label --repo <repo> --ledger <id>
        --pr <prefix top> --expect-head <sha> --checkout <path>`; mirrored ledger holds

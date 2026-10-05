@@ -6,7 +6,7 @@ from pathlib import Path
 
 import ledger
 import pytest
-from conftest import FIXTURES, LEDGER, FakeShell
+from conftest import DRIVE, FIXTURES, LEDGER, FakeShell
 
 PR = "21221"
 HEAD = "3f3acff97aa11bb22cc33dd44ee55ff667788990"
@@ -57,7 +57,7 @@ def review(state: str, commit: str, login: str = "yasyf") -> dict:
 
 
 def report(shell, verdict="clean", head=HEAD, lane=LANE) -> int:
-    return run(shell, "report", "--ledger", LEDGER, "--pr", PR, "--head", head, "--lane", lane, "--verdict", verdict)
+    return run(shell, "report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", PR, "--head", head, "--lane", lane, "--verdict", verdict)
 
 
 def label(shell, *extra) -> int:
@@ -74,13 +74,33 @@ def summarize(shell, capsys, *extra) -> list[str]:
         if row["key"].isdigit() and row["fields"].get("state") not in ledger.TERMINAL_STATES:
             shell.pulls.setdefault(row["key"], {"number": int(row["key"]), "state": "open", "head": {"sha": HEAD, "ref": f"b/{row['key']}"}, "base": {"ref": "dev"}})
     capsys.readouterr()
-    assert run(shell, "summary", "--repo", REPO, "--ledger", LEDGER, "--checkout", "/nonexistent", *extra) == 0
+    assert run(shell, "summary", "--repo", REPO, "--ledger", LEDGER, "--drive", DRIVE, "--checkout", "/nonexistent", *extra) == 0
     lines = capsys.readouterr().out.splitlines()
     return lines[next(index for index, line in enumerate(lines) if line.startswith("desk ")) :]
 
 
 def messages(shell) -> list[str]:
-    return [key for key in shell.keys() if key.startswith("msg/")]
+    return [f"#{record['seq']}" for record in shell.messages()]
+
+
+def taken(shell) -> bool:
+    return {int(key[1:]) for key in messages(shell)} <= shell.answered()
+
+
+def seed(shell, kind, pr, head, lane=LANE, text="clean READY") -> None:
+    shell.cci.append(
+        {
+            "seq": len(shell.cci) + 1,
+            "drive": DRIVE,
+            "lane": lane,
+            "kind": ledger.MESSAGE_KINDS[kind],
+            "at": "2026-10-05T09:00:00Z",
+            "text": text,
+            "topic": pr,
+            "re": None,
+            "fields": {"commit": head} if len(head) == 40 else {},
+        }
+    )
 
 
 def test_report_enqueues_once_and_opens_the_pr_row():
@@ -88,7 +108,7 @@ def test_report_enqueues_once_and_opens_the_pr_row():
     assert report(shell) == 0
     assert report(shell) == 0
 
-    assert messages(shell) == ["msg/000001"]
+    assert messages(shell) == ["#1"]
     row = shell.fields(PR)
     assert row["lane"] == LANE
     assert row["reported_head"] == HEAD
@@ -100,27 +120,27 @@ def test_a_new_head_from_the_same_lane_is_a_new_message():
     report(shell)
     report(shell, verdict="red", head=OLD_HEAD)
 
-    assert messages(shell) == ["msg/000001", "msg/000002"]
+    assert messages(shell) == ["#1", "#2"]
 
 
 def test_inbox_orders_p0_before_rulings_before_reports_before_idles(capsys):
     shell = desk_shell()
-    run(shell, "enqueue", "--ledger", LEDGER, "--kind", "idle", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "still here")
+    run(shell, "enqueue", "--ledger", LEDGER, "--drive", DRIVE, "--kind", "idle", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "still here")
     report(shell)
-    run(shell, "ruling", "--ledger", LEDGER, "--lane", LANE, "--pr", PR, "--text", "land or close", "--options", "A land|B close")
-    run(shell, "enqueue", "--ledger", LEDGER, "--kind", "p0", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "dev is red")
+    run(shell, "ruling", "--ledger", LEDGER, "--drive", DRIVE, "--lane", LANE, "--pr", PR, "--text", "land or close", "--options", "A land|B close")
+    run(shell, "enqueue", "--ledger", LEDGER, "--drive", DRIVE, "--kind", "p0", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "dev is red")
     capsys.readouterr()
 
-    run(shell, "inbox", "--ledger", LEDGER, "--take")
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE, "--take")
     lines = capsys.readouterr().out.splitlines()
 
-    assert [line.split()[1] if line.startswith("msg/") else "RULING" for line in lines] == ["p0", "RULING", "report", "idle"]
+    assert [line.split()[1] if line.startswith("#") else "RULING" for line in lines] == ["p0", "RULING", "report", "idle"]
     assert lines[1] == "RULING NEEDED: land or close; options: A land / B close"
-    assert all(shell.fields(key)["state"] == "acked" for key in messages(shell))
+    assert taken(shell)
 
-    run(shell, "inbox", "--ledger", LEDGER)
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE)
     assert capsys.readouterr().out == ""
-    run(shell, "inbox", "--ledger", LEDGER, "--all")
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE, "--all")
     assert len(capsys.readouterr().out.splitlines()) == 4
 
 
@@ -130,70 +150,57 @@ def test_a_new_head_supersedes_the_pending_report_on_the_old_head(capsys):
     report(shell)
     capsys.readouterr()
 
-    assert shell.fields("msg/000001")["superseded_by"] == "msg/000002"
-    run(shell, "inbox", "--ledger", LEDGER)
-    assert capsys.readouterr().out.splitlines() == [f"msg/000002 report #{PR} {HEAD[:9]} {LANE}: clean"]
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE)
+    assert capsys.readouterr().out.splitlines() == [f"#2 report #{PR} {HEAD[:9]} {LANE}: clean"]
 
 
 def test_inbox_takes_reports_on_landed_prs_and_old_heads_without_listing_them(capsys):
     shell = desk_shell()
     rows = shell.stores[LEDGER]["rows"]
     rows.append({"key": "28001", "fields": {"lane": LANE, "state": "landed"}})
-    for key, pr, head in (("msg/000001", "28001", HEAD), ("msg/000002", PR, OLD_HEAD), ("msg/000003", PR, HEAD)):
-        rows.append({"key": key, "fields": {"kind": "report", "pr": pr, "head": head, "lane": LANE, "text": "clean READY", "state": "pending"}})
+    for pr, head in (("28001", HEAD), (PR, OLD_HEAD), (PR, HEAD)):
+        seed(shell, "report", pr, head)
 
-    run(shell, "inbox", "--ledger", LEDGER, "--take")
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE, "--take")
 
-    assert capsys.readouterr().out.splitlines() == [f"msg/000003 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
-    assert all(shell.fields(key)["state"] == "acked" for key in messages(shell))
-    assert shell.fields("msg/000001")["moot"] == shell.fields("msg/000002")["moot"] == "true"
-
-
-def test_a_hand_keyed_message_row_does_not_break_the_next_key():
-    shell = desk_shell()
-    stray = {"kind": "report", "pr": PR, "head": HEAD, "lane": "bg-pulumi", "state": "ready", "text": "READY"}
-    shell.stores[LEDGER]["rows"].append({"key": "msg/bg-pulumi-28510-open", "fields": stray, "position": "z"})
-
-    assert run(shell, "enqueue", "--ledger", LEDGER, "--kind", "idle", "--pr", "0", "--head", "-", "--lane", LANE, "--text", "still here") == 0
-
-    assert messages(shell) == ["msg/bg-pulumi-28510-open", "msg/000001"]
+    assert capsys.readouterr().out.splitlines() == [f"#3 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
+    assert taken(shell)
+    assert [record["text"] for record in shell.cci if record["kind"] == "answer"] == ["moot #1", "moot #2", "taken #3"]
 
 
 def test_duplicate_idle_notice_is_recorded_once_and_answered_never(capsys):
     shell = desk_shell()
-    argv = ["enqueue", "--ledger", LEDGER, "--kind", "idle", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "done"]
+    argv = ["enqueue", "--ledger", LEDGER, "--drive", DRIVE, "--kind", "idle", "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "done"]
     run(shell, *argv)
     run(shell, *argv)
 
-    assert "duplicate of msg/000001; nothing recorded, nothing to answer" in capsys.readouterr().out
-    assert messages(shell) == ["msg/000001"]
+    assert "duplicate of #1; nothing recorded, nothing to answer" in capsys.readouterr().out
+    assert messages(shell) == ["#1"]
 
 
 def test_a_new_verdict_at_the_same_head_supersedes_the_pending_report(capsys):
     shell = desk_shell()
-    argv = ["report", "--ledger", LEDGER, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
+    argv = ["report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
     run(shell, *argv, "--verdict", "red")
     run(shell, *argv, "--verdict", "clean")
     run(shell, *argv, "--verdict", "clean")
     capsys.readouterr()
 
-    assert messages(shell) == ["msg/000001", "msg/000002"]
-    assert shell.fields("msg/000001")["state"] == "acked"
-    assert shell.fields("msg/000001")["superseded_by"] == "msg/000002"
+    assert messages(shell) == ["#1", "#2"]
     assert shell.fields(PR)["reported_verdict"] == "clean"
-    run(shell, "inbox", "--ledger", LEDGER)
-    assert capsys.readouterr().out.splitlines() == [f"msg/000002 report #{PR} {HEAD[:9]} {LANE}: clean ci"]
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE)
+    assert capsys.readouterr().out.splitlines() == [f"#2 report #{PR} {HEAD[:9]} {LANE}: clean ci"]
 
 
 def test_a_verdict_reverted_at_the_same_head_is_recorded_again(capsys):
     shell = desk_shell()
-    argv = ["report", "--ledger", LEDGER, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
+    argv = ["report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", PR, "--head", HEAD, "--lane", LANE, "--text", "ci"]
     for verdict in ("red", "clean", "red"):
         run(shell, *argv, "--verdict", verdict)
     capsys.readouterr()
 
-    run(shell, "inbox", "--ledger", LEDGER)
-    assert capsys.readouterr().out.splitlines() == [f"msg/000003 report #{PR} {HEAD[:9]} {LANE}: red ci"]
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE)
+    assert capsys.readouterr().out.splitlines() == [f"#3 report #{PR} {HEAD[:9]} {LANE}: red ci"]
     assert shell.fields(PR)["reported_verdict"] == "red"
 
 
@@ -513,10 +520,11 @@ def test_summary_counts_landings_in_the_window_and_fits_ten_lines(capsys):
         {"key": "21102", "fields": {"state": "closed-without-squash", "labels": "merge", "hold_until": "2020-01-01T00:00:00Z", "hold_reason": "x"}},
         {"key": "21103", "fields": {"head": HEAD, "routed_head": HEAD, "routed_job": "x"}},
         {"key": "21104", "fields": {"head": HEAD, "routed_head": OLD_HEAD, "routed_job": "x"}},
-        {"key": "msg/000001", "fields": {"kind": "ruling", "pr": "21201", "head": "-", "lane": LANE, "text": "land or close", "options": "A|B", "state": "pending"}},
-        {"key": "msg/000002", "fields": {"kind": "p0", "pr": "21202", "head": HEAD, "lane": LANE, "text": "dev red", "state": "pending"}},
-        {"key": "msg/000003", "fields": {"kind": "ruling", "pr": "21203", "head": "-", "lane": LANE, "text": "old", "options": "A", "state": "acked"}},
     ]
+    seed(shell, "ruling", "21201", "-", text="land or close; options: A / B")
+    seed(shell, "p0", "21202", HEAD, text="dev red")
+    seed(shell, "ruling", "21203", "-", text="old; options: A")
+    shell.cci.append({"seq": 4, "drive": DRIVE, "lane": "ledger", "kind": "answer", "at": "2026-10-05T09:00:00Z", "text": "acked #3", "topic": "21203", "re": 3, "fields": {}})
 
     lines = summarize(shell, capsys)
 
@@ -594,7 +602,7 @@ def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
 
-    assert run(shell, "summary", "--ledger", LEDGER, "--repo", REPO, "--checkout", str(tmp_path)) == 0
+    assert run(shell, "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO, "--checkout", str(tmp_path)) == 0
 
     assert shell.fields(PR)["state"] == "landed"
     out = capsys.readouterr().out
@@ -603,9 +611,9 @@ def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
 
 def test_summary_refuses_to_print_without_settling_landings_first():
     with pytest.raises(SystemExit):
-        run(FakeShell(), "summary", "--ledger", LEDGER)
+        run(FakeShell(), "summary", "--ledger", LEDGER, "--drive", DRIVE)
     with pytest.raises(SystemExit):
-        run(FakeShell(), "summary", "--ledger", LEDGER, "--repo", REPO)
+        run(FakeShell(), "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO)
 
 
 def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):
@@ -849,7 +857,7 @@ def test_reconcile_under_an_exhausted_quota_lands_the_squashed_rows_and_names_th
 def test_summary_under_an_exhausted_quota_renders_from_the_cached_rows(capsys):
     shell = rate_limited_shell()
 
-    assert run(shell, "summary", "--ledger", LEDGER, "--repo", REPO, "--checkout", "/checkout") == 0
+    assert run(shell, "summary", "--ledger", LEDGER, "--drive", DRIVE, "--repo", REPO, "--checkout", "/checkout") == 0
 
     out = capsys.readouterr().out
     assert out.index("pr states: cached 12m (GraphQL quota exhausted") < out.index("desk 2")
@@ -904,7 +912,7 @@ def test_report_refuses_a_pr_that_is_not_a_bare_number(capsys):
     shell = desk_shell()
 
     with pytest.raises(SystemExit):
-        run(shell, "report", "--ledger", LEDGER, "--pr", "28096 publish-kinds restacked", "--head", HEAD, "--lane", LANE, "--verdict", "held")
+        run(shell, "report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", "28096 publish-kinds restacked", "--head", HEAD, "--lane", LANE, "--verdict", "held")
 
     assert "a bare PR number" in capsys.readouterr().err
     assert shell.keys() == []
@@ -914,7 +922,7 @@ def test_report_refuses_a_branch_prefix_as_the_head(capsys):
     shell = desk_shell()
 
     with pytest.raises(SystemExit):
-        run(shell, "report", "--ledger", LEDGER, "--pr", PR, "--head", "yasyf/v3-b6-publish/", "--lane", LANE, "--verdict", "held")
+        run(shell, "report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", PR, "--head", "yasyf/v3-b6-publish/", "--lane", LANE, "--verdict", "held")
 
     assert "hex prefix of the head sha" in capsys.readouterr().err
 
@@ -922,21 +930,19 @@ def test_report_refuses_a_branch_prefix_as_the_head(capsys):
 def test_every_reader_skips_malformed_keys_with_one_warning(capsys):
     stray = [
         {"key": "28096 publish-kinds restacked", "fields": {"lane": "b6-publish", "reported_head": "yasyf/v3-b6-publish/"}},
-        {"key": "msg/bg-pulumi-28510-open", "fields": {"kind": "report", "pr": "28510", "head": "1d192f7834a4", "lane": "bg-pulumi", "state": "pending", "text": "READY"}},
     ]
     shell = reconcile_shell()
     shell.store["rows"].extend(stray)
 
-    assert run(shell, "report", "--ledger", LEDGER, "--pr", "28349", "--head", "4" * 40, "--lane", "d-cutover", "--verdict", "clean") == 0
+    assert run(shell, "report", "--ledger", LEDGER, "--drive", DRIVE, "--pr", "28349", "--head", "4" * 40, "--lane", "d-cutover", "--verdict", "clean") == 0
     assert run(shell, "list", "--ledger", LEDGER) == 0
-    assert run(shell, "inbox", "--ledger", LEDGER) == 0
+    assert run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE) == 0
     assert reconcile(shell) == 0
 
     captured = capsys.readouterr()
     warnings = [line for line in captured.err.splitlines() if "skipping malformed keys" in line]
-    assert len(warnings) == 4, "one line per command, never one per read"
-    assert "'28096 publish-kinds restacked', 'msg/bg-pulumi-28510-open'" in warnings[0]
-    assert "bg-pulumi" not in captured.out
+    assert len(warnings) == 3, "one line per reading command, never one per read"
+    assert "'28096 publish-kinds restacked'" in warnings[0]
     assert "publish-kinds" not in captured.out
 
 
@@ -1468,17 +1474,17 @@ def test_a_shard_sees_only_its_lanes_rows_and_messages(capsys):
         rows=[
             stale_row("24040", 40, lane="lane-a"),
             stale_row("24041", 40, lane="lane-b"),
-            {"key": "msg/000001", "fields": {"kind": "p0", "pr": "24040", "head": HEAD, "lane": "lane-a", "text": "dev red", "state": "pending"}},
-            {"key": "msg/000002", "fields": {"kind": "p0", "pr": "24041", "head": HEAD, "lane": "lane-b", "text": "dev red", "state": "pending"}},
         ]
     )
+    seed(shell, "p0", "24040", HEAD, lane="lane-a", text="dev red")
+    seed(shell, "p0", "24041", HEAD, lane="lane-b", text="dev red")
 
     lines = summarize(shell, capsys, "--shard", "lane-a")
     assert "| open 1 |" in lines[0] and "| p0 1 |" in lines[0]
     assert lines[1] == "stale #24040 40m lane-a: never graded: run label --all-clean"
 
-    run(shell, "inbox", "--ledger", LEDGER, "--shard", "lane-b")
-    assert capsys.readouterr().out.strip() == f"msg/000002 p0 #24041 {HEAD[:9]} lane-b: dev red"
+    run(shell, "inbox", "--ledger", LEDGER, "--drive", DRIVE, "--shard", "lane-b")
+    assert capsys.readouterr().out.strip() == f"#2 p0 #24041 {HEAD[:9]} lane-b: dev red"
 
 
 def test_a_sharded_refresh_regrades_only_its_lanes_rows(lock):

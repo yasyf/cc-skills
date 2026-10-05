@@ -229,7 +229,7 @@ When the reply lands, the lane runs `ledger.py answer`. An orphaned sub-dispatch
 surfaces as `LOST` in the summary.
 
 Before claiming anything is assigned, in flight, or done, the root reads
-`ledger.py summary` or `ledger.py show --asks`, never its own plan table. R7 still
+`ledger.py summary --drive <drive>` or `ledger.py show --asks`, never its own plan table. R7 still
 applies to PR state; the root never reports it from the plan file. An ask is done only
 at `LIVE`. Once every linked PR has landed, the root records the shipping pipeline's
 next run with `ledger.py live --ledger <id> --at <ISO>`. A delivered ask then moves
@@ -709,10 +709,11 @@ It receives P0 lines immediately and a summary every 30 minutes.
 
 `scripts/ledger.py` is its one tool. It uses `ccx vcs pr state` for refreshes and
 `ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
-which polls each repository at most once every 30 seconds. Its one store is a cc-notes
+which polls each repository at most once every 30 seconds. Its PR store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
-and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
-asks are `ask/<seq>` rows beside the PR rows. Rules reviews are `review/<pr>@<head>`
+and the landing are fields on that row. Lane messages are cci records keyed `#<seq>` on the program's cci drive,
+the same drive named by desk-runner's config `drive`; owner asks are `ask/<seq>`
+rows beside the PR rows. Rules reviews are `review/<pr>@<head>`
 rows that hold landing only for unwaived findings on the PR's current head. cc-notes
 finds the ledger through the working directory's repository, so a lane outside that
 checkout passes `ledger.py -C <checkout> <verb>`.
@@ -737,7 +738,7 @@ under Mechanics, and there is no desk.
 
 Where the checkout carries an enqueue script, a lane calls it as
 `stack-enqueue <prefix top> --hold $(cat <held file>)`, then reports with
-`ledger.py report`. Drop `--hold` when the numeric file is empty: it requires at
+`ledger.py report --drive <drive>`. Drop `--hold` when the numeric file is empty: it requires at
 least one PR number, never a filename. Argparse exit 2 otherwise reads as
 `unsettled`.
 
@@ -752,7 +753,7 @@ The lane keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebas
 
 Only the root appends or edits the holds file. Each line names held PRs as `#<n>` and whole held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is held, so a reason names another PR without the `#`. A lane never self-enqueues a prefix containing or sitting above a held PR, including any PR of a held lane. It reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
 
-Lanes record each report themselves with `ledger.py report`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
+Lanes record each report themselves with `ledger.py report --drive <drive>`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --drive <drive> --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root checks its gates and enqueues it itself in the same turn under D3. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI.*
 
@@ -950,7 +951,7 @@ Where `stack-enqueue` exists, the landing runner sends this route after verifyin
 *Prevents a redesigned modal or a rewritten Slack card landing and reaching users before the owner had seen how it actually rendered.*
 
 **D18. A queued PR is watched until its squash is on the base; an ejection is a P0 the pass it happens.**
-The desk arms `ledger.py watch` under Monitor when it spawns and re-arms it on every
+The desk arms `ledger.py watch --drive <drive>` under Monitor when it spawns and re-arms it on every
 expiry. Forward every `P0` line to the root the moment it prints; the root treats it
 like a `RULING NEEDED` line and acts in the same turn. The 3-minute refresh is the
 reconciliation pass; the watch detects transitions. Stagger desks and shards by a
@@ -1277,7 +1278,7 @@ The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the des
 past the cci cursor named for it, advancing that cursor. The script also advances
 each file's cursor. Act on the printed records and file lines before reading
 beyond those cursors (I2). Run the 3-minute reconciliation pass, the 30-minute
-summary, and periodic sources such as `ledger.py watch ... --once` and
+summary, and periodic sources such as `ledger.py watch --drive <drive> ... --once` and
 `ccx vcs pr watch ... --once` as foreground steps in that same loop between
 waits, never as background Bash or Monitor.
 
@@ -1404,7 +1405,7 @@ Holds file: <path>, root-owned; rebuild a fresh numeric held file before every
   enqueue from its #<n> entries and held lanes' open PRs under D3.
 Self-enqueue: take the largest green, approved, unheld bottom prefix and run
   `stack-enqueue <prefix top> --hold $(cat <held file>)` at once, omitting `--hold`
-  when the numeric file is empty, then `ledger.py report` the enqueue. Where the
+  when the numeric file is empty, then `ledger.py report --drive <drive>` the enqueue. Where the
   repo has no enqueue script, use
   `ledger.py label --repo <repo> --ledger <id> --pr <prefix top> --expect-head <sha> --checkout <worktree>`.
   Never self-enqueue above a held PR or any PR of a held lane. Report `held` on
@@ -1416,9 +1417,9 @@ Self-enqueue: take the largest green, approved, unheld bottom prefix and run
 Ledger: <id>. Register your branch prefix when spawned:
   `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>`.
 Report every PR open, push, enqueue, and READY yourself, in this one shape:
-  `ledger.py report --ledger <id> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
+  `ledger.py report --ledger <id> --drive <drive> --pr <n> --head <full sha> --lane <name> --verdict <clean|red|conflicting|held> --text "<one line>"`,
   plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`.
-  The desk's inbox reads that row; a SendMessage to a looping desk is never read.
+  The desk's inbox reads that cci record; a SendMessage to a looping desk is never read.
 Bus: cci drive <drive>; CLI cci, on PATH by name.
   Subscribe: --topic <each PR, branch prefix, and contract you own or consume> --kind decision.
   First call on every wake, and before every decision, report, or ask:
@@ -1456,7 +1457,7 @@ Finish: a lane with a PR finishes only once its squash `(#N)` is on the base bra
   Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
   action. Do not end a turn waiting. Every push to a reported PR re-reports the new
-  head with `ledger.py report` in the same turn; the desk grades without waiting for it.
+  head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
 
 For implementation and test lanes, prefer the repository's canonical remote
@@ -1682,10 +1683,10 @@ drive.py start --ledger "$LEDGER" [--orca-run <run>] [--state-dir ~/.claude/scra
 ledger.py ask     --ledger "$LEDGER" --text "<verbatim>" --lane lightning-eh --accept "<acceptance check>"
 
 # on each report: record it and grade the current head; reports are not a gate
-ledger.py report  --ledger "$LEDGER" --pr 21221 --head <sha> --lane lightning-eh --verdict clean --ask ask/000001
-ledger.py ruling  --ledger "$LEDGER" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
-ledger.py enqueue --ledger "$LEDGER" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
-ledger.py inbox   --ledger "$LEDGER" --take
+ledger.py report  --ledger "$LEDGER" --drive "$DRIVE" --pr 21221 --head <sha> --lane lightning-eh --verdict clean --ask ask/000001
+ledger.py ruling  --ledger "$LEDGER" --drive "$DRIVE" --lane p2-edge-rows --pr 20284 --text "land without the document form" --options "A land|B hold|C close"
+ledger.py enqueue --ledger "$LEDGER" --drive "$DRIVE" --kind idle --pr 21221 --head <sha> --lane lightning-eh --text "done"
+ledger.py inbox   --ledger "$LEDGER" --drive "$DRIVE" --take
 ledger.py register --ledger "$LEDGER" --lane lightning-eh --branch-prefix lightning/ --pr 21221
 
 # every 3 minutes, staggered :00/:01/:02: reconcile every tracked current head
@@ -1703,7 +1704,7 @@ ledger.py hold  --ledger "$LEDGER" --pr 21052 --reason "dev-red:infra-plan-obser
 ledger.py gone  --ledger "$LEDGER" --lane lightning-eh
 ledger.py route --repo "$REPO" --ledger "$LEDGER" --train merge-train --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts' --fallback red-desk
 
-ledger.py summary --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT"
+ledger.py summary --repo "$REPO" --ledger "$LEDGER" --drive "$DRIVE" --checkout "$CHECKOUT"
 ledger.py show    --ledger "$LEDGER" --asks
 ledger.py live    --ledger "$LEDGER" --at "$(date -u +%FT%TZ)" --text "release 37 deployed"
 ledger.py drop    --ledger "$LEDGER" --ask ask/000002 --reason "owner withdrew it"
@@ -1721,7 +1722,7 @@ expiry. Pass each priority PR the root names with `--priority`; forward every `P
 line immediately. The three-minute batch reconciles the ledger.
 
 ```sh
-ledger.py watch --repo "$REPO" --ledger "$LEDGER" --checkout "$CHECKOUT" [--priority <n>]... [--shard <lane>,<lane>]
+ledger.py watch --repo "$REPO" --ledger "$LEDGER" --drive "$DRIVE" --checkout "$CHECKOUT" [--priority <n>]... [--shard <lane>,<lane>]
 ```
 
 `--shard` watches only those lanes' rows and keeps its own snapshot,
@@ -1736,7 +1737,7 @@ nothing; run it once on a repo before the first live label.
 The parallel example uses each ready prefix's top as `TIP` and collects each output
 after `wait`; include every ready prefix in the pass, or run it immediately for ready
 reports. Each shard does the same for its lanes, using held rows from the whole
-ledger. Report each successful enqueue with `ledger.py report`; refresh records it
+ledger. Report each successful enqueue with `ledger.py report --drive <drive>`; refresh records it
 as `in the queue, labelled outside the desk`. A `held` refusal waits for the root and is not routed.
 
 Where the repo has no enqueue script, use `ledger.py label --pr <tip> --expect-head <sha>`

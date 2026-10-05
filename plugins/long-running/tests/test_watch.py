@@ -5,7 +5,7 @@ import subprocess
 
 import ledger
 import pytest
-from conftest import LEDGER, FakeShell
+from conftest import DRIVE, LEDGER, FakeShell
 
 REPO = "Forge-AI/monorepo"
 PR = "27949"
@@ -23,7 +23,7 @@ def event(kind: str, pr: str = PR, detail: str = "", head: str = HEAD) -> str:
 
 def watch(shell: FakeShell, tmp_path, *extra: str) -> int:
     return ledger.main(
-        ["watch", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path), "--state", str(tmp_path / "watch.json"), "--once", *extra],
+        ["watch", "--repo", REPO, "--ledger", LEDGER, "--drive", DRIVE, "--checkout", str(tmp_path), "--state", str(tmp_path / "watch.json"), "--once", *extra],
         shell,
     )
 
@@ -33,7 +33,7 @@ def row_shell(**fields: str) -> FakeShell:
 
 
 def p0s(shell: FakeShell) -> list[dict]:
-    return [row["fields"] for row in shell.store["rows"] if row["key"].startswith("msg/") and row["fields"]["kind"] == "p0"]
+    return [fields for fields in ledger.Messages(shell, DRIVE).read(None).values() if fields["kind"] == "p0"]
 
 
 def test_an_ejection_the_pass_it_happens_is_a_p0_on_the_inbox_and_a_line(capsys, tmp_path):
@@ -47,7 +47,7 @@ def test_an_ejection_the_pass_it_happens_is_a_p0_on_the_inbox_and_a_line(capsys,
     ejected, conflicting = p0s(shell)
     assert ejected["pr"] == PR and ejected["head"] == HEAD and ejected["lane"] == LANE and ejected["state"] == "pending"
     assert "ejected (it had merge conflicts)" in ejected["text"]
-    assert conflicting["event"] == "conflicting"
+    assert conflicting["text"] == f"#{PR} conflicting: rebase or fix now"
     row = shell.fields(PR)
     assert row["ejected_at"] == "2026-09-30T05:34:49Z"
     assert row["watch_event"] == "conflicting"
@@ -98,14 +98,13 @@ def test_each_pass_rereads_the_rows_so_new_prs_join_and_settled_ones_leave(tmp_p
 
 def test_a_report_a_lane_wrote_itself_wakes_the_desk_once(capsys, tmp_path):
     shell = row_shell()
-    report = {"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY", "state": "pending"}
-    shell.stores[LEDGER]["rows"].append({"key": "msg/000007", "fields": report})
+    ledger.Messages(shell, DRIVE).post({"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY"})
 
     watch(shell, tmp_path)
     watch(shell, tmp_path)
 
-    assert capsys.readouterr().out.splitlines() == [f"REPORT msg/000007 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
-    assert shell.fields("msg/000007")["state"] == "pending"
+    assert capsys.readouterr().out.splitlines() == [f"REPORT #1 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
+    assert ledger.Messages(shell, DRIVE).read(None)["#1"]["state"] == "pending"
 
 
 def arm(tmp_path, *prs: str) -> None:
@@ -208,14 +207,14 @@ def test_an_acked_red_does_not_swallow_a_later_ejection_on_the_same_head(capsys,
     shell = row_shell()
     shell.ccx_out = event("red", detail="buildkite/tests") + "\n"
     watch(shell, tmp_path, "--priority", PR)
-    for row in shell.store["rows"]:
-        if row["key"].startswith("msg/"):
-            row["fields"]["state"] = "acked"
+    messages = ledger.Messages(shell, DRIVE)
+    for key, fields in messages.read(None).items():
+        messages.answer(key, fields, "acked")
 
     shell.ccx_out = event("ejected") + "\n"
     watch(shell, tmp_path)
 
-    assert [m["event"] for m in p0s(shell)] == ["red buildkite/tests", "ejected"]
+    assert [m["text"] for m in p0s(shell)] == [f"#{PR} red buildkite/tests: rebase or fix now", f"#{PR} ejected: rebase or fix now"]
 
 
 def test_a_stray_line_from_ccx_is_reported_and_the_events_still_land(capsys, tmp_path):
