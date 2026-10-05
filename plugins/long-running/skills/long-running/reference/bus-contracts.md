@@ -4,7 +4,13 @@
 lane reads deliveries from its own cci cursor. A `SendMessage` carries the record's
 sequence number, and the reader checks cci before acting. Durable owner rulings,
 decisions, runbooks, and design docs stay in cc-notes, linked with `--ccn <id>`.
-`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
+`incident.py` posts through `bus.py` onto the same cci drive, opened with
+`incident.py open --bus <cci drive>`. Its comms lane reads asks and answers with cci:
+
+```sh
+cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json
+cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"
+```
 
 ## The entry
 

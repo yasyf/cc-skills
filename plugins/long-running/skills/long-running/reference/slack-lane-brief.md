@@ -100,7 +100,7 @@ Thread: <permalink>; channel <channel id>; thread ts <thread ts>.
 Account channels and FDEs: ai-oncall skill mapping, per cc-notes answer d12f767.
 Grants: <channel and thread grant ids for the affected accounts and #outage>.
 Incident doc lane: incident-<incident id>-retro; link <live incident-doc URL when ready>.
-Executor: incident-<incident id>. Bus: <bus id>; topic incident:<incident id>.
+Executor: incident-<incident id>. Bus: cci drive <drive>; topic incident:<incident id>.
 CLI: ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack, by path.
 
 Do:
@@ -120,9 +120,10 @@ Do:
      first, says what we are doing to prevent recurrence. State work underway
      without claiming an unverified fix. Use plain words and Pacific times;
      @-mention the account's FDEs. Apply step 5's drafting and checks to every post.
-  4. Incident comms stay on scripts/bus.py until incident.py moves to cci.
+  4. incident.py posts through bus.py onto the same cci drive, opened with
+     `incident.py open --bus <cci drive>`.
      Loop in foreground units of at most 60 seconds:
-     `bus.py read --bus <bus id> --lane <comms lane name> --json`, then
+     `cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json`, then
      `cc-slack thread --url <permalink>` against the ts values already seen.
   5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
      facts to report, with times already in Pacific. Have astra draft per "Write a
@@ -136,7 +137,7 @@ Do:
      use `cc-slack send --channel <channel id> --grant <grant> --text <copy>`. Add eyes
      for `ack`, and swap eyes for white_check_mark after `recovered`.
   6. Answer every entry once it posts:
-     `bus.py post --bus <bus id> --from <comms lane name> --kind answer --re <seq> --text "posted ts=<ts>"`.
+     `cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"`.
      An entry left unanswered for two minutes reaches the root as a decision.
   7. On a human question in the thread, add eyes and draft an answer from the latest
      executor entries. Before each reply, follow step 5's drafting and both checks,

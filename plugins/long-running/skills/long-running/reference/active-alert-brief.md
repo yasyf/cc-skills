@@ -24,7 +24,7 @@ under R16.
 
 ```sh
 incident.py open --kind pr-review --incident <id> --thread <permalink> --onset <ISO time> \
-  --bus <bus id> --comms-lane <comms lane name> --root-lane <root agent name> \
+  --bus <cci drive> --comms-lane <comms lane name> --root-lane <root agent name> \
   --checkout <repo checkout> --orca-run <run id> --orca-repo <repo id> \
   --common "$(ccn -R <repo checkout> attachment path <briefs log> common.md)" \
   --alert <Sentry issue or monitor link> --runbook <runbook> [--adopt fix=<lane already running>] \
@@ -155,9 +155,14 @@ still covers only its named surface.
 any account update. cc-notes answers `5ad4507`, `d12f767`, and `52f4863`,
 2026-10-03.*
 
-`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
+`incident.py` posts through `bus.py` onto the same cci drive, opened with
+`incident.py open --bus <cci drive>`. The comms lane reads asks directly:
 
-The executor posts each event to it as a bus `ask` from
+```sh
+cci tail --drive <drive> --reader <comms lane> --kind ask --since 0 --json
+```
+
+The executor posts each event as a cci `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,
 the `thread`, and the event's facts, with times already in Pacific. The lane writes
@@ -168,7 +173,7 @@ surface it posts with `cc-slack send --channel <channel id> --grant <grant> --te
 them. It then answers the entry:
 
 ```sh
-bus.py post --bus <bus id> --from <comms lane name> --kind answer --re <seq> --text "posted ts=<ts>"
+cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"
 ```
 
 An event left unanswered for two minutes becomes one decision for the root.
@@ -186,7 +191,7 @@ Authority: maintain the incident doc through the incident-retro skill's live
 Verified facts, do not re-derive:
   alert <alert link>; onset <onset>; target <target>
   fix lane <fix lane name>; evidence lane <evidence lane name>
-  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  comms lane <comms lane name>; cci drive <drive>, topic <incident topic>
   incident inputs: <incident-dir>/state.json and <incident-dir>/slack-log.jsonl
   docs checkout: <design-docs-checkout>; slug: <date>-<slug>
 
@@ -242,7 +247,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; evidence lane <evidence lane name>
-  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  comms lane <comms lane name>; cci drive <drive>, topic <incident topic>
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
@@ -329,7 +334,7 @@ Verified facts, do not re-derive:
   alert <alert link>; monitor <monitor id> / <monitor state>
   metric query <metric query>; runbook <runbook>
   named code path <named code path>; fix lane <fix lane name>
-  comms lane <comms lane name>; bus <bus id>, topic <incident topic>
+  comms lane <comms lane name>; cci drive <drive>, topic <incident topic>
   record: investigation <investigation id>, log <incident log id>
     (cc-notes, on the drive checkout)
 
