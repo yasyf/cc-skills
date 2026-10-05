@@ -288,6 +288,8 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
         f"{handoff.POINTER_PREFIX} the latest execution state is the newest file in `{folder}/`, now "
         f"`{generated.name}`; only this line's name changes."
     )
+    assert plan.with_name("brook-standing-rules.md").read_text().startswith("## Standing owner rules\n")
+    assert handoff.newest_record(state(session), str(home))[0] == f"`{generated}`"
 
 
 def test_an_inactive_drive_is_not_nudged_whatever_the_transcript_holds(home: Path, docs: Path) -> None:
@@ -563,7 +565,7 @@ def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path
 
     assert len(parts) > 1
     assert "".join(parts) == register
-    assert register == (plan.parent / "brook-progress" / "standing-rules.md").read_text()
+    assert register == (plan.parent / "brook-standing-rules.md").read_text()
     assert register in (docs / ("d" * 40 + ".md")).read_text()
     assert "  > No. Pulumi state is the only truth, ruling 2." in register
     assert handoff.deliver_register(bash(session)) is None

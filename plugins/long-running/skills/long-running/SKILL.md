@@ -1985,7 +1985,7 @@ as `- <id> superseded by <successor id>`, or
 `- <id> superseded by nothing: the sources dropped it ...`.
 
 The register is one doc labeled `standing-rules:<slug>` and a file at
-`<plan-stem>-progress/standing-rules.md`. Generation edits the doc in place only when
+`<plan-stem>-standing-rules.md` beside the plan. Generation edits the doc in place only when
 its bytes change and supersedes any extra register docs. Its body starts with
 `## Standing owner rules` and is copied byte for byte as the first section of
 `<slug>: progress <UTC> (generated)`, under `progress:<slug>`. Change a ruling with

@@ -52,7 +52,7 @@ GENERATED_STUB = json.dumps(
         "id": "d" * 40,
         "file": "/p/brook-progress/x-generated.md",
         "register": "e" * 40,
-        "register_file": "/p/brook-progress/standing-rules.md",
+        "register_file": "/p/brook-standing-rules.md",
         "digest": "Compacted long-running drive `brook`.",
     }
 )

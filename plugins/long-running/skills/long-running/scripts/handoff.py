@@ -10,7 +10,7 @@ STDLIB ONLY. ``generate`` reads ``scope:durable`` answers labelled with the prog
 ``progress:<program>``, plus durable owner answers created in the drive's root sessions.
 It quotes each answer in full, then adds live ``(standing)`` inbox rules and retired rules.
 This register is a doc labelled ``standing-rules:<program>`` and a file at
-``<plan-stem>-progress/standing-rules.md``, copied verbatim as the first progress section.
+``<plan-stem>-standing-rules.md`` beside the plan, copied verbatim as the first progress section.
 It also reads the ledger's open owner asks, the root's open tasks, its lanes and monitors,
 each inbox's head, cursor, and newest rulings, and the drive registry. It writes a ``(generated)`` progress
 doc under ``progress:<program>``, plus the same markdown at ``<plan-stem>-progress/<UTC>-generated.md``.
@@ -71,7 +71,7 @@ PROVENANCE = re.compile(r"^_From (.+?)(?:, carried forward)?\._\n\n")
 CLOSED_ASKS = (ledger.ASK_DROPPED, ledger.ASK_ANSWERED, ledger.ASK_LIVE)
 LANE_TYPES = ("subagent", "teammate", "workflow", "cloud session")
 OWNER_TAGS = frozenset({"from:owner", "source:askuserquestion", "owner-ruling", "owner-rule", "owner"})
-REGISTER_FILE = "standing-rules.md"
+REGISTER_SUFFIX = "-standing-rules.md"
 
 
 @dataclass
@@ -343,7 +343,7 @@ def progress_file(plan: Path, stamp: str) -> Path:
 
 
 def register_file(plan: Path) -> Path:
-    return progress_folder(plan) / REGISTER_FILE
+    return plan.with_name(f"{plan.stem}{REGISTER_SUFFIX}")
 
 
 def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str | None]:
