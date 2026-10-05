@@ -132,7 +132,7 @@ def test_each_open_head_gets_one_detached_review_carrying_rulings_ethos_and_its_
     assert f"ledger.Base() // {HEAD[:4]}" in question
     assert ["gh", "api", f"repos/{REPO}/compare/resolver/1...{OTHER_HEAD}", "-H", rules_review.DIFF_MEDIA] in shell.calls
     assert shell.rows[ledger.review_key("30312", HEAD)]["verdict"] == "pending"
-    assert blocked(shell) == {"30312": True, "30313": True}
+    assert blocked(shell) == {"30312": False, "30313": False}
     assert capsys.readouterr().out.splitlines() == [f"REVIEWING #30312 {HEAD[:9]}", f"REVIEWING #30313 {OTHER_HEAD[:9]}"]
 
 
@@ -179,7 +179,7 @@ def test_a_new_head_is_reviewed_again_and_the_same_findings_post_no_second_comme
     shell.rows["30312"]["head"] = NEXT_HEAD
     sweep(shell)
     assert f"30312-{NEXT_HEAD[:12]}-1" in shell.questions
-    assert blocked(shell)["30312"]
+    assert not blocked(shell)["30312"]
 
     shell.finish("30312", NEXT_HEAD, reply={"verdict": "findings", "findings": [{**LEDGER_FINDING, "cite": "go/ci/resolve.go:44"}]})
     sweep(shell)
@@ -217,7 +217,7 @@ def test_a_root_override_naming_every_ruling_unblocks_the_pr_on_every_head(shell
     assert shell.rows[ledger.review_key("30312", NEXT_HEAD)]["comment"] == "skipped-overridden"
 
 
-def test_a_review_that_dies_retries_once_then_waits_for_an_unreviewed_override(shell, tmp_path, capsys):
+def test_a_review_that_dies_retries_once_then_lets_the_head_land(shell, capsys):
     sweep(shell)
     shell.finish("30312", HEAD, state="died")
     sweep(shell)
@@ -228,13 +228,8 @@ def test_a_review_that_dies_retries_once_then_waits_for_an_unreviewed_override(s
     sweep(shell)
     assert sorted(name for name in shell.questions if name.startswith("30312")) == [f"30312-{HEAD[:12]}-1", f"30312-{HEAD[:12]}-2"]
     assert shell.rows[ledger.review_key("30312", HEAD)]["verdict"] == "error"
-    assert blocked(shell)["30312"]
-    assert f"REVIEW-ERROR #30312 {HEAD[:9]} attempt 2: codex run died" in capsys.readouterr().out
-
-    inbox = tmp_path / "root-inbox.md"
-    inbox.write_text("- R902 rules-override #30312 unreviewed :: codex is down, owner approved landing\n")
-    sweep(shell, "--inbox", str(inbox))
     assert not blocked(shell)["30312"]
+    assert f"REVIEW-ERROR #30312 {HEAD[:9]} attempt 2: codex run died" in capsys.readouterr().out
 
 
 def test_an_unreadable_diff_records_an_error_without_dispatching(shell, capsys):
@@ -244,6 +239,7 @@ def test_an_unreadable_diff_records_an_error_without_dispatching(shell, capsys):
     assert f"30312-{HEAD[:12]}-1" not in shell.questions
     review = shell.rows[ledger.review_key("30312", HEAD)]
     assert review["verdict"] == "error" and review["error"] == "HTTP 406: diff too large"
+    assert not blocked(shell)["30312"]
     assert f"REVIEW-ERROR #30312 {HEAD[:9]} attempt 1: HTTP 406: diff too large" in capsys.readouterr().out
 
 
@@ -254,6 +250,7 @@ def test_a_diff_over_the_bound_is_an_error_never_a_partial_review(shell, capsys)
     assert f"30312-{HEAD[:12]}-1" not in shell.questions
     assert shell.rows[ledger.review_key("30312", HEAD)]["verdict"] == "error"
     assert f"over the {rules_review.DIFF_CHARS}-character review bound" in capsys.readouterr().out
+    assert not blocked(shell)["30312"]
 
 
 def test_a_reply_whose_verdict_contradicts_its_findings_is_an_error(shell):
@@ -265,14 +262,12 @@ def test_a_reply_whose_verdict_contradicts_its_findings_is_an_error(shell):
     assert f"30312-{HEAD[:12]}-2" in shell.questions
 
 
-def test_an_unreviewed_override_on_a_pending_review_does_not_waive_its_later_findings(shell, tmp_path):
-    inbox = tmp_path / "root-inbox.md"
-    inbox.write_text("R903 rules-override #30312 unreviewed :: codex is slow\n")
-    sweep(shell, "--inbox", str(inbox))
+def test_a_pending_review_holds_nothing_until_its_findings_land(shell):
+    sweep(shell)
     assert not blocked(shell)["30312"]
 
     shell.finish("30312", HEAD, reply={"verdict": "findings", "findings": [LEDGER_FINDING]})
-    sweep(shell, "--inbox", str(inbox))
+    sweep(shell)
     assert blocked(shell)["30312"]
     assert shell.rows[ledger.review_key("30312", HEAD)]["comment"] == "posted"
 

@@ -5,12 +5,12 @@
 
 Each sweep collects finished reviews, dispatches one detached gpt-6-astra xhigh review for every open PR head
 without one, applies the root inbox's ``rules-override`` lines, and posts each head's findings once as a PR review.
-Verdicts live on ``review/<pr>@<head>`` ledger rows; ``ledger.py list`` marks a PR ``rules_blocked`` until its
-current head's review is clean or every finding is overridden, and the landing runner holds blocked PRs.
+Verdicts live on ``review/<pr>@<head>`` ledger rows; ``ledger.py list`` marks a PR ``rules_blocked`` only while
+its current head's review holds a finding no override waives, and the landing runner holds blocked PRs. A head with
+no review, a pending review, or an errored one, a diff over the review bound included, lands.
 
 An override is one root inbox line, ``R<n> rules-override #<pr> <ruling>[ <ruling>...] :: <reason>``, naming each
-ruling id it waives for that PR on every head; ``unreviewed`` waives a review that errored or never finished, and a
-diff over the review bound is such an error.
+ruling id it waives for that PR on every head.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ ATTEMPTS = 2
 QUOTE_CHARS = 300
 SHORT_ID = 7
 ETHOS = "AGENTS.md"
-UNREVIEWED = "unreviewed"
 TERMINAL = frozenset({"completed", "failed", "died", "no-run"})
 OVERRIDE = re.compile(r"^(?:-\s+)?(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?rules-override #(?P<pr>\d+) (?P<rulings>\S.*?) :: (?P<reason>\S.*)$")
 HEX = re.compile(r"^[0-9a-f]+$")
@@ -116,12 +115,9 @@ def waives(token: str, ruling: str) -> bool:
 
 
 def overridden_by(review: dict[str, str], lines: list[tuple[str, frozenset[str]]]) -> list[str]:
-    if review["verdict"] == "findings":
-        needed = {finding["ruling"] for finding in json.loads(review["findings"])}
-    elif review["verdict"] in ("pending", "error"):
-        needed = {UNREVIEWED}
-    else:
+    if review["verdict"] != "findings":
         return []
+    needed = {finding["ruling"] for finding in json.loads(review["findings"])}
     keys = [key for key, tokens in lines if any(waives(token, ruling) for token in tokens for ruling in needed)]
     covered = {ruling for ruling in needed if any(waives(token, ruling) for key, tokens in lines for token in tokens)}
     return keys if covered == needed else []

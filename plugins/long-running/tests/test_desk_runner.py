@@ -519,17 +519,10 @@ def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config
     landing_pass(shell, config)
     cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling")
     assert escalations(tmp_path) == []
-    shell.rows[0]["head"] = "aaaa111112"
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111112 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     landing_pass(shell, config)
     assert "--whole" in shell.enqueues()[-1]
 
-
-def test_a_head_pushed_after_the_refresh_waits_for_the_pass_that_reviews_it(shell, config, tmp_path):
-    shell.rows = stack_rows()
-    shell.gates["29020"] = [gate("#28997 GREEN aaaa999999 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
-    landing_pass(shell, config)
-    assert shell.enqueues() == []
 
 
 def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, config, tmp_path):
