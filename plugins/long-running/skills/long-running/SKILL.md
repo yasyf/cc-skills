@@ -2156,37 +2156,50 @@ ccn doc add "<drive>: progress <UTC>" --label progress:<slug> --when "Resuming o
 Use the nudge's UTC timestamp (`YYYY-MM-DDTHHMMZ`) and pass the body on stdin.
 The progress doc is living guidance with a `when` trigger and supersede edges.
 Never rewrite the plan; it remains the stable mandate and decisions document.
-Use these sections:
+
+Write each pre-compact dump as one `##` section appended at the end of the narrative.
+Put its parts and later addenda under it as `###` headings. Keep the current dump
+self-contained; earlier dumps fold when the handoff is generated.
+Use this shape:
 
 ```md
-# <drive>: progress <UTC>
+## <UTC> pre-compact dump
 
-## How the drive runs
+### How the drive runs
 <root role, lane contracts, desks, ledger and rulings-log ids>
 
-## Owner asks and state
+### Owner asks and state
 <every ask, its current state, evidence, and next gate>
 
-## Landed
+### Owner rulings (verbatim, binding)
+<rulings that must survive later dumps, with answer ids>
+
+### Landed
 <completed work and evidence>
 
-## Waiting on the owner
+### Waiting on the owner
 <unresolved decisions and the options already presented>
 
-## Root's next actions
+### Root's next actions
 <ordered actions, dependencies, and owed follow-ups>
 ```
+
+To preserve binding text, put `binding` or `byte-for-byte` in its heading, or name
+`rulings` and `verbatim` together. Mark a `###` part, or a standalone `##` section
+with no `###` parts. A dump heading does not make its parts binding; mark each
+binding part.
 
 Only when the repo lacks cc-notes or the `ccn` binary is unavailable, write the
 narrative as a new file beside the plan at `<plan-stem>-progress/<UTC>.md`. Otherwise,
 use a progress doc; a note, a log, or a loose file does not replace it.
 
 **Generated handoff.** The hook writes the handoff with `scripts/handoff.py`, through
-the `bin/handoff.py` wrapper. The script uses only the standard library and has two
+the `bin/handoff.py` wrapper. The script uses only the standard library and has three
 verbs:
 
 ```text
 handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger ID] [--session FILE|-] [--narrative-doc ID | --narrative-file PATH] [--generated-doc ID] [--fresh-since ISO] [--strict] [--folder] [--repo PATH]
+handoff.py fold (--doc ID | --file PATH) [--repo PATH]
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
@@ -2201,15 +2214,20 @@ The owner's 30-rule cap keeps the current release-v3 draft, doc `0cf17c9`, at ab
 It never builds, edits, or supersedes a register doc or writes a register file.
 
 The first progress section is `## Standing owner rules`.
-A pointer names the register doc before its body, quoted verbatim with `  >` on each
-line. With no register doc, the section says so. Every live `(standing)` inbox rule
-follows, with its inbox filename. Each inbox rule missing since the previous handoff
-appears last as `- <id> superseded by <successor id>` or
+It carries one pointer line:
+
+```text
+Register `ccn doc show <id7>`: N owner-approved rules, delivered verbatim after every compaction.
+```
+
+With no register doc, the section says so. Every live `(standing)` inbox rule
+follows, clipped to 240 characters, with its inbox filename. Each inbox rule missing
+since the previous handoff appears last as `- <id> superseded by <successor id>` or
 `- <id> superseded by nothing: the sources dropped it ...`.
 The handoff carries no separate list of durable answer titles.
 
-The lint requires the whole register quoted in order; quoting only its first line
-fails.
+The lint requires this pointer for the current register. A missing or stale pointer
+fails with `does not name register`.
 
 The plugin ships a `bin/rulings.py` launcher.
 
@@ -2262,8 +2280,15 @@ root's open tasks, lanes and monitors from the background tasks at the root's la
 `Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
 root sessions.
 
-For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head id,
-its `<file>.cursor` value, and its last five ruling lines. Sections run in this order:
+The open task list shows at most ten, with `in_progress` first and subjects clipped
+to 120 characters. A final ``- N more in `TaskList` `` line counts the rest.
+Lanes and monitors share a limit of ten entries, monitors first, then newest lanes,
+with descriptions clipped to 120 characters. A final `- N more lanes` line counts
+the rest.
+
+For each `~/.claude/scratch/<slug>/inbox/*.md` file, the record carries its head id
+and its `<file>.cursor` value as `- <file>: head <id>, cursor <id>`. It carries no
+ruling lines in this section. Sections run in this order:
 `Standing owner rules`, `Read first`, `Open owner asks`, `Open tasks`, `Lanes and
 monitors`, `Inboxes`, `Lint findings`, `Root narrative`.
 The `Inboxes` section starts with
@@ -2280,18 +2305,45 @@ exists. Both ids are null in folder mode.
 
 At the next main-session `Stop`, the hook runs `generate --strict --narrative-doc
 <the root's new doc>`, or `--narrative-file` for the file fallback. The root's doc
-becomes the last section, `## Root narrative`, under `_From doc <id>._`. A generated
-doc is never taken as the root's narrative. With no fresh narrative, the newest
-progress record's narrative carries forward with one provenance line.
+becomes the last section, `## Root narrative`, under `_From doc <id>._`, after folding.
+A generated doc is never taken as the root's narrative. With no fresh narrative, the newest
+progress record's narrative is folded and carried forward with one provenance line.
+
+The last non-binding `##` dump stays whole, including its `###` addenda.
+Earlier binding sections move under `## Carried binding sections` once, byte for
+byte, with identical copies deduplicated. A standalone binding `##` heading becomes
+`###` there.
+
+The remaining text from each earlier dump becomes one dated line under
+`## Folded narrative`: its label and each part's opening sentence, at most 240
+characters total. One pointer line names the full text at
+`ccn doc history <id7> --json --full`, or the progress folder in file mode.
+A `#` title before the first section is dropped; other leading text folds as an
+earlier dump. Folding twice changes nothing.
+
+`fold` applies the same folding to an existing doc or file in place and prints
+`folded <id>: <before> -> <after> bytes`, with the file path in place of the id in
+file mode.
+
+Both `generate` and `fold` refuse a resulting record over 40,000 bytes. They write
+nothing, print one line naming the largest `##` section and its largest `###` part
+when present, with byte counts, and exit 5. The `Stop` path blocks with
+"The drive's progress record is over its size cap. Trim the section it names, then
+stop again:" followed by that line. `PreCompact` puts the failure first in the
+compaction instructions.
+
+*Prevents the release-v3 progress doc 91b91943 reaching 167,069 bytes from repeated
+root dumps, a duplicated register, and unbounded task and lane lists (2026-10-05).
+Folding that record reduced it to 39,466 bytes.*
 
 The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
 prompts the root to record standing rules. Durable answers feed brief matching.
 The handoff reads the approved register and live `(standing)` inbox lines.
 
-**Lint.** Generation checks that `## Standing owner rules` exists and quotes the
-current register doc. It checks that inbox ids such as `R123` from the previous
-handoff are carried or superseded. Durable answer titles are not required.
-The owner-gate check skips register lines prefixed with `  >`, inbox quotes, tasks,
+**Lint.** Generation checks that `## Standing owner rules` exists and carries the
+pointer for the current register doc. It checks that inbox ids such as `R123` from
+the previous handoff are carried or superseded. Durable answer titles are not required.
+The owner-gate check skips quoted lines prefixed with `  >`, inbox quotes, tasks,
 and asks. A narrative line or live `(standing)` inbox rule that gates on `owner's word`,
 `owner approval`, `owner sign-off`, `owner GO`, or `reserved for the owner` needs a live
 answer id; a missing citation is a finding. Each finding names its source: the inbox file and
@@ -2309,7 +2361,7 @@ or file, plus the plan when `--plan` is supplied, and exits 3 on any finding.
 wrote a hand-written progress doc for the coming compaction, `generate` augments that
 doc in place: it is the `--narrative-doc`, or the newest hand-written doc this session
 created in the last 30 minutes or since the previous compaction (`--fresh-since`). Its
-body becomes the generated sections with its own narrative under `_From doc <id>._`.
+body becomes the generated sections with its folded narrative under `_From doc <id>._`.
 Otherwise `generate` edits the session's generated doc, passed as `--generated-doc`,
 in place while it is active, or adds one. The doc it wrote supersedes every other
 active `progress:<slug>` doc. If the label still lists another, `generate` exits 4
@@ -2338,7 +2390,7 @@ by hand and blocks nothing.
 
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes. It
-reads the current register and carries the narrative forward.
+reads the current register and folds the carried narrative.
 This covers Claude Code's auto-compaction before the root writes a narrative.
 
 The instructions point to the plan and active progress doc. They ask the summary to

@@ -11,7 +11,7 @@ TICKETS = "104926a" + "0" * 33
 LIVE = {RELEASE, TICKETS}
 REGISTER = {"id": "0cf17c9" + "0" * 33, "body": "# Register\n\n1. Release as it merges, never on the owner's word (4ffc9a5).\n"}
 CARRIED = standing.section_of(REGISTER, ["- R312 deploy every landing"])
-UNQUOTED = "the standing rules section does not quote register `0cf17c9`; regenerate the handoff with `handoff.py generate`"
+UNQUOTED = "the standing rules section does not name register `0cf17c9`; regenerate the handoff with `handoff.py generate`"
 
 
 def test_a_standing_line_stays_live_until_superseded_by_id() -> None:
