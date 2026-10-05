@@ -40,7 +40,7 @@ PACE_SECONDS = 15 * 60
 PACE_LIMIT = 3
 ASK_GAP_SECONDS = 30 * 60
 ACK_WINDOW_SECONDS = 10 * 60
-ESCALATE_GAP_SECONDS = 15 * 60
+ROOT_ACTION_GAP_SECONDS = 2 * 60 * 60
 TASK_LABEL_CHARS = 50
 REFLUSH_GROWTH_PERCENT = 10
 FLUSHED = re.compile(r"flushed\b", re.IGNORECASE)
@@ -56,7 +56,7 @@ class RotationState(WorkflowState):
     timeline: list[dict] = []
     asked_events: dict[str, int] = {}
     frozen: dict[str, int] = {}
-    escalated: dict[str, tuple[float, int]] = {}
+    root_actions: dict[str, float] = {}
 
 
 @dataclass(frozen=True)
@@ -157,13 +157,6 @@ def record_escalation(state: RotationState, lane: Lane, now: float) -> None:
         record(state, lane.name, lane.agent_id, "escalate", now, last=iso(now), count=1, tokens=lane.turn.tokens)
 
 
-def escalation_due(lane: Lane, state: RotationState, now: float) -> bool:
-    if (last := state.escalated.get(lane.agent_id)) is None:
-        return True
-    at, asks = last
-    return asks != len(state.asks[lane.agent_id]) or now - at >= ESCALATE_GAP_SECONDS
-
-
 def unread(lane: Lane, state: RotationState, now: float) -> bool:
     return (
         lane.agent_id in state.asked_events
@@ -181,7 +174,6 @@ def awake(lanes: list[Lane], state: RotationState) -> list[Lane]:
 
 def forget_ask(state: RotationState, agent_id: str) -> int | None:
     del state.asks[agent_id]
-    state.escalated.pop(agent_id, None)
     return state.asked_events.pop(agent_id, None)
 
 
@@ -212,6 +204,13 @@ def escalation(lane: Lane) -> str:
         f"Rotate it by hand: spawn a handoff subagent from `{HANDOFF_BRIEF.name}`, spawn its successor from the lane "
         f"brief plus that handoff, then `SendMessage` `{lane.name}` a stand-down."
     )
+
+
+def root_action_due(state: RotationState, lane: Lane, now: float) -> bool:
+    if now - state.root_actions.get(lane.name, 0.0) < ROOT_ACTION_GAP_SECONDS:
+        return False
+    state.root_actions[lane.name] = now
+    return True
 
 
 def queue_root_action(evt: BaseHookEvent, lane: Lane, text: str) -> None:
@@ -301,6 +300,10 @@ def ask_lanes_to_rotate(evt: BaseHookEvent) -> HookResult | None:
         repeat = [lane for lane in lanes if lane.agent_id in state.asks and due(lane, state, root, now)]
     for lane in [*fresh[: max(PACE_LIMIT - recent, 0)], *repeat]:
         if lane.team is None:
+            with RotationState.mutate(evt) as state:
+                allowed = root_action_due(state, lane, now)
+            if not allowed:
+                continue
             queue_root_action(evt, lane, f"`SendMessage` it now, since it has no teammate inbox: `{ROTATE}`")
             asked_events = None
         elif session_tree.append_inbox(session_tree.inbox_path(evt, lane.team, lane.name), rotate_message()):
@@ -326,8 +329,7 @@ def escalate_unrotated_lanes(evt: BaseHookEvent) -> HookResult | None:
         lanes = awake(live_lanes(evt), state)
         done = finished(evt, lanes)
         for lane in lanes:
-            if lane.agent_id not in done and overdue(lane, state, root, now) and escalation_due(lane, state, now):
+            if lane.agent_id not in done and overdue(lane, state, root, now) and root_action_due(state, lane, now):
                 queue_root_action(evt, lane, escalation(lane))
                 record_escalation(state, lane, now)
-                state.escalated[lane.agent_id] = (now, len(state.asks[lane.agent_id]))
     return None
