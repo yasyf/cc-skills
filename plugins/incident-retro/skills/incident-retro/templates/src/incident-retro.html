@@ -254,6 +254,7 @@ details.ir-full{margin:var(--s-6) 0 var(--s-2);border-top:1px solid var(--line)}
 .ir-unknowns .q{font-weight:500;margin:0 0 var(--s-2)}
 .ir-unknowns .why{color:var(--ink2);font-size:var(--t-base);margin:0}
 .ir-prev{margin:var(--s-5) 0 0}
+.ir-rem{margin:0 0 var(--s-4);padding-left:var(--s-5)}
 .ir-prev>h3{margin:0 0 var(--s-2)}
 .ir-options{margin:var(--s-3) 0 0;padding:0;list-style:none}
 .ir-options .hint{color:var(--ink2);font-size:var(--t-base);font-weight:400}
@@ -644,6 +645,7 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
   <a href="#lessons">Lessons</a>
   <a href="#recognize">Recognizing it again</a>
   <a href="#actions">Action items</a>
+  <a href="#remediation">Remediation</a>
   <a href="#prevention">Prevention options</a>
   <a href="#evidence">Evidence</a>
   <a href="#unknowns">Still unknown</a>
@@ -782,6 +784,13 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
   <div id="actionsHost"></div>
 </section>
 
+<section id="remediation">
+  <h2>Remediation</h2>
+  <p class="sub" data-sub="remediation"></p>
+  <p class="takeaway" data-take="remediation" hidden></p>
+  <div id="remediationHost"></div>
+</section>
+
 <section id="prevention">
   <h2>Prevention options</h2>
   <p class="sub" data-sub="prevention"></p>
@@ -901,6 +910,9 @@ const DECISIONS=Array.isArray(R.decisions)?R.decisions:[];
 const HYPOTHESES=Array.isArray(R.hypotheses)?R.hypotheses:[];
 const RECOGNIZE=Array.isArray(R.recognize)?R.recognize:[];
 const PREVENTION=Array.isArray(R.prevention)?R.prevention:[];
+const REMEDIATION=R.remediation&&typeof R.remediation==="object"?R.remediation:{};
+const PICKS=()=>PREVENTION.flatMap(q=>(q.options||[]).filter(o=>o.picked===true).map(o=>[q,o]));
+const linkChips=e=>(e.links||[]).map(refChipHtml).filter(Boolean).join("");
 const OPTION_FACTS=[["buys","Buys"],["costs","Costs"],["loses","Loses"],["first","Must land first"],["alternatives","Alternatives"]];
 const UNKNOWNS=Array.isArray(R.unknowns)?R.unknowns:[];
 const GLOSSARY=Array.isArray(R.glossary)?R.glossary:[];
@@ -1742,10 +1754,19 @@ function preventionOption(o){
  const facts=OPTION_FACTS.filter(([k])=>o[k]).map(([k,l])=>`<tr><th>${l}</th><td>${inline(o[k])}</td></tr>`).join("");
  const list=(k,l)=>(o[k]||[]).length?`<p class="lbl">${l}</p><ul>${o[k].map(x=>`<li>${inline(x.text||"")}</li>`).join("")}</ul>`:"";
  return `<li id="${esc(o.id||"")}"><details class="disc"><summary><span class="dis" aria-hidden="true">›</span>`+
-  `<span class="h">${esc(o.t||"")}</span>${o.recommended?' <span class="st st-open">Recommended</span>':""}`+
+  `<span class="h">${esc(o.t||"")}</span>${o.recommended?' <span class="st st-open">Recommended</span>':""}${o.picked?` <span class="st st-ok">Picked</span> <span class="hint">${esc(o.owner||"")}</span>`:""}`+
   `${o.hint?` <span class="hint">${inline(o.hint)}</span>`:""}</summary>`+
   `${o.text?`<p>${inline(o.text)}</p>`:""}${facts?`<table class="ir-optfacts"><tbody>${facts}</tbody></table>`:""}`+
-  `${list("pros","For")}${list("cons","Against")}</details></li>`;
+  `${list("pros","For")}${list("cons","Against")}${(o.links||[]).length?`<p>${linkChips(o)}</p>`:""}</details></li>`;
+}
+function renderRemediation(){
+ const done=REMEDIATION.done||[],lanes=REMEDIATION.lanes||[],picks=PICKS();
+ const block=(label,items)=>items.length?`<p class="lbl">${label}</p><ul class="ir-rem">${items.join("")}</ul>`:"";
+ $("#remediationHost").innerHTML=
+  block("What was done",done.map(e=>`<li>${inline(e.text||"")} ${linkChips(e)}</li>`))+
+  block("Prevention picks",picks.map(([q,o])=>`<li><a href="#${esc(q.id||"")}">${esc(q.t||"")}</a>: <strong>${esc(o.t||"")}</strong> <span class="hint">${esc(o.owner||"")}</span> ${linkChips(o)}</li>`))+
+  block("Follow-up lanes",lanes.map(e=>`<li><code>${esc(e.name||"")}</code> ${inline(e.text||"")} ${linkChips(e)}</li>`));
+ termify($("#remediation"));
 }
 function renderPrevention(){
  const host=$("#preventionHost");
@@ -2245,6 +2266,7 @@ function reconcileSections(){
   actions:!ACTIONS.length,
   lessons:!$("#lessonsHost").children.length,
   recognize:!RECOGNIZE.length,
+  remediation:!((REMEDIATION.done||[]).length||(REMEDIATION.lanes||[]).length||PICKS().length),
   prevention:!PREVENTION.length,
   evidence:!hasEvidence(),
   unknowns:!UNKNOWNS.length,
@@ -2271,6 +2293,7 @@ function renderAll({evidence=true}={}){
  renderHypotheses();
  renderLessons();
  renderRecognize();
+ renderRemediation();
  renderPrevention();
  setupActions();
  if(evidence)renderEvidence();
@@ -3422,7 +3445,7 @@ if(typeof META.rev==="number"&&META.rev>=1){
 const LIVE_POLL_MS=30e3;
 const LIVE_LISTS={windows:WINDOWS,timeline:TIMELINE,causes:CAUSES,actions:ACTIONS,decisions:DECISIONS,
  hypotheses:HYPOTHESES,recognize:RECOGNIZE,prevention:PREVENTION,unknowns:UNKNOWNS,glossary:GLOSSARY,notes:NOTES,footnotes:FOOTNOTES};
-const LIVE_MAPS={meta:META,summary:SUMMARY,timestamps:TS,impact:IMPACT,resolution:RESOLUTION,detection:DETECTION,lessons:LESSONS,evidence:EVIDENCE};
+const LIVE_MAPS={meta:META,summary:SUMMARY,timestamps:TS,impact:IMPACT,resolution:RESOLUTION,detection:DETECTION,lessons:LESSONS,evidence:EVIDENCE,remediation:REMEDIATION};
 async function adoptLive(next){
  Object.entries(LIVE_LISTS).forEach(([k,list])=>{
   list.splice(0,list.length,...(Array.isArray(next[k])?next[k]:[]));
@@ -3569,6 +3592,13 @@ function buildDocMd(opt){
   push("");
  }
  if(ACTIONS.length){push("## Action items\n");push(actionsMd()+"\n")}
+ if((REMEDIATION.done||[]).length||(REMEDIATION.lanes||[]).length||PICKS().length){
+  push("## Remediation\n");
+  const urls=e=>(e.links||[]).map(l=>typeof l==="string"?l:l.url).join(" ");
+  if((REMEDIATION.done||[]).length){push("### What was done\n");REMEDIATION.done.forEach(e=>push(`- ${plain(e.text||"")} ${urls(e)}`.trim()));push("")}
+  if(PICKS().length){push("### Prevention picks\n");PICKS().forEach(([q,o])=>push(`- ${plain(q.t||"")}: **${plain(o.t||"")}** (${o.owner||""}) ${urls(o)}`.trim()));push("")}
+  if((REMEDIATION.lanes||[]).length){push("### Follow-up lanes\n");REMEDIATION.lanes.forEach(e=>push(`- \`${e.name||""}\`: ${plain(e.text||"")} ${urls(e)}`.trim()));push("")}
+ }
  if(PREVENTION.length){
   push("## Prevention options\n");
   PREVENTION.forEach(q=>{
@@ -3696,7 +3726,7 @@ function cmtDecorate(){
 }
 <!-- @include html/comments.js -->
 
-const AI_SECTION_NAMES={overview:"Overview",timeline:"Timeline",causes:"Causes",impact:"Impact",resolution:"Detection and response",lessons:"Lessons",recognize:"How to recognize this next time",actions:"Action items",prevention:"Prevention options",evidence:"Evidence",unknowns:"Still unknown",glossary:"Glossary",notes:"Notes"};
+const AI_SECTION_NAMES={overview:"Overview",timeline:"Timeline",causes:"Causes",impact:"Impact",resolution:"Detection and response",lessons:"Lessons",recognize:"How to recognize this next time",actions:"Action items",remediation:"Remediation",prevention:"Prevention options",evidence:"Evidence",unknowns:"Still unknown",glossary:"Glossary",notes:"Notes"};
 const AI_SUGGEST={
  overview:["What happened, in one paragraph?","How long were customers affected?"],
  timeline:["When did we first know, and how?","What was the gap between detection and mitigation?"],

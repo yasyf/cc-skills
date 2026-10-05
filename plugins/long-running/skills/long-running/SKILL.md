@@ -424,8 +424,15 @@ Forge-AI/design-docs checkout: `live init`, then `live sync` at every state chan
 and at least every 10 minutes. The shell PR merges first; the page at
 `https://docs.poetic.design/incident-retros/<date>-<slug>/` polls
 `live/<date>-<slug>`. The lane hands its link to comms for `#outage` and the
-account channels. At resolution, it runs `live finalize` and prepares the draft
-retro on `retro/<date>-<slug>`.
+account channels.
+
+At resolution, it runs `live finalize`, completes the retro
+with Remediation and the owner's prevention picks on `retro/<date>-<slug>`,
+and runs `retro.py publish <dir>`. It waits through merge and the rendered-URL
+check, resuming the printed `AWAIT:` command when needed. It hands comms the
+URL from the skill's final `RENDERED:` line. The incident's step 4 report and
+the retro-link reply in Slack use that URL, never a PR URL. Every such draft
+passes `retro.py comms-check <draft-file|-> --url <rendered-url>` before posting.
 
 Comms uses the ai-oncall channel and FDE mapping from `d12f767`; on a miss,
 search Slack channels by account name and report which path found them. Follow

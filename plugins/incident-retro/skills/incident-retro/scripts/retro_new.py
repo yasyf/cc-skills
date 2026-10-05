@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
-"""Start a retro from the records a response already wrote, publish it, and present its prevention options.
+"""Build a retro from response records, record the owner's picks, and publish the rendered page.
 
-  retro.py new --incident SRC [--incident SRC]… --docs <checkout> --title T [--date D] [--team C=a,b]… [--pr]
-  retro.py publish <dir> [--ready]
+  retro.py new --incident SRC [--incident SRC]… --docs <checkout> --title T [--date D] [--team C=a,b]…
   retro.py board <dir> [--out FILE]
+  retro.py publish <dir> [--seconds N]
+  retro.py publish <dir> --await <pr-url> [--seconds N]
+  retro.py comms-check <draft-file|-> --url <rendered-url>
 
-A source is an incident directory, `cci:<regex>`, or a cc-notes id. A directory holding the incident
-skill's state.json is rebuilt exactly as `live sync` would; every Markdown file in a directory
-contributes its time-led bullets (`- 9:18 PM: …`). `cci:` reads the drive's coordination records,
-and a cc-notes id reads that note, answer, investigation or log. Each record becomes one timeline
-row with its links lifted into refs, raw customer names replaced through the --team aliases, and
-times stored with the display zone's offset. `--pr` commits the scaffold and opens a draft pull
-request at once, so the link exists before any prose is written.
+`new` reads an incident directory, `cci:<regex>`, or a cc-notes id. It rebuilds state.json as live
+sync does and imports time-led Markdown bullets, coordination records, or the named note, answer,
+investigation, or log. Timeline rows lift links into refs, replace customer names through --team
+aliases, and store times with the display zone's offset.
 
-`publish` refreshes both index cards from retro.json, commits the retro, pushes, and writes the pull
-request body from the summary panels. With `--ready` it first runs the strict check, the render
-check and the prose lint once, refuses on an error, and marks the pull request ready.
+`board` turns prevention questions into cc-present cards, with options, facts, pros, cons, and
+recommendations. Present it to the owner, record picked options, owners, PR links or named lanes,
+and fill Remediation before the prose pass and the first retro PR.
 
-`board` turns `prevention[]` into a cc-present board: one card per question, one option per answer,
-its buys, costs, loses, must-land-first and alternatives as facts and its pros and cons as detail.
-Stdlib only.
+`publish` runs check --strict, render-check, and a whole-page slop-cop count before pushing anything.
+After the gates pass, it refreshes both index cards, commits only the retro directory and the two
+index pages, pushes, and opens a ready PR or edits the existing PR and marks it ready. It writes
+the PR body from the summary panels and enables squash auto-merge. A retro PR is never draft.
+
+The wait ends when the PR merges and a successful github-pages deployment contains the merge
+commit. GitHub sign-in protects the site, so the deployment record proves the merged revision is
+served. Success exits 0 with `RENDERED: https://<CNAME>/incident-retros/<slug>/` as the last line.
+A failed check or a PR closed without merging exits 1. After --seconds (default 540), an unfinished
+wait exits 75 with an AWAIT: command; publish --await <pr-url> resumes it.
+
+Only the URL from RENDERED: goes to comms. Every retro comms draft passes comms-check before posting;
+it exits 1 for any GitHub or Graphite PR link or a missing rendered URL. A PR link is never posted.
+The draft comes from a file or stdin (-). Stdlib only.
 """
 import argparse, datetime, html, json, re, shutil, subprocess, sys, time, zoneinfo
 from pathlib import Path
@@ -48,8 +58,11 @@ CCI_FULL = 0.9
 CCI_ENVELOPE = re.compile(r"\bmsg_[0-9a-f]+\s*|\bdispatch[:=]ctx_[0-9a-f]+:?\s*|\bterm_[0-9a-f-]+|"
                           r"^R\d+\s+|\(\d{1,2}:\d{2}(?::\d{2})?\s*[AP]M(?:\s*PT)?\)\s*")
 KEY_KINDS = ("alert", "mitigation", "deploy")
-DRAFT_BODY = ("Draft retro, scaffolded from the incident's records. The prose pass is running; `publish` replaces "
-              "this body with the summary once it lands.")
+PR_LINK = re.compile(r"https?://(?:www\.)?github\.com/[^/\s]+/[^/\s]+/pull/\d+|https?://app\.graphite\.(?:dev|com)/\S*/pr/\S+")
+AWAIT_SECONDS = 540
+AWAIT_POLL = 10
+STILL_WAITING = 75
+PAGES_ENV = "github-pages"
 
 
 def run(argv, cwd=None, check=True) -> str:
@@ -223,8 +236,6 @@ def new(args) -> int:
     if retro.check(argparse.Namespace(dir=str(root), strict=False, forbidden_terms=None)):
         print("new: check found errors; fix them, then run publish", file=sys.stderr)
         return 1
-    if args.pr:
-        return publish(argparse.Namespace(dir=str(root), ready=False, retro=retro))
     return 0
 
 
@@ -262,15 +273,14 @@ def insert_card(path: Path, text: str):
     path.write_text(page[:found.start()] + text + page[found.start():])
 
 
-def pr_body(root: Path, R: dict, retro) -> str:
-    summary = root / retro.SUMMARY_PAGE
-    lines = retro.summary_markdown(summary.read_text()) if summary.exists() else []
-    if not any(line.strip() and "TODO" not in line for line in lines):
-        return DRAFT_BODY
+def rendered_url(root: Path) -> str:
     docs = root.parents[1]
-    host = (docs / CNAME).read_text().strip() if (docs / CNAME).exists() else ""
-    page = f"https://{host}/{RETRO_DIR}/{root.name}/" if host else ""
-    return "\n".join(lines + ([f"\nPage, once merged: {page}"] if page else []))
+    return f"https://{(docs / CNAME).read_text().strip()}/{RETRO_DIR}/{root.name}/"
+
+
+def pr_body(root: Path, retro) -> str:
+    lines = retro.summary_markdown((root / retro.SUMMARY_PAGE).read_text())
+    return "\n".join(lines + [f"\nRendered page, live once this merges and Pages deploys: {rendered_url(root)}"])
 
 
 def gate(root: Path, retro) -> int:
@@ -298,10 +308,12 @@ def gate(root: Path, retro) -> int:
 def publish(args) -> int:
     retro = args.retro
     root = Path(args.dir).resolve()
-    R = json.loads((root / "retro.json").read_text())
-    if args.ready and gate(root, retro):
-        print("publish: a gate failed; the pull request stays draft", file=sys.stderr)
+    if args.await_pr:
+        return await_rendered(root, args.await_pr, args.seconds)
+    if gate(root, retro):
+        print("publish: a gate failed; nothing was pushed", file=sys.stderr)
         return 1
+    R = json.loads((root / "retro.json").read_text())
     docs = Path(run(["git", "-C", str(root), "rev-parse", "--show-toplevel"]).strip())
     slug = root.name
     touched = refresh_cards(docs, slug, R)
@@ -311,16 +323,64 @@ def publish(args) -> int:
     if run(["git", "-C", str(docs), "diff", "--cached", "--name-only", "--", *paths]).strip():
         run(["git", "-C", str(docs), "commit", "-q", "-m", title, "--", *paths])
     run(["git", "-C", str(docs), "push", "-q", "-u", "origin", "HEAD"])
-    body = pr_body(root, R, retro)
+    body = pr_body(root, retro)
     url = run(["gh", "pr", "view", "--json", "url", "-q", ".url"], cwd=docs, check=False).strip()
     if url:
         run(["gh", "pr", "edit", url, "--title", title, "--body", body], cwd=docs)
+        run(["gh", "pr", "ready", url], cwd=docs, check=False)
     else:
-        url = run(["gh", "pr", "create", "--draft", "--title", title, "--body", body], cwd=docs).strip().splitlines()[-1]
-    if args.ready:
-        run(["gh", "pr", "ready", url], cwd=docs)
-    print(f"PR: {url} ({'ready' if args.ready else 'draft'})")
-    return 0
+        url = run(["gh", "pr", "create", "--title", title, "--body", body], cwd=docs).strip().splitlines()[-1]
+    run(["gh", "pr", "merge", url, "--squash", "--delete-branch", "--auto"], cwd=docs)
+    print(f"publish: {url} is ready and set to merge once its checks pass")
+    print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
+    return await_rendered(root, url, args.seconds)
+
+
+def pages_live(repo: str, sha: str) -> bool:
+    for dep in json.loads(run(["gh", "api", f"repos/{repo}/deployments?environment={PAGES_ENV}&per_page=10"])):
+        ahead = json.loads(run(["gh", "api", f"repos/{repo}/compare/{sha}...{dep['sha']}"]))["status"]
+        if ahead not in ("identical", "ahead"):
+            continue
+        states = json.loads(run(["gh", "api", f"repos/{repo}/deployments/{dep['id']}/statuses?per_page=1"]))
+        if states and states[0]["state"] == "success":
+            return True
+    return False
+
+
+def await_rendered(root: Path, url: str, seconds: float) -> int:
+    """The merged commit counts as rendered once a successful Pages deployment contains it: the site sits
+    behind GitHub sign-in, so an anonymous fetch of the page cannot tell a fresh deploy from a stale one."""
+    repo = "/".join(url.split("/")[3:5])
+    deadline = time.monotonic() + seconds
+    while True:
+        pr = json.loads(run(["gh", "pr", "view", url, "--json", "state,mergeCommit,statusCheckRollup"]))
+        failed = [c.get("name") or c.get("context") for c in pr["statusCheckRollup"]
+                  if (c.get("conclusion") or c.get("state")) in ("FAILURE", "ERROR", "CANCELLED", "TIMED_OUT")]
+        if failed:
+            print(f"publish: {url} failed {', '.join(failed)}; fix it and run publish again", file=sys.stderr)
+            return 1
+        if pr["state"] == "CLOSED":
+            print(f"publish: {url} was closed without merging", file=sys.stderr)
+            return 1
+        if pr["state"] == "MERGED" and pages_live(repo, pr["mergeCommit"]["oid"]):
+            print(f"RENDERED: {rendered_url(root)}")
+            return 0
+        if time.monotonic() >= deadline:
+            stage = "deploying to Pages" if pr["state"] == "MERGED" else "waiting on checks to merge"
+            print(f"publish: still {stage} after {seconds:.0f}s")
+            print(f"AWAIT: {Path(sys.argv[0]).resolve()} publish {root} --await {url}")
+            return STILL_WAITING
+        time.sleep(AWAIT_POLL)
+
+
+def comms_check(args) -> int:
+    text = sys.stdin.read() if args.draft == "-" else Path(args.draft).read_text()
+    problems = [f"links the pull request {m}; post the rendered page instead" for m in PR_LINK.findall(text)]
+    if args.url not in text:
+        problems.append(f"does not link the rendered retro {args.url}")
+    for p in problems:
+        print(f"comms-check: the draft {p}", file=sys.stderr)
+    return 1 if problems else 0
 
 
 def option_block(o: dict) -> dict:
@@ -385,12 +445,19 @@ def add_new_parsers(sub, retro):
     nw.add_argument("--team", action="append", metavar="CODENAME=alias,alias",
                     help="replace each alias with the codename everywhere the records are copied; repeatable")
     nw.add_argument("--since", help="cci window: a duration such as 8h, or an RFC 3339 time")
-    nw.add_argument("--pr", action="store_true", help="commit, push and open the draft pull request at once")
     nw.set_defaults(fn=new, retro=retro)
-    pb = sub.add_parser("publish", help="refresh the index cards, commit, push, and update the pull request")
+    pb = sub.add_parser("publish", help="gate, commit, open the ready pull request, merge it, and print the rendered "
+                        "page once Pages serves it")
     pb.add_argument("dir")
-    pb.add_argument("--ready", action="store_true", help="run the gates once and mark the pull request ready")
+    pb.add_argument("--await", dest="await_pr", metavar="PR_URL", help="wait on an already published retro's merge "
+                    "and Pages deployment")
+    pb.add_argument("--seconds", type=float, default=AWAIT_SECONDS, help=f"how long to wait before exiting "
+                    f"{STILL_WAITING} with a fresh AWAIT: line")
     pb.set_defaults(fn=publish, retro=retro)
+    cc = sub.add_parser("comms-check", help="refuse a comms draft that links a pull request or omits the rendered page")
+    cc.add_argument("draft", help="the draft's file, or - for stdin")
+    cc.add_argument("--url", required=True, help="the RENDERED: line publish printed")
+    cc.set_defaults(fn=comms_check, retro=retro)
     bd = sub.add_parser("board", help="write prevention[] as a cc-present board")
     bd.add_argument("dir")
     bd.add_argument("--out")
