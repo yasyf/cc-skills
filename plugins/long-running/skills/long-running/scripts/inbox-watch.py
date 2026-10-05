@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""The root's one Monitor over the drive's inbox files.
+"""The root's one Monitor over cci records, team mailboxes, and watch heartbeats.
 
-    inbox-watch.py --state FILE [--match REGEX]... [--heartbeat NAME=PATH:SECONDS]...
+    inbox-watch.py --state FILE --drive DRIVE [--kind KIND]...
+                   [--cursor CURSOR] [--reader READER] [--heartbeat NAME=PATH:SECONDS]...
                    [--session ID] [--push-after SECONDS] [--push-command CMD]
-                   [--interval SECONDS] [--timeout SECONDS] [--width N] [--burst N] FILE...
+                   [--interval SECONDS] [--timeout SECONDS] [--width N] [--burst N]
+                   [MAILBOX.json ...]
 
-STDLIB ONLY. Prints one line per appended inbox line that matches, prefixed with the
-file's name. ESCALATION, INCIDENT, URGENT, DECIDE, ALERT, and `ASK root` lines always
-match; --match adds more. Displayed inbox text is clipped to --width characters
-(default 400), ending clipped lines with an ellipsis; stored lines stay whole.
-Each file's byte offset persists in --state after every pass and survives rotation
-through the stream of archives and the live file, so a re-armed watch resumes
-exactly where the last one stopped: no gap, and no replay. A file the state has never
-seen starts at its end. A stream that shrinks below its offset prints one RESET line
-and resumes at its new end. Beyond --burst matching
-lines in one pass, the urgent lines still print and the rest fold into one count.
+Each pass runs `cci tail --drive <drive> --cursor <cursor> --reader <reader> --json`
+for incident, decide, ask, defect, and blocker, plus each --kind. The required --drive
+selects the cci drive; --cursor defaults to root-watch and --reader to root.
+Records addressed to root arrive regardless of kind with the default reader.
+The watch polls every --interval seconds (default 5). It reads no markdown inboxes.
 
-A .json FILE in an inboxes directory is a team mailbox; its saved offset counts
-entries, and an unseen mailbox starts at its current entry count. A new read=false
-entry prints one MAILBOX <n> unread line, with n counting all read=false entries.
-That line bypasses --match and is never urgent or pushed.
+Each record prints as `#<seq> <KIND> <lane>: <text> [path]`, with the path when
+attached. The whole line is clipped to --width characters (default 400), ending
+clipped lines with an ellipsis; stored records stay whole. The five default kinds
+are urgent, as is any record whose text contains ESCALATION, INCIDENT, URGENT,
+DECIDE, ALERT, or `ASK root`. Urgent records always print. Beyond --burst lines per
+pass (default 12), the remaining records fold into a count with
+`read them with cci grep --drive <drive> --since 1h`. A failed cci read prints one
+CCI-FAIL line per failure streak.
+
+Positional arguments are team mailbox .json files only. Each mailbox's saved offset
+counts entries, and an unseen mailbox starts at its current entry count. A new
+read=false entry prints one MAILBOX <n> unread line, with n counting all read=false
+entries. That line is never urgent or pushed.
 
 A --heartbeat file older than its SECONDS prints one WATCH-STALE line per stale
 streak, and one WATCH-LIVE line when it is written again.
@@ -31,8 +37,10 @@ root's last turn is the newest assistant event in its transcript; an
 AskUserQuestion with no answer yet is named in the push, since it holds every
 Monitor event and teammate message until it is answered.
 
-The watch exits after --timeout seconds (default 1740) so the Monitor re-arms it
-before its own 30-minute expiry; the offsets carry over.
+cci owns the record cursor. Mailbox offsets, heartbeat status, pending pushes, and
+failure status persist in --state after every pass. The watch exits after --timeout
+seconds (default 1740). Arm the Monitor at timeout 1800000 and re-arm it on every
+exit and after compaction with the same state file and cci cursor.
 """
 
 from __future__ import annotations
@@ -50,10 +58,12 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from inboxes import Inbox, Mailbox, clip
+from inboxes import Mailbox, clip
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 URGENT = re.compile(r"\b(?:ESCALATION|INCIDENT|URGENT|DECIDE|ALERT)\b|\bASK root\b")
+URGENT_KINDS = ("incident", "decide", "ask", "defect", "blocker")
+CCI_BUDGET = 16000
 TAIL_BYTES = 1 << 20
 
 
@@ -131,13 +141,14 @@ def turn_in(transcript: Path, size: int, span: int) -> RootTurn | None:
 class Watch:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.files = [Path(path).expanduser() for path in args.files]
-        self.extra = [re.compile(pattern) for pattern in args.match]
+        self.mailboxes = [Path(path).expanduser() for path in args.mailboxes]
+        self.kinds = [*URGENT_KINDS, *args.kind]
         self.state_path = Path(args.state).expanduser()
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
         self.state.setdefault("offsets", {})
         self.state.setdefault("stale", {})
         self.state.setdefault("pending", [])
+        self.state.setdefault("cci_failing", False)
         self.transcript = transcript_of(args.session) if args.session else None
         if args.session and not self.transcript:
             raise SystemExit(f"inbox-watch: no transcript for session {args.session} under ~/.claude/projects")
@@ -147,9 +158,6 @@ class Watch:
         temporary.write_text(json.dumps(self.state))
         os.replace(temporary, self.state_path)
 
-    def matches(self, line: str) -> bool:
-        return bool(URGENT.search(line)) or any(pattern.search(line) for pattern in self.extra)
-
     def mail(self, path: Path) -> list[tuple[bool, str]]:
         polled = Mailbox(path).poll(self.state["offsets"].get(str(path)))
         if polled is None:
@@ -158,30 +166,21 @@ class Watch:
         self.state["offsets"][str(path)] = count
         return [(False, f"MAILBOX {unread} unread")] if unread else []
 
-    def read(self, path: Path) -> list[tuple[bool, str]]:
-        key = str(path)
-        if Mailbox.holds(path):
-            return self.mail(path)
-        if not path.is_file():
-            self.state["offsets"].setdefault(key, 0)
-            return []
-        inbox = Inbox(path)
-        end = inbox.end()
-        offset = self.state["offsets"].get(key)
-        if offset is None:
-            self.state["offsets"][key] = end
-            return []
-        if end < offset:
-            self.state["offsets"][key] = end
-            return [(False, f"RESET {path.name}: shrank from {offset} to {end} bytes; resuming at its end")]
-        lines = inbox.lines(offset)
-        if lines:
-            self.state["offsets"][key] = lines[-1].end
-        return [
-            (bool(URGENT.search(line.text)), f"{path.name}: {clip(line.text, self.args.width)}")
-            for line in lines
-            if line.text.strip() and self.matches(line.text)
-        ]
+    def records(self) -> list[tuple[bool, str]]:
+        argv = ["cci", "tail", "--drive", self.args.drive, "--cursor", self.args.cursor, "--reader", self.args.reader, "--json", "--budget", str(CCI_BUDGET)]
+        result = subprocess.run([*argv, *(f"--kind={kind}" for kind in self.kinds)], capture_output=True, text=True)
+        if result.returncode != 0:
+            failing, self.state["cci_failing"] = self.state["cci_failing"], True
+            return [] if failing else [(False, f"CCI-FAIL {(result.stderr or result.stdout).strip()[:200]}")]
+        self.state["cci_failing"] = False
+        lines = []
+        for raw in result.stdout.splitlines():
+            record = json.loads(raw)
+            text = f"#{record['seq']} {record['kind'].upper()} {record['lane']}: {record['text']}"
+            if path := record.get("refs", {}).get("path"):
+                text += f" {path}"
+            lines.append((record["kind"] in URGENT_KINDS or bool(URGENT.search(record["text"])), clip(text, self.args.width)))
+        return lines
 
     def emit(self, lines: list[tuple[bool, str]], now: float) -> None:
         urgent = [line for loud, line in lines if loud]
@@ -193,7 +192,7 @@ class Watch:
         for line in rest[:room]:
             print(line, flush=True)
         if len(rest) > room:
-            print(f"+{len(rest) - room} more matching lines this pass; catch up with inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>", flush=True)
+            print(f"+{len(rest) - room} more records this pass; read them with cci grep --drive {self.args.drive} --since 1h", flush=True)
 
     def heartbeats(self, now: float) -> None:
         for beat in self.args.heartbeat:
@@ -232,7 +231,7 @@ class Watch:
 
     def tick(self) -> None:
         now = time.time()
-        lines = [line for path in self.files for line in self.read(path)]
+        lines = [*self.records(), *(line for path in self.mailboxes for line in self.mail(path))]
         self.emit(lines, now)
         self.heartbeats(now)
         self.push(now)
@@ -241,14 +240,17 @@ class Watch:
 
 def main() -> int:
     parser = argparse.ArgumentParser(usage=__doc__)
-    parser.add_argument("files", nargs="+")
+    parser.add_argument("mailboxes", nargs="*")
     parser.add_argument("--state", required=True)
-    parser.add_argument("--match", action="append", default=[])
+    parser.add_argument("--drive", required=True)
+    parser.add_argument("--cursor", default="root-watch")
+    parser.add_argument("--reader", default="root")
+    parser.add_argument("--kind", action="append", default=[])
     parser.add_argument("--heartbeat", action="append", default=[], type=Heartbeat.parse)
     parser.add_argument("--session")
     parser.add_argument("--push-after", type=float, default=300)
     parser.add_argument("--push-command")
-    parser.add_argument("--interval", type=float, default=2)
+    parser.add_argument("--interval", type=float, default=5)
     parser.add_argument("--timeout", type=float, default=1740)
     parser.add_argument("--width", type=int, default=400)
     parser.add_argument("--burst", type=int, default=12)

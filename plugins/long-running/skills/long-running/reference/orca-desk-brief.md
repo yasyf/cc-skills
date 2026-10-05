@@ -25,8 +25,8 @@ desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
 
-A relay can also be one line appended to the desk inbox, `orca.desk_inbox` in the
-config, which defaults to `orca-desk.md` beside the escalations file. The orca runner
+A relay can also be one line appended to the desk inbox. Set the required
+`orca.desk_inbox` config field to the drive's `inbox/orca-desk.md`. The orca runner
 reads each complete line appended since its saved byte offset; its first read starts
 at the file's end, so history never replays. A line is a relay only in this form, one
 relay per line, its text running to the end of the line:
@@ -40,7 +40,8 @@ does. When the dispatch's newest question to the Run has no answer on its termin
 the relay is a reply to that question, which releases a worker blocked in
 `orca orchestration ask`; otherwise, it is a plain relay that wakes the terminal.
 A line without `R<n>` takes the key `inbox@<byte offset>`. Each lane logs once to the
-escalations file as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`.
+cci drive as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`,
+addressed to root.
 A dead or missing dispatch, a key that already holds different text, and a line that
 says `orca-desk: relay` outside this form each fail visibly; nothing is relayed for
 them.
@@ -120,9 +121,21 @@ Use `--model sol --effort xhigh` for fix and evidence lanes. A worker-question
 question message id. Other relays carry guidance or a brief attachment pointer.
 Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 
-Read runner traffic only from the config's `escalations` file, under the drive's
-`inbox/`. Include it in one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
+Read runner traffic from the cci drive named by the config's `drive` field.
+Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
+key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
+`UNBOUND` and `UNOWNED` use `blocker`, any `*-FAILED` uses `defect`, and all other
+labels use `report`. Text over 400 characters is clipped, with the full line saved
+to `<orca.receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
+routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
+text limit and attachment rule.
+
+`monitor-watch.py --alert-inbox` keeps writing alert lines to `orca-desk.md`.
+The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
+`dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
+
+The root watches cci through one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
 at timeout 1800000. Re-arm on every exit and after compaction. R9 defines cursor,
 urgent-line, and owner-DM behavior.
 
@@ -141,6 +154,9 @@ acknowledgement. No other loop may run `check --run` with `--wait` or `--ack`.
 ## Config and startup
 
 Fill the paths and ids in this JSON and use the same file for both processes.
+Set `drive` to the same cci drive used by the root's Monitor. `orca.desk_inbox` is
+required.
+
 `store` is optional; omitting it uses `~/.claude/long-running/incidents`. The store
 holds one JSON container per lane, plus `desk-landing` and `desk-runner`, with an
 owner and `owner_generation`. Match `orca.run` and `orca.receipts` to the launch
@@ -155,7 +171,7 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
 ```json
 {
   "store": "/absolute/drive/actions",
-  "escalations": "/absolute/drive/inbox/runner.md",
+  "drive": "<cci drive>",
   "view": "/absolute/drive/inbox/runner-state.md",
   "alert": {"facts": "/absolute/drive/alert-facts.md"},
   "orca": {
@@ -190,7 +206,6 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
     "ledger": "<ledger id>",
     "checkout": "/absolute/monorepo/worktree",
     "holds": "/absolute/drive/holds.md",
-    "bus": "<bus id>",
     "interval_seconds": 180,
     "policy": {
       "rule": "prefix",
@@ -204,23 +219,26 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
 Start each process detached so it survives the root's compaction, in a dedicated
 Orca terminal with coordinator identity or with `nohup`. After filling the config,
 start both and arm the root's Monitor on the last command at timeout 1800000.
-Include every other root inbox in the same command and re-arm it on every exit:
+Add `--kind <k>` for other record kinds or team mailbox `.json` paths as positional
+arguments. Re-arm it on every exit and after compaction:
 
 ```sh
 DRIVE='/absolute/drive'
 CONFIG="$DRIVE/runner.json"
 ROOT_SESSION='<root session id>'
 mkdir -p "$DRIVE/inbox"
-touch "$DRIVE/inbox/runner.md"
 nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
 nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
-inbox-watch.py --state "$DRIVE/inbox/.inbox-watch.json" --match '.*' \
-  --heartbeat "slack=$DRIVE/slack/watch.beat:600" --session "$ROOT_SESSION" \
-  "$DRIVE/inbox/runner.md"
+inbox-watch.py --state "$DRIVE/inbox/.inbox-watch.json" --drive "$DRIVE" \
+  --heartbeat "slack=$DRIVE/slack/watch.beat:600" --session "$ROOT_SESSION"
 ```
 
 Restarting either process uses the same records and is idempotent. Keep one process
 per desk. Restarting a runner never means relaunching its workers.
+
+For the cci cutover, the root adds `drive` to the runner config, confirms
+`orca.desk_inbox`, and restarts both runners before re-arming its Monitor with the
+new command. The root owns that cutover.
 
 The orca desk calls Orca as the terminal it was started from, named by the
 `ORCA_TERMINAL_HANDLE` it inherits, and only the terminal bound to the Run may call

@@ -136,9 +136,10 @@ Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
 Never run `mkdir` or `cat >` to create a markdown record under `~/.claude/scratch`.
 Desk inboxes (`inbox/*.md`) stay files because readers use `inboxes.py`'s stream:
 sorted `<file>.archive/YYYY-MM-DD.md` files, oldest first, then the live file.
-Byte offsets and line counts survive rotation; `standing.py` reads the same stream,
-and `desk-runner.py` appends escalations. The
-orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
+Byte offsets and line counts survive rotation; `standing.py` reads the same stream.
+`desk-runner.py` posts escalations to root through `cci`.
+
+The orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
 their stream and state readers. The executor's actions JSON stays a file because
 it needs `flock` and generation compare-and-swap, which cc-notes lacks. Lanes never run
 `ccn sync`; the root syncs.
@@ -242,20 +243,21 @@ release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
 **R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
-and `launch` commands and watches the runner's and orca desk's markdown files
-through one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json [--match <extra regex>] [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
-at timeout 1800000, re-armed on every exit and after compaction. Its byte-offset
-cursor loses and replays nothing on re-arm; `ESCALATION`, `INCIDENT`, `URGENT`,
-`DECIDE`, `ALERT`, and `ASK root` always match, and pure Python leaves no grep
-stage for a reaper to kill. After five minutes without a root turn since an urgent
-line arrived, it pushes to the owner's DM and names any open question holding
-delivery.
+and `launch` commands and watches cci records through one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
+at timeout 1800000, re-armed on every exit and after compaction. Each pass runs
+`cci tail` with cursor `root-watch`, reader `root`, and kinds `incident`, `decide`,
+`ask`, `defect`, and `blocker`, plus each `--kind`. Records addressed to root arrive
+regardless of kind. The default poll interval is five seconds. Keep the same cci
+cursor and state file when re-arming; positional files are team mailboxes only.
 
-The root also keeps one Monitor on
-`cci watch --drive <drive> --cursor root-watch --reader root --kind incident --kind decide --kind ask --kind blocker --kind defect`
-at timeout 1800000, re-armed on every exit and after compaction. Records addressed
-to root arrive regardless of kind.
+Records print as `#<seq> <KIND> <lane>: <text> [path]`, clipped to `--width`.
+The five default kinds and text containing `ESCALATION`, `INCIDENT`, `URGENT`,
+`DECIDE`, `ALERT`, or `ASK root` are urgent and never folded by `--burst`.
+After `--push-after` seconds without a root turn since an urgent record arrived
+(default 300), the watch pushes it to the owner's DM and names any open question
+holding delivery. A failed cci read prints one `CCI-FAIL` line per streak.
+Overflow directs the root to `cci grep --drive <drive> --since 1h`.
 
 After compaction or a re-arm gap, catch up with
 `cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`.
@@ -263,13 +265,16 @@ The tail resumes from the root's cursor and ends with a resume trailer when capp
 Never tail, sed, or grep whole inbox files. A new lane orients with
 `cci digest --drive <drive>`.
 
-For `inbox-watch.py`, use `--match '.*'` for all markdown inbox traffic or a regex
-for extra lines. The root never runs the check/ack loop, relaunch sweeps, or helper
-scripts inline. No model desk sits between the root and Orca.
+Add `--kind <k>` to watch another record kind. Team mailbox files produce `MAILBOX`
+lines; `--heartbeat` checks watch-lane liveness. The root never runs the check/ack
+loop, relaunch sweeps, or helper scripts inline. No model desk sits between the root
+and Orca.
 
-Start the orca runner before the first worker; keep its escalations
-under the drive's `inbox/`. Use `policy` for a landing rule and `show` for action
-state. [The runner brief](reference/orca-desk-brief.md) gives the config and cutover.
+Start the orca runner before the first worker; set `drive` in its config for cci
+escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`.
+The runner keeps reading that Markdown command inbox. Use `policy` for a landing
+rule and `show` for action state. [The runner brief](reference/orca-desk-brief.md)
+gives the config and cutover.
 
 *Prevents G130's `AmiBake` launch being lost behind a desk handoff, R620 being sent
 to a superseded desk, and GO carrying no start deadline (2026-10-01 audit, Brief 3
@@ -999,7 +1004,7 @@ let an existing desk finish its pass and end its loop before starting it. Keep
 the old session open. The landing process runs D3, D14, and D16 where the
 checkout carries `stack-enqueue`.
 
-The orca runner rotates every `*.md` file beside its escalations file once an hour.
+The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 `inbox-rotate.py` records time and stream-end marks and archives through the newest
 mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first
 archival happens about six hours after the first mark.
@@ -1012,10 +1017,11 @@ keys. A repeated key in the same lane is one action. A relay can also be one
 `R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
 the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
 and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
-includes the escalations file in one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' --session <root session id> <inbox files...>`
-at timeout 1800000, re-armed on every exit. Add `--heartbeat <lane>=<file>:<seconds>`
-for each watch lane. R9 defines cursor, urgent-line, and owner-DM behavior.
+watches cci records in one Monitor on
+`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
+at timeout 1800000, re-armed on every exit and after compaction.
+Add `--heartbeat <lane>=<file>:<seconds>` for each watch lane.
+R9 defines cursor, urgent-line, and owner-DM behavior.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.
 
