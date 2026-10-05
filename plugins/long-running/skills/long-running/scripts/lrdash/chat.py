@@ -9,8 +9,6 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-import ledger
-
 UPSTREAM = "https://api.cerebras.ai/v1/chat/completions"
 MODEL = "gpt-oss-120b"
 KEY_ENV = "CEREBRAS_API_KEY"
@@ -21,11 +19,11 @@ HIT_LIMIT = 25
 HIT_CHARS = 320
 READ_CHARS = 12000
 CONTEXT_LINES = 12
-DIGEST_ROWS = 12
-REF = re.compile(r"^(?P<kind>inbox|ccn|pr|ledger|task|board|file):(?P<ident>.+)$")
+DIGEST_ROWS = 6
+DIGEST_CHARS = 220
+REF = re.compile(r"^(?P<kind>[a-z_]+):(?P<ident>.+)$")
 FILE_LINE = re.compile(r"^(?P<path>.+?)(?::(?P<line>\d+))?$")
 TERM = re.compile(r"\S+")
-SETTLED_ASKS = frozenset({ledger.ASK_LIVE, ledger.ASK_DROPPED, ledger.ASK_ANSWERED})
 
 
 @dataclass(frozen=True)
@@ -42,9 +40,7 @@ class Hit:
 class Sources:
     state: dict
     state_dir: Path
-    inbox: Callable[[], list]
-    tasks: Callable[[], list[dict]]
-    ledger_rows: Callable[[], dict[str, dict]]
+    rows: Callable[[], dict[str, list[dict]]]
     ccn: Callable[..., str]
 
     @property
@@ -78,16 +74,18 @@ def matches(text: str, wanted: list[str]) -> bool:
     return all(term in lowered for term in wanted)
 
 
+def records(sources: Sources) -> dict[str, dict]:
+    found: dict[str, dict] = {}
+    for rows in sources.rows().values():
+        for row in rows:
+            if (ref := row.get("cite")) and ref not in found:
+                found[ref] = row
+    return found
+
+
 def corpus(sources: Sources) -> Iterator[Hit]:
-    for line in sources.inbox():
-        yield Hit(f"inbox:{line.file}:{line.number}", line.row()["at"], line.text)
-    for task in sources.tasks():
-        yield Hit(f"task:{task['id']}", task.get("updated_at"), f"{task.get('status')} {task.get('owner') or ''} {task.get('subject')} {task.get('description') or ''}")
-    for name, fields in sources.ledger_rows().items():
-        ref = f"pr:{name}" if name.isdigit() else f"ledger:{name}"
-        yield Hit(ref, fields.get("landed_at") or fields.get("asked_at"), " ".join(f"{field}={value}" for field, value in fields.items()))
-    for board in sources.state.get("boards") or []:
-        yield Hit(f"board:{board['slug']}", None, f"{board['status']} {board['subject']} {board['slug']} {board['url']}")
+    for ref, row in records(sources).items():
+        yield Hit(ref, row.get("at"), " ".join(str(value) for value in row.values() if isinstance(value, (str, int)) and not isinstance(value, bool)))
 
 
 def search(sources: Sources, query: str) -> list[dict]:
@@ -133,58 +131,56 @@ def read(sources: Sources, ref: str) -> str:
         return path.read_text(errors="replace")[:READ_CHARS]
     if kind == "ccn":
         return sources.ccn("show", ident)[:READ_CHARS]
-    if kind in ("pr", "ledger"):
-        rows = sources.ledger_rows()
-        if ident not in rows:
-            raise LookupError(f"the ledger has no row {ident}")
-        return json.dumps({"key": ident, **rows[ident]}, indent=1)[:READ_CHARS]
-    if kind == "task":
-        task = next((task for task in sources.tasks() if str(task["id"]) == ident), None)
-        if task is None:
-            raise LookupError(f"no task {ident}")
-        return json.dumps(task, indent=1)[:READ_CHARS]
-    board = next((board for board in sources.state.get("boards") or [] if board["slug"] == ident), None)
-    if board is None:
-        raise LookupError(f"no board {ident}")
-    return json.dumps(board, indent=1)
+    if kind == "view":
+        return view(sources.state, ident)
+    row = records(sources).get(f"{kind}:{ident}")
+    if row is None:
+        raise LookupError(f"no record {kind}:{ident}; read a ref copied from the digest or a search result")
+    return json.dumps(row, indent=1, default=str)[:READ_CHARS]
 
 
-def section(state: dict, name: str | None) -> str:
-    if not name:
-        return json.dumps({key: type(value).__name__ for key, value in state.items()})
-    if name not in state:
-        raise LookupError(f"the dashboard state has no section {name}; sections: {', '.join(state)}")
-    return json.dumps(state[name], default=str)[:READ_CHARS]
+def view(state: dict, ident: str | None) -> str:
+    shown = state.get("views") or []
+    if not ident:
+        return json.dumps([{"id": item["id"], "section": item.get("section"), "title": item.get("title"), "type": item.get("type")} for item in shown])
+    found = next((item for item in shown if item["id"] == ident), None)
+    if found is None:
+        raise LookupError(f"the dashboard has no view {ident}; views: {', '.join(item['id'] for item in shown)}")
+    return json.dumps(found, default=str)[:READ_CHARS]
+
+
+def summary(item: dict) -> list[str]:
+    data = item.get("data") or {}
+    if item.get("error"):
+        return [f"error: {item['error']}"]
+    kind = item.get("type")
+    if kind == "stat":
+        return [f"{data.get('value')} of {data.get('of')}, delta {data.get('delta')}, {json.dumps(data.get('detail') or {})}, at {data.get('at')}"]
+    if kind == "progress":
+        return [f"{data.get('done')} of {data.get('total')} done, {data.get('excluded')} excluded"]
+    if kind == "kv":
+        return [f"{entry['label']}: {entry['value']}" for entry in data.get("items") or []]
+    if kind == "series":
+        return [f"{line['name']}: {[point[1] for point in line['points'][-12:]]}" for line in data.get("series") or []]
+    if kind == "matrix":
+        return [f"{len(data.get('rows') or [])} rows by {len(data.get('cols') or [])} columns; read view:{item['id']} for cells"]
+    if kind == "links":
+        return [f"{entry.get('label')} {entry.get('url')}" for entry in (data.get("items") or [])[:DIGEST_ROWS]]
+    if kind == "markdown":
+        return [str(data.get("text") or "")[: DIGEST_CHARS * 2]]
+    return [f"- {row.get('cite') or ''} {row.get('at') or ''} {str(row.get('text') or row.get('title') or '')[:DIGEST_CHARS]}".rstrip() for row in (data.get("rows") or [])[:DIGEST_ROWS]]
 
 
 def digest(state: dict) -> str:
     drive = state.get("drive") or {}
-    book = state.get("ledger") or {}
-    tasks = state.get("tasks") or {}
-    compactions = state.get("compactions") or {}
     out = [
         f"drive {drive.get('program')} ({drive.get('drive')}), repo {drive.get('repo')}, state generated {state.get('generated_at')}",
-        f"ledger counts {json.dumps(book.get('counts') or {})}, last live {book.get('live_at')}",
-        f"compactions {compactions.get('count')}, last {compactions.get('last_at')}",
         f"read errors {json.dumps(state.get('errors') or {})}",
-        "",
-        "open owner asks (ledger):",
-        *(f"- ledger:{ask['key']} {ask['state']} {ask.get('lane')}: {(ask.get('text') or '')[:200]}" for ask in (book.get("asks") or []) if ask["state"] not in SETTLED_ASKS),
-        "",
-        "open tasks:",
-        *(f"- task:{task['id']} {task.get('status')} {task.get('owner') or ''}: {task.get('subject')}" for task in (tasks.get("open") or [])[: DIGEST_ROWS * 2]),
-        "",
-        "open boards:",
-        *(f"- board:{board['slug']} {board['url']}" for board in state.get("boards") or [] if board["status"] == "open"),
-        "",
-        "lanes, most recent first:",
-        *(f"- {lane['lane']} idle {lane['idle_minutes']}m: {((lane.get('last') or {}).get('text') or '')[:160]}" for lane in (state.get("lanes") or [])[: DIGEST_ROWS * 2]),
-        "",
-        "latest census lines:",
-        *(f"- inbox:{row['file']}:{row['line']} {row['text'][:300]}" for row in (state.get("census") or [])[:3]),
-        "",
-        f"state sections for the state tool: {', '.join(state)}",
     ]
+    for item in state.get("views") or []:
+        data = item.get("data") or {}
+        count = data.get("total", len(data.get("rows") or data.get("items") or []))
+        out += ["", f"view:{item['id']} ({item.get('section')} / {item.get('title')}, {count} rows):", *summary(item)]
     return "\n".join(out)
 
 

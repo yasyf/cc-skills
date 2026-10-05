@@ -160,11 +160,6 @@ done, READY, GREEN, or landed completes nothing. Lanes report through `SendMessa
 and leave the root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a
 lane-owned task.
 
-A named lane's final text reaches the root as an idle notification on every stop.
-Ending on `SendMessage` with no trailing text omits that text. During a drive,
-`lane_reports` refuses lane final text over 300 characters. Read the `SendMessage`
-report, not the idle notification.
-
 At every handoff, milestone report, and compaction, the root reconciles the list:
 every `in_progress` task has a working lane, and every running lane has an open task.
 Complete what was consumed; re-own or delete the rest. Every lane receives the live
@@ -677,10 +672,9 @@ plain-language check covered only the posting lane's copy.*
 
 **R22. Quote the owner's design verbatim. Ship that design or hold.**
 
-- In every brief or ruling on a subsystem, quote the relevant register rules verbatim.
-  Cite their linked answer ids without pasting full answers. Name the required
-  entry point as a symbol at `file:line`. Have a reader lane find it before dispatch.
-  A package list is not an entry point:
+- In every brief or ruling on a subsystem, quote each owner design ruling verbatim
+  with its id and the required entry point as a symbol at `file:line`. Have a reader
+  lane find the symbol before dispatch. A package list is not an entry point:
   importing every package still permits a second implementation.
 - Before READY-FOR-SHIP, name the entry point the diff calls, each ruling it meets,
   and anything it leaves out. The root confirms this design check against the
@@ -1345,8 +1339,8 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 ccx: role=<role> tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
-Design rulings, verbatim: <relevant register rules, their linked answer ids,
-  and the entry point (symbol at file:line) each requires; or
+Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
+  with its id, and the entry point (symbol at file:line) it makes the change call; or
   "none">. Before READY, state which entry point your diff calls, each ruling it meets,
   and anything it leaves out; the root confirms before a ship lane launches (R22).
 Do:
@@ -1360,13 +1354,9 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  The owner-approved register has at most 30 rules. Carry its wording, never full answers.
-  Claude subagents, including planning agents, receive it once at SubagentStart.
-  Orca Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.
-  Above 9,000 characters, the hook names it. Read it with `ccn doc show <id7>` before acting.
+  Claude lanes receive the register through hooks; above 9,000 characters, read it
+  with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
-  Codex workers have no hooks. In Claude drive sessions, the key-moment judge can
-  inject one relevant durable answer, verbatim, once per lane per answer.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
@@ -1428,9 +1418,7 @@ Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk pat
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
   Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
   ≤10 lines: verdict | ids | what changed | what is next. That message is your last
-  action. Final text after that SendMessage is empty or one line under 300
-  characters (outcome + pointer), never the report again.
-  Do not end a turn waiting. Every push to a reported PR re-reports the new
+  action. Do not end a turn waiting. Every push to a reported PR re-reports the new
   head with `ledger.py report` in the same turn; the desk grades without waiting for it.
 ```
 
@@ -1743,62 +1731,152 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-`drive.py start` and every root `SessionStart` while the drive is active start the
-dashboard server automatically, only when the session belongs to a registered
-drive. No agent step is needed. The hooks start it detached so they never block a
-session and print no URL. Get the URL with `lr-dashboard.py url`.
-Open it to read the drive's state.
+`drive.py start` and root `SessionStart` automatically start the dashboard for an
+active, registered drive. Hooks detach without blocking or printing a URL.
+`lr-dashboard.py` commands: `url`, `start --drive <id>`, `snapshot` (JSON),
+`serve` (foreground).
 
-Open the URL printed by `lr-dashboard.py url` and click **Ask** in the bottom-right
-corner to ask about owner asks, quiet lanes, recent landings, or the latest census.
-Chat opens in a floating window over the dashboard and preserves its open state and
-history across refreshes in the same tab. When Tailscale is running, the URL is
-`http://<MagicDNS name>:<port>/`, and anyone on the tailnet can open the dashboard and
-use chat. Each question starts with a digest of the drive; the chat can search inbox
-history, tasks, ledger rows, boards, and cc-notes, read source records, and inspect
-state sections. Answers link back to the refs they cite. The server uses Cerebras's
-`gpt-oss-120b` with `CEREBRAS_API_KEY` set in its environment; the browser receives a
-per-server chat token, never that key. If the server started without the key, restart
-it with the variable set and reload the page.
+The server binds `127.0.0.1`, prefers a drive-derived port, and records its address
+in `<state dir>/dashboard/server.json`. `dashboard/start.lock` serializes starts.
+A newer plugin replaces the server through `/shutdown` on next start; the
+`server.json` token prevents another origin's page from stopping it.
 
-Run `lr-dashboard.py start --drive <id>` to start it by hand. Use `lr-dashboard.py url`
-to print the running URL, `lr-dashboard.py snapshot` for JSON, and `lr-dashboard.py serve`
-to serve in the foreground.
+When Tailscale runs, TCP forwarding shares the port on the tailnet.
+`lr-dashboard.py url` prints `http://<MagicDNS name>:<port>/`; anyone on the
+tailnet can open the dashboard and chat. Hosts other than loopback or that name
+receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
+stays local. Graceful shutdown removes the forward.
 
-The server binds `127.0.0.1`, prefers a port derived from the drive id, and records
-its address in `<state dir>/dashboard/server.json`. On the next start, a newer
-plugin version replaces the old server through `/shutdown`.
-`start` holds a per-drive lock at `<state dir>/dashboard/start.lock` so concurrent
-starts do not spawn two servers. `/shutdown` requires a token recorded in
-`server.json`, so a browser page from another origin cannot stop the server.
+Read page errors. Polling survives collector failures, registry reads
+racing `drive.py end`, owner-file read failures, and cc-notes view timeouts.
+Sources include inbox files and `<inbox>/<file>.md.archive/*.md`, ledger, root
+tasks/archive, cc-notes plans/progress/handoffs/program docs/logs/investigations/answers,
+cc-present boards, root transcript compactions, Orca tasks, inbox watches, and beats.
+Orca spans every page; `CLAUDE_CODE_TASK_LIST_ID` takes precedence. Transcripts
+span project directories, retaining compactions after checkout moves.
 
-It reads inbox files and rotated archives under `<inbox>/<file>.md.archive/*.md`,
-the ledger, the root's task list and archive, and cc-notes
-plans, progress docs, handoff docs, program docs, logs, investigations, and answers. It
-also reads cc-present boards, compactions from the root transcript, Orca run tasks,
-inbox watch state, and beat files.
-Collector failures, including registry reads racing `drive.py end`, appear as
-source errors without stopping the poll. Orca workers are read across every page.
-An explicit `CLAUDE_CODE_TASK_LIST_ID` wins when resolving the task list.
-Transcripts are found under any project directory, preserving earlier compactions
-after a drive moves checkouts.
+The page refreshes every 10 seconds, repainting changed views, removing departed
+cards/sections, and preserving sort, filter focus, and expanded rows.
 
-The only hand-edited dashboard input is `<state dir>/dashboard.yaml`. Use top-level
-section keys holding `- text` items, or `- text:` items with an indented `url:` line.
+#### Views and primitives
 
-The server records each inbox file's line count and mtime in
-`<state dir>/dashboard/seen.json` each time the file grows. Walking back from the
-end, every recorded mark bounds the lines it covers. This places lines appended
-while the server runs; older history still relies on the clocks in each line.
-A file that shrinks, such as one rotated, resets its marks.
+Extend `reference/dashboard-views.yaml` through `<state dir>/dashboard.yaml`.
+`views:` merge by `id`: `hide: true` removes, `extend: true` overlays, an existing
+id otherwise replaces, and a new id appends. `sections:` orders sections.
 
-The walk follows a line's clock back at most 16 hours, so a quoted or misordered
-stamp cannot drag earlier lines back by days. An undated clock requiring a larger
-step is marked approximate, as is a line without a clock. When a line has no
-parenthesized stamp, clocks are searched in its first 80 characters.
+`owner:` and `pinned:` accept manual `- text` or `- text:` mappings with `url:`.
+`owner_files:` lists markdown files; `platy:` configures Platy. The standard-library
+YAML subset honors escaped double quotes and preserves `#` lines in literal blocks.
 
-ISO stamps keep their zone. Month-day stamps after the cursor fall in the previous
-year.
+Limit the default lane table:
+
+```yaml
+views:
+  - id: lanes
+    extend: true
+    limit: 50
+```
+
+Views require `id`, `section`, `title`, `type`; `note` is optional.
+Choose `source`, `file` (newest glob match under the state directory), or `ccn`
+(cc-notes id). `table` selects a markdown-table heading.
+
+Filter: `where: {field: regex}` (leading `!` negates), `since` (`30m`/`48h`/`7d`).
+Extract named groups: `match` on `match_field` (default `text`).
+Order/deduplicate/cap: `sort`/`latest_by`/`limit`; timestamped rows default to `sort: -at`.
+
+| Type | Keys and behavior |
+| --- | --- |
+| `stat` | `value`, `of`, time, `detail` from one row; `unit`; delta/sparkline from preceding values |
+| `series` | `y` fields, or `bucket: hour`/`day` with optional `group` |
+| `table` | Sortable `columns`: field names or `{field: name}` with `badge`, `time`, `wide`, `cite`, `link` |
+| `timeline` | Filter by lane, verb, text |
+| `matrix` | `rows`, `cols`, `value`, `title_field`, `col_order` |
+| `progress` | `done`, `exclude` field-to-regex mappings |
+| `kv` | `fields` |
+| `links` | `label`, `url`, `note` field names |
+| `markdown` | `text`, or `file`/`ccn` |
+
+`source`: `inbox`, `lanes`, `tasks`, `owner`, `asks`, `prs`, `landed`,
+`boards`, `plans`, `progress`, `handoffs`, `docs`, `logs`, `investigations`,
+`answers`, `compactions`, `orca`, `orca_attention`, `watches`, `incidents`, `builds`,
+`platy`, `platy_targets`, `manual`, `drive`.
+
+#### Needs the owner
+
+This automatic top section lists open tasks starting "Owner item" or carrying
+an `owner-item`/`owner-ask` kind/label, and ledger asks outside `LIVE`/`dropped`/`answered`.
+Owner-addressed `DECIDE`/`ASK`/`RULING` inbox lines from the last 48 hours remain
+until a later line comes from or names the asking lane.
+It also lists open, unsubmitted cc-present boards with URLs, manual `owner:`
+items, and `owner_files:` bullets `- **title**: detail`. Title-only bullets remain separate.
+
+#### Platy deployability
+
+Set `platy.census` to the census glob. The view reads its newest report,
+`release/targets.yaml`, and release builds through `bk api`.
+`dashboard/release-builds.json` initially backfills the whole pipeline history until a short
+page. Polls start at page 1, stopping at a known finished build or three pages;
+older unfinished cached builds extend paging to ten. Failed reads retain cached
+builds and show the source error, exit status, or timeout.
+
+Platy release/hotfix/rollback starts carry a Slack thread in `RELEASE_START`;
+CLI starts do not. CLI deploys credit every named component/stack/environment.
+
+Read each stack's last included Platy release, last Platy pass, last successful
+CLI deploy, and `0/0`/`drift`/`unplanned` against `dev`. Deselection never counts
+as release.
+
+`yes` requires both the target's latest Platy release and the stack's
+latest included Platy release to pass, with no target blocker. A failed target
+release blocks even deselected stacks: a pipeline failure. Without a blocker
+line, the reason names that release. Otherwise, stacks are `no`, or `never` when
+never included. `platy_targets` counts all three per target.
+
+Reasons use the newest `DEFECT`/`BLOCKED`/`FAILED`/`MATRIX ... FAILED` after the
+target's latest Platy release; `HOLD` counts for failed releases. Work uses the newest later
+`GO`/`OPENED`/`UPDATED`/`CLAIM`/`READY`/`LANDED`/`RELEASED`/`FIX-LIVE` lines from
+the assigned lane or naming the target. Both match whole target names and
+components only as stacks (`data/plat`), never bare `data` or `network`.
+
+Stack/target overrides accept `deployable`, `reason`/`doing` with optional
+`reason_url`/`doing_url`, or inbox cites displaying the line verbatim with its link.
+A missing line fails the platy source. Example:
+
+```yaml
+platy:
+  overrides:
+    infra: {reason_cite: 'inbox:deploy-go.md:4601', doing_cite: 'inbox:deploy-go.md:4641'}
+```
+
+#### Ask the drive
+
+Click **Ask** in the dashboard's bottom-right corner. The floating window keeps
+its open state and history across refreshes in the same tab. It suggests
+"Which stacks can Platy deploy right now, and what blocks infra?"
+
+Chat uses design-doc's core and Cerebras `gpt-oss-120b`. The browser calls
+`POST /ai/chat/completions` on its own origin. The relay adds `CEREBRAS_API_KEY`
+server-side, requires `/ai.json`'s per-server token, and rejects foreign Origins
+with 403. Without the key, `/ai.json` returns 404; restart with it set.
+
+`/ask/digest` summarizes every view by id with up to six cited rows.
+`/ask/search` searches every source record once per cite, plus `ccn search`.
+`/ask/read` takes any record cite, including `view:<id>`.
+The `view` tool replaces `state`: `/ask/view` reads one view by id or lists all.
+
+Facts require exact parenthesized refs, rendered as links. Cite chips open
+`/ask/read` for records without pages. Check cited rows: chat can misread tables.
+
+#### Inbox dates
+
+`<state dir>/dashboard/seen.json` records line counts/mtimes on growth. Backward,
+marks bound their lines; older history uses clocks. Shrinkage resets marks.
+
+Backward clock steps cap at 16 hours; larger undated steps and clockless lines
+are estimates. Without a parenthesized stamp, search the first 80 characters.
+Leading clocks retain AM/PM and zone; ISO zones survive. Month-day stamps after
+the cursor belong to the previous year.
 
 ### Lane bus
 
@@ -2055,12 +2133,12 @@ handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger I
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
-The standing rules register is the owner-approved cc-notes doc labeled
-`standing-rules:<program>`, as owner answers `4d381e0` and `8cb6da7` require.
-It has at most 30 rules. A consolidation lane proposes changes for owner approval.
+The standing rules register is a cc-notes doc labeled `standing-rules:<slug>`, as
+owner answers `4d381e0` and `8cb6da7` require.
+A consolidation lane proposes at most 30 rules for the owner to approve.
 Full answers stay in cc-notes, linked by id from the register.
-The release-v3 register, doc `0cf17c9`, is about 8 KB.
-Its body is mirrored as the plan file's last section.
+The owner's 30-rule cap keeps the current release-v3 draft, doc `0cf17c9`, at about
+7 KB, below the injection budget.
 
 `generate` reads the newest register doc by `updated_at`.
 It never builds, edits, or supersedes a register doc or writes a register file.
@@ -2079,47 +2157,34 @@ fails.
 The plugin ships a `bin/rulings.py` launcher.
 
 `rulings.py register --program <slug>` prints the newest register as `{id, body}` or
-`null`.
-
-`rulings.py match` feeds the key-moment judge.
-It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md`.
-Atomic per-file replacements keep concurrent readers from seeing partial files.
-This full set is the retrieval corpus only. Nothing injects it in bulk.
-
-`match` reads the proposed action from stdin. It uses the first 2,000 characters
-as the query for `ccx code search --semantic`.
-It excludes answers the register already cites.
+`null`. `rulings.py match --program <slug>` reads a lane brief from stdin.
+It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md` with atomic
+per-file replacements so concurrent spawns never read partial files. It queries
+`ccx code search --semantic` with the brief's first 2,000 characters.
+Each matched answer absent from the register's citations appears as `- <id7> <title>`
+over its quoted body. `--budget` defaults to 8,000 bytes.
 
 `--drive <id>` replaces `--program` for workers carrying `CLAUDE_LONG_RUNNING_DRIVE`.
 It resolves the program and state directory from the drive registry.
 
-**Sub-lane injection.** Every sub-lane receives the register once at start.
-Claude subagents, including planning agents, receive it at `SubagentStart`.
-Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at `SessionStart`.
+Claude subagents, including planning agents, receive the register at `SubagentStart`.
+Orca Claude worker sessions carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at
+`SessionStart`. If the body exceeds 9,000 characters, the hook names the register and
+tells the lane to read it in full with `ccn doc show <id7>` before acting. Within that
+budget, the body arrives verbatim. Claude Code moves context over 10,000 characters
+to a file with a 2 KB preview.
 
-The body arrives whole and verbatim when it is at most 9,000 characters.
-Above that limit, the hook names the doc and says to read it with
-`ccn doc show <id7>` before acting.
+`SubagentStart` cannot see the spawn prompt, so the hook keys matched answers by
+subagent type. At `SubagentStart`, the hook collects matches from same-type spawns in the
+preceding 60 seconds. It deduplicates them and delivers at most 8,000 bytes on the
+subagent's first `PostToolUse`.
+A lane may therefore receive answers matched to a sibling spawned alongside it.
+Rewriting the Agent prompt was rejected because capt-hook keeps only the first
+rewrite per call, dropping other hooks' Agent rewrites such as the model upgrade.
 
-Codex workers have no hooks, so their briefs paste the register body verbatim.
-A brief carries the register's at most 30 rules, never full-answer quotes.
-These injections are advisory and fail open.
-
-**Key-moment judge.** `ruling_judge.py` runs before these calls in root, subagent,
-and Orca Claude drive sessions:
-
-- A `GO`, `HOLD`, or `DECIDE` line appended to an inbox.
-- A pull request opened through `ccx vcs ship`, `ccx vcs stack submit`, or `gh pr create`.
-- A plan-file write or edit.
-- A Slack write through `cc-slack send`, `cc-slack reply`, or a Slack MCP send.
-- A lane spawn through an Agent prompt or an `orca-launch.sh` brief file.
-
-The judge calls `rulings.py match` with `-k 5` and a 6,000-byte candidate budget.
-The five nearest durable answers come from ccx semantic search.
-Answers the register already cites are excluded.
-A small model returns the one answer the action clearly bears on or would violate,
-or none. The hook injects only that answer, verbatim, once per lane per answer.
-It is advisory, never blocks, and fails open.
+An Orca Claude worker's first `UserPromptSubmit` delivers matches for its brief.
+All injections warn and fail open. Codex briefs must paste the register body because
+Codex workers have no Claude hooks.
 
 *Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
 vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
@@ -2154,7 +2219,7 @@ doc is never taken as the root's narrative. With no fresh narrative, the newest
 progress record's narrative carries forward with one provenance line.
 
 The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
-prompts the root to record standing rules. Durable answers feed the key-moment judge.
+prompts the root to record standing rules. Durable answers feed brief matching.
 The handoff reads the approved register and live `(standing)` inbox lines.
 
 **Lint.** Generation checks that `## Standing owner rules` exists and quotes the
@@ -2207,8 +2272,7 @@ by hand and blocks nothing.
 
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes. It
-reads the approved register, quotes it in the progress doc, and carries the narrative forward.
-Generation never changes the register.
+reads the current register and carries the narrative forward.
 This covers Claude Code's auto-compaction before the root writes a narrative.
 
 The instructions point to the plan and active progress doc. They ask the summary to
@@ -2220,7 +2284,8 @@ earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed. When a register exists, the digest names it first with
-`ccn doc show <register id>`. The register binds every lane brief and outranks the summary.
+`ccn doc show <register id>`. The register arrives verbatim with the next tool
+results. It binds every lane brief and outranks the summary.
 
 Read the progress doc next, then the plan.
 Without a register, the digest starts with the progress record.
@@ -2231,17 +2296,18 @@ The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
 The digest carries no clipped title list.
 
 Claude Code's `PostCompact` hook cannot return context. Delivery after compaction
-uses `SessionStart` with source `compact`. Source `resume` follows the same path.
-The hook reads the newest register doc and queues its body for the next main-session
-tool event. `PostToolUse` delivers it once, or `UserPromptSubmit` does if a prompt
-comes first. Either event clears the pending delivery.
+uses `SessionStart` with source `compact`, followed by the next main-session tool
+result. On `SessionStart` with source `compact` or `resume`, the hook reads the newest
+register doc and queues its body in parts of at most 8,000 bytes.
+A register of about 7 KB fits in one part. Splits fall at line boundaries unless a
+line exceeds the limit.
 
-For bodies of at most 9,000 characters, the register arrives whole and verbatim after a short header.
-The body sits inside identical 12-tilde fences spelled `~~~~~~~~~~~~`.
-The copy bar exempts the fenced body.
-Above 9,000 characters, the hook names the doc with `ccn doc show <id7>`
-and tells the root to read it in full before acting. Delivery never splits the register
-into parts or injects a batch of matched answers.
+Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part after a
+one-sentence header. The part sits inside identical 12-tilde fences spelled
+`~~~~~~~~~~~~`. The copy bar exempts the fenced part.
+
+Delivery preserves the part's trailing newline. The part bodies join to the register
+doc body byte for byte. Delivery continues until the whole register reaches context.
 
 *Prevents the release-v3 loss of October 4, 2026: titles-only carry dropped the
 ec2881e ruling "No: Pulumi state is the only truth" and left later lane briefs
@@ -2334,9 +2400,8 @@ a new ask does not reset it. The escalation has three steps:
 
 0. Spawn `<lane>-handoff` as a subagent from
    [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
-   a cc-notes doc. Pass the previous handoff's doc id, if any. Its reply is at most
-   two lines: `handoff <lane>: doc <id>; successor <lane>-<N+1>` and
-   `unverified: <n> items (in the doc)`.
+   a cc-notes doc. Pass the previous handoff's doc id, if any. It returns the new
+   doc id, plus at most three lines on what it could not reconstruct.
 1. Spawn `<lane>-N+1` from the old lane's brief plus that doc id, read with
    `ccn doc show <id>`, and the cursor it names. `alerts-watch` becomes
    `alerts-watch-2`; `desk-3` becomes `desk-4`.
@@ -2479,23 +2544,19 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Before writing an inbox line, desk brief, or handoff with an owner rule, give each
     standing rule its own `R<n> (standing)` line under I6. Never mark it done.
-    The approved `standing-rules:<slug>` register has at most 30 rules.
-    Handoff generation only reads it and quotes it in the progress doc.
-    Claude hooks inject it once after compaction or resume and once at sub-lane start.
-    Above 9,000 characters, they name it with `ccn doc show` instead.
-    Codex briefs paste the register body verbatim. Briefs never paste full answers.
-    At key moments, the judge searches five durable answers outside the register's
-    citations. It injects one relevant answer or none, once per lane per answer.
-    The judge is advisory, never blocks, and fails open.
+    A consolidation lane proposes at most 30 register rules for the owner to approve.
+    Handoff generation only reads the newest `standing-rules:<slug>` doc.
+    Claude hooks inject the register, or a read instruction above 9,000 characters,
+    and matched answers. Codex briefs must paste the register body verbatim.
     List each standing inbox id, never a range.
     READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone
     label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
     answered in this turn in my own words; a delay I caused named as mine.
-22. Before briefing, ruling on, or shipping a subsystem change, quote the relevant
-    register rules verbatim. Cite their answer ids and the entry point as a symbol at `file:line`.
-    Confirm the lane's design check against those rulings before launching any ship lane.
+22. Before briefing, ruling on, or shipping a subsystem change, quote the owner's
+    rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
+    lane's design check against those rulings before launching any ship lane.
     Ship the whole design or hold.
 
 Apply D3 to priority PRs before delegating. A call that survives all twenty-two decides

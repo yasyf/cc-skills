@@ -1,0 +1,272 @@
+views:
+  - id: owner
+    section: Needs the owner
+    title: Waiting on the owner
+    type: table
+    source: owner
+    columns:
+      - {field: at, time: true}
+      - {field: kind, badge: true}
+      - {field: title, wide: true}
+      - {field: state, badge: true}
+      - {field: cite, cite: true}
+
+  - id: drive
+    section: Drive
+    title: Drive facts
+    type: kv
+    source: drive
+    fields:
+      - {field: program, label: program}
+      - {field: drive, label: drive}
+      - {field: repo, label: repo}
+      - {field: open_prs, label: open PRs in the ledger}
+      - {field: open_tasks, label: open tasks}
+      - {field: compactions, label: compactions}
+      - {field: last_compaction, label: last compaction}
+      - {field: orca_run, label: Orca run}
+      - {field: inbox_lines, label: inbox lines}
+
+  - id: pinned
+    section: Drive
+    title: Pinned
+    type: links
+    source: manual
+    where: {section: pinned}
+    label: text
+    url: url
+
+  - id: lanes
+    section: Lanes
+    title: Lanes by last inbox line
+    type: table
+    source: lanes
+    columns:
+      - {field: at, time: true}
+      - lane
+      - {field: idle_minutes, label: idle min}
+      - {field: verb, badge: true}
+      - {field: text, wide: true}
+      - {field: tasks, wide: true}
+
+  - id: incidents
+    section: Incidents
+    title: Incident lines
+    type: timeline
+    source: inbox
+    where: {verb: '^(INCIDENT|ALERT|PAGE|MECHANISM|FIX-LIVE|RESOLVED|MITIGATED)$'}
+    limit: 150
+
+  - id: incident-folders
+    section: Incidents
+    title: Incident folders
+    type: table
+    source: incidents
+    limit: 30
+    columns:
+      - {field: at, time: true}
+      - slug
+      - {field: text, label: newest files, wide: true}
+
+  - id: asks
+    section: Asks and tasks
+    title: Owner asks in the ledger
+    type: table
+    source: asks
+    columns:
+      - {field: at, time: true}
+      - key
+      - {field: state, badge: true}
+      - lane
+      - {field: text, wide: true}
+      - prs
+
+  - id: open-tasks
+    section: Asks and tasks
+    title: Open tasks
+    type: table
+    source: tasks
+    where: {status: '^(in_progress|pending)$'}
+    columns:
+      - {field: at, time: true}
+      - id
+      - {field: status, badge: true}
+      - owner
+      - {field: subject, wide: true}
+
+  - id: rulings
+    section: Asks and tasks
+    title: GO, HOLD, LIFT, DECIDE and NOTE lines
+    type: timeline
+    source: inbox
+    where: {verb: '^(GO|HOLD|LIFT|DECIDE|RULING|NOTE|DESIGN|OWNER|CORRECTION)$'}
+    limit: 150
+
+  - id: boards
+    section: Boards
+    title: cc-present boards
+    type: table
+    source: boards
+    sort: status
+    columns:
+      - {field: status, badge: true}
+      - {field: submitted, badge: true}
+      - {field: title, wide: true}
+      - answered
+      - events
+      - {field: at, time: true}
+
+  - id: landed-per-hour
+    section: PRs and releases
+    title: LANDED lines per hour
+    type: series
+    source: inbox
+    where: {verb: '^LANDED$'}
+    since: 48h
+    bucket: hour
+
+  - id: release-lines
+    section: PRs and releases
+    title: PR and release lines
+    type: timeline
+    source: inbox
+    where: {verb: '^(OPENED|UPDATED|READY|LANDED|RELEASE|RELEASED|MERGED|ENQUEUED|BUILD|DEPLOYED|INSTALLED|SERVING|APPLIED)$'}
+    limit: 200
+
+  - id: prs
+    section: PRs and releases
+    title: Open PRs in the ledger
+    type: table
+    source: prs
+    sort: -pr
+    columns:
+      - pr
+      - lane
+      - {field: title, wide: true}
+      - {field: checks, badge: true}
+      - {field: mergeable, badge: true}
+      - {field: hold, wide: true}
+      - {field: queued, badge: true}
+      - {field: rules, badge: true}
+      - {field: waiting, badge: true}
+
+  - id: landed
+    section: PRs and releases
+    title: Last landed
+    type: table
+    source: landed
+    limit: 40
+    columns:
+      - {field: at, time: true}
+      - pr
+      - lane
+      - {field: title, wide: true}
+
+  - id: state-lines
+    section: Census
+    title: STATE, CENSUS and MATRIX lines
+    type: timeline
+    source: inbox
+    where: {verb: '^(STATE|CENSUS|MATRIX|STATUS)$'}
+    limit: 100
+
+  - id: progress-docs
+    section: Plans and docs
+    title: Progress docs
+    type: table
+    source: progress
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: title, wide: true}]
+
+  - id: plans
+    section: Plans and docs
+    title: Plans
+    type: table
+    source: plans
+    limit: 25
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: status, badge: true}, {field: title, wide: true}]
+
+  - id: handoffs
+    section: Plans and docs
+    title: Handoff docs
+    type: table
+    source: handoffs
+    limit: 15
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: title, wide: true}]
+
+  - id: program-docs
+    section: Plans and docs
+    title: Program docs
+    type: table
+    source: docs
+    limit: 20
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: title, wide: true}]
+
+  - id: investigations
+    section: Plans and docs
+    title: Open investigations
+    type: table
+    source: investigations
+    limit: 20
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: status, badge: true}, {field: title, wide: true}]
+
+  - id: logs
+    section: Plans and docs
+    title: Logs
+    type: table
+    source: logs
+    limit: 15
+    columns: [{field: at, time: true}, {field: cite, cite: true}, entry_count, {field: title, wide: true}]
+
+  - id: answers
+    section: Plans and docs
+    title: Answers
+    type: table
+    source: answers
+    limit: 15
+    columns: [{field: at, time: true}, {field: cite, cite: true}, {field: title, wide: true}]
+
+  - id: compactions
+    section: Compactions
+    title: Compactions
+    type: stat
+    source: compactions
+    value: pre_tokens
+    unit: tokens before compaction
+    detail: [trigger, post_tokens]
+
+  - id: compaction-list
+    section: Compactions
+    title: Recent compactions
+    type: table
+    source: compactions
+    limit: 20
+    columns: [{field: at, time: true}, trigger, pre_tokens, post_tokens]
+
+  - id: orca-attention
+    section: Orca and watches
+    title: Orca workers needing attention
+    type: table
+    source: orca_attention
+    columns: [name, dispatch, {field: categories, badge: true}, activity]
+
+  - id: orca-active
+    section: Orca and watches
+    title: Active Orca tasks
+    type: table
+    source: orca
+    where: {status: '!^(completed|failed)$'}
+    columns: [{field: at, time: true}, name, {field: status, badge: true}]
+
+  - id: watches
+    section: Orca and watches
+    title: Watch state files
+    type: table
+    source: watches
+    columns: [{field: at, time: true}, name, age_minutes, pending]
+
+  - id: feed
+    section: Inbox feed
+    title: Inbox feed
+    type: timeline
+    source: inbox
+    limit: 400
