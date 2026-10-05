@@ -865,7 +865,7 @@ def test_inbox_needs_stale(orca):
 
 
 def test_the_plugin_bin_launches_every_script_by_name():
-    assert sorted(path.name for path in BIN.iterdir()) == sorted(path.name for path in SCRIPTS.iterdir() if path.suffix == ".sh" or (path.suffix == ".py" and "__main__" in path.read_text()))
+    assert sorted(path.name for path in BIN.iterdir()) == sorted(path.name for path in SCRIPTS.iterdir() if path.suffix in (".py", ".sh") and (path.read_text().startswith("#!") or "__main__" in path.read_text()))
     for launcher in BIN.iterdir():
         assert os.access(launcher, os.X_OK)
         assert launcher.read_text().endswith(f'"$(dirname "$0")/../skills/long-running/scripts/{launcher.name}" "$@"\n')
