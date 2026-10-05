@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>long-running</title>
+<style>
+:root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bg: #fbfbfd; --card: #fff; --warn: #b25000; --bad: #c4211c; --ok: #1a7f37; --accent: #0a66c2; --cell-ok: #d8f0de; --cell-warn: #fbe8cc; --cell-bad: #f8d7d5; --cell-none: #ececf0; }
+@media (prefers-color-scheme: dark) { :root { --fg: #f2f2f7; --muted: #98989d; --line: #38383a; --bg: #111113; --card: #1c1c1e; --warn: #ff9f0a; --bad: #ff453a; --ok: #30d158; --accent: #64b5ff; --cell-ok: #173d22; --cell-warn: #4a3412; --cell-bad: #4d1d1b; --cell-none: #2a2a2e; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+header { position: sticky; top: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 18px; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
+header h1 { font-size: 16px; margin: 0; }
+.meta, .muted { color: var(--muted); }
+.errors { color: var(--bad); }
+nav { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; }
+nav a, a { color: var(--accent); text-decoration: none; }
+main { padding: 12px 18px 80px; display: grid; gap: 18px; }
+.section > h2 { font-size: 15px; margin: 0 0 8px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; overflow-x: auto; grid-column: 1 / -1; }
+.card.small { grid-column: auto; }
+.card h3 { font-size: 13px; margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }
+.card h3 .count { color: var(--muted); font-weight: normal; }
+.card .err { color: var(--bad); }
+table { border-collapse: collapse; width: 100%; }
+td, th { text-align: left; vertical-align: top; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; }
+td.time { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+td.wide { min-width: 280px; word-break: break-word; }
+.clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.clip.open { display: block; }
+.tag { display: inline-block; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); font-size: 11px; white-space: nowrap; }
+.bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
+.stat b { font-size: 28px; font-variant-numeric: tabular-nums; }
+.stat .of { color: var(--muted); font-size: 15px; }
+.stat .delta { margin-left: 6px; }
+.stat .detail { color: var(--muted); margin-top: 4px; }
+svg.spark { width: 100%; height: 36px; display: block; margin-top: 6px; }
+svg.chart { width: 100%; height: 180px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+.bar { height: 14px; border-radius: 7px; background: var(--cell-none); overflow: hidden; }
+.bar > div { height: 100%; background: var(--ok); }
+.matrix td { padding: 1px; border: none; }
+.matrix td.cell { min-width: 22px; height: 18px; border-radius: 3px; text-align: center; font-size: 10px; }
+.matrix th { font-weight: normal; font-size: 11px; cursor: default; }
+.matrix th.col { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.cell.ok { background: var(--cell-ok); color: inherit; } .cell.warn { background: var(--cell-warn); color: inherit; } .cell.bad { background: var(--cell-bad); color: inherit; } .cell.none { background: var(--cell-none); }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; word-break: break-word; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.filters select, .filters input { font: inherit; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); color: var(--fg); }
+.md p { margin: 0 0 6px; }
+.md code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.cite { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--cell-none); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">long-running</h1>
+  <span class="meta" id="meta"></span>
+  <span class="errors" id="errors"></span>
+  <nav id="nav"></nav>
+</header>
+<main id="main"></main>
+<script>
+const REFRESH_MS=10000;
+const PACIFIC="America/Los_Angeles";
+const BAD=/\b(fail|failed|failure|red|lost|blocked|error|dirty|conflicting|no|never|drift|canceled|cancelled|not submitted)\b/i;
+const WARN=/\b(unplanned|held|hold|pending|warn|stale|new|in-pr|landed-not-live|running|in_progress|queued|waiting|ungraded|refused)\b/i;
+const OK=/\b(landed|live|clean|success|passed|completed|answered|yes|0\/0|submitted|converged)\b/i;
+<!-- @include html/dom.js -->
+const state={data:null,sort:{},filters:{},painted:{}};
+const pt=stamp=>stamp?new Date(stamp).toLocaleString("en-US",{timeZone:PACIFIC,month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";
+const ago=stamp=>{
+ if(!stamp)return "";
+ const minutes=Math.round((Date.now()-new Date(stamp).getTime())/60000);
+ if(minutes<1)return "now";
+ if(minutes<60)return minutes+"m";
+ if(minutes<2880)return Math.round(minutes/60)+"h";
+ return Math.round(minutes/1440)+"d";
+};
+const tone=value=>{const text=String(value??"");return BAD.test(text)?"bad":WARN.test(text)?"warn":OK.test(text)?"ok":""};
+const tag=value=>value===null||value===undefined||value===""?"":`<span class="tag ${tone(value)}">${esc(value)}</span>`;
+const link=(href,label)=>href&&safeUrl(href)?`<a href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`:esc(label);
+const clip=value=>`<div class="clip">${esc(value??"")}</div>`;
+function citeUrl(cite){
+ const [kind,...rest]=cite.split(":");
+ const tail=rest.join(":");
+ if(kind==="inbox"){const at=tail.lastIndexOf(":");return `/inbox/${tail.slice(0,at).split("/").map(encodeURIComponent).join("/")}?line=${tail.slice(at+1)}`}
+ if(kind==="ccn")return `/ccn/${tail}`;
+ if(kind==="pr"&&state.data)return `https://github.com/${state.data.drive.repo}/pull/${tail}`;
+ return `/ask/read?ref=${encodeURIComponent(cite)}`;
+}
+const citeChip=cite=>`<a class="cite" href="${esc(citeUrl(cite))}" target="_blank" rel="noopener">${esc(cite)}</a>`;
+const timeCell=(stamp,approx)=>`<td class="time" title="${esc(stamp||"")}">${approx?"≈":""}${esc(pt(stamp))} <span class="muted">${esc(ago(stamp))}</span></td>`;
+
+function cellHtml(column,row){
+ const value=row[column.field];
+ if(column.time)return timeCell(value,row.approx);
+ if(column.cite)return `<td>${value?citeChip(value):""}</td>`;
+ if(column.badge)return `<td>${tag(value)}</td>`;
+ const shown=Array.isArray(value)?value.join(", "):value;
+ const body=column.wide?clip(shown):esc(shown??"");
+ const href=column.link?row[column.link]:null;
+ return `<td class="${column.wide?"wide":""}">${href&&safeUrl(href)?`<a href="${esc(href)}" target="_blank" rel="noopener">${body}</a>`:body}</td>`;
+}
+function sortRows(id,rows){
+ const order=state.sort[id];
+ if(!order)return rows;
+ const sign=order.desc?-1:1;
+ return [...rows].sort((a,b)=>{
+  const x=a[order.field],y=b[order.field];
+  const nx=Number(x),ny=Number(y);
+  if(x==null)return 1;if(y==null)return -1;
+  return sign*(!isNaN(nx)&&!isNaN(ny)?nx-ny:String(x).localeCompare(String(y)));
+ });
+}
+function renderTable(view){
+ const d=view.data;
+ const columns=(d.columns||[]).map(c=>Object.assign({label:c.label||c.field},c));
+ const rows=sortRows(view.id,d.rows);
+ const head=`<tr>${columns.map(c=>`<th data-sort="${esc(c.field)}">${esc(c.label)}</th>`).join("")}<th></th></tr>`;
+ const body=rows.map(row=>`<tr>${columns.map(c=>cellHtml(c,row)).join("")}<td>${row[d.link]&&!columns.some(c=>c.link)?link(row[d.link],"open"):""}</td></tr>`).join("");
+ const more=d.total>d.rows.length?`<p class="muted">showing ${d.rows.length} of ${d.total}</p>`:"";
+ return rows.length?`<table>${head}${body}</table>${more}`:`<p class="muted">none</p>`;
+}
+function renderTimeline(view){
+ const rows=view.data.rows;
+ const f=state.filters[view.id]||{lane:"",verb:"",text:""};
+ const lanes=[...new Set(rows.map(r=>r.lane).filter(Boolean))].sort();
+ const verbs=[...new Set(rows.map(r=>r.verb).filter(Boolean))].sort();
+ const opts=(values,current)=>`<option value="">all</option>`+values.map(v=>`<option${v===current?" selected":""}>${esc(v)}</option>`).join("");
+ const shown=rows.filter(r=>(!f.lane||r.lane===f.lane)&&(!f.verb||r.verb===f.verb)&&(!f.text||String(r.text).toLowerCase().includes(f.text.toLowerCase())));
+ const filters=`<div class="filters" data-view="${esc(view.id)}">lane <select data-filter="lane">${opts(lanes,f.lane)}</select> verb <select data-filter="verb">${opts(verbs,f.verb)}</select><input data-filter="text" placeholder="filter text" value="${esc(f.text)}"></div>`;
+ const body=shown.map(r=>`<tr>${timeCell(r.at,r.approx)}<td>${esc(r.lane||"")}${r.to?" → "+esc(r.to):""}</td><td>${tag(r.verb)}</td><td class="wide">${clip(r.text)}</td><td class="muted">${esc((r.prs||[]).join(" "))}</td><td>${r.cite?citeChip(r.cite):""}</td></tr>`).join("");
+ return filters+(shown.length?`<table>${body}</table>`:`<p class="muted">none</p>`)+(view.data.total>rows.length?`<p class="muted">latest ${rows.length} of ${view.data.total}</p>`:"");
+}
+function sparkline(values){
+ if(!values||values.length<2)return "";
+ const min=Math.min(...values),max=Math.max(...values),span=max-min||1;
+ const pts=values.map((v,i)=>`${(i/(values.length-1)*100).toFixed(2)},${(30-(v-min)/span*26-2).toFixed(2)}`).join(" ");
+ return `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline fill="none" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke" points="${pts}"/></svg>`;
+}
+function renderStat(view){
+ const d=view.data;
+ if(d.value==null)return `<p class="muted">no value</p>`;
+ const delta=d.delta==null?"":`<span class="delta ${d.delta>0?"ok":d.delta<0?"bad":"muted"}">${d.delta>0?"+":""}${esc(d.delta)}</span>`;
+ const detail=Object.entries(d.detail||{}).filter(([,v])=>v!=null&&v!=="").map(([k,v])=>`${esc(k)} ${esc(v)}`).join(" · ");
+ return `<div class="stat"><b>${d.url?link(d.url,d.value):esc(d.value)}</b>${d.of!=null?`<span class="of"> / ${esc(d.of)}</span>`:""}${delta} <span class="muted">${esc(d.unit||"")}</span><div class="detail">${detail}${d.at?" · "+esc(pt(d.at)):""}</div>${sparkline(d.spark)}</div>`;
+}
+const PALETTE=["#0a66c2","#c4211c","#1a7f37","#b25000","#7d3fc9","#0b8a8a"];
+function renderSeries(view){
+ const series=view.data.series||[];
+ const all=series.flatMap(s=>s.points);
+ if(!all.length)return `<p class="muted">no points</p>`;
+ const xs=all.map(p=>Date.parse(p[0])),ys=all.map(p=>p[1]);
+ const timed=xs.every(x=>!isNaN(x));
+ const xmin=timed?Math.min(...xs):0,xmax=timed?Math.max(...xs):Math.max(...series.map(s=>s.points.length-1),1);
+ const ymin=Math.min(0,...ys),ymax=Math.max(...ys,1);
+ const sx=(x,i)=>((timed?x-xmin:i)/((xmax-xmin)||1))*560+30,sy=y=>160-(y-ymin)/((ymax-ymin)||1)*145;
+ const lines=series.map((s,k)=>`<polyline fill="none" stroke="${PALETTE[k%PALETTE.length]}" stroke-width="1.6" points="${s.points.map((p,i)=>`${sx(Date.parse(p[0]),i).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ")}"/>`).join("");
+ const axis=`<text x="0" y="15" font-size="10" fill="currentColor">${esc(ymax)}</text><text x="0" y="160" font-size="10" fill="currentColor">${esc(ymin)}</text>`+(timed?`<text x="30" y="178" font-size="10" fill="currentColor">${esc(pt(new Date(xmin).toISOString()))}</text><text x="590" y="178" font-size="10" text-anchor="end" fill="currentColor">${esc(pt(new Date(xmax).toISOString()))}</text>`:"");
+ const legend=`<div class="legend">${series.map((s,k)=>`<span><i style="background:${PALETTE[k%PALETTE.length]}"></i>${esc(s.name)} ${esc(s.points.length?s.points[s.points.length-1][1]:"")}</span>`).join("")}</div>`;
+ return `<svg class="chart" viewBox="0 0 600 182" preserveAspectRatio="none">${axis}${lines}</svg>${legend}`;
+}
+function renderMatrix(view){
+ const d=view.data;
+ if(!d.rows.length)return `<p class="muted">none</p>`;
+ const head=`<tr><th></th>${d.cols.map(c=>`<th class="col">${esc(c)}</th>`).join("")}</tr>`;
+ const body=d.rows.map(r=>`<tr><th>${esc(r)}</th>${d.cols.map(c=>{
+  const cell=(d.cells[r]||{})[c];
+  if(!cell)return `<td class="cell none"></td>`;
+  const inner=`<td class="cell ${tone(cell.value)||"none"}" title="${esc((cell.title||cell.value||"")+"")}">${cell.url&&safeUrl(cell.url)?`<a href="${esc(cell.url)}" target="_blank" rel="noopener">·</a>`:""}</td>`;
+  return inner;
+ }).join("")}</tr>`).join("");
+ return `<table class="matrix">${head}${body}</table>`;
+}
+function renderProgress(view){
+ const d=view.data,pct=d.total?Math.round(d.done/d.total*100):0;
+ return `<div><b>${esc(d.done)}</b> / ${esc(d.total)} <span class="muted">${pct}%${d.excluded?`, ${d.excluded} excluded`:""}</span><div class="bar"><div style="width:${pct}%"></div></div></div>`;
+}
+function renderKv(view){
+ return `<dl class="kv">${view.data.items.map(i=>`<dt>${esc(i.label)}</dt><dd>${i.url?link(i.url,i.value):/^\d{4}-\d\d-\d\dT/.test(String(i.value))?esc(pt(i.value)+" ("+ago(i.value)+" ago)"):esc(i.value??"")}</dd>`).join("")}</dl>`;
+}
+function renderLinks(view){
+ const items=view.data.items;
+ return items.length?`<ul>${items.map(i=>`<li>${link(i.url,i.label)}${i.note?` <span class="muted">${esc(i.note)}</span>`:""}</li>`).join("")}</ul>`:`<p class="muted">none</p>`;
+}
+function markdown(text){
+ const blocks=String(text||"").split(/\n{2,}/);
+ return `<div class="md">${blocks.map(b=>/^```/.test(b)?`<pre>${esc(b.replace(/^```\w*\n?|```$/g,""))}</pre>`:`<p>${esc(b).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\[([^\]]+)\]\((https?:[^)\s]+|\/[^)\s]*)\)/g,(m,l,u)=>`<a href="${u}" target="_blank" rel="noopener">${l}</a>`).replace(/\n/g,"<br>")}</p>`).join("")}</div>`;
+}
+const RENDER={table:renderTable,timeline:renderTimeline,stat:renderStat,series:renderSeries,matrix:renderMatrix,progress:renderProgress,kv:renderKv,links:renderLinks,markdown:v=>markdown(v.data.text)};
+const SMALL=new Set(["stat","progress","kv","links"]);
+function viewCount(view){
+ const d=view.data||{};
+ return d.total??(d.rows?d.rows.length:d.items?d.items.length:"");
+}
+function cardHtml(view){
+ const body=view.error?`<p class="err">${esc(view.error)}</p>`:RENDER[view.type](view);
+ return `<h3>${esc(view.title||view.id)} <span class="count">${esc(viewCount(view))}</span></h3>${view.note?`<p class="muted">${esc(view.note)}</p>`:""}${body}`;
+}
+function render(){
+ const d=state.data;
+ if(!d||!d.generated_at){$("#meta").textContent="collecting…";return}
+ const drive=d.drive;
+ document.title=`${drive.program} · long-running`;
+ $("#title").textContent=`${drive.program} (${drive.drive})`;
+ $("#meta").textContent=`${drive.repo} · updated ${pt(d.generated_at)}`;
+ $("#errors").textContent=Object.entries(d.errors).map(([k,v])=>`${k}: ${v}`).join(" · ");
+ const sections=[];
+ d.views.forEach(v=>{let s=sections.find(x=>x.name===(v.section||"Views"));if(!s){s={name:v.section||"Views",views:[]};sections.push(s)}s.views.push(v)});
+ const rank=name=>{const at=(d.sections||[]).indexOf(name);return at<0?(d.sections||[]).length:at};
+ sections.sort((a,b)=>rank(a.name)-rank(b.name));
+ sections.forEach(s=>s.views.sort((a,b)=>SMALL.has(b.type)-SMALL.has(a.type)));
+ const slug=n=>"s-"+n.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+ $("#nav").innerHTML=sections.map(s=>`<a href="#${slug(s.name)}">${esc(s.name)}</a>`).join("");
+ const main=$("#main");
+ const live=new Set(sections.map(s=>slug(s.name)));
+ [...main.children].forEach(node=>{if(!live.has(node.id)){node.querySelectorAll(".card").forEach(card=>delete state.painted[card.dataset.view]);node.remove()}});
+ sections.forEach((s,i)=>{
+  let node=document.getElementById(slug(s.name));
+  if(!node){node=el("section","section",`<h2>${esc(s.name)}</h2><div class="grid"></div>`);node.id=slug(s.name)}
+  place(main,node,i);
+  const grid=node.querySelector(".grid");
+  const ids=new Set(s.views.map(v=>"v-"+v.id));
+  [...grid.children].forEach(card=>{if(!ids.has(card.id)){delete state.painted[card.dataset.view];card.remove()}});
+  s.views.forEach((v,j)=>{
+   let card=document.getElementById("v-"+v.id);
+   if(!card){card=el("div","card"+(SMALL.has(v.type)?" small":""));card.id="v-"+v.id;card.dataset.view=v.id}
+   place(grid,card,j);
+   const json=JSON.stringify(v);
+   if(state.painted[v.id]===json||card.contains(document.activeElement))return;
+   state.painted[v.id]=json;
+   const open=new Set([...card.querySelectorAll(".clip.open")].map(n=>n.textContent));
+   card.innerHTML=cardHtml(v);
+   card.querySelectorAll(".clip").forEach(n=>{if(open.has(n.textContent))n.classList.add("open")});
+  });
+ });
+}
+function place(parent,node,index){if(parent.children[index]!==node)parent.insertBefore(node,parent.children[index]||null)}
+function viewById(id){return (state.data?.views||[]).find(v=>v.id===id)}
+document.addEventListener("click",e=>{
+ const clipNode=e.target.closest(".clip");
+ if(clipNode&&!e.target.closest("a"))clipNode.classList.toggle("open");
+ const th=e.target.closest("th[data-sort]");
+ if(th){
+  const id=th.closest(".card").dataset.view,field=th.dataset.sort,prev=state.sort[id];
+  state.sort[id]={field,desc:prev&&prev.field===field?!prev.desc:true};
+  delete state.painted[id];render();
+ }
+});
+document.addEventListener("input",e=>{
+ const box=e.target.closest(".filters");
+ if(!box)return;
+ const id=box.dataset.view;
+ const f=state.filters[id]||(state.filters[id]={lane:"",verb:"",text:""});
+ f[e.target.dataset.filter]=e.target.value;
+ const card=document.getElementById("v-"+id),view=viewById(id);
+ const focus=e.target.dataset.filter,caret=e.target.selectionStart;
+ card.innerHTML=cardHtml(view);
+ const again=card.querySelector(`[data-filter="${focus}"]`);
+ again.focus();if(caret!=null&&again.setSelectionRange)again.setSelectionRange(caret,caret);
+});
+async function refresh(){
+ try{
+  const r=await fetch("/state.json",{cache:"no-store"});
+  state.data=await r.json();
+  render();
+ }catch(e){$("#errors").textContent="dashboard unreachable: "+e}
+}
+
+refresh();
+setInterval(refresh,REFRESH_MS);
+</script>
+</body>
+</html>

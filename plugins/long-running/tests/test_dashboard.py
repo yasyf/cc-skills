@@ -3,13 +3,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from hooks import dashboard as hook
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "lr-dashboard.py"
@@ -143,51 +143,37 @@ def test_a_month_day_stamp_after_the_cursor_belongs_to_the_previous_year():
     assert placed("a (23:58Z Dec 31) x", datetime(2027, 1, 1, 0, 5, tzinfo=UTC)) == ["2026-12-31T23:58:00Z"]
 
 
-def test_parse_manual_reads_scalar_and_mapping_items():
-    text = """\
-# pinned by the root
-owner:
-  - Approve the HSBC cutover window
-  - text: Read the release-simplify keep table
-    url: https://example.com/board
-pinned:
-  - "release-v3 freeze lifts at 6 AM PT"
-"""
-    assert dashboard.parse_manual(text) == {
-        "owner": [
-            {"text": "Approve the HSBC cutover window"},
-            {"text": "Read the release-simplify keep table", "url": "https://example.com/board"},
-        ],
-        "pinned": [{"text": "release-v3 freeze lifts at 6 AM PT"}],
-    }
-
-
-def test_parse_boards_reads_the_sessions_table():
-    text = """\
-cc-present daemon 0.37.4 · port 61118
-
-SUBJECT                           SLUG                                     SESSION                               STATUS  EVENTS  URL
-4c5e6e7d754112883cd3de9cf7e5cf26  pulumi-duplication-audit--13a0f5ae       67c0e5da-38e8-4ce7-aada-27f9a0b7aeaf  open    16      http://127.0.0.1:61118/p/pulumi-duplication-audit--13a0f5ae
-9208735d2c7b243b7c5bad25a2b820a5  structural-fixes--a396800d               -                                     closed  9       http://127.0.0.1:61118/p/structural-fixes--a396800d
-"""
-    assert dashboard.parse_boards(text) == [
-        {
-            "subject": "4c5e6e7d754112883cd3de9cf7e5cf26",
-            "slug": "pulumi-duplication-audit--13a0f5ae",
-            "session": "67c0e5da-38e8-4ce7-aada-27f9a0b7aeaf",
-            "status": "open",
-            "events": 16,
-            "url": "http://127.0.0.1:61118/p/pulumi-duplication-audit--13a0f5ae",
-        },
-        {
-            "subject": "9208735d2c7b243b7c5bad25a2b820a5",
-            "slug": "structural-fixes--a396800d",
-            "session": None,
-            "status": "closed",
-            "events": 9,
-            "url": "http://127.0.0.1:61118/p/structural-fixes--a396800d",
-        },
+def test_manual_items_wrap_bare_strings():
+    assert dashboard.manual_items(["Approve the cutover", {"text": "Read the table", "url": "https://example.com"}]) == [
+        {"text": "Approve the cutover"},
+        {"text": "Read the table", "url": "https://example.com"},
     ]
+    assert dashboard.manual_items(None) == []
+
+
+def decide_line(at: str, lane: str | None, text: str, verb: str = "DECIDE") -> dict:
+    return {"at": at, "lane": lane, "verb": verb, "text": text}
+
+
+def test_an_owner_decision_stays_open_until_its_lane_moves_on():
+    lines = [
+        decide_line("2026-10-05T05:00:00Z", "merge-walker", "STATE merge-walker (10:00 PM PT) walking", "STATE"),
+        decide_line("2026-10-05T04:30:00Z", None, "21:30 DECIDE msg_ab12 alerts-api-0803-fix: rollback or forward? needs the owner"),
+        decide_line("2026-10-05T04:00:00Z", "merge-walker", "DECIDE merge-walker (9:00 PM PT) A or B, needs the owner"),
+        decide_line("2026-10-05T03:00:00Z", "valkey-fold-2", "DECIDE valkey-fold-2 (8:00 PM PT) runbook cannot run as written, ask the owner"),
+        decide_line("2026-10-05T02:00:00Z", "other", "DECIDE other (7:00 PM PT) routine pick for the root"),
+        decide_line("2026-10-01T02:00:00Z", "old", "DECIDE old (7:00 PM PT) stale, needs the owner"),
+    ]
+    waiting = dashboard.open_decisions(lines, "2026-10-04T00:00:00Z")
+    assert [line["text"][:24] for line in waiting] == ["21:30 DECIDE msg_ab12 al", "DECIDE valkey-fold-2 (8:"]
+
+
+def test_a_later_line_naming_the_lane_answers_its_decision():
+    lines = [
+        decide_line("2026-10-05T05:00:00Z", "root", "GO root (10:00 PM PT) valkey-fold-2 option A", "GO"),
+        decide_line("2026-10-05T03:00:00Z", "valkey-fold-2", "DECIDE valkey-fold-2 (8:00 PM PT) A or B, needs the owner"),
+    ]
+    assert dashboard.open_decisions(lines, "2026-10-04T00:00:00Z") == []
 
 
 def write_task(directory: Path, task: dict, mtime: float) -> None:
@@ -272,3 +258,28 @@ def test_inbox_files_include_rotated_archives(tmp_path):
     (tmp_path / "deploy-go.md.archive" / "2026-10-04.md").write_text("y\n")
     (tmp_path / ".inbox-watch.json").write_text("{}")
     assert [str(path.relative_to(tmp_path)) for path in dashboard.inbox_files(tmp_path)] == ["deploy-go.md", "deploy-go.md.archive/2026-10-04.md"]
+
+
+def test_failure_text_names_the_exit_or_timeout():
+    warning = "Warning: BUILDKITE_API_TOKEN is overriding the credential stored for this organization."
+    assert dashboard.failure_text(subprocess.CalledProcessError(1, ["bk"], stderr=warning)) == f"exit 1: {warning}"
+    assert dashboard.failure_text(subprocess.TimeoutExpired(["bk"], 30, stderr=warning.encode())) == f"timed out after 30s: {warning}"
+
+
+def test_a_leading_after_midnight_clock_keeps_its_meridiem():
+    text = """\
+lane-a (12:37 AM PT) DONE first
+12:37 AM PT MECHANISM quoted Oct 4 at 7:52 PM
+12:38 AM PT sandsql-handoff MECHANISM: timings
+RELEASE lane-b (12:39 AM PT) receiver PASSED
+"""
+    end = datetime(2026, 10, 5, 7, 39, 14, tzinfo=UTC)
+    lines = dashboard.parse_inbox("deploy-go.md", text, [(4, end)])
+    assert [line.at.astimezone(dashboard.PACIFIC).strftime("%m-%d %H:%M") for line in lines] == ["10-05 00:37", "10-05 00:37", "10-05 00:38", "10-05 00:39"]
+    assert lines[1].verb == "MECHANISM"
+
+
+def test_owner_bullets_keep_their_lines_and_never_swallow_the_next(tmp_path):
+    path = tmp_path / "asks.md"
+    path.write_text("# asks\n- **Title only**\n- **Second**: detail\n")
+    assert dashboard.owner_bullets(path) == [{"title": "Title only", "detail": "", "line": 2}, {"title": "Second", "detail": "detail", "line": 3}]

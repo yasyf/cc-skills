@@ -31,15 +31,17 @@ from zoneinfo import ZoneInfo
 
 import drive
 import ledger
-from lrdash import chat
+from lrdash import chat, platy, views, yamlish
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-PAGE = Path(__file__).with_name("lr-dashboard.html")
+PAGE = Path(__file__).parents[1] / "templates" / "lr-dashboard.html"
+DEFAULT_VIEWS = Path(__file__).parents[1] / "reference" / "dashboard-views.yaml"
 CHAT_WIDGET = Path(__file__).resolve().parents[1] / "templates" / "lr-dashboard-chat.html"
 SERVER_FILE = Path("dashboard") / "server.json"
 SERVER_LOG = Path("dashboard") / "server.log"
 START_LOCK = Path("dashboard") / "start.lock"
 SEEN_FILE = Path("dashboard") / "seen.json"
+BUILDS_FILE = Path("dashboard") / "release-builds.json"
 TOKEN_HEADER = "X-Dashboard-Token"
 MANUAL_FILE = "dashboard.yaml"
 PORT_BASE = 8700
@@ -48,17 +50,23 @@ INTERVAL_SECONDS = 15.0
 COMMAND_TIMEOUT_SECONDS = 30
 START_WAIT_SECONDS = 10.0
 HEALTH_TIMEOUT_SECONDS = 2.0
-FEED_LIMIT = 300
 LANE_WINDOW = timedelta(hours=48)
-LANDED_LIMIT = 40
 SLACK = timedelta(hours=2)
 FOLLOW = timedelta(hours=16)
 HEADER_CHARS = 80
 NEW_YEAR = timedelta(days=180)
 CONTEXT_LINES = 25
-COMPLETED_TASKS = 40
 DOC_LIMIT = 20
-ORCA_DONE_LIMIT = 20
+VIEW_KEYS = ("id", "title", "section", "type", "note", "columns", "width")
+MANUAL_SECTIONS = ("owner", "pinned")
+NOTE_SOURCES = ("plans", "progress", "handoffs", "docs", "logs", "investigations", "answers")
+OWNER_KINDS = frozenset({"owner-item", "owner-ask"})
+OWNER_DONE_ASKS = frozenset({"LIVE", "dropped", "answered"})
+OWNER_VERBS = frozenset({"DECIDE", "ASK", "RULING"})
+OWNER_WORD = re.compile(r"(?:->|→)\s*owner\b|\b(?:for|to|asks?|needs|awaits?|waiting on) the owner\b|\bowner (?:pick|decision|call|ruling|answer) (?:needed|pending|required)\b", re.IGNORECASE)
+DECIDER = re.compile(r"\bDECIDE (?:msg_\w+ )?(?P<lane>[\w.:-]+?)(?::| \()")
+OWNER_BULLET = re.compile(r"^- \*\*(?P<title>[^*]+)\*\*:?[ \t]*(?P<detail>.*)$", re.MULTILINE)
+PRESENT_PORT = re.compile(r"port (?P<port>\d+)")
 COMPACT_BOUNDARY = b'"subtype":"compact_boundary"'
 CCN_ID = re.compile(r"^[0-9a-f]{7,40}$")
 
@@ -75,7 +83,7 @@ HEADS = (
     re.compile(rf"^(?P<verb>{VERB})\s+(?:(?P<lane>{LANE})\s+)?\((?P<when>[^)]*)\)\s*(?:(?P<lane2>{LANE})\s*:)?"),
     re.compile(rf"^(?P<lane>{LANE})\s*\((?P<when>[^)]*)\)\s*(?:(?:->|→)\s*(?P<to>{LANE})\s*:?)?\s*(?P<verb>{VERB})?\b"),
     re.compile(rf"^(?P<id>{LINE_ID})\s*\((?P<when>[^)]*)\)"),
-    re.compile(rf"^(?P<when>\d{{1,2}}:\d{{2}})\s+(?P<verb>{VERB})\b"),
+    re.compile(rf"^(?P<when>\d{{1,2}}:\d{{2}}(?:\s*[AaPp][Mm])?(?:\s*(?:PT|PDT|PST|Z|UTC))?)\s+(?P<verb>{VERB})\b"),
     re.compile(rf"^(?P<verb>{VERB})\s+(?P<lane>{LANE})\b"),
     re.compile(rf"^(?P<lane>{LANE})\s*(?:->|→)\s*(?P<to>{LANE})\s*:?\s*(?P<verb>{VERB})?\b"),
     re.compile(rf"^(?P<lane>{LANE}):\s+(?P<verb>{VERB})?\b"),
@@ -86,12 +94,6 @@ DESK_LANE = re.compile(rf"^\s*(?P<lane>{LANE}):\s+(?P<verb>[a-z]+)\b")
 LOOSE_VERB = re.compile(rf"\b(?P<verb>{VERB})\b")
 NOT_VERBS = frozenset({"PT", "PDT", "PST", "PM", "AM", "UTC", "PR", "PRS", "CI", "API", "AWS", "SHA", "URL", "IAM", "DNS", "ID", "OK", "UI", "DB", "SQL", "JSON", "HTTP", "GH", "MCP", "LGTM"})
 PR_REF = re.compile(r"(?:https://github\.com/(?P<url_repo>[\w.-]+/[\w.-]+)/pull/(?P<url_pr>\d+))|(?:(?<![\w/])(?P<repo>[\w.-]+/[\w.-]+))?#(?P<pr>\d{2,6})\b")
-INCIDENT_VERBS = frozenset({"INCIDENT", "ALERT", "PAGE", "MECHANISM", "FIX-LIVE", "RESOLVED", "MITIGATED"})
-RELEASE_VERBS = frozenset({"OPENED", "UPDATED", "READY", "LANDED", "RELEASE", "RELEASED", "MERGED", "ENQUEUED", "BUILD", "DEPLOYED", "INSTALLED", "SERVING"})
-RULING_VERBS = frozenset({"GO", "HOLD", "LIFT", "DECIDE", "RULING", "ASK", "OWNER", "NOTE", "DESIGN"})
-CENSUS_VERBS = frozenset({"STATE", "CENSUS", "MATRIX", "STATUS"})
-TABLE_GAP = re.compile(r"\s{2,}")
-URL_FIELD = re.compile(r"^https?://\S+$")
 
 
 def now() -> datetime:
@@ -243,46 +245,8 @@ def parse_inbox(file: str, text: str, anchors: list[tuple[int, datetime]]) -> li
     return lines
 
 
-def parse_manual(text: str) -> dict[str, list[dict]]:
-    sections: dict[str, list[dict]] = {}
-    current: list[dict] | None = None
-    for raw in text.splitlines():
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            continue
-        indent = len(raw) - len(raw.lstrip())
-        stripped = raw.strip()
-        if indent == 0 and stripped.endswith(":"):
-            current = sections.setdefault(stripped[:-1].strip(), [])
-        elif stripped.startswith("- ") and current is not None:
-            item = stripped[2:].strip()
-            key, sep, value = item.partition(":")
-            if sep and re.fullmatch(r"\w+", key) and not URL_FIELD.match(item):
-                current.append({key: unquote(value.strip())})
-            else:
-                current.append({"text": unquote(item)})
-        elif current:
-            key, _, value = stripped.partition(":")
-            current[-1][key.strip()] = unquote(value.strip())
-    return sections
-
-
-def unquote(value: str) -> str:
-    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"" else value
-
-
-def parse_boards(text: str) -> list[dict]:
-    rows = [line for line in text.splitlines() if line.strip()]
-    header = next((index for index, line in enumerate(rows) if line.startswith("SUBJECT")), None)
-    if header is None:
-        return []
-    boards = []
-    for line in rows[header + 1 :]:
-        cells = TABLE_GAP.split(line.strip())
-        if len(cells) < 6:
-            continue
-        subject, slug, session, status, events, url = cells[:6]
-        boards.append({"subject": subject, "slug": slug, "session": None if session == "-" else session, "status": status, "events": int(events) if events.isdigit() else events, "url": url})
-    return boards
+def manual_items(items) -> list[dict]:
+    return [item if isinstance(item, dict) else {"text": str(item)} for item in items or []]
 
 
 def compactions_in(path: Path, offset: int) -> tuple[list[dict], int]:
@@ -312,6 +276,31 @@ def read_tasks(directory: Path) -> list[dict]:
     return tasks
 
 
+def is_owner_task(task: dict) -> bool:
+    metadata = task.get("metadata") or {}
+    return (task.get("subject") or "").startswith("Owner item") or metadata.get("kind") in OWNER_KINDS or bool(OWNER_KINDS & set(metadata.get("labels") or []))
+
+
+def open_decisions(lines: list[dict], floor: str) -> list[dict]:
+    later: list[dict] = []
+    waiting = []
+    for line in lines:
+        if (line["at"] or "") < floor:
+            break
+        if line["verb"] in OWNER_VERBS and OWNER_WORD.search(line["text"]):
+            asker = line["lane"] or ((found := DECIDER.search(line["text"])) and found["lane"])
+            named = asker and platy.mentions(asker)
+            if not asker or not any(after["lane"] == asker or named.search(after["text"]) for after in later):
+                waiting.append(line)
+        later.append(line)
+    return waiting
+
+
+def owner_bullets(path: Path) -> list[dict]:
+    text = path.read_text()
+    return [{"title": match["title"], "detail": match["detail"], "line": text.count("\n", 0, match.start()) + 1} for match in OWNER_BULLET.finditer(text)]
+
+
 def inbox_files(directory: Path) -> list[Path]:
     return sorted([*directory.glob("*.md"), *directory.glob("*.md.archive/*.md")])
 
@@ -337,6 +326,10 @@ def task_list_dir(session: str, transcript: Path) -> Path | None:
     return next((root / name for name in names if (root / name).is_dir()), None)
 
 
+def build_rows(builds: list[dict]) -> list[dict]:
+    return [build | {"cite": f"build:{build['number']}", "text": f"#{build['number']} {build['state']} {build['message']}"} for build in builds]
+
+
 def run(argv: list[str], cwd: str | None = None) -> str:
     return subprocess.run(argv, capture_output=True, text=True, check=True, cwd=cwd, timeout=COMMAND_TIMEOUT_SECONDS).stdout
 
@@ -352,15 +345,29 @@ def program_of(entry: dict) -> str:
     return Path(entry["state_dir"]).name
 
 
+def failure_text(failure: BaseException) -> str:
+    detail = getattr(failure, "stderr", "") or str(failure)
+    detail = detail.decode(errors="replace") if isinstance(detail, bytes) else detail
+    last = (detail.strip().splitlines() or [type(failure).__name__])[-1]
+    if isinstance(failure, subprocess.TimeoutExpired):
+        last = f"timed out after {failure.timeout:g}s: {last}"
+    elif isinstance(failure, subprocess.CalledProcessError):
+        last = f"exit {failure.returncode}: {last}"
+    return last[:300]
+
+
+def ccn_row(kind: str, item: dict) -> dict:
+    return item | {"at": item.get("updated_at"), "url": f"/ccn/{item['id']}", "cite": f"ccn:{item['id'][:8]}", "kind": kind, "text": item.get("title", "")}
+
+
 @dataclass
 class Collector:
     entry: dict
     inbox_cache: dict[str, tuple[float, int, list[Line]]] = field(default_factory=dict)
     seen: dict[str, list[tuple[int, datetime]]] | None = None
     compaction_cache: dict[str, tuple[int, list[dict]]] = field(default_factory=dict)
-    lines: list[Line] = field(default_factory=list)
-    task_rows: list[dict] = field(default_factory=list)
-    ledger_rows: dict[str, dict] = field(default_factory=dict)
+    board_cache: dict[str, tuple[str, dict]] = field(default_factory=dict)
+    builds: platy.Builds | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -369,6 +376,10 @@ class Collector:
     @property
     def inbox_dir(self) -> Path:
         return self.state_dir / "inbox"
+
+    def config(self) -> dict:
+        path = self.state_dir / MANUAL_FILE
+        return yamlish.loads(path.read_text()) if path.exists() else {}
 
     def ccn(self, *args: str) -> list[dict]:
         return json.loads(run(["ccn", "-R", self.entry["checkout"], *args]) or "[]")
@@ -400,30 +411,26 @@ class Collector:
             path.write_text(json.dumps({file: [(lines, iso(at)) for lines, at in seen] for file, seen in self.seen.items()}))
         return [*marks, (count, modified)]
 
-    def lanes(self, lines: list[Line], tasks: list[dict], moment: datetime) -> list[dict]:
-        latest: dict[str, Line] = {}
+    def lanes(self, lines: list[dict], tasks: list[dict], moment: datetime) -> list[dict]:
+        latest: dict[str, dict] = {}
         for line in lines:
-            if line.lane and line.lane not in latest:
-                latest[line.lane] = line
+            if line["lane"] and line["lane"] not in latest:
+                latest[line["lane"]] = line
         owners: dict[str, list[dict]] = {}
         for task in tasks:
             if task.get("owner") and task.get("status") in ("in_progress", "pending"):
                 owners.setdefault(task["owner"], []).append(task)
-        names = {lane for lane, line in latest.items() if line.at and moment - line.at <= LANE_WINDOW} | set(owners)
+        names = {lane for lane, line in latest.items() if line["at"] and moment - datetime.fromisoformat(line["at"].replace("Z", "+00:00")) <= LANE_WINDOW} | set(owners)
         rows = []
         for name in names:
-            line = latest.get(name)
-            rows.append(
-                {
-                    "lane": name,
-                    "last": line.row() if line else None,
-                    "idle_minutes": int((moment - line.at).total_seconds() // 60) if line and line.at else None,
-                    "tasks": [{"id": task["id"], "subject": task.get("subject"), "status": task.get("status")} for task in owners.get(name, [])],
-                }
-            )
-        return sorted(rows, key=lambda row: (row["last"] or {}).get("at") or "", reverse=True)
+            line = latest.get(name) or {}
+            at = line.get("at")
+            idle = int((moment - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() // 60) if at else None
+            subjects = "; ".join(f"#{task['id']} {task.get('subject', '')}" for task in owners.get(name, []))
+            rows.append({"lane": name, "at": at, "idle_minutes": idle, "verb": line.get("verb"), "text": line.get("text", ""), "tasks": subjects, "url": line.get("url"), "cite": line.get("cite"), "approx": line.get("approx")})
+        return rows
 
-    def incidents(self, lines: list[Line]) -> dict:
+    def incidents(self) -> list[dict]:
         directory = self.state_dir / "incidents"
         folders = []
         if directory.is_dir():
@@ -431,65 +438,53 @@ class Collector:
                 if path.is_dir():
                     files = sorted((child for child in path.iterdir() if child.is_file()), key=lambda child: child.stat().st_mtime, reverse=True)
                     modified = max([path.stat().st_mtime, *(child.stat().st_mtime for child in files)])
-                    folders.append({"slug": path.name, "path": str(path), "updated_at": iso(epoch(modified)), "files": [child.name for child in files[:8]]})
-        folders.sort(key=lambda folder: folder["updated_at"], reverse=True)
-        flagged = [line.row() for line in lines if line.verb in INCIDENT_VERBS or "orca-desk: alert" in line.text]
-        return {"lines": flagged[:FEED_LIMIT], "folders": folders[:60]}
+                    folders.append({"slug": path.name, "path": str(path), "at": iso(epoch(modified)), "text": ", ".join(child.name for child in files[:8]), "cite": f"incident:{path.name}"})
+        return folders
 
-    def ledger(self, moment: datetime) -> dict:
-        self.ledger_rows = {}
+    def ledger(self, moment: datetime) -> dict[str, list[dict]]:
         rows = {row["key"]: row["fields"] for row in json.loads(run(["ccn", "-R", self.entry["checkout"], "ledger", "show", self.entry["ledger"], "--json"]))["rows"]}
-        self.ledger_rows = rows
         prs = {key: fields for key, fields in rows.items() if key.isdigit()}
         live = ledger.live_since(rows)
         asks = [
-            {"key": key, "state": ledger.ask_state(fields, prs, moment, live) or "new", **{name: fields.get(name) for name in ("lane", "text", "accept", "asked_at", "prs", "answer")}}
+            {
+                "key": key,
+                "state": ledger.ask_state(fields, prs, moment, live) or "new",
+                "at": fields.get("asked_at"),
+                "cite": f"ask:{key}",
+                **{name: fields.get(name) for name in ("lane", "text", "accept", "prs", "answer")},
+            }
             for key, fields in rows.items()
             if key.startswith(ledger.ASK_PREFIX)
         ]
-        asks.sort(key=lambda ask: ask.get("asked_at") or "", reverse=True)
-        open_rows = []
-        landed = []
+        open_rows, landed = [], []
         for pr, fields in prs.items():
             summary = {
-                "pr": pr,
+                "pr": int(pr),
                 "url": f"https://github.com/{self.entry['repo']}/pull/{pr}",
+                "cite": f"pr:{pr}",
                 "lane": fields.get("lane"),
                 "title": fields.get("title"),
+                "text": fields.get("title") or "",
                 "head": ledger.current_head(fields)[:12],
-                "test_state": fields.get("test_state"),
-                "mergeable_state": fields.get("mergeable_state"),
+                "checks": fields.get("test_state"),
+                "mergeable": fields.get("mergeable_state"),
                 "hold": fields.get("hold_reason") if ledger.is_held(fields) else None,
-                "hold_until": fields.get("hold_until") if ledger.is_held(fields) else None,
                 "waiting": ledger.waiting_reason(fields) if fields.get("reported_head") or fields.get("registered") else "",
-                "queued": ledger.carries_label(fields),
-                "rules_blocked": ledger.rules_blocked(rows, pr),
-                "landed_at": fields.get("landed_at"),
+                "queued": "queued" if ledger.carries_label(fields) else "",
+                "rules": "rules-blocked" if ledger.rules_blocked(rows, pr) else "",
+                "at": fields.get("landed_at") or fields.get("reported_at") or fields.get("registered_at") or fields.get("created_at"),
+                "state": fields.get("state", "open"),
             }
             if ledger.is_open(fields):
                 open_rows.append(summary)
             elif fields.get("state") == ledger.LANDED and fields.get("landed_at"):
                 landed.append(summary)
-        open_rows.sort(key=lambda row: int(row["pr"]), reverse=True)
-        landed.sort(key=lambda row: row["landed_at"] or "", reverse=True)
-        return {
-            "asks": asks,
-            "open": open_rows,
-            "landed": landed[:LANDED_LIMIT],
-            "live_at": live or None,
-            "counts": {
-                "open": len(open_rows),
-                "held": sum(1 for row in open_rows if row["hold"]),
-                "queued": sum(1 for row in open_rows if row["queued"]),
-                "rules_blocked": sum(1 for row in open_rows if row["rules_blocked"]),
-                "landed": len(landed),
-            },
-        }
+        return {"asks": asks, "prs": open_rows, "landed": landed}
 
     def tasks(self, sessions: list[str]) -> tuple[list[dict], str | None]:
         for session in reversed(sessions):
             if directory := task_list_dir(session, transcript_of(self.entry, session)):
-                return read_tasks(directory), str(directory)
+                return [task | {"at": task.get("updated_at"), "text": task.get("subject", ""), "cite": f"task:{task['id']}"} for task in read_tasks(directory)], str(directory)
         return [], None
 
     def compactions(self, sessions: list[str]) -> list[dict]:
@@ -505,54 +500,86 @@ class Collector:
             seen = seen + fresh
             self.compaction_cache[session] = (offset, seen)
             found += seen
-        return sorted(found, key=lambda item: item["at"] or "", reverse=True)
+        return [item | {"cite": f"compaction:{item['at']}", "text": f"{item['trigger']} compaction {item['pre_tokens']} -> {item['post_tokens']} tokens"} for item in found]
 
     def boards(self) -> list[dict]:
+        port = PRESENT_PORT.search(run(["cc-present", "sessions"]))
+        with urllib.request.urlopen(f"http://127.0.0.1:{port['port']}/api/sessions", timeout=HEALTH_TIMEOUT_SECONDS) as response:
+            listing = json.loads(response.read())
         other_roots = {session for entry in drive.drives() if entry["drive"] != self.entry["drive"] for session in entry["sessions"]}
-        boards = [board for board in parse_boards(run(["cc-present", "sessions"])) if board["session"] not in other_roots]
-        return sorted(boards, key=lambda board: board["status"] != "open")
+        rows = []
+        for board in listing:
+            if board.get("sessionId") in other_roots:
+                continue
+            row = {
+                "title": board.get("title") or board["slug"],
+                "slug": board["slug"],
+                "status": board["status"],
+                "at": board.get("updatedAt"),
+                "events": board.get("eventCount"),
+                "url": f"http://127.0.0.1:{port['port']}/p/{board['slug']}",
+                "cite": f"board:{board['slug']}",
+                "session": board.get("sessionId"),
+            }
+            if board["status"] == "open":
+                row |= self.board_outcomes(board)
+            rows.append(row | {"text": row["title"]})
+        return rows
 
-    def notes(self) -> dict:
+    def board_outcomes(self, board: dict) -> dict:
+        marker = f"{board.get('updatedAt')}:{board.get('revision')}:{board.get('eventCount')}"
+        cached = self.board_cache.get(board["subject"])
+        if cached and cached[0] == marker:
+            return cached[1]
+        outcome = json.loads(run(["cc-present", "outcomes", "--session", board["sessionId"], "--no-doc"]))["interactions"]
+        answered = sum(len(outcome.get(kind) or {}) for kind in ("decisions", "choices", "inputs"))
+        facts = {"submitted": "submitted" if (outcome.get("submitted") or {}).get("value") else "not submitted", "answered": answered}
+        self.board_cache[board["subject"]] = (marker, facts)
+        return facts
+
+    def notes(self) -> dict[str, list[dict]]:
         program = program_of(self.entry)
-        logs = sorted(self.ccn("log", "list", "--json"), key=lambda log: log.get("updated_at") or "", reverse=True)
-        answers = self.ccn("answer", "list", "--json", "--limit", str(DOC_LIMIT))
         return {
-            "plans": sorted(self.ccn("plan", "list", "--json"), key=lambda plan: plan.get("updated_at") or "", reverse=True),
-            "progress": self.ccn("doc", "list", "--label", f"progress:{program}", "--json"),
-            "handoffs": self.ccn("doc", "list", "--label", "handoff", "--json", "--limit", str(DOC_LIMIT)),
-            "docs": self.ccn("doc", "list", "--label", program, "--json", "--limit", str(DOC_LIMIT)),
-            "logs": logs[:DOC_LIMIT],
-            "investigations": self.ccn("investigation", "list", "--json"),
-            "answers": answers,
+            "plans": [ccn_row("plan", item) for item in self.ccn("plan", "list", "--json")],
+            "progress": [ccn_row("progress", item) for item in self.ccn("doc", "list", "--label", f"progress:{program}", "--json")],
+            "handoffs": [ccn_row("handoff", item) for item in self.ccn("doc", "list", "--label", "handoff", "--json", "--limit", str(DOC_LIMIT))],
+            "docs": [ccn_row("doc", item) for item in self.ccn("doc", "list", "--label", program, "--json", "--limit", str(DOC_LIMIT * 2))],
+            "logs": [ccn_row("log", item) for item in self.ccn("log", "list", "--json")],
+            "investigations": [ccn_row("investigation", item) for item in self.ccn("investigation", "list", "--json")],
+            "answers": [ccn_row("answer", item) for item in self.ccn("answer", "list", "--json", "--limit", str(DOC_LIMIT * 2))],
         }
 
-    def orca(self) -> dict | None:
+    def orca(self) -> dict[str, list[dict]]:
         if not (run_id := self.entry.get("orca_run")):
-            return None
+            return {"orca": [], "orca_attention": []}
         tasks = json.loads(run(["orca", "orchestration", "task-list", "--run", run_id, "--json"]))["result"]["tasks"]
         workers = self.orca_workers(run_id)
         names = {task["id"]: task.get("display_name") or task.get("task_title") for task in tasks}
         live = {task["id"] for task in tasks if task["status"] not in ("completed", "failed")}
-
-        def task_row(task: dict) -> dict:
-            return {"id": task["id"], "name": task.get("display_name") or task.get("task_title"), "status": task["status"], "created_at": task.get("created_at"), "completed_at": task.get("completed_at")}
-
-        active = [task_row(task) for task in tasks if task["status"] not in ("completed", "failed")]
-        done = sorted((task for task in tasks if task["status"] in ("completed", "failed")), key=lambda task: task.get("completed_at") or "", reverse=True)
+        rows = [
+            {
+                "id": task["id"],
+                "name": names[task["id"]],
+                "status": task["status"],
+                "at": task.get("completed_at") or task.get("created_at"),
+                "text": f"{names[task['id']]} {task['status']}",
+                "cite": f"orca:{task['id']}",
+            }
+            for task in tasks
+        ]
         attention = [
             {
                 "dispatch": worker["dispatchId"],
                 "name": names.get(worker["taskId"]),
-                "categories": (worker["projection"].get("attention") or {}).get("categories", []),
+                "categories": ", ".join((worker["projection"].get("attention") or {}).get("categories", [])),
                 "activity": (worker["projection"].get("stage") or {}).get("activity"),
+                "text": names.get(worker["taskId"]) or worker["dispatchId"],
+                "cite": f"orca:{worker['dispatchId']}",
             }
             for worker in workers
             if worker["taskId"] in live and (worker.get("projection", {}).get("attention") or {}).get("requiresAction")
         ]
-        counts: dict[str, int] = {}
-        for task in tasks:
-            counts[task["status"]] = counts.get(task["status"], 0) + 1
-        return {"run": run_id, "counts": counts, "active": active, "recent": [task_row(task) for task in done[:ORCA_DONE_LIMIT]], "attention": attention}
+        return {"orca": rows, "orca_attention": attention}
 
     def orca_workers(self, run_id: str) -> list[dict]:
         workers: list[dict] = []
@@ -568,60 +595,145 @@ class Collector:
         rows = []
         for path in sorted([*self.inbox_dir.glob(".*.beat"), *self.state_dir.glob("*.beat"), *self.inbox_dir.glob(".*.json")]):
             stat = path.stat()
-            row = {"name": path.name, "path": str(path), "updated_at": iso(epoch(stat.st_mtime)), "age_seconds": int(moment.timestamp() - stat.st_mtime)}
+            row = {"name": path.name, "path": str(path), "at": iso(epoch(stat.st_mtime)), "age_minutes": int(moment.timestamp() - stat.st_mtime) // 60, "text": path.name, "cite": f"watch:{path.name}"}
             if path.suffix == ".json":
                 payload = json.loads(path.read_text())
                 row["pending"] = len(payload.get("pending", [])) if isinstance(payload, dict) else None
             rows.append(row)
         return rows
 
-    def manual(self) -> dict:
-        path = self.state_dir / MANUAL_FILE
-        return {"path": str(path), "sections": parse_manual(path.read_text()) if path.exists() else {}}
+    def release_builds(self, config: dict) -> list[dict]:
+        pipeline = config.get("pipeline", "release")
+        if self.builds is None:
+            self.builds = platy.Builds(self.state_dir / BUILDS_FILE, lambda page: json.loads(run(["bk", "api", f"/pipelines/{pipeline}/builds?per_page={platy.PER_PAGE}&page={page}"], cwd=self.entry["checkout"])))
+        return build_rows(self.builds.refresh())
 
-    def snapshot(self) -> dict:
+    def known_builds(self) -> list[dict]:
+        return build_rows(self.builds.known()) if self.builds else []
+
+    def platy(self, config: dict, builds: list[dict], lines: list[dict]) -> list[dict]:
+        report = views.newest(self.state_dir, config["census"])
+        if report is None:
+            raise FileNotFoundError(f"no census report matches {config['census']} under {self.state_dir}")
+        targets = platy.target_map(Path(self.entry["checkout"]) / config.get("targets", "release/targets.yaml"))
+        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, config.get("overrides") or {})
+        return [row | {"cite": f"stack:{row['stack']}", "census_report": report.name} for row in rows]
+
+    def owner(self, tasks: list[dict], asks: list[dict], lines: list[dict], boards: list[dict], config: dict, moment: datetime) -> list[dict]:
+        rows = []
+        for task in tasks:
+            if task.get("status") != "completed" and not task.get("archived") and is_owner_task(task):
+                rows.append({"kind": "task", "title": task.get("subject"), "state": task.get("status"), "at": task.get("at"), "url": None, "cite": task["cite"]})
+        for ask in asks:
+            if ask["state"] not in OWNER_DONE_ASKS:
+                rows.append({"kind": "ask", "title": ask.get("text"), "state": ask["state"], "at": ask.get("at"), "url": None, "cite": ask["cite"]})
+        for line in open_decisions(lines, iso(moment - LANE_WINDOW)):
+            rows.append({"kind": "decide", "title": line["text"], "state": line["lane"], "at": line["at"], "url": line["url"], "cite": line["cite"]})
+        for board in boards:
+            if board["status"] == "open" and board.get("submitted") != "submitted":
+                rows.append({"kind": "board", "title": board["title"], "state": f"{board.get('submitted', '')}, {board.get('answered', 0)} answered", "at": board["at"], "url": board["url"], "cite": board["cite"]})
+        for name in config.get("owner_files") or []:
+            path = self.state_dir / name
+            if path.exists():
+                rows += [{"kind": "pending", "title": f"{item['title']}: {item['detail']}", "state": name, "at": iso(epoch(path.stat().st_mtime)), "url": None, "cite": f"file:{name}:{item['line']}"} for item in owner_bullets(path)]
+        for number, item in enumerate(manual_items(config.get("owner")), 1):
+            rows.append({"kind": "manual", "title": item.get("text"), "state": "manual", "at": None, "url": item.get("url"), "cite": f"manual:owner:{number}"})
+        return [row | {"text": row["title"] or ""} for row in rows]
+
+    def snapshot(self) -> tuple[dict, dict[str, list[dict]]]:
         moment = now()
         errors: dict[str, str] = {}
-        try:
-            self.entry = drive.find(self.entry["drive"], None) or self.entry
-        except (OSError, ValueError) as failure:
-            errors["registry"] = str(failure)[:300]
-        sessions = self.entry["sessions"]
 
         def guarded(name: str, read, default):
             try:
                 return read()
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError, KeyError) as failure:
-                detail = getattr(failure, "stderr", "") or str(failure)
-                detail = detail.decode(errors="replace") if isinstance(detail, bytes) else detail
-                errors[name] = (detail.strip().splitlines() or [type(failure).__name__])[-1][:300]
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError, KeyError, TypeError) as failure:
+                errors[name] = failure_text(failure)
                 return default
 
-        lines = guarded("inbox", self.inbox, [])
+        self.entry = guarded("registry", lambda: drive.find(self.entry["drive"], None), None) or self.entry
+        config = guarded("dashboard.yaml", self.config, {})
+        sessions = self.entry["sessions"]
+        lines = [
+            line.row() | {"url": f"/inbox/{line.file}?line={line.number}", "cite": f"inbox:{line.file}:{line.number}"}
+            for line in guarded("inbox", self.inbox, [])
+        ]
         tasks, task_dir = guarded("tasks", lambda: self.tasks(sessions), ([], None))
-        self.lines, self.task_rows = lines, tasks
-        open_tasks = sorted((task for task in tasks if task.get("status") in ("in_progress", "pending")), key=lambda task: (task.get("status") != "in_progress", -int(task["id"]) if str(task["id"]).isdigit() else 0))
-        completed = sorted((task for task in tasks if task.get("status") == "completed"), key=lambda task: task.get("updated_at") or "", reverse=True)
+        ledger_rows = guarded("ledger", lambda: self.ledger(moment), {"asks": [], "prs": [], "landed": []})
+        boards = guarded("boards", self.boards, [])
         compactions = guarded("compactions", lambda: self.compactions(sessions), [])
-        return {
-            "generated_at": iso(moment),
-            "drive": {key: self.entry.get(key) for key in ("drive", "ledger", "repo", "checkout", "state_dir", "orca_run", "sessions", "started_at")} | {"program": program_of(self.entry), "task_dir": task_dir},
-            "errors": errors,
+        platy_config = config.get("platy")
+        builds = (guarded("builds", lambda: self.release_builds(platy_config), None) or self.known_builds()) if platy_config else []
+        sources: dict[str, list[dict]] = {
+            "inbox": lines,
             "lanes": self.lanes(lines, tasks, moment),
-            "incidents": guarded("incidents", lambda: self.incidents(lines), {"lines": [], "folders": []}),
-            "rulings": [line.row() for line in lines if line.verb in RULING_VERBS][:FEED_LIMIT],
-            "releases": [line.row() for line in lines if line.verb in RELEASE_VERBS][:FEED_LIMIT],
-            "census": [line.row() for line in lines if line.verb in CENSUS_VERBS][:FEED_LIMIT],
-            "feed": [line.row() for line in lines[:FEED_LIMIT]],
-            "ledger": guarded("ledger", lambda: self.ledger(moment), None),
-            "tasks": {"open": open_tasks, "completed": completed[:COMPLETED_TASKS], "total": len(tasks)},
-            "boards": guarded("boards", self.boards, []),
-            "notes": guarded("notes", self.notes, None),
-            "compactions": {"count": len(compactions), "last_at": compactions[0]["at"] if compactions else None, "recent": compactions[:20]},
-            "orca": guarded("orca", self.orca, None),
+            "tasks": tasks,
+            "incidents": guarded("incidents", self.incidents, []),
+            "boards": boards,
+            "compactions": compactions,
             "watches": guarded("watches", lambda: self.watches(moment), []),
-            "manual": guarded("manual", self.manual, {"sections": {}}),
+            "builds": builds,
+            "manual": [item | {"section": section, "cite": f"manual:{section}:{number}"} for section, items in config.items() if section in MANUAL_SECTIONS for number, item in enumerate(manual_items(items), 1)],
+            **ledger_rows,
+            **guarded("notes", self.notes, {kind: [] for kind in NOTE_SOURCES}),
+            **guarded("orca", self.orca, {"orca": [], "orca_attention": []}),
         }
+        sources["owner"] = guarded("owner", lambda: self.owner(tasks, ledger_rows["asks"], lines, boards, config, moment), [])
+        sources["platy"] = guarded("platy", lambda: self.platy(platy_config, builds, lines), []) if platy_config else []
+        sources["platy_targets"] = platy.target_rows(sources["platy"])
+        latest = compactions[-1] if compactions else {}
+        sources["drive"] = [
+            {key: self.entry.get(key) for key in ("drive", "ledger", "repo", "checkout", "state_dir", "orca_run", "started_at")}
+            | {
+                "program": program_of(self.entry),
+                "task_dir": task_dir,
+                "sessions": ", ".join(sessions),
+                "compactions": len(compactions),
+                "last_compaction": latest.get("at"),
+                "open_prs": len(ledger_rows["prs"]),
+                "open_tasks": sum(1 for task in tasks if task.get("status") in ("in_progress", "pending")),
+                "inbox_lines": len(lines),
+                "at": iso(moment),
+            }
+        ]
+        loaders = Loaders(self.state_dir, self.entry["checkout"])
+        rendered = []
+        for spec in views.merge(default_views(), config.get("views") or []):
+            try:
+                data = views.render(spec, sources, loaders, moment)
+                rendered.append({key: spec.get(key) for key in VIEW_KEYS} | {"data": data})
+            except (views.SpecError, re.error, KeyError, ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
+                rendered.append({key: spec.get(key) for key in VIEW_KEYS} | {"error": failure_text(failure)})
+        state = {
+            "generated_at": iso(moment),
+            "drive": sources["drive"][0],
+            "errors": errors,
+            "views": rendered,
+            "sections": [str(section) for section in config.get("sections") or []],
+        }
+        return state, sources
+
+
+@dataclass
+class Loaders:
+    state_dir: Path
+    checkout: str
+
+    def text(self, spec: dict) -> str:
+        if ident := spec.get("ccn"):
+            return run(["ccn", "-R", self.checkout, "show", str(ident)])
+        path = views.newest(self.state_dir, spec["file"])
+        if path is None:
+            raise FileNotFoundError(f"nothing matches {spec['file']} under {self.state_dir}")
+        return path.read_text(errors="replace")
+
+    def table(self, spec: dict) -> list[dict]:
+        rows = views.select_table(self.text(spec), spec.get("table"))
+        return [{key.replace(" ", "_").replace("/", "_"): value for key, value in row.items()} for row in rows]
+
+
+def default_views() -> list[dict]:
+    return yamlish.loads(DEFAULT_VIEWS.read_text())["views"]
 
 
 def page() -> bytes:
@@ -674,12 +786,13 @@ class Dashboard(ThreadingHTTPServer):
         self.authorities = {f"127.0.0.1:{self.server_address[1]}", f"localhost:{self.server_address[1]}"}
         self.collector = collector
         self.interval = interval
-        self.state: dict = {"generated_at": None, "drive": {"drive": collector.entry["drive"]}}
+        self.state: dict = {"generated_at": None, "drive": {"drive": collector.entry["drive"]}, "views": [], "errors": {}}
+        self.sources: dict[str, list[dict]] = {}
         self.stopping = threading.Event()
 
     def poll(self) -> None:
         while not self.stopping.is_set():
-            self.state = self.collector.snapshot()
+            self.state, self.sources = self.collector.snapshot()
             self.stopping.wait(self.interval)
 
 
@@ -709,9 +822,7 @@ class Handler(BaseHTTPRequestHandler):
         return chat.Sources(
             state=self.server.state,
             state_dir=collector.state_dir,
-            inbox=lambda: collector.lines,
-            tasks=lambda: collector.task_rows,
-            ledger_rows=lambda: collector.ledger_rows,
+            rows=lambda: self.server.sources,
             ccn=chat.run_ccn(collector.entry["checkout"]),
         )
 
@@ -721,24 +832,28 @@ class Handler(BaseHTTPRequestHandler):
         self.text(421, "misdirected request\n")
         return True
 
+    def json(self, payload) -> None:
+        self.send(200, json.dumps(payload).encode(), "application/json")
+
     def do_GET(self) -> None:
         if self.foreign():
             return
         url = urlparse(self.path)
+        query = parse_qs(url.query)
         entry = self.server.collector.entry
         if url.path == "/":
             self.send(200, page(), "text/html; charset=utf-8")
         elif url.path == "/state.json":
-            self.send(200, json.dumps(self.server.state).encode(), "application/json")
+            self.json(self.server.state)
         elif url.path == "/healthz":
-            self.send(200, json.dumps({"drive": entry["drive"], "script": str(Path(__file__).resolve()), "pid": os.getpid()}).encode(), "application/json")
+            self.json({"drive": entry["drive"], "script": str(Path(__file__).resolve()), "pid": os.getpid()})
         elif url.path.startswith("/ccn/") and CCN_ID.match(ident := url.path.removeprefix("/ccn/")):
             try:
                 self.text(200, run(["ccn", "-R", entry["checkout"], "show", ident]))
             except subprocess.CalledProcessError as failure:
                 self.text(404, failure.stderr)
         elif url.path.startswith("/inbox/"):
-            self.inbox_excerpt(unquote_url(url.path.removeprefix("/inbox/")), parse_qs(url.query))
+            self.inbox_excerpt(unquote_url(url.path.removeprefix("/inbox/")), query)
         elif url.path == "/ai.json":
             if chat.key():
                 self.send(200, json.dumps(chat.site_config(self.server.chat_token)).encode(), "application/json")
@@ -758,8 +873,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, json.dumps(chat.search(sources, query.get("query", ""))).encode(), "application/json")
             elif verb == "read":
                 self.text(200, chat.read(sources, query.get("ref", "")))
-            elif verb == "state":
-                self.send(200, chat.section(sources.state, query.get("section")).encode(), "application/json")
+            elif verb == "view":
+                self.send(200, chat.view(sources.state, query.get("id")).encode(), "application/json")
             else:
                 self.text(404, "not found")
         except (LookupError, ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
@@ -813,6 +928,7 @@ class Handler(BaseHTTPRequestHandler):
         self.text(200, "stopping\n")
         self.server.stopping.set()
         threading.Thread(target=self.server.shutdown, daemon=True).start()
+
 
 
 def bind(host: str, port: int, collector: Collector, interval: float) -> Dashboard:
@@ -917,7 +1033,7 @@ def cmd_url(args: argparse.Namespace) -> int:
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
-    print(json.dumps(Collector(resolve(args.drive, args.session)).snapshot(), indent=2))
+    print(json.dumps(Collector(resolve(args.drive, args.session)).snapshot()[0], indent=2))
     return 0
 
 
