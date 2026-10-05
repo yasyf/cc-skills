@@ -35,7 +35,7 @@ from lrdash import chat
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 PAGE = Path(__file__).with_name("lr-dashboard.html")
-CHAT_PAGE = Path(__file__).resolve().parents[1] / "templates" / "lr-dashboard-chat.html"
+CHAT_WIDGET = Path(__file__).resolve().parents[1] / "templates" / "lr-dashboard-chat.html"
 SERVER_FILE = Path("dashboard") / "server.json"
 SERVER_LOG = Path("dashboard") / "server.log"
 START_LOCK = Path("dashboard") / "start.lock"
@@ -624,6 +624,38 @@ class Collector:
         }
 
 
+def page() -> bytes:
+    return PAGE.read_text().replace("</body>", CHAT_WIDGET.read_text() + "</body>").encode()
+
+
+def tailnet_host() -> str | None:
+    try:
+        status = json.loads(run(["tailscale", "status", "--json"]))
+    except FileNotFoundError:
+        return None
+    return status["Self"]["DNSName"].rstrip(".") if status.get("BackendState") == "Running" else None
+
+
+def share(port: int) -> str | None:
+    target = f"127.0.0.1:{port}"
+    try:
+        if not (host := tailnet_host()):
+            return None
+        forwards = json.loads(run(["tailscale", "serve", "status", "--json"]) or "{}").get("TCP") or {}
+        if (current := forwards.get(str(port), {}).get("TCPForward", target)) != target:
+            print(f"not shared on the tailnet: port {port} already forwards to {current}", file=sys.stderr, flush=True)
+            return None
+        run(["tailscale", "serve", "--bg", "--yes", "--tcp", str(port), f"tcp://{target}"])
+    except subprocess.CalledProcessError as failure:
+        print(f"not shared on the tailnet: {(failure.stderr or '').strip() or failure}", file=sys.stderr, flush=True)
+        return None
+    return url_of(host, port)
+
+
+def unshare(port: int) -> None:
+    run(["tailscale", "serve", "--tcp", str(port), "off"])
+
+
 def preferred_port(drive_id: str) -> int:
     return PORT_BASE + int(hashlib.sha1(drive_id.encode()).hexdigest()[:8], 16) % PORT_SPAN
 
@@ -639,6 +671,7 @@ class Dashboard(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.token = secrets.token_hex(16)
         self.chat_token = secrets.token_hex(16)
+        self.authorities = {f"127.0.0.1:{self.server_address[1]}", f"localhost:{self.server_address[1]}"}
         self.collector = collector
         self.interval = interval
         self.state: dict = {"generated_at": None, "drive": {"drive": collector.entry["drive"]}}
@@ -669,8 +702,7 @@ class Handler(BaseHTTPRequestHandler):
 
     @property
     def origin(self) -> str:
-        host, port = self.server.server_address[:2]
-        return f"http://{host}:{port}"
+        return f"http://{self.headers['Host']}"
 
     def sources(self) -> chat.Sources:
         collector = self.server.collector
@@ -683,11 +715,19 @@ class Handler(BaseHTTPRequestHandler):
             ccn=chat.run_ccn(collector.entry["checkout"]),
         )
 
+    def foreign(self) -> bool:
+        if self.headers.get("Host") in self.server.authorities:
+            return False
+        self.text(421, "misdirected request\n")
+        return True
+
     def do_GET(self) -> None:
+        if self.foreign():
+            return
         url = urlparse(self.path)
         entry = self.server.collector.entry
         if url.path == "/":
-            self.send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+            self.send(200, page(), "text/html; charset=utf-8")
         elif url.path == "/state.json":
             self.send(200, json.dumps(self.server.state).encode(), "application/json")
         elif url.path == "/healthz":
@@ -699,11 +739,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.text(404, failure.stderr)
         elif url.path.startswith("/inbox/"):
             self.inbox_excerpt(unquote_url(url.path.removeprefix("/inbox/")), parse_qs(url.query))
-        elif url.path == "/chat":
-            self.send(200, CHAT_PAGE.read_bytes(), "text/html; charset=utf-8")
         elif url.path == "/ai.json":
             if chat.key():
-                self.send(200, json.dumps(chat.site_config(self.origin, self.server.chat_token)).encode(), "application/json")
+                self.send(200, json.dumps(chat.site_config(self.server.chat_token)).encode(), "application/json")
             else:
                 self.text(404, f"{chat.KEY_ENV} is not set in the dashboard's environment\n")
         elif url.path.startswith("/ask/"):
@@ -761,6 +799,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
 
     def do_POST(self) -> None:
+        if self.foreign():
+            return
         if urlparse(self.path).path == "/ai/chat/completions":
             self.relay()
             return
@@ -791,6 +831,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     server = bind(args.host, args.port or preferred_port(entry["drive"]), Collector(entry), args.interval)
     host, port = server.server_address[:2]
     record = {"drive": entry["drive"], "pid": os.getpid(), "host": host, "port": port, "url": url_of(host, port), "script": str(Path(__file__).resolve()), "token": server.token, "started_at": iso(now())}
+    if tailnet_url := share(port):
+        record["tailnet_url"] = tailnet_url
+        server.authorities.add(urlparse(tailnet_url).netloc)
     path = server_file(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
@@ -799,6 +842,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     threading.Thread(target=server.poll, daemon=True).start()
     print(record["url"], flush=True)
     server.serve_forever()
+    if tailnet_url:
+        unshare(port)
     return 0
 
 
@@ -867,7 +912,7 @@ def start(entry: dict, host: str) -> int:
 def cmd_url(args: argparse.Namespace) -> int:
     if not (record := running(resolve(args.drive, args.session))):
         return 1
-    print(record["url"])
+    print(record.get("tailnet_url", record["url"]))
     return 0
 
 

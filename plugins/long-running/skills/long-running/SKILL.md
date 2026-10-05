@@ -1749,13 +1749,17 @@ drive. No agent step is needed. The hooks start it detached so they never block 
 session and print no URL. Get the URL with `lr-dashboard.py url`.
 Open it to read the drive's state.
 
-Open `/chat` on the dashboard server to ask about owner asks, quiet lanes, recent
-landings, or the latest census. Each question starts with a digest of the drive; the
-chat can search inbox history, tasks, ledger rows, boards, and cc-notes, read source
-records, and inspect state sections. Answers link back to the refs they cite. The
-server uses Cerebras's `gpt-oss-120b` with `CEREBRAS_API_KEY` set in its environment;
-the browser receives a local chat token, never that key. If the server started
-without the key, restart it with the variable set and reload the page.
+Open the URL printed by `lr-dashboard.py url` and click **Ask** in the bottom-right
+corner to ask about owner asks, quiet lanes, recent landings, or the latest census.
+Chat opens in a floating window over the dashboard and preserves its open state and
+history across refreshes in the same tab. When Tailscale is running, the URL is
+`http://<MagicDNS name>:<port>/`, and anyone on the tailnet can open the dashboard and
+use chat. Each question starts with a digest of the drive; the chat can search inbox
+history, tasks, ledger rows, boards, and cc-notes, read source records, and inspect
+state sections. Answers link back to the refs they cite. The server uses Cerebras's
+`gpt-oss-120b` with `CEREBRAS_API_KEY` set in its environment; the browser receives a
+per-server chat token, never that key. If the server started without the key, restart
+it with the variable set and reload the page.
 
 Run `lr-dashboard.py start --drive <id>` to start it by hand. Use `lr-dashboard.py url`
 to print the running URL, `lr-dashboard.py snapshot` for JSON, and `lr-dashboard.py serve`
