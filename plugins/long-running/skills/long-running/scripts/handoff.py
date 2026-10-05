@@ -53,6 +53,7 @@ from pathlib import Path
 import drive
 import inboxes
 import ledger
+import rulings
 import standing
 
 DIGEST_BUDGET = 2000
@@ -70,8 +71,6 @@ GENERATED_MARK = "(generated)"
 PROVENANCE = re.compile(r"^_From (.+?)(?:, carried forward)?\._\n\n")
 CLOSED_ASKS = (ledger.ASK_DROPPED, ledger.ASK_ANSWERED, ledger.ASK_LIVE)
 LANE_TYPES = ("subagent", "teammate", "workflow", "cloud session")
-OWNER_TAGS = frozenset({"from:owner", "source:askuserquestion", "owner-ruling", "owner-rule", "owner"})
-REGISTER_SUFFIX = "-standing-rules.md"
 
 
 @dataclass
@@ -88,7 +87,7 @@ class Handoff:
     plan: str
     at: datetime
     registry: dict | None = None
-    durable: list[dict] = field(default_factory=list)
+    register: dict | None = None
     standing: dict[str, str] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     superseded: dict[str, str] = field(default_factory=dict)
@@ -104,7 +103,6 @@ class Handoff:
     narrative: str = ""
     narrative_from: str = ""
     narrative_edit: str = "in your next progress record"
-    sessions: list[str] = field(default_factory=list)
     record: str | None = None
     generated: str | None = None
     stale: list[str] = field(default_factory=list)
@@ -125,23 +123,6 @@ def clip(text: str, limit: int) -> str:
 
 def ccn_json(shell: ledger.Shell, repo: str, *args: str) -> object:
     return json.loads(shell.run(["ccn", "-R", repo, *args, "--json"]) or "null")
-
-
-def created_in(shell: ledger.Shell, repo: str, answer_id: str) -> str | None:
-    history = ccn_json(shell, repo, "answer", "history", answer_id) or []
-    return next((entry.get("session") for entry in history if entry["kind"] == "create"), None)
-
-
-def durable_answers(shell: ledger.Shell, repo: str, program: str, sessions: list[str]) -> list[dict]:
-    found: dict[str, dict] = {}
-    for label in (program, f"progress:{program}"):
-        for answer in ccn_json(shell, repo, "answer", "list", "--label", "scope:durable", "--label", label, "--limit", "0") or []:
-            found.setdefault(answer["id"], answer)
-    if sessions:
-        for answer in ccn_json(shell, repo, "answer", "list", "--label", "scope:durable", "--limit", "0") or []:
-            if answer["id"] not in found and OWNER_TAGS & set(answer["tags"]) and created_in(shell, repo, answer["id"]) in sessions:
-                found[answer["id"]] = answer
-    return sorted(found.values(), key=lambda answer: (answer.get("updated_at", ""), answer["id"]), reverse=True)
 
 
 def live_answer_ids(shell: ledger.Shell, repo: str) -> set[str]:
@@ -238,13 +219,7 @@ def fresh_record(shell: ledger.Shell, repo: str, docs: list[dict], session: str 
 
 
 def rule_lines(handoff: Handoff) -> list[str]:
-    lines = standing.register_lines(handoff.durable)
-    lines += [f"- {text}" for text in handoff.standing.values()]
-    return lines + [f"- {line}" for line in handoff.retired]
-
-
-def register_of(handoff: Handoff) -> str:
-    return standing.register(rule_lines(handoff))
+    return [f"- {text}" for text in handoff.standing.values()] + [f"- {line}" for line in handoff.retired]
 
 
 def render(handoff: Handoff) -> str:
@@ -255,7 +230,7 @@ def render(handoff: Handoff) -> str:
         f"Generated from sources by the long-running compaction hook at {handoff.at:%Y-%m-%dT%H:%M:%SZ}. "
         f"Every section above `{NARRATIVE}` is rebuilt at each handoff; change the sources, never this doc.",
         "",
-        register_of(handoff),
+        standing.section_of(handoff.register, rule_lines(handoff)),
         "## Read first",
         f"- Plan: `{handoff.plan}`",
     ]
@@ -316,18 +291,23 @@ def uncited_narrative_lines(handoff: Handoff, live: set[str]) -> list[str]:
 
 def check(handoff: Handoff, previous: str | None, live: set[str]) -> None:
     retire(handoff, previous)
-    handoff.findings = standing.rule_findings(render(handoff), previous, handoff.durable)
+    handoff.findings = standing.rule_findings(render(handoff), previous, handoff.register)
     handoff.findings += uncited_inbox_rules(handoff, live) + uncited_narrative_lines(handoff, live)
     handoff.plan_findings = uncited_plan_lines(Path(handoff.plan), live)
 
 
-def digest(handoff: Handoff, doc: str, register: str) -> str:
+def digest(handoff: Handoff, doc: str) -> str:
+    first = (
+        f"read the standing rules register `ccn doc show {handoff.register['id'][:SHORT]}`: it arrives verbatim with your next "
+        f"tool result, binds every lane brief, and outranks the summary. Then read {doc}"
+        if handoff.register
+        else f"read {doc}"
+    )
     return "\n".join(
         [
-            f"Compacted long-running drive `{handoff.program}`. Before acting, read the standing rules register {register}: "
-            "it arrives verbatim with your next tool results, binds every lane brief, and outranks the summary. "
-            f"Then read {doc}, then `{handoff.plan}`. Reload Skill `long-running` if its rules are gone.",
-            f"Register: {len(handoff.durable)} owner answers, {len(handoff.standing)} live standing inbox rules.",
+            f"Compacted long-running drive `{handoff.program}`. Before acting, {first}, then `{handoff.plan}`. "
+            "Reload Skill `long-running` if its rules are gone.",
+            f"Register: {standing.rule_count(handoff.register)} owner-approved rules, {len(handoff.standing)} live standing inbox rules.",
             f"Open: {len(handoff.asks)} owner asks, {len(handoff.tasks)} tasks, {len(handoff.lanes)} lanes, "
             f"{len(handoff.monitors)} monitors, {len(handoff.findings) + len(handoff.plan_findings)} lint findings.",
         ]
@@ -342,16 +322,11 @@ def progress_file(plan: Path, stamp: str) -> Path:
     return progress_folder(plan) / f"{stamp}-generated.md"
 
 
-def register_file(plan: Path) -> Path:
-    return plan.with_name(f"{plan.stem}{REGISTER_SUFFIX}")
-
-
 def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str | None]:
     plan = Path(args.plan).expanduser()
     session = json.loads(sys.stdin.read() if args.session == "-" else Path(args.session).read_text()) if args.session else {}
     registry = drive.find(None, session["session_id"]) if session.get("session_id") else None
     handoff = Handoff(program=args.program, plan=str(plan), at=datetime.now(timezone.utc), registry=registry)
-    handoff.sessions = (registry or {}).get("sessions") or ([session["session_id"]] if session.get("session_id") else [])
     background = session.get("background", [])
     handoff.lanes = [task for task in background if task["type"] in LANE_TYPES]
     handoff.monitors = [task for task in background if task["type"] not in LANE_TYPES]
@@ -369,7 +344,7 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
             handoff.narrative, handoff.narrative_from = narrative_of(previous), carried_from(previous, f"file {files[-1].name}")
         check(handoff, previous, set())
         return handoff, previous
-    handoff.durable = durable_answers(shell, args.repo, args.program, handoff.sessions)
+    handoff.register = rulings.register(shell, args.repo, args.program)
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     docs = active_progress(shell, args.repo, args.program)
@@ -399,13 +374,9 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
     path = progress_file(Path(handoff.plan), handoff.stamp)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown)
-    rules = register_file(Path(handoff.plan))
-    rules.write_text(register_of(handoff))
     if args.folder:
-        out = {"id": None, "file": str(path), "register": None, "register_file": str(rules)}
-        print(json.dumps(out | {"digest": digest(handoff, f"the generated handoff `{path}`", f"`{rules}`")}))
+        print(json.dumps({"id": None, "file": str(path), "register": None, "digest": digest(handoff, f"the generated handoff `{path}`")}))
         return 0
-    register = write_register(handoff, shell, args.repo, rules.read_text())
     written = write_progress(handoff, shell, args.repo, markdown)
     for stale in handoff.stale:
         shell.run(["ccn", "-R", args.repo, "doc", "supersede", stale, "--by", written])
@@ -416,25 +387,9 @@ def cmd_generate(args: argparse.Namespace, shell: ledger.Shell) -> int:
         )
         return SEVERAL_ACTIVE
     doc = f"the progress doc `ccn doc show {written[:SHORT]}`"
-    out = {"id": written, "file": str(path), "register": register, "register_file": str(rules)}
-    print(json.dumps(out | {"digest": digest(handoff, doc, f"`ccn doc show {register[:SHORT]}`")}))
+    register = handoff.register["id"] if handoff.register else None
+    print(json.dumps({"id": written, "file": str(path), "register": register, "digest": digest(handoff, doc)}))
     return 0
-
-
-def write_register(handoff: Handoff, shell: ledger.Shell, repo: str, body: str) -> str:
-    label = f"standing-rules:{handoff.program}"
-    docs = ccn_json(shell, repo, "doc", "list", "--label", label) or []
-    if not docs:
-        when = f"Writing any {handoff.program} lane brief, or resuming the drive: carry every rule verbatim"
-        argv = ["ccn", "-R", repo, "doc", "add", f"{handoff.program}: standing rules register", "--label", label, "--when", when, "--body", "-", "--json"]
-        return json.loads(shell.run(argv, stdin=body))["id"]
-    current = max(docs, key=lambda doc: doc["updated_at"])["id"]
-    if doc_body(shell, repo, current) != body:
-        shell.run(["ccn", "-R", repo, "doc", "edit", current, "--body", "-"], stdin=body)
-    for stale in docs:
-        if stale["id"] != current:
-            shell.run(["ccn", "-R", repo, "doc", "supersede", stale["id"], "--by", current])
-    return current
 
 
 def write_progress(handoff: Handoff, shell: ledger.Shell, repo: str, markdown: str) -> str:
@@ -457,7 +412,7 @@ def cmd_lint(args: argparse.Namespace, shell: ledger.Shell) -> int:
         else doc_body(shell, args.repo, args.previous_doc) if args.previous_doc else None
     )
     live = live_answer_ids(shell, args.repo)
-    problems = standing.lint(lint_view(body), previous, durable_answers(shell, args.repo, args.program, []), live)
+    problems = standing.lint(lint_view(body), previous, rulings.register(shell, args.repo, args.program), live)
     if args.plan:
         problems += uncited_plan_lines(Path(args.plan).expanduser(), live)
     for problem in problems:

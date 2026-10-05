@@ -40,6 +40,8 @@ SLUG = re.compile(r"progress:([\w.-]+)")
 COMPACT_JOB = Path(__file__).with_name("compact_job.py")
 SCRIPTS = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
 HANDOFF = SCRIPTS / "handoff.py"
+RULINGS = SCRIPTS / "rulings.py"
+NO_REGISTER = {f"{sys.executable} {RULINGS} register": "null"}
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
 GENERATE_TIMEOUT_SECONDS = 120
@@ -52,7 +54,6 @@ GENERATED_STUB = json.dumps(
         "id": "d" * 40,
         "file": "/p/brook-progress/x-generated.md",
         "register": "e" * 40,
-        "register_file": "/p/brook-standing-rules.md",
         "digest": "Compacted long-running drive `brook`.",
     }
 )
@@ -85,7 +86,6 @@ class CompactionState(WorkflowState):
     generated_doc: str | None = None
     compacted_at: float | None = None
     register_doc: str | None = None
-    register_file: str | None = None
     register_parts: list[str] = []
     register_total: int = 0
 
@@ -151,7 +151,7 @@ def adopt(state: CompactionState, generated: subprocess.CompletedProcess[str]) -
     result = json.loads(generated.stdout)
     state.digest, state.failure, state.generated_at = result["digest"], None, time.time()
     state.active_doc = result["id"]
-    state.register_doc, state.register_file = result["register"], result["register_file"]
+    state.register_doc = result["register"]
     if result["id"]:
         state.generated_doc = result["id"]
         point_doc(state, result["id"])
@@ -222,9 +222,19 @@ def register_parts(text: str, limit: int = REGISTER_PART_BYTES) -> list[str]:
     return [*parts, current] if current else parts
 
 
-def queue_register(state: CompactionState) -> None:
-    if state.register_file and (path := Path(state.register_file)).is_file():
-        state.register_parts = register_parts(path.read_text())
+def rulings(cwd: str, *args: str, stdin: str = "") -> str:
+    argv = [sys.executable, str(RULINGS), *args, "--repo", cwd]
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=CCN_TIMEOUT_SECONDS, check=True, cwd=cwd).stdout
+
+
+def register_of(cwd: str, *which: str) -> dict | None:
+    return json.loads(rulings(cwd, "register", *which))
+
+
+def queue_register(state: CompactionState, cwd: str) -> None:
+    if state.store == "ccn" and state.slug and (register := register_of(cwd, "--program", state.slug)):
+        state.register_doc = register["id"]
+        state.register_parts = register_parts(register["body"])
         state.register_total = len(state.register_parts)
 
 
@@ -421,6 +431,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(
             source="compact",
+            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` before anything else, then the progress "
@@ -428,6 +439,7 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         ),
         Input(
             source="compact",
+            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="due")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` .* Your narrative was not written before compaction; "
@@ -437,20 +449,24 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             source="compact", transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]
         ): Allow(),
         Input(
-            source="compact", state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
+            source="compact", commands=NO_REGISTER,
+            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
         Input(source="resume", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]): Allow(),
         Input(
             source="resume",
+            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", store="folder")],
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the newest file in `/p/brook-progress/`; "),
         Input(
             source="compact",
+            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
         ): Warn(pattern=r"^Compacted long-running drive `brook`\.$"),
         Input(
             source="compact",
+            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
         ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
     },
@@ -461,7 +477,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
-            queue_register(state)
+            queue_register(state, evt.cwd)
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
@@ -478,7 +494,7 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-        queue_register(state)
+        queue_register(state, evt.cwd)
     if digest:
         return evt.context(digest + pending)
     follow_up = (
@@ -523,7 +539,7 @@ def deliver_register(evt: BaseHookEvent) -> HookResult | None:
             return None
         number = state.register_total - len(state.register_parts) + 1
         part, state.register_parts = state.register_parts[0], state.register_parts[1:]
-        total, name = state.register_total, (state.register_doc or "")[:SHORT] or state.register_file
+        total, name = state.register_total, (state.register_doc or "")[:SHORT]
     return evt.context(
         f"Standing rules register `{name}`, part {number} of {total}, verbatim; it binds every lane brief.",
         f"{REGISTER_FENCE}\n{part}{REGISTER_FENCE}",
