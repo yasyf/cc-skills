@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import threading
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 
 import pytest
@@ -107,12 +111,53 @@ def test_tailnet_host_reads_the_magicdns_name_only_while_tailscale_runs(monkeypa
     assert dashboard.share(8993) is None
 
 
+RUNNING = {"BackendState": "Running", "Self": {"DNSName": "studio.tail71af5d.ts.net."}}
+
+
+def tailscale(forwards: dict, calls: list):
+    def run(argv):
+        calls.append(argv)
+        return json.dumps(RUNNING if argv[1] == "status" else {"TCP": forwards} if argv[2] == "status" else "")
+
+    return run
+
+
 def test_share_forwards_the_dashboard_port_over_the_tailnet(monkeypatch):
     calls = []
-    status = {"BackendState": "Running", "Self": {"DNSName": "studio.tail71af5d.ts.net."}}
-    monkeypatch.setattr(dashboard, "run", lambda argv: calls.append(argv) or json.dumps(status))
+    monkeypatch.setattr(dashboard, "run", tailscale({}, calls))
     assert dashboard.share(8993) == "http://studio.tail71af5d.ts.net:8993/"
     assert calls[-1] == ["tailscale", "serve", "--bg", "--yes", "--tcp", "8993", "tcp://127.0.0.1:8993"]
+
+
+def test_share_never_replaces_another_services_forward(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dashboard, "run", tailscale({"8993": {"TCPForward": "127.0.0.1:5432"}}, calls))
+    assert dashboard.share(8993) is None
+    assert not any("--bg" in argv for argv in calls)
+
+
+def test_a_tailscale_failure_leaves_the_dashboard_local(monkeypatch):
+    def run(argv):
+        raise subprocess.CalledProcessError(1, argv, stderr="failed to connect to local Tailscale daemon")
+
+    monkeypatch.setattr(dashboard, "run", run)
+    assert dashboard.share(8993) is None
+
+
+@pytest.mark.parametrize(("host", "status"), [("127.0.0.1:{port}", 200), ("localhost:{port}", 200), ("studio.tail71af5d.ts.net:{port}", 200), ("rebound.example:{port}", 421)])
+def test_the_server_answers_only_its_own_authorities(tmp_path, host, status):
+    server = dashboard.bind("127.0.0.1", 0, dashboard.Collector({"drive": "d", "state_dir": str(tmp_path)}), 60)
+    port = server.server_address[1]
+    server.authorities.add(f"studio.tail71af5d.ts.net:{port}")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/healthz", headers={"Host": host.format(port=port)})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == status
+    except urllib.error.HTTPError as failure:
+        assert failure.code == status
+    finally:
+        server.shutdown()
 
 
 def test_the_dashboard_page_carries_the_chat_window():

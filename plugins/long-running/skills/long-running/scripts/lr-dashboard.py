@@ -637,10 +637,23 @@ def tailnet_host() -> str | None:
 
 
 def share(port: int) -> str | None:
-    if not (host := tailnet_host()):
+    target = f"127.0.0.1:{port}"
+    try:
+        if not (host := tailnet_host()):
+            return None
+        forwards = json.loads(run(["tailscale", "serve", "status", "--json"]) or "{}").get("TCP") or {}
+        if (current := forwards.get(str(port), {}).get("TCPForward", target)) != target:
+            print(f"not shared on the tailnet: port {port} already forwards to {current}", file=sys.stderr, flush=True)
+            return None
+        run(["tailscale", "serve", "--bg", "--yes", "--tcp", str(port), f"tcp://{target}"])
+    except subprocess.CalledProcessError as failure:
+        print(f"not shared on the tailnet: {(failure.stderr or '').strip() or failure}", file=sys.stderr, flush=True)
         return None
-    run(["tailscale", "serve", "--bg", "--yes", "--tcp", str(port), f"tcp://127.0.0.1:{port}"])
     return url_of(host, port)
+
+
+def unshare(port: int) -> None:
+    run(["tailscale", "serve", "--tcp", str(port), "off"])
 
 
 def preferred_port(drive_id: str) -> int:
@@ -658,6 +671,7 @@ class Dashboard(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.token = secrets.token_hex(16)
         self.chat_token = secrets.token_hex(16)
+        self.authorities = {f"127.0.0.1:{self.server_address[1]}", f"localhost:{self.server_address[1]}"}
         self.collector = collector
         self.interval = interval
         self.state: dict = {"generated_at": None, "drive": {"drive": collector.entry["drive"]}}
@@ -701,7 +715,15 @@ class Handler(BaseHTTPRequestHandler):
             ccn=chat.run_ccn(collector.entry["checkout"]),
         )
 
+    def foreign(self) -> bool:
+        if self.headers.get("Host") in self.server.authorities:
+            return False
+        self.text(421, "misdirected request\n")
+        return True
+
     def do_GET(self) -> None:
+        if self.foreign():
+            return
         url = urlparse(self.path)
         entry = self.server.collector.entry
         if url.path == "/":
@@ -777,6 +799,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
 
     def do_POST(self) -> None:
+        if self.foreign():
+            return
         if urlparse(self.path).path == "/ai/chat/completions":
             self.relay()
             return
@@ -809,6 +833,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     record = {"drive": entry["drive"], "pid": os.getpid(), "host": host, "port": port, "url": url_of(host, port), "script": str(Path(__file__).resolve()), "token": server.token, "started_at": iso(now())}
     if tailnet_url := share(port):
         record["tailnet_url"] = tailnet_url
+        server.authorities.add(urlparse(tailnet_url).netloc)
     path = server_file(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
@@ -817,6 +842,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     threading.Thread(target=server.poll, daemon=True).start()
     print(record["url"], flush=True)
     server.serve_forever()
+    if tailnet_url:
+        unshare(port)
     return 0
 
 
