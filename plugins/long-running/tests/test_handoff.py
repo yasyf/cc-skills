@@ -153,13 +153,13 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert shell.added[out["id"]].startswith("brook: progress ") and shell.added[out["id"]].endswith(" (generated)")
     for line in (
         "Register `ccn doc show ccccccc`: 2 owner-approved rules, delivered verbatim after every compaction.\n",
-        "- R2 (standing) every landed PR is deployed in the same pass it lands [orca-desk.md]",
+        "- R2 [orca-desk.md]",
         "- ask/000001 lane-a: ask 000001",
-        "- #7 [pending] OWNER: release as merged",
-        "- teammate: orca-desk-6 (running)",
-        "- monitor: batches.jsonl grep (running)",
-        "- orca-desk.md: head R3, cursor R2",
-        "- landing-desk.md: head L1, cursor -",
+        "## Open tasks\n- none in progress\n- 1 pending in `TaskList`\n",
+        "- teammate: orca-desk-6",
+        "- monitor: batches.jsonl grep",
+        "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
+        "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root",
     ):
@@ -306,7 +306,7 @@ def test_folder_mode_calls_no_ccn(drive_home: Path, capsys: pytest.CaptureFixtur
 
     assert out["id"] is None
     assert shell.calls == []
-    assert "- R2 (standing)" in Path(out["file"]).read_text()
+    assert "- R2 [orca-desk.md]" in Path(out["file"]).read_text()
     assert out["register"] is None
     assert out["digest"].startswith(f"Compacted long-running drive `brook`. Before acting, read the generated handoff `{out['file']}`, then ")
     assert "- no `standing-rules` register doc" in Path(out["file"]).read_text()
@@ -381,7 +381,7 @@ def test_a_rule_the_sources_dropped_is_carried_once_as_superseded(drive_home: Pa
 
     body = shell.docs[second["id"]]
     assert "- R2 superseded by R5" in body
-    assert "- R5 (standing) deploy every landing within five minutes [orca-desk.md]" in body
+    assert "- R5 [orca-desk.md]" in body
     assert "## Lint findings\n- plan owner-gate line" in body
     assert "superseded by" not in "\n".join(handoff.standing.section(shell.docs[third["id"]]))
     assert first["id"] != second["id"] != third["id"]
@@ -478,21 +478,22 @@ def test_generate_refuses_a_record_over_the_cap_and_writes_nothing(drive_home: P
     assert not (drive_home / ".claude/plans/brook-progress").exists()
 
 
-def test_open_tasks_and_lanes_list_ten_with_in_progress_first(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_open_tasks_list_only_in_progress_and_lanes_only_running_ten(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     session = json.loads((drive_home / "session.json").read_text())
     session["tasks"] = [{"id": str(n), "status": "pending" if n < 12 else "in_progress", "subject": f"task {n}"} for n in range(13)]
     session["background"] = [{"type": "teammate", "status": "running", "description": f"lane-{n}"} for n in range(14)]
+    session["background"].append({"type": "teammate", "status": "completed", "description": "lane-done"})
     (drive_home / "session.json").write_text(json.dumps(session))
 
     shell = shell_with()
     body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
     tasks = body.split("## Open tasks\n")[1].split("\n\n")[0].splitlines()
-    assert tasks[0] == "- #12 [in_progress] task 12"
-    assert tasks[-1] == "- 3 more in `TaskList`" and len(tasks) == 11
+    assert tasks == ["- #12 task 12", "- 12 pending in `TaskList`"]
     lanes = body.split("## Lanes and monitors\n")[1].split("\n\n")[0].splitlines()
-    assert lanes[0] == "- teammate: lane-13 (running)"
-    assert lanes[-1] == "- 4 more lanes" and len(lanes) == 11
+    assert lanes[0] == "- teammate: lane-13"
+    assert lanes[-1] == "- 4 more running lanes" and len(lanes) == 11
+    assert "lane-done" not in body
 
 
 def test_fold_rewrites_a_doc_in_place_and_refuses_one_over_the_cap(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -513,10 +514,10 @@ def test_fold_rewrites_a_doc_in_place_and_refuses_one_over_the_cap(drive_home: P
     assert "most of it `huge`" in capsys.readouterr().out
 
 
-def test_a_clipped_standing_rule_keeps_its_answer_citation() -> None:
-    text = "every release ships on the owner's word " + "x " * 150 + "(answer 4ffc9a5)"
+def test_a_standing_rule_is_named_by_id_and_its_text_stays_in_the_inbox(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = shell_with()
 
-    clipped = handoff.cited_clip(text, handoff.STANDING_CHARS)
+    body = shell.docs[generate(drive_home, shell, capsys=capsys)["id"]]
 
-    assert clipped.endswith("… (4ffc9a5)")
-    assert standing.cites(clipped, {RULE["id"]})
+    assert "\n".join(standing.section(body)).endswith("- R2 [orca-desk.md]")
+    assert "every landed PR is deployed" not in body

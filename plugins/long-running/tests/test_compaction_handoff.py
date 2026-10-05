@@ -227,7 +227,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["b" * 40]
     augmented = (docs / ("b" * 40 + ".md")).read_text()
     assert augmented.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
-    assert "- teammate: orca-desk-6 (running)" in augmented
+    assert "- teammate: orca-desk-6" in augmented
     assert "read the progress doc `ccn doc show bbbbbbb`, then " in state(session).digest
     assert (state(session).active_doc, state(session).generated_doc) == ("b" * 40, "b" * 40)
     lines = plan.read_text().splitlines()
@@ -532,7 +532,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     handoff.compaction_instructions(precompact(session))
 
     generated = (docs / ("d" * 40 + ".md")).read_text()
-    assert "- R7 (standing) release every landing as it merges [orca-desk.md]" in generated
+    assert "- R7 [orca-desk.md]" in generated
     assert generated.endswith("_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi\n")
     assert ["doc", "supersede", "a" * 40, "--by", "d" * 40] in ccn_calls(docs)
 
