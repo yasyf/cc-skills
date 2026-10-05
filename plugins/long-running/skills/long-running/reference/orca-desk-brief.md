@@ -15,6 +15,7 @@ ranked fix 3).*
 Issue commands with the drive's R/L numbering. Submit a key once per action;
 submitting it again in the same lane returns the existing action. Never `SendMessage`
 a desk.
+Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
 
 ```text
 desk-runner.py relay --config C --key R<n> --lane L --text T [--reply-to <question msg id>]

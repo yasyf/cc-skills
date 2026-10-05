@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import inboxes
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/inbox-watch.py"
@@ -210,7 +211,7 @@ def test_an_urgent_word_past_the_width_still_counts_as_urgent(inbox):
     inbox.run()
     inbox.append(inbox.deploy, "x" * 50 + " INCIDENT late", *[f"#{n} LANDED" for n in range(5)])
     lines = inbox.run("--match", "LANDED", "--width", "10", "--burst", "1")
-    assert lines[0] == "deploy-go.md: " + "x" * 10
+    assert lines[0] == "deploy-go.md: " + "x" * 9 + "…"
     assert lines[1].startswith("+5 more matching lines")
 
 
@@ -224,3 +225,27 @@ def test_a_failed_push_is_retried_after_the_push_window(inbox):
     inbox.append(inbox.runner, "DECIDE x")
     assert inbox.run(*args)[-1] == "PUSHED 1 urgent line(s) to the owner; the push failed: down"
     assert inbox.run(*args, "--push-command", inbox.push_command)[-1] == "PUSHED 1 urgent line(s) to the owner"
+
+
+def test_a_rotated_inbox_resumes_at_the_next_line_without_a_reset(inbox):
+    inbox.run()
+    inbox.append(inbox.runner, "15:30 DECIDE one")
+    assert inbox.run() == ["runner.md: 15:30 DECIDE one"]
+    rotation = inboxes.Inbox(inbox.runner)
+    rotation.rotate(time.time() - 7 * 3600)
+    inbox.append(inbox.runner, "15:31 DECIDE two")
+    inode = inbox.runner.stat().st_ino
+
+    rotation.rotate(time.time())
+
+    assert inbox.runner.stat().st_ino != inode
+    assert inbox.runner.read_text() == "15:31 DECIDE two\n"
+    assert inbox.run() == ["runner.md: 15:31 DECIDE two"]
+    inbox.append(inbox.runner, "15:32 DECIDE three")
+    assert inbox.run() == ["runner.md: 15:32 DECIDE three"]
+
+
+def test_one_oversized_line_costs_at_most_the_display_cap(inbox):
+    inbox.run()
+    inbox.append(inbox.deploy, "DECIDE " + "z" * 1500)
+    assert inbox.run() == ["deploy-go.md: DECIDE " + "z" * 392 + "…"]

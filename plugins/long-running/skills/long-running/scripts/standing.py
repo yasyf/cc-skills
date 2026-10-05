@@ -26,6 +26,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import inboxes
+
 ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
 STANDING_TAG = r"\((?:[^()]*,\s*)?standing\)"
 STANDING_LINE = re.compile(rf"^\s*(?:[-*]\s+)?`?({ID})`?\s+{STANDING_TAG}:?\s+\S")
@@ -153,7 +155,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     violations = []
     live: dict[str, str] = {}
     for path in args.files:
-        inbox = read_inbox(Path(path).read_text().splitlines(), path)
+        inbox = read_inbox([line.text for line in inboxes.Inbox(Path(path)).lines()], path)
         live |= inbox.live()
         violations += inbox.violations
     print(f"live standing: {', '.join(live) or 'none'}")

@@ -1146,6 +1146,21 @@ def test_an_inbox_relay_waits_for_its_newline_and_a_reread_relays_nothing_twice(
     assert len(escalations(tmp_path)) == 1
 
 
+def test_an_hourly_rotation_archives_read_lines_and_the_cursor_still_names_the_next_line(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    desk_inbox(tmp_path, f"R1 orca-desk: relay to {LANE}: first")
+    orca_pass(shell, config)
+    shell.clock += timedelta(hours=7)
+    desk_inbox(tmp_path, f"R2 orca-desk: relay to {LANE}: second")
+    orca_pass(shell, config)
+    path = tmp_path / "inbox/orca-desk.md"
+    assert path.read_text() == f"R2 orca-desk: relay to {LANE}: second\n"
+    assert (tmp_path / "inbox/orca-desk.md.archive").is_dir()
+    orca_pass(shell, config)
+    assert [call[call.index("--subject") + 1] for call in shell.sends()] == ["R1: act R1", "R2: act R2"]
+
+
 def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)

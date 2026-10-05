@@ -144,6 +144,7 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root",
     ):
         assert line in body
+    assert handoff.CATCH_UP.format(directory=drive_home / ".claude/scratch/brook/inbox") in body
     assert "Unrelated" not in body
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]

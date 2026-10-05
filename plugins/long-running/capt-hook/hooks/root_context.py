@@ -259,11 +259,15 @@ def candidates(target: Target) -> Iterator[Path]:
     yield from (target.cwd / match if target.cwd else Path(match) for match in target.expand())
 
 
-def paths(call: Call) -> list[Path]:
+def operand_targets(call: Call) -> list[Target]:
     targets = list(call.targets)
     if call.name in SCRIPT_FIRST and not any(flag.split("=")[0] in SCRIPT_FLAGS for flag in call.flags):
-        targets = targets[1:]
-    return [path for target in targets for path in candidates(target) if path.exists()]
+        return targets[1:]
+    return targets
+
+
+def paths(call: Call) -> list[Path]:
+    return [path for target in operand_targets(call) for path in candidates(target) if path.exists()]
 
 
 def read_target(evt: BaseHookEvent) -> Path | None:
@@ -382,6 +386,27 @@ class ReadsRepoFiles:
         return bool(reads) and not (len(reads) == 1 and bounded_read(reads[0], calls, evt.command.raw))
 
 
+def inbox_file(path: Path) -> bool:
+    return "inbox" in path.parts and path.suffix == ".md"
+
+
+def counts(call: Call) -> bool:
+    arguments = bound(call)
+    return call.name in GREPS and arguments is not None and bool(arguments.values.get("count"))
+
+
+class ReadsInbox:
+    def check(self, evt: BaseHookEvent) -> bool:
+        if read := evt.as_input(ReadCall):
+            return inbox_file(Path(read.file_path))
+        return any(
+            call.name in FILE_READERS
+            and not counts(call)
+            and any(target.path is not None and inbox_file(target.path) for target in operand_targets(call))
+            for call in evt.command.calls()
+        )
+
+
 def root_block(
     *, message: str, only_if: Sequence[object], tests: dict, bypass: bool = True, confirm: Confirm | None = None
 ) -> None:
@@ -395,6 +420,26 @@ def root_block(
         tests=tests,
     )
 
+
+root_block(
+    message="Drive roots read inboxes through `inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>`.",
+    only_if=[ReadsInbox()],
+    tests={
+        Input(command="tail -n 40 ~/.claude/scratch/drive/inbox/deploy-go.md", state=ACTIVE): Block(pattern=r"inbox-digest"),
+        Input(command="grep -n G12 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
+        Input(command="sed -n '1,400p' /drive/inbox/runner.md", state=ACTIVE): Block(),
+        Input(command="cat /drive/inbox/*.md", state=ACTIVE): Block(),
+        Input(tool="Read", tool_input={"file_path": "/drive/inbox/runner.md"}, state=ACTIVE): Block(),
+        Input(command="grep -c G12 /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
+        Input(command="wc -l /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
+        Input(command="cat >> /drive/inbox/orca-desk.md <<'EOF'\nR9 orca-desk: relay to a: go\nEOF", state=ACTIVE): Allow(),
+        Input(command="inbox-digest.py --state /drive/inbox/.inbox-digest.json /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
+        Input(command="tail -n 40 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
+        Input(command="tail -n 40 /drive/inbox/deploy-go.md"): Allow(),
+        Input(command="tail -n 40 /drive/inbox/deploy-go.md", agent_id="a1b2c3", state=ACTIVE): Allow(),
+        Input(command="tail -n 40 /drive/inbox/deploy-go.md # ccx:raw", state=ACTIVE): Allow(),
+    },
+)
 
 root_block(
     message="Lane artifacts are read by a lane, not the drive root. Delegate with `Agent` using `Explore` and `model: sonnet`.",

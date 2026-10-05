@@ -7,10 +7,13 @@
 
 STDLIB ONLY. Prints one line per appended inbox line that matches, prefixed with the
 file's name. ESCALATION, INCIDENT, URGENT, DECIDE, ALERT, and `ASK root` lines always
-match; --match adds more. Each file's byte offset persists in --state after every
-pass, so a re-armed watch resumes exactly where the last one stopped: no gap, and no
-replay. A file the state has never seen starts at its end. A file that shrinks below
-its offset prints one RESET line and resumes at its new end. Beyond --burst matching
+match; --match adds more. Displayed inbox text is clipped to --width characters
+(default 400), ending clipped lines with an ellipsis; stored lines stay whole.
+Each file's byte offset persists in --state after every pass and survives rotation
+through the stream of archives and the live file, so a re-armed watch resumes
+exactly where the last one stopped: no gap, and no replay. A file the state has never
+seen starts at its end. A stream that shrinks below its offset prints one RESET line
+and resumes at its new end. Beyond --burst matching
 lines in one pass, the urgent lines still print and the rest fold into one count.
 
 A --heartbeat file older than its SECONDS prints one WATCH-STALE line per stale
@@ -41,6 +44,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from inboxes import Inbox, clip
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 URGENT = re.compile(r"\b(?:ESCALATION|INCIDENT|URGENT|DECIDE|ALERT)\b|\bASK root\b")
@@ -145,23 +150,22 @@ class Watch:
         if not path.is_file():
             self.state["offsets"].setdefault(key, 0)
             return []
-        size = path.stat().st_size
+        inbox = Inbox(path)
+        end = inbox.end()
         offset = self.state["offsets"].get(key)
         if offset is None:
-            self.state["offsets"][key] = size
+            self.state["offsets"][key] = end
             return []
-        if size < offset:
-            self.state["offsets"][key] = size
-            return [(False, f"RESET {path.name}: shrank from {offset} to {size} bytes; resuming at its end")]
-        with path.open("rb") as handle:
-            handle.seek(offset)
-            appended = handle.read(size - offset)
-        complete = appended[: appended.rfind(b"\n") + 1]
-        self.state["offsets"][key] = offset + len(complete)
+        if end < offset:
+            self.state["offsets"][key] = end
+            return [(False, f"RESET {path.name}: shrank from {offset} to {end} bytes; resuming at its end")]
+        lines = inbox.lines(offset)
+        if lines:
+            self.state["offsets"][key] = lines[-1].end
         return [
-            (bool(URGENT.search(line)), f"{path.name}: {line[: self.args.width]}")
-            for line in complete.decode(errors="replace").splitlines()
-            if line.strip() and self.matches(line)
+            (bool(URGENT.search(line.text)), f"{path.name}: {clip(line.text, self.args.width)}")
+            for line in lines
+            if line.text.strip() and self.matches(line.text)
         ]
 
     def emit(self, lines: list[tuple[bool, str]], now: float) -> None:
@@ -174,7 +178,7 @@ class Watch:
         for line in rest[:room]:
             print(line, flush=True)
         if len(rest) > room:
-            print(f"+{len(rest) - room} more matching lines this pass; read the inbox files from their offsets in {self.state_path}", flush=True)
+            print(f"+{len(rest) - room} more matching lines this pass; catch up with inbox-digest.py --state <drive>/inbox/.inbox-digest.json <files>", flush=True)
 
     def heartbeats(self, now: float) -> None:
         for beat in self.args.heartbeat:
