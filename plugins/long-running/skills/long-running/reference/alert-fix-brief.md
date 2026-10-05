@@ -27,7 +27,10 @@ Do:
   2. Post `MECHANISM {lane}: <mechanism, one line>` within 15 minutes of launch,
      `FIX-LIVE {lane}: <what, where, counts, time>` when the alert recovers, or
      `NOT-OURS {lane}: <evidence and who owns it>`.
-     Append these lines to the drive's deploy inbox named in the drive facts.
+     Post each with `cci post --drive <drive> --lane {lane} --kind <kind>
+     --to <deploy lane> --topic {slug} --text "<line>"`, using the cci drive and
+     deploy lane from the drive facts. Use `mechanism`, `fix-live`, or `report` for the
+     three lines, respectively; attach longer evidence with `--path`.
   3. Open the durable fix as a PR through the repo's submit skill.
 
 Worktree: your own, from a fresh trunk. Times Pacific. No Slack posts.

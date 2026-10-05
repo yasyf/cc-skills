@@ -20,7 +20,7 @@ Channels by history: <channel id: name, one per line>.
   and every #acc-* account channel the drive serves.
 Cursor: <cursor file>; it holds each channel's last ts and each open thread's last
   relayed reply ts, keyed <channel>/<thread_ts>.
-Relay to: <root agent name>; fence inboxes under <state dir>/inbox/.
+Relay to: <root agent name>; cci drive <drive> holds lane fences.
 Incident inbox: <drive>/inbox/orca-desk.md.
 Heartbeat: <state dir>/slack/watch.beat.
 Tools: ToolSearch-load mcp__slack__slack_conversations_history,
@@ -40,10 +40,11 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`;
      that opens with "_(<name>'s Claude)_". Relay each new human reply to
      <root agent name> in one SendMessage line: who, what they said, the permalink,
      and the lane from the thread's post row that asked.
-  4. When an inbox line fences on that thread (`until reply in <channel>/<thread_ts>`),
-     append the unblock line to that fence owner's inbox in the same poll:
-     `<UTC> unblock <fence id>: <person> replied in <channel>/<thread_ts>: <permalink>`.
-  5. Advance the cursor only after the relay and the inbox line are written.
+  4. Read `cci digest --drive <drive> --since 0 --json` for open holds. When a hold
+     waits `until reply in <channel>/<thread_ts>`, post the lift in the same poll:
+     `cci post --drive <drive> --lane <watch lane name> --kind lift --to <fence owner>
+     --re <hold seq> --url <permalink> --text "<person> replied in <channel>/<thread_ts>."`.
+  5. Advance the Slack cursor only after the relay and cci lift are written.
   6. Append a close row only when the owner or the fence owner says the thread is
      done; quote their words in reason.
   7. Touch <state dir>/slack/watch.beat every poll. The root's inbox-watch.py

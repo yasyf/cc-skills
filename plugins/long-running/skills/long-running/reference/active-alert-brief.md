@@ -155,6 +155,8 @@ still covers only its named surface.
 any account update. cc-notes answers `5ad4507`, `d12f767`, and `52f4863`,
 2026-10-03.*
 
+`incident.py` comms still use `scripts/bus.py` until that integration moves to cci.
+
 The executor posts each event to it as a bus `ask` from
 `incident-<id>`. Each entry carries JSON with `event` (`ack`, `pr`,
 `review-request`, `landed`, `live`, or `recovered`), the `grant` id, the `surface`,

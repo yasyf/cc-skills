@@ -42,11 +42,14 @@ D3 priority enqueue, run `ledger.py list --ledger <id> --open` and leave every
 
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
 running desk. If reports show a cursor more than one iteration behind the root's
-last line, the root appends one inbox line naming the unread range and records the
-stall in its progress record; the desk reads it at the top of its next iteration.
-Traffic from a priority desk's lanes goes to that desk's inbox.
-A standing rule goes in as its own `R<n> (standing)` line, and a successor desk's
-brief lists the live standing ids, never a range ([I6](../SKILL.md#desk-inboxes)).
+last addressed record, the root posts one
+`cci post --drive <drive> --lane root --kind go --to <desk> --text "Read unread range #<first>-#<last>."`
+and records the stall in its progress record. The desk reads it at the top of its
+next iteration. Forward a priority desk's lane traffic with `cci post --to <desk>`.
+A standing owner rule gets a `scope:durable` cc-notes answer first, then its own
+`cci post --drive <drive> --lane root --kind go --to <desk> --ccn <answer id> --topic standing --text "<rule>"`.
+A successor brief lists live standing answer ids, never a sequence range,
+under [I6](../SKILL.md#desk-inboxes).
 
 The root records every owner ask with `ledger.py ask` in the turn it arrives, before
 or with dispatch to its own lane. An ask is done only at `LIVE`. Before then, the root
@@ -57,10 +60,11 @@ It closes asks outside that lifecycle with `ledger.py drop` when the owner withd
 them, or `ledger.py answer` for questions rather than shipped work. When the pipeline
 that ships our lanes' PRs runs, the root records it with `ledger.py live`.
 
-Beside the desk's summary the root reads `bus.py summary --bus <id>`: every open ask
-and blocker between lanes with its age, and the latest decisions. An ask older than
-its lane's cadence is dispatched under R6; a blocker on a finished lane's PR gets a
-fresh fix lane. A lane's head or contract is read from `bus.py state`, never asked.
+Beside the desk's summary the root reads `cci digest --drive <drive>`: open asks,
+blockers, holds, incidents, and the latest record per lane. The default window is
+24 hours; widen it with `--since` to inspect older open items. An ask older than its
+lane's cadence is dispatched under R6; a blocker on a finished lane's PR gets a
+fresh fix lane. Read `cci state --drive <drive>` before asking for a head or contract.
 
 Other PR questions go to the desk as a scoped resume and come back as at most five
 lines. The root acts on each `P0` line in the same turn, like a `RULING NEEDED` line.
@@ -74,7 +78,7 @@ root reads it, updates its task list, and sends nothing back.
 ccx: role=desk
 You are landing-desk: the message queue and landing coordinator for this drive.
 Model opus. You run for the whole drive and never end a turn waiting.
-Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line.
+Keep cci text under 400 characters; attach longer bodies with --path and link durable cc-notes records with --ccn.
 
 Authority: reconcile landings; lanes enqueue their own stacks under D1. The
   landing runner owns D3, D14, and D16 where stack-enqueue exists. Read
@@ -98,34 +102,34 @@ Track through `ledger.py`. Where the checkout carries stack-enqueue, never
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
-  bus <id from `bus.py init --title "bus: <drive>"`>; --repo <checkout>
-  holds file <path>, root-owned; root inbox <path>; cursor <path>
-  team mailbox <~/.claude/teams/<team>/inboxes/<lane>.json>
+  cci drive <drive>; desk <desk>; cci cursor <desk>
+  holds file <path>, root-owned; rules-override inbox <path, read by rules-review.py>
+  team mailbox <~/.claude/teams/<team>/inboxes/<desk>.json>; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
-  standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
-    plus the plan's Decisions; an id list, never a range>
-  scripts: ledger.py, bus.py, standing.py, rules-review.py, desk-runner.py and
-  desk-wait.sh, on PATH by name
+  standing rules <live scope:durable answer ids, plus the plan's Decisions;
+    an id list, never a sequence range>
+  tools: cci, ledger.py, rules-review.py, desk-runner.py, and desk-wait.sh, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
-After your own compaction, resume in place. The ledger holds your inbox, holds,
-  routes, labels, and landings. Start at step 0 from your saved cursor and the ledger
+After your own compaction, resume in place. `cci` holds your addressed records and
+  cursor; the ledger holds reports, holds, routes, labels, and landings.
+  Start at step 0 from your saved cci cursor and the ledger
   as it stands; never ask the root to reconstruct your state.
 
 At spawn:
   - In-process desk (every Agent-spawned desk): run one foreground Bash call with
     `timeout: 60000`, running
-    `desk-wait.sh 50 <inbox>=<cursor file> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
-    It waits at most 50 seconds and returns on a new inbox or deadline line, or
-    a `MAILBOX <n> unread` line. On `MAILBOX`, end the Bash call so Claude Code
-    delivers the message at that boundary. Run step 0 on its output and the
-    delivered message, then rerun the call in a loop.
-    Top-level session: arm one inbox Monitor on
-    `inbox-watch.py --state <drive>/inbox/.inbox-watch.json --match '.*' [--heartbeat <lane>=<file>:<seconds>] --session <root session id> <inbox files...>`
-    at timeout 1800000. Include the root inbox file. Re-arm on every exit and
-    after your own compaction. R9 defines its delivery guarantees. Each appended
-    line wakes you; run step 0 on it at once.
+    `desk-wait.sh 50 cci:<drive>:<desk> <team mailbox>=<cursor file> [<other file>=<cursor file>...]`.
+    It waits at most 50 seconds and returns on new addressed records, a new line
+    in another watched file, or a `MAILBOX <n> unread` line. On `MAILBOX`, end the
+    Bash call so Claude Code delivers the message at that boundary. Run step 0
+    on its output and the delivered message, then rerun the call in a loop.
+    Top-level session: arm one Monitor on
+    `cci watch --drive <drive> --cursor <desk> --to <desk>`
+    at timeout 1800000. Re-arm on every exit and after your own compaction.
+    The watch exits by itself after 29 minutes. Run step 0 on its printed records
+    at every wake.
   - In-process desk: run
     `ledger.py watch --repo <repo> --ledger <id> --checkout <path> [--priority <n>]... --once`
     as a foreground step between waits. Top-level session: arm the same command
@@ -142,29 +146,29 @@ At spawn:
 In-process desk: loop over the foreground wait, act on its output, and run the
   periodic watch with `--once` between waits. Run the 3-minute reconciliation
   pass and the 30-minute summary when due in that same foreground loop, never
-  as background Bash or Monitor. Top-level session: block on the inbox Monitor
+  as background Bash or Monitor. Top-level session: block on the cci Monitor
   and run the scheduled pass and summary in the background.
 
 Do, in this order, forever:
-  0. Root inbox file <path>: at the TOP of every iteration, before any other work,
-     act on the lines printed by `desk-wait.sh`, then read every line after your
-     saved cursor and act on each ruling. Advance the cursor every iteration and
-     name `cursor R<n>` in every report. Never report
-     "waiting on the root" before checking the inbox for the answer.
-     A `R<n> (standing)` line holds until a later `R<k> R<n> superseded by <id>`;
-     never report it done. Append `standing.py inbox <inbox file>` output to every
-     report and forward its `violation` lines to the root.
-     The root appends rulings there, because a SendMessage to a looping desk is
-     not delivered mid-turn. In-process desks receive new lines from the
-     foreground wait, which advances the file cursor. Top-level sessions wake
-     on the inbox Monitor; re-arm it on every exit and after your own compaction.
+  0. At the TOP of every iteration, before any other work, act on the records and
+     file lines printed by `desk-wait.sh`, or the records printed by the Monitor.
+     Both readers advance the cci cursor named <desk>. Then run
+     `cci tail --drive <drive> --cursor <desk> --to <desk>` and act on each new
+     record and any delivered message.
+     Repeat a capped read with the same cursor and filters. Name `cursor #<seq>`
+     in every report. Never report "waiting on the root" before checking cci.
+     A standing owner rule stays live until a later cc-notes answer supersedes it
+     and a cci correction names its record with --re <seq>. Never report it done.
+     List live standing answer ids in every report and apply corrections before
+     acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
      Read the holds file's #<n> and lane:<name> entries. For each held lane, read
      every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
      PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
      them when the root removes the line. The landing runner re-reads this set
      at every enqueue; the mirrored ledger can lag the holds file. Rebuild it
      before each step-3 call where the repo has no stack-enqueue.
-     Never edit the holds file. Forward a priority desk's lane traffic to its inbox
+     Never edit the holds file. Forward a priority desk's lane traffic with
+     `cci post --drive <drive> --lane <desk> --kind <kind> --to <priority desk> --text "<traffic>"`
      and stop handling those lanes.
   1. Inbox. Lanes and Orca workers write their own reports into the ledger with
      `ledger.py report`; none reaches you as a message. Run
@@ -283,7 +287,7 @@ Do, in this order, forever:
      `ledger.py route` after every refresh sends each red or conflicting head
      to its lane once, with the first failing line from the log; `--pr <n> --job
      "<blocker>"` routes one PR for a reason the forge cannot see. Post the text it
-     prints to the bus first, `bus.py post --bus <bus> --from landing-desk --kind blocker
+     prints to the bus first, `cci post --drive <drive> --lane <desk> --kind blocker
      --topic <pr> --to <lane> --text "<the line>"`. For an Orca-owned lane, submit
      `desk-runner.py relay --config <config> --key R<n> --lane <lane>
      --text "<the line>"`. Keep the key for any retry. Never append Orca traffic
@@ -296,7 +300,9 @@ Do, in this order, forever:
      <hot-set globs> --fallback red-desk`: every hot-set conflict and a gone lane's
      hot-set rows go to the train, a gone lane's other rows to the standing red
      desk in that same pass, and a live lane keeps its own reds. The blocker stays
-     open on the bus until the lane it went to withdraws it or a new head is posted. A step red on
+     open until the lane posts `cci post --drive <drive> --lane <lane> --kind done
+     --re <blocker seq> --to <desk> --text "<resolution>"`, answers it, or withdraws it.
+     A new head alone does not close it. A step red on
      the trunk's latest build is held as `dev-red:<step>` for six hours, and `route`
      skips it until the hold expires. Never SendMessage a finished lane.
      Never post PR comments yourself; rules-review.py posts the rules findings.
@@ -333,7 +339,7 @@ Do, in this order, forever:
      and the p50 report-to-landing minutes. Between summaries, run `ledger.py stale`
      each pass and clear each blocker it names: route, hold, lift, or
      `RULING NEEDED`; label only where the repo has no stack-enqueue.
-     Include `cursor R<n>` beside the unchanged summary.
+     Include `cursor #<seq>` beside the unchanged summary.
      Immediately: every `P0` line and each `RULING NEEDED` line, with your cursor.
   7. Shard at 15 lanes or 25 active rows, whichever comes first. Split earlier
      rather than later. Spawn one

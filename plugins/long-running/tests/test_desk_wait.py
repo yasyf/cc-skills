@@ -176,4 +176,31 @@ def test_bad_arguments_print_usage_and_exit_two(tmp_path, args):
     result = subprocess.run([str(SCRIPT), *args], cwd=tmp_path, capture_output=True, text=True, timeout=3)
 
     assert result.returncode == 2
-    assert result.stderr == "usage: desk-wait.sh <seconds> <file>=<cursor-file>...\n"
+    assert result.stderr == "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)...\n"
+
+
+def test_cci_source_prints_addressed_records_through_cci_tail(tmp_path):
+    fake = tmp_path / "bin" / "cci"
+    fake.parent.mkdir()
+    calls = tmp_path / "calls"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> {calls}\necho "#12 9:01 PM GO root -> landing-desk land #30001"\n')
+    fake.chmod(0o755)
+    env = {"PATH": f"{fake.parent}:/usr/bin:/bin"}
+
+    result = subprocess.run([str(SCRIPT), "3", "cci:release-v3:landing-desk"], capture_output=True, text=True, timeout=5, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "#12 9:01 PM GO root -> landing-desk land #30001\n"
+    assert calls.read_text() == "tail --drive release-v3 --cursor landing-desk --to landing-desk\n"
+
+
+def test_quiet_cci_source_waits_for_the_deadline(tmp_path):
+    fake = tmp_path / "bin" / "cci"
+    fake.parent.mkdir()
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+
+    result = subprocess.run([str(SCRIPT), "1", "cci:release-v3:landing-desk"], capture_output=True, text=True, timeout=5, env={"PATH": f"{fake.parent}:/usr/bin:/bin"})
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("QUIET ")

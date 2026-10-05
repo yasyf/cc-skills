@@ -3,7 +3,7 @@
 
     inbox-digest.py (--state FILE | --all) [--line-cap 200] [--budget 6144] FILE...
     inbox-rotate.py [--hours 6] FILE...
-    desk-wait.sh <seconds> <file>=<cursor-file>...
+    desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)...
 
 STDLIB ONLY. The shims call this module's digest, rotate, and wait commands.
 An inbox's sorted <file>.archive/YYYY-MM-DD.md files, oldest first, followed by
@@ -32,7 +32,8 @@ if the mailbox shrinks below it. An entry past the cursor with read=false ends
 the call with MAILBOX <n> unread (n counts all read=false entries), letting Claude
 Code deliver the message at that tool-call boundary. The stat check runs every
 0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
-never wake it.
+never wake it. A cci:<drive>:<lane> source prints the cci records addressed to
+<lane> past the cursor named <lane>, through `cci tail`, which advances it.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ import fcntl
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Iterator
@@ -56,8 +58,8 @@ DISPLAY_CHARS = 400
 DIGEST_CHARS = 200
 DIGEST_BYTES = 6144
 ROTATE_HOURS = 6.0
-WAIT_USAGE = "usage: desk-wait.sh <seconds> <file>=<cursor-file>..."
-WAIT_SOURCE = re.compile(r"(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
+WAIT_USAGE = "usage: desk-wait.sh <seconds> (<file>=<cursor-file> | cci:<drive>:<lane>)..."
+WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
 
@@ -244,10 +246,17 @@ def wait(argv: list[str]) -> int:
         print(WAIT_USAGE, file=sys.stderr)
         return 2
     deadline = time.monotonic() + int(argv[0])
-    files = [source for source in sources if not Mailbox.holds(Path(source["file"]))]
-    mailboxes = [(Mailbox(Path(source["file"])), Path(source["cursor"])) for source in sources if Mailbox.holds(Path(source["file"]))]
+    feeds = [(source["drive"], source["lane"]) for source in sources if source["drive"]]
+    paths = [source for source in sources if source["file"]]
+    files = [source for source in paths if not Mailbox.holds(Path(source["file"]))]
+    mailboxes = [(Mailbox(Path(source["file"])), Path(source["cursor"])) for source in paths if Mailbox.holds(Path(source["file"]))]
     while True:
         changed = False
+        for drive, lane in feeds:
+            unread = subprocess.run(["cci", "tail", "--drive", drive, "--cursor", lane, "--to", lane], capture_output=True, text=True, check=True).stdout
+            for line in unread.splitlines():
+                print(clip(line), flush=True)
+                changed = True
         for mailbox, cursor in mailboxes:
             polled = mailbox.poll(int(cursor.read_text()) if cursor.is_file() else 0)
             if polled is None:

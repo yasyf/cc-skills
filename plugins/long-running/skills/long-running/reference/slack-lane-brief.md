@@ -120,7 +120,8 @@ Do:
      first, says what we are doing to prevent recurrence. State work underway
      without claiming an unverified fix. Use plain words and Pacific times;
      @-mention the account's FDEs. Apply step 5's drafting and checks to every post.
-  4. Loop in foreground units of at most 60 seconds:
+  4. Incident comms stay on scripts/bus.py until incident.py moves to cci.
+     Loop in foreground units of at most 60 seconds:
      `bus.py read --bus <bus id> --lane <comms lane name> --json`, then
      `cc-slack thread --url <permalink>` against the ts values already seen.
   5. Each executor entry is JSON: `event`, `grant`, `surface`, `thread`, and the
