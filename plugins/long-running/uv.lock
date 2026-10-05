@@ -829,7 +829,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "capt-hook", specifier = ">=12.88.0" },
+    { name = "capt-hook", specifier = ">=12.88.2" },
     { name = "pytest", specifier = ">=8" },
 ]
 

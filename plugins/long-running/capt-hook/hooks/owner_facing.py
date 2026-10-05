@@ -15,7 +15,6 @@ from captain_hook import (
     Input,
     TaskCall,
     Tool,
-    Warn,
     on,
 )
 

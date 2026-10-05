@@ -197,7 +197,8 @@ Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on this subsystem, quoted with its id, and the entry point (symbol at file:line) it makes the change call; or "none">.
 Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
-Standing rules served: <`R<n>` ids with their answer ids, or "none">; completing this lane never retires them.
+Standing rules register (required): <Root pastes the full body from `ccn doc show <register id>` verbatim; label `standing-rules:<slug>`>. Every rule binds this lane. Your READY names the rulings your diff touches.
+Standing rules served: <`R<n>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
 

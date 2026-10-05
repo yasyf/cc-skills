@@ -7,12 +7,41 @@ from pathlib import Path
 import handoff
 import ledger
 import pytest
+import standing
 
 REPO = "/repo"
 LEDGER = "1a2b3c4d" * 5
-RULE = {"id": "4ffc9a5" + "0" * 33, "title": "When does a merged change get released?", "tags": ["scope:durable", "brook"], "updated_at": "2026-10-01T14:07:41Z"}
-OLD_RULE = {"id": "ec2881e" + "0" * 33, "title": "Is any ledger a source of truth?", "tags": ["scope:durable", "progress:brook"], "updated_at": "2026-09-30T01:00:00Z"}
-OTHER = {"id": "abcdef1" + "0" * 33, "title": "Unrelated", "tags": ["scope:durable"], "updated_at": "2026-10-01T00:00:00Z"}
+RULE = {
+    "id": "4ffc9a5" + "0" * 33,
+    "title": "When does a merged change get released?",
+    "body": "As it merges, every PR, never on the owner's word.",
+    "tags": ["scope:durable", "brook"],
+    "updated_at": "2026-10-01T14:07:41Z",
+}
+OLD_RULE = {
+    "id": "ec2881e" + "0" * 33,
+    "title": "Is any ledger a source of truth?",
+    "body": "No.\n\nRule: Pulumi state is the only truth; the ledger only records and renders.",
+    "tags": ["scope:durable", "progress:brook"],
+    "updated_at": "2026-09-30T01:00:00Z",
+}
+OTHER = {"id": "abcdef1" + "0" * 33, "title": "Unrelated", "body": "elsewhere", "tags": ["scope:durable"], "updated_at": "2026-10-01T00:00:00Z"}
+PICK = {
+    "id": "e0e57c8" + "0" * 33,
+    "title": "Card 6, selection: confirm one resolver?",
+    "body": "One set; closure exclusions allowed (Recommended)\nOptions: One set; closure exclusions allowed (Recommended) | One set; exclude only direct picks",
+    "tags": ["from:owner", "source:askuserquestion", "scope:durable"],
+    "updated_at": "2026-10-05T04:12:39Z",
+}
+FOREIGN = {
+    "id": "f0f0f0f" + "0" * 33,
+    "title": "Another drive's pick?",
+    "body": "Theirs",
+    "tags": ["from:owner", "source:askuserquestion", "scope:durable"],
+    "updated_at": "2026-10-05T04:00:00Z",
+}
+CREATED_IN = {PICK["id"]: "s-root", FOREIGN["id"]: "s-other", OTHER["id"]: "s-root"}
+REGISTER = "standing-rules:brook"
 
 
 class FakeCcn(ledger.Shell):
@@ -26,6 +55,7 @@ class FakeCcn(ledger.Shell):
         self.titles: dict[str, str] = {}
         self.stuck: set[str] = set()
         self.created: dict[str, dict] = {}
+        self.registers: list[str] = []
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
@@ -36,11 +66,13 @@ class FakeCcn(ledger.Shell):
         labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
         if verb == ["answer", "list"]:
             return json.dumps([a for a in self.answers if all(label in a["tags"] for label in labels)])
+        if verb == ["answer", "history"]:
+            return json.dumps([{"kind": "edit"}, {"kind": "create", "session": CREATED_IN.get(argv[5])}])
         if verb == ["doc", "list"]:
             return json.dumps(
                 [
                     {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
-                    for i, doc in enumerate(self.active)
+                    for i, doc in enumerate(self.registers if REGISTER in labels else self.active)
                 ]
             )
         if verb == ["doc", "show"]:
@@ -50,7 +82,7 @@ class FakeCcn(ledger.Shell):
         if verb == ["doc", "add"]:
             doc = f"{len(self.docs):x}" * 40
             self.docs[doc] = stdin or ""
-            self.active.append(doc)
+            (self.registers if REGISTER in labels else self.active).append(doc)
             self.added[doc] = argv[5]
             self.titles[doc] = argv[5]
             return json.dumps({"id": doc[:40]})
@@ -160,14 +192,12 @@ def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_
 
     assert out["id"] == "b" * 40
     assert shell.active == ["b" * 40]
-    assert not any(call[3:5] == ["doc", "add"] for call in shell.calls)
+    assert not any(call[3:5] == ["doc", "add"] and REGISTER not in call for call in shell.calls)
     assert ["ccn", "-R", REPO, "doc", "supersede", "a" * 40, "--by", "b" * 40] in shell.calls
     body = shell.docs["b" * 40]
     assert body.count("## Standing owner rules") == 1
     assert body.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
-    assert out["digest"].startswith(
-        "Compacted long-running drive `brook`. Before acting, read the progress doc `ccn doc show bbbbbbb` (it supersedes the summary)"
-    )
+    assert "Then read the progress doc `ccn doc show bbbbbbb`" in out["digest"]
 
 
 def handwritten(shell: FakeCcn, session: str | None, age: timedelta) -> str:
@@ -249,8 +279,9 @@ def test_the_sessions_generated_doc_is_edited_in_place_not_chained(drive_home: P
 
     assert first["id"] == second["id"] == third["id"]
     assert shell.active == [first["id"]]
-    assert sum(call[3:5] == ["doc", "add"] for call in shell.calls) == 1
-    assert sum(call[3:5] == ["doc", "edit"] for call in shell.calls) == 2
+    assert sum(call[3:5] == ["doc", "add"] for call in shell.calls) == 2
+    assert sum(call[3:5] == ["doc", "edit"] and call[5] == first["id"] for call in shell.calls) == 2
+    assert shell.registers == [first["register"]]
     assert shell.titles[first["id"]].endswith(" (generated)")
     body = shell.docs[first["id"]]
     assert body.count("## Standing owner rules") == 1
@@ -288,19 +319,22 @@ def test_folder_mode_calls_no_ccn(drive_home: Path, capsys: pytest.CaptureFixtur
     assert out["id"] is None
     assert shell.calls == []
     assert "- R2 (standing)" in Path(out["file"]).read_text()
-    assert out["digest"].startswith(f"Compacted long-running drive `brook`. Before acting, read the generated handoff `{out['file']}`")
+    assert out["register"] is None
+    assert out["digest"].startswith(
+        f"Compacted long-running drive `brook`. Before acting, read the standing rules register `{out['register_file']}`: "
+    )
+    assert f"Then read the generated handoff `{out['file']}`" in out["digest"]
 
 
-def test_digest_names_the_doc_and_the_rules(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_digest_names_the_register_first(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = generate(drive_home, shell_with(), capsys=capsys)
 
     assert out["digest"].splitlines() == [
-        f"Compacted long-running drive `brook`. Before acting, read the progress doc `ccn doc show {out['id'][:7]}` "
-        f"(it supersedes the summary), then `{drive_home}/.claude/plans/brook.md`. Reload Skill `long-running` if its rules are gone.",
-        "Live standing inbox rules: R2.",
-        "R2 (standing) every landed PR is deployed in the same pass it lands [orca-desk.md]",
-        "4ffc9a5 When does a merged change get released?",
-        "ec2881e Is any ledger a source of truth?",
+        f"Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show {out['register'][:7]}`: "
+        "it arrives verbatim with your next tool results, binds every lane brief, and outranks the summary. "
+        f"Then read the progress doc `ccn doc show {out['id'][:7]}`, then `{drive_home}/.claude/plans/brook.md`. "
+        "Reload Skill `long-running` if its rules are gone.",
+        "Register: 2 owner answers, 1 live standing inbox rules.",
         "Open: 1 owner asks, 1 tasks, 1 lanes, 1 monitors, 1 lint findings.",
     ]
 
@@ -316,11 +350,11 @@ def test_digest_stays_inside_the_injected_context_budget() -> None:
         tasks=[{}] * 200,
     )
 
-    text = handoff.digest(big, "the generated handoff `ccn doc show 1234567`")
+    text = handoff.digest(big, "the progress doc `ccn doc show 1234567`", "`ccn doc show 7654321`")
 
     assert len(text.encode()) <= handoff.DIGEST_BUDGET
-    assert text.startswith("Compacted long-running drive `release-v3`. Before acting, read the generated handoff `ccn doc show 1234567`")
-    assert text.splitlines()[-2].startswith("+") and text.splitlines()[-2].endswith(" more in the handoff.")
+    assert text.startswith("Compacted long-running drive `release-v3`. Before acting, read the standing rules register `ccn doc show 7654321`")
+    assert text.splitlines()[-2] == "Register: 120 owner answers, 80 live standing inbox rules."
     assert text.splitlines()[-1].startswith("Open: 40 owner asks, 200 tasks")
     assert handoff.DIGEST_BUDGET + 4500 + 3000 + 2 * len("\n\n") < 10_000
 
@@ -412,3 +446,38 @@ def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: 
         "narrative (doc bbbbbbb) line 3: owner-gate line cites no live answer id: 2. ship sanddb on SoFi on the owner's "
         "word; end that line with `(answer <id>)` via `ccn doc edit bbbbbbbb --body -`"
     )
+
+
+def test_the_register_quotes_every_ruling_in_full_including_this_drives_unlabelled_picks(
+    drive_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shell = FakeCcn([RULE, OLD_RULE, OTHER, PICK, FOREIGN], {"a" * 40: "## Root's next actions\n1. watch SoFi"}, [])
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    register = shell.docs[out["register"]]
+    assert shell.registers == [out["register"]]
+    assert Path(out["register_file"]).read_text() == register
+    assert register.startswith("## Standing owner rules\n")
+    for line in (
+        "- ec2881e Is any ledger a source of truth?\n  > No.\n  >\n  > Rule: Pulumi state is the only truth; the ledger only records and renders.\n",
+        "- e0e57c8 Card 6, selection: confirm one resolver?\n  > One set; closure exclusions allowed (Recommended)\n",
+        "- R2 (standing) every landed PR is deployed in the same pass it lands [orca-desk.md]\n",
+    ):
+        assert line in register
+    assert "Another drive's pick?" not in register and "Unrelated" not in register
+    assert register in shell.docs[out["id"]]
+
+
+def test_a_compaction_round_trip_keeps_the_register_byte_for_byte(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = FakeCcn([RULE, OLD_RULE, PICK], {"a" * 40: "## Root's next actions\n1. watch SoFi"}, [])
+    before = generate(drive_home, shell, capsys=capsys)
+    register = shell.docs[before["register"]]
+
+    after = generate(drive_home, shell, "--generated-doc", before["id"], capsys=capsys)
+
+    assert after["register"] == before["register"]
+    assert shell.docs[after["register"]] == register
+    assert not any(call[3:6] == ["doc", "edit", before["register"]] for call in shell.calls)
+    assert register in shell.docs[after["id"]]
+    assert standing.section(shell.docs[after["id"]]) == standing.section(register)
