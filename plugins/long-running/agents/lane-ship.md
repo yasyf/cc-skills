@@ -12,8 +12,10 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 
 - Drive to a terminal state in the foreground. Never end a turn waiting; poll with
   one Bash call of at most 570000 ms at a time and re-run it until the state is terminal.
-  The poll waits through `desk-wait.sh` on the lane's team mailbox so a `MAILBOX`
-  line ends the call and Claude Code delivers the message at that boundary.
+  A plain Bash wait never blocks longer than 60 s. Every longer wait goes through
+  `desk-wait.sh` on the lane's team mailbox, and a blocking read-only watch runs as
+  `desk-wait.sh <seconds> <mailbox>=<cursor> -- <command>`, so a `MAILBOX` line ends
+  the call and Claude Code delivers the message at that boundary.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Your last action is one `SendMessage` to the name your brief gives, then no text
   or one line under 300 characters (outcome + pointer), never the report again.
