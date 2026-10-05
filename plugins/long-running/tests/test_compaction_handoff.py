@@ -545,29 +545,24 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     assert state(session).digest is None
 
 
-def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path, docs: Path) -> None:
+def test_the_register_arrives_once_whole_after_a_compaction(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 900}\n" for n in range(1, 31))
+    body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 150}\n" for n in range(1, 31))
     add_register(docs, body)
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
     handoff.reground(session_start(session, "compact"))
-    parts = []
-    while delivered := handoff.deliver_register(bash(session)):
-        number = len(parts) + 1
-        header, begin, rest = delivered.message.partition(f"\n{handoff.REGISTER_FENCE}\n")
-        part, end, tail = rest.partition(handoff.REGISTER_FENCE)
-        assert header == f"Standing rules register `9999999`, part {number} of {state(session).register_total}, verbatim; it binds every lane brief."
-        assert begin and end and not tail
-        assert len(part.encode()) <= handoff.REGISTER_PART_BYTES
-        parts.append(part)
+    delivered = handoff.deliver_register(bash(session))
 
-    assert len(parts) > 1
-    assert "".join(parts) == body == (docs / (REGISTER_ID + ".md")).read_text()
+    header, _, rest = delivered.message.partition(f"\n{handoff.REGISTER_FENCE}\n")
+    assert header == "Standing rules register `9999999`, verbatim; it binds this session and every lane brief, and outranks any summary."
+    assert rest == f"{body.rstrip()}\n{handoff.REGISTER_FENCE}"
+    assert len(delivered.message) < 10_000
+    assert handoff.deliver_register(bash(session)) is None
+    assert handoff.deliver_register(bash(session, agent_id="a1")) is None
     assert "\n".join(standing.quoted(body)) in (docs / ("d" * 40 + ".md")).read_text()
     assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
-    assert handoff.deliver_register(bash(session)) is None
 
 
 def session_start(session: Path, source: str) -> SessionStartEvent:
