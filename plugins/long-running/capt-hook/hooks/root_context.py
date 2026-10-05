@@ -444,7 +444,6 @@ root_block(
         Input(command="grep -c G12 /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
         Input(command="wc -l /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
         Input(command="cat >> /drive/inbox/orca-desk.md <<'EOF'\nR9 orca-desk: relay to a: go\nEOF", state=ACTIVE): Allow(),
-        Input(command="inbox-digest.py --state /drive/inbox/.inbox-digest.json /drive/inbox/deploy-go.md", state=ACTIVE): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md", state=ACTIVE): Block(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md"): Allow(),
         Input(command="tail -n 40 /drive/inbox/deploy-go.md", agent_id="a1b2c3", state=ACTIVE): Allow(),

@@ -17,6 +17,7 @@ DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 PR_VERBS = {("vcs", "ship"), ("vcs", "stack"), ("pr", "create")}
 SLACK_VERBS = {"send", "reply"}
+RULING_KINDS = {"go", "decide"}
 PROMPT = """An agent in a long-running drive is about to take this action ({kind}):
 
 {moment}
@@ -49,6 +50,8 @@ def bash_moment(evt: BaseHookEvent) -> tuple[str, str] | None:
         if any(redirect.op == ">>" and "inbox" in Path(redirect.target).parts for redirect in call.redirects):
             if DECISION.search(text := " ".join(args)):
                 return "a GO, HOLD or DECIDE line", text
+        if name == "cci" and args[:1] and args[0] == "post" and flag(args, "--kind") in RULING_KINDS:
+            return "a GO or DECIDE record", flag(args, "--text")
         if name == "cc-slack" and args[:1] and args[0] in SLACK_VERBS:
             return "a Slack write", flag(args, "--text")
         if name in ("ccx", "gh") and tuple(args[:2]) in PR_VERBS:
@@ -87,10 +90,13 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
             llm={"answer": "1984bf6"},
             state=[ACTIVE, JudgedAnswers(injected=["main:1984bf6"])],
         ): Allow(),
-        Input(command="echo '- G901 (root) GO walker: release api' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
+        Input(command="cci post --drive brook --lane root --kind go --to walker --text 'release api'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
             pattern=r"^Durable owner answer `1984bf6`"
         ),
-        Input(command="echo '- G902 (root) note' >> ~/scratch/brook/inbox/deploy-go.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
+        Input(command="cci post --drive brook --lane root --kind note --text 'release api'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Allow(),
+        Input(command="echo 'R9 orca-desk: HOLD walker' >> ~/scratch/brook/inbox/orca-desk.md", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
+            pattern=r"^Durable owner answer `1984bf6`"
+        ),
         Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=MATCH, llm={"answer": "1984bf6"}, state=[ACTIVE]): Warn(
             pattern=r"^Durable owner answer `1984bf6`"
         ),

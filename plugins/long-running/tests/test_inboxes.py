@@ -27,12 +27,6 @@ def rotated(path: Path, *lines: str) -> inboxes.Inbox:
     return inbox
 
 
-def digest(*args: str) -> str:
-    result = subprocess.run([str(PLUGIN / "bin/inbox-digest.py"), *args], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    return result.stdout
-
-
 def test_clip_keeps_a_short_line_and_cuts_a_long_one_to_the_cap():
     assert inboxes.clip("short", 10) == "short"
     assert inboxes.clip("x" * 11, 10) == "x" * 9 + "…"
@@ -103,60 +97,6 @@ def test_a_line_written_to_the_old_file_during_the_rename_moves_to_the_new_one(t
 
     assert path.read_text() == "R2 raced\n"
     assert [line.text for line in inbox.lines()] == ["R1 first", "R2 raced"]
-
-
-def test_digest_prints_only_lines_since_the_last_digest_and_advances_its_state(tmp_path):
-    path = tmp_path / "runner.md"
-    state = tmp_path / ".inbox-digest.json"
-    path.write_text("R1 first\n\nR2 second\n")
-
-    assert digest("--state", str(state), str(path)) == "== runner.md: 2 of 2 lines\nR1 first\nR2 second\n"
-    assert json.loads(state.read_text()) == {str(path): path.stat().st_size}
-    assert digest("--state", str(state), str(path)) == "no new inbox lines\n"
-
-    append(path, "R3 third")
-    with path.open("a") as handle:
-        handle.write("R4 half")
-
-    assert digest("--state", str(state), str(path)) == "== runner.md: 1 of 1 lines\nR3 third\n"
-
-
-def test_digest_cuts_each_line_to_the_line_cap(tmp_path):
-    path = tmp_path / "deploy-go.md"
-    path.write_text("x" * 1500 + "\n")
-
-    assert digest("--all", str(path)) == "== deploy-go.md: 1 of 1 lines\n" + "x" * 199 + "…\n"
-    assert digest("--all", "--line-cap", "20", str(path)) == "== deploy-go.md: 1 of 1 lines\n" + "x" * 19 + "…\n"
-
-
-def test_digest_keeps_the_newest_lines_within_the_budget_and_counts_the_rest(tmp_path):
-    busy = tmp_path / "deploy-go.md"
-    quiet = tmp_path / "runner.md"
-    append(busy, *(f"G{n} " + "y" * 300 for n in range(100)))
-    append(quiet, "R1 quiet")
-
-    out = digest("--all", "--budget", "2000", str(busy), str(quiet))
-
-    lines = out.splitlines()
-    assert len(out.encode()) - len(lines[-1].encode()) - 1 <= 2000
-    assert lines[0].startswith("== deploy-go.md: ")
-    shown = int(lines[0].split(": ")[1].split(" of ")[0])
-    assert lines[1 : shown + 1] == [f"G{n} " + "y" * 195 + "…" for n in range(100 - shown, 100)]
-    assert lines[shown + 1 : shown + 3] == ["== runner.md: 1 of 1 lines", "R1 quiet"]
-    assert lines[-1] == f"omitted, oldest first, over the 2000-byte budget: deploy-go.md {100 - shown} lines"
-
-
-def test_digest_reads_archives_only_with_all(tmp_path):
-    path = tmp_path / "orca-desk.md"
-    state = tmp_path / ".inbox-digest.json"
-    path.write_text("")
-    digest("--state", str(state), str(path))
-    rotated(path, "R1 archived")
-
-    assert digest("--state", str(state), str(path)) == (
-        "== orca-desk.md: 1 of 1 lines\nR9 kept\n== orca-desk.md: 12 unread bytes moved to orca-desk.md.archive/; --all reads them\n"
-    )
-    assert digest("--all", str(path)) == "== orca-desk.md: 2 of 2 lines\nR1 archived\nR9 kept\n"
 
 
 def test_the_rotate_command_records_a_mark_and_leaves_young_lines(tmp_path):

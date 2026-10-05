@@ -134,10 +134,11 @@ Drive records live in cc-notes on the drive checkout. Pass record ids to lanes:
   A tool that needs a file reads `ccn attachment path <id> <name>`.
 
 Never run `mkdir` or `cat >` to create a markdown record under `~/.claude/scratch`.
-Desk inboxes (`inbox/*.md`) stay files because readers use `inboxes.py`'s stream:
-sorted `<file>.archive/YYYY-MM-DD.md` files, oldest first, then the live file.
-Byte offsets and line counts survive rotation. `standing.py` reads rules from cci,
-and `desk-runner.py` posts root escalations there.
+Only `inbox/orca-desk.md` stays a file. Rotation and `desk-wait.sh` use
+`inboxes.py`'s stream: sorted `<file>.archive/YYYY-MM-DD.md` files, oldest first,
+then the live file. Byte offsets and line counts survive rotation. Every other
+desk inbox uses cci records. `standing.py` reads rules from cci, and
+`desk-runner.py` posts root escalations there.
 
 The orca-waiter/Monitor streams, orca-launch receipts, and desk state stay files for
 their stream and state readers. The executor's actions JSON stays a file because
@@ -600,9 +601,9 @@ Lanes carry no `mcp__*` tools and no `ToolSearch`.
 - A post that asks a person to act (a grant, a permission, an approval, an answer)
   opens an R3 wait→do chain. Any fence, hold, or `until <person>` line it gates names
   the thread (`until reply in <channel>/<thread_ts>`). The watch lane relays that reply
-  to the root and writes the unblock line into the fence owner's inbox (for example
-  `inbox/deploy-go.md`) in the same poll. No fence may name a person without naming a
-  watched thread.
+  to the root and posts the unblock as a cci record addressed to the fence owner:
+  `cci post --drive <drive> --lane <watch lane> --kind go --to <owner lane> --text "<unblock>"`
+  in the same poll. No fence may name a person without naming a watched thread.
 - An answer the owner dictated goes out as one message with the grant in the dispatch,
   never staged across several instructions.
 - The owner's surface word is literal: "channel" means a top-level channel post,
