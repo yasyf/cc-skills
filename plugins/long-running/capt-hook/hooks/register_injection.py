@@ -9,6 +9,8 @@ from captain_hook.util import reqenv
 from .compaction_handoff import RULINGS, CompactionState, register_context, register_of
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup"})
+HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:pr-style-scout")
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {RULINGS} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {RULINGS} register": "null"}
@@ -32,11 +34,15 @@ def drive_args(evt: BaseHookEvent) -> list[str] | None:
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
         ),
         Input(agent_type="general-purpose", agent_id="a1b2c3", commands=NONE_FOUND, state=[ACTIVE]): Allow(),
+        Input(agent_type="Explore", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Allow(),
+        Input(agent_type="codex:codex-wrapper", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Allow(),
+        Input(agent_type="long-running:lane", agent_id="a1b2c3", commands=FOUND, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(agent_type="general-purpose", agent_id="a1b2c3"): Allow(),
     },
 )
 def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
-    if not (which := drive_args(evt)):
+    helper = evt.agent_type in HELPER_AGENTS or (evt.agent_type or "").startswith(HELPER_PLUGINS)
+    if helper or not (which := drive_args(evt)):
         return None
     register = register_of(str(evt.cwd), *which)
     return register_context(evt, register) if register else None

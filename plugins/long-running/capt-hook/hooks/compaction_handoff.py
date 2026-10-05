@@ -472,7 +472,6 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
-            queue_register(state, evt.cwd)
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
