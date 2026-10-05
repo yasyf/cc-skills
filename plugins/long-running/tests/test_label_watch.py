@@ -98,8 +98,41 @@ def commit(repo: Path, name: str, text: str) -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
-class Forge:
+class ForgeTopology:
     def __init__(self, root: Path):
+        self.origin = root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "dev", str(self.origin)], check=True)
+        checkout = root / "work"
+        subprocess.run(["git", "clone", "-q", str(self.origin), str(checkout)], check=True, capture_output=True)
+        git(checkout, "config", "user.email", "t@example.com")
+        git(checkout, "config", "user.name", "t")
+        git(checkout, "checkout", "-qb", "dev")
+        commit(checkout, "a.txt", "base")
+        git(checkout, "checkout", "-qb", "clean")
+        self.clean = commit(checkout, "b.txt", "clean")
+        git(checkout, "checkout", "-q", "dev")
+        git(checkout, "checkout", "-qb", "conflict")
+        self.conflict = commit(checkout, "a.txt", "theirs")
+        git(checkout, "checkout", "-q", "dev")
+        git(checkout, "checkout", "-q", "--orphan", "unrelated")
+        git(checkout, "rm", "-rqf", ".")
+        self.unrelated = commit(checkout, "d.txt", "unrelated")
+        git(checkout, "checkout", "-q", "dev")
+        git(checkout, "checkout", "-qb", "queued")
+        self.queued = commit(checkout, "c.txt", "queued")
+        git(checkout, "checkout", "-q", "dev")
+        git(checkout, "checkout", "-qb", "behind-queued")
+        self.behind_queued = commit(checkout, "c.txt", "behind")
+        git(checkout, "checkout", "-q", "dev")
+        git(checkout, "checkout", "-qb", "stacked")
+        self.stacked = [commit(checkout, f"s{i}.txt", "stacked") for i in range(1, 4)]
+        git(checkout, "checkout", "-q", "dev")
+        commit(checkout, "a.txt", "ours")
+        git(checkout, "push", "-q", "origin", "dev", "clean", "conflict", "unrelated", "queued", "behind-queued", "stacked")
+
+
+class Forge:
+    def __init__(self, root: Path, topology: ForgeTopology):
         self.state = root / "state"
         self.state.mkdir()
         bin_dir = root / "bin"
@@ -109,35 +142,18 @@ class Forge:
             (bin_dir / name).chmod(0o755)
 
         origin = root / "origin.git"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "dev", str(origin)], check=True)
+        subprocess.run(["git", "clone", "-q", "--bare", "--shared", str(topology.origin), str(origin)], check=True)
         self.checkout = root / "work"
-        subprocess.run(["git", "clone", "-q", str(origin), str(self.checkout)], check=True, capture_output=True)
+        subprocess.run(["git", "clone", "-q", "--shared", str(origin), str(self.checkout)], check=True, capture_output=True)
         git(self.checkout, "config", "user.email", "t@example.com")
         git(self.checkout, "config", "user.name", "t")
-        git(self.checkout, "checkout", "-qb", "dev")
-        commit(self.checkout, "a.txt", "base")
-        git(self.checkout, "checkout", "-qb", "clean")
-        self.clean = commit(self.checkout, "b.txt", "clean")
-        git(self.checkout, "checkout", "-q", "dev")
-        git(self.checkout, "checkout", "-qb", "conflict")
-        self.conflict = commit(self.checkout, "a.txt", "theirs")
-        git(self.checkout, "checkout", "-q", "dev")
-        git(self.checkout, "checkout", "-q", "--orphan", "unrelated")
-        git(self.checkout, "rm", "-rqf", ".")
-        self.unrelated = commit(self.checkout, "d.txt", "unrelated")
-        git(self.checkout, "checkout", "-q", "dev")
-        git(self.checkout, "checkout", "-qb", "queued")
-        self.queued = commit(self.checkout, "c.txt", "queued")
-        git(self.checkout, "checkout", "-q", "dev")
-        git(self.checkout, "checkout", "-qb", "behind-queued")
-        self.behind_queued = commit(self.checkout, "c.txt", "behind")
-        git(self.checkout, "checkout", "-q", "dev")
-        git(self.checkout, "checkout", "-qb", "stacked")
-        self.stacked = [commit(self.checkout, f"s{i}.txt", "stacked") for i in range(1, 4)]
-        git(self.checkout, "checkout", "-q", "dev")
-        commit(self.checkout, "a.txt", "ours")
-        git(self.checkout, "push", "-q", "origin", "dev", "clean", "conflict", "unrelated", "queued", "behind-queued", "stacked")
         git(self.checkout, "remote", "set-head", "origin", "dev")
+        self.clean = topology.clean
+        self.conflict = topology.conflict
+        self.unrelated = topology.unrelated
+        self.queued = topology.queued
+        self.behind_queued = topology.behind_queued
+        self.stacked = list(topology.stacked)
 
         self.queues: dict[str, str] = {}
         self.pulls: dict[int, dict] = {}
@@ -214,9 +230,14 @@ class Forge:
         return [call["body"]["prNumbers"] for call in self.graphite]
 
 
+@pytest.fixture(scope="session")
+def forge_topology(tmp_path_factory):
+    return ForgeTopology(tmp_path_factory.mktemp("label-watch-topology"))
+
+
 @pytest.fixture
-def forge(tmp_path):
-    return Forge(tmp_path)
+def forge(tmp_path, forge_topology):
+    return Forge(tmp_path, forge_topology)
 
 
 def test_once_enqueues_a_clean_approved_head_through_the_graphite_api(forge):
