@@ -55,10 +55,11 @@ SUMMARY_PAGE = "summary.html"
 EVIDENCE_DIRS = ("datadog", "slack", "images")
 EVIDENCE_TEXT = {".json", ".md", ".txt", ".csv"}
 SECTION_IDS = ("overview", "timeline", "causes", "impact", "resolution", "lessons", "recognize", "actions",
-               "prevention", "evidence", "unknowns", "glossary", "notes")
+               "remediation", "prevention", "evidence", "unknowns", "glossary", "notes")
 SECTION_TITLES = {"overview": "Overview", "timeline": "Timeline", "causes": "Causes", "impact": "Impact",
                   "resolution": "Detection and response", "lessons": "Lessons",
                   "recognize": "How to recognize this next time", "actions": "Action items",
+                  "remediation": "Remediation",
                   "prevention": "Prevention options",
                   "evidence": "Evidence", "unknowns": "Still unknown", "glossary": "Glossary", "notes": "Notes"}
 STATUSES = ("ongoing", "draft", "in-review", "reviewed", "resolved")
@@ -167,6 +168,8 @@ TITLE_INTERNALS = re.compile(r"[a-z0-9]_[a-z0-9]|\b[a-z]+[A-Z][a-z]|\.(?:py|ts|t
 TAKEAWAY_WORDS = 18
 REFERENCE_SECTIONS = ("evidence", "glossary", "notes")
 LEGACY_CUTOFF = "2026-09-19"
+REMEDIATION_CUTOFF = "2026-10-04"
+REMEDIATION_LISTS = ("done", "lanes")
 STATEMENT_WORDS = 25
 KEY_MOMENTS = 8
 DECISION_TITLE_WORDS = 16
@@ -425,6 +428,9 @@ def prose_slots(R: dict):
             for key in OPTION_LISTS:
                 for i, item in enumerate(o.get(key) or []):
                     yield from slot(f"{o.get('id')}.{key}[{i}].text", item, "text")
+    for key in REMEDIATION_LISTS:
+        for i, e in enumerate((R.get("remediation") or {}).get(key) or []):
+            yield from slot(f"remediation.{key}[{i}].text", e, "text")
     for e in entries(R, "unknowns"):
         yield from slot(f"{e.get('id')}.q", e, "q")
         yield from slot(f"{e.get('id')}.why", e, "why")
@@ -1580,10 +1586,59 @@ def check_prevention(rep, R) -> set:
                         rep.err(f"{oid}.{key}[{i}] must be {{text}}")
                     elif "\n" in item["text"]:
                         rep.err(f"{oid}.{key}[{i}].text carries a newline; it renders on one line")
+            if o.get("picked") is not None and not isinstance(o["picked"], bool):
+                rep.err(f"{oid}.picked must be true or false")
+            if o.get("picked") and not (isinstance(o.get("owner"), str) and o["owner"].strip()):
+                rep.err(f"{oid} is picked but names no owner; a pick is owned by whoever lands it")
+            check_link_list(rep, str(oid), o, False)
             if not any(o.get(k) for k in OPTION_FACTS + OPTION_LISTS):
                 rep.strict_warn(f"{oid} carries no pros, cons, buys, costs, loses, first or alternatives; the owner "
                                 f"picks from those")
     return ids
+
+
+def incident_day(R: dict) -> str:
+    return ((R.get("timestamps") or {}).get("onset") or "")[:10] or (R.get("meta") or {}).get("date", "")
+
+
+def check_remediation(rep, R, status):
+    rem = R.get("remediation")
+    if rem is not None and not isinstance(rem, dict):
+        rep.err("remediation must be {done, lanes}")
+        return
+    required = status != "ongoing" and incident_day(R) >= REMEDIATION_CUTOFF
+    rem = rem or {}
+    for key in REMEDIATION_LISTS:
+        items = rem.get(key)
+        if items is not None and not isinstance(items, list):
+            rep.err(f"remediation.{key} must be a list")
+            continue
+        for i, e in enumerate(items or []):
+            where = f"remediation.{key}[{i}]"
+            if not (isinstance(e, dict) and isinstance(e.get("text"), str) and e["text"].strip()):
+                rep.err(f"{where} must carry text")
+                continue
+            if key == "lanes" and not (isinstance(e.get("name"), str) and e["name"].strip()):
+                rep.err(f"{where} names no lane")
+            check_link_list(rep, where, e, False)
+    if not required:
+        return
+    if not rem.get("done"):
+        rep.err("remediation.done is empty; the first retro PR states what was done to stop the incident")
+    if not rem.get("lanes"):
+        rep.err("remediation.lanes is empty; the first retro PR names the follow-up lanes carrying the picks")
+    lanes = {e.get("name") for e in rem.get("lanes") or [] if isinstance(e, dict)}
+    questions = entries(R, "prevention")
+    if not questions:
+        rep.err("prevention is empty; the first retro PR carries the owner's prevention picks with owners and PRs")
+    for q in questions:
+        picks = [o for o in q.get("options") or [] if isinstance(o, dict) and o.get("picked") is True]
+        if not picks:
+            rep.err(f"{q.get('id')} has no picked option; record the owner's pick before the first retro PR")
+        for o in picks:
+            if not o.get("links") and o.get("lane") not in lanes:
+                rep.err(f"{o.get('id')} is picked but links no pull request and names no lane in remediation.lanes; "
+                        f"link the PR that lands it, or the follow-up lane carrying it")
 
 
 def check_unknowns(rep, R, known: set) -> set:
@@ -2281,6 +2336,7 @@ def check(args) -> int:
     h_ids = check_hypotheses(rep, R, all_ids)
     u_ids = check_unknowns(rep, R, all_ids)
     p_ids = check_prevention(rep, R)
+    check_remediation(rep, R, status)
     known = window_ids | {str(i) for group in (t_ids, c_ids, a_ids, sub_ids, d_ids, h_ids, u_ids, p_ids)
                           for i in group}
     check_impact(rep, R, known)
@@ -2565,7 +2621,8 @@ def text_sections(R: dict, root: Path) -> dict:
         for o in q.get("options") or []:
             if not isinstance(o, dict):
                 continue
-            head = f"- **{o.get('t', '')}**" + (" (recommended)" if o.get("recommended") else "")
+            head = f"- **{o.get('t', '')}**" + (" (recommended)" if o.get("recommended") else "") + (
+                f" (picked, {o.get('owner', '')})" if o.get("picked") else "")
             lines.append(head + (f": {o['hint']}" if o.get("hint") else ""))
             if o.get("text"):
                 lines.append(f"  {cite(o['text'])}")
@@ -2577,6 +2634,21 @@ def text_sections(R: dict, root: Path) -> dict:
                     lines.append(f"  - {key[:-1]}: {item.get('text', '')}")
         lines.append("")
     out["prevention"] = lines
+
+    rem = R.get("remediation") or {}
+    lines = []
+    if rem.get("done"):
+        lines += ["### What was done", ""] + [f"- {cite(e.get('text', ''))}" + (
+            " (" + ", ".join(link_text(l) for l in e["links"]) + ")" if e.get("links") else "") for e in rem["done"]] + [""]
+    picks = [(q, o) for q in entries(R, "prevention") for o in q.get("options") or []
+             if isinstance(o, dict) and o.get("picked")]
+    if picks:
+        lines += ["### Prevention picks", ""] + [f"- {q.get('t', '')}: **{o.get('t', '')}** ({o.get('owner', '')})" + (
+            " " + ", ".join(link_text(l) for l in o["links"]) if o.get("links") else "") for q, o in picks] + [""]
+    if rem.get("lanes"):
+        lines += ["### Follow-up lanes", ""] + [f"- `{e.get('name', '')}`: {cite(e.get('text', ''))}" + (
+            " (" + ", ".join(link_text(l) for l in e["links"]) + ")" if e.get("links") else "") for e in rem["lanes"]]
+    out["remediation"] = lines
 
     lines = []
     lessons = R.get("lessons") or {}

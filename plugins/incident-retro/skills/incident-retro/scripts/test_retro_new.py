@@ -68,6 +68,70 @@ class Prevention(unittest.TestCase):
         self.assertIn("option id 'P2a'", "\n".join(rep.errors))
 
 
+class Remediation(unittest.TestCase):
+    def report(self, **extra):
+        R = json.loads((retro.TEMPLATES / "starter" / "retro.json").read_text())
+        R["meta"]["date"] = "2026-10-05"
+        R.update(extra)
+        rep = retro.Report(True)
+        retro.check_remediation(rep, R, "draft")
+        return rep
+
+    def test_a_retro_without_remediation_fails(self):
+        joined = "\n".join(self.report().errors)
+        for part in ("remediation.done is empty", "remediation.lanes is empty", "prevention is empty"):
+            self.assertIn(part, joined)
+
+    def test_picks_need_an_owner_and_every_question_a_pick(self):
+        rep = self.report(remediation={"done": [{"text": "Reverted routing."}], "lanes": [{"name": "fix", "text": "x"}]},
+                          prevention=[{"id": "P1", "t": "Q", "options": [option("P1a", "A"), option("P1b", "B")]}])
+        self.assertIn("P1 has no picked option", "\n".join(rep.errors))
+
+    def test_a_complete_remediation_passes(self):
+        rep = self.report(remediation={"done": [{"text": "Reverted routing."}], "lanes": [{"name": "fix", "text": "x"}]},
+                          prevention=[{"id": "P1", "t": "Q", "options": [
+                              option("P1a", "A", picked=True, owner="root",
+                                     links=["https://github.com/Forge-AI/monorepo/pull/1"]), option("P1b", "B")]}])
+        self.assertEqual(rep.errors, [])
+
+    def test_retros_before_the_cutoff_are_not_held_to_it(self):
+        R = json.loads((retro.TEMPLATES / "starter" / "retro.json").read_text())
+        R["meta"]["date"] = "2026-09-30"
+        rep = retro.Report(True)
+        retro.check_remediation(rep, R, "draft")
+        self.assertEqual(rep.errors, [])
+
+
+    def test_a_pick_without_a_pr_needs_a_named_lane(self):
+        base = {"remediation": {"done": [{"text": "Reverted."}], "lanes": [{"name": "rules-lane", "text": "x"}]}}
+        orphan = self.report(**base, prevention=[{"id": "P1", "t": "Q", "options": [
+            option("P1a", "A", picked=True, owner="root"), option("P1b", "B")]}])
+        self.assertIn("names no lane", "\n".join(orphan.errors))
+        carried = self.report(**base, prevention=[{"id": "P1", "t": "Q", "options": [
+            option("P1a", "A", picked=True, owner="root", lane="rules-lane"), option("P1b", "B")]}])
+        self.assertEqual(carried.errors, [])
+
+
+class CommsCheck(unittest.TestCase):
+    URL = "https://docs.poetic.design/incident-retros/2026-10-04-x/"
+
+    def check(self, text):
+        path = Path(tempfile.mkdtemp()) / "draft.md"
+        path.write_text(text)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = retro_new.comms_check(argparse.Namespace(draft=str(path), url=self.URL))
+        return code, err.getvalue()
+
+    def test_a_pull_request_link_is_refused(self):
+        code, err = self.check(f"Retro: https://github.com/Forge-AI/design-docs/pull/65 and {self.URL}")
+        self.assertEqual(code, 1)
+        self.assertIn("pull/65", err)
+
+    def test_the_rendered_page_is_required(self):
+        self.assertEqual(self.check("Retro is up.")[0], 1)
+        self.assertEqual(self.check(f"Retro: {self.URL}")[0], 0)
+
+
 class Board(unittest.TestCase):
     def test_board_carries_facts_detail_and_the_recommendation(self):
         root = Path(tempfile.mkdtemp())

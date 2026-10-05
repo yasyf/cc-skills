@@ -51,8 +51,14 @@ the support lanes:
 The incident-doc lane runs the incident-retro skill's live mode in the
 Forge-AI/design-docs checkout. It runs `live init`, merges the shell PR, then
 runs `live sync` at every state change and at least every 10 minutes. It hands
-the page link to comms for `#outage` and the account channels. At resolution, it
-runs `live finalize` and prepares the draft retro on `retro/<date>-<slug>`.
+the page link to comms for `#outage` and the account channels.
+
+At resolution, it runs `live finalize`, completes Remediation and the owner's prevention picks
+on `retro/<date>-<slug>`, and runs `retro.py publish <dir>` through merge and
+the rendered-URL check. It hands comms the URL from the final `RENDERED:` line.
+The incident's step 4 report and the Slack retro-link reply use that URL,
+never a PR URL. Every such draft passes
+`retro.py comms-check <draft-file|-> --url <rendered-url>` before posting.
 
 - Each grant is the owner's authority for one kind of side effect. The root
   records Slack grants for the affected account channels and threads, plus
@@ -211,12 +217,22 @@ Do:
      <incident topic>; the comms lane owns Slack posts.
   5. At resolution, sync the final state, stop your sync loop, then run
      `retro.py live finalize <incident-dir> --docs <design-docs-checkout> --tags <two to six topical tags, comma-separated>`.
-     Prepare the draft retro on retro/<date>-<slug>, at the same page URL.
-     Hand its branch and link to <root agent name> and <comms lane name>.
+     Complete the retro on retro/<date>-<slug>, at the same page URL. Run
+     `retro.py board <dir> --out <board.json>` and present it to the owner.
+     Record the picks with picked, owner, and PR links or a named lane. Fill
+     Remediation with what stops the incident and the follow-up lanes before
+     the prose pass. The first retro PR includes these records.
+  6. Run the skill's prose pass, then `retro.py publish <dir>`. It runs the
+     gates, opens a ready PR, enables squash auto-merge, and waits for merge
+     and the rendered-URL check. On exit 75, resume the printed AWAIT: command.
+     Hand only the URL from the final RENDERED: line to <root agent name> and
+     <comms lane name>. The incident's step 4 report and Slack retro-link reply
+     take that URL from the skill output, never a PR URL. Every such draft
+     passes `retro.py comms-check <draft-file|-> --url <rendered-url>` before posting.
 
 Do NOT touch: production, fix or evidence worktrees, or Slack posts.
 Worktree: <design-docs-checkout>, exclusive to this lane.
-Finish: after resolution, final sync, and the draft-retro handoff.
+Finish: after resolution, final sync, merge, and handoff of the checked RENDERED: URL.
 ```
 
 *Prevents an incident running without a lane keeping its live doc current. The

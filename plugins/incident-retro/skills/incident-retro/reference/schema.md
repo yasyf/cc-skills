@@ -34,7 +34,7 @@ here.
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
-| `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
+| `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `remediation`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |
 | `ai` | no | `{suggest?: {<sectionId>: ["…"]}}` the questions the assistant offers while a section is on screen; the endpoint and keys live in `ai.json`, never here |
 | `acronyms` | no | words the capitalization lint holds to their own spelling, on top of the built-in list plus `TTD`, `TTE`, `TTM`, `TTR`, `SEV` |
 | `draft` | no | boolean; pins a draft banner as in design-doc |
@@ -241,7 +241,7 @@ Each action entry follows `[{id, t, h, owner, source, state, links?, due?, note?
 The top-level list follows `[{id, t, h, text, options}]`. Each question's
 `id` is `P\d+`, such as `P1`, and is citable like `C1`. `t` is the question,
 `h` its short name, and `text` the lede with the facts that pose it. The
-page renders Prevention options after Action items.
+page renders Prevention options after Remediation.
 
 `options` holds two to four answers, each with this shape:
 
@@ -258,13 +258,19 @@ page renders Prevention options after Action items.
 | `first` | What must land first, on one line |
 | `alternatives` | Other ways to answer the question, on one line |
 | `recommended` | `true` on at most one option per question |
+| `picked` | Boolean recording the owner's choice; `true` adds a Picked badge and includes the option in Remediation |
+| `owner` | Nonempty name of the person or team responsible for landing a picked option |
+| `links` | PR links for the option, using the link shape below |
+| `lane` | Name of the follow-up lane carrying the option, matching `remediation.lanes[].name` |
 
 Astra writes every prose string in the question and its options through
-`prose`; ids and `recommended` remain data. `check` errors on fewer than
+`prose`; ids, `recommended`, `picked`, `owner`, `links`, and `lane` remain data.
+`check` errors on fewer than
 two or more than four options, or more than one recommended option.
 An option id other than its question's id plus one lowercase letter also
 errors. Newlines in `hint`, any of the five fact fields, or a `pros` or
-`cons` item are errors.
+`cons` item are errors. A supplied `picked` value must be boolean, and
+every picked option requires a nonempty `owner`.
 
 A label over eight words or an option with no pros, cons, or facts draws
 a strict warning. `text` alone does not satisfy that last check.
@@ -274,7 +280,36 @@ Each question becomes a card and each answer an option. `buys`, `costs`,
 `loses`, `first`, and `alternatives` become facts, with `first` labeled
 "must land first" on the board. `pros`, `cons`, and `text` become detail, and
 `recommended` carries through. The root presents the file without a
-second writing pass.
+second writing pass, then records the owner's picks before the prose pass
+and publication.
+
+## `remediation`: what was done and who carries the picks
+
+The top-level object contains `done` and `lanes` lists.
+
+| Field | Shape | Meaning |
+|---|---|---|
+| `done` | `[{text, links?}]` | What stops the incident, with optional supporting links |
+| `lanes` | `[{name, text, links?}]` | Named follow-up lanes, the work each carries, and optional links |
+
+Every entry requires nonempty `text`; each lane also requires a nonempty
+`name`. Links use the link shape below. Astra writes
+`remediation.done[i].text` and `remediation.lanes[i].text`; lane names and
+links remain data.
+
+The page renders Remediation after Action items with three lists: What was
+done, Prevention picks, and Follow-up lanes. Prevention picks come from
+options with `picked: true`; each entry shows the question, chosen option,
+owner, and PR links. `retro.py text` and the page's Markdown export include
+the same section.
+
+The initial retro PR includes Remediation and the owner's picks. For any
+status other than `ongoing`, `check` requires it when the incident date is
+on or after `REMEDIATION_CUTOFF = "2026-10-04"`. The incident date is the
+date of `timestamps.onset`, falling back to `meta.date`. Empty `done`,
+`lanes`, or `prevention` lists are errors. Every prevention question
+requires a picked option. Each pick requires an owner and either PR links
+or a `lane` matching a name in `remediation.lanes`.
 
 ## `decisions`: choices made during the response
 
@@ -415,6 +450,7 @@ including empty fields whose containing objects exist.
 | Actions and sub-incidents | `AI1.t`, `AI1.note`, `I1.t` |
 | Prevention questions | `P1.t`, `P1.text`, `P1.h` |
 | Prevention options | `P1a.t`, `P1a.hint`, `P1a.text`, `P1a.buys`, `P1a.costs`, `P1a.loses`, `P1a.first`, `P1a.alternatives`, `P1a.pros[i].text`, `P1a.cons[i].text` |
+| Remediation | `remediation.done[i].text`, `remediation.lanes[i].text` |
 | Decisions, hypotheses, unknowns | `D1.t`, `D1.why`, `D1.alternatives`, `H1.t`, `H1.exonerated`, `U1.q`, `U1.why` |
 | Recognition and glossary | `recognize[<index>].signal`, `.means`, `.do`; `glossary[<index>].def` |
 | Lessons | `lessons.<column>[<index>].text`, with column `well`, `wrong`, or `lucky` |
@@ -781,4 +817,5 @@ Errors unless noted; `--strict` promotes the strict warnings.
 20. `summary.html`: the fragment rules, panel vocabulary and order, one `h3.xs-head` of 14 words or fewer over 3 or fewer points of 18, no prose outside them, and a first heading that does not restate the title.
 21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
 22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
-23. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. Missing pros, cons, and facts or an option label over eight words draw strict warnings.
+23. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. A supplied `picked` value must be boolean; a picked option requires a nonempty owner. Option links follow the link schema without `closes`. Missing pros, cons, and facts or an option label over eight words draw strict warnings.
+24. Remediation is an object with `done` and `lanes` lists. Entries require nonempty text, lanes require names, and links follow the link schema without `closes`. For a status other than `ongoing` and an incident date on or after `REMEDIATION_CUTOFF = "2026-10-04"`, empty `remediation.done`, `remediation.lanes`, or `prevention` is an error. The incident date comes from onset, falling back to `meta.date`. Each prevention question requires a picked option, and each pick requires an owner and PR links or a lane present in `remediation.lanes`. These errors apply without `--strict`.

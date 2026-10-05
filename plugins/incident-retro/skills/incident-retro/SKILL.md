@@ -24,7 +24,7 @@ the prose field list.
 
 An incident retro pairs one canonical `retro.json` with committed evidence snapshots and an executive summary in `summary.html`. `incident-retro.html` renders that record, and `retro.py` derives every duration from timestamp fields. Write in a blameless voice that explains what the system allowed, not which person deserves blame.
 
-The page is for readers who did not take part in the response. Beneath the title, subtitle, tags, and status, it opens with the status strip, executive summary, What's changed, timeline, and causes, then impact, resolution, lessons, recognition, Action items, Prevention options, evidence, and the remaining sections. Narrative sections start with a `takeaway` of 18 words or fewer, set by `TAKEAWAY_WORDS = 18`, and keep the details behind a disclosure.
+The page is for readers who did not take part in the response. Beneath the title, subtitle, tags, and status, it opens with the status strip, executive summary, What's changed, timeline, and causes, then impact, resolution, lessons, recognition, Action items, Remediation, Prevention options, evidence, and the remaining sections. Narrative sections start with a `takeaway` of 18 words or fewer, set by `TAKEAWAY_WORDS = 18`, and keep the details behind a disclosure.
 
 `REFERENCE_SECTIONS = ("evidence", "glossary", "notes")` open on their heading and collapsed structure, with no takeaway. Conclusions belong in the sections that argue them. Closed timeline, cause, decision, and unknown rows show a short name `h`; their sentences appear on expansion. Each short name and section opener must make sense on its own.
 
@@ -38,24 +38,26 @@ The AWS Systems Manager Parameter Store paths come from the caller. The AWS prof
 
 Read [reference/writing.md](reference/writing.md) before Draft, [reference/evidence.md](reference/evidence.md) before Gather, and [reference/schema.md](reference/schema.md) whenever a field is unclear.
 
-## Fast path: from the order to a draft link
+## Fast path to the rendered retro
 
-The target is a draft PR link in under 10 minutes from the order and a final
-retro in under 30 minutes. Replaying the incident's records produced a draft
-link in 17 seconds, including 84 timeline rows from three sources in 4 seconds.
-One Astra call wrote all 258 prose fields in 526 seconds (about 9 minutes),
-followed by a 137-second lint round for one field; no field was refused.
-The `publish --ready` gates took 15 seconds, and the final retro was ready
-17 minutes after the order. The replay used a prepared facts script;
-authoring those facts live adds time.
+The target is a final retro in under 30 minutes. In the measured replay,
+importing 84 timeline rows from three sources takes 4 seconds. One Astra call
+writes all 258 prose fields in 526 seconds (about 9 minutes), followed by a
+137-second lint round for one field, with no refused fields. The `publish`
+gates take 15 seconds, and the final ready retro takes 17 minutes from the
+order. The replay uses a prepared facts script; authoring those facts live
+adds time. These timings do not measure the merge and Pages deployment wait.
 
-1. Create the retro branch's worktree and run `new --pr` there:
+A retro PR is never draft. A PR link is never posted. The final output is
+the rendered page URL from the successful `publish` command's `RENDERED:` line.
+
+1. Create the retro branch's worktree and run `new` there:
 
    ```bash
    $TOOL new --incident "<source>" --docs "<design-docs-checkout>" \
      --title "<working headline>" --date YYYY-MM-DD \
      --tags "migration,release-pipeline" --team "CODENAME=alias,alias" \
-     --since 8h --tz America/Los_Angeles --pr
+     --since 8h --tz America/Los_Angeles
    ```
 
    Repeat `--incident` for each source and `--team` for each codename.
@@ -73,10 +75,6 @@ authoring those facts live adds time.
    the first matching rows, marks up to eight alert, mitigation, or deploy
    rows as key, and adds a Sources list to `NOTES.md`. Review those guesses.
 
-   `--pr` commits, pushes, and opens the draft PR. Give the owner that link
-   first. This is the one place a pull request opens as a draft: the owner
-   wants the link within minutes. `publish --ready` makes it ready once
-   the gates pass.
 2. Fill the facts from the records only. Prune the scaffolded timeline to
    the rows the story needs and correct their text. Fill timestamps,
    windows, causes, impact, resolution, detection, decisions, actions,
@@ -84,17 +82,26 @@ authoring those facts live adds time.
    Leave `h` and `p` empty; Astra writes them from the entry. Never grep
    transcripts or re-derive a fact a record already holds. Put a fact no
    record carries in `unknowns`.
-3. Finish every fact before prose. A fact edited after prose sends the
-   affected fields back through Astra.
-4. Run one `$TOOL prose <dir> --detach` and await it with the printed
+3. Run `$TOOL board <dir> --out <board.json>`. The root presents the file
+   to the owner through cc-present without rewriting it. Record the owner's
+   choices in `prevention[].options[]` with `picked: true`, `owner`, and
+   PR `links` or a `lane` named in `remediation.lanes`. Fill `remediation.done`
+   with what stops the incident and `remediation.lanes` with the follow-up
+   lanes carrying the picks. The initial retro PR includes this Remediation
+   section and the owner's picks.
+4. Finish every fact, then run one `$TOOL prose <dir> --detach` and await it with the printed
    `AWAIT:` command. The default sends every field in one call. Fields
-   reach disk when the run ends.
-5. Run `$TOOL publish <dir> --ready`. It runs the gates once, refreshes the
-   cards and PR body, and marks the PR ready when the gates pass.
-6. Run `$TOOL board <dir> --out <board.json>` for the prevention picks.
-   The root presents that file through cc-present with no second writing
-   pass. The board uses the questions, options, facts, pros, cons, and
-   recommendation already in `prevention`.
+   reach disk when the run ends. A later fact edit sends the affected fields
+   back through Astra.
+5. Run `$TOOL publish <dir>`. It runs the gates before pushing, refreshes
+   both cards, opens or updates a ready PR, enables squash auto-merge, and
+   waits for merge and a successful Pages deployment containing the merge
+   commit. If it exits 75, resume with the printed `AWAIT:` command until
+   it succeeds or reports a failure. Phase 5 gives the wait and exit rules.
+6. Return only the URL from the final `RENDERED:` line. Every Slack or comms
+   draft about the retro passes `$TOOL comms-check <draft-file|-> --url <rendered-url>`
+   before posting. It rejects GitHub or Graphite PR links and a missing
+   rendered URL. Comms receives only the rendered page URL.
 
 ## Live incident
 
@@ -182,7 +189,7 @@ a muted "no time data" mark. See [reference/components.md](reference/components.
 ## Phase 1: Gather
 
 After `live finalize`, use the records in the existing retro directory.
-For a retro that did not start live, use `new --pr` from the fast path.
+For a retro that did not start live, use `new` from the fast path.
 
 For evidence absent from the records, collect permalinks to incident-channel messages, Datadog notebooks and monitors, pull requests, issues, builds, runs, and images. Prefer a permalink to a pasted claim because the rendered retro can connect the claim to its source.
 
@@ -217,11 +224,13 @@ Then draft in reading order:
 5. Describe `resolution` and `detection`, including monitors that caught or missed the incident and monitors added afterward. Record the `decisions` made during the response, who made each, and why. Record the `hypotheses` ruled out and the evidence that cleared them.
 6. Fill every applicable `lessons` group from the evidence, then write the `recognize` rows for the next responder.
 7. Give every action an owner, source, state, and due date when one exists. Fill `prevention` with the questions the owner needs to settle, the facts that pose them, and two to four options per question. Record each option's pros, cons, buys, costs, losses, prerequisites, and alternatives before prose.
-8. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
-9. Leave plain twins and handles empty for Astra to write from each entry. Fill one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
-10. Prepare `summary.html` last: one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
-11. Finish every fact, then run `prose --list` to inspect the field addresses and one `prose --detach` to write them through Astra. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
-12. Run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Fields are written to disk after all calls finish.
+8. Run `board --out`, present the board to the owner, and record the picks before prose. Each picked option carries `picked: true`, an `owner`, and PR `links` or a `lane` matching a name in `remediation.lanes`.
+9. Fill `remediation.done` with `{text, links?}` entries describing what stops the incident and `remediation.lanes` with `{name, text, links?}` entries for the follow-up lanes. Astra writes `remediation.done[i].text` and `remediation.lanes[i].text`. The initial retro PR includes Remediation. For any status other than `ongoing`, `check` requires nonempty `done`, `lanes`, and `prevention` when the incident date is on or after `REMEDIATION_CUTOFF = "2026-10-04"`. It uses onset, falling back to `meta.date`. Every prevention question requires a picked option; each pick requires an owner and a PR link or a named lane present in `remediation.lanes`.
+10. Record each question the sources leave unanswered in `unknowns`. Define terms with a meaning specific to this system in `glossary`.
+11. Leave plain twins and handles empty for Astra to write from each entry. Fill one `takeaway` of 18 words or fewer per narrative section in `meta.sections`; omit it from `evidence`, `glossary`, and `notes`.
+12. Prepare `summary.html` last with one panel per question, in the order `what-happened`, `impact`, `why`, `what-changed`, `still-open`. Each panel has one `h3.xs-head` of at most 14 words, a `ul.xs-points` with at most 3 `li` of at most 18 words each, and an optional `.xs-stats` block. Give the first heading an answer beyond the headline.
+13. Finish every fact, then run `prose --list` to inspect the field addresses and one `prose --detach` to write them through Astra. The default sends all fields in one call. `--batch N` splits them into calls that run side by side.
+14. Run the printed `AWAIT:` command in the foreground with `timeout: 600000`. If it exits 75 after 540 seconds, rerun it until it returns the run's exit status. Fields are written to disk after all calls finish.
 
 Review refused fields and lint findings, and rerun affected addresses with
 `--field`. A fact edited after prose also needs its affected fields rewritten.
@@ -379,10 +388,11 @@ $TOOL evidence slack check <dir>
 
 ## Phase 4: Check
 
-`publish --ready` runs `check --strict`, `render-check`, and a whole-page
-slop-cop pass with `--llm-effort=off` once before marking the PR ready.
-It prints each gate's elapsed time and refuses on a failed gate. Use that
-command for the gates instead of running them separately before publishing.
+`publish` runs `check --strict`, `render-check`, and a whole-page slop-cop
+count with `--llm-effort=off` before refreshing the cards, committing, or
+pushing. It prints the check timings and lint count. A failed check exits 1
+and pushes nothing. Use `publish` for these checks once the owner's picks
+and Remediation are recorded and the prose pass finishes.
 
 Generate the PDF separately:
 
@@ -398,7 +408,7 @@ The lock records per-field `slop` counts and a total; strict mode sums those
 counts and fails above `SLOP_BUDGET = 3`, naming the fields with the most
 findings. The prose gate covers the landed prose fields, not the whole rendered
 document. Revise failed prose through `prose --field`, then rerun
-`publish --ready`.
+`publish`.
 
 `render-check` measures the initial page, with disclosures closed by default. Its visible-word budget is 1500 unless `--words` overrides it. It rejects visible Slack messages and the notebook, monitor, and transcript body selectors documented in the schema. Height and open-disclosure count are reported without a limit. It does not force `open: true` components closed.
 
@@ -437,20 +447,49 @@ $TOOL links <dir> --fetch
 
 Write the snapshot note for a returning reader. Name what changed and why it matters without register ids. Add another `--item` for each distinct change.
 
-`publish` refreshes both index cards from `retro.json`, using `meta.title`,
-`meta.subtitle`, `meta.date`, and `meta.status`. It commits as
-`incident retros: 📝 <meta.title>`, pushes, and creates or edits the PR.
-The body is the summary panels rendered as Markdown with Astra's text
-verbatim, plus the page URL from `CNAME`. A fixed placeholder stands in
-while the summary still contains only TODOs.
+The initial retro PR includes what stops the incident, the owner's prevention
+picks with owners and PR links or named follow-up lanes, and the follow-up
+lanes themselves. Complete the board and Remediation in Phase 2 before
+the prose pass and publication.
 
 ```bash
-$TOOL publish <dir> --ready
+$TOOL publish <dir>
 ```
 
-`--ready` runs the Phase 4 gates and marks the PR ready. For the owner's
-prevention picks, run `board --out` from the fast path and present the
-generated file without rewriting it.
+After the Phase 4 gates pass, `publish` refreshes both index cards from
+`retro.json`, using `meta.title`, `meta.subtitle`, `meta.date`, and
+`meta.status`. It commits only the retro directory and the two index pages
+as `incident retros: 📝 <meta.title>`, then pushes. It opens a ready PR or
+edits the existing PR and marks it ready, then enables squash auto-merge.
+The PR body contains the summary panels rendered as Markdown with Astra's
+text verbatim, plus the page URL from `CNAME`.
+
+`publish` waits for the PR to merge and a successful `github-pages`
+deployment to contain the merge commit. The site requires GitHub sign-in,
+so the deployment record proves that the merged revision is served; an
+anonymous fetch does not. On success, the last line is
+`RENDERED: https://<CNAME>/incident-retros/<slug>/`, and the command exits 0.
+For Forge-AI/design-docs, that page is on docs.poetic.design.
+
+A failed check or a PR closed without merging exits 1. After `--seconds`
+(default 540), an unfinished wait exits 75 with an `AWAIT:` command. Run
+that command to resume the wait:
+
+```bash
+$TOOL publish <dir> --await <pr-url> --seconds 540
+```
+
+The PR URL in `AWAIT:` is only an input to the wait command. Return only
+the URL from `RENDERED:` as the final output and hand that URL to comms.
+Every Slack or comms draft about the retro passes this check before posting:
+
+```bash
+$TOOL comms-check <draft-file> --url <rendered-url>
+```
+
+Use `-` for a draft on stdin. `comms-check` exits 1 if the draft contains
+any `github.com/<owner>/<repo>/pull/<n>` or Graphite PR link, or omits the
+rendered URL. Fix the draft and rerun the check before posting.
 
 Move `meta.status` through this lifecycle:
 

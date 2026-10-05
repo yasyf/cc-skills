@@ -100,6 +100,10 @@ Thread: <permalink>; channel <channel id>; thread ts <thread ts>.
 Account channels and FDEs: ai-oncall skill mapping, per cc-notes answer d12f767.
 Grants: <channel and thread grant ids for the affected accounts and #outage>.
 Incident doc lane: incident-<incident id>-retro; link <live incident-doc URL when ready>.
+After resolution, the retro lane completes Remediation and the owner's picks,
+  runs `retro.py publish <dir>` through merge and the rendered-URL check, and
+  supplies the URL from the skill's final RENDERED: line. The incident's step 4
+  report and the retro-link reply use that URL, never a PR URL.
 Executor: incident-<incident id>. Bus: cci drive <drive>; topic incident:<incident id>.
 CLI: ~/.claude/plugins/cache/<marketplace>/cc-slack/<version>/bin/cc-slack, by path.
 
@@ -132,7 +136,10 @@ Do:
      Before each post, write the text to <tmpfile>, then run
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
      finding. Run `slop-cop check <tmpfile> --lang=markdown --llm-effort=off`;
-     fix real flags. Post the checked text verbatim. For `thread`, use
+     fix real flags. Every draft about the retro also passes
+     `retro.py comms-check <tmpfile> --url <rendered-url>` before posting.
+     Use the URL from the skill's RENDERED: output; fix any PR link or missing
+     rendered URL and rerun the check. Post the checked text verbatim. For `thread`, use
      `cc-slack reply --url <thread> --grant <grant> --text <copy>`. For `channel`,
      use `cc-slack send --channel <channel id> --grant <grant> --text <copy>`. Add eyes
      for `ack`, and swap eyes for white_check_mark after `recovered`.
@@ -140,7 +147,7 @@ Do:
      `cci post --drive <drive> --lane <comms lane> --kind answer --re <seq> --text "posted ts=<ts>"`.
      An entry left unanswered for two minutes reaches the root as a decision.
   7. On a human question in the thread, add eyes and draft an answer from the latest
-     executor entries. Before each reply, follow step 5's drafting and both checks,
+     executor entries. Before each reply, follow step 5's drafting and checks,
      then post the checked text verbatim under the thread grant.
 
 Never: a post without the matching channel or thread grant; a reply to a from_claude message
@@ -148,7 +155,7 @@ Never: a post without the matching channel or thread grant; a reply to a from_cl
   reference; drive inbox, ruling, or cursor ids such as G158 or R699;
   lane/desk/cursor names; raw shas, ULIDs, or run/browser/exec ids; status labels;
   unglossed code nouns.
-Finish: after the resolution update, doc-link handoff, and answer to `recovered`.
+Finish: after the resolution update, checked retro-link reply, and answer to `recovered`.
   Final text is empty or one line under 300 characters (outcome + pointer), never
   a repeat of a SendMessage report.
 ```
