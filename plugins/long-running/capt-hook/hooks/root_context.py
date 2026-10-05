@@ -70,16 +70,6 @@ SLACK_READ_TOOLS = (
     "mcp__slack__slack_search_messages",
     "mcp__plugin_cc-slack_cc-slack__slack_thread",
 )
-SLACK_WRITE_TOOLS = (
-    "mcp__plugin_cc-slack_cc-slack__slack_send",
-    "mcp__plugin_cc-slack_cc-slack__slack_reply",
-    "mcp__plugin_cc-slack_cc-slack__slack_edit",
-    "mcp__plugin_cc-slack_cc-slack__slack_react",
-    "mcp__plugin_cc-slack_cc-slack__slack_unreact",
-    "mcp__slack__slack_send_message",
-    "mcp__slack__slack_add_reaction",
-    "mcp__slack__slack_remove_reaction",
-)
 CCX_MCP_READS = tuple(
     f"mcp__plugin_cc-context_cc-context__ccx_{name}" for name in ("code_", "repo_", "web_", "vcs_diff", "exec")
 )
@@ -631,30 +621,15 @@ root_block(
         ): Allow(),
         Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
         Input(command="cc-slack thread C0B/p1 # ccx:raw", state=ACTIVE): Allow(),
-    },
-)
-
-root_block(
-    message=(
-        "The drive root never writes to Slack. "
-        "Delegate with `Agent` using `long-running:lane-ship` and `model: sonnet`, briefed from `reference/slack-lane-brief.md`."
-    ),
-    only_if=[Or(runs_verb(CC_SLACK, ("send",), ("reply",), ("edit",), ("react",), ("unreact",)), Tool(*SLACK_WRITE_TOOLS))],
-    bypass=False,
-    tests={
         Input(
-            tool="mcp__slack__slack_send_message", tool_input={"channel_id": "C0B", "text": "On it"}, state=ACTIVE
-        ): Block(pattern=r"never writes to Slack"),
+            tool="mcp__plugin_cc-slack_cc-slack__slack_send", tool_input={"channel_id": "C0B", "text": "Approved post"}, state=ACTIVE
+        ): Allow(),
         Input(
-            tool="mcp__slack__slack_add_reaction", tool_input={"channel_id": "C0B", "reaction": "eyes"}, state=ACTIVE
-        ): Block(),
-        Input(command="cc-slack react --url C0B/p1 --name eyes # ccx:raw", state=ACTIVE): Block(),
-        Input(command="cc-slack react --url C0B/p1 --name eyes", env={"CAPT_HOOK_CCX_RAW": "1"}, state=ACTIVE): Block(),
-        Input(command="~/.claude/plugins/cache/forge/cc-slack/0.2.11/bin/cc-slack react --url C0B/p1", state=ACTIVE): Block(),
-        Input(tool="mcp__slack__slack_send_message", tool_input={"channel_id": "C0B", "text": "On it"}): Allow(),
-        Input(command="cc-slack reply --url C0B/p1 --text 'On it'", agent_id="a1b2c3", state=ACTIVE): Allow(),
-        Input(command="cc-slack dm-status --text 'parity wave 3 landed'", state=ACTIVE): Allow(),
-        Input(command="cc-slack whoami", state=ACTIVE): Allow(),
+            tool="mcp__plugin_cc-slack_cc-slack__slack_reply",
+            tool_input={"channel_id": "C0B", "thread_ts": "1.2", "text": "Approved reply"},
+            state=ACTIVE,
+        ): Allow(),
+        Input(command="cc-slack react --url C0B/p1 --name eyes", state=ACTIVE): Allow(),
     },
 )
 
