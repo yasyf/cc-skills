@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read the owner-approved register and match durable rulings to a lane's brief.
+"""Read the owner-approved register and feed durable answers to the key-moment judge.
 
     rulings.py register (--program SLUG | --drive ID) [--repo PATH]
-    rulings.py match    (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--repo PATH] < BRIEF
+    rulings.py match    (--program SLUG | --drive ID) [-k N] [--budget BYTES] [--repo PATH] < ACTION
 
 The register is the newest cc-notes doc labelled ``standing-rules:<program>``.
 A consolidation lane proposes at most 30 rules for the owner to approve.
@@ -10,11 +10,17 @@ The full answers stay in cc-notes, linked by id. ``register`` reads the doc and
 prints JSON with fields ``{id, body}``, or ``null`` when no register exists.
 
 ``match`` mirrors every ``scope:durable`` answer into ``<state dir>/rulings/<id7>.md``.
-It reads the brief from stdin and uses its first 2,000 characters as the query for
-``ccx code search --semantic``. The default ``-k`` is 8. It excludes answers already
-cited by the register. Each match is printed as ``- <id7> <title>`` followed by its
-body quoted with ``  >``. Output stops before an answer would exceed ``--budget``,
-which defaults to 8,000 bytes.
+This is the retrieval corpus only. Nothing injects it in bulk.
+The command reads an action from stdin. Its first 2,000 characters become the query
+for ``ccx code search --semantic``. Answers the register already cites are excluded.
+Each match is printed as ``- <id7> <title>`` followed by its body quoted with ``  >``.
+The CLI defaults to ``-k 8`` and an 8,000-byte ``--budget``.
+Output stops before an answer would exceed that budget.
+
+The key-moment judge calls ``match`` with ``-k 5`` and a 6,000-byte candidate budget.
+A small model selects one answer the action clearly bears on or would violate,
+or none. The hook injects only that answer, verbatim, once per lane per answer.
+It is advisory, never blocks, and fails open.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory.
 ``--drive`` resolves the program and state directory from the drive registry for

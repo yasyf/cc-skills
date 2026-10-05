@@ -672,9 +672,10 @@ plain-language check covered only the posting lane's copy.*
 
 **R22. Quote the owner's design verbatim. Ship that design or hold.**
 
-- In every brief or ruling on a subsystem, quote each owner design ruling verbatim
-  with its id and the required entry point as a symbol at `file:line`. Have a reader
-  lane find the symbol before dispatch. A package list is not an entry point:
+- In every brief or ruling on a subsystem, quote the relevant register rules verbatim.
+  Cite their linked answer ids without pasting full answers. Name the required
+  entry point as a symbol at `file:line`. Have a reader lane find it before dispatch.
+  A package list is not an entry point:
   importing every package still permits a second implementation.
 - Before READY-FOR-SHIP, name the entry point the diff calls, each ruling it meets,
   and anything it leaves out. The root confirms this design check against the
@@ -1339,8 +1340,8 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 ccx: role=<role> tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
-Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
-  with its id, and the entry point (symbol at file:line) it makes the change call; or
+Design rulings, verbatim: <relevant register rules, their linked answer ids,
+  and the entry point (symbol at file:line) each requires; or
   "none">. Before READY, state which entry point your diff calls, each ruling it meets,
   and anything it leaves out; the root confirms before a ship lane launches (R22).
 Do:
@@ -1354,9 +1355,13 @@ Do NOT touch: <files, branches, worktrees another lane owns>.
 Worktree: <absolute path, exclusive to this lane>.
 Keep inbox lines under 400 characters; put evidence in a file or cc-notes and leave a pointer in the line. Orient with `inbox-digest.py --all <files>` when starting a new lane.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Claude lanes receive the register through hooks; above 9,000 characters, read it
-  with `ccn doc show <id7>` before acting.
+  The owner-approved register has at most 30 rules. Carry its wording, never full answers.
+  Claude subagents, including planning agents, receive it once at SubagentStart.
+  Orca Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.
+  Above 9,000 characters, the hook names it. Read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
+  Codex workers have no hooks. In Claude drive sessions, the key-moment judge can
+  inject one relevant durable answer, verbatim, once per lane per answer.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
@@ -2039,12 +2044,12 @@ handoff.py generate --program <slug> --plan <path> [--inbox-dir DIR] [--ledger I
 handoff.py lint (--doc ID | --file PATH) --program <slug> [--plan PATH] [--previous-doc ID | --previous-file PATH] [--repo PATH]
 ```
 
-The standing rules register is a cc-notes doc labeled `standing-rules:<slug>`, as
-owner answers `4d381e0` and `8cb6da7` require.
-A consolidation lane proposes at most 30 rules for the owner to approve.
+The standing rules register is the owner-approved cc-notes doc labeled
+`standing-rules:<program>`, as owner answers `4d381e0` and `8cb6da7` require.
+It has at most 30 rules. A consolidation lane proposes changes for owner approval.
 Full answers stay in cc-notes, linked by id from the register.
-The owner's 30-rule cap keeps the current release-v3 draft, doc `0cf17c9`, at about
-7 KB, below the injection budget.
+The release-v3 register, doc `0cf17c9`, is about 8 KB.
+Its body is mirrored as the plan file's last section.
 
 `generate` reads the newest register doc by `updated_at`.
 It never builds, edits, or supersedes a register doc or writes a register file.
@@ -2063,34 +2068,47 @@ fails.
 The plugin ships a `bin/rulings.py` launcher.
 
 `rulings.py register --program <slug>` prints the newest register as `{id, body}` or
-`null`. `rulings.py match --program <slug>` reads a lane brief from stdin.
-It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md` with atomic
-per-file replacements so concurrent spawns never read partial files. It queries
-`ccx code search --semantic` with the brief's first 2,000 characters.
-Each matched answer absent from the register's citations appears as `- <id7> <title>`
-over its quoted body. `--budget` defaults to 8,000 bytes.
+`null`.
+
+`rulings.py match` feeds the key-moment judge.
+It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md`.
+Atomic per-file replacements keep concurrent readers from seeing partial files.
+This full set is the retrieval corpus only. Nothing injects it in bulk.
+
+`match` reads the proposed action from stdin. It uses the first 2,000 characters
+as the query for `ccx code search --semantic`.
+It excludes answers the register already cites.
 
 `--drive <id>` replaces `--program` for workers carrying `CLAUDE_LONG_RUNNING_DRIVE`.
 It resolves the program and state directory from the drive registry.
 
-Claude subagents, including planning agents, receive the register at `SubagentStart`.
-Orca Claude worker sessions carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at
-`SessionStart`. If the body exceeds 9,000 characters, the hook names the register and
-tells the lane to read it in full with `ccn doc show <id7>` before acting. Within that
-budget, the body arrives verbatim. Claude Code moves context over 10,000 characters
-to a file with a 2 KB preview.
+**Sub-lane injection.** Every sub-lane receives the register once at start.
+Claude subagents, including planning agents, receive it at `SubagentStart`.
+Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive it at `SessionStart`.
 
-`SubagentStart` cannot see the spawn prompt, so the hook keys matched answers by
-subagent type. At `SubagentStart`, the hook collects matches from same-type spawns in the
-preceding 60 seconds. It deduplicates them and delivers at most 8,000 bytes on the
-subagent's first `PostToolUse`.
-A lane may therefore receive answers matched to a sibling spawned alongside it.
-Rewriting the Agent prompt was rejected because capt-hook keeps only the first
-rewrite per call, dropping other hooks' Agent rewrites such as the model upgrade.
+The body arrives whole and verbatim when it is at most 9,000 characters.
+Above that limit, the hook names the doc and says to read it with
+`ccn doc show <id7>` before acting.
 
-An Orca Claude worker's first `UserPromptSubmit` delivers matches for its brief.
-All injections warn and fail open. Codex briefs must paste the register body because
-Codex workers have no Claude hooks.
+Codex workers have no hooks, so their briefs paste the register body verbatim.
+A brief carries the register's at most 30 rules, never full-answer quotes.
+These injections are advisory and fail open.
+
+**Key-moment judge.** `ruling_judge.py` runs before these calls in root, subagent,
+and Orca Claude drive sessions:
+
+- A `GO`, `HOLD`, or `DECIDE` line appended to an inbox.
+- A pull request opened through `ccx vcs ship`, `ccx vcs stack submit`, or `gh pr create`.
+- A plan-file write or edit.
+- A Slack write through `cc-slack send`, `cc-slack reply`, or a Slack MCP send.
+- A lane spawn through an Agent prompt or an `orca-launch.sh` brief file.
+
+The judge calls `rulings.py match` with `-k 5` and a 6,000-byte candidate budget.
+The five nearest durable answers come from ccx semantic search.
+Answers the register already cites are excluded.
+A small model returns the one answer the action clearly bears on or would violate,
+or none. The hook injects only that answer, verbatim, once per lane per answer.
+It is advisory, never blocks, and fails open.
 
 *Prevents the release-v3 rule "release everything as it merges" (answer 4ffc9a5)
 vanishing from progress doc b0ebc9a and later compactions while stale "(owner's
@@ -2125,7 +2143,7 @@ doc is never taken as the root's narrative. With no fresh narrative, the newest
 progress record's narrative carries forward with one provenance line.
 
 The `root_context` Stop check `nudge_unrecorded_standing_rule`, described above,
-prompts the root to record standing rules. Durable answers feed brief matching.
+prompts the root to record standing rules. Durable answers feed the key-moment judge.
 The handoff reads the approved register and live `(standing)` inbox lines.
 
 **Lint.** Generation checks that `## Standing owner rules` exists and quotes the
@@ -2178,7 +2196,8 @@ by hand and blocks nothing.
 
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
 `generate` again unless the hook generated a handoff in the last five minutes. It
-reads the current register and carries the narrative forward.
+reads the approved register, quotes it in the progress doc, and carries the narrative forward.
+Generation never changes the register.
 This covers Claude Code's auto-compaction before the root writes a narrative.
 
 The instructions point to the plan and active progress doc. They ask the summary to
@@ -2190,8 +2209,7 @@ earlier in the conversation.` so the summary carries the id the hook just wrote.
 
 **Resume.** On `SessionStart` with source `compact`, the hook injects the digest
 `generate` printed. When a register exists, the digest names it first with
-`ccn doc show <register id>`. The register arrives verbatim with the next tool
-results. It binds every lane brief and outranks the summary.
+`ccn doc show <register id>`. The register binds every lane brief and outranks the summary.
 
 Read the progress doc next, then the plan.
 Without a register, the digest starts with the progress record.
@@ -2202,18 +2220,17 @@ The `Open:` line counts owner asks, tasks, lanes, monitors, and lint findings.
 The digest carries no clipped title list.
 
 Claude Code's `PostCompact` hook cannot return context. Delivery after compaction
-uses `SessionStart` with source `compact`, followed by the next main-session tool
-result. On `SessionStart` with source `compact` or `resume`, the hook reads the newest
-register doc and queues its body in parts of at most 8,000 bytes.
-A register of about 7 KB fits in one part. Splits fall at line boundaries unless a
-line exceeds the limit.
+uses `SessionStart` with source `compact`. Source `resume` follows the same path.
+The hook reads the newest register doc and queues its body for the next main-session
+tool event. `PostToolUse` delivers it once, or `UserPromptSubmit` does if a prompt
+comes first. Either event clears the pending delivery.
 
-Each main-session `PostToolUse` or `UserPromptSubmit` delivers one part after a
-one-sentence header. The part sits inside identical 12-tilde fences spelled
-`~~~~~~~~~~~~`. The copy bar exempts the fenced part.
-
-Delivery preserves the part's trailing newline. The part bodies join to the register
-doc body byte for byte. Delivery continues until the whole register reaches context.
+For bodies of at most 9,000 characters, the register arrives whole and verbatim after a short header.
+The body sits inside identical 12-tilde fences spelled `~~~~~~~~~~~~`.
+The copy bar exempts the fenced body.
+Above 9,000 characters, the hook names the doc with `ccn doc show <id7>`
+and tells the root to read it in full before acting. Delivery never splits the register
+into parts or injects a batch of matched answers.
 
 *Prevents the release-v3 loss of October 4, 2026: titles-only carry dropped the
 ec2881e ruling "No: Pulumi state is the only truth" and left later lane briefs
@@ -2450,19 +2467,23 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? Spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor with that id and send the old lane a stand-down with `SendMessage` by name after the successor's first report; never open the lane's transcript, receipts, or runtime listings myself.
 19. Before writing an inbox line, desk brief, or handoff with an owner rule, give each
     standing rule its own `R<n> (standing)` line under I6. Never mark it done.
-    A consolidation lane proposes at most 30 register rules for the owner to approve.
-    Handoff generation only reads the newest `standing-rules:<slug>` doc.
-    Claude hooks inject the register, or a read instruction above 9,000 characters,
-    and matched answers. Codex briefs must paste the register body verbatim.
+    The approved `standing-rules:<slug>` register has at most 30 rules.
+    Handoff generation only reads it and quotes it in the progress doc.
+    Claude hooks inject it once after compaction or resume and once at sub-lane start.
+    Above 9,000 characters, they name it with `ccn doc show` instead.
+    Codex briefs paste the register body verbatim. Briefs never paste full answers.
+    At key moments, the judge searches five durable answers outside the register's
+    citations. It injects one relevant answer or none, once per lane per answer.
+    The judge is advisory, never blocks, and fails open.
     List each standing inbox id, never a range.
     READY names the rulings the diff touches.
 20. Did the owner just paste a Slack link, or am I about to react, reply, or write Slack copy? → spawn the Slack lane (`reference/slack-lane-brief.md`) and the doing lane this turn; the root never writes to Slack.
 21. Am I about to reply to the owner or ask a question? → times in Pacific with no zone
     label; plain words, with no codename, inbox id, or answer id; a 'why did you…'
     answered in this turn in my own words; a delay I caused named as mine.
-22. Before briefing, ruling on, or shipping a subsystem change, quote the owner's
-    rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
-    lane's design check against those rulings before launching any ship lane.
+22. Before briefing, ruling on, or shipping a subsystem change, quote the relevant
+    register rules verbatim. Cite their answer ids and the entry point as a symbol at `file:line`.
+    Confirm the lane's design check against those rulings before launching any ship lane.
     Ship the whole design or hold.
 
 Apply D3 to priority PRs before delegating. A call that survives all twenty-two decides

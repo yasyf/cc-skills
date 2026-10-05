@@ -7,16 +7,25 @@ through `ledger.py`, never a message. Briefs live as attachments on the drive's
 `briefs: <slug>` log; a short `--spec` points to the resolved attachment path.
 Paste the templates below and fill the angle brackets.
 
-The register is the newest cc-notes doc labeled `standing-rules:<slug>`.
-A consolidation lane proposes at most 30 rules for the owner to approve.
-Full answers stay in cc-notes, linked by id.
+The register is the owner-approved cc-notes doc labeled `standing-rules:<program>`.
+Use the newest doc. It has at most 30 rules and links to full answers by id.
+The release-v3 register, doc `0cf17c9`, is about 8 KB.
+Its body is mirrored as the plan file's last section.
 
-Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive the register verbatim
-at `SessionStart` when its body is at most 9,000 characters. Above that limit, the hook
-names the register and tells the worker to read it in full with `ccn doc show <id7>`
-before acting. Their first `UserPromptSubmit` delivers matches for the brief.
-These injections warn and fail open. Codex briefs must paste the register body
-because Codex workers have no Claude hooks.
+Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive the register once
+at `SessionStart`. The body arrives whole and verbatim up to 9,000 characters.
+Above that limit, the hook names it with `ccn doc show <id7>`.
+Read it in full before acting. Codex workers have no hooks, so their briefs paste
+the register body verbatim. A brief carries the register, never full-answer quotes.
+
+At key moments, `ruling_judge.py` searches the five nearest durable answers.
+It excludes answers the register already cites.
+A small model selects the one answer the action clearly bears on or would violate,
+or none. The hook injects only that answer, verbatim, once per lane per answer.
+
+This covers inbox decisions, pull requests, plan edits, Slack writes, and lane spawns
+in Claude drive sessions. The full durable-answer corpus is for retrieval only.
+The judge is advisory, never blocks, and fails open.
 
 ## Why the spec is a pointer
 
@@ -206,12 +215,15 @@ Change: <the concrete result to produce>.
 Constraints: <invariants, compatibility rules, do-not-touch boundaries>.
 Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
-Design rulings, verbatim: <each owner ruling on this subsystem, quoted with its id, and the entry point (symbol at file:line) it makes the change call; or "none">.
+Design rulings, verbatim: <relevant register rules, their linked answer ids, and the entry point (symbol at file:line) each requires; or "none">.
 Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
-  Claude workers receive the register through hooks; above 9,000 characters, read it
-  with `ccn doc show <id7>` before acting.
+  Carry the owner-approved register's at most 30 rules, never full-answer quotes.
+  Claude workers carrying CLAUDE_LONG_RUNNING_DRIVE receive it once at SessionStart.
+  Above 9,000 characters, read it with `ccn doc show <id7>` before acting.
   For Codex, paste the body from `ccn doc show <register id>` here verbatim.
+  Codex workers have no hooks. Claude drive sessions receive a relevant full answer
+  only when the key-moment judge selects it, once per lane per answer.
 Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
@@ -223,8 +235,8 @@ long-running fields `Authority`, `Escalate`, `Do NOT touch`, `Worktree`, and `Fi
 
 ## Checks before launch
 
-- A lane that touches a subsystem the owner has ruled on quotes each ruling verbatim
-  and names its entry point as a symbol at file:line, never as a package list.
+- A lane that touches a subsystem the owner has ruled on quotes the relevant register
+  rules verbatim. It cites their answer ids and names the entry point as a symbol at file:line.
 - Each lane's Ownership excludes every other lane's files. If two lanes edit a shared
   file, the second is a stacked child of the first.
 - Every command in `common.md` runs as written from a lane's worktree.
