@@ -64,7 +64,7 @@ CCN_TIMEOUT_SECONDS = 20
 COMPACT_RETRY_SECONDS = MAX_LIFETIME_SECONDS + 60
 RESTORE_BUDGET = 2000
 SHORT = 7
-REGISTER_PART_BYTES = 8000
+REGISTER_CONTEXT_CHARS = 9000
 REGISTER_FENCE = "~" * 12
 
 
@@ -86,8 +86,7 @@ class CompactionState(WorkflowState):
     generated_doc: str | None = None
     compacted_at: float | None = None
     register_doc: str | None = None
-    register_parts: list[str] = []
-    register_total: int = 0
+    register_body: str | None = None
 
 
 def ccn(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -207,19 +206,17 @@ def compact_instructions(state: CompactionState) -> str:
     )
 
 
-def register_parts(text: str, limit: int = REGISTER_PART_BYTES) -> list[str]:
-    parts: list[str] = []
-    current = ""
-    for line in text.splitlines(keepends=True):
-        while len(line.encode()) > limit:
-            head = line.encode()[:limit].decode(errors="ignore")
-            parts += [current, head] if current else [head]
-            current, line = "", line[len(head) :]
-        if current and len((current + line).encode()) > limit:
-            parts.append(current)
-            current = ""
-        current += line
-    return [*parts, current] if current else parts
+def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
+    name = register["id"][:SHORT]
+    if len(register["body"]) > REGISTER_CONTEXT_CHARS:
+        return evt.context(
+            f"Standing rules register `{name}` is over the injection budget and binds this session; "
+            f"read it in full with `ccn doc show {name}` before acting."
+        )
+    return evt.context(
+        f"Standing rules register `{name}`, verbatim; it binds this session and every lane brief, and outranks any summary.",
+        f"{REGISTER_FENCE}\n{register['body'].rstrip()}\n{REGISTER_FENCE}",
+    )
 
 
 def rulings(cwd: str, *args: str, stdin: str = "") -> str:
@@ -233,9 +230,7 @@ def register_of(cwd: str, *which: str) -> dict | None:
 
 def queue_register(state: CompactionState, cwd: str) -> None:
     if state.store == "ccn" and state.slug and (register := register_of(cwd, "--program", state.slug)):
-        state.register_doc = register["id"]
-        state.register_parts = register_parts(register["body"])
-        state.register_total = len(state.register_parts)
+        state.register_doc, state.register_body = register["id"], register["body"]
 
 
 def handoff_nudge(state: CompactionState) -> str:
@@ -515,35 +510,31 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
-            state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["## Standing owner rules\n", "- 4ffc9a5 Q?\n"], register_total=2)],
+            state=[CompactionState(active=True, register_doc="e" * 40, register_body="# Register\n\n1. Pulumi state is the only truth.\n")],
         ): Warn(
-            pattern=r"^Standing rules register `eeeeeee`, part 1 of 2, verbatim; it binds every lane brief\.\n"
-            r"~{12}\n## Standing owner rules\n~{12}$"
+            pattern=r"^Standing rules register `eeeeeee`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
+            r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
         ),
-        Input(prompt="continue", state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["- 4ffc9a5 Q?\n"], register_total=2)]): Warn(
-            pattern=r"^Standing rules register `eeeeeee`, part 2 of 2, verbatim; it binds every lane brief\.\n"
-            r"~{12}\n- 4ffc9a5 Q\?\n~{12}$"
+        Input(prompt="continue", state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n" * 2000)]): Warn(
+            pattern=r"^Standing rules register `eeeeeee` is over the injection budget and binds this session; "
+            r"read it in full with `ccn doc show eeeeeee` before acting\.$"
         ),
         Input(tool="Bash", tool_input={"command": "ls"}, state=[CompactionState(active=True)]): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "ls"},
             agent_id="a1b2c3",
-            state=[CompactionState(active=True, register_doc="e" * 40, register_parts=["part"])],
+            state=[CompactionState(active=True, register_doc="e" * 40, register_body="1. rule\n")],
         ): Allow(),
     },
 )
 def deliver_register(evt: BaseHookEvent) -> HookResult | None:
+    if not CompactionState.load(evt).register_body:
+        return None
     with CompactionState.mutate(evt) as state:
-        if not state.register_parts:
-            return None
-        number = state.register_total - len(state.register_parts) + 1
-        part, state.register_parts = state.register_parts[0], state.register_parts[1:]
-        total, name = state.register_total, (state.register_doc or "")[:SHORT]
-    return evt.context(
-        f"Standing rules register `{name}`, part {number} of {total}, verbatim; it binds every lane brief.",
-        f"{REGISTER_FENCE}\n{part}{REGISTER_FENCE}",
-    )
+        body, state.register_body = state.register_body, None
+        name = state.register_doc or ""
+    return register_context(evt, {"id": name, "body": body}) if body else None
 
 
 def send_compact(handle: str, instructions: str, transcript: Path) -> None:
