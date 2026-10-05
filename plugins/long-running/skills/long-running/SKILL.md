@@ -681,8 +681,9 @@ It receives P0 lines immediately and a summary every 30 minutes.
 `ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
 which polls each repository at most once every 30 seconds. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
-and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
-asks are `ask/<seq>` rows beside the PR rows. cc-notes finds the ledger through the
+and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner asks are `ask/<seq>` rows beside the PR
+rows. Rules reviews are `review/<pr>@<head>` rows that gate landing: each PR's current
+head must be clean or overridden. cc-notes finds the ledger through the
 working directory's repository, so a lane outside that checkout passes
 `ledger.py -C <checkout> <verb>`.
 

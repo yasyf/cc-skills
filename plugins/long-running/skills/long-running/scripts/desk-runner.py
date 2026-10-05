@@ -1102,7 +1102,7 @@ class Landing:
     def held(self, rows: dict[str, dict]) -> list[str]:
         text = self.holds.read_text() if self.holds.is_file() else ""
         lanes = set(HELD_LANE.findall(text))
-        numbers = set(HELD_PR.findall(text)) | {pr for pr, row in rows.items() if row.get("lane") in lanes and row.get("state", "open") == "open"}
+        numbers = set(HELD_PR.findall(text)) | {pr for pr, row in rows.items() if (row.get("lane") in lanes and row.get("state", "open") == "open") or row.get("rules_blocked")}
         return sorted(numbers, key=int)
 
     def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:
@@ -1121,11 +1121,15 @@ class Landing:
             gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
         for tip, done in gated.items():
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
-            if would := WOULD_ENQUEUE.search(done.out):
-                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts)
+            if (would := WOULD_ENQUEUE.search(done.out)) and self.reviewed(prefix := [number.lstrip("#") for number in would.group(1).split()], verdicts, rows):
+                self.accept(tip, prefix, verdicts)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
                     self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tip, held)
+
+    @staticmethod
+    def reviewed(prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> bool:
+        return all(pr in verdicts and verdicts[pr]["sha"] and rows.get(pr, {}).get("head", "").startswith(verdicts[pr]["sha"]) for pr in prefix)
 
     def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match]) -> None:
         """One enqueue per exact set of prefix heads; a fresh attempt only after every earlier one enqueued nothing."""

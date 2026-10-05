@@ -26,6 +26,12 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     assert "tail -n 0 -F" not in text
 
 
+@pytest.fixture(autouse=True)
+def rules_reviewed(request, monkeypatch):
+    if not request.node.get_closest_marker("rules_gate"):
+        monkeypatch.setattr(ledger, "review_passes", lambda review: True)
+
+
 def stamp(delta: timedelta) -> str:
     return (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1594,6 +1600,7 @@ def test_register_refuses_an_ambiguous_call(argv):
         run(FakeShell(), "register", "--ledger", LEDGER, *argv)
 
 
+@pytest.mark.rules_gate
 def test_list_reads_back_pr_rows_oldest_first_filtered_by_lane_and_state(capsys):
     shell = FakeShell(
         rows=[
@@ -1601,17 +1608,32 @@ def test_list_reads_back_pr_rows_oldest_first_filtered_by_lane_and_state(capsys)
             {"key": "24070", "fields": {"lane": LANE, "registered": LANE, "registered_head": OLD_HEAD}},
             {"key": "24072", "fields": {"lane": "other", "state": "landed"}},
             {"key": "msg/000001", "fields": {"kind": "report"}},
+            {"key": f"review/24071@{HEAD}", "fields": {"pr": "24071", "head": HEAD, "verdict": "clean"}},
         ]
     )
 
     run(shell, "list", "--ledger", LEDGER, "--lane", LANE, "--json")
-    assert [row["pr"] for row in json.loads(capsys.readouterr().out)] == ["24070", "24071"]
+    assert [(row["pr"], row["rules_blocked"]) for row in json.loads(capsys.readouterr().out)] == [("24070", True), ("24071", False)]
 
     run(shell, "list", "--ledger", LEDGER, "--open")
     assert capsys.readouterr().out.splitlines() == [
-        f"#24070 {LANE} open - -",
+        f"#24070 {LANE} open - - rules-blocked",
         f"#24071 {LANE} open lightning/b {HEAD[:12]}",
     ]
+
+
+@pytest.mark.rules_gate
+def test_list_blocks_a_moved_head_until_its_own_review_passes_or_is_overridden(capsys):
+    reviewed = {"key": f"review/24071@{OLD_HEAD}", "fields": {"pr": "24071", "head": OLD_HEAD, "verdict": "clean"}}
+    findings = {"key": f"review/24071@{HEAD}", "fields": {"pr": "24071", "head": HEAD, "verdict": "findings"}}
+    shell = FakeShell(rows=[{"key": "24071", "fields": {"lane": LANE, "state": "open", "head": HEAD}}, reviewed, findings])
+
+    run(shell, "list", "--ledger", LEDGER, "--json")
+    assert json.loads(capsys.readouterr().out)[0]["rules_blocked"] is True
+
+    findings["fields"]["override"] = "R12"
+    run(FakeShell(rows=[{"key": "24071", "fields": {"lane": LANE, "state": "open", "head": HEAD}}, reviewed, findings]), "list", "--ledger", LEDGER, "--json")
+    assert json.loads(capsys.readouterr().out)[0]["rules_blocked"] is False
 
 
 def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lock):
@@ -1699,6 +1721,19 @@ def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsy
     assert all_clean(shell) == 0
     assert shell.labelled == ["24082:merge"]
     assert shell.fields("24081")["label_head"] == "c" * 40
+
+
+@pytest.mark.rules_gate
+def test_a_head_without_a_passing_rules_review_is_never_labelled(capsys):
+    shell = desk_shell()
+
+    assert label(shell, "--expect-head", HEAD) == 1
+    assert shell.labelled == []
+    assert f"#{PR} {HEAD[:9]} has no passing rules review" in capsys.readouterr().out
+
+    shell.store["rows"].append({"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "findings", "override": "R901"}})
+    assert label(shell, "--expect-head", HEAD) == 0
+    assert shell.labelled == [f"{PR}:merge"]
 
 
 def test_a_head_is_labelled_as_soon_as_its_gates_pass(capsys):
