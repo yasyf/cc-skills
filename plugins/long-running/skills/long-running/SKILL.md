@@ -693,11 +693,11 @@ It receives P0 lines immediately and a summary every 30 minutes.
 `ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
 which polls each repository at most once every 30 seconds. Its one store is a cc-notes
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
-and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner asks are `ask/<seq>` rows beside the PR
-rows. Rules reviews are `review/<pr>@<head>` rows that gate landing: each PR's current
-head must be clean or overridden. cc-notes finds the ledger through the
-working directory's repository, so a lane outside that checkout passes
-`ledger.py -C <checkout> <verb>`.
+and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
+asks are `ask/<seq>` rows beside the PR rows. Rules reviews are `review/<pr>@<head>`
+rows that hold landing only for unwaived findings on the PR's current head. cc-notes
+finds the ledger through the working directory's repository, so a lane outside that
+checkout passes `ledger.py -C <checkout> <verb>`.
 
 Every script in `scripts/` is on PATH by name through the plugin's `bin/`, which Claude
 Code adds for the installed version, so briefs call `ledger.py`, `bus.py`, or

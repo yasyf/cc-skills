@@ -27,18 +27,18 @@ them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
 
-Hold a PR with no review, a pending review, findings or an error until its current
-head is clean or overridden. Only the root writes override lines in the root
-inbox, relaying the owner or deciding itself:
+Hold a PR only for a recorded, unwaived finding on its current head. No review,
+no base, pending and errored reviews all fail open. Clean and overridden heads
+pass. Only the root writes override lines in the root inbox, relaying the owner
+or deciding itself:
 `R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.
-Use a cc-notes answer ID prefix of at least seven hex characters or the exact
-`AGENTS.md:<line>` ID for each ruling. Name every finding's ruling to clear the
-hold. Each ruling waiver applies on every later head of that PR too.
-Use `unreviewed` to waive an errored or unfinished review. A verdict clears any
-override recorded while the review was pending; the sweep re-applies overrides
-from the inbox each pass. An `unreviewed` override never waives findings that
-arrive later. Before a D3 priority enqueue, run
-`ledger.py list --ledger <id> --open` and leave every `rules-blocked` PR held.
+Override only named rulings. Use a cc-notes answer ID prefix of at least seven
+hex characters or the exact `AGENTS.md:<line>` ID for each ruling. Name every
+finding's ruling to clear the hold. Each ruling waiver applies on every later
+head of that PR too. A verdict clears any override recorded while the review
+was pending; the sweep re-applies overrides from the inbox each pass. Before a
+D3 priority enqueue, run `ledger.py list --ledger <id> --open` and leave every
+`rules-blocked` PR held.
 
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
 running desk. If reports show a cursor more than one iteration behind the root's
@@ -206,17 +206,17 @@ Do, in this order, forever:
      Repeat --inbox for additional root inbox files. The sweep collects finished
      reviews and dispatches unreviewed heads without waiting. It runs at most six
      reviews at once by default; use --parallel <n> to change the cap.
-     The landing runner holds each PR until its current head is clean or
-     overridden. The green prefix below a blocked PR can still land. The runner
-     enqueues a ready prefix only when every forge head reported by stack-enqueue
-     matches the ledger head whose rules verdict it read. A head pushed after
-     the refresh waits for the next pass.
+     Hold a PR only for a recorded, unwaived finding on its current head. No review,
+     no base, pending and errored reviews all fail open. Clean and overridden heads
+     pass. The landing runner passes rules-blocked PRs to stack-enqueue --hold.
+     The green prefix below a blocked PR can still land.
      Send each RULES line to the root at once as RULING NEEDED. The root has the
      lane fix it on a new head or writes an override. Post the RULES line to the
      bus before routing it to the owning lane with:
      ledger.py route --pr <n> --job "<the RULES line>"
-     Send REVIEW-ERROR at attempt 2 to the root as RULING NEEDED. Let attempt 1
-     retry on the next sweep. Take no action on CLEAN, REVIEWING or OVERRIDDEN.
+     Send REVIEW-ERROR at attempt 2 to the root as information, not RULING NEEDED.
+     Let attempt 1 retry on the next sweep. Neither attempt holds the PR.
+     Take no action on CLEAN, REVIEWING or OVERRIDDEN.
      Never edit review rows or write override lines.
   3. Only for repos without stack-enqueue: grade stacks. Every pass enqueues the
      largest contiguous green, approved, unheld, unqueued bottom prefix of EVERY

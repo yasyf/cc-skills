@@ -1121,15 +1121,11 @@ class Landing:
             gated = dict(zip(tips, pool.map(lambda tip: self.shell.run(self.enqueue_argv(tip, held, check=True)), tips), strict=True))
         for tip, done in gated.items():
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
-            if (would := WOULD_ENQUEUE.search(done.out)) and self.reviewed(prefix := [number.lstrip("#") for number in would.group(1).split()], verdicts, rows):
-                self.accept(tip, prefix, verdicts)
+            if would := WOULD_ENQUEUE.search(done.out):
+                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
                     self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tip, held)
-
-    @staticmethod
-    def reviewed(prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> bool:
-        return all(pr in verdicts and verdicts[pr]["sha"] and rows.get(pr, {}).get("head", "").startswith(verdicts[pr]["sha"]) for pr in prefix)
 
     def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match]) -> None:
         """One enqueue per exact set of prefix heads; a fresh attempt only after every earlier one enqueued nothing."""
