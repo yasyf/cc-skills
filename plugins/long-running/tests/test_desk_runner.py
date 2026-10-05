@@ -58,6 +58,7 @@ class FakeShell(runner_module.Shell):
         self.coordinator = "term_root"
         self.generation = 3
         self.run_use_error: dict | None = None
+        self.posts: list[dict] = []
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -104,8 +105,11 @@ class FakeShell(runner_module.Shell):
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             return runner_module.Done(0, json.dumps(self.rows) if verb == "list" else f"{verb} ok\n", "")
-        if len(argv) > 1 and Path(argv[1]).name == "bus.py":
-            return runner_module.Done(0, "#7\n", "")
+        if argv[:2] == ["cci", "post"]:
+            flags = dict(zip(argv[2::2], argv[3::2]))
+            assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
+            self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
+            return runner_module.Done(0, f"#{len(self.posts)}\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
     def append(self, flags: list[str]) -> runner_module.Done:
@@ -250,9 +254,9 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
         json.dumps(
             {
                 "store": str(tmp_path / "store"),
-                "escalations": str(tmp_path / "inbox/root-runner.md"),
+                "drive": "d1",
                 "view": str(tmp_path / "desk-runner.md"),
-                "orca": {"run": "run_1", "receipts": str(tmp_path / "receipts"), "briefs": {"repo": str(tmp_path / "checkout"), "log": "briefs1"}},
+                "orca": {"run": "run_1", "receipts": str(tmp_path / "receipts"), "desk_inbox": str(tmp_path / "inbox/orca-desk.md"), "briefs": {"repo": str(tmp_path / "checkout"), "log": "briefs1"}},
                 "landing": {
                     "repo": "Forge-AI/monorepo",
                     "ledger": "abc",
@@ -278,9 +282,8 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
     assert cli(shell, config, "run", "--desk", "landing", "--once") == 0
 
 
-def escalations(tmp_path: Path) -> list[str]:
-    path = tmp_path / "inbox/root-runner.md"
-    return path.read_text().splitlines() if path.is_file() else []
+def escalations(shell: FakeShell) -> list[str]:
+    return [Path(post["path"]).read_text().strip() if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
 
 
 def incident(tmp_path: Path, name: str) -> actions.Incident:
@@ -308,7 +311,7 @@ def test_a_relay_delivered_twice_and_a_restart_send_one_command(shell, config, t
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R625"]
     assert (action.status, action.response["text"]) == ("completed", "ok")
     assert len(shell.sends()) == 1
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
 
 
 def test_a_moved_generation_has_one_owner_and_the_stale_dispatch_is_stood_down(shell, config, tmp_path):
@@ -344,7 +347,7 @@ def test_a_lost_send_with_no_receipt_is_unverifiable_and_never_resent(shell, con
     assert len(shell.sends()) == 1
     sends = [action for action in incident(tmp_path, f"desk-lane-{LANE}").actions.values() if action.kind == "send"]
     assert [action.status for action in sends] == ["unverifiable"]
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "UNVERIFIABLE" in lines[0] and "not resent" in lines[0]
 
 
@@ -368,7 +371,7 @@ def test_a_missed_start_deadline_escalates_once_and_never_relaunches(shell, conf
     for _ in range(25):
         orca_pass(shell, config)
         shell.sleep(60)
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "DEADLINE" in lines[0] and "delivered to ctx_a, no started reply" in lines[0]
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
     assert not [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
@@ -381,7 +384,7 @@ def test_a_quiet_ten_minutes_writes_nothing_and_wakes_no_one(shell, config, tmp_
     for _ in range(10):
         orca_pass(shell, config)
         shell.sleep(60)
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     assert not [call for call in shell.calls if Path(call[0]).name == "claude"]
 
 
@@ -396,7 +399,7 @@ def test_a_routine_question_the_brief_settles_is_answered_without_escalating(she
     replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
     assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q1"
     assert len([call for call in shell.calls if Path(call[0]).name == "claude"]) == 1
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
 
 
 def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, config, tmp_path):
@@ -405,7 +408,7 @@ def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, conf
     shell.verdict = {"verdict": "escalate", "text": "apply to prod? A) wait B) apply now"}
     shell.receive({"id": "msg_q2", "type": "escalation", "subject": "apply?", "body": "", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
     orca_pass(shell, config)
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "DECIDE msg_q2" in lines[0] and "A) wait B) apply now" in lines[0]
     assert not [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
 
@@ -448,7 +451,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     for _ in range(4):
         orca_pass(shell, config)
         shell.sleep(60)
-    assert launches(shell) == [] and escalations(tmp_path) == []
+    assert launches(shell) == [] and escalations(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     for _ in range(3):
         shell.sleep(60)
@@ -456,7 +459,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     assert launches(shell) == []
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
     assert action.status == "failed" and "load 40 above 8 cores" in action.reason
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
     [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
     assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
@@ -496,7 +499,7 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     shell.gates["29016"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", would="#28997 #29016")]
     landing_pass(shell, config)
     assert cli(shell, config, "policy", "--key", "L260", "--landing", "whole", "--revision", "e802ae614e", "--source", "sole checkout") == 0
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "STALE-POLICY L260" in lines[0] and "prefix at a1b2c3d4e5" in lines[0]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -518,7 +521,7 @@ def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config
     shell.enqueue_out["29020"] = (0, "enqueue #28997 #29016 #29020: {}\n")
     landing_pass(shell, config)
     cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling")
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111112 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     landing_pass(shell, config)
     assert "--whole" in shell.enqueues()[-1]
@@ -532,7 +535,7 @@ def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, conf
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     landing_pass(shell, config)
     assert not [call for call in shell.sends() if "approved" in call[call.index("--body") + 1]]
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
 
 
 def test_a_blocker_still_present_at_send_time_goes_to_the_lane_once(shell, config, tmp_path):
@@ -557,7 +560,7 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     landing_pass(shell, config)
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert all(call[call.index("--hold") + 1 :] == ["28349", "29020"] for call in checks)
-    assert shell.sends() == [] and escalations(tmp_path) == []
+    assert shell.sends() == [] and escalations(shell) == []
 
 
 def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_path):
@@ -608,7 +611,7 @@ def test_a_send_with_no_parseable_reply_is_unverifiable_not_retried(shell, confi
     for _ in range(3):
         orca_pass(shell, config)
     assert len(shell.sends()) == 1
-    assert "UNVERIFIABLE" in escalations(tmp_path)[0]
+    assert "UNVERIFIABLE" in escalations(shell)[0]
 
 
 def test_an_undeliverable_reply_reaches_its_deadline(shell, config, tmp_path):
@@ -616,7 +619,7 @@ def test_an_undeliverable_reply_reaches_its_deadline(shell, config, tmp_path):
     for _ in range(12):
         orca_pass(shell, config)
         shell.sleep(60)
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "DEADLINE" in lines[0] and "never delivered" in lines[0]
 
 
@@ -642,7 +645,7 @@ def test_a_judge_that_never_returned_escalates(shell, config, tmp_path):
         live.start("judge:msg_q4", shell.now())
     shell.sleep(6 * 60)
     orca_pass(shell, config)
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "DECIDE msg_q4" in lines[0] and "never returned" in lines[0]
 
 
@@ -681,7 +684,7 @@ def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config,
     landing_pass(shell, config)
     assert store.load("desk-landing").actions[key].status == "unverifiable"
     assert shell.enqueues() == []
-    lines = escalations(tmp_path)
+    lines = escalations(shell)
     assert len(lines) == 1 and "holds none of #28997" in lines[0]
 
 
@@ -726,7 +729,7 @@ def test_read_messages_still_transfer_ownership_complete_relays_and_report_outco
     assert (container.owner, container.pending_owner, container.owner_generation) == ("ctx_a", None, 1)
     assert container.actions["R800"].status == "completed"
     assert container.actions["R800"].response["message"] == shell.mailbox[1]["id"]
-    assert escalations(tmp_path) == [f"11:00 OUTCOME {outcome['id']} {LANE}: worker_done success dispatch=ctx_a: fixed"]
+    assert escalations(shell) == [f"OUTCOME {outcome['id']} {LANE}: worker_done success dispatch=ctx_a: fixed"]
     assert all(message["read"] for message in shell.mailbox)
     assert not any("--wait" in call or "--ack" in call for call in shell.calls)
 
@@ -768,7 +771,7 @@ def test_the_cursor_survives_restart_and_pages_back_without_replay_or_skips(shel
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == messages[-1]["sequence"]
     runner.check()
     assert processed == [message["id"] for message in messages]
-    assert [line.split()[2] for line in escalations(tmp_path)] == [before["id"], *processed]
+    assert [line.split()[1] for line in escalations(shell)] == [before["id"], *processed]
 
 
 def test_a_cursor_checkpoint_survives_a_failure_mid_batch(shell, config, tmp_path, monkeypatch):
@@ -798,7 +801,7 @@ def test_a_cursor_checkpoint_survives_a_failure_mid_batch(shell, config, tmp_pat
     restarted.check()
     restarted.flush()
     assert processed == [message["id"] for message in messages[1:]]
-    assert [line.split()[2] for line in escalations(tmp_path)] == [message["id"] for message in messages]
+    assert [line.split()[1] for line in escalations(shell)] == [message["id"] for message in messages]
 
 
 @pytest.mark.parametrize("subject,kind,sender,lane", [("fix-live: 12:48 PM PT release abc", "FIX-LIVE", "term_ctx_a", LANE), ("MeChAnIsM: wrong selector", "MECHANISM", "term_unknown", "term_unknown")])
@@ -810,7 +813,7 @@ def test_milestone_status_escalates_once_per_message_id(shell, config, tmp_path,
     orca_pass(shell, config)
     shell.receive({"id": message["id"], "subject": subject, "body": body, "from_handle": sender})
     orca_pass(shell, config)
-    assert escalations(tmp_path) == [f"11:00 {kind} {message['id']} {lane}: {subject}: {' '.join(body.split())[:300].rstrip()}"]
+    assert escalations(shell) == [f"{kind} {message['id']} {lane}: {subject}: {' '.join(body.split())[:300].rstrip()}"]
 
 
 def test_only_exact_status_milestone_prefixes_escalate_and_heartbeats_advance_the_cursor(shell, config, tmp_path):
@@ -819,7 +822,7 @@ def test_only_exact_status_milestone_prefixes_escalate_and_heartbeats_advance_th
         shell.receive({"subject": subject})
     heartbeat = shell.receive({"type": "heartbeat", "subject": "fix-live: ignored", "payload": "not json"})
     orca_pass(shell, config)
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == heartbeat["sequence"]
 
 
@@ -829,11 +832,11 @@ def test_first_read_starts_at_the_newest_sequence_without_replaying_history(shel
         newest = shell.receive({"type": "worker_done", "subject": f"history {index}", "read": True})
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == newest["sequence"]
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     assert len([call for call in shell.calls if call[:3] == ["orca", "orchestration", "inbox"]]) == 1
     fresh = shell.receive({"type": "worker_done", "subject": "fresh"})
     orca_pass(shell, config)
-    assert [line.split()[2] for line in escalations(tmp_path)] == [fresh["id"]]
+    assert [line.split()[1] for line in escalations(shell)] == [fresh["id"]]
 
 
 @pytest.mark.parametrize("failure", [runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "socket closed"}}), ""), runner_module.Done(1, "", "socket closed")])
@@ -844,15 +847,15 @@ def test_inbox_errors_escalate_once_per_bucket_without_advancing_the_cursor(shel
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == 0
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert "ORCA-INBOX orca-inbox:" in line and "socket closed" in line
     shell.sleep(10 * 60)
     orca_pass(shell, config)
-    assert len(escalations(tmp_path)) == 2
+    assert len(escalations(shell)) == 2
     shell.inbox_error = None
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-runner").facts["inbox:run_1"] == fresh["sequence"]
-    assert f"OUTCOME {fresh['id']}" in escalations(tmp_path)[-1]
+    assert f"OUTCOME {fresh['id']}" in escalations(shell)[-1]
 
 
 def test_the_orca_loop_sleeps_ten_seconds_between_passes(shell, config, tmp_path, monkeypatch):
@@ -881,7 +884,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     shell.launch("live-lane", "ctx_b")
     orca_pass(shell, config)
     orca_pass(shell, config)
-    reclaims = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
     assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
@@ -892,7 +895,7 @@ def test_a_large_settled_set_names_the_whole_run(shell, config, tmp_path):
     for index in range(runner_module.RECLAIM_NAMED + 2):
         shell.launch(f"lane-{index:02d}", f"ctx_{index:02d}", status="failed")
     orca_pass(shell, config)
-    [reclaim] = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    [reclaim] = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert " and 2 more; run .agents/skills/orca/scripts/orca-gc --run run_1" in reclaim
     assert reclaim.endswith("--run run_1")
 
@@ -900,7 +903,7 @@ def test_a_large_settled_set_names_the_whole_run(shell, config, tmp_path):
 def test_without_a_gc_the_line_names_the_r195_bar(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a", status="completed")
     orca_pass(shell, config)
-    [reclaim] = [line for line in escalations(tmp_path) if " RECLAIM " in line]
+    [reclaim] = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert reclaim.endswith("close each idle terminal and remove each finished worktree under R195")
 
 
@@ -944,12 +947,12 @@ def test_a_runner_whose_terminal_is_not_the_coordinator_refuses_to_start_and_pri
     assert capsys.readouterr().err == expected + "\n"
     assert launches(shell) == [] and orca_calls(shell, "inbox") == []
     assert len(orca_calls(shell, "run-current")) == (1 if environ else 0)
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert f"UNBOUND unbound:{environ.get('ORCA_TERMINAL_HANDLE', '')}:term_dead:3 runner: {expected}; the runner refused to start" in line
     binding = incident(tmp_path, "desk-runner").facts["binding"]
     assert binding["bound"] is False and binding["why"] == why
     assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
-    assert len(escalations(tmp_path)) == 1
+    assert len(escalations(shell)) == 1
 
 
 def test_a_binding_lost_mid_run_holds_launches_and_escalates_once_until_rebind(shell, config, tmp_path):
@@ -963,7 +966,7 @@ def test_a_binding_lost_mid_run_holds_launches_and_escalates_once_until_rebind(s
         runner.flush()
     assert launches(shell) == []
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert "UNBOUND unbound:term_root:term_elsewhere:4 runner: desk-runner cannot start workers on run_1: terminal term_root coordinates no Run" in line
     assert line.endswith("; launches wait until it is bound")
     assert cli(shell, config, "rebind") == 0
@@ -1018,8 +1021,8 @@ def test_launch_failed_carries_the_launchs_own_failure_line(shell, config, tmp_p
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].reason == reason
-    [line] = escalations(tmp_path)
-    assert line == f"11:00 LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
+    [line] = escalations(shell)
+    assert line == f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
 
 
 def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(shell, config, tmp_path):
@@ -1034,7 +1037,7 @@ def test_an_unbound_launch_held_by_load_stays_accepted_past_the_load_deadline(sh
         runner.flush()
         shell.sleep(60)
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
-    assert [line.split()[1] for line in escalations(tmp_path)] == ["UNBOUND"]
+    assert [line.split()[0] for line in escalations(shell)] == ["UNBOUND"] and [post["kind"] for post in shell.posts] == ["blocker"]
 
 
 def desk_inbox(tmp_path: Path, *lines: str) -> None:
@@ -1074,7 +1077,7 @@ def test_an_inbox_relay_line_reaches_every_named_lane_once(shell, config, tmp_pa
     sends = shell.sends()
     assert [(call[call.index("--to") + 1], call[call.index("--subject") + 1]) for call in sends] == [("dispatch:ctx_a", "R2: act R2"), ("dispatch:ctx_w", "R2: act R2")]
     assert all(call[call.index("--body") + 1].startswith("G331 resumes the chain\n") for call in sends)
-    assert [line.split(" ", 1)[1] for line in escalations(tmp_path)] == [
+    assert [line for line in escalations(shell)] == [
         f"RELAYED R2 {LANE}: relay to dispatch ctx_a",
         "RELAYED R2 walker: relay to dispatch ctx_w",
     ]
@@ -1096,8 +1099,8 @@ def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config,
     assert reply[reply.index("--id") + 1] == "msg_q9"
     assert reply[reply.index("--body") + 1].startswith("walker: router GO\n")
     assert shell.sends() == []
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == f"RELAYED inbox@0 {LANE}: reply to question msg_q9 of dispatch ctx_a"
+    [line] = escalations(shell)
+    assert line == f"RELAYED inbox@0 {LANE}: reply to question msg_q9 of dispatch ctx_a"
 
 
 def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, config, tmp_path):
@@ -1107,7 +1110,7 @@ def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, c
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert shell.sends() == [] and replies(shell) == []
-    assert [line.split(" ", 1)[1] for line in escalations(tmp_path) if " RELAY" in line] == [
+    assert [line for line in escalations(shell) if line.startswith("RELAY")] == [
         f"RELAY-FAILED R3 {LANE}: no live dispatch (ctx_a is completed)",
         "RELAY-FAILED R3 ghost: no live dispatch",
     ]
@@ -1123,7 +1126,7 @@ def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell
     )
     orca_pass(shell, config)
     assert shell.sends() == []
-    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    lines = [line for line in escalations(shell)]
     assert [line.split(":", 1)[0] for line in lines] == ["RELAY-FAILED R1050 inbox", "RELAY-FAILED R1048 inbox"]
     assert all(runner_module.RELAY_GRAMMAR in line for line in lines)
 
@@ -1143,7 +1146,7 @@ def test_an_inbox_relay_waits_for_its_newline_and_a_reread_relays_nothing_twice(
         runner.facts[f"desk-inbox:{path}"] = 0
     orca_pass(shell, config)
     assert len(shell.sends()) == 1
-    assert len(escalations(tmp_path)) == 1
+    assert len(escalations(shell)) == 1
 
 
 def test_an_hourly_rotation_archives_read_lines_and_the_cursor_still_names_the_next_line(shell, config, tmp_path):
@@ -1168,8 +1171,8 @@ def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, c
     desk_inbox(tmp_path, f"R5 orca-desk: relay to {LANE}: deploy now")
     orca_pass(shell, config)
     assert [call[call.index("--body") + 1].split("\n", 1)[0] for call in shell.sends()] == ["rebase onto dev"]
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == f"RELAY-FAILED R5 {LANE}: R5 already holds a different relay to {LANE} (accepted)"
+    [line] = escalations(shell)
+    assert line == f"RELAY-FAILED R5 {LANE}: R5 already holds a different relay to {LANE} (accepted)"
 
 
 def launch_brief(tmp_path: Path) -> Path:
@@ -1204,7 +1207,8 @@ def test_an_inbox_launch_line_launches_once_and_now_skips_the_load_hold(shell, c
     assert launches(shell) == [[str(runner_module.SCRIPTS / "orca-launch.sh"), LANE, "opus", "xhigh", str(brief)]]
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R1907"]
     assert (action.status, json.loads(action.target)["urgent"]) == ("verified", True)
-    assert [line.split(" ", 1)[1] for line in escalations(tmp_path)] == [f"LAUNCHED R1907 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+    assert [line for line in escalations(shell)] == [f"LAUNCHED R1907 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R1907")]
 
 
 def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, config, tmp_path):
@@ -1214,7 +1218,7 @@ def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, 
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert len(launches(shell)) == 1
-    assert [line.split(" ", 1)[1] for line in escalations(tmp_path) if "LAUNCH-FAILED" in line] == [
+    assert [line for line in escalations(shell) if "LAUNCH-FAILED" in line] == [
         f"LAUNCH-FAILED R9 {LANE}: R9 already holds a launch for {LANE} (accepted); nothing was launched"
     ]
 
@@ -1233,7 +1237,7 @@ def test_an_inbox_launch_outside_the_grammar_or_route_fails_visibly_and_launches
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert launches(shell) == []
-    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    lines = [line for line in escalations(shell)]
     assert [line.split(":", 1)[0] for line in lines] == ["LAUNCH-FAILED R1908 inbox", "LAUNCH-FAILED R1909 inbox", f"LAUNCH-FAILED R1910 {LANE}", f"LAUNCH-FAILED R1911 {LANE}", f"LAUNCH-FAILED R1912 {LANE}"]
     assert all(runner_module.LAUNCH_GRAMMAR in line for line in lines[:2])
     assert "gemini is not a model orca-launch.sh starts" in lines[2] and "extreme is not an effort" in lines[3] and "missing.md is not a file" in lines[4]
@@ -1246,8 +1250,8 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     desk_inbox(tmp_path, f"R10 orca-desk: launch {LANE} NOW sol xhigh brief={brief}")
     orca_pass(shell, config)
     assert launches(shell) == []
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
+    [line] = escalations(shell)
+    assert line == f"LAUNCH-FAILED R10 {LANE}: dispatch ctx_a is dispatched; relay to it instead; nothing was launched"
 
 
 def test_the_alert_grammar_names_the_slug_link_and_what_fired():
@@ -1282,7 +1286,7 @@ def test_an_alert_line_attaches_the_brief_to_the_briefs_log_and_launches_the_sol
     assert "Rollback first" in text and "{" not in text
     assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
     assert not (tmp_path / "incidents").exists()
-    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    lines = [line for line in escalations(shell)]
     assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on sol xhigh" in lines[0]
     assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
@@ -1305,7 +1309,7 @@ def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, confi
     orca_pass(shell, config)
     launched = [call[1] for call in launches(shell)]
     assert ("alerts-api-0305-fix" not in launched) is skipped and "alerts-api-0303-fix" in launched
-    assert any("LAUNCH-SKIPPED inbox@0 alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path)) is skipped
+    assert any("LAUNCH-SKIPPED inbox@0 alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(shell)) is skipped
 
 
 def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_path):
@@ -1319,7 +1323,7 @@ def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_p
     desk_inbox(tmp_path, ROOT_ALERT)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix"]
-    assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(tmp_path))
+    assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(shell))
 
 
 @pytest.mark.parametrize("reused", [False, True], ids=["finished", "reused-for-another-monitor"])
@@ -1342,7 +1346,7 @@ def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell
     desk_inbox(tmp_path, ROOT_ALERT)
     orca_pass(shell, config)
     assert "alerts-api-0305-fix" in [call[1] for call in launches(shell)]
-    assert not any("LAUNCH-SKIPPED" in line for line in escalations(tmp_path))
+    assert not any("LAUNCH-SKIPPED" in line for line in escalations(shell))
 
 
 def test_an_alert_brief_names_its_monitor_for_later_dedupe(shell, config, tmp_path):
@@ -1365,8 +1369,8 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     [send] = shell.sends()
     assert "The alert fired again at" in send[send.index("--body") + 1]
     assert brief.read_text() == "root-edited brief" and shell.attachments["alerts-runs-1704-fix.full.md"] == brief and shell.entries == []
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == "RELAYED inbox@0:again alerts-runs-1704-fix: relay to dispatch ctx_a"
+    [line] = escalations(shell)
+    assert line == "RELAYED inbox@0:again alerts-runs-1704-fix: relay to dispatch ctx_a"
 
 
 def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, config, tmp_path):
@@ -1374,8 +1378,8 @@ def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, 
     desk_inbox(tmp_path, "R12 orca-desk: alert Run assignment starved, please look")
     orca_pass(shell, config)
     assert launches(shell) == []
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1].startswith("ALERT-FAILED R12 inbox: one alert per line") and runner_module.ALERT_GRAMMAR in line
+    [line] = escalations(shell)
+    assert line.startswith("ALERT-FAILED R12 inbox: one alert per line") and runner_module.ALERT_GRAMMAR in line
 
 
 def test_an_alert_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(shell, config, tmp_path):
@@ -1398,8 +1402,8 @@ def test_an_alert_whose_brief_fails_to_attach_launches_nothing(shell, config, tm
     desk_inbox(tmp_path, "R41 orca-desk: alert dd-8 https://app.datadoghq.com/monitors/8 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1].startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
+    [line] = escalations(shell)
+    assert line.startswith("INCIDENT dd-8 ") and line.endswith("| dd-8-fix not launched: the brief did not attach: error: cc-notes: ref lock held")
 
 
 def test_an_alert_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
@@ -1408,7 +1412,7 @@ def test_an_alert_whose_attach_dies_silently_launches_nothing(shell, config, tmp
     desk_inbox(tmp_path, "R42 orca-desk: alert dd-9 https://app.datadoghq.com/monitors/9 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert line.endswith("| dd-9-fix not launched: the brief did not attach: ccn exited -9")
 
 
@@ -1418,7 +1422,7 @@ def test_an_alert_whose_attached_brief_has_no_path_launches_nothing(shell, confi
     desk_inbox(tmp_path, "R43 orca-desk: alert dd-10 https://app.datadoghq.com/monitors/10 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert line.endswith("| dd-10-fix not launched: the attached brief has no path")
 
 
@@ -1428,12 +1432,12 @@ def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(she
     orca_pass(shell, config)
     shell.sleep(14 * 60)
     orca_pass(shell, config)
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     shell.sleep(2 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
-    [line] = escalations(tmp_path)
-    assert line.split(" ", 1)[1] == (
+    [line] = escalations(shell)
+    assert line == (
         "DECIDE hold:api-catchup merge-walker-r2: held 16 min: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them"
         " | the root decides it now with merge-walker-r2, ahead of any open owner question on another subject"
     )
@@ -1451,10 +1455,10 @@ def test_a_lifted_hold_never_escalates_and_a_new_hold_restarts_the_clock(shell, 
     orca_pass(shell, config)
     shell.sleep(10 * 60)
     orca_pass(shell, config)
-    assert escalations(tmp_path) == []
+    assert escalations(shell) == []
     shell.sleep(6 * 60)
     orca_pass(shell, config)
-    [line] = escalations(tmp_path)
+    [line] = escalations(shell)
     assert "DECIDE hold:api-catchup walker: held 16 min: held again" in line
 
 
@@ -1462,6 +1466,6 @@ def test_a_hold_outside_the_grammar_fails_visibly(shell, config, tmp_path):
     orca_pass(shell, config)
     desk_inbox(tmp_path, "R51 orca-desk: hold the api chain until the move lands", "R52 orca-desk: unhold the api chain")
     orca_pass(shell, config)
-    lines = [line.split(" ", 1)[1] for line in escalations(tmp_path)]
+    lines = [line for line in escalations(shell)]
     assert [line.split(":", 1)[0] for line in lines] == ["HOLD-FAILED R51 inbox", "HOLD-FAILED R52 inbox"]
     assert runner_module.HOLD_GRAMMAR in lines[0] and runner_module.UNHOLD_GRAMMAR in lines[1]

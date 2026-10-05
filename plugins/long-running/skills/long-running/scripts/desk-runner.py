@@ -37,14 +37,20 @@ and prints the rebind command; a binding lost mid-run holds every launch and esc
 UNBOUND once. `rebind` runs `orca orchestration run-use` from the current terminal and
 records it; `show` prints the binding first. A sol or `--owner-directed` launch starts whatever
 the load; any other launch waits while the 1-minute load is above the core count, for
-at most `deadlines.load_hold_minutes`, then fails into the escalations file and the Run
-mailbox. `run --desk landing` gates and enqueues ready
+at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
+and the Run mailbox. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
-brief, which answers it or escalates it with options. Escalations append one line each
-to the config's escalations file, once per cause, with Pacific times and no zone label;
-a quiet pass writes nothing. The orca runner rotates every *.md inbox beside the
-escalations file once an hour, using the default six-hour window.
+brief, which answers it or escalates it with options. Each escalation runs
+`cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
+once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
+UNBOUND and UNOWNED to blocker, any *-FAILED to defect, and all other labels to report.
+Text over cci's 400-character limit is clipped; the full line is written to
+`<orca.receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack routes
+sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
+The config requires `drive` and `orca.desk_inbox`. A quiet pass writes nothing.
+The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
+using the default six-hour window.
 """
 
 from __future__ import annotations
@@ -73,6 +79,8 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 LANE_PREFIX = "desk-lane-"
 LANDING = "desk-landing"
 RUNNER = "desk-runner"
+CCI_TEXT = 400
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "UNBOUND": "blocker", "UNOWNED": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
@@ -187,7 +195,7 @@ def lane_container(lane: str) -> str:
 class Config:
     source: Path
     store: Path | None
-    escalations: Path
+    drive: str
     view: Path
     desk_inbox: Path
     run: str
@@ -211,13 +219,12 @@ class Config:
         orca = raw["orca"]
         deadlines = raw.get("deadlines", {})
         alert = raw.get("alert", {})
-        escalations = Path(raw["escalations"]).expanduser()
         return cls(
             source=path.expanduser().resolve(),
             store=Path(raw["store"]).expanduser() if raw.get("store") else None,
-            escalations=escalations,
+            drive=raw["drive"],
             view=Path(raw["view"]).expanduser(),
-            desk_inbox=Path(orca["desk_inbox"]).expanduser() if orca.get("desk_inbox") else escalations.parent / "orca-desk.md",
+            desk_inbox=Path(orca["desk_inbox"]).expanduser(),
             run=orca["run"],
             receipts=Path(orca["receipts"]).expanduser(),
             briefs_repo=str(Path(orca["briefs"]["repo"]).expanduser()),
@@ -385,18 +392,31 @@ class Runner:
         return self.shell.now()
 
     def escalate(self, key: str, kind: str, about: str, text: str) -> None:
-        """Record one escalation per key; `flush` appends it to the escalations file."""
+        """Record one escalation per key; `flush` posts it to root through cci with the key as its topic."""
         self.record(f"escalation:{key}", f"{kind} {key} {about}: {' '.join(text.split())}")
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
 
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str) -> Done:
+        """Post one cci record; a body over cci's text limit goes to a receipts file named by `key` and rides as its path."""
+        argv = ["cci", "post", "--drive", self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic]
+        if len(text) > CCI_TEXT:
+            body = self.config.receipts / "cci" / f"{hashlib.sha256(key.encode()).hexdigest()[:16]}.txt"
+            body.parent.mkdir(parents=True, exist_ok=True)
+            body.write_text(text + "\n")
+            argv += ["--path", str(body)]
+            text = text[: CCI_TEXT - 1] + "…"
+        return self.shell.run([*argv, "--text", text])
+
     def flush(self) -> None:
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
-            self.config.escalations.parent.mkdir(parents=True, exist_ok=True)
-            with self.config.escalations.open("a") as out:
-                out.write(f"{pacific(actions.parse_stamp(action.accepted_at))} {action.target}\n")
-            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp()})))
+            label, topic = action.target.split()[:2]
+            kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
+            done = self.cci_post(kind, action.target, "root", topic, action.action_id)
+            if done.code != 0:
+                raise RuntimeError(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether this process's terminal coordinates the Run, and record the answer, with how it was obtained, in the runner's state."""
@@ -962,7 +982,7 @@ class Runner:
                 self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} | {judged.response['text']}")
 
     def rotate_inboxes(self) -> None:
-        for path in sorted(self.config.escalations.parent.glob("*.md")):
+        for path in sorted(self.config.desk_inbox.parent.glob("*.md")):
             inboxes.Inbox(path).rotate(self.now().timestamp())
 
     def sweep(self) -> None:
@@ -1087,7 +1107,6 @@ class Landing:
         self.ledger = config["ledger"]
         self.checkout = Path(config["checkout"]).expanduser()
         self.holds = Path(config["holds"]).expanduser()
-        self.bus = config.get("bus", "")
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
@@ -1222,16 +1241,14 @@ class Landing:
             relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
                 self.runner.send(lane_container(lane), dispatch, relay)
-        elif self.bus:
+        else:
             self.book.accept(LANDING, key, "bus", json.dumps({"lane": lane, "pr": pr, "text": text}), key, None)
             self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-            done = self.shell.run([sys.executable, str(SCRIPTS / "bus.py"), "post", "--bus", self.bus, "--from", "desk-runner", "--kind", "blocker", "--topic", pr, "--to", lane, "--text", text])
+            done = self.runner.cci_post("blocker", text, lane, pr, key)
             if done.code == 0:
                 self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
             else:
                 self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
-        else:
-            self.runner.escalate(key, "ROUTE", lane, text)
 
     def verify_restacks(self, rows: dict[str, dict]) -> None:
         """A restack route is verified once its PR's head moves or the PR lands."""
