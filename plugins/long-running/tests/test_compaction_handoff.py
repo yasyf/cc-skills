@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import standing
 from cc_transcript import Session
 from captain_hook.app import _state
 from captain_hook.events import PostToolUseEvent, PreCompactEvent, SessionStartEvent, StopEvent, UserPromptSubmitEvent
@@ -118,7 +119,7 @@ if args[:2] == ["doc", "list"]:
 if args[:2] == ["doc", "add"]:
     docs = json.load(open(listed))
     label = args[args.index("--label") + 1]
-    added = "9" * 40 if label.startswith("standing-rules:") else "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
+    added = "def"[sum(d["title"].endswith("(generated)") for d in docs)] * 40
     open(os.path.join(state, added + ".md"), "w").write(sys.stdin.read())
     json.dump(docs + [{"id": added, "title": args[2], "tags": [label], "updated_at": "2026-12-31T00:00:00Z"}], open(listed, "w"))
     print(json.dumps({"id": added}))
@@ -163,6 +164,15 @@ def ccn_calls(docs: Path) -> list[list[str]]:
 
 def doc(doc_id: str, updated: str) -> dict:
     return {"id": doc_id, "title": f"brook: progress {updated}", "tags": ["progress:brook"], "updated_at": updated}
+
+
+REGISTER_ID = "9" * 40
+
+
+def add_register(docs: Path, body: str) -> None:
+    entry = {"id": REGISTER_ID, "title": "brook register", "tags": ["standing-rules:brook"], "updated_at": "2026-10-04T00:00:00Z"}
+    (docs / "docs.json").write_text(json.dumps(json.loads((docs / "docs.json").read_text()) + [entry]))
+    (docs / (REGISTER_ID + ".md")).write_text(body)
 
 
 def test_threshold_queues_one_doc_nudge_without_touching_the_plan(home: Path, plan: Path, docs: Path) -> None:
@@ -218,7 +228,7 @@ def test_the_roots_new_doc_gains_the_generated_sections_in_place_and_supersedes_
     augmented = (docs / ("b" * 40 + ".md")).read_text()
     assert augmented.endswith("_From doc bbbbbbb._\n\n## Root's next actions\n1. land l11\n")
     assert "- teammate: orca-desk-6 (running)" in augmented
-    assert "Then read the progress doc `ccn doc show bbbbbbb`" in state(session).digest
+    assert "read the progress doc `ccn doc show bbbbbbb`, then " in state(session).digest
     assert (state(session).active_doc, state(session).generated_doc) == ("b" * 40, "b" * 40)
     lines = plan.read_text().splitlines()
     assert lines[:2] == ["# brook", ""]
@@ -288,7 +298,6 @@ def test_without_cc_notes_the_record_is_a_sibling_folder(home: Path, plan: Path,
         f"{handoff.POINTER_PREFIX} the latest execution state is the newest file in `{folder}/`, now "
         f"`{generated.name}`; only this line's name changes."
     )
-    assert plan.with_name("brook-standing-rules.md").read_text().startswith("## Standing owner rules\n")
     assert handoff.newest_record(state(session), str(home))[0] == f"`{generated}`"
 
 
@@ -480,7 +489,7 @@ def test_a_narrative_with_an_uncited_owner_gate_blocks_the_stop_until_fixed(home
     (docs / ("b" * 40 + ".md")).write_text("## Owner asks\nSoFi released as it merges (4ffc9a5), never on the owner's word\n")
     assert handoff.compact_when_idle(stop_event(session)).system_message.startswith("The handoff is recorded")
     assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
-    assert "- 4ffc9a5 When does a merged change get released?" in (docs / ("b" * 40 + ".md")).read_text()
+    assert "## Standing owner rules\n\n- no `standing-rules` register doc\n" in (docs / ("b" * 40 + ".md")).read_text()
 
 
 def test_an_uncited_inbox_rule_blocks_the_stop_at_its_inbox_line_not_the_doc(home: Path, plan: Path, docs: Path) -> None:
@@ -517,6 +526,7 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
     (inbox / "orca-desk.md").write_text("- R7 (standing) release every landing as it merges\n")
     (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-09-30T04:00:00Z")]))
     (docs / ("a" * 40 + ".md")).write_text("## Root's next actions\n1. watch SoFi\n")
+    add_register(docs, "# brook register\n\n1. Pulumi state is the only truth.\n")
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
@@ -530,28 +540,18 @@ def test_every_compaction_generates_the_handoff_and_restores_its_digest(home: Pa
 
     assert restored.startswith("Compacted long-running drive `brook`. Before acting, read the standing rules register `ccn doc show 9999999`")
     assert "Then read the progress doc `ccn doc show ddddddd`" in restored
-    assert "\nRegister: 0 owner answers, 1 live standing inbox rules.\n" in restored
+    assert "\nRegister: 1 owner-approved rules, 1 live standing inbox rules.\n" in restored
     assert len(restored.encode()) <= 2000
     assert state(session).digest is None
 
 
 def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
-    rulings = [
-        {
-            "id": f"{n:07x}" + "0" * 33,
-            "title": f"Ruling {n}: is the ledger ever a source of truth?",
-            "body": f"No. Pulumi state is the only truth, ruling {n}.\n\n" + "ünïcode reason " * 400,
-            "tags": ["scope:durable", "brook"],
-            "updated_at": f"2026-10-0{n}T00:00:00Z",
-        }
-        for n in range(1, 4)
-    ]
-    (docs / "answers.json").write_text(json.dumps(rulings))
+    body = "# brook register\n\n" + "".join(f"{n}. Pulumi state is the only truth, rule {n}; ünïcode reason {'x' * 900}\n" for n in range(1, 31))
+    add_register(docs, body)
     handoff.CompactionState(active=True, plan_path=str(plan), slug="brook").save(bash(session))
 
     handoff.compaction_instructions(precompact(session))
-    register = (docs / ("9" * 40 + ".md")).read_text()
     handoff.reground(session_start(session, "compact"))
     parts = []
     while delivered := handoff.deliver_register(bash(session)):
@@ -564,10 +564,9 @@ def test_the_register_survives_a_compaction_byte_for_byte(home: Path, plan: Path
         parts.append(part)
 
     assert len(parts) > 1
-    assert "".join(parts) == register
-    assert register == (plan.parent / "brook-standing-rules.md").read_text()
-    assert register in (docs / ("d" * 40 + ".md")).read_text()
-    assert "  > No. Pulumi state is the only truth, ruling 2." in register
+    assert "".join(parts) == body == (docs / (REGISTER_ID + ".md")).read_text()
+    assert "\n".join(standing.quoted(body)) in (docs / ("d" * 40 + ".md")).read_text()
+    assert not any(call[:2] in (["doc", "edit"], ["doc", "add"], ["doc", "supersede"]) and REGISTER_ID in call for call in ccn_calls(docs))
     assert handoff.deliver_register(bash(session)) is None
 
 

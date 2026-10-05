@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Standing owner rules: the live set in a desk inbox, and the handoff lint that carries them.
+"""Read live standing inbox rules and lint their handoff.
 
     standing.py inbox  FILE... [--repo PATH]
-    standing.py titles --program SLUG [--repo PATH]
     standing.py lint   (--doc ID | --file PATH) --program SLUG [--previous-doc ID | --previous-file PATH] [--repo PATH]
 
-STDLIB ONLY. A standing rule is one inbox line, ``R<n> (standing) <rule>`` or
-``R<n> (<who, when>, standing) <rule>``, carrying no other ruling; it is never done, and
-only a later line ``R<k> R<n> superseded by <id>``, or a later standing line saying
-``supersedes R<n>``, ends it.
-``inbox`` prints the live standing ids with their text and exits 3 on any line that breaks the
-convention. ``titles`` prints the program's ``scope:durable`` answers as ``- <id> <title>``, the
-verbatim body of a handoff's Standing owner rules section. ``lint`` exits 3 when a progress doc
-or handoff file drops a durable title, drops a rule the previous handoff carried without a
-``superseded by`` line, or has an owner-gate line that cites no live answer.
+A standing rule has its own inbox line: ``R<n> (standing) <rule>`` or
+``R<n> (<who, when>, standing) <rule>``. It is never done. Only a later line
+``R<k> R<n> superseded by <id>`` or a later standing line saying ``supersedes R<n>``
+ends it. ``inbox`` prints the live ids and their text. It exits 3 on a convention
+violation.
+
+``lint`` checks that ``## Standing owner rules`` exists and quotes the current
+``standing-rules:<program>`` doc. It checks that inbox ids such as ``R123`` from the
+previous handoff are carried or superseded. Lines requiring owner approval must cite
+a live answer id. The citation check skips quoted register lines prefixed with ``  >``.
+Durable answer titles are not required in the handoff. ``lint`` exits 3 on a finding.
+Both commands use only the Python standard library.
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import inboxes
+import ledger
+import rulings
 
 ID = r"[A-Z]{1,2}\d+(?:\.\d+)?"
 STANDING_TAG = r"\((?:[^()]*,\s*)?standing\)"
@@ -37,7 +41,7 @@ SUPERSEDES = re.compile(rf"\bsupersedes\s+`?({ID})\b", re.IGNORECASE)
 DONE = re.compile(rf"\b({ID})`?\s*(?:[:=—–-]\s*|is\s+)?(?:done|completed?|closed|finished|retired)\b", re.IGNORECASE)
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
 NEXT_SECTION = re.compile(r"^#{1,2}\s", re.MULTILINE)
-BULLET_ID = re.compile(rf"^\s*[-*]\s+`?([0-9a-f]{{7,40}}|{ID})`?\b")
+BULLET_ID = re.compile(rf"^\s*[-*]\s+`?({ID})`?\b")
 OWNER_GATE = re.compile(
     r"\bowner(?:'|’)?s (?:word|approval|sign-?off|go\b|click)|\bowner (?:approval|sign-?off|go\b|click)|reserved for the owner",
     re.IGNORECASE,
@@ -46,7 +50,7 @@ HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
 SHORT = 7
 VIOLATIONS = 3
 REGISTER_HEADING = "## Standing owner rules"
-REGISTER_INTRO = "Generated at each handoff from cc-notes answers and (standing) inbox lines, this register quotes every durable owner ruling of this drive in full; every lane brief carries it verbatim. Change a ruling with `ccn answer supersede` or a superseding inbox line, never by editing this register."
+RULE_LINE = re.compile(r"^\d+\.\s", re.MULTILINE)
 QUOTE = "  >"
 
 
@@ -107,20 +111,15 @@ def gated(line: str, live: set[str]) -> bool:
     return OWNER_GATE.search(line) is not None and not cites(line, live)
 
 
-def rule_findings(body: str, previous: str | None, required: list[dict]) -> list[str]:
+def rule_findings(body: str, previous: str | None, register: dict | None) -> list[str]:
     problems = []
     if (lines := section(body)) is None:
-        problems.append(
-            "no `## Standing owner rules` section; paste `standing.py titles --program <slug>` there verbatim, "
-            "plus every live `(standing)` inbox id"
-        )
+        problems.append("no `## Standing owner rules` section; regenerate the handoff with `handoff.py generate`")
         lines = []
-    text = "\n".join(lines)
-    problems += [
-        f"missing durable rule `- {answer['id'][:SHORT]} {answer['title']}`; copy the title verbatim, never re-summarized"
-        for answer in required
-        if answer["title"] not in text
-    ]
+    if register and "\n".join(quoted(register["body"])) not in "\n".join(lines):
+        problems.append(
+            f"the standing rules section does not quote register `{register['id'][:SHORT]}`; regenerate the handoff with `handoff.py generate`"
+        )
     if previous is not None:
         now = carried(lines)
         problems += [
@@ -131,8 +130,8 @@ def rule_findings(body: str, previous: str | None, required: list[dict]) -> list
     return problems
 
 
-def lint(body: str, previous: str | None, required: list[dict], live: set[str]) -> list[str]:
-    return rule_findings(body, previous, required) + [
+def lint(body: str, previous: str | None, register: dict | None, live: set[str]) -> list[str]:
+    return rule_findings(body, previous, register) + [
         f"owner-gate line cites no live answer id: {line.strip()[:200]}"
         for line in body.splitlines()
         if not line.startswith(QUOTE) and gated(line, live)
@@ -152,24 +151,21 @@ def doc_body(repo: str, doc_id: str) -> str:
     return json.loads(ccn(repo, "doc", "show", doc_id, "--json"))["body"]
 
 
-def durable(repo: str, program: str) -> list[dict]:
-    return answers(repo, "scope:durable", program)
-
-
 def quoted(body: str) -> list[str]:
     return [f"{QUOTE} {line}".rstrip() for line in body.strip("\n").splitlines()]
 
 
-def register_lines(required: list[dict]) -> list[str]:
-    lines = []
-    for answer in required:
-        lines.append(f"- {answer['id'][:SHORT]} {answer['title']}")
-        lines += quoted(answer.get("body") or "")
-    return lines
+def rule_count(register: dict | None) -> int:
+    return len(RULE_LINE.findall(register["body"])) if register else 0
 
 
-def register(lines: list[str]) -> str:
-    return "\n".join([REGISTER_HEADING, "", REGISTER_INTRO, "", *(lines or ["- none recorded"])]) + "\n"
+def section_of(register: dict | None, lines: list[str]) -> str:
+    out = [REGISTER_HEADING, ""]
+    if register:
+        out += [f"Register `ccn doc show {register['id'][:SHORT]}`, quoted verbatim:", "", *quoted(register["body"]), ""]
+    else:
+        out += ["- no `standing-rules` register doc", ""]
+    return "\n".join(out + lines) + "\n"
 
 
 def cmd_inbox(args: argparse.Namespace) -> int:
@@ -187,12 +183,6 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     return VIOLATIONS if violations else 0
 
 
-def cmd_titles(args: argparse.Namespace) -> int:
-    for answer in durable(args.repo, args.program):
-        print(f"- {answer['id'][:SHORT]} {answer['title']}")
-    return 0
-
-
 def cmd_lint(args: argparse.Namespace) -> int:
     body = Path(args.file).read_text() if args.file else doc_body(args.repo, args.doc)
     previous = (
@@ -201,7 +191,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
         else doc_body(args.repo, args.previous_doc) if args.previous_doc else None
     )
     live = {answer["id"] for answer in answers(args.repo)}
-    problems = lint(body, previous, durable(args.repo, args.program), live)
+    problems = lint(body, previous, rulings.register(ledger.Shell(), args.repo, args.program), live)
     for problem in problems:
         print(problem)
     return VIOLATIONS if problems else 0
@@ -215,10 +205,6 @@ def main(argv: list[str] | None = None) -> int:
     inbox.add_argument("files", nargs="+", metavar="FILE")
     inbox.set_defaults(handler=cmd_inbox)
 
-    titles = subparsers.add_parser("titles", help="print the program's scope:durable answer titles verbatim")
-    titles.add_argument("--program", required=True, metavar="SLUG")
-    titles.set_defaults(handler=cmd_titles)
-
     check = subparsers.add_parser("lint", help="lint a progress doc or handoff file against the durable answers")
     body = check.add_mutually_exclusive_group(required=True)
     body.add_argument("--doc", metavar="ID")
@@ -229,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--program", required=True, metavar="SLUG")
     check.set_defaults(handler=cmd_lint)
 
-    for sub in (inbox, titles, check):
+    for sub in (inbox, check):
         sub.add_argument("--repo", default=".", metavar="PATH")
     args = parser.parse_args(argv)
     return args.handler(args)

@@ -7,6 +7,17 @@ through `ledger.py`, never a message. Briefs live as attachments on the drive's
 `briefs: <slug>` log; a short `--spec` points to the resolved attachment path.
 Paste the templates below and fill the angle brackets.
 
+The register is the newest cc-notes doc labeled `standing-rules:<slug>`.
+A consolidation lane proposes at most 30 rules for the owner to approve.
+Full answers stay in cc-notes, linked by id.
+
+Orca Claude workers carrying `CLAUDE_LONG_RUNNING_DRIVE` receive the register verbatim
+at `SessionStart` when its body is at most 9,000 characters. Above that limit, the hook
+names the register and tells the worker to read it in full with `ccn doc show <id7>`
+before acting. Their first `UserPromptSubmit` delivers matches for the brief.
+These injections warn and fail open. Codex briefs must paste the register body
+because Codex workers have no Claude hooks.
+
 ## Why the spec is a pointer
 
 `worker-start --spec` pastes its text into the worker's terminal. Orca truncates the
@@ -197,7 +208,11 @@ Ownership: <what this lane edits; every shared file and who edits it after it>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on this subsystem, quoted with its id, and the entry point (symbol at file:line) it makes the change call; or "none">.
 Design check: before READY-FOR-SHIP, send `DESIGN-CHECK <symbol at file:line>; <each ruling, met how>; leaves out: <none, or each piece>`. The coordinator confirms it before a ship lane launches; a change that leaves out part of a ruling holds.
-Standing rules register (required): <Root pastes the full body from `ccn doc show <register id>` verbatim; label `standing-rules:<slug>`>. Every rule binds this lane. Your READY names the rulings your diff touches.
+Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
+  Claude workers receive the register through hooks; above 9,000 characters, read it
+  with `ccn doc show <id7>` before acting.
+  For Codex, paste the body from `ccn doc show <register id>` here verbatim.
+Every rule binds this lane. Your READY names the rulings your diff touches.
 Standing rules served: <`R<n>` ids with their answer ids, or "none">; your task cites them, and completing this lane never retires them.
 Observable acceptance: <the test, output, or PR URL that proves completion>.
 ```
