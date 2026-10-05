@@ -292,7 +292,7 @@ def test_an_override_can_point_at_inbox_lines():
     lines = [{"at": "2026-10-05T07:47:00Z", "lane": "sweep-8", "verb": "EVIDENCE", "text": "EVIDENCE sweep-8 -> platy-ux: the start got no reply", "url": "/inbox/deploy-go.md?line=4641", "cite": "inbox:deploy-go.md:4641", "to": "platy-ux"}]
     overrides = {"infra": {"doing_cite": "inbox:deploy-go.md:4641", "reason": "cycle fix landed; start hangs"}}
     [row] = [row for row in rows_of(census, {"infra": "infra"}, [], lines, overrides) if row["stack"] == "infra/core-usw2-auto"]
-    assert (row["doing"], row["doing_url"], row["reason"], row["reason_url"]) == (lines[0]["text"], lines[0]["url"], "cycle fix landed; start hangs", None)
+    assert (row["doing"], row["doing_url"], row["doing_lane"], row["reason"], row["reason_url"]) == (lines[0]["text"], lines[0]["url"], "sweep-8", "cycle fix landed; start hangs", None)
     with pytest.raises(KeyError, match="names no inbox line"):
         rows_of(census, {"infra": "infra"}, [], [], overrides)
 
@@ -343,3 +343,14 @@ def test_every_source_reads_as_json_over_http(tmp_path):
         assert missing.value.code == 404
     finally:
         server.shutdown()
+
+
+def test_a_target_reports_the_work_of_its_unproven_stacks():
+    census = platy.census_rows(report_of(CENSUS_REPORT))
+    release = build(574, "release infra, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z")
+    lines = [{"at": "2026-10-04T13:00:00Z", "lane": "sweep-7", "verb": "GO", "text": "GO root: sweep-7 re-runs receiver/plat", "url": "/i?4", "to": None}]
+    deselecting = dict(release, env={"RELEASE_START": json.dumps({"thread": "1759.1", "deselected": [{"component": "receiver", "env": "plat"}]})})
+    rows = rows_of(census, {"dashboard": "infra", "receiver": "infra"}, [platy.build_row(deselecting)], lines, {})
+    assert [(row["stack"], row["deployable"]) for row in rows if row["target"] == "infra"] == [("dashboard/plat", "proven"), ("receiver/plat", "unproven")]
+    [target] = [row for row in platy.target_rows(rows) if row["target"] == "infra"]
+    assert (target["deployable"], target["doing_lane"], target["doing"]) == ("unproven", "sweep-7", lines[0]["text"])

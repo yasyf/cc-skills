@@ -152,8 +152,12 @@ def pointed(override: dict, cited: dict[str, dict]) -> dict:
             if cite not in cited:
                 raise KeyError(f"override {field}_cite {cite} names no inbox line")
             out |= {field: cited[cite]["text"], f"{field}_url": cited[cite].get("url")}
+            if field == "doing":
+                out["doing_lane"] = cited[cite].get("lane")
         elif field in override:
             out |= {field: override[field], f"{field}_url": override.get(f"{field}_url")}
+            if field == "doing":
+                out["doing_lane"] = override.get("doing_lane")
     return out
 
 
@@ -238,6 +242,7 @@ def target_rows(stacks: list[dict]) -> list[dict]:
     out = []
     for target, rows in sorted(grouped.items()):
         first = rows[0]
+        working = next((row for row in rows if row["deployable"] != PROVEN and row["doing"]), first)
         counts = {verdict: sum(row["deployable"] == verdict for row in rows) for verdict in VERDICTS}
         passes = [row["last_pass_at"] for row in rows if row["last_pass_at"]]
         out.append(
@@ -254,9 +259,7 @@ def target_rows(stacks: list[dict]) -> list[dict]:
                 "last_pass_at": max(passes) if passes else None,
                 "reason": next((row["reason"] for row in rows if row["deployable"] != PROVEN and row["reason"]), None),
                 "reason_url": next((row["reason_url"] for row in rows if row["reason_url"]), None),
-                "doing": first["doing"],
-                "doing_url": first["doing_url"],
-                "doing_lane": first["doing_lane"],
+                **{field: working[field] for field in ("doing", "doing_url", "doing_lane")},
                 "url": first["target_url"],
                 "cite": f"target:{target}",
                 "text": f"{target}: {counts[PROVEN]} proven, {counts[UNPROVEN]} unproven, {counts[BLOCKED]} blocked of {len(rows)} stacks; last Platy release #{first['target_build']} {first['target_state']}",
