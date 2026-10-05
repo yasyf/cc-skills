@@ -16,6 +16,10 @@ FAILURE_VERBS = frozenset({"HOLD"})
 WORK_VERBS = frozenset({"GO", "OPENED", "UPDATED", "CLAIM", "READY", "LANDED", "RELEASED", "FIX-LIVE"})
 PER_PAGE = 100
 UNTARGETED = "untargeted"
+PROVEN = "proven"
+UNPROVEN = "unproven"
+BLOCKED = "blocked"
+VERDICTS = (PROVEN, UNPROVEN, BLOCKED)
 UNPLANNED_CAUSE = "not planned"
 UNSETTLED_PAGES = 10
 
@@ -148,12 +152,16 @@ def pointed(override: dict, cited: dict[str, dict]) -> dict:
             if cite not in cited:
                 raise KeyError(f"override {field}_cite {cite} names no inbox line")
             out |= {field: cited[cite]["text"], f"{field}_url": cited[cite].get("url")}
+            if field == "doing":
+                out["doing_lane"] = cited[cite].get("lane")
         elif field in override:
             out |= {field: override[field], f"{field}_url": override.get(f"{field}_url")}
+            if field == "doing":
+                out["doing_lane"] = override.get("doing_lane")
     return out
 
 
-def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], lines: list[dict], overrides: dict) -> list[dict]:
+def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], lines: list[dict], overrides: dict, pipeline: dict, contains: Callable[[str, str], bool]) -> list[dict]:
     releases = [build for build in builds if build["kind"] in ("release", "hotfix", "rollback") and build.get("applies")]
     deploys = [build for build in builds if build["kind"] == "deploy" and build.get("applies")]
     cited = {line["cite"]: line for line in lines if line.get("cite")}
@@ -161,11 +169,10 @@ def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], 
     by_target: dict[str, dict] = {}
     for target, builds_for in covering.items():
         latest = builds_for[0] if builds_for else None
-        components = [component for component, owner in targets.items() if owner == target]
-        verbs = BLOCK_VERBS if latest and latest["state"] == "passed" else BLOCK_VERBS | FAILURE_VERBS
-        named = naming(target, components)
-        blocker = blocker_for(named, lines, latest["at"] if latest else None, verbs)
-        by_target[target] = {"latest": latest, "blocker": blocker, "work": work_for(blocker, named, lines) if blocker else None}
+        named = naming(target, [component for component, owner in targets.items() if owner == target])
+        blocker = blocker_for(named, lines, latest["at"] if latest else None, BLOCK_VERBS | FAILURE_VERBS)
+        since = blocker or {"at": latest["at"] if latest else pipeline["at"]}
+        by_target[target] = {"latest": latest, "blocker": blocker, "work": work_for(since, named, lines)}
     out = []
     for row in census:
         component, env = row["stack"].split("/", 1)
@@ -176,18 +183,20 @@ def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], 
         platy = releasing[0] if releasing else None
         passed = next((build for build in releasing if build["state"] == "passed"), None)
         deploy = next((build for build in deploys if row["stack"] in build["stacks"] and build["state"] == "passed"), None)
-        if platy is None:
-            deployable, reason = "never", f"no Platy release has included {row['stack'] if target != UNTARGETED else component}"
-        elif latest["state"] == platy["state"] == "passed" and not blocker:
-            deployable, reason = "yes", None
+        proven = passed is not None and contains(pipeline["sha"], passed["commit"])
+        work = None if proven and not blocker and latest["state"] == "passed" else work
+        if blocker:
+            deployable, reason = BLOCKED, blocker["text"]
+        elif latest and latest["state"] != "passed":
+            deployable, reason = UNPROVEN, f"the last Platy release of {target}, #{latest['number']}, {latest['state']}"
+        elif proven:
+            deployable, reason = PROVEN, None
+        elif passed:
+            deployable, reason = UNPROVEN, f"Platy last converged it at {passed['commit']} (#{passed['number']}), before the release pipeline changed at {pipeline['sha'][:10]}: {pipeline['subject']}"
         else:
-            deployable = "no"
-            failed = latest if latest["state"] != "passed" else platy
-            reason = blocker["text"] if blocker else f"last Platy release #{failed['number']} {failed['state']}"
-        if blocker and deployable == "never":
-            reason = blocker["text"]
+            deployable, reason = UNPROVEN, f"no Platy release has converged {row['stack'] if target != UNTARGETED else component}"
         override = overrides.get(row["stack"]) or overrides.get(target) or {}
-        said = {"reason": reason, "reason_url": blocker.get("url") if blocker else None, "doing": work["text"] if work else None, "doing_url": work.get("url") if work else None}
+        said = {"reason": reason, "reason_url": blocker.get("url") if blocker else None, "doing": work["text"] if work else None, "doing_url": work.get("url") if work else None, "doing_lane": work.get("lane") if work else None}
         said |= pointed(override, cited)
         deployable = override.get("deployable", deployable)
         out.append(
@@ -202,12 +211,20 @@ def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], 
                 "platy_commit": platy["commit"] if platy else None,
                 "platy_url": platy["url"] if platy else None,
                 "last_pass_at": passed["at"] if passed else None,
+                "last_pass_commit": passed["commit"] if passed else None,
+                "proven_at": passed["commit"] if deployable == PROVEN and passed else None,
+                "unproven_since": pipeline["sha"][:12] if deployable == UNPROVEN and passed else None,
+                "blocked_by": blocker["text"] if deployable == BLOCKED and blocker else None,
+                "pipeline_change": pipeline["sha"][:12],
+                "pipeline_change_at": pipeline["at"],
+                "pipeline_change_subject": pipeline["subject"],
                 "target_build": latest["number"] if latest else None,
                 "target_state": latest["state"] if latest else None,
                 "target_at": latest["at"] if latest else None,
                 "target_url": latest["url"] if latest else None,
                 "cli_at": deploy["at"] if deploy else None,
                 "cli_build": deploy["number"] if deploy else None,
+                "cli_url": deploy["url"] if deploy else None,
                 "deployable": deployable,
                 **said,
                 "cell": deployable if row["zero"] == "0/0" else f"{deployable} · {row['zero']}",
@@ -225,29 +242,27 @@ def target_rows(stacks: list[dict]) -> list[dict]:
     out = []
     for target, rows in sorted(grouped.items()):
         first = rows[0]
-        counts = {verdict: sum(row["deployable"] == verdict for row in rows) for verdict in ("yes", "no", "never")}
+        working = next((row for row in rows if row["deployable"] != PROVEN and row["doing"]), first)
+        counts = {verdict: sum(row["deployable"] == verdict for row in rows) for verdict in VERDICTS}
         passes = [row["last_pass_at"] for row in rows if row["last_pass_at"]]
         out.append(
             {
                 "target": target,
                 "stacks": len(rows),
                 "at_zero": sum(row["zero"] == "0/0" for row in rows),
-                "yes": counts["yes"],
-                "no": counts["no"],
-                "never": counts["never"],
-                "deployable": "yes" if counts["yes"] == len(rows) else "never" if counts["never"] == len(rows) else "no",
+                **counts,
+                "deployable": BLOCKED if counts[BLOCKED] else PROVEN if counts[PROVEN] == len(rows) else UNPROVEN,
                 "platy_build": first["target_build"],
                 "platy_state": first["target_state"],
                 "platy_at": first["target_at"],
                 "platy_url": first["target_url"],
                 "last_pass_at": max(passes) if passes else None,
-                "reason": next((row["reason"] for row in rows if row["deployable"] != "yes" and row["reason"]), None),
+                "reason": next((row["reason"] for row in rows if row["deployable"] != PROVEN and row["reason"]), None),
                 "reason_url": next((row["reason_url"] for row in rows if row["reason_url"]), None),
-                "doing": first["doing"],
-                "doing_url": first["doing_url"],
+                **{field: working[field] for field in ("doing", "doing_url", "doing_lane")},
                 "url": first["target_url"],
                 "cite": f"target:{target}",
-                "text": f"{target}: {counts['yes']} yes, {counts['no']} no, {counts['never']} never of {len(rows)} stacks; last Platy release #{first['target_build']} {first['target_state']}",
+                "text": f"{target}: {counts[PROVEN]} proven, {counts[UNPROVEN]} unproven, {counts[BLOCKED]} blocked of {len(rows)} stacks; last Platy release #{first['target_build']} {first['target_state']}",
             }
         )
     return out

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import threading
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from lrdash import platy, views, yamlish
+from test_dashboard import dashboard
 
 MOMENT = datetime(2026, 10, 5, 7, 0, tzinfo=UTC)
 VIEWS_FILE = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "reference" / "dashboard-views.yaml"
@@ -151,6 +155,19 @@ def build(number: int, message: str, state: str = "passed", branch: str = "main"
     return {"number": number, "state": state, "branch": branch, "commit": "abcdef1234567890", "created_at": at, "finished_at": at, "message": message, "web_url": f"https://bk/{number}", "env": env}
 
 
+PIPELINE = {"sha": "c0ffee0123456789", "at": "2026-10-04T12:00:00Z", "subject": "release: move checks into builds"}
+AFTER_CHANGE = {"abcdef123456"}
+
+
+def contains(ancestor: str, commit: str) -> bool:
+    assert ancestor == PIPELINE["sha"]
+    return commit in AFTER_CHANGE
+
+
+def rows_of(census, targets, builds, lines, overrides, pipeline_contains=contains):
+    return platy.stack_rows(census, targets, builds, lines, overrides, PIPELINE, pipeline_contains)
+
+
 def test_build_row_tells_a_platy_start_from_a_cli_start_and_a_deploy():
     platy_start = platy.build_row(build(1251, "release infra, platform, started by ym@poetic.com", branch="releases/2026-10-04/1", thread=True))
     assert (platy_start["kind"], platy_start["targets"], platy_start["platy"], platy_start["applies"]) == ("release", ["infra", "platform"], True, True)
@@ -203,28 +220,37 @@ def test_stack_rows_answer_deployable_reason_and_work():
         {"at": "2026-10-05T06:30:00Z", "lane": "platy-fix", "verb": "OPENED", "text": "OPENED platy-fix #30481 retry infra approval", "url": "/i?2", "to": None},
         {"at": "2026-10-05T05:30:00Z", "lane": "sweep", "verb": "DEFECT", "text": "DEFECT sweep -> platy-fix: infra approval step crashed", "url": "/i?1", "to": "platy-fix"},
     ]
-    rows = {row["stack"]: row for row in platy.stack_rows(census, targets, builds, lines, {"dashboard": {"doing": "nothing needed"}})}
+    rows = {row["stack"]: row for row in rows_of(census, targets, builds, lines, {"dashboard": {"doing": "nothing needed"}})}
     infra = rows["infra/core-usw2-auto"]
-    assert (infra["deployable"], infra["platy_build"], infra["platy_state"], infra["zero"]) == ("no", 1251, "failed", "drift")
-    assert infra["reason"].startswith("DEFECT sweep") and infra["doing"].startswith("OPENED platy-fix")
-    assert infra["cell"] == "no · drift"
+    assert (infra["deployable"], infra["platy_build"], infra["platy_state"], infra["zero"]) == ("blocked", 1251, "failed", "drift")
+    assert infra["blocked_by"].startswith("DEFECT sweep") and infra["doing"].startswith("OPENED platy-fix") and infra["doing_lane"] == "platy-fix"
+    assert infra["cell"] == "blocked · drift"
     dashboard = rows["dashboard/plat"]
-    assert (dashboard["deployable"], dashboard["reason"], dashboard["doing"]) == ("yes", None, "nothing needed")
+    assert (dashboard["deployable"], dashboard["proven_at"], dashboard["reason"], dashboard["doing"]) == ("proven", "abcdef123456", None, "nothing needed")
     receiver = rows["receiver/plat"]
-    assert (receiver["deployable"], receiver["cli_build"]) == ("never", 990)
+    assert (receiver["deployable"], receiver["reason"], receiver["cli_build"]) == ("unproven", "no Platy release has converged receiver/plat", 990)
     assert rows["escape-hatch/plat"]["target"] == platy.UNTARGETED
+
+
+def test_a_release_that_predates_a_pipeline_change_is_unproven_since_that_change():
+    census = platy.census_rows(report_of(CENSUS_REPORT))
+    builds = [platy.build_row(build(574, "release dashboard, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z"))]
+    lines = [{"at": "2026-10-04T13:00:00Z", "lane": "sweep-7", "verb": "GO", "text": "GO root: sweep-7 re-runs the dashboard release", "url": "/i?3", "to": None}]
+    [row] = [row for row in rows_of(census, {"dashboard": "dashboard"}, builds, lines, {}, lambda ancestor, commit: False) if row["stack"] == "dashboard/plat"]
+    assert (row["deployable"], row["unproven_since"], row["last_pass_commit"], row["doing_lane"]) == ("unproven", "c0ffee012345", "abcdef123456", "sweep-7")
+    assert row["reason"].endswith("before the release pipeline changed at c0ffee0123: release: move checks into builds")
 
 
 def test_a_deselected_stack_is_not_released_by_the_start():
     census = platy.census_rows(report_of(CENSUS_REPORT))
     start = build(423, "release infra, started by ym@poetic.com", branch="releases/z", at="2026-10-04T02:00:00Z")
     start["env"] = {"RELEASE_START": json.dumps({"thread": "1759.1", "deselected": [{"component": "infra", "env": "core-usw2-auto"}]})}
-    rows = platy.stack_rows(census, {"infra": "infra", "dashboard": "infra"}, [platy.build_row(start)], [], {})
+    rows = rows_of(census, {"infra": "infra", "dashboard": "infra"}, [platy.build_row(start)], [], {})
     by_stack = {row["stack"]: row for row in rows}
-    assert (by_stack["infra/core-usw2-auto"]["deployable"], by_stack["infra/core-usw2-auto"]["platy_build"]) == ("never", None)
-    assert (by_stack["dashboard/plat"]["deployable"], by_stack["dashboard/plat"]["platy_build"]) == ("yes", 423)
+    assert (by_stack["infra/core-usw2-auto"]["deployable"], by_stack["infra/core-usw2-auto"]["platy_build"]) == ("unproven", None)
+    assert (by_stack["dashboard/plat"]["deployable"], by_stack["dashboard/plat"]["platy_build"]) == ("proven", 423)
     [target] = [row for row in platy.target_rows(rows) if row["target"] == "infra"]
-    assert (target["stacks"], target["yes"], target["never"], target["deployable"], target["platy_build"], target["at_zero"]) == (2, 1, 1, "no", 423, 1)
+    assert (target["stacks"], target["proven"], target["unproven"], target["blocked"], target["deployable"], target["platy_build"], target["at_zero"]) == (2, 1, 1, 0, "unproven", 423, 1)
 
 
 def test_an_unplanned_stack_is_not_called_drift():
@@ -250,8 +276,8 @@ def test_a_failed_target_release_blocks_stacks_it_deselected():
     passed = build(423, "release infra, started by ym@poetic.com", branch="releases/a", thread=True, at="2026-10-04T02:00:00Z")
     failed = build(1251, "release infra, started by ym@poetic.com", state="failed", branch="releases/b", at="2026-10-05T05:00:00Z")
     failed["env"] = {"RELEASE_START": json.dumps({"thread": "1759.2", "deselected": [{"component": "dashboard", "env": "plat"}]})}
-    rows = {row["stack"]: row for row in platy.stack_rows(census, {"dashboard": "infra"}, [platy.build_row(failed), platy.build_row(passed)], [], {})}
-    assert (rows["dashboard/plat"]["deployable"], rows["dashboard/plat"]["platy_build"], rows["dashboard/plat"]["reason"]) == ("no", 423, "last Platy release #1251 failed")
+    rows = {row["stack"]: row for row in rows_of(census, {"dashboard": "infra"}, [platy.build_row(failed), platy.build_row(passed)], [], {})}
+    assert (rows["dashboard/plat"]["deployable"], rows["dashboard/plat"]["platy_build"], rows["dashboard/plat"]["reason"]) == ("unproven", 423, "the last Platy release of infra, #1251, failed")
 
 
 def test_components_count_only_in_stack_form():
@@ -265,10 +291,10 @@ def test_an_override_can_point_at_inbox_lines():
     census = platy.census_rows(report_of(CENSUS_REPORT))
     lines = [{"at": "2026-10-05T07:47:00Z", "lane": "sweep-8", "verb": "EVIDENCE", "text": "EVIDENCE sweep-8 -> platy-ux: the start got no reply", "url": "/inbox/deploy-go.md?line=4641", "cite": "inbox:deploy-go.md:4641", "to": "platy-ux"}]
     overrides = {"infra": {"doing_cite": "inbox:deploy-go.md:4641", "reason": "cycle fix landed; start hangs"}}
-    [row] = [row for row in platy.stack_rows(census, {"infra": "infra"}, [], lines, overrides) if row["stack"] == "infra/core-usw2-auto"]
-    assert (row["doing"], row["doing_url"], row["reason"], row["reason_url"]) == (lines[0]["text"], lines[0]["url"], "cycle fix landed; start hangs", None)
+    [row] = [row for row in rows_of(census, {"infra": "infra"}, [], lines, overrides) if row["stack"] == "infra/core-usw2-auto"]
+    assert (row["doing"], row["doing_url"], row["doing_lane"], row["reason"], row["reason_url"]) == (lines[0]["text"], lines[0]["url"], "sweep-8", "cycle fix landed; start hangs", None)
     with pytest.raises(KeyError, match="names no inbox line"):
-        platy.stack_rows(census, {"infra": "infra"}, [], [], overrides)
+        rows_of(census, {"infra": "infra"}, [], [], overrides)
 
 
 def test_yamlish_respects_escaped_quotes_and_keeps_literal_headings():
@@ -302,3 +328,29 @@ def test_a_stat_reads_every_field_from_the_row_with_a_value():
 def test_a_cli_deploy_covers_every_named_stack():
     row = platy.build_row(build(990, "deploy api, router/rt-usw2-fwd to plat,sofi at 9f8e7d1", branch="releases/deploy-x"))
     assert row["stacks"] == ["api/plat", "api/sofi", "router/rt-usw2-fwd"]
+
+
+def test_every_source_reads_as_json_over_http(tmp_path):
+    server = dashboard.bind("127.0.0.1", 0, dashboard.Collector({"drive": "d", "state_dir": str(tmp_path)}), 60)
+    server.sources = {"platy": [{"stack": "infra/core-usw2-auto", "deployable": "unproven"}]}
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}/sources"
+    try:
+        with urllib.request.urlopen(f"{base}/platy.json", timeout=5) as response:
+            assert json.loads(response.read()) == server.sources["platy"]
+        with pytest.raises(urllib.error.HTTPError) as missing:
+            urllib.request.urlopen(f"{base}/nope.json", timeout=5)
+        assert missing.value.code == 404
+    finally:
+        server.shutdown()
+
+
+def test_a_target_reports_the_work_of_its_unproven_stacks():
+    census = platy.census_rows(report_of(CENSUS_REPORT))
+    release = build(574, "release infra, started by ym@poetic.com", branch="releases/y", thread=True, at="2026-10-04T05:00:00Z")
+    lines = [{"at": "2026-10-04T13:00:00Z", "lane": "sweep-7", "verb": "GO", "text": "GO root: sweep-7 re-runs receiver/plat", "url": "/i?4", "to": None}]
+    deselecting = dict(release, env={"RELEASE_START": json.dumps({"thread": "1759.1", "deselected": [{"component": "receiver", "env": "plat"}]})})
+    rows = rows_of(census, {"dashboard": "infra", "receiver": "infra"}, [platy.build_row(deselecting)], lines, {})
+    assert [(row["stack"], row["deployable"]) for row in rows if row["target"] == "infra"] == [("dashboard/plat", "proven"), ("receiver/plat", "unproven")]
+    [target] = [row for row in platy.target_rows(rows) if row["target"] == "infra"]
+    assert (target["deployable"], target["doing_lane"], target["doing"]) == ("unproven", "sweep-7", lines[0]["text"])

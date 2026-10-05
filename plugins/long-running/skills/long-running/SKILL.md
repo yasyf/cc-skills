@@ -1843,8 +1843,10 @@ items, and `owner_files:` bullets `- **title**: detail`. Title-only bullets rema
 
 #### Platy deployability
 
-Set `platy.census` to the census glob. The view reads its newest report,
-`release/targets.yaml`, and release builds through `bk api`.
+Set `platy.census` to the census glob. `platy.trunk` and `platy.release_code`
+are required: the trunk ref and release pipeline path in the drive checkout.
+The view reads the newest census report, `release/targets.yaml`, release builds
+through `bk api`, and the newest commit touching `platy.release_code` on `platy.trunk`.
 `dashboard/release-builds.json` initially backfills the whole pipeline history until a short
 page. Polls start at page 1, stopping at a known finished build or three pages;
 older unfinished cached builds extend paging to ten. Failed reads retain cached
@@ -1857,24 +1859,47 @@ Read each stack's last included Platy release, last Platy pass, last successful
 CLI deploy, and `0/0`/`drift`/`unplanned` against `dev`. Deselection never counts
 as release.
 
-`yes` requires both the target's latest Platy release and the stack's
-latest included Platy release to pass, with no target blocker. A failed target
-release blocks even deselected stacks: a pipeline failure. Without a blocker
-line, the reason names that release. Otherwise, stacks are `no`, or `never` when
-never included. `platy_targets` counts all three per target.
+`deployable` is `proven`, `unproven`, or `blocked`. An open
+`DEFECT`/`BLOCKED`/`FAILED`/`MATRIX ... FAILED`/`HOLD` newer than the target's
+last Platy release and naming the target or one of its stacks makes it `blocked`.
+`blocked_by` carries the newest matching line, which also supplies `reason`.
 
-Reasons use the newest `DEFECT`/`BLOCKED`/`FAILED`/`MATRIX ... FAILED` after the
-target's latest Platy release; `HOLD` counts for failed releases. Work uses the newest later
-`GO`/`OPENED`/`UPDATED`/`CLAIM`/`READY`/`LANDED`/`RELEASED`/`FIX-LIVE` lines from
-the assigned lane or naming the target. Both match whole target names and
-components only as stacks (`data/plat`), never bare `data` or `network`.
+Without a blocker, a stack is `unproven` if the target's last Platy release
+did not pass, no Platy release has converged the stack, or its last converged
+release lacks the newest pipeline change. `reason` names the failed attempt,
+missing convergence, or pipeline change SHA and subject; `unproven_since`
+records that change's SHA when a prior pass exists.
 
-Stack/target overrides accept `deployable`, `reason`/`doing` with optional
+`proven` requires the target's last Platy release to pass, the stack's last
+converged Platy release to contain that pipeline change, and no blocker.
+The view caches `git merge-base --is-ancestor` checks in the drive checkout.
+`proven_at` is the converged release commit.
+Rows also carry `last_pass_commit`, `pipeline_change`, `pipeline_change_at`,
+`pipeline_change_subject`, and `cli_url`.
+
+`doing`/`doing_url`/`doing_lane` use the newest
+`GO`/`OPENED`/`UPDATED`/`CLAIM`/`READY`/`LANDED`/`RELEASED`/`FIX-LIVE` line
+after the blocker, from or naming its lanes, or naming the target or stack.
+For an unblocked, unproven stack, work names the target or stack after the last
+attempt. Matches use whole target names and components only as stacks
+(`data/plat`), never bare `data` or `network`.
+
+`platy_targets` counts `proven`/`unproven`/`blocked` stacks. A target is `blocked`
+if any stack is, `proven` only if all are, and otherwise `unproven`.
+A `DEFECT` retracted later in prose still blocks: inbox lines carry no closing
+record. cci's typed records supply that closure.
+
+`GET /sources/<name>.json` returns any collected source as JSON, including
+`/sources/platy.json` and `/sources/platy_targets.json`. A 404 names the available sources.
+
+Stack/target overrides accept `deployable: proven|unproven|blocked`, `reason`/`doing` with optional
 `reason_url`/`doing_url`, or inbox cites displaying the line verbatim with its link.
 A missing line fails the platy source. Example:
 
 ```yaml
 platy:
+  trunk: origin/dev
+  release_code: go/ci/internal/release/
   overrides:
     infra: {reason_cite: 'inbox:deploy-go.md:4601', doing_cite: 'inbox:deploy-go.md:4641'}
 ```

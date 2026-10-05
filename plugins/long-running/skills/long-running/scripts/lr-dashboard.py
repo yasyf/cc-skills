@@ -368,6 +368,7 @@ class Collector:
     compaction_cache: dict[str, tuple[int, list[dict]]] = field(default_factory=dict)
     board_cache: dict[str, tuple[str, dict]] = field(default_factory=dict)
     builds: platy.Builds | None = None
+    ancestry: dict[tuple[str, str], bool] = field(default_factory=dict)
 
     @property
     def state_dir(self) -> Path:
@@ -611,12 +612,25 @@ class Collector:
     def known_builds(self) -> list[dict]:
         return build_rows(self.builds.known()) if self.builds else []
 
+    def pipeline_change(self, config: dict) -> dict:
+        sha, at, subject = run(["git", "log", "-1", "--format=%H%x09%cI%x09%s", config["trunk"], "--", config["release_code"]], cwd=self.entry["checkout"]).strip().split("\t", 2)
+        return {"sha": sha, "at": iso(datetime.fromisoformat(at)), "subject": subject}
+
+    def contains(self, ancestor: str, commit: str) -> bool:
+        key = (ancestor, commit)
+        if key not in self.ancestry:
+            verdict = subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, commit], cwd=self.entry["checkout"], capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
+            if verdict.returncode not in (0, 1):
+                raise subprocess.CalledProcessError(verdict.returncode, verdict.args, verdict.stdout, verdict.stderr)
+            self.ancestry[key] = verdict.returncode == 0
+        return self.ancestry[key]
+
     def platy(self, config: dict, builds: list[dict], lines: list[dict]) -> list[dict]:
         report = views.newest(self.state_dir, config["census"])
         if report is None:
             raise FileNotFoundError(f"no census report matches {config['census']} under {self.state_dir}")
         targets = platy.target_map(Path(self.entry["checkout"]) / config.get("targets", "release/targets.yaml"))
-        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, config.get("overrides") or {})
+        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, config.get("overrides") or {}, self.pipeline_change(config), self.contains)
         return [row | {"cite": f"stack:{row['stack']}", "census_report": report.name} for row in rows]
 
     def owner(self, tasks: list[dict], asks: list[dict], lines: list[dict], boards: list[dict], config: dict, moment: datetime) -> list[dict]:
@@ -859,6 +873,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, json.dumps(chat.site_config(self.server.chat_token)).encode(), "application/json")
             else:
                 self.text(404, f"{chat.KEY_ENV} is not set in the dashboard's environment\n")
+        elif url.path.startswith("/sources/") and url.path.endswith(".json"):
+            name = url.path.removeprefix("/sources/").removesuffix(".json")
+            if name in self.server.sources:
+                self.json(self.server.sources[name])
+            else:
+                self.text(404, f"no source {name}; sources: {', '.join(sorted(self.server.sources))}\n")
         elif url.path.startswith("/ask/"):
             self.ask(url.path.removeprefix("/ask/"), {name: values[0] for name, values in parse_qs(url.query).items()})
         else:
