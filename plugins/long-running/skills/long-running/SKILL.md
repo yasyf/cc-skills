@@ -162,7 +162,7 @@ Complete what was consumed; re-own or delete the rest. Every lane receives the l
 task list on every wake.
 
 In a live drive, `task_archive` moves completed tasks whose files are older than two
-hours from `~/.claude/tasks/<list>/` to its `.archive.jsonl` on
+hours from `~/.claude/tasks/<list>/` to its `.archive.ndjson` on
 `SessionStart`, `PreCompact`, and at most once per 30 minutes on `Stop`. This keeps
 Claude Code's built-in reminder small. It reprints the live list every 10 assistant
 messages without `TaskCreate` or `TaskUpdate`, to the root and each in-process teammate.

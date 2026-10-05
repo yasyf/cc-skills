@@ -25,7 +25,7 @@ from .session_tree import acquire
 
 ARCHIVE_AGE_SECONDS = 2 * 60 * 60
 STOP_INTERVAL_SECONDS = 30 * 60
-ARCHIVE = ".archive.jsonl"
+ARCHIVE = ".archive.ndjson"
 HIGH_WATER_MARK = ".highwatermark"
 LIST_LOCK = ".lock.lock"
 
@@ -37,7 +37,7 @@ class ArchiveState(WorkflowState):
 
 def list_dir(evt: BaseHookEvent) -> Path | None:
     root = Tasks.resolve_root()
-    name = Tasks.list_id(evt.session_id, evt.transcript_path)
+    name = Tasks.list_id(evt.session_id, evt.ctx.t.path)
     return next((path for path in (root / name, root / f"session-{name[:8]}") if path.is_dir()), None)
 
 
