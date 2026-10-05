@@ -382,6 +382,8 @@ Worktree: none. You edit nothing. `<checkout>` is for `git fetch`, `merge-tree`,
 Finish: never. If the root tells you the drive is over,
   `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` once more,
   `ccn ledger archive <ledger id>`, and stop.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 Rotate: on a `ROTATE` message from the root, type every message you have not yet
   recorded into the ledger (`ledger.py report`, `register`, `ruling`, `enqueue`), write
   any finding still only in your context to cc-notes, reply `flushed <ledger id>`, and

@@ -15,8 +15,10 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   The poll waits through `desk-wait.sh` on the lane's team mailbox so a `MAILBOX`
   line ends the call and Claude Code delivers the message at that boundary.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
-- Your last action is one `SendMessage` to the name your brief gives. Bare final text is
-  never delivered.
+- Your last action is one `SendMessage` to the name your brief gives, then no text
+  or one line under 300 characters (outcome + pointer), never the report again.
+  The harness forwards final text to the root as an idle notification on every stop;
+  a hook refuses longer text.
 - On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
   `flushed <ids>` within 10 minutes, and keep working. Without that reply, the root
   rotates you by hand. It spawns a numbered successor from your brief and handoff,

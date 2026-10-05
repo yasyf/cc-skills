@@ -90,4 +90,6 @@ Worktree: none.
 Finish: when the root says the drive is over, write the last map and send the root
   one report of at most ten lines: open collisions, rulings pending, lanes past
   their deadline. That message is your last action.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 ```

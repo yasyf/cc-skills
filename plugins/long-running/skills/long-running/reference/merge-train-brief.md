@@ -106,4 +106,6 @@ Worktree: <absolute path, exclusive to this lane>.
 Finish: when the root says the drive is over, log the last pass and send the root
   one report of at most ten lines: landed, queued, ejected, still open. That message
   is your last action.
+  Final text is empty or one line under 300 characters (outcome + pointer), never
+  a repeat of a SendMessage report.
 ```
