@@ -32,6 +32,7 @@ here.
 | `teams` | no | team codenames the retro concerns, as strings |
 | `repo`, `ref` | no | as design-doc: `owner/repo` and a Git ref; the page renders a link into `repo` as `#1234` and others as `owner/repo#1234` |
 | `timezone` | no | an IANA zone name, the display zone (default `UTC`) |
+| `proseFallback` | no | `{model, reason, fields, at}`, written by `prose --write` while codex is down: `claude-opus-5-5`, `codex down`, and the field addresses that model wrote |
 | `subIncidents` | no | `[{id, t, h}]` with ids `I\d+`, for a retro that covers several incidents; windows and causes may carry `incident: "I1"` |
 | `homeLink` | no | `{href, label}`, a back link the rail renders above the brand |
 | `sections` | no | `{<sectionId>: {sub?, takeaway?}}`. `sub` is one line of context under the header; a narrative section's `takeaway` states its conclusion in 18 words or fewer, set by `TAKEAWAY_WORDS = 18`. Reference sections carry no `takeaway`. Ids are `overview`, `timeline`, `causes`, `impact`, `resolution`, `lessons`, `recognize`, `actions`, `remediation`, `prevention`, `evidence`, `unknowns`, `glossary`, `notes`, in that reading order |

@@ -76,7 +76,7 @@ class RecordIsReadUnderTheClaim(unittest.TestCase):
         retro_prose.read_record = watching
         retro_prose.write_prose = lambda *a, **k: 0
         try:
-            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "field": None,
+            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "write": None, "field": None,
                                      "stale": False, "quick": False, "dry_run": False, "batch": 4,
                                      "detach": False, "await_run": False})()
             retro_prose.prose(args)
@@ -211,7 +211,7 @@ class OperatorNotes(unittest.TestCase):
         retro_prose.write_prose = lambda retro, R, root, args, store, *a, **k: seen.append(
             store["meta.title"].get("note")) or 0
         try:
-            args = type("Args", (), {"retro": None, "dir": str(root), "list": False,
+            args = type("Args", (), {"retro": None, "dir": str(root), "list": False, "write": None,
                                      "field": ["meta.title"], "stale": False, "quick": False,
                                      "dry_run": False, "batch": 4, "note": ["meta.title=name the cause"],
                                      "detach": False, "await_run": False})()

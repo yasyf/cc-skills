@@ -12,8 +12,15 @@ GPT-6 Astra (`gpt-6-astra`) at `xhigh` writes and revises all new prose,
 including headlines, subtitles, summaries, plain twins, handles, revision
 notes, and publication text. Use `retro.py prose` for its enumerated fields
 in `retro.json` and `summary.html`; it calls `codex-ask -m astra` and records their provenance in
-`prose.lock.json`. It has no fallback writer. For a retro written before
+`prose.lock.json`. For a retro written before
 0.3.0, use the `--quick` migration below to retain eligible existing prose.
+
+When codex is down, nothing waits for it. Claude Opus 5.5 writes the text,
+and `retro.py prose <dir> --write ADDR=TEXT` lands it. The field is linted,
+locked to `claude-opus-5-5` with the reason `codex down`, and listed in
+`meta.proseFallback`. `check` accepts that provenance only for fields that
+`meta.proseFallback` names, and errors on any other non-Astra model. A later
+`prose` run once codex is back returns those fields to Astra.
 
 For prose outside that field list, delegated authors use the same model and
 effort. In Codex, set the model and effort explicitly when spawning an author. From Claude, load the `codex` skill and

@@ -20,6 +20,8 @@ from pathlib import Path
 CODEX_ASK = "codex-ask"
 SLOP_COP = "slop-cop"
 PROSE_MODEL = "astra"
+FALLBACK_MODEL = "claude-opus-5-5"
+FALLBACK_REASON = "codex down"
 PROSE_LOCK = "prose.lock.json"
 WRITE_LOCK = ".prose.lock"
 PROSE_TIMEOUT = 1800
@@ -514,6 +516,14 @@ def check_lock(retro, rep, R: dict, root: Path):
         rep.err(f"{len(legacy)} field(s) carry {LEGACY} provenance on a retro that starts {onset}, after "
                 f"incident-retro {retro.LEGACY_CUTOFF}; the migration path is for retros written before this "
                 f"version, so run retro.py prose without --quick")
+    fallback = (R.get("meta") or {}).get("proseFallback") or {}
+    for addr, entry in lock["fields"].items():
+        if not isinstance(entry, dict) or entry.get("model") in (None, "gpt-6-astra"):
+            continue
+        if not (entry.get("model") == FALLBACK_MODEL and entry.get("reason") == FALLBACK_REASON
+                and fallback.get("reason") == FALLBACK_REASON and addr in (fallback.get("fields") or [])):
+            rep.err(f"{addr} is locked to {entry.get('model')!r}; only astra writes retro prose, or "
+                    f"{FALLBACK_MODEL} with reason {FALLBACK_REASON!r} recorded in meta.proseFallback")
     missing = unlocked(retro, R, root)
     if missing:
         shown = ", ".join(missing[:6]) + (f" and {len(missing) - 6} more" if len(missing) > 6 else "")
@@ -604,6 +614,8 @@ def prose(args) -> int:
                 "locked" if (lock.get(addr) or {}).get("sha256") == digest(text) else "unlocked")
             print(f"{state:9} {store[addr]['kind']:16} {addr}")
         return 0
+    if args.write:
+        return write_by_hand(retro, root, args.write)
     if args.field:
         wanted = list(dict.fromkeys(f for f in args.field if f in store))
         for f in args.field:
@@ -634,6 +646,39 @@ def prose(args) -> int:
     except Busy as held:
         print(f"prose: {held} is already writing {root}; two runs overwrite each other's fields", file=sys.stderr)
         return 1
+
+
+def write_by_hand(retro, root: Path, pairs: list) -> int:
+    """Land Opus-written text while codex is down: each field is linted, locked with the Opus model and the
+    reason, and meta.proseFallback records the substitution so the page and the gate both show it."""
+    with Owner(root):
+        R, store = read_record(retro, root)
+        lock = load_lock(root)
+        written = {}
+        for pair in pairs:
+            addr, sep, text = pair.partition("=")
+            if not sep or addr not in store or store[addr]["holder"] is None:
+                print(f"prose: --write {addr!r} is not ADDR=TEXT for a retro.json prose field", file=sys.stderr)
+                return 1
+            spec = store[addr]
+            spec["holder"][spec["key"]] = text.strip()
+            written[addr] = text.strip()
+        findings = lint(written, False)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for addr, text in written.items():
+            lock["fields"][addr] = {"sha256": digest(text), "model": FALLBACK_MODEL, "reason": FALLBACK_REASON,
+                                    "at": stamp, "slop": len(findings.get(addr) or [])}
+            for v in findings.get(addr) or []:
+                print(f"warn:  {addr}: slop-cop {v.get('ruleId')}: {v.get('matchedText', '')!r}")
+        fallback = R["meta"].setdefault("proseFallback", {"model": FALLBACK_MODEL, "reason": FALLBACK_REASON,
+                                                          "fields": []})
+        fallback["fields"] = sorted(set(fallback["fields"]) | set(written))
+        fallback["at"] = stamp
+        retro.write_retro(root, R)
+        write_atomic(root / PROSE_LOCK, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+    print(f"prose: wrote {len(written)} field(s) on {FALLBACK_MODEL} ({FALLBACK_REASON}) and recorded them in "
+          f"meta.proseFallback")
+    return 0
 
 
 def await_command(root: Path) -> str:
@@ -799,6 +844,9 @@ def add_prose_parser(sub, retro):
     p.add_argument("--batch", type=int, default=PROSE_BATCH, help="fields per model call, the calls running side by "
                    "side; the default 0 sends every field in one call")
     p.add_argument("--timeout", type=float, default=PROSE_TIMEOUT, help="seconds to wait for one model call")
+    p.add_argument("--write", action="append", metavar="ADDR=TEXT", help=f"while codex is down, land text written "
+                   f"on {FALLBACK_MODEL}: locked with reason {FALLBACK_REASON!r} and recorded in meta.proseFallback; "
+                   f"repeatable")
     p.add_argument("--note", action="append", metavar="[ADDR=]TEXT", help="steer the writing without writing it: "
                    "'ADDR=text' for one field, bare text for every field in this run; repeatable")
     p.add_argument("--dry-run", action="store_true", help="print the work order instead of calling the model")
