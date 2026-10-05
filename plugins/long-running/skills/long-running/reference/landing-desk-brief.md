@@ -27,6 +27,19 @@ them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
 
+Hold a PR with no review, a pending review, findings or an error until its current
+head is clean or overridden. Only the root writes override lines in the root
+inbox, relaying the owner or deciding itself:
+`R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.
+Use a cc-notes answer ID prefix of at least seven hex characters or the exact
+`AGENTS.md:<line>` ID for each ruling. Name every finding's ruling to clear the
+hold. Each ruling waiver applies on every later head of that PR too.
+Use `unreviewed` to waive an errored or unfinished review. A verdict clears any
+override recorded while the review was pending; the sweep re-applies overrides
+from the inbox each pass. An `unreviewed` override never waives findings that
+arrive later. Before a D3 priority enqueue, run
+`ledger.py list --ledger <id> --open` and leave every `rules-blocked` PR held.
+
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
 running desk. If reports show a cursor more than one iteration behind the root's
 last line, the root appends one inbox line naming the unread range and records the
@@ -89,7 +102,8 @@ Verified facts, do not re-derive:
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <the `live standing:` line of `standing.py inbox <inbox file>`, verbatim,
     plus the plan's Decisions; an id list, never a range>
-  scripts: ledger.py, bus.py, standing.py, desk-runner.py, and desk-wait.sh, on PATH by name
+  scripts: ledger.py, bus.py, standing.py, rules-review.py, desk-runner.py and
+  desk-wait.sh, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -186,6 +200,24 @@ Do, in this order, forever:
      Record labels added by the root on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
+  2b. Run the rules sweep every iteration:
+     rules-review.py sweep --repo <owner/name> --ledger <id> \
+     --checkout <dir> --inbox <root-inbox>
+     Repeat --inbox for additional root inbox files. The sweep collects finished
+     reviews and dispatches unreviewed heads without waiting. It runs at most six
+     reviews at once by default; use --parallel <n> to change the cap.
+     The landing runner holds each PR until its current head is clean or
+     overridden. The green prefix below a blocked PR can still land. The runner
+     enqueues a ready prefix only when every forge head reported by stack-enqueue
+     matches the ledger head whose rules verdict it read. A head pushed after
+     the refresh waits for the next pass.
+     Send each RULES line to the root at once as RULING NEEDED. The root has the
+     lane fix it on a new head or writes an override. Post the RULES line to the
+     bus before routing it to the owning lane with:
+     ledger.py route --pr <n> --job "<the RULES line>"
+     Send REVIEW-ERROR at attempt 2 to the root as RULING NEEDED. Let attempt 1
+     retry on the next sweep. Take no action on CLEAN, REVIEWING or OVERRIDDEN.
+     Never edit review rows or write override lines.
   3. Only for repos without stack-enqueue: grade stacks. Every pass enqueues the
      largest contiguous green, approved, unheld, unqueued bottom prefix of EVERY
      tracked open stack as one batch. Use `ledger.py label --pr <prefix top>
@@ -262,8 +294,9 @@ Do, in this order, forever:
      desk in that same pass, and a live lane keeps its own reds. The blocker stays
      open on the bus until the lane it went to withdraws it or a new head is posted. A step red on
      the trunk's latest build is held as `dev-red:<step>` for six hours, and `route`
-     skips it until the hold expires. Never SendMessage a finished lane. Never
-     comment on the PR. Never re-route the same head and job.
+     skips it until the hold expires. Never SendMessage a finished lane.
+     Never post PR comments yourself; rules-review.py posts the rules findings.
+     Never re-route the same head and job.
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.
      Every hold has a reason and an expiry; an expired hold is a question for the

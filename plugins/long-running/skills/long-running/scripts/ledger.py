@@ -34,7 +34,8 @@ branch under a lane's registered prefix, or because refresh was handed its numbe
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
-lane messages are ``msg/<seq>`` rows and owner asks are ``ask/<seq>`` rows in the same ledger. A landing is proven by a
+lane messages are ``msg/<seq>`` rows, owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
+``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` until its head's review passes. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
@@ -103,6 +104,7 @@ CCN_READ_BACKOFF_SECONDS = 0.5
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
 GONE_PREFIX = "gone/"
+REVIEW_PREFIX = "review/"
 DEV_RED_PREFIX = "dev-red:"
 AGED_HOURS = 60
 TRAIN_CARS = 6
@@ -124,7 +126,7 @@ ORCA_IN_PROGRESS = "in_progress"
 PROMPT_MINUTES = 5
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
-UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
+UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules")
 QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -198,6 +200,7 @@ REFUSAL = {
     "closed": "#{pr} is {state}; a landing is read from the {base} tree, never labelled",
     "moved": "head moved: expected {expected}, the forge has {head}; grade the new head before labelling",
     "held": "#{pr} is held: {reason} until {until}",
+    "rules": "#{pr} {head} has no passing rules review; `rules-review.py sweep` reviews it, and only a root `rules-override` line waives a finding",
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
     "pulled": "{head} had its label pulled at {at} ({reason}); the same head is never re-queued",
     "mergeable": "mergeable_state {state}: only {allowed} may be labelled",
@@ -328,6 +331,9 @@ class Notes:
 
     def asks(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rows().items() if key.startswith(ASK_PREFIX)}
+
+    def reviews(self) -> dict[str, dict[str, str]]:
+        return {key: fields for key, fields in self.rows().items() if key.startswith(REVIEW_PREFIX)}
 
     def sync(self, rows: list[dict]) -> None:
         self.shell.run(["ccn", "ledger", "sync", self.ledger, "--file", "-"], stdin=json.dumps(rows))
@@ -517,6 +523,19 @@ def carries_label(fields: dict[str, str]) -> bool:
 
 def current_head(fields: dict[str, str]) -> str:
     return fields.get("head") or fields.get("reported_head", "")
+
+
+def review_key(pr: str, head: str) -> str:
+    return f"{REVIEW_PREFIX}{pr}@{head}"
+
+
+def review_passes(review: dict[str, str]) -> bool:
+    return review.get("verdict") == "clean" or bool(review.get("override"))
+
+
+def rules_blocked(rows: dict[str, dict[str, str]], pr: str) -> bool:
+    fields = rows[pr]
+    return is_open(fields) and not review_passes(rows.get(review_key(pr, current_head(fields)), {}))
 
 
 def is_tracked(fields: dict[str, str]) -> bool:
@@ -1294,6 +1313,8 @@ def guard(
         raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
     if lane_held(fields) and fields["reported_head"] == head:
         raise refusal("held", pr=pr, reason="its lane reported this head held", until="the lane reports it again")
+    if not review_passes(rows.get(review_key(pr, head), {})):
+        raise refusal("rules", pr=pr, head=head[:9])
     if fields.get("label_head") == head and fields.get("label_pulled_at"):
         raise refusal("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
     if fields.get("label_head") == head and fields.get("labelled_at"):
@@ -1460,17 +1481,18 @@ def cmd_label(args: argparse.Namespace, shell: Shell) -> int:
     gh = Github(shell, args.repo)
     notes = Notes(shell, args.ledger)
     trunk = gh.default_branch()
-    rows = notes.pr_rows()
+    every = notes.rows()
+    rows = {key: fields for key, fields in every.items() if key.isdigit()}
     if not args.all_clean:
-        refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{args.pr}"), args.expect_head, args.checkout, args.dry_run)
+        refused = label_stack(shell, gh, notes, every, trunk, gh.api(f"pulls/{args.pr}"), args.expect_head, args.checkout, args.dry_run)
         return 1 if refused else 0
-    gone = gone_lanes(notes.rows())
+    gone = gone_lanes(every)
     pulls = {pr: pull for pr in label_candidates(sharded(rows, args.shard)) if (pull := gh.api(f"pulls/{pr}"))["state"] == "open"}
     bases = {pull["base"]["ref"] for pull in pulls.values()}
     tips = [pr for pr, pull in pulls.items() if pull["head"]["ref"] not in bases]
     passed, failed = [], []
     for pr in tips:
-        refused = label_stack(shell, gh, notes, rows, trunk, gh.api(f"pulls/{pr}"), current_head(rows[pr]), args.checkout, args.dry_run)
+        refused = label_stack(shell, gh, notes, every, trunk, gh.api(f"pulls/{pr}"), current_head(rows[pr]), args.checkout, args.dry_run)
         (failed if refused else passed).append(pr)
         route_refused(notes, gh, rows, refused, args.dry_run, gone)
     verb = "would label" if args.dry_run else "labelled"
@@ -1818,17 +1840,19 @@ def cmd_show(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
+    every = Notes(shell, args.ledger).rows()
     rows = {
         key: fields
-        for key, fields in Notes(shell, args.ledger).pr_rows().items()
-        if (not args.lane or fields.get("lane") == args.lane) and (not args.open or is_open(fields))
+        for key, fields in every.items()
+        if key.isdigit() and (not args.lane or fields.get("lane") == args.lane) and (not args.open or is_open(fields))
     }
     ordered = sorted(rows.items(), key=lambda item: int(item[0]))
     if args.json:
-        print(json.dumps([{"pr": key, **fields} for key, fields in ordered]))
+        print(json.dumps([{"pr": key, **fields, "rules_blocked": rules_blocked(every, key)} for key, fields in ordered]))
         return 0
     for key, fields in ordered:
-        print(f"#{key} {fields.get('lane', NO_PR)} {fields.get('state', 'open')} {fields.get('branch', NO_PR)} {current_head(fields)[:12] or NO_PR}")
+        rules = " rules-blocked" if rules_blocked(every, key) else ""
+        print(f"#{key} {fields.get('lane', NO_PR)} {fields.get('state', 'open')} {fields.get('branch', NO_PR)} {current_head(fields)[:12] or NO_PR}{rules}")
     return 0
 
 

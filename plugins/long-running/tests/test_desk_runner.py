@@ -519,9 +519,17 @@ def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config
     landing_pass(shell, config)
     cli(shell, config, "policy", "--key", "L300", "--landing", "whole", "--revision", "f9e8d7c6b5", "--supersedes", "a1b2c3d4e5", "--source", "owner ruling")
     assert escalations(tmp_path) == []
+    shell.rows[0]["head"] = "aaaa111112"
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111112 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
     landing_pass(shell, config)
     assert "--whole" in shell.enqueues()[-1]
+
+
+def test_a_head_pushed_after_the_refresh_waits_for_the_pass_that_reviews_it(shell, config, tmp_path):
+    shell.rows = stack_rows()
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa999999 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 
 def test_an_approval_that_arrived_before_the_send_is_never_asked_for(shell, config, tmp_path):
@@ -557,6 +565,19 @@ def test_a_held_prefix_is_never_routed_and_holds_reach_stack_enqueue(shell, conf
     checks = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert all(call[call.index("--hold") + 1 :] == ["28349", "29020"] for call in checks)
     assert shell.sends() == [] and escalations(tmp_path) == []
+
+
+def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "rules_blocked": True},
+        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "rules_blocked": False},
+    ]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 held")]
+    shell.gates["28349"] = [gate("#28349 GREEN dddd444444 graphite READY", would="#28349")]
+    shell.enqueue_out["28349"] = (0, "enqueue #28349\n")
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert shell.enqueues() and all(call[call.index("--hold") + 1 :] == ["29020"] for call in calls)
 
 
 def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, config, tmp_path):

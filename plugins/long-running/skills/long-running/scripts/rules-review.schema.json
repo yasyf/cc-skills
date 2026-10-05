@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": {"type": "string", "enum": ["clean", "findings"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ruling": {"type": "string"},
+          "cite": {"type": "string"},
+          "sentence": {"type": "string"},
+          "quote": {"type": "string"}
+        },
+        "required": ["ruling", "cite", "sentence", "quote"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["verdict", "findings"],
+  "additionalProperties": false
+}
