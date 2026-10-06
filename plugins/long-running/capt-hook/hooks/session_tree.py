@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
-from cc_transcript import parse
+from cc_transcript import UserEvent, parse
 from cc_transcript.discovery import subagent_paths
 from cc_transcript.models import TranscriptEvent
 
@@ -99,12 +99,25 @@ def inbox_path(evt: BaseHookEvent, team: str, lane: str) -> Path:
     return team_dir(evt, team) / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json"
 
 
+def is_stand_down(sender: str, text: str) -> bool:
+    return sender == STAND_DOWN_SENDER and STAND_DOWN.match(text) is not None
+
+
 def stood_down(inbox: Path) -> bool:
     try:
         messages = json.loads(inbox.read_text() or "[]")
     except (OSError, ValueError):
         return False
-    return any(message["from"] == STAND_DOWN_SENDER and STAND_DOWN.match(message["text"]) for message in messages)
+    return any(is_stand_down(message["from"], message["text"]) for message in messages)
+
+
+def stand_down_delivered(events: Sequence[TranscriptEvent]) -> bool:
+    return any(
+        is_stand_down(sender, body)
+        for event in events
+        if isinstance(event, UserEvent)
+        for sender, body in TEAMMATE_MESSAGE.findall(event.text)
+    )
 
 
 def acquire(lock: Path) -> bool:
