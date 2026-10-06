@@ -402,6 +402,17 @@ def test_a_routine_question_the_brief_settles_is_answered_without_escalating(she
     assert escalations(shell) == []
 
 
+def test_an_ask_from_a_dispatch_handle_is_judged_against_its_lanes_brief(shell, config, tmp_path):
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    shell.receive({"id": "msg_q3", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "from_handle": "dispatch:ctx_a"})
+    orca_pass(shell, config)
+    replies = [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+    assert len(replies) == 1 and replies[0][replies[0].index("--id") + 1] == "msg_q3"
+    assert len([call for call in shell.calls if Path(call[0]).name == "claude"]) == 1
+    assert escalations(shell) == []
+
+
 def test_a_question_the_brief_does_not_settle_escalates_with_options(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")

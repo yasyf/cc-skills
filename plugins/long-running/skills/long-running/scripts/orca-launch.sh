@@ -27,9 +27,11 @@ needs a server names it there. Claude runs under
 CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a drive,
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
 opens in the drive's ledger under the lane's name. The spec is a
-pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB; the
-pointer must stay within 300 characters, so a brief path that pushes it over is
-replaced by a symlink ~/.claude/<8 hex of the path's sha> to the brief. Before
+pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It names
+the brief as the authority over Orca's preamble, which forbids GitHub posts, and
+over any standing leave-uncommitted default. The pointer must stay within 500
+characters, so a brief path that pushes it over is replaced by a symlink
+~/.claude/<8 hex of the path's sha> to the brief. Before
 worker-start, which refuses a terminal with agent_unconfigured until Orca detects
 its agent, the script polls orca terminal list every 4 seconds until the terminal's
 agentIdentity reads claude, or codex for incident, up to ORCA_LAUNCH_BOOT_SECONDS.
@@ -200,16 +202,16 @@ PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
 [ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
 pointer() {
-  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; Orca truncates specs. Worktree $WT, bypass-permissions mode; the brief's Escalate rules hold."
+  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold."
 }
 spec() {
   SPEC=$(pointer "$BRIEF")
-  [ "${#SPEC}" -gt 300 ] || return 0
+  [ "${#SPEC}" -gt 500 ] || return 0
   LINK=$HOME/.claude/$(printf '%s' "$BRIEF" | shasum | cut -c1-8)
   mkdir -p "$HOME/.claude"
   ln -sfn "$BRIEF" "$LINK"
   SPEC=$(pointer "$LINK")
-  [ "${#SPEC}" -le 300 ] || fail "spec pointer is ${#SPEC} characters, over 300; shorten the worktree path"
+  [ "${#SPEC}" -le 500 ] || fail "spec pointer is ${#SPEC} characters, over 500; shorten the worktree path"
 }
 spec
 

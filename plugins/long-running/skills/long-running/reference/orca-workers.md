@@ -83,7 +83,7 @@ orca worktree set --worktree "path:<wt>" --parent-worktree "path:<coordinator wo
 
 The shared contract and lane section become one `<lane>.full.md` attachment on
 the drive's briefs log, as [orca-lane-brief.md](orca-lane-brief.md) describes.
-`--spec` points to its resolved file path, at most 300 characters. Orca truncates
+`--spec` points to its resolved file path, at most 500 characters. Orca truncates
 the pasted prompt near 3 KB, so the brief itself never goes in `--spec`.
 
 Roots run Opus 5.5. Fable is for exceptional cases only: the most sensitive local
