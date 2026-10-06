@@ -1821,6 +1821,12 @@ cc-present boards included, renders with the MagicDNS name, so it opens from any
 receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
 stays local. Graceful shutdown removes the forward.
 
+A sticky banner above every section lists each open owner item from the `owner`
+source with its kind, title, age, and link. An item leaves the banner once it is answered
+or closed. After the owner allows notifications from the banner's button, the page
+raises one browser notification per item that browser has not seen before; seen ids
+live in `localStorage`, and a first visit notifies nothing.
+
 Read page errors. Polling survives collector failures, registry reads
 racing `drive.py end`, owner-file read failures, and cc-notes view timeouts.
 Sources include inbox files and `<inbox>/<file>.md.archive/*.md`, ledger, root
