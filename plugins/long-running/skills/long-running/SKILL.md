@@ -250,7 +250,7 @@ channel, with no Monitor. Launch the root with
 uses, and at drive start run once:
 
 ```bash
-cci subscribe --drive <drive> --reader root --cursor root-watch --kind incident,decide,ask,defect,blocker
+cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker
 ```
 
 Records addressed to `root` or `main` arrive regardless of kind, along with other
@@ -260,7 +260,8 @@ lanes' broadcasts of each `--kind`. Each record arrives as a
 handled. The subscription belongs to the Claude Code window. Compaction and `/clear`
 keep it, and the cc-inbox `SessionStart` hook moves it into a resumed session.
 Re-run `cci subscribe` to change kinds. Never arm a Monitor on `cci watch` or
-`inbox-watch.py` for the root. A root launched without the flag receives no tags,
+`inbox-watch.py` for the root; a root switching over stops its Monitor after
+subscribing, and records in the overlap arrive twice. A root launched without the flag receives no tags,
 and managed settings must list every plugin the flag names in
 `allowedChannelPlugins`.
 
