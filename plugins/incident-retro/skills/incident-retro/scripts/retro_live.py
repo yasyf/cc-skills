@@ -182,9 +182,11 @@ def live_phase(state: dict, retro) -> str:
 
 def implied_timestamps(state: dict, retro, phase: str, previous: dict, now: datetime.datetime) -> dict:
     """The phase is a claim about the clock, so stamp what it claims. A moment state.json cannot
-    date is stamped by the sync that first saw it and carried forward from there."""
+    date is stamped by the sync that first saw it and carried forward from there. Nothing lands past
+    the all-clear: a page resolved before anything recorded a mitigation was mitigated when it cleared."""
     wanted = retro.PHASE_STAMPS.get(phase, ())
     floor = response_floor(state, retro)
+    cleared = earliest([state.get("all_clear_at")], retro, floor)
     prs, deploys = state.get("prs") or [], state.get("deploys") or []
     sources = {
         "engaged": [p.get("opened_at") for p in prs] + [d.get("at") for d in deploys],
@@ -193,7 +195,12 @@ def implied_timestamps(state: dict, retro, phase: str, previous: dict, now: date
         "resolved": [state.get("all_clear_at")],
         "allClear": [state.get("all_clear_at")],
     }
-    return {key: previous.get(key) or earliest(sources[key], retro, floor) or stamp(now) for key in wanted}
+
+    def bounded(value: str) -> str:
+        return cleared if cleared and retro.parse_ts(value) > retro.parse_ts(cleared) else value
+
+    return {key: bounded(previous.get(key) or earliest(sources[key], retro, floor) or stamp(now))
+            for key in wanted}
 
 
 def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
