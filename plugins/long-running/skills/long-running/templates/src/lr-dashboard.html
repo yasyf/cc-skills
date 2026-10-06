@@ -140,8 +140,8 @@ dialog::backdrop { background:#0005; }
   </section>
   <div class="health" id="health" aria-label="Program health"></div>
   <div class="toolbar">
-    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Search dashboard" placeholder="Search stacks, lanes or PRs…"></label>
-    <select id="status-filter" aria-label="Filter by state"><option value="all">All states</option><option value="attention">Needs attention</option><option value="ready">Ready</option></select>
+    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Search dashboard" disabled placeholder="Search stacks, lanes or PRs…"></label>
+    <select id="status-filter" aria-label="Filter by state" disabled><option value="all">All states</option><option value="attention">Needs attention</option><option value="ready">Ready</option></select>
   </div>
   <div class="groups" id="main"></div>
 </main>
@@ -153,7 +153,7 @@ const BAD=/\b(fail|failed|failure|red|lost|blocked|error|dirty|conflicting|no|ne
 const WARN=/\b(unplanned|unproven|held|hold|pending|needs proof|warn|stale|new|in-pr|landed-not-live|running|in_progress|queued|waiting|ungraded|refused)\b/i;
 const OK=/\b(landed|live|clean|success|passed|completed|answered|yes|deployable|0\/0|submitted|converged)\b/i;
 <!-- @include html/dom.js -->
-const state={data:null,sort:{},filters:{},painted:{},query:"",status:"all",ownerAll:false,expanded:{},searchOpen:null,searchViews:null};
+const state={data:null,sort:{},filters:{},painted:{},query:"",status:"all",ownerAll:false,expanded:{},searchOpen:null,searchViews:null,returnRecord:null};
 const pt=stamp=>stamp?new Date(stamp).toLocaleString("en-US",{timeZone:PACIFIC,month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";
 const ago=stamp=>{
  if(!stamp)return "";
@@ -300,24 +300,37 @@ function rowMatches(row){
  if(!state.query.toLowerCase().split(/\s+/).filter(Boolean).every(term=>text.toLowerCase().includes(term)))return false;
  if(state.status==="all")return true;
  const value=row.deployable??row.state??row.status??row.verb;
- if(state.status==="ready")return row.deployable!=null?row.deployable==="yes":OK.test(String(value||""));
- return row.deployable!=null?row.deployable!=="yes":BAD.test(String(value||""))||WARN.test(String(value||""));
+ if(state.status==="ready")return row.deployable!=null?row.deployable==="yes":tone(value)==="ok";
+ const prBlocked=row.pr!=null&&Boolean(row.hold||row.waiting||row.rules||["bad","warn"].includes(tone(row.checks))||["bad","warn"].includes(tone(row.mergeable)));
+ return row.deployable!=null?row.deployable!=="yes":prBlocked||["bad","warn"].includes(tone(value));
 }
 function filteredView(view){
- if(!view.data?.rows||view.type==="matrix")return view;
- return {...view,data:{...view.data,rows:view.data.rows.filter(rowMatches)}};
+ if(view.type==="matrix"||!view.data)return view;
+ if(view.data.rows)return {...view,data:{...view.data,rows:view.data.rows.filter(rowMatches)}};
+ if(view.data.items)return {...view,data:{...view.data,items:view.data.items.filter(rowMatches)}};
+ return view;
+}
+function recordKey(id,row){return id==="platy-stacks"?row.stack:id==="lanes"?row.lane:id==="release-builds"?String(row.number):row.cite}
+function restoreRecordFocus(record){
+ const button=[...document.querySelectorAll("[data-record]")].find(n=>n.dataset.record===record.id&&n.dataset.key===record.key);
+ if(button)button.focus({preventScroll:true});
 }
 function paint(node,key,html){
  if(state.painted[key]===html)return;
+ const focused=document.activeElement.closest("[data-record]");
+ const record=focused&&node.contains(focused)?{id:focused.dataset.record,key:focused.dataset.key}:null;
  const open=new Set([...node.querySelectorAll(".clip.open")].map(n=>n.textContent));
  state.painted[key]=html;node.innerHTML=html;
  node.querySelectorAll(".clip").forEach(n=>{if(open.has(n.textContent))n.classList.add("open")});
+ if(record)restoreRecordFocus(record);
 }
 function ownerHtml(row,index){
  const title=String(row.title||row.text).replace(/^Owner items?:\s*/i,"");
- return `<button class="owner-card" type="button" data-record="owner" data-index="${index}"><span class="label"><span class="kind">${esc(LABELS[row.kind]||row.kind)}</span><span>${esc(ago(row.at))}</span></span><strong>${esc(title)}</strong><span class="action">${row.kind==="board"?"Review board":"View details"} ↗</span></button>`;
+ return `<button class="owner-card" type="button" data-record="owner" data-key="${esc(recordKey("owner",row))}" data-index="${index}"><span class="label"><span class="kind">${esc(LABELS[row.kind]||row.kind)}</span><span>${esc(ago(row.at))}</span></span><strong>${esc(title)}</strong><span class="action">${row.kind==="board"?"Review board":"View details"} ↗</span></button>`;
 }
 function renderOwner(){
+ const error=viewById("owner").error;
+ if(error){$("#owner-count").textContent="";$("#owner-more").hidden=true;paint($("#owner-items"),"owner",`<p class="bad">${esc(error)}</p>`);return}
  const all=rowsOf("owner");
  const rows=all.map((row,index)=>({row,index})).filter(({row})=>!state.query||String(row.title||row.text).toLowerCase().includes(state.query.toLowerCase()));
  $("#owner-count").textContent=rows.length;
@@ -332,6 +345,7 @@ function renderHealth(){
  paint($("#health"),"health",`<span class="health-label">Program health</span><button type="button" data-group="Stacks">${stackText}</button><button type="button" data-group="Releases">${releaseText}</button><button type="button" data-group="Incidents" class="muted">Incidents: status not recorded</button>`);
 }
 function groupSummary(name){
+ if(PRIMARY[name]&&viewById(PRIMARY[name]).error)return "Data unavailable";
  const rows=rowsOf(PRIMARY[name]);
  if(state.query||state.status!=="all")return `${state.data.views.filter(v=>v.id!=="owner"&&groupOf(v)===name&&v.type!=="matrix").reduce((sum,v)=>sum+(v.data?.rows||v.data?.items||[]).filter(rowMatches).length,0)} matches`;
  if(name==="Stacks")return `${rows.length} stacks · ${rows.filter(r=>r.deployable==="yes").length} deployable · ${rows.filter(r=>r.deployable==="blocked").length} blocked`;
@@ -346,18 +360,18 @@ function stackHtml(rows){
   const index=rowsOf("platy-stacks").indexOf(row);
   const deployable=row.deployable==="yes"?"Deployable":row.deployable==="blocked"?"Blocked":"Needs proof";
   const last=row.platy_at?`${pt(row.platy_at)} PT`:"No Platy deploy recorded";
-  return `<tr><td><button class="row-button" type="button" data-record="platy-stacks" data-index="${index}">${esc(row.stack)}</button><span class="row-note">${esc(row.target)}</span></td><td>${tag(deployable)}</td><td>${tag(row.zero)}</td><td class="time">${esc(last)}</td><td class="wide">${clip(row.reason||"")}</td><td>${esc(row.doing_lane||"Unassigned")}</td></tr>`;
+  return `<tr><td><button class="row-button" type="button" data-record="platy-stacks" data-key="${esc(recordKey("platy-stacks",row))}" data-index="${index}">${esc(row.stack)}</button><span class="row-note">${esc(row.target)}</span></td><td>${tag(deployable)}</td><td>${tag(row.zero)}</td><td class="time">${esc(last)}</td><td class="wide">${clip(row.reason||"")}</td><td>${esc(row.doing_lane||"Unassigned")}</td></tr>`;
  }).join("");
  return shown.length?`<div class="table-wrap"><table><thead><tr><th>Stack</th><th>Platy</th><th>vs dev</th><th>Last Platy deploy</th><th>Blocker</th><th>On it</th></tr></thead><tbody>${body}</tbody></table></div>${moreHtml("Stacks",shown.length,rows.length)}`:`<p class="empty">No matching stacks</p>`;
 }
 function moreHtml(name,shown,total){return total>shown?`<p class="more"><button class="more-button" type="button" data-more="${name}">Show all ${total}</button></p>`:total?`<p class="more">${total} records</p>`:""}
 function releaseHtml(rows){
  const shown=state.expanded.Releases?rows:rows.slice(0,3);
- return `<div class="release-list">${shown.map(row=>`<button class="release-item" type="button" data-record="release-builds" data-index="${rowsOf("release-builds").indexOf(row)}">${tag(row.state)}<strong>#${esc(row.number)} · ${esc(row.kind)}</strong><div class="clip">${esc(row.message)}</div><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Releases",shown.length,rows.length)}`;
+ return `<div class="release-list">${shown.map(row=>`<button class="release-item" type="button" data-record="release-builds" data-key="${esc(recordKey("release-builds",row))}" data-index="${rowsOf("release-builds").indexOf(row)}">${tag(row.state)}<strong>#${esc(row.number)} · ${esc(row.kind)}</strong><div class="clip">${esc(row.message)}</div><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Releases",shown.length,rows.length)}`;
 }
 function laneHtml(rows){
  const shown=state.expanded.Lanes?rows:rows.slice(0,6);
- return `<div class="lane-list">${shown.map(row=>`<button class="lane-item" type="button" data-record="lanes" data-index="${rowsOf("lanes").indexOf(row)}"><span class="lane-head"><strong>${esc(row.lane)}</strong>${tag(row.verb)}</span><span class="clip">${esc(row.text)}</span><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Lanes",shown.length,rows.length)}`;
+ return `<div class="lane-list">${shown.map(row=>`<button class="lane-item" type="button" data-record="lanes" data-key="${esc(recordKey("lanes",row))}" data-index="${rowsOf("lanes").indexOf(row)}"><span class="lane-head"><strong>${esc(row.lane)}</strong>${tag(row.verb)}</span><span class="clip">${esc(row.text)}</span><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Lanes",shown.length,rows.length)}`;
 }
 function renderGroup(node,name){
  const content=node.querySelector(".group-content");
@@ -366,7 +380,8 @@ function renderGroup(node,name){
  let area=content.querySelector(".primary");
  if(!area){area=el("div","primary");content.prepend(area)}
  const rows=rowsOf(primary).filter(rowMatches);
- const body=name==="Stacks"?stackHtml(rows):name==="Releases"?releaseHtml(rows):name==="Lanes"?laneHtml(rows):name==="Incidents"?`<p class="muted">These records are incident history. Active status is not recorded by this source.</p>`:"";
+ const error=primary?viewById(primary).error:null;
+ const body=error?`<p class="bad">${esc(error)}</p>`:name==="Stacks"?stackHtml(rows):name==="Releases"?releaseHtml(rows):name==="Lanes"?laneHtml(rows):name==="Incidents"?`<p class="muted">These records are incident history. Active status is not recorded by this source.</p>`:"";
  paint(area,"primary:"+name,body);
  const remaining=views.filter(v=>!["platy-stacks","release-builds","lanes"].includes(v.id));
  const ids=new Set(remaining.map(v=>"v-"+v.id));
@@ -401,6 +416,7 @@ function render(){
   node.querySelector(".summary").textContent=groupSummary(name);
   if(node.open)renderGroup(node,name);
  });
+ $("#search").disabled=false;$("#status-filter").disabled=false;
 }
 function place(parent,node,index){if(parent.children[index]!==node)parent.insertBefore(node,parent.children[index]||null)}
 function viewById(id){return (state.data?.views||[]).find(v=>v.id===id)}
@@ -415,6 +431,7 @@ function detailsHtml(row,id){
 }
 function openRecord(id,index){
  const row=rowsOf(id)[index];
+ state.returnRecord={id,key:recordKey(id,row)};
  $("#detail-title").textContent=row.stack||row.lane||row.title||(row.number?`Build #${row.number}`:viewById(id).title);
  $("#detail-body").innerHTML=detailsHtml(row,id);
  $("#detail").showModal();
@@ -437,6 +454,7 @@ document.addEventListener("click",e=>{
 });
 $("#owner-more").addEventListener("click",()=>{state.ownerAll=!state.ownerAll;renderOwner()});
 $("#detail-close").addEventListener("click",()=>$("#detail").close());
+$("#detail").addEventListener("close",()=>restoreRecordFocus(state.returnRecord));
 $("#detail").addEventListener("click",e=>{if(e.target===$("#detail")){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()}});
 $("#search").addEventListener("input",e=>{
  if(!state.searchOpen&&e.target.value){state.searchOpen=Object.fromEntries(GROUPS.map(name=>[name,document.getElementById("g-"+name).open]));state.searchViews=Object.fromEntries([...document.querySelectorAll(".view")].map(node=>[node.dataset.view,node.open]))}
