@@ -1821,9 +1821,11 @@ cc-present boards included, renders with the MagicDNS name, so it opens from any
 receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
 stays local. Graceful shutdown removes the forward.
 
-A sticky banner above every section lists each open owner item from the `owner`
-source with its kind, title, age, and link. An item leaves the banner once it is answered
-or closed. After the owner allows notifications from the banner's button, the page
+A sticky banner above every section lists the open owner items that block on the
+owner: unsubmitted cc-present boards with asks, owner asks, and DECIDE or ASK lines
+waiting on the owner's answer, each with its kind, title, age, and link. Tasks,
+pending-file bullets, and manual items stay in the "Waiting on the owner" table. An
+item leaves the banner once it is answered or closed. After the owner allows notifications from the banner's button, the page
 raises one browser notification per item that browser has not seen before; seen ids
 live in `localStorage`, and a first visit notifies nothing.
 
