@@ -1822,13 +1822,14 @@ cc-present boards included, renders with the MagicDNS name, so it opens from any
 receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
 stays local. Graceful shutdown removes the forward.
 
-A sticky banner above every section lists the open owner items that block on the
-owner: unsubmitted cc-present boards with asks, owner asks, and DECIDE or ASK lines
-waiting on the owner's answer, each with its kind, title, age, and link. Tasks,
-pending-file bullets, and manual items stay in the "Waiting on the owner" table. An
-item leaves the banner once it is answered or closed. After the owner allows notifications from the banner's button, the page
-raises one browser notification per item that browser has not seen before; seen ids
-live in `localStorage`, and a first visit notifies nothing.
+A sticky banner above every section is one line: "Your pick is waiting:" and a
+link to the newest cc-present board from this drive that is open, unsubmitted, and
+asks something, plus "and N more" when other such boards are open. With no such
+board, the banner is hidden. Owner asks, DECIDE and ASK lines, tasks, pending-file
+bullets, and manual items stay in the "Waiting on the owner" table. After the owner
+allows notifications from the banner's button, the page raises one browser
+notification per board that browser has not seen before; seen ids live in
+`localStorage`, and a first visit notifies nothing.
 
 Read page errors. Polling survives collector failures, registry reads
 racing `drive.py end`, owner-file read failures, and cc-notes view timeouts.

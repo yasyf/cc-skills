@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:3976d6239923 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:5c1a54aacdb9 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -34,12 +34,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,t
 .owner-banner { border-top:1px solid var(--line); background:var(--warn-soft); }
 .owner-inner { max-width:1320px; margin:auto; padding:6px calc(var(--s8) + 64px) 6px var(--s8); display:grid; gap:2px; font-size:var(--t-sm); }
 .owner-head { display:flex; align-items:center; gap:var(--s3); color:var(--warn); font-weight:600; }
-.owner-lines { list-style:none; margin:0; padding:0; max-height:calc(24px * 6); overflow:auto; }
-.owner-line { display:grid; grid-template-columns:84px minmax(0,1fr) 64px 56px; align-items:center; gap:var(--s3); height:24px; }
-.owner-line > * { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.owner-line .owner-title { border:0; padding:0; background:none; text-align:left; font-weight:550; }
-.owner-line .owner-title:hover { text-decoration:underline; }
-.owner-line a { color:var(--muted); text-decoration:none; text-align:right; } .owner-line a:hover { color:var(--fg); text-decoration:underline; }
+.owner-board { min-width:0; color:inherit; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .owner-board:hover { text-decoration:underline; }
 .brand { display:flex; align-items:baseline; gap:var(--s3); min-width:0; }
 h1 { margin:0; font-size:var(--t-xl); font-weight:650; letter-spacing:-.3px; white-space:nowrap; }
 .brand .eyebrow { font-size:var(--t-xs); color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
@@ -281,8 +276,7 @@ details.raw p { white-space:pre-wrap; overflow-wrap:anywhere; }
  <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Search the dashboard" placeholder="Search releases, stacks, lanes, PRs…"></label>
  <div class="status" id="status"><span class="dot"></span><span id="meta">Connecting…</span></div>
 </div><div class="owner-banner" id="owner-banner" role="region" aria-label="Waiting on you" hidden><div class="owner-inner">
- <div class="owner-head"><span id="owner-count"></span><button class="link-button" id="owner-notify" type="button" hidden>Notify me about new items</button></div>
- <ul class="owner-lines" id="owner-lines"></ul>
+ <div class="owner-head"><span>Your pick is waiting:</span><a class="owner-board" id="owner-board" target="_blank" rel="noopener"></a><span id="owner-more"></span><button class="link-button" id="owner-notify" type="button" hidden>Notify me about new boards</button></div>
 </div></div></header>
 <main>
  <div class="errors" id="errors" role="status"></div>
@@ -511,11 +505,13 @@ function notifyOwner(rows){
  });
 }
 function renderBanner(){
- const rows=(state.data.owner||[]).filter(row=>row.banner);
+ const rows=(state.data.owner||[]).filter(row=>row.banner).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
  $("#owner-banner").hidden=!rows.length;
  $("#owner-notify").hidden=!("Notification" in window)||Notification.permission!=="default";
- $("#owner-count").textContent=`Waiting on you · ${rows.length}`;
- paint($("#owner-lines"),"owner-banner",rows.map(row=>`<li class="owner-line">${pill(TASK_KIND[row.kind]||row.kind,"plain")}<button class="owner-title" type="button" data-task="${esc(row.cite)}" title="${esc(ownerTitle(row))}">${esc(ownerTitle(row))}</button><span class="muted">${esc(ago(row.at))}</span>${ext(ownerHref(row),"Open ↗")}</li>`).join(""));
+ const [newest]=rows,link=$("#owner-board");
+ link.textContent=newest?ownerTitle(newest):"";
+ link.href=newest&&safeUrl(newest.url)?newest.url:"#";
+ $("#owner-more").textContent=rows.length>1?`and ${rows.length-1} more`:"";
  if(!state.data.errors.owner)notifyOwner(rows);
 }
 function taskActions(row){
