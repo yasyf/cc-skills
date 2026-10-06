@@ -303,13 +303,10 @@ options with `picked: true`; each entry shows the question, chosen option,
 owner, and PR links. `retro.py text` and the page's Markdown export include
 the same section.
 
-The initial retro PR includes Remediation and the owner's picks. For any
-status other than `ongoing`, `check` requires it when the incident date is
-on or after `REMEDIATION_CUTOFF = "2026-10-04"`. The incident date is the
-date of `timestamps.onset`, falling back to `meta.date`. Empty `done`,
-`lanes`, or `prevention` lists are errors. Every prevention question
-requires a picked option. Each pick requires an owner and either PR links
-or a `lane` matching a name in `remediation.lanes`.
+`remediation`, `prevention`, and the owner's picks are optional at every
+status, and `check` passes a retro without them. A pick that is present
+requires an owner and either PR links or a `lane` matching a name in
+`remediation.lanes`.
 
 ## `decisions`: choices made during the response
 
@@ -822,4 +819,4 @@ Errors unless noted; `--strict` promotes the strict warnings.
 21. `live`: the field vocabulary, a tz-aware `updatedAt`, a known `phase`, the three text budgets, and a `source` that names an owner/repo and a branch and outlives no `ongoing` status. `phase` and `timestamps` agree in both directions, per `PHASE_STAMPS`. `actions[].history`, `hypotheses[].history` and `causes[].identifiedAt` parse, stay in order, and end on the state the entry carries now.
 22. Prose provenance, skipped while the status is `ongoing`: required short names are present and each nonempty enumerated field has a matching SHA-256 in `prose.lock.json`; a missing short name or missing or stale digest draws a strict warning. Legacy provenance errors without `--strict` when the onset date, falling back to `meta.date`, is after `LEGACY_CUTOFF = "2026-09-19"`. More than 3 recorded prose findings also draws a strict warning, naming the fields with the most findings. This count covers the locked fields, not the whole rendered document.
 23. Prevention questions and options require valid ids, two to four options per question, at most one recommendation, and single-line hints, facts, pros, and cons. A supplied `picked` value must be boolean; a picked option requires a nonempty owner. Option links follow the link schema without `closes`. Missing pros, cons, and facts or an option label over eight words draw strict warnings.
-24. Remediation is an object with `done` and `lanes` lists. Entries require nonempty text, lanes require names, and links follow the link schema without `closes`. For a status other than `ongoing` and an incident date on or after `REMEDIATION_CUTOFF = "2026-10-04"`, empty `remediation.done`, `remediation.lanes`, or `prevention` is an error. The incident date comes from onset, falling back to `meta.date`. Each prevention question requires a picked option, and each pick requires an owner and PR links or a lane present in `remediation.lanes`. These errors apply without `--strict`.
+24. Remediation is an object with `done` and `lanes` lists. Entries require nonempty text, lanes require names, and links follow the link schema without `closes`. Remediation, prevention, and picks are optional at every status. Each pick that is present requires an owner and PR links or a lane present in `remediation.lanes`. These errors apply without `--strict`.

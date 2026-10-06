@@ -74,18 +74,21 @@ class Remediation(unittest.TestCase):
         R["meta"]["date"] = "2026-10-05"
         R.update(extra)
         rep = retro.Report(True)
-        retro.check_remediation(rep, R, "draft")
+        retro.check_remediation(rep, R)
         return rep
 
-    def test_a_retro_without_remediation_fails(self):
-        joined = "\n".join(self.report().errors)
-        for part in ("remediation.done is empty", "remediation.lanes is empty", "prevention is empty"):
-            self.assertIn(part, joined)
+    def test_a_draft_without_remediation_or_prevention_passes(self):
+        self.assertEqual(self.report().errors, [])
 
-    def test_picks_need_an_owner_and_every_question_a_pick(self):
-        rep = self.report(remediation={"done": [{"text": "Reverted routing."}], "lanes": [{"name": "fix", "text": "x"}]},
-                          prevention=[{"id": "P1", "t": "Q", "options": [option("P1a", "A"), option("P1b", "B")]}])
-        self.assertIn("P1 has no picked option", "\n".join(rep.errors))
+    def test_a_question_without_a_pick_passes(self):
+        rep = self.report(prevention=[{"id": "P1", "t": "Q", "options": [option("P1a", "A"), option("P1b", "B")]}])
+        self.assertEqual(rep.errors, [])
+
+    def test_a_present_entry_is_still_validated(self):
+        rep = self.report(remediation={"done": [{"text": ""}], "lanes": [{"text": "x"}]})
+        joined = "\n".join(rep.errors)
+        self.assertIn("remediation.done[0] must carry text", joined)
+        self.assertIn("remediation.lanes[0] names no lane", joined)
 
     def test_a_complete_remediation_passes(self):
         rep = self.report(remediation={"done": [{"text": "Reverted routing."}], "lanes": [{"name": "fix", "text": "x"}]},
@@ -93,14 +96,6 @@ class Remediation(unittest.TestCase):
                               option("P1a", "A", picked=True, owner="root",
                                      links=["https://github.com/Forge-AI/monorepo/pull/1"]), option("P1b", "B")]}])
         self.assertEqual(rep.errors, [])
-
-    def test_retros_before_the_cutoff_are_not_held_to_it(self):
-        R = json.loads((retro.TEMPLATES / "starter" / "retro.json").read_text())
-        R["meta"]["date"] = "2026-09-30"
-        rep = retro.Report(True)
-        retro.check_remediation(rep, R, "draft")
-        self.assertEqual(rep.errors, [])
-
 
     def test_a_pick_without_a_pr_needs_a_named_lane(self):
         base = {"remediation": {"done": [{"text": "Reverted."}], "lanes": [{"name": "rules-lane", "text": "x"}]}}
