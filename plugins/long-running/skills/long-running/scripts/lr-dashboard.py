@@ -79,7 +79,6 @@ MANUAL_SECTIONS = ("owner", "pinned")
 NOTE_SOURCES = ("plans", "progress", "handoffs", "docs", "logs", "investigations", "answers")
 OWNER_KINDS = frozenset({"owner-item", "owner-ask"})
 OWNER_DONE_ASKS = frozenset({"LIVE", "dropped", "answered"})
-BANNER_KINDS = frozenset({"board", "ask", "decide"})
 OWNER_VERBS = frozenset({"DECIDE", "ASK", "RULING"})
 OWNER_WORD = re.compile(r"(?:->|→)\s*owner\b|\b(?:for|to|asks?|needs|awaits?|waiting on) the owner\b|\bowner (?:pick|decision|call|ruling|answer) (?:needed|pending|required)\b", re.IGNORECASE)
 DECIDER = re.compile(r"\bDECIDE (?:msg_\w+ )?(?P<lane>[\w.:-]+?)(?::| \()")
@@ -773,7 +772,7 @@ class Collector:
                 rows += [{"kind": "pending", "title": f"{item['title']}: {item['detail']}", "state": name, "at": iso(epoch(path.stat().st_mtime)), "url": None, "cite": f"file:{name}:{hashlib.sha1(item['title'].encode()).hexdigest()[:8]}"} for item in owner_bullets(path)]
         for number, item in enumerate(manual_items(config.get("owner")), 1):
             rows.append({"kind": "manual", "title": item.get("text"), "state": "manual", "at": None, "url": item.get("url"), "cite": f"manual:owner:{number}"})
-        return [row | {"text": row["title"] or "", "banner": row["kind"] in BANNER_KINDS} for row in rows]
+        return [row | {"text": row["title"] or "", "banner": row["kind"] == "board"} for row in rows]
 
     def snapshot(self) -> tuple[dict, dict[str, list[dict]]]:
         moment = now()
