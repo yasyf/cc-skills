@@ -245,6 +245,13 @@ def rule_lines(handoff: Handoff) -> list[str]:
     return [f"- {rid} [{handoff.sources[rid]}]" for rid in handoff.standing] + [f"- {line}" for line in handoff.retired]
 
 
+def dashboard_line(registry: dict) -> str:
+    server = Path(registry["state_dir"]) / drive.DASHBOARD_SERVER
+    if server.exists():
+        return f"- Dashboard: {drive.dashboard_url(json.loads(server.read_text()))}; give the owner this link in your next reply"
+    return f"- Dashboard: not running; `lr-dashboard.py start --drive {registry['drive']}` starts it and prints the link for the owner"
+
+
 def render(handoff: Handoff) -> str:
     registry = handoff.registry or {}
     out = [
@@ -262,6 +269,7 @@ def render(handoff: Handoff) -> str:
             f"- Drive `{registry['drive']}`: ledger `{registry['ledger'][:SHORT]}`, Orca run `{registry.get('orca_run') or '-'}`, "
             f"checkout `{registry['checkout']}`, root sessions {', '.join(session[:8] for session in registry['sessions'])}"
         )
+        out.append(dashboard_line(registry))
     out += ["", "## Open owner asks"] + ([f"- {line}" for line in handoff.asks] or ["- none"])
     active = [task for task in handoff.tasks if task["status"] == "in_progress"]
     out += ["", "## Open tasks"]

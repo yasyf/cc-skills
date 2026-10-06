@@ -175,7 +175,8 @@ messages without `TaskCreate` or `TaskUpdate`, to the root and each in-process t
 The owner's switch is `CLAUDE_CODE_TODO_REMINDER_MODE=off` in the `env` block of
 `~/.claude/settings.json`; it disables that reminder for the whole Claude Code process.
 
-Report to the user on milestones or when they must act, never per event. Once
+Report to the user on milestones or when they must act, never per event. Each
+milestone report opens with the drive dashboard link (see Drive dashboard). Once
 `long-running` is invoked, the compaction hook nudges the root to write a new progress
 doc, then handles superseding, the plan pointer, and `/compact`, as Compaction handoff
 describes. The plan stays the drive's mandate and decisions. *Prevents the forced
@@ -1806,7 +1807,11 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 ### Drive dashboard
 
 `drive.py start` and root `SessionStart` automatically start the dashboard for an
-active, registered drive. Hooks detach without blocking or printing a URL.
+active, registered drive. The start detaches without blocking. The same hooks tell
+the root to run `lr-dashboard.py url --drive <id>` and give the owner the link it
+prints. The root shares that link in its first reply of every drive, after every
+resume and compaction, and in the header of each milestone report. When `url`
+prints nothing, `start` brings the server up and prints the link.
 `lr-dashboard.py` commands: `url`, `start --drive <id>`, `snapshot` (JSON),
 `open` (one line per open item, read from the running server), `serve` (foreground).
 
@@ -2383,7 +2388,9 @@ The record carries open owner asks from the drive's ledger as `ledger.py` ask ro
 that are not dropped, answered, or `LIVE`, with their state. It also carries the
 root's open tasks, lanes and monitors from the background tasks at the root's last
 `Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
-root sessions.
+root sessions. Under the registry line, `Read first` carries the dashboard link from
+`<state dir>/dashboard/server.json`, the tailnet form when Tailscale shares it. With
+no server record, the line names the `lr-dashboard.py start` command instead.
 
 The open task list shows only `in_progress` tasks, one line each as
 `- #<id> <subject>`, with subjects clipped to 120 characters. With none in progress,

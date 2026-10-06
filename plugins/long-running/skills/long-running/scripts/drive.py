@@ -44,6 +44,7 @@ DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 DRIVE_ID_LENGTH = 8
 WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"
+DASHBOARD_SERVER = Path("dashboard") / "server.json"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
@@ -84,6 +85,10 @@ def find(drive: str | None, session: str | None) -> dict | None:
         if entry["drive"] == drive or (not drive and session in entry["sessions"]):
             return entry
     return None
+
+
+def dashboard_url(server: dict) -> str:
+    return server.get("tailnet_url", server["url"])
 
 
 def save(entry: dict) -> Path:
