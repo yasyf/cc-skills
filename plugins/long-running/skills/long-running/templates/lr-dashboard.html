@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:e758abf98548 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:bb847f52c4cf — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -31,6 +31,15 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,t
 .muted { color:var(--muted); }
 .top { position:sticky; top:0; z-index:20; background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
 .top-inner { max-width:1320px; margin:auto; padding:var(--s3) calc(var(--s8) + 64px) var(--s3) var(--s8); display:flex; align-items:center; gap:var(--s5); }
+.owner-banner { border-top:1px solid var(--line); background:var(--warn-soft); }
+.owner-inner { max-width:1320px; margin:auto; padding:6px calc(var(--s8) + 64px) 6px var(--s8); display:grid; gap:2px; font-size:var(--t-sm); }
+.owner-head { display:flex; align-items:center; gap:var(--s3); color:var(--warn); font-weight:600; }
+.owner-lines { list-style:none; margin:0; padding:0; max-height:calc(24px * 6); overflow:auto; }
+.owner-line { display:grid; grid-template-columns:84px minmax(0,1fr) 64px 56px; align-items:center; gap:var(--s3); height:24px; }
+.owner-line > * { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.owner-line .owner-title { border:0; padding:0; background:none; text-align:left; font-weight:550; }
+.owner-line .owner-title:hover { text-decoration:underline; }
+.owner-line a { color:var(--muted); text-decoration:none; text-align:right; } .owner-line a:hover { color:var(--fg); text-decoration:underline; }
 .brand { display:flex; align-items:baseline; gap:var(--s3); min-width:0; }
 h1 { margin:0; font-size:var(--t-xl); font-weight:650; letter-spacing:-.3px; white-space:nowrap; }
 .brand .eyebrow { font-size:var(--t-xs); color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
@@ -271,7 +280,10 @@ details.raw p { white-space:pre-wrap; overflow-wrap:anywhere; }
  <div class="brand"><h1 id="title">long-running</h1><span class="eyebrow">drive</span></div>
  <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Search the dashboard" placeholder="Search releases, stacks, lanes, PRs…"></label>
  <div class="status" id="status"><span class="dot"></span><span id="meta">Connecting…</span></div>
-</div></header>
+</div><div class="owner-banner" id="owner-banner" role="region" aria-label="Waiting on you" hidden><div class="owner-inner">
+ <div class="owner-head"><span id="owner-count"></span><button class="link-button" id="owner-notify" type="button" hidden>Notify me about new items</button></div>
+ <ul class="owner-lines" id="owner-lines"></ul>
+</div></div></header>
 <main>
  <div class="errors" id="errors" role="status"></div>
  <section class="tiles" id="tiles" aria-label="Key numbers"></section>
@@ -293,6 +305,8 @@ details.raw p { white-space:pre-wrap; overflow-wrap:anywhere; }
 const REFRESH_MS=10000;
 const BUILDS_STALE_MS=180000;
 const PACIFIC="America/Los_Angeles";
+const SEEN_LIMIT=500;
+const NOTIFY_CHARS=140;
 const ACTION_TOKEN=document.querySelector('meta[name="dashboard-action"]').content;
 const BAD=/\b(fail|failed|failing|failure|red|lost|blocked|error|broken|conflicting|drift|not submitted)\b/i;
 const WARN=/\b(unplanned|unproven|held|hold|pending|warn|stale|new|running|in_progress|queued|waiting|investigating|mechanism found|scheduled|creating|canceling)\b/i;
@@ -483,6 +497,27 @@ function citeUrl(cite){
  if(kind==="pr"&&state.data)return `https://github.com/${state.data.drive.repo}/pull/${tail}`;
  return `/ask/read?ref=${encodeURIComponent(cite)}`;
 }
+const ownerHref=row=>row.kind==="board"?row.url:row.url||citeUrl(row.cite);
+const ownerTitle=row=>String(row.title||row.text||"").replace(/^Owner items?:\s*/i,"").replace(/\s+/g," ").trim();
+function ownerNews(rows,seen){const cites=rows.map(r=>r.cite);return {fresh:seen?rows.filter(r=>!seen.includes(r.cite)):[],seen:[...new Set([...(seen||[]),...cites])].slice(-SEEN_LIMIT)}}
+function notifyOwner(rows){
+ const key=`lr-owner-seen:${state.data.drive.drive}`,stored=localStorage.getItem(key);
+ const {fresh,seen}=ownerNews(rows,stored&&JSON.parse(stored));
+ localStorage.setItem(key,JSON.stringify(seen));
+ if(!("Notification" in window)||Notification.permission!=="granted")return;
+ fresh.forEach(row=>{
+  const note=new Notification(`${TASK_KIND[row.kind]||row.kind}: ${ownerTitle(row)}`.slice(0,NOTIFY_CHARS),{tag:row.cite});
+  note.onclick=()=>{focus();const href=ownerHref(row);if(href&&safeUrl(href))open(href,"_blank","noopener")};
+ });
+}
+function renderBanner(){
+ const rows=state.data.owner||[];
+ $("#owner-banner").hidden=!rows.length;
+ $("#owner-notify").hidden=!("Notification" in window)||Notification.permission!=="default";
+ $("#owner-count").textContent=`Waiting on you · ${rows.length}`;
+ paint($("#owner-lines"),"owner-banner",rows.map(row=>`<li class="owner-line">${pill(TASK_KIND[row.kind]||row.kind,"plain")}<button class="owner-title" type="button" data-task="${esc(row.cite)}" title="${esc(ownerTitle(row))}">${esc(ownerTitle(row))}</button><span class="muted">${esc(ago(row.at))}</span>${ext(ownerHref(row),"Open ↗")}</li>`).join(""));
+ if(!state.data.errors.owner)notifyOwner(rows);
+}
 function taskActions(row){
  const server=row.actions||[],seqs=new Set(server.map(a=>a.seq));
  return [...server,...(state.sent[row.cite]||[]).filter(a=>!a.seq||!seqs.has(a.seq))];
@@ -503,9 +538,8 @@ function renderTasks(){
    node=el("article","card task");node.dataset.cite=row.cite;
    node.innerHTML=`<div class="task-main"></div><div class="task-status"></div><div class="task-actions"><button class="action" type="button" data-act="question">Ask a question</button><button class="action" type="button" data-act="complete">Mark complete</button><button class="action" type="button" data-act="reply">Reply</button></div><form class="composer" hidden><textarea maxlength="300" aria-label="Message to main"></textarea><div class="composer-row"><button class="action primary" type="submit"></button><button class="action" type="button" data-cancel>Cancel</button><span class="composer-error"></span></div></form>`;
   }
-  const title=String(row.title||row.text).replace(/^Owner items?:\s*/i,"");
-  const href=row.kind==="board"?row.url:row.url||citeUrl(row.cite);
-  const main=`${pill(TASK_KIND[row.kind]||row.kind,"plain")}<button class="task-title" type="button" data-task="${esc(row.cite)}">${esc(title)}</button><span class="task-meta"><span>${esc(ago(row.at))}</span>${ext(href,row.kind==="board"?"Open board ↗":"Source ↗")}</span>`;
+  const href=ownerHref(row);
+  const main=`${pill(TASK_KIND[row.kind]||row.kind,"plain")}<button class="task-title" type="button" data-task="${esc(row.cite)}">${esc(ownerTitle(row))}</button><span class="task-meta"><span>${esc(ago(row.at))}</span>${ext(href,row.kind==="board"?"Open board ↗":"Source ↗")}</span>`;
   if(node.dataset.main!==main){node.querySelector(".task-main").innerHTML=main;node.dataset.main=main}
   const status=taskStatus(row);
   if(node.dataset.status!==status){node.querySelector(".task-status").innerHTML=status;node.dataset.status=status}
@@ -706,7 +740,7 @@ function render(){
  $("#status").className="status"+(delayed?" delayed":"");
  $("#meta").textContent=delayed?`Data from ${pt(d.generated_at)}`:`Live · ${pt(d.generated_at)}`;
  $("#errors").textContent=Object.entries(d.errors).map(([k,v])=>`${k}: ${v}`).join(" · ");
- renderTiles();renderCharts();renderNow();renderTasks();renderGroups();
+ renderBanner();renderTiles();renderCharts();renderNow();renderTasks();renderGroups();
 }
 
 function openDialog(title,html){
@@ -758,7 +792,7 @@ function openLane(name){
 }
 function openTask(cite){
  const row=(state.data.owner||[]).find(r=>r.cite===cite);if(!row)return;
- const href=row.kind==="board"?row.url:row.url||citeUrl(row.cite);
+ const href=ownerHref(row);
  openDialog(TASK_KIND[row.kind]||row.kind,`<p class="md">${linkify(row.title||row.text)}</p>${dl([["State",esc(row.state||"")],["Raised",row.at?esc(`${pt(row.at)} · ${ago(row.at)}`):null]])}<div class="detail-links" style="margin-top:16px">${ext(href,row.kind==="board"?"Open board ↗":"Open source ↗","btn")}</div>`);
 }
 const landedRows=prs=>`<div class="plain-rows">${prs.map(p=>`<a class="plain-row" href="${esc(p.url)}" target="_blank" rel="noopener"><b>#${p.pr}</b><span>${esc(p.title)}</span><span class="sub">${esc(p.lane)} · ${esc(pt(p.at))}</span></a>`).join("")}</div>`;
@@ -832,6 +866,7 @@ document.addEventListener("mouseover",e=>{const n=e.target.closest("[data-tip]")
 document.addEventListener("mousemove",e=>{if(tip.classList.contains("show")){const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8);tip.style.left=x+"px";tip.style.top=(e.clientY+16)+"px"}});
 document.addEventListener("mouseout",e=>{if(e.target.closest("[data-tip]"))tip.classList.remove("show")});
 $("#now-more").addEventListener("click",()=>{state.nowOpen=!state.nowOpen;renderNow()});
+$("#owner-notify").addEventListener("click",async()=>{await Notification.requestPermission();renderBanner()});
 $("#tasks-more").addEventListener("click",()=>{state.tasksAll=!state.tasksAll;renderTasks()});
 $("#detail-close").addEventListener("click",()=>$("#detail").close());
 $("#detail").addEventListener("close",()=>{if(location.hash)history.replaceState(null,"",location.pathname);state.returnFocus?.focus?.({preventScroll:true})});

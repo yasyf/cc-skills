@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -14,6 +16,7 @@ from test_dashboard import dashboard
 
 MOMENT = datetime(2026, 10, 5, 7, 0, tzinfo=UTC)
 VIEWS_FILE = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "reference" / "dashboard-views.yaml"
+TEMPLATE = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "templates" / "lr-dashboard.html"
 
 CENSUS_REPORT = """\
 # IaC drift census
@@ -406,3 +409,30 @@ def test_a_target_reports_the_work_of_its_unproven_stacks():
     assert [(row["stack"], row["deployable"]) for row in rows if row["target"] == "infra"] == [("dashboard/plat", "proven"), ("receiver/plat", "unproven")]
     [target] = [row for row in platy.target_rows(rows) if row["target"] == "infra"]
     assert (target["deployable"], target["doing_lane"], target["doing"]) == ("unproven", "sweep-7", lines[0]["text"])
+
+
+def owner_news(rows: list[dict], seen: list[str] | None) -> dict:
+    source = "\n".join(re.search(rf"^{head}.*$", TEMPLATE.read_text(), re.M).group(0) for head in (r"const SEEN_LIMIT=", r"function ownerNews\("))
+    script = f"{source}\nprocess.stdout.write(JSON.stringify(ownerNews(...JSON.parse(process.argv[1]))))"
+    return json.loads(subprocess.run(["node", "-e", script, json.dumps([rows, seen])], capture_output=True, text=True, check=True).stdout)
+
+
+def test_a_first_visit_notifies_nothing_and_remembers_every_open_owner_item():
+    rows = [{"cite": "board:platy-round-4"}, {"cite": "ask:12"}]
+    assert owner_news(rows, None) == {"fresh": [], "seen": ["board:platy-round-4", "ask:12"]}
+
+
+def test_only_owner_items_never_seen_before_are_fresh():
+    rows = [{"cite": "ask:12", "title": "old"}, {"cite": "task:7", "title": "new"}]
+    assert owner_news(rows, ["ask:12", "ask:3"]) == {"fresh": [{"cite": "task:7", "title": "new"}], "seen": ["ask:12", "ask:3", "task:7"]}
+
+
+def test_an_answered_item_that_left_the_banner_stays_seen():
+    assert owner_news([], ["ask:12"]) == {"fresh": [], "seen": ["ask:12"]}
+
+
+def test_the_seen_list_keeps_only_the_newest_ids():
+    news = owner_news([{"cite": "task:new"}], [f"ask:{n}" for n in range(500)])
+    assert len(news["seen"]) == 500
+    assert news["seen"][0] == "ask:1"
+    assert news["seen"][-1] == "task:new"
