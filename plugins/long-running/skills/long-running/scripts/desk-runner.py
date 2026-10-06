@@ -347,7 +347,7 @@ class Orca:
         return sorted(path.stem for path in self.config.receipts.glob("*.terminal"))
 
     def lane_of(self, handle: str) -> str:
-        return next((lane for lane in self.lanes() if self.terminal(lane) == handle), handle)
+        return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
     def show(self, lane: str) -> Dispatch | None:
         dispatch = self.receipt(lane)

@@ -168,8 +168,16 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     assert flag(start, "--run") == "run_1"
     assert "--model" not in start and "--effort" not in start
     spec = flag(start, "--spec")
-    assert str(orca.brief) in spec and len(spec) <= 300
+    assert str(orca.brief) in spec and len(spec) <= 500
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
+
+
+def test_the_spec_names_the_brief_by_absolute_path_and_makes_it_outrank_the_preamble(orca):
+    orca.healthy()
+    assert orca.launch().returncode == 0
+    spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
+    assert spec.startswith(f"Lane lane-a: read {orca.brief} in full first and execute it exactly;")
+    assert "it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says." in spec
 
 
 def test_a_codex_lane_starts_sol_on_the_codex_agent_without_a_custom_terminal(orca):
@@ -461,16 +469,16 @@ def test_a_worktree_that_never_registers_fails_the_launch_after_four_creates(orc
     assert orca.calls("terminal create") == []
 
 
-def test_launch_links_a_brief_whose_pointer_passes_300_characters(orca):
+def test_launch_links_a_brief_whose_pointer_passes_500_characters(orca):
     orca.healthy()
-    brief = orca.root / ("x" * 200) / "lane-a.full.md"
+    brief = orca.root / ("x" * 250) / "lane-a.full.md"
     brief.parent.mkdir()
     brief.write_text("# brief\n")
     result = orca.launch("lane-a", "opus", "high", str(brief))
     assert result.returncode == 0, result.stdout + result.stderr
     spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
     link = Path(spec.split("read ")[1].split(" in full")[0])
-    assert len(spec) <= 300
+    assert len(spec) <= 500
     assert link.parent == Path(orca.env["HOME"]) / ".claude"
     assert len(link.name) == 8
     assert link.is_symlink()
@@ -483,12 +491,12 @@ def test_launch_leaves_a_short_pointer_unlinked(orca):
     assert not (Path(orca.env["HOME"]) / ".claude").exists()
 
 
-def test_launch_refuses_a_worktree_path_that_alone_passes_300_characters(orca):
+def test_launch_refuses_a_worktree_path_that_alone_passes_500_characters(orca):
     orca.healthy()
-    orca.env["ORCA_LAUNCH_ROOT"] = str(orca.root / ("x" * 300))
+    orca.env["ORCA_LAUNCH_ROOT"] = str(orca.root / ("x" * 500))
     result = orca.launch()
     assert result.returncode == 1
-    assert "over 300" in result.stdout
+    assert "over 500" in result.stdout
     assert orca.calls() == []
 
 

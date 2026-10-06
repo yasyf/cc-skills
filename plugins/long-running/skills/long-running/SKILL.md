@@ -1510,7 +1510,7 @@ A lane using the separate desktop Orca adapter is a session the Agent tool canno
 message. Submit `desk-runner.py launch --config C --key R<n> --lane L --model M --effort E
 --brief PATH`; the runner invokes `scripts/orca-launch.sh` using
 `reference/orca-workers.md`. `reference/orca-lane-brief.md` is its brief, ready to paste:
-a shared contract and lane section concatenated into one file, with a ≤300-character
+a shared contract and lane section concatenated into one file, with a ≤500-character
 pointer as the `--spec`. A codex Orca lane launches on Orca's codex agent under O15,
 never as a claude worker calling the codex skill; the codex skill is for inline lanes,
 and `codex-ask` for one-off questions.
