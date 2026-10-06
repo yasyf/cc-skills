@@ -44,6 +44,7 @@ ROOT_ACTION_GAP_SECONDS = 2 * 60 * 60
 TASK_LABEL_CHARS = 50
 FLUSHED = re.compile(r"flushed\b", re.IGNORECASE)
 FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
+NUMBERED = re.compile(r"(.+)-(\d+)")
 
 
 @workflow_state("long_running_rotation")
@@ -66,6 +67,7 @@ class Lane:
     turn: Turn
     line: int
     events: int
+    told_to_stand_down: bool
 
 
 def task_label(agent: Subagent) -> str | None:
@@ -110,6 +112,7 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
                     turn=turn,
                     line=rotation_line(turn.model, agent.meta.get("model"), evt.cwd),
                     events=len(agent.events),
+                    told_to_stand_down=session_tree.stand_down_delivered(agent.events),
                 )
             )
     return lanes
@@ -158,18 +161,30 @@ def unread(lane: Lane, state: RotationState, now: float) -> bool:
     )
 
 
-def stood_down(evt: BaseHookEvent, lane: Lane) -> bool:
-    return lane.team is not None and session_tree.stood_down(session_tree.inbox_path(evt, lane.team, lane.name))
+def successors(name: str) -> set[str]:
+    names = {f"{name}-2"}
+    if numbered := NUMBERED.fullmatch(name):
+        names.add(f"{numbered[1]}-{int(numbered[2]) + 1}")
+    return names
+
+
+def stood_down(evt: BaseHookEvent, lane: Lane, live: set[str]) -> bool:
+    return (
+        lane.told_to_stand_down
+        or not successors(lane.name).isdisjoint(live)
+        or (lane.team is not None and session_tree.stood_down(session_tree.inbox_path(evt, lane.team, lane.name)))
+    )
 
 
 def awake(evt: BaseHookEvent, lanes: list[Lane], state: RotationState) -> list[Lane]:
     for lane in lanes:
         if lane.agent_id in state.frozen and lane.events != state.frozen[lane.agent_id]:
             del state.frozen[lane.agent_id]
+    live = {lane.name for lane in lanes}
     return [
         lane
         for lane in lanes
-        if lane.agent_id not in state.frozen and lane.name not in state.flushed and not stood_down(evt, lane)
+        if lane.agent_id not in state.frozen and lane.name not in state.flushed and not stood_down(evt, lane, live)
     ]
 
 

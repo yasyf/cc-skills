@@ -115,6 +115,12 @@ class Tree:
             with transcript.open("a") as lane:
                 lane.write(json.dumps(user(ROOT_AT, "ROTATE", sidechain=True)) + "\n")
 
+    def hear(self, name: str, content: str) -> None:
+        transcript = max((self.root.with_suffix("") / "subagents").glob(f"agent-a{name}-*.jsonl"), key=lambda path: path.stat().st_mtime)
+        with transcript.open("a") as lane:
+            lane.write(json.dumps(user(ROOT_AT, content, sidechain=True)) + "\n")
+        (self.claude / "teams" / TEAM / "inboxes" / f"{name}.json").write_text("[]")
+
     def kill(self, name: str, team: str = TEAM) -> None:
         self.members[team].remove(name)
         self.roster(team)
@@ -895,3 +901,44 @@ def test_lane_stood_down_after_its_ask_is_neither_asked_again_nor_escalated(tree
         rotate_lanes(evt)
 
     assert ([m["from"] for m in tree.inbox("lr-dashboard-2")], pending(evt)) == (["long-running", "team-lead"], [])
+
+
+STEP_8_STAND_DOWN = "STAND-DOWN: mem-08-go-client-2 has taken over Step 8 (#31058) at 790dafc3. Stop all work now: no pushes, posts, or enqueues. Send nothing further."
+
+
+def test_lane_that_already_read_its_stand_down_is_never_asked(tree: Tree, clock: list[float]) -> None:
+    task = tree.lane("mem-08-go-client", 550_000)
+    stored = {
+        "from": "team-lead",
+        "text": STEP_8_STAND_DOWN,
+        "summary": "STAND-DOWN: successor owns Step 8",
+        "timestamp": stamp(ROOT_AT),
+        "msgV": 1,
+        "msg_id": str(uuid.uuid4()),
+        "type": "message",
+        "read": False,
+    }
+    assert session_tree.append_inbox(tree.claude / "teams" / TEAM / "inboxes" / "mem-08-go-client.json", stored)
+    tree.hear(
+        "mem-08-go-client",
+        f'<teammate-message teammate_id="long-running" summary="ROTATE: flush and keep working">\n{lane_rotation.ROTATE}\n</teammate-message>\n\n'
+        f'<teammate-message teammate_id="team-lead" summary="STAND-DOWN: successor owns Step 8">\n{STEP_8_STAND_DOWN}\n</teammate-message>',
+    )
+    evt = stop(tree, [task])
+
+    for _ in range(4):
+        rotate_lanes(evt)
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+
+    assert (tree.inbox("mem-08-go-client"), pending(evt), timeline(evt)) == ([], [], [])
+
+
+@pytest.mark.parametrize(("old", "successor"), [("mem-08-go-client", "mem-08-go-client-2"), ("desk-3", "desk-4")])
+def test_lane_with_a_live_successor_is_never_asked(tree: Tree, clock: list[float], old: str, successor: str) -> None:
+    evt = stop(tree, [tree.lane(old, 550_000), tree.lane(successor, 450_000)])
+
+    for _ in range(4):
+        rotate_lanes(evt)
+        clock[0] += lane_rotation.ASK_GAP_SECONDS
+
+    assert (tree.inbox(old), {m["from"] for m in tree.inbox(successor)}) == ([], {"long-running"})
