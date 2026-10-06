@@ -657,7 +657,7 @@ with and stays failing until Opus rewrites it.
 ```
 retro.py live init     <incident-dir> --docs <checkout> [--slug S] [--tags T] [--repo O/R]
 retro.py live sync     <incident-dir> --docs <checkout> [--no-push]
-retro.py live finalize <incident-dir> --docs <checkout> [--tags T]
+retro.py live finalize <incident-dir> --docs <checkout> [--tags T] [--push]
 ```
 
 The inputs are the incident skill's `state.json` and `slack-log.jsonl` under
@@ -730,7 +730,10 @@ refuses to push and says so. There is no flag to proceed anyway.
 `timestamps.resolved` from `all_clear_at`, and hands the retro to the existing
 `prose` and publish flow. `meta.tags` is operator-chosen and cannot be
 derived, so `--tags` supplies it; without tags the draft's `check` reports the
-missing count as the error it is.
+missing count as the error it is. `--push` publishes the draft to the branch
+`live.source` named, through the same gate `sync` pushes through, so a page
+still polling that branch adopts the draft and stops; a missing `live.source`
+refuses before anything is written.
 
 ## `render-check`: the initial page
 

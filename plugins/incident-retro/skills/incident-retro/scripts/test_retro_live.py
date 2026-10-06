@@ -55,7 +55,7 @@ def incident_dir() -> Path:
 def args(incident: Path, docs: Path, **extra):
     base = {"incident_dir": str(incident), "docs": str(docs), "slug": None,
             "repo": "Forge-AI/design-docs", "timezone": "America/Los_Angeles",
-            "forbidden_terms": None, "retro": retro, "no_push": True,
+            "forbidden_terms": None, "retro": retro, "no_push": True, "push": False,
             "tags": "browser-pool,executors,deploy"}
     base.update(extra)
     return argparse.Namespace(**base)
@@ -388,6 +388,54 @@ class PushGate(unittest.TestCase):
         staged = subprocess.run(["git", "-C", str(self.docs), "diff", "--cached", "--name-only"],
                                 capture_output=True, text=True, check=True).stdout
         self.assertEqual(staged.strip(), "")
+
+
+class FinalizePush(unittest.TestCase):
+    """An unattended updater has nobody to reload the shell, so the draft reaches the branch the page polls."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), git_docs()
+        self.branch = f"live/{SLUG}"
+        self.terms = "Northwind|Contoso EU"
+        run(retro_live.init, args(self.incident, self.docs, forbidden_terms=self.terms))
+        state = json.loads((self.incident / "state.json").read_text())
+        state["all_clear_at"] = "2026-09-02T17:30:00-07:00"
+        (self.incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.sync, args(self.incident, self.docs, no_push=False, forbidden_terms=self.terms))
+        self.synced = pushed_ref(self.docs, self.branch)
+
+    def finalize(self, **extra):
+        settings = {"push": True, "forbidden_terms": self.terms}
+        settings.update(extra)
+        return run(retro_live.finalize, args(self.incident, self.docs, **settings))
+
+    def branch_record(self) -> dict:
+        subprocess.run(["git", "-C", str(self.docs), "fetch", "-q", "origin", self.branch], check=True)
+        shown = subprocess.run(["git", "-C", str(self.docs), "show",
+                                f"FETCH_HEAD:{retro_live.RETRO_DIR}/{SLUG}/retro.json"],
+                               capture_output=True, text=True, check=True)
+        return json.loads(shown.stdout)
+
+    def test_the_branch_carries_the_draft_and_no_source(self):
+        self.assertEqual(self.finalize(), 0)
+        R = self.branch_record()
+        self.assertEqual(R["meta"]["status"], "draft")
+        self.assertNotIn("source", R["live"])
+
+    def test_without_push_the_branch_keeps_the_last_sync(self):
+        self.assertEqual(self.finalize(push=False), 0)
+        self.assertEqual(pushed_ref(self.docs, self.branch), self.synced)
+
+    def test_a_forbidden_term_refuses_the_draft_push(self):
+        record = json.loads((self.docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())
+        record["meta"]["subtitle"] = "Northwind saw it first"
+        (self.docs / retro_live.RETRO_DIR / SLUG / "retro.json").write_text(json.dumps(record))
+        self.assertEqual(self.finalize(), 1)
+        self.assertEqual(pushed_ref(self.docs, self.branch), self.synced)
+
+    def test_a_retro_with_no_source_refuses_before_writing(self):
+        self.assertEqual(self.finalize(push=False), 0)
+        self.assertEqual(self.finalize(), 1)
 
 
 class SlugDerivation(unittest.TestCase):

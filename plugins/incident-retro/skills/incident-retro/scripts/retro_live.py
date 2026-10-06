@@ -3,7 +3,7 @@
 
   retro.py live init     <incident-dir> --docs <design-docs checkout> [--slug S]
   retro.py live sync     <incident-dir> --docs <design-docs checkout> [--no-push]
-  retro.py live finalize <incident-dir> --docs <design-docs checkout>
+  retro.py live finalize <incident-dir> --docs <design-docs checkout> [--push]
 
 The inputs are the incident skill's `state.json` and `slack-log.jsonl`. Every
 field is derived from them, so a sync calls no model and produces the same
@@ -580,6 +580,10 @@ def finalize(args) -> int:
     R = retro.load_retro(root, "live finalize")
     if R is None:
         return 1
+    branch = ((R.get("live") or {}).get("source") or {}).get("branch")
+    if args.push and branch is None:
+        print(f"live finalize: {root} names no live.source branch to push the draft to", file=sys.stderr)
+        return 1
     R["meta"]["status"] = "draft"
     if args.tags:
         R["meta"]["tags"] = [t.strip() for t in args.tags.split(",") if t.strip()]
@@ -589,7 +593,11 @@ def finalize(args) -> int:
     prose.write_atomic(root / "retro.json", json.dumps(R, indent=2, ensure_ascii=False) + "\n")
     print(f"live finalize: {root} is a draft; the page stopped polling")
     print(f"write:  retro.py prose {root}")
-    return run_check(retro, root, args.forbidden_terms)
+    if run_check(retro, root, args.forbidden_terms):
+        return 1
+    if not args.push:
+        return 0
+    return publish(args, retro, docs, raw, slug, root, branch, stamp(utc_now()))
 
 
 def add_live_parser(sub, retro):
@@ -611,4 +619,7 @@ def add_live_parser(sub, retro):
         else:
             p.add_argument("--tags", help=f"{retro.TAG_COUNT[0]} to {retro.TAG_COUNT[1]} lower-case topical tags, "
                                           f"comma separated; a retro past ongoing carries them")
+        if name == "finalize":
+            p.add_argument("--push", action="store_true",
+                           help="push the draft to the live branch, so a page still polling it shows the draft")
         p.set_defaults(fn=fn, retro=retro)

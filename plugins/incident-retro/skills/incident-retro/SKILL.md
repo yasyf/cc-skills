@@ -163,6 +163,10 @@ directory and at the same URL. Opus writes all prose from this point on,
 using `retro.py prose` for its enumerated fields. The published draft no
 longer polls the live branch.
 
+An unattended updater adds `--push` to finalize. Nobody reloads the merged
+shell, so the draft goes to `live/<slug>` through the same gate as `sync`. A
+page still open adopts the draft and stops polling.
+
 The sticky time scrubber under the title block shows the page as of a chosen
 instant. Drag its playhead, step between events with the left and right
 arrows, or select Live/Now to reset. Link to an instant with `?at=<iso>`.
