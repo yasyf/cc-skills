@@ -1,18 +1,18 @@
 # design-doc pack blocks
 
-Three block types under the `design-doc` pack, one per phase of the interview.
-Reference them by dotted wire type inside any `Doc.blocks` array or a card's
-`children`. All three are interactive; every click streams back as a
-`pack.interaction` event carrying the payloads described below.
+Three block types under the `design-doc` pack. Reference them by dotted wire
+type inside any `Doc.blocks` array or a card's `children`. All three are
+interactive; every click streams back as a `pack.interaction` event carrying the
+payloads described below.
 
 An interview board carries one `design-doc.fork` block per open fork, all at
-once, and nothing but questions. At most one short `design-doc.registers` block
-may sit above the forks, read-only with `challengeable` off. A
-`design-doc.claims` sweep is its own short board.
+once, and nothing else. Never put a `design-doc.claims` block, a confirm/challenge
+sweep, a `design-doc.registers` dump, or a context block on it. The diagnosis
+and the assumptions go straight into NOTES.md and `registers.json`, and the
+human reviews them in the rendered doc.
 
-Padding is the wrong shape: a challengeable registers block listing every
-assumption, claims the human already stated, or long context blocks beside the
-forks.
+`design-doc.registers` and `design-doc.claims` stay in the pack so older boards
+and their `qa-log.json` history still render; a new board never carries either.
 
 The field names on `registers` mirror `registers.json` entry-for-entry, so a
 register entry goes onto the board unchanged.
@@ -22,7 +22,8 @@ by row id, so two rows sharing an id share one answer.
 
 ## design-doc.registers
 
-The live design state: assumptions, decisions, and the open list. Every section
+Kept for older boards; a new interview board never carries one. The live
+design state: assumptions, decisions, and the open list. Every section
 is optional, and an empty section renders nothing. With `challengeable`, each
 assumption and decision row carries Confirm and Challenge, and a challenge opens
 a note field.
@@ -76,9 +77,8 @@ disputed the entry and left the reason unsaid. Ask for it.
 
 ## design-doc.claims
 
-A list of claims the human confirms, corrects, or rejects in one pass. Use it
-for the Phase 0 diagnosis and the Phase 1 assumption sweep: one block instead of
-one question per claim. Anything other than the first verdict opens a correction
+Kept for older boards; a new interview board never carries one. A list of
+claims the human confirms, corrects, or rejects in one pass. Anything other than the first verdict opens a correction
 field, and the human's wording there goes into `qa-log.json` verbatim.
 
 | Field | Type | Required | Notes |

@@ -1,7 +1,7 @@
 host_api = 1
 name = "design-doc"
-version = "0.1.4"
-description = "Interview blocks for the design-doc skill: the live register panel, a claim sweep, and a design fork with a real escape hatch."
+version = "0.1.5"
+description = "Interview blocks for the design-doc skill: a design fork with a real escape hatch, plus the register panel and claim sweep kept for older boards."
 entry = "dist/pack.js"
 reference = "reference/blocks.md"
 
