@@ -8,7 +8,11 @@ from pathlib import Path
 from . import views, yamlish
 
 STARTED = re.compile(r"^(?P<mode>release|hotfix|rollback|dry-run) (?P<picks>.+?), started by (?P<who>\S+)")
-DEPLOY = re.compile(r"^deploy (?P<what>.+?)(?: to (?P<env>\S+))? at (?P<sha>[0-9a-f]{7,40})")
+DEPLOY = re.compile(r"^(?P<verb>deploy|plan the deploy of|roll back) (?P<what>.+?)(?: to (?P<env>[\w-]+(?:,\s*[\w-]+)*))? at (?P<sha>[0-9a-f]{7,40})(?P<rest>.*)$")
+DEPLOY_KINDS = {"deploy": "deploy", "plan the deploy of": "plan", "roll back": "rollback"}
+WITHOUT = re.compile(r"\bwithout (?P<envs>[\w-]+(?:, [\w-]+)*)")
+EMOJI = re.compile(r"^(?::[\w+-]+:\s*)+")
+LIVE_JOB_STATES = frozenset({"running", "canceling", "failing"})
 TERMINAL = frozenset({"passed", "failed", "canceled", "skipped", "not_run"})
 REFRESH_PAGES = 3
 WORK_VERBS = frozenset({"GO", "OPENED", "UPDATED", "CLAIM", "READY", "LANDED", "RELEASED", "FIX-LIVE"})
@@ -25,12 +29,14 @@ UNSETTLED_PAGES = 10
 def build_row(build: dict) -> dict:
     message = (build.get("message") or "").splitlines()[0] if build.get("message") else ""
     start = (build.get("env") or {}).get("RELEASE_START") or ""
+    jobs = [job for job in build.get("jobs") or [] if job.get("type") == "script"]
     row = {
         "number": build["number"],
         "state": build["state"],
         "branch": build.get("branch") or "",
         "commit": (build.get("commit") or "")[:12],
         "at": build.get("created_at"),
+        "started_at": build.get("started_at"),
         "finished_at": build.get("finished_at"),
         "message": message,
         "url": build.get("web_url"),
@@ -38,6 +44,10 @@ def build_row(build: dict) -> dict:
         "targets": [],
         "stacks": [],
         "platy": False,
+        "thread": None,
+        "steps": [sum(job.get("state") == "passed" for job in jobs), len(jobs)],
+        "now": [EMOJI.sub("", job.get("name") or "") for job in jobs if job.get("state") in LIVE_JOB_STATES],
+        "failed_steps": [EMOJI.sub("", job.get("name") or "") for job in jobs if job.get("state") in ("failed", "timed_out")],
     }
     if started := STARTED.match(message):
         recorded = json.loads(start) if start.startswith("{") else {}
@@ -46,18 +56,24 @@ def build_row(build: dict) -> dict:
             "targets": [pick.strip() for pick in started["picks"].split(",")],
             "starter": started["who"],
             "platy": bool(recorded.get("thread")),
+            "thread": recorded.get("thread"),
             "applies": row["branch"].startswith("release"),
             "deselected": [f"{item['component']}/{item['env']}" for item in recorded.get("deselected") or []],
         }
     elif deploy := DEPLOY.match(message):
         picks = [pick.strip() for pick in deploy["what"].split(",") if pick.strip()]
-        envs = (deploy["env"] or "").split(",")
+        envs = [env.strip() for env in (deploy["env"] or "").split(",")]
         stacks = [pick if "/" in pick else f"{pick}/{env}" for pick in picks for env in ([None] if "/" in pick else envs)]
-        row |= {"kind": "deploy", "stacks": stacks, "applies": row["branch"].startswith("releases/deploy")}
+        without = WITHOUT.search(deploy["rest"])
+        row |= {
+            "kind": DEPLOY_KINDS[deploy["verb"]],
+            "stacks": stacks,
+            "applies": row["branch"].startswith("releases/deploy"),
+            "without": without["envs"].split(", ") if without else [],
+            "destructive": "allowing deletes" in deploy["rest"],
+        }
     elif message.startswith("release check"):
         row["kind"] = "check"
-    elif message.startswith("plan the deploy"):
-        row["kind"] = "plan"
     return row
 
 

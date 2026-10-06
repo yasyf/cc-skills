@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 
 import drive
 import ledger
-from lrdash import chat, platy, views, yamlish
+from lrdash import chat, overview, platy, views, yamlish
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 PAGE = Path(__file__).parents[1] / "templates" / "lr-dashboard.html"
@@ -41,7 +41,12 @@ SERVER_FILE = Path("dashboard") / "server.json"
 SERVER_LOG = Path("dashboard") / "server.log"
 START_LOCK = Path("dashboard") / "start.lock"
 SEEN_FILE = Path("dashboard") / "seen.json"
-BUILDS_FILE = Path("dashboard") / "release-builds.json"
+BUILDS_FILE = Path("dashboard") / "builds.json"
+ACTIONS_FILE = Path("dashboard") / "owner-actions.json"
+ACTION_HEADER = "X-Dashboard-Action"
+CCI_BIN = Path.home() / ".local" / "bin" / "cci"
+CCI_TEXT = 400
+OWNER_ACTIONS = {"question": "Question", "complete": "Mark complete", "reply": "Reply"}
 TOKEN_HEADER = "X-Dashboard-Token"
 MANUAL_FILE = "dashboard.yaml"
 PORT_BASE = 8700
@@ -56,6 +61,10 @@ FOLLOW = timedelta(hours=16)
 HEADER_CHARS = 80
 CCI_URL = "http://127.0.0.1:7377/v1"
 CCI_OPEN = ("open_defects", "open_blockers", "open_holds")
+CCI_PAGE = 500
+INCIDENT_WINDOW = timedelta(hours=72)
+CENSUS_WINDOW = timedelta(hours=48)
+LANDED_WINDOW = timedelta(hours=26)
 NEW_YEAR = timedelta(days=180)
 CONTEXT_LINES = 25
 DOC_LIMIT = 20
@@ -358,6 +367,20 @@ def failure_text(failure: BaseException) -> str:
     return last[:300]
 
 
+def cci_blockers(digest: dict) -> list[dict]:
+    records = [record for key in CCI_OPEN for record in digest[key] or [] if record["refs"].get("stacks") or record["refs"].get("targets")]
+    return sorted(records, key=lambda record: (views.stamp(record["at"]), record["seq"]), reverse=True)
+
+
+def with_actions(rows: list[dict], actions: list[dict], replies: list[dict]) -> list[dict]:
+    answering = {reply.get("re") or reply.get("resolves"): reply for reply in replies}
+    out = []
+    for row in rows:
+        mine = [action | {"reply": answering.get(action["seq"])} for action in actions if action["cite"] == row["cite"]]
+        out.append(row | {"actions": mine})
+    return out
+
+
 def ccn_row(kind: str, item: dict) -> dict:
     return item | {"at": item.get("updated_at"), "url": f"/ccn/{item['id']}", "cite": f"ccn:{item['id'][:8]}", "kind": kind, "text": item.get("title", "")}
 
@@ -371,6 +394,7 @@ class Collector:
     board_cache: dict[str, tuple[str, dict]] = field(default_factory=dict)
     builds: platy.Builds | None = None
     ancestry: dict[tuple[str, str], bool] = field(default_factory=dict)
+    subject_cache: dict[str, str] = field(default_factory=dict)
 
     @property
     def state_dir(self) -> Path:
@@ -627,19 +651,70 @@ class Collector:
             self.ancestry[key] = verdict.returncode == 0
         return self.ancestry[key]
 
-    def cci_blockers(self) -> list[dict]:
-        query = urlencode({"drive": program_of(self.entry), "since_time": self.entry["started_at"]})
-        with urllib.request.urlopen(f"{CCI_URL}/digest?{query}", timeout=HEALTH_TIMEOUT_SECONDS) as response:
-            digest = json.load(response)
-        records = [record for key in CCI_OPEN for record in digest[key] or [] if record["refs"].get("stacks") or record["refs"].get("targets")]
-        return sorted(records, key=lambda record: (views.stamp(record["at"]), record["seq"]), reverse=True)
+    def cci(self, path: str, timeout: float = HEALTH_TIMEOUT_SECONDS, **query):
+        with urllib.request.urlopen(f"{CCI_URL}/{path}?{urlencode({'drive': program_of(self.entry)} | query, doseq=True)}", timeout=timeout) as response:
+            return json.load(response)
 
-    def platy(self, config: dict, builds: list[dict], lines: list[dict]) -> list[dict]:
+    def digest(self) -> dict:
+        return self.cci("digest", since_time=self.entry["started_at"])
+
+    def records(self, since: datetime, **query) -> list[dict]:
+        found: list[dict] = []
+        while True:
+            page = self.cci("records", COMMAND_TIMEOUT_SECONDS, since_time=iso(since), limit=CCI_PAGE, **({"since": found[-1]["seq"]} if found else {}), **query)
+            found += page
+            if len(page) < CCI_PAGE:
+                return found
+
+    def subjects(self, commits: set[str]) -> dict[str, str]:
+        missing = sorted(commit for commit in commits if commit and commit not in self.subject_cache)
+        if missing:
+            data = subprocess.run(["git", "cat-file", "--batch"], input="\n".join(missing).encode() + b"\n", cwd=self.entry["checkout"], capture_output=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS).stdout
+            offset = 0
+            for commit in missing:
+                end = data.index(b"\n", offset)
+                header = data[offset:end].split()
+                offset = end + 1
+                if header[-1] in (b"missing", b"ambiguous"):
+                    continue
+                size = int(header[2])
+                body = data[offset : offset + size].decode(errors="replace")
+                offset += size + 1
+                if header[1] == b"commit":
+                    self.subject_cache[commit] = body.split("\n\n", 1)[1].split("\n", 1)[0]
+        return self.subject_cache
+
+    def actions(self) -> list[dict]:
+        path = self.state_dir / ACTIONS_FILE
+        return json.loads(path.read_text()) if path.exists() else []
+
+    def act(self, row: dict, action: str, text: str) -> dict:
+        label = OWNER_ACTIONS[action]
+        tail = f" — {text}" if text else ""
+        room = CCI_TEXT - len(f"{label}:  [{row['cite']}]{tail}")
+        if room < HEADER_CHARS // 4:
+            raise ValueError(f"the text is {len(text)} characters; keep it under {CCI_TEXT - HEADER_CHARS} so the item still fits")
+        item = row["text"] if len(row["text"]) <= room else row["text"][: room - 1] + "…"
+        stored = json.loads(run([str(CCI_BIN), "post", "--drive", program_of(self.entry), "--lane", "owner", "--kind", "owner", "--to", "main", "--text", f"{label}: {item} [{row['cite']}]{tail}", "--json"]))
+        record = {"cite": row["cite"], "action": action, "text": text, "at": stored["at"], "seq": stored["seq"]}
+        path = self.state_dir / ACTIONS_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staged = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        staged.write_text(json.dumps([*self.actions(), record]))
+        staged.replace(path)
+        return record
+
+    def replies(self, actions: list[dict]) -> list[dict]:
+        if not actions:
+            return []
+        return self.records(min(views.stamp(action["at"]) for action in actions), to="owner")
+
+    def platy(self, config: dict, builds: list[dict], lines: list[dict], blockers: list[dict]) -> list[dict]:
         report = views.newest(self.state_dir, config["census"])
         if report is None:
             raise FileNotFoundError(f"no census report matches {config['census']} under {self.state_dir}")
         targets = platy.target_map(Path(self.entry["checkout"]) / config.get("targets", "release/targets.yaml"))
-        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, self.cci_blockers(), config.get("overrides") or {}, self.pipeline_change(config), self.contains)
+        rows = platy.stack_rows(platy.census_rows(report), targets, builds, lines, blockers, config.get("overrides") or {}, self.pipeline_change(config), self.contains)
         return [row | {"cite": f"stack:{row['stack']}", "census_report": report.name} for row in rows]
 
     def owner(self, tasks: list[dict], asks: list[dict], lines: list[dict], boards: list[dict], config: dict, moment: datetime) -> list[dict]:
@@ -701,9 +776,25 @@ class Collector:
             **guarded("notes", self.notes, {kind: [] for kind in NOTE_SOURCES}),
             **guarded("orca", self.orca, {"orca": [], "orca_attention": []}),
         }
-        sources["owner"] = guarded("owner", lambda: self.owner(tasks, ledger_rows["asks"], lines, boards, config, moment), [])
-        sources["platy"] = guarded("platy", lambda: self.platy(platy_config, builds, lines), []) if platy_config else []
+        digest = guarded("cci", self.digest, None)
+        actions = guarded("owner actions", self.actions, [])
+        owner_rows = guarded("owner", lambda: self.owner(tasks, ledger_rows["asks"], lines, boards, config, moment), [])
+        replies = guarded("owner replies", lambda: self.replies(actions), [])
+        sources["owner"] = with_actions(owner_rows, actions, replies)
+        if platy_config and digest is None:
+            errors["platy"] = "the cci digest is unreadable, so blockers are unknown"
+        sources["platy"] = guarded("platy", lambda: self.platy(platy_config, builds, lines, cci_blockers(digest)), []) if platy_config and digest is not None else []
         sources["platy_targets"] = platy.target_rows(sources["platy"])
+        subjects = guarded("commit subjects", lambda: self.subjects({build["commit"] for build in builds[: overview.RELEASE_LIMIT * 2]}), {})
+        sources["releases"] = overview.release_rows(builds, subjects, self.entry["repo"], (platy_config or {}).get("slack"), overview.slack_links(lines, (platy_config or {}).get("pipeline", "release")), moment)
+        sources["cci_lanes"] = guarded("cci lanes", lambda: self.cci("lanes"), [])
+        incident_records = guarded("cci incidents", lambda: self.records(moment - INCIDENT_WINDOW, kind=list(overview.INCIDENT_KINDS)), [])
+        open_incidents = {record["seq"] for record in (digest or {}).get("open_incidents") or []}
+        sources["incident_groups"] = overview.incident_groups(incident_records, open_incidents, sources["incidents"], moment)
+        sources["holds"] = [*((digest or {}).get("open_holds") or []), *((digest or {}).get("untracked_holds") or [])]
+        census = guarded("cci census", lambda: self.records(moment - CENSUS_WINDOW, kind="state"), [])
+        titles = {row["pr"]: row["title"] for row in [*ledger_rows["prs"], *ledger_rows["landed"]] if row.get("title")}
+        sources["landings"] = overview.landings(guarded("cci landings", lambda: self.records(moment - LANDED_WINDOW, kind="landed"), []), titles, self.entry["repo"])
         latest = compactions[-1] if compactions else {}
         sources["drive"] = [
             {key: self.entry.get(key) for key in ("drive", "ledger", "repo", "checkout", "state_dir", "orca_run", "started_at")}
@@ -731,13 +822,23 @@ class Collector:
             "generated_at": iso(moment),
             "drive": sources["drive"][0],
             "errors": errors,
-            "health": {
-                "stacks": {
-                    "total": len(sources["platy"]),
-                    "at_zero": sum(row["zero"] == "0/0" for row in sources["platy"]),
-                } if platy_config and "platy" not in errors else None,
-                "last_release": next((row for row in builds if row["state"] in ("passed", "failed", "canceled", "cancelled")), None),
-            },
+            "overview": overview.overview(
+                sources["releases"],
+                {"total": len(sources["platy"]), "at_zero": sum(row["zero"] == "0/0" for row in sources["platy"])} if platy_config and "platy" not in errors else None,
+                sources["platy"],
+                len(ledger_rows["prs"]),
+                sources["landings"],
+                sources["cci_lanes"],
+                sources["incident_groups"],
+                sources["holds"],
+                census,
+                moment,
+            ),
+            "owner": sources["owner"],
+            "releases": sources["releases"],
+            "incidents": sources["incident_groups"],
+            "replies": replies,
+            "lanes": [lane for lane in sources["cci_lanes"] if moment - views.stamp(lane["at"]) <= LANE_WINDOW],
             "views": rendered,
             "sections": [str(section) for section in config.get("sections") or []],
         }
@@ -766,8 +867,8 @@ def default_views() -> list[dict]:
     return yamlish.loads(DEFAULT_VIEWS.read_text())["views"]
 
 
-def page() -> bytes:
-    return PAGE.read_text().replace("</body>", CHAT_WIDGET.read_text() + "</body>").encode()
+def page(action_token: str) -> bytes:
+    return PAGE.read_text().replace("</body>", CHAT_WIDGET.read_text() + "</body>").replace("{{action_token}}", action_token).encode()
 
 
 def tailnet_host() -> str | None:
@@ -813,6 +914,8 @@ class Dashboard(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.token = secrets.token_hex(16)
         self.chat_token = secrets.token_hex(16)
+        self.action_token = secrets.token_hex(16)
+        self.acting = threading.Lock()
         self.authorities = {f"127.0.0.1:{self.server_address[1]}", f"localhost:{self.server_address[1]}"}
         self.collector = collector
         self.interval = interval
@@ -872,7 +975,7 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(url.query)
         entry = self.server.collector.entry
         if url.path == "/":
-            self.send(200, page(), "text/html; charset=utf-8")
+            self.send(200, page(self.server.action_token), "text/html; charset=utf-8")
         elif url.path == "/state.json":
             self.json(self.server.state)
         elif url.path == "/healthz":
@@ -949,11 +1052,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.flush()
 
+    def owner_action(self) -> None:
+        if not secrets.compare_digest(self.headers.get(ACTION_HEADER, ""), self.server.action_token) or self.headers.get("Origin", self.origin) != self.origin:
+            self.text(403, "forbidden\n")
+            return
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        row = next((row for row in self.server.sources.get("owner") or [] if row["cite"] == body.get("cite")), None)
+        if row is None or body.get("action") not in OWNER_ACTIONS:
+            self.text(404, "no such owner item or action\n")
+            return
+        try:
+            with self.server.acting:
+                record = self.server.collector.act(row, body["action"], " ".join(str(body.get("text") or "").split()))
+        except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as failure:
+            self.text(422 if isinstance(failure, ValueError) else 502, failure_text(failure) + "\n")
+            return
+        self.json(record)
+
     def do_POST(self) -> None:
         if self.foreign():
             return
         if urlparse(self.path).path == "/ai/chat/completions":
             self.relay()
+            return
+        if urlparse(self.path).path == "/owner/act":
+            self.owner_action()
             return
         if urlparse(self.path).path != "/shutdown":
             self.text(404, "not found")

@@ -151,7 +151,7 @@ def test_merge_hides_extends_and_appends():
 
 
 def build(number: int, message: str, state: str = "passed", branch: str = "main", thread: bool = False, at: str = "2026-10-05T05:00:00Z") -> dict:
-    env = {"RELEASE_START": json.dumps({"thread": "1759.1"})} if thread else {}
+    env = {"RELEASE_START": json.dumps({"thread": {"channel": "C0B75AL4XEW", "ts": "1759.1"}})} if thread else {}
     return {"number": number, "state": state, "branch": branch, "commit": "abcdef1234567890", "created_at": at, "finished_at": at, "message": message, "web_url": f"https://bk/{number}", "env": env}
 
 
@@ -180,6 +180,23 @@ def test_build_row_tells_a_platy_start_from_a_cli_start_and_a_deploy():
     deploy = platy.build_row(build(900, "deploy receiver to plat at 9f8e7d1", branch="releases/deploy-receiver"))
     assert (deploy["kind"], deploy["stacks"], deploy["applies"]) == ("deploy", ["receiver/plat"], True)
     assert platy.build_row(build(901, "release check"))["kind"] == "check"
+
+
+def test_build_row_reads_plans_rollbacks_skips_and_the_running_step():
+    plan = platy.build_row(build(902, "plan the deploy of escape-hatch-base-ami, reco to plat-use1-prod at 182f47f1ec0b"))
+    assert (plan["kind"], plan["stacks"], plan["applies"]) == ("plan", ["escape-hatch-base-ami/plat-use1-prod", "reco/plat-use1-prod"], False)
+    rollback = platy.build_row(build(903, "roll back api/plat-usw2-prod, router/rt-usw2-fwd at cad15aa81eca", branch="releases/deploy/13-stacks/2026-10-05/1966"))
+    assert (rollback["kind"], rollback["stacks"], rollback["applies"]) == ("rollback", ["api/plat-usw2-prod", "router/rt-usw2-fwd"], True)
+    raw = build(904, "deploy storage/core-usw2-artifacts at de561dc2d100, allowing deletes and replaces, without plat-use1-prod, tnt-usw2-0ddq7rb", state="running")
+    raw["jobs"] = [
+        {"type": "script", "state": "passed", "name": ":mag: preview storage on core-usw2-artifacts"},
+        {"type": "script", "state": "running", "name": ":pulumi: deploy storage on core-usw2-artifacts"},
+        {"type": "script", "state": "failed", "name": ":broom: delete what this deploy outlived"},
+        {"type": "waiter", "state": "passed"},
+    ]
+    deploy = platy.build_row(raw)
+    assert (deploy["without"], deploy["destructive"], deploy["steps"], deploy["now"], deploy["failed_steps"]) == (["plat-use1-prod", "tnt-usw2-0ddq7rb"], True, [1, 3], ["deploy storage on core-usw2-artifacts"], ["delete what this deploy outlived"])
+    assert platy.build_row(build(905, "release infra, started by ym@poetic.com", branch="releases/x", thread=True))["thread"] == {"channel": "C0B75AL4XEW", "ts": "1759.1"}
 
 
 def test_builds_backfill_once_then_read_a_few_pages(tmp_path):
