@@ -10,7 +10,9 @@ rows; ``ledger.py list`` marks a PR ``rules_blocked`` while its current head's r
 override waives, and the landing runner holds blocked PRs. The commit status reads ``pending`` and ``failure`` in the
 same two cases, so ``stack-enqueue`` refuses the head however it is called. A head with no review, or an errored one,
 a diff over the review bound included, lands. Paths the checkout's ``.gitattributes`` marks ``linguist-generated``
-leave the reviewed diff and its bound, and a ``GENERATED`` line names them.
+leave the reviewed diff and its bound, and a ``GENERATED`` line names them. The review reads only the added side:
+each hunk keeps its added lines and a little context, removed lines go, and a ``DELETED`` line names the files the PR
+deletes outright. A head with no added line left passes clean as deletion only, with no codex run.
 
 An override is one root inbox line, ``R<n> rules-override #<pr> <ruling>[ <ruling>...] :: <reason>``, naming each
 ruling id it waives for that PR on every head.
@@ -40,6 +42,10 @@ HEX = re.compile(r"^[0-9a-f]+$")
 DIFF_MEDIA = "Accept: application/vnd.github.v3.diff"
 FILE_SECTION = re.compile(r"^(?=diff --git )", re.M)
 FILE_HEADER = re.compile(r"^diff --git a/.+ b/(?P<path>.+)$")
+HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
+DELETED_FILE = "deleted file mode "
+CONTEXT_LINES = 2
+DELETION_ONLY = "deletion only"
 GENERATED_ATTR = "linguist-generated"
 GENERATED_VALUES = frozenset({"set", "true"})
 STATUS_CONTEXT = "rules-review"
@@ -47,7 +53,7 @@ STATUS_DESCRIPTION_CHARS = 140
 
 PROMPT = """You are the pre-merge rules reviewer for pull request #{pr} at head {head} in {repo}. The landing desk enqueues this PR only after your verdict.
 
-Decide whether the diff at the end of this message breaks any of the owner's durable rulings or any rule in the repository's AGENTS.md. Report a finding only when an added or changed line does what a ruling forbids, or undoes what a ruling requires. A diff that merely touches a ruling's subject is not a finding. Style, test coverage, and defects no ruling covers are not findings.
+Decide whether the diff at the end of this message breaks any of the owner's durable rulings or any rule in the repository's AGENTS.md. The diff carries only the side the PR adds: each hunk holds added lines with a few lines of context, numbered by the new tree in its @@ header, and removed lines and deleted files are left out. Report a finding only when an added line does what a ruling forbids, or undoes what a ruling requires. A diff that merely touches a ruling's subject is not a finding. Style, test coverage, and defects no ruling covers are not findings.
 
 Each finding names:
 - ruling: the ruling's id exactly as its heading shows it (seven hex characters), or AGENTS.md:<line> for a line of AGENTS.md
@@ -154,6 +160,36 @@ def without_generated(shell: Shell, diff: str) -> tuple[str, list[str]]:
     return "".join(section for path, section in sections if path not in generated), sorted(generated)
 
 
+def added_hunk(lines: list[str], start: int) -> list[str]:
+    numbered = [line for line in lines if line[:1] in (" ", "+")]
+    added = [index for index, line in enumerate(numbered) if line.startswith("+")]
+    kept = sorted({index for at in added for index in range(max(at - CONTEXT_LINES, 0), min(at + CONTEXT_LINES + 1, len(numbered)))})
+    runs: list[list[int]] = []
+    for index in kept:
+        if runs and index == runs[-1][-1] + 1:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    return [line for run in runs for line in [f"@@ +{start + run[0]},{len(run)} @@", *(numbered[index] for index in run)]]
+
+
+def added_section(section: str) -> str:
+    lines = section.splitlines()
+    starts = [index for index, line in enumerate(lines) if HUNK_HEADER.match(line)]
+    hunks = [
+        added_hunk(lines[at + 1 : end], int(HUNK_HEADER.match(lines[at])["start"]))
+        for at, end in zip(starts, [*starts[1:], len(lines)])
+    ]
+    kept = [line for hunk in hunks for line in hunk]
+    return "\n".join([*lines[: starts[0]], *kept, ""]) if kept else ""
+
+
+def added_side(diff: str) -> tuple[str, list[str]]:
+    sections = [(section_path(section), section) for section in FILE_SECTION.split(diff)]
+    deleted = sorted(path for path, section in sections if path and DELETED_FILE in section.split("\n@@", 1)[0])
+    return "".join(added_section(section) for path, section in sections if path and path not in deleted), deleted
+
+
 def question(repo: str, pr: str, head: str, rulings: str, ethos: str, diff: str) -> str:
     return PROMPT.format(pr=pr, head=head, repo=repo, rulings=rulings, ethos=ethos, diff=diff)
 
@@ -189,7 +225,7 @@ def commit_status(review: dict[str, str]) -> tuple[str, str]:
     if review["verdict"] == "pending":
         return "pending", "rules review in progress; the head waits for its verdict"
     if review["verdict"] == "clean":
-        return "success", "no ruling violated"
+        return "success", f"{review['note']}: no added line to review" if review.get("note") else "no ruling violated"
     if review["verdict"] == "error":
         return "success", f"not reviewed, so not held: {review['error']}"[:STATUS_DESCRIPTION_CHARS]
     rulings = ",".join(sorted({finding["ruling"][:SHORT_ID] for finding in json.loads(review["findings"])}))
@@ -262,7 +298,7 @@ class Sweep:
 
     def verdict_line(self, pr: str, head: str, review: dict[str, str]) -> str:
         if review["verdict"] == "clean":
-            return f"CLEAN #{pr} {short(head)}"
+            return f"CLEAN #{pr} {short(head)}" + (f" {review['note']}" if review.get("note") else "")
         if review["verdict"] == "error":
             return f"REVIEW-ERROR #{pr} {short(head)} attempt {review['attempt']}: {review['error']}"
         findings = json.loads(review["findings"])
@@ -290,6 +326,12 @@ class Sweep:
                 diff, generated = without_generated(self.shell, pr_diff(self.shell, self.repo, fields["base"], head))
                 if generated:
                     print(f"GENERATED #{pr} {short(head)} {len(generated)} paths left out of the review: {' '.join(generated)}")
+                diff, deleted = added_side(diff)
+                if deleted:
+                    print(f"DELETED #{pr} {short(head)} {len(deleted)} deleted files left out of the review: {' '.join(deleted)}")
+                if not diff:
+                    self.pass_deletion(pr, head, attempt)
+                    continue
                 if len(diff) > DIFF_CHARS:
                     self.fail(pr, head, attempt, f"the diff is {len(diff)} characters, over the {DIFF_CHARS}-character review bound")
                     continue
@@ -301,6 +343,11 @@ class Sweep:
             self.set(ledger.review_key(pr, head), {"pr": pr, "head": head, "verdict": "pending", "attempt": str(attempt), "run": str(run_dir), "started_at": ledger.utc_stamp()})
             running += 1
             print(f"REVIEWING #{pr} {short(head)}")
+
+    def pass_deletion(self, pr: str, head: str, attempt: int) -> None:
+        key = ledger.review_key(pr, head)
+        self.set(key, {"pr": pr, "head": head, "verdict": "clean", "attempt": str(attempt), "note": DELETION_ONLY, "override": "", "reviewed_at": ledger.utc_stamp()})
+        print(self.verdict_line(pr, head, self.rows[key]))
 
     def fail(self, pr: str, head: str, attempt: int, error: str) -> None:
         key = ledger.review_key(pr, head)

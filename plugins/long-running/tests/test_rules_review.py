@@ -22,6 +22,14 @@ GO_RULING = "d74f85d0000000000000000000000000000000aa"
 HEAD = "a" * 40
 NEXT_HEAD = "b" * 40
 OTHER_HEAD = "c" * 40
+def file_diff(path: str, body: str) -> str:
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1 @@\n+{body}\n"
+
+
+def deleted_diff(path: str, body: str) -> str:
+    return f"diff --git a/{path} b/{path}\ndeleted file mode 100644\nindex 1234567..0000000\n--- a/{path}\n+++ /dev/null\n@@ -1 +0,0 @@\n-{body}\n"
+
+
 LEDGER_FINDING = {"ruling": "ec2881e", "cite": "go/ci/resolve.go:42", "sentence": "The resolver reads the release ledger to pick bases.", "quote": "the ledger only records and renders"}
 
 
@@ -72,7 +80,7 @@ class FakeShell(rules_review.Shell):
             head = argv[2].rsplit("...", 1)[1]
             if head in self.diff_errors:
                 raise subprocess.CalledProcessError(1, argv, "", "HTTP 406: diff too large")
-            return self.diffs.get(head, f"+++ b/go/ci/resolve.go\n+ledger.Base() // {head[:4]}\n")
+            return self.diffs.get(head, file_diff("go/ci/resolve.go", f"ledger.Base() // {head[:4]}"))
         if argv[:4] == ["gh", "api", "--paginate", "--slurp"]:
             pr = argv[4].split("/")[4]
             return json.dumps([self.on_pr.get(pr, [])])
@@ -256,7 +264,7 @@ def test_an_unreadable_diff_records_an_error_without_dispatching(shell, capsys):
 
 
 def test_a_diff_over_the_bound_is_an_error_never_a_partial_review(shell, capsys):
-    shell.diffs[HEAD] = "+" + "x" * rules_review.DIFF_CHARS
+    shell.diffs[HEAD] = file_diff("go/ci/resolve.go", "x" * rules_review.DIFF_CHARS)
     sweep(shell)
 
     assert f"30312-{HEAD[:12]}-1" not in shell.questions
@@ -336,10 +344,6 @@ def test_a_row_without_a_base_waits_for_its_first_refresh(shell):
     assert list(shell.questions) == [f"30312-{HEAD[:12]}-1"]
 
 
-def file_diff(path: str, body: str) -> str:
-    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1 @@\n+{body}\n"
-
-
 def test_paths_gitattributes_marks_generated_leave_the_reviewed_diff_and_its_bound(shell, capsys):
     cassette = "x" * rules_review.DIFF_CHARS
     shell.diffs[HEAD] = "".join([
@@ -393,3 +397,66 @@ def test_a_failed_status_post_is_recorded_and_retried(shell):
     sweep(shell)
     assert status_states(shell, HEAD) == ["pending"]
     assert shell.rows[ledger.review_key("30312", HEAD)]["status"] == "pending"
+
+
+def test_a_pure_deletion_passes_clean_without_a_codex_run(shell, capsys):
+    shell.diffs[HEAD] = deleted_diff("go/ci/old.go", "x" * rules_review.DIFF_CHARS) + deleted_diff("api/src/legacy.ts", "export {}")
+    sweep(shell)
+
+    assert f"30312-{HEAD[:12]}-1" not in shell.questions
+    review = shell.rows[ledger.review_key("30312", HEAD)]
+    assert review["verdict"] == "clean" and review["note"] == "deletion only"
+    assert not blocked(shell)["30312"]
+    assert shell.statuses[HEAD][-1] == {"state": "success", "context": rules_review.STATUS_CONTEXT, "description": "deletion only: no added line to review"}
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        f"DELETED #30312 {HEAD[:9]} 2 deleted files left out of the review: api/src/legacy.ts go/ci/old.go",
+        f"CLEAN #30312 {HEAD[:9]} deletion only",
+    ]
+
+
+def test_the_review_reads_added_lines_with_their_context_numbered_by_the_new_tree(shell, capsys):
+    path = "go/ci/resolve.go"
+    hunk = [
+        "@@ -10,12 +10,11 @@ func Resolve() {",
+        " context1",
+        " context2",
+        " context3",
+        " context4",
+        "-removed1",
+        "-removed2",
+        "+added1",
+        " context5",
+        " context6",
+        " context7",
+        " context8",
+        " context9",
+        "+added2",
+        "\\ No newline at end of file",
+    ]
+    modified = "\n".join([f"diff --git a/{path} b/{path}", "index 1111111..2222222 100644", f"--- a/{path}", f"+++ b/{path}", *hunk]) + "\n"
+    shell.diffs[HEAD] = deleted_diff("go/ci/old.go", "x" * rules_review.DIFF_CHARS) + modified
+    sweep(shell)
+
+    question = shell.questions[f"30312-{HEAD[:12]}-1"]
+    reviewed = question.split("```diff\n", 1)[1].split("\n```", 1)[0]
+    assert reviewed.splitlines() == [
+        f"diff --git a/{path} b/{path}",
+        "index 1111111..2222222 100644",
+        f"--- a/{path}",
+        f"+++ b/{path}",
+        "@@ +12,5 @@",
+        " context3",
+        " context4",
+        "+added1",
+        " context5",
+        " context6",
+        "@@ +18,3 @@",
+        " context8",
+        " context9",
+        "+added2",
+    ]
+    assert "old.go" not in question
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        f"DELETED #30312 {HEAD[:9]} 1 deleted files left out of the review: go/ci/old.go",
+        f"REVIEWING #30312 {HEAD[:9]}",
+    ]
