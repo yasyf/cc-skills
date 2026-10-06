@@ -1,77 +1,158 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:aa541e899d8e — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:5d62c1197d3e — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>long-running</title>
 <style>
-:root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bg: #fbfbfd; --card: #fff; --warn: #b25000; --bad: #c4211c; --ok: #1a7f37; --accent: #0a66c2; --cell-ok: #d8f0de; --cell-warn: #fbe8cc; --cell-bad: #f8d7d5; --cell-none: #ececf0; }
-@media (prefers-color-scheme: dark) { :root { --fg: #f2f2f7; --muted: #98989d; --line: #38383a; --bg: #111113; --card: #1c1c1e; --warn: #ff9f0a; --bad: #ff453a; --ok: #30d158; --accent: #64b5ff; --cell-ok: #173d22; --cell-warn: #4a3412; --cell-bad: #4d1d1b; --cell-none: #2a2a2e; } }
-* { box-sizing: border-box; }
-body { margin: 0; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
-header { position: sticky; top: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 18px; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
-header h1 { font-size: 16px; margin: 0; }
-.meta, .muted { color: var(--muted); }
-.errors { color: var(--bad); }
-nav { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; }
-nav a, a { color: var(--accent); text-decoration: none; }
-main { padding: 12px 18px 80px; display: grid; gap: 18px; }
-.section > h2 { font-size: 15px; margin: 0 0 8px; }
-.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; overflow-x: auto; grid-column: 1 / -1; }
-.card.small { grid-column: auto; }
-.card h3 { font-size: 13px; margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }
-.card h3 .count { color: var(--muted); font-weight: normal; }
-.card .err { color: var(--bad); }
-table { border-collapse: collapse; width: 100%; }
-td, th { text-align: left; vertical-align: top; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; }
-td.time { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
-td.wide { min-width: 280px; word-break: break-word; }
-.clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
-.clip.open { display: block; }
-.tag { display: inline-block; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); font-size: 11px; white-space: nowrap; }
-.bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
-.stat b { font-size: 28px; font-variant-numeric: tabular-nums; }
-.stat .of { color: var(--muted); font-size: 15px; }
-.stat .delta { margin-left: 6px; }
-.stat .detail { color: var(--muted); margin-top: 4px; }
-svg.spark { width: 100%; height: 36px; display: block; margin-top: 6px; }
-svg.chart { width: 100%; height: 180px; display: block; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
-.legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
-.bar { height: 14px; border-radius: 7px; background: var(--cell-none); overflow: hidden; }
-.bar > div { height: 100%; background: var(--ok); }
-.matrix td { padding: 1px; border: none; }
-.matrix td.cell { min-width: 22px; height: 18px; border-radius: 3px; text-align: center; font-size: 10px; }
-.matrix th { font-weight: normal; font-size: 11px; cursor: default; }
-.matrix th.col { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
-.cell.ok { background: var(--cell-ok); color: inherit; } .cell.warn { background: var(--cell-warn); color: inherit; } .cell.bad { background: var(--cell-bad); color: inherit; } .cell.none { background: var(--cell-none); }
-dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; }
-dl.kv dt { color: var(--muted); }
-dl.kv dd { margin: 0; word-break: break-word; }
-.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.filters select, .filters input { font: inherit; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); color: var(--fg); }
-.md p { margin: 0 0 6px; }
-.md code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.cite { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--cell-none); }
+:root { color-scheme: light dark; --fg:#202124; --muted:#73777d; --line:#e4e5e7; --bg:#f5f6f7; --card:#fff; --warn:#9a6507; --bad:#bd3030; --ok:#28764e; --accent:#33383e; --cell-ok:#e6f3eb; --cell-warn:#fff2d9; --cell-bad:#fce9e8; --cell-none:#eceef0; }
+@media (prefers-color-scheme:dark) { :root { --fg:#eef0f2; --muted:#989da5; --line:#30343a; --bg:#15171a; --card:#1c1f23; --warn:#e7b44e; --bad:#f18a84; --ok:#79c49b; --accent:#454b55; --cell-ok:#253d31; --cell-warn:#403621; --cell-bad:#432c2c; --cell-none:#2a2e34; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); }
+button,input,select { font:inherit; color:inherit; }
+button,a,input,select,summary { -webkit-tap-highlight-color:transparent; }
+button { cursor:pointer; }
+a { color:inherit; text-decoration:none; }
+a:hover { text-decoration:underline; }
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--fg); outline-offset:4px; }
+header { max-width:1240px; margin:auto; padding:24px 36px 20px; display:flex; justify-content:space-between; align-items:center; gap:16px; }
+h1 { margin:0; font-size:28px; line-height:1.15; letter-spacing:-.8px; font-weight:650; }
+.eyebrow { font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--muted); margin-bottom:7px; }
+.meta,.muted { color:var(--muted); }
+.meta { font-size:12px; text-align:right; }
+.live { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-bottom:3px; }
+.live::before { content:""; width:6px; height:6px; background:var(--ok); border-radius:50%; }
+.live.delayed::before { background:var(--warn); }
+.live.disconnected::before { background:var(--bad); }
+.errors { color:var(--bad); font-size:12px; padding:0 0 8px; }
+.errors:empty { display:none; }
+main { max-width:1240px; margin:auto; padding:0 36px 80px; }
+h2 { margin:0; font-size:20px; line-height:1.3; letter-spacing:-.3px; font-weight:600; }
+.section-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.count { color:var(--muted); font-size:12px; font-weight:400; margin-left:7px; }
+.quiet-button { background:none; border:0; color:var(--muted); padding:4px 0; font-size:12px; }
+.quiet-button:hover { color:var(--fg); }
+.attention { margin-bottom:18px; }
+.owner-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.owner-card { border:1px solid var(--line); border-radius:12px; background:var(--card); padding:14px; text-align:left; min-width:0; display:flex; flex-direction:column; align-items:stretch; gap:10px; }
+.owner-card:hover { border-color:var(--muted); }
+.owner-card .label { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted); }
+.owner-card .label .kind { display:flex; align-items:center; gap:6px; color:var(--warn); }
+.owner-card .label .kind::before { content:""; width:5px; height:5px; background:currentColor; border-radius:50%; }
+.owner-card strong { font-size:14px; font-weight:550; line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; min-height:61px; }
+.owner-card .action { font-size:11px; margin-top:auto; color:var(--muted); }
+.empty { color:var(--muted); font-size:13px; padding:16px 0; }
+.health { display:flex; flex-wrap:wrap; gap:8px 24px; align-items:center; padding:15px 18px; border:1px solid var(--line); border-radius:10px; background:var(--card); font-size:12px; margin-bottom:20px; }
+.health .health-label { color:var(--muted); margin-right:auto; }
+.health button { background:none; border:0; padding:0; text-align:left; }
+.health strong { font-weight:600; }
+.toolbar { display:flex; gap:10px; margin-bottom:14px; }
+.search { flex:1; display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--card); border-radius:9px; padding:10px 13px; color:var(--muted); }
+.search svg { width:16px; height:16px; flex:none; }
+.search input { width:100%; min-width:0; background:none; border:0; outline:0; font-size:13px; }
+.search:focus-within { border-color:var(--muted); }
+.toolbar select { background:var(--card); border:1px solid var(--line); border-radius:9px; padding:9px 12px; font-size:12px; }
+.groups { display:grid; gap:9px; }
+.group { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+summary { cursor:pointer; list-style:none; }
+summary::-webkit-details-marker { display:none; }
+.group > summary { display:flex; align-items:center; gap:16px; padding:15px 20px; }
+.group > summary::after { content:"+"; color:var(--muted); font-size:19px; margin-left:auto; }
+.group[open] > summary::after { content:"−"; }
+.group > summary h2 { font-size:16px; min-width:92px; }
+.group > summary .summary { font-size:12px; color:var(--muted); }
+.group-content { border-top:1px solid var(--line); padding:18px 20px 20px; }
+.group-content:empty { display:none; }
+.table-wrap { overflow:auto; }
+table { border-collapse:collapse; width:100%; font-size:12px; }
+td,th { text-align:left; vertical-align:top; padding:12px 12px 12px 0; border-bottom:1px solid var(--line); }
+th { color:var(--muted); font-weight:500; white-space:nowrap; user-select:none; }
+th[data-sort] { cursor:pointer; }
+tr:last-child td { border-bottom:0; }
+td.time { white-space:nowrap; color:var(--muted); font-variant-numeric:tabular-nums; }
+td.wide { min-width:240px; max-width:420px; word-break:break-word; }
+.row-button { border:0; padding:0; background:none; text-align:left; font-weight:550; }
+.row-button:hover { text-decoration:underline; }
+.row-note { display:block; color:var(--muted); font-size:11px; margin-top:3px; }
+.clip { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; cursor:pointer; max-width:460px; }
+.clip.open { display:block; }
+.tag { display:inline-block; padding:2px 7px; border-radius:5px; background:var(--cell-none); font-size:11px; white-space:nowrap; }
+.tag.bad { background:var(--cell-bad); } .tag.warn { background:var(--cell-warn); } .tag.ok { background:var(--cell-ok); }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.view { margin-top:10px; border-top:1px solid var(--line); }
+.view > summary { padding:12px 0; color:var(--muted); font-size:12px; display:flex; justify-content:space-between; align-items:center; }
+.view > summary::after { content:"+"; }
+.view[open] > summary::after { content:"−"; }
+.view-body { padding:4px 0 12px; overflow:auto; }
+.view-body h3 { margin:0 0 10px; font-size:13px; }
+.view .err { color:var(--bad); }
+.stat b { font-size:28px; font-variant-numeric:tabular-nums; }
+.stat .of,.stat .detail { color:var(--muted); }
+svg.spark { width:100%; height:36px; display:block; margin-top:6px; }
+svg.chart { width:100%; height:180px; display:block; }
+.legend { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--muted); }
+.legend i { display:inline-block; width:10px; height:3px; margin-right:4px; vertical-align:middle; }
+.bar { height:8px; border-radius:4px; background:var(--cell-none); overflow:hidden; margin-top:8px; }
+.bar > div { height:100%; background:var(--ok); }
+.matrix td { padding:1px; border:0; }
+.matrix td.cell { min-width:22px; height:18px; border-radius:3px; text-align:center; font-size:10px; }
+.matrix th { font-weight:400; font-size:11px; cursor:default; }
+.matrix th.col { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; }
+.cell.ok { background:var(--cell-ok); } .cell.warn { background:var(--cell-warn); } .cell.bad { background:var(--cell-bad); } .cell.none { background:var(--cell-none); }
+dl.kv { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0; }
+dl.kv dt { color:var(--muted); } dl.kv dd { margin:0; word-break:break-word; }
+.filters { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.filters select,.filters input { font:inherit; padding:6px; border:1px solid var(--line); border-radius:5px; background:var(--card); color:var(--fg); }
+.md p { margin:0 0 8px; }
+.md code,pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+.cite { font-size:11px; color:var(--muted); text-decoration:underline; }
+.release-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:16px; }
+.release-item { border:1px solid var(--line); border-radius:8px; padding:14px; text-align:left; background:var(--card); }
+.release-item strong { display:block; margin:8px 0 4px; font-weight:550; }
+.release-item .clip { font-size:12px; color:var(--muted); }
+.lane-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+.lane-item { text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--card); padding:12px 14px; }
+.lane-item .lane-head { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.lane-item .clip { margin-top:8px; font-size:12px; color:var(--muted); }
+.more { font-size:12px; color:var(--muted); margin:10px 0; }
+.more-button { border:1px solid var(--line); background:var(--card); border-radius:6px; padding:6px 10px; font-size:12px; }
+dialog { width:min(660px,calc(100vw - 40px)); max-height:85vh; border:1px solid var(--line); border-radius:16px; padding:26px; background:var(--card); color:var(--fg); box-shadow:0 24px 80px #0003; }
+dialog::backdrop { background:#0005; }
+.dialog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:20px; }
+.dialog-head h2 { font-size:22px; overflow-wrap:anywhere; }
+.dialog-head button { background:none; border:0; font-size:20px; color:var(--muted); padding:0 3px; }
+.detail-grid { display:grid; grid-template-columns:130px minmax(0,1fr); gap:14px 20px; margin:0; font-size:13px; }
+.detail-grid dt { color:var(--muted); } .detail-grid dd { margin:0; overflow-wrap:anywhere; }
+.dialog-link { display:inline-block; margin-top:22px; text-decoration:underline; font-size:13px; }
+@media (max-width:760px) { header { padding:22px 20px 18px; } main { padding:0 20px 80px; } h1 { font-size:24px; } .owner-grid { grid-template-columns:1fr; } .owner-card strong { min-height:0; -webkit-line-clamp:2; } .health { gap:8px 16px; } .health .health-label { width:100%; } .group > summary { padding:15px; gap:10px; flex-wrap:wrap; } .group > summary .summary { max-width:65%; } .release-list,.lane-list { grid-template-columns:1fr; } .detail-grid { grid-template-columns:100px minmax(0,1fr); } }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">long-running</h1>
-  <span class="meta" id="meta"></span>
-  <span class="errors" id="errors"></span>
-  <nav id="nav"></nav>
+  <div><div class="eyebrow">Program overview</div><h1 id="title">long-running</h1></div>
+  <div class="meta"><div class="live" id="live">Live</div><span id="meta">Collecting…</span></div>
 </header>
-<main id="main"></main>
+<main>
+  <div class="errors" id="errors" role="status"></div>
+  <section class="attention" aria-labelledby="attention-title">
+    <div class="section-heading"><h2 id="attention-title">Your attention <span class="count" id="owner-count"></span></h2><button class="quiet-button" id="owner-more" type="button">Show all</button></div>
+    <div class="owner-grid" id="owner-items"></div>
+  </section>
+  <div class="health" id="health" aria-label="Program health"></div>
+  <div class="toolbar">
+    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Search dashboard" disabled placeholder="Search stacks, lanes or PRs…"></label>
+    <select id="status-filter" aria-label="Filter by state" disabled><option value="all">All states</option><option value="attention">Needs attention</option><option value="ready">Ready</option></select>
+  </div>
+  <div class="groups" id="main"></div>
+</main>
+<dialog id="detail" aria-labelledby="detail-title"><div class="dialog-head"><h2 id="detail-title"></h2><button id="detail-close" type="button" aria-label="Close details">×</button></div><div id="detail-body"></div></dialog>
 <script>
 const REFRESH_MS=10000;
 const PACIFIC="America/Los_Angeles";
 const BAD=/\b(fail|failed|failure|red|lost|blocked|error|dirty|conflicting|no|never|drift|canceled|cancelled|not submitted)\b/i;
-const WARN=/\b(unplanned|held|hold|pending|warn|stale|new|in-pr|landed-not-live|running|in_progress|queued|waiting|ungraded|refused)\b/i;
-const OK=/\b(landed|live|clean|success|passed|completed|answered|yes|0\/0|submitted|converged)\b/i;
+const WARN=/\b(unplanned|unproven|held|hold|pending|needs proof|warn|stale|new|in-pr|landed-not-live|running|in_progress|queued|waiting|ungraded|refused)\b/i;
+const OK=/\b(landed|live|clean|success|passed|completed|answered|yes|deployable|0\/0|submitted|converged)\b/i;
 // @requires 
 // @defines $,URL_ATTR,el,esc,fmt,railLink,reduced,safeUrl,scrub
 const $=s=>document.querySelector(s);
@@ -90,7 +171,7 @@ function scrub(root){
   });
  });
 }
-const state={data:null,sort:{},filters:{},painted:{}};
+const state={data:null,sort:{},filters:{},painted:{},query:"",status:"all",ownerAll:false,expanded:{},searchOpen:null,searchViews:null,returnRecord:null};
 const pt=stamp=>stamp?new Date(stamp).toLocaleString("en-US",{timeZone:PACIFIC,month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";
 const ago=stamp=>{
  if(!stamp)return "";
@@ -112,7 +193,7 @@ function citeUrl(cite){
  if(kind==="pr"&&state.data)return `https://github.com/${state.data.drive.repo}/pull/${tail}`;
  return `/ask/read?ref=${encodeURIComponent(cite)}`;
 }
-const citeChip=cite=>`<a class="cite" href="${esc(citeUrl(cite))}" target="_blank" rel="noopener">${esc(cite)}</a>`;
+const citeChip=cite=>`<a class="cite" href="${esc(citeUrl(cite))}" target="_blank" rel="noopener">Source</a>`;
 const timeCell=(stamp,approx)=>`<td class="time" title="${esc(stamp||"")}">${approx?"≈":""}${esc(pt(stamp))} <span class="muted">${esc(ago(stamp))}</span></td>`;
 
 function cellHtml(column,row){
@@ -120,9 +201,9 @@ function cellHtml(column,row){
  if(column.time)return timeCell(value,row.approx);
  if(column.cite)return `<td>${value?citeChip(value):""}</td>`;
  if(column.badge)return `<td>${tag(value)}</td>`;
- const shown=Array.isArray(value)?value.join(", "):value;
+ const shown=column.field==="pr"&&value?"#"+value:Array.isArray(value)?value.join(", "):value;
  const body=column.wide?clip(shown):esc(shown??"");
- const href=column.link?row[column.link]:null;
+ const href=column.link?row[column.link]:column.field==="pr"?row.url:null;
  return `<td class="${column.wide?"wide":""}">${href&&safeUrl(href)?`<a href="${esc(href)}" target="_blank" rel="noopener">${body}</a>`:body}</td>`;
 }
 function sortRows(id,rows){
@@ -221,76 +302,197 @@ function cardHtml(view){
  const body=view.error?`<p class="err">${esc(view.error)}</p>`:RENDER[view.type](view);
  return `<h3>${esc(view.title||view.id)} <span class="count">${esc(viewCount(view))}</span></h3>${view.note?`<p class="muted">${esc(view.note)}</p>`:""}${body}`;
 }
+const GROUPS=["Stacks","Releases","Lanes","Incidents","Activity"];
+const PRIMARY={Stacks:"platy-stacks",Releases:"release-builds",Lanes:"lanes",Incidents:"incident-folders"};
+const LABELS={task:"Task",ask:"Question",decide:"Decision",board:"Board",pending:"Decision",manual:"Decision"};
+function rowsOf(id){return viewById(id)?.data?.rows||[]}
+function groupOf(view){
+ if(["release-builds","releases-per-hour"].includes(view.id)||view.section==="PRs and releases")return "Releases";
+ if(["Platy deployability","Census"].includes(view.section))return "Stacks";
+ if(["Lanes","Orca and watches"].includes(view.section))return "Lanes";
+ if(view.section==="Incidents")return "Incidents";
+ return "Activity";
+}
+function rowMatches(row){
+ const text=Object.values(row).filter(v=>v!=null).join(" ")+" "+(row.pr?"#"+row.pr:row.number?"#"+row.number:"");
+ if(!state.query.toLowerCase().split(/\s+/).filter(Boolean).every(term=>text.toLowerCase().includes(term)))return false;
+ if(state.status==="all")return true;
+ const value=row.deployable??row.state??row.status??row.verb;
+ if(state.status==="ready")return row.deployable!=null?row.deployable==="yes":tone(value)==="ok";
+ const prBlocked=row.pr!=null&&Boolean(row.hold||row.waiting||row.rules||["bad","warn"].includes(tone(row.checks))||["bad","warn"].includes(tone(row.mergeable)));
+ return row.deployable!=null?row.deployable!=="yes":prBlocked||["bad","warn"].includes(tone(value));
+}
+function filteredView(view){
+ if(view.type==="matrix"||!view.data)return view;
+ if(view.data.rows)return {...view,data:{...view.data,rows:view.data.rows.filter(rowMatches)}};
+ if(view.data.items)return {...view,data:{...view.data,items:view.data.items.filter(rowMatches)}};
+ return view;
+}
+function recordKey(id,row){return id==="platy-stacks"?row.stack:id==="lanes"?row.lane:id==="release-builds"?String(row.number):row.cite}
+function restoreRecordFocus(record){
+ const button=[...document.querySelectorAll("[data-record]")].find(n=>n.dataset.record===record.id&&n.dataset.key===record.key);
+ if(button)button.focus({preventScroll:true});
+}
+function paint(node,key,html){
+ if(state.painted[key]===html)return;
+ const focused=document.activeElement.closest("[data-record]");
+ const record=focused&&node.contains(focused)?{id:focused.dataset.record,key:focused.dataset.key}:null;
+ const open=new Set([...node.querySelectorAll(".clip.open")].map(n=>n.textContent));
+ state.painted[key]=html;node.innerHTML=html;
+ node.querySelectorAll(".clip").forEach(n=>{if(open.has(n.textContent))n.classList.add("open")});
+ if(record)restoreRecordFocus(record);
+}
+function ownerHtml(row,index){
+ const title=String(row.title||row.text).replace(/^Owner items?:\s*/i,"");
+ return `<button class="owner-card" type="button" data-record="owner" data-key="${esc(recordKey("owner",row))}" data-index="${index}"><span class="label"><span class="kind">${esc(LABELS[row.kind]||row.kind)}</span><span>${esc(ago(row.at))}</span></span><strong>${esc(title)}</strong><span class="action">${row.kind==="board"?"Review board":"View details"} ↗</span></button>`;
+}
+function renderOwner(){
+ const error=viewById("owner").error;
+ if(error){$("#owner-count").textContent="";$("#owner-more").hidden=true;paint($("#owner-items"),"owner",`<p class="bad">${esc(error)}</p>`);return}
+ const all=rowsOf("owner");
+ const rows=all.map((row,index)=>({row,index})).filter(({row})=>!state.query||String(row.title||row.text).toLowerCase().includes(state.query.toLowerCase()));
+ $("#owner-count").textContent=rows.length;
+ const more=$("#owner-more");more.hidden=rows.length<=3;more.textContent=state.ownerAll?"Show less":`Show all ${rows.length}`;
+ paint($("#owner-items"),"owner",(state.ownerAll?rows:rows.slice(0,3)).map(({row,index})=>ownerHtml(row,index)).join("")||`<div class="empty">${state.query?"No matching items":"Nothing waiting on you"}</div>`);
+}
+function renderHealth(){
+ const health=state.data.health;
+ const stacks=health.stacks,last=health.last_release;
+ const stackText=stacks?`<strong>${stacks.at_zero} / ${esc(stacks.total)}</strong> stacks at 0/0`:"Stack status unavailable";
+ const releaseText=last?`Release <strong>#${esc(last.number)}</strong> ${tag(last.state)}`:"No release result recorded";
+ paint($("#health"),"health",`<span class="health-label">Program health</span><button type="button" data-group="Stacks">${stackText}</button><button type="button" data-group="Releases">${releaseText}</button><button type="button" data-group="Incidents" class="muted">Incidents: status not recorded</button>`);
+}
+function groupSummary(name){
+ if(PRIMARY[name]&&viewById(PRIMARY[name]).error)return "Data unavailable";
+ const rows=rowsOf(PRIMARY[name]);
+ if(state.query||state.status!=="all")return `${state.data.views.filter(v=>v.id!=="owner"&&groupOf(v)===name&&v.type!=="matrix").reduce((sum,v)=>sum+(v.data?.rows||v.data?.items||[]).filter(rowMatches).length,0)} matches`;
+ if(name==="Stacks")return `${rows.length} stacks · ${rows.filter(r=>r.deployable==="yes").length} deployable · ${rows.filter(r=>r.deployable==="blocked").length} blocked`;
+ if(name==="Releases"){const last=rows[0];return last?`Latest #${last.number} · ${last.state}`:"No builds recorded"}
+ if(name==="Lanes")return `${rows.length} lanes · ${rowsOf("orca-active").length} workers`;
+ if(name==="Incidents")return "Reports and investigation history";
+ return "Tasks, boards, plans and source records";
+}
+function stackHtml(rows){
+ const shown=state.expanded.Stacks?rows:rows.slice(0,12);
+ const body=shown.map(row=>{
+  const index=rowsOf("platy-stacks").indexOf(row);
+  const deployable=row.deployable==="yes"?"Deployable":row.deployable==="blocked"?"Blocked":"Needs proof";
+  const last=row.platy_at?`${pt(row.platy_at)} PT`:"No Platy deploy recorded";
+  return `<tr><td><button class="row-button" type="button" data-record="platy-stacks" data-key="${esc(recordKey("platy-stacks",row))}" data-index="${index}">${esc(row.stack)}</button><span class="row-note">${esc(row.target)}</span></td><td>${tag(deployable)}</td><td>${tag(row.zero)}</td><td class="time">${esc(last)}</td><td class="wide">${clip(row.reason||"")}</td><td>${esc(row.doing_lane||"Unassigned")}</td></tr>`;
+ }).join("");
+ return shown.length?`<div class="table-wrap"><table><thead><tr><th>Stack</th><th>Platy</th><th>vs dev</th><th>Last Platy deploy</th><th>Blocker</th><th>On it</th></tr></thead><tbody>${body}</tbody></table></div>${moreHtml("Stacks",shown.length,rows.length)}`:`<p class="empty">No matching stacks</p>`;
+}
+function moreHtml(name,shown,total){return total>shown?`<p class="more"><button class="more-button" type="button" data-more="${name}">Show all ${total}</button></p>`:total?`<p class="more">${total} records</p>`:""}
+function releaseHtml(rows){
+ const shown=state.expanded.Releases?rows:rows.slice(0,3);
+ return `<div class="release-list">${shown.map(row=>`<button class="release-item" type="button" data-record="release-builds" data-key="${esc(recordKey("release-builds",row))}" data-index="${rowsOf("release-builds").indexOf(row)}">${tag(row.state)}<strong>#${esc(row.number)} · ${esc(row.kind)}</strong><div class="clip">${esc(row.message)}</div><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Releases",shown.length,rows.length)}`;
+}
+function laneHtml(rows){
+ const shown=state.expanded.Lanes?rows:rows.slice(0,6);
+ return `<div class="lane-list">${shown.map(row=>`<button class="lane-item" type="button" data-record="lanes" data-key="${esc(recordKey("lanes",row))}" data-index="${rowsOf("lanes").indexOf(row)}"><span class="lane-head"><strong>${esc(row.lane)}</strong>${tag(row.verb)}</span><span class="clip">${esc(row.text)}</span><span class="row-note">${esc(pt(row.at))} PT</span></button>`).join("")}</div>${moreHtml("Lanes",shown.length,rows.length)}`;
+}
+function renderGroup(node,name){
+ const content=node.querySelector(".group-content");
+ const views=state.data.views.filter(v=>v.id!=="owner"&&groupOf(v)===name);
+ const primary=PRIMARY[name];
+ let area=content.querySelector(".primary");
+ if(!area){area=el("div","primary");content.prepend(area)}
+ const rows=rowsOf(primary).filter(rowMatches);
+ const error=primary?viewById(primary).error:null;
+ const body=error?`<p class="bad">${esc(error)}</p>`:name==="Stacks"?stackHtml(rows):name==="Releases"?releaseHtml(rows):name==="Lanes"?laneHtml(rows):name==="Incidents"?`<p class="muted">These records are incident history. Active status is not recorded by this source.</p>`:"";
+ paint(area,"primary:"+name,body);
+ const remaining=views.filter(v=>!["platy-stacks","release-builds","lanes"].includes(v.id));
+ const ids=new Set(remaining.map(v=>"v-"+v.id));
+ [...content.querySelectorAll(":scope > .view")].forEach(card=>{if(!ids.has(card.id)){delete state.painted[card.dataset.view];card.remove()}});
+ remaining.forEach((view,index)=>{
+  let card=document.getElementById("v-"+view.id);
+  if(!card){card=el("details","view",`<summary><span></span></summary><div class="view-body"></div>`);card.id="v-"+view.id;card.dataset.view=view.id}
+  place(content,card,index+1);
+  const matched=(view.data?.rows||view.data?.items||[]).some(rowMatches)||String(view.title).toLowerCase().includes(state.query.toLowerCase());
+  card.hidden=!!state.query&&!matched;
+  if(state.query&&matched&&card.dataset.query!==state.query)card.open=true;
+  card.dataset.query=state.query;
+  card.querySelector("summary span").innerHTML=`${esc(view.title||view.id)} <span class="count">${esc(viewCount(filteredView(view)))}</span>`;
+  if(card.open&&!card.contains(document.activeElement))paint(card.querySelector(".view-body"),view.id,cardHtml(filteredView(view)));
+ });
+}
 function render(){
  const d=state.data;
- if(!d||!d.generated_at){$("#meta").textContent="collecting…";return}
- const drive=d.drive;
- document.title=`${drive.program} · long-running`;
- $("#title").textContent=`${drive.program} (${drive.drive})`;
- $("#meta").textContent=`${drive.repo} · updated ${pt(d.generated_at)}`;
+ if(!d?.generated_at)return;
+ document.title=`${d.drive.program} · long-running`;
+ $("#title").textContent=d.drive.program;
+ $("#meta").textContent=`Updated ${pt(d.generated_at)} PT`;
+ const delayed=Date.now()-Date.parse(d.generated_at)>REFRESH_MS*6;
+ $("#live").textContent=delayed?"Data delayed":"Live";$("#live").classList.toggle("delayed",delayed);$("#live").classList.remove("disconnected");
  $("#errors").textContent=Object.entries(d.errors).map(([k,v])=>`${k}: ${v}`).join(" · ");
- const sections=[];
- d.views.forEach(v=>{let s=sections.find(x=>x.name===(v.section||"Views"));if(!s){s={name:v.section||"Views",views:[]};sections.push(s)}s.views.push(v)});
- const rank=name=>{const at=(d.sections||[]).indexOf(name);return at<0?(d.sections||[]).length:at};
- sections.sort((a,b)=>rank(a.name)-rank(b.name));
- sections.forEach(s=>s.views.sort((a,b)=>SMALL.has(b.type)-SMALL.has(a.type)));
- const slug=n=>"s-"+n.toLowerCase().replace(/[^a-z0-9]+/g,"-");
- $("#nav").innerHTML=sections.map(s=>`<a href="#${slug(s.name)}">${esc(s.name)}</a>`).join("");
+ renderOwner();renderHealth();
  const main=$("#main");
- const live=new Set(sections.map(s=>slug(s.name)));
- [...main.children].forEach(node=>{if(!live.has(node.id)){node.querySelectorAll(".card").forEach(card=>delete state.painted[card.dataset.view]);node.remove()}});
- sections.forEach((s,i)=>{
-  let node=document.getElementById(slug(s.name));
-  if(!node){node=el("section","section",`<h2>${esc(s.name)}</h2><div class="grid"></div>`);node.id=slug(s.name)}
-  place(main,node,i);
-  const grid=node.querySelector(".grid");
-  const ids=new Set(s.views.map(v=>"v-"+v.id));
-  [...grid.children].forEach(card=>{if(!ids.has(card.id)){delete state.painted[card.dataset.view];card.remove()}});
-  s.views.forEach((v,j)=>{
-   let card=document.getElementById("v-"+v.id);
-   if(!card){card=el("div","card"+(SMALL.has(v.type)?" small":""));card.id="v-"+v.id;card.dataset.view=v.id}
-   place(grid,card,j);
-   const json=JSON.stringify(v);
-   if(state.painted[v.id]===json||card.contains(document.activeElement))return;
-   state.painted[v.id]=json;
-   const open=new Set([...card.querySelectorAll(".clip.open")].map(n=>n.textContent));
-   card.innerHTML=cardHtml(v);
-   card.querySelectorAll(".clip").forEach(n=>{if(open.has(n.textContent))n.classList.add("open")});
-  });
+ GROUPS.forEach((name,index)=>{
+  let node=document.getElementById("g-"+name);
+  if(!node){node=el("details","group",`<summary><h2>${name}</h2><span class="summary"></span></summary><div class="group-content"></div>`);node.id="g-"+name;node.dataset.group=name}
+  place(main,node,index);
+  node.querySelector(".summary").textContent=groupSummary(name);
+  if(node.open)renderGroup(node,name);
  });
+ $("#search").disabled=false;$("#status-filter").disabled=false;
 }
 function place(parent,node,index){if(parent.children[index]!==node)parent.insertBefore(node,parent.children[index]||null)}
 function viewById(id){return (state.data?.views||[]).find(v=>v.id===id)}
+function detailsHtml(row,id){
+ let fields;
+ if(id==="platy-stacks")fields=[["Platy",row.deployable==="yes"?"Deployable":row.deployable==="blocked"?"Blocked":"Needs proof"],["vs dev",row.zero],["Last Platy deploy",row.platy_at?`${pt(row.platy_at)} PT · #${row.platy_build}`:"No deploy recorded"],["Last deploy result",row.platy_state],["Blocker",row.reason||"None recorded"],["On it",row.doing_lane||"Unassigned"],["Lane work",row.doing],["Last CLI deploy",row.cli_at?`${pt(row.cli_at)} PT`:null]];
+ else fields=Object.entries(row).filter(([key,value])=>value!=null&&!['id','cite','url','title','lane','stack','path','text','file','line','head','commit'].includes(key)).map(([key,value])=>[key.replace(/_/g," "),value]);
+ const body=`<dl class="detail-grid">${fields.filter(([,value])=>value!=null&&value!=="").map(([label,value])=>`<dt>${esc(label)}</dt><dd>${esc(Array.isArray(value)?value.join(", "):/^\d{4}-\d\d-\d\dT/.test(String(value))?pt(value)+" PT":value)}</dd>`).join("")}</dl>`;
+ const text=["platy-stacks","owner"].includes(id)?"":row.title||row.text;
+ const href=row.kind==="board"?row.url:row.platy_url||row.url||(row.cite?citeUrl(row.cite):null);
+ return `${text?`<p class="md">${esc(text)}</p>`:""}${body}${href&&safeUrl(href)?`<a class="dialog-link" href="${esc(href)}" target="_blank" rel="noopener">${row.kind==="board"?"Open board":id==="platy-stacks"?"View Platy deploy":"Open source"} ↗</a>`:""}`;
+}
+function openRecord(id,index){
+ const row=rowsOf(id)[index];
+ state.returnRecord={id,key:recordKey(id,row)};
+ $("#detail-title").textContent=row.stack||row.lane||row.title||(row.number?`Build #${row.number}`:viewById(id).title);
+ $("#detail-body").innerHTML=detailsHtml(row,id);
+ $("#detail").showModal();
+}
+document.addEventListener("toggle",e=>{
+ if(e.target.matches(".group")&&e.target.open&&state.data)renderGroup(e.target,e.target.dataset.group);
+ if(e.target.matches(".view")&&e.target.open){const id=e.target.dataset.view;paint(e.target.querySelector(".view-body"),id,cardHtml(filteredView(viewById(id))))}
+},true);
 document.addEventListener("click",e=>{
+ const record=e.target.closest("[data-record]");
+ if(record){openRecord(record.dataset.record,Number(record.dataset.index));return}
+ const group=e.target.closest("button[data-group]");
+ if(group){const node=document.getElementById("g-"+group.dataset.group);node.open=true;node.scrollIntoView({behavior:"smooth",block:"start"});return}
+ const more=e.target.closest("[data-more]");
+ if(more){state.expanded[more.dataset.more]=true;render();return}
  const clipNode=e.target.closest(".clip");
  if(clipNode&&!e.target.closest("a"))clipNode.classList.toggle("open");
  const th=e.target.closest("th[data-sort]");
- if(th){
-  const id=th.closest(".card").dataset.view,field=th.dataset.sort,prev=state.sort[id];
-  state.sort[id]={field,desc:prev&&prev.field===field?!prev.desc:true};
-  delete state.painted[id];render();
- }
+ if(th){const id=th.closest(".view").dataset.view,field=th.dataset.sort,prev=state.sort[id];state.sort[id]={field,desc:prev&&prev.field===field?!prev.desc:true};delete state.painted[id];render()}
 });
+$("#owner-more").addEventListener("click",()=>{state.ownerAll=!state.ownerAll;renderOwner()});
+$("#detail-close").addEventListener("click",()=>$("#detail").close());
+$("#detail").addEventListener("close",()=>restoreRecordFocus(state.returnRecord));
+$("#detail").addEventListener("click",e=>{if(e.target===$("#detail")){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()}});
+$("#search").addEventListener("input",e=>{
+ if(!state.searchOpen&&e.target.value){state.searchOpen=Object.fromEntries(GROUPS.map(name=>[name,document.getElementById("g-"+name).open]));state.searchViews=Object.fromEntries([...document.querySelectorAll(".view")].map(node=>[node.dataset.view,node.open]))}
+ state.query=e.target.value;
+ if(state.query)GROUPS.forEach(name=>{document.getElementById("g-"+name).open=state.data.views.some(v=>groupOf(v)===name&&v.type!=="matrix"&&((v.data?.rows||v.data?.items||[]).some(rowMatches)||String(v.title).toLowerCase().includes(state.query.toLowerCase())))});
+ else if(state.searchOpen){GROUPS.forEach(name=>document.getElementById("g-"+name).open=state.searchOpen[name]);document.querySelectorAll(".view").forEach(node=>node.open=!!state.searchViews[node.dataset.view]);state.searchOpen=null;state.searchViews=null}
+ render();
+});
+$("#status-filter").addEventListener("change",e=>{state.status=e.target.value;render()});
 document.addEventListener("input",e=>{
- const box=e.target.closest(".filters");
- if(!box)return;
- const id=box.dataset.view;
- const f=state.filters[id]||(state.filters[id]={lane:"",verb:"",text:""});
- f[e.target.dataset.filter]=e.target.value;
- const card=document.getElementById("v-"+id),view=viewById(id);
- const focus=e.target.dataset.filter,caret=e.target.selectionStart;
- card.innerHTML=cardHtml(view);
- const again=card.querySelector(`[data-filter="${focus}"]`);
- again.focus();if(caret!=null&&again.setSelectionRange)again.setSelectionRange(caret,caret);
+ const box=e.target.closest(".filters");if(!box)return;
+ const id=box.dataset.view,f=state.filters[id]||(state.filters[id]={lane:"",verb:"",text:""});f[e.target.dataset.filter]=e.target.value;
+ const card=document.getElementById("v-"+id),focus=e.target.dataset.filter,caret=e.target.selectionStart;
+ const body=card.querySelector(".view-body");body.innerHTML=cardHtml(filteredView(viewById(id)));delete state.painted[id];
+ const again=body.querySelector(`[data-filter="${focus}"]`);again.focus();if(caret!=null&&again.setSelectionRange)again.setSelectionRange(caret,caret);
 });
 async function refresh(){
- try{
-  const r=await fetch("/state.json",{cache:"no-store"});
-  state.data=await r.json();
-  render();
- }catch(e){$("#errors").textContent="dashboard unreachable: "+e}
+ try{const r=await fetch("/state.json",{cache:"no-store"});if(!r.ok)throw new Error(`HTTP ${r.status}`);state.data=await r.json();render()}
+ catch(e){$("#live").textContent="Disconnected";$("#live").classList.add("disconnected");$("#errors").textContent="Dashboard unreachable: "+e.message}
 }
-
 refresh();
 setInterval(refresh,REFRESH_MS);
 </script>

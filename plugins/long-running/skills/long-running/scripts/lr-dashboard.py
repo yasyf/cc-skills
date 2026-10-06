@@ -731,6 +731,13 @@ class Collector:
             "generated_at": iso(moment),
             "drive": sources["drive"][0],
             "errors": errors,
+            "health": {
+                "stacks": {
+                    "total": len(sources["platy"]),
+                    "at_zero": sum(row["zero"] == "0/0" for row in sources["platy"]),
+                } if platy_config and "platy" not in errors else None,
+                "last_release": next((row for row in builds if row["state"] in ("passed", "failed", "canceled", "cancelled")), None),
+            },
             "views": rendered,
             "sections": [str(section) for section in config.get("sections") or []],
         }
