@@ -224,7 +224,8 @@ Do, in this order, forever:
      ledger.py route --pr <n> --job "<the RULES line>"
      Send REVIEW-ERROR at attempt 2 to the root as information, not RULING NEEDED.
      Let attempt 1 retry on the next sweep. Neither attempt holds the PR.
-     Take no action on CLEAN, REVIEWING or OVERRIDDEN.
+     Take no action on CLEAN, REVIEWING, GENERATED or OVERRIDDEN. GENERATED names
+     the paths .gitattributes marks linguist-generated, which the review skips.
      Never edit review rows or write override lines.
   3. Only for repos without stack-enqueue: grade stacks. Every pass enqueues the
      largest contiguous green, approved, unheld, unqueued bottom prefix of EVERY
