@@ -1628,13 +1628,13 @@ def test_list_reads_back_pr_rows_oldest_first_filtered_by_lane_and_state(capsys)
     [
         ({"verdict": "findings"}, True),
         ({"verdict": "findings", "override": "R12"}, False),
-        ({"verdict": "pending"}, False),
+        ({"verdict": "pending"}, True),
         ({"verdict": "error"}, False),
         ({"verdict": "clean"}, False),
     ],
     ids=["findings", "overridden", "pending", "error", "clean"],
 )
-def test_list_blocks_a_head_only_on_an_unwaived_finding(review, blocked, capsys):
+def test_list_blocks_a_head_on_a_pending_review_or_an_unwaived_finding(review, blocked, capsys):
     old = {"key": f"review/24071@{OLD_HEAD}", "fields": {"pr": "24071", "head": OLD_HEAD, "verdict": "findings"}}
     current = {"key": f"review/24071@{HEAD}", "fields": {"pr": "24071", "head": HEAD, **review}}
     shell = FakeShell(rows=[{"key": "24071", "fields": {"lane": LANE, "state": "open", "head": HEAD}}, old, current])
@@ -1743,6 +1743,20 @@ def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
     assert f"#{PR} {HEAD[:9]} has rules-review findings" in capsys.readouterr().out
 
     review["fields"]["override"] = "R901"
+    assert label(shell, "--expect-head", HEAD) == 0
+    assert shell.labelled == [f"{PR}:merge"]
+
+
+def test_a_head_whose_rules_review_is_pending_is_never_labelled(capsys):
+    shell = desk_shell()
+    review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "pending"}}
+    shell.store["rows"].append(review)
+
+    assert label(shell, "--expect-head", HEAD) == 1
+    assert shell.labelled == []
+    assert f"#{PR} {HEAD[:9]} has a rules review in progress" in capsys.readouterr().out
+
+    review["fields"]["verdict"] = "clean"
     assert label(shell, "--expect-head", HEAD) == 0
     assert shell.labelled == [f"{PR}:merge"]
 

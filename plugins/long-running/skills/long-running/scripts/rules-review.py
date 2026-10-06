@@ -4,11 +4,13 @@
     rules-review.py sweep --repo owner/name --ledger ID --checkout DIR [--inbox FILE]... [--state DIR] [--parallel N]
 
 Each sweep collects finished reviews, dispatches one detached gpt-6.1-sol xhigh review on the standard tier for every open PR head
-without one, applies the root inbox's ``rules-override`` lines, and posts each head's findings once as a PR review.
-Verdicts live on ``review/<pr>@<head>`` ledger rows; ``ledger.py list`` marks a PR ``rules_blocked`` only while
-its current head's review holds a finding no override waives, and the landing runner holds blocked PRs. A head with
-no review, a pending review, or an errored one, a diff over the review bound included, lands. Paths the checkout's
-``.gitattributes`` marks ``linguist-generated`` leave the reviewed diff and its bound, and a ``GENERATED`` line names them.
+without one, applies the root inbox's ``rules-override`` lines, posts each head's findings once as a PR review, and
+mirrors each head's verdict into its ``rules-review`` commit status. Verdicts live on ``review/<pr>@<head>`` ledger
+rows; ``ledger.py list`` marks a PR ``rules_blocked`` while its current head's review is pending or holds a finding no
+override waives, and the landing runner holds blocked PRs. The commit status reads ``pending`` and ``failure`` in the
+same two cases, so ``stack-enqueue`` refuses the head however it is called. A head with no review, or an errored one,
+a diff over the review bound included, lands. Paths the checkout's ``.gitattributes`` marks ``linguist-generated``
+leave the reviewed diff and its bound, and a ``GENERATED`` line names them.
 
 An override is one root inbox line, ``R<n> rules-override #<pr> <ruling>[ <ruling>...] :: <reason>``, naming each
 ruling id it waives for that PR on every head.
@@ -40,6 +42,8 @@ FILE_SECTION = re.compile(r"^(?=diff --git )", re.M)
 FILE_HEADER = re.compile(r"^diff --git a/.+ b/(?P<path>.+)$")
 GENERATED_ATTR = "linguist-generated"
 GENERATED_VALUES = frozenset({"set", "true"})
+STATUS_CONTEXT = "rules-review"
+STATUS_DESCRIPTION_CHARS = 140
 
 PROMPT = """You are the pre-merge rules reviewer for pull request #{pr} at head {head} in {repo}. The landing desk enqueues this PR only after your verdict.
 
@@ -181,6 +185,19 @@ def comment_body(head: str, findings: list[dict], rulings: dict[str, dict]) -> s
     return "\n\n".join([COMMENT_HEAD.format(head=short(head), count=len({finding["ruling"] for finding in findings})), *blocks, MARKER.format(head=head)])
 
 
+def commit_status(review: dict[str, str]) -> tuple[str, str]:
+    if review["verdict"] == "pending":
+        return "pending", "rules review in progress; the head waits for its verdict"
+    if review["verdict"] == "clean":
+        return "success", "no ruling violated"
+    if review["verdict"] == "error":
+        return "success", f"not reviewed, so not held: {review['error']}"[:STATUS_DESCRIPTION_CHARS]
+    rulings = ",".join(sorted({finding["ruling"][:SHORT_ID] for finding in json.loads(review["findings"])}))
+    if review.get("override"):
+        return "success", f"findings on {rulings} waived by {review['override']}"[:STATUS_DESCRIPTION_CHARS]
+    return "failure", f"rulings violated: {rulings}; a new head fixes them or a root rules-override waives them"[:STATUS_DESCRIPTION_CHARS]
+
+
 def sites(findings: list[dict]) -> frozenset[tuple[str, str]]:
     return frozenset((finding["ruling"], finding["cite"].split(":", 1)[0]) for finding in findings)
 
@@ -225,6 +242,7 @@ class Sweep:
             self.dispatch_missing()
             self.apply_overrides()
             self.post_findings()
+            self.post_statuses()
 
     def open_heads(self) -> list[tuple[str, str, dict[str, str]]]:
         heads = [(pr, ledger.current_head(fields), fields) for pr, fields in self.rows.items() if pr.isdigit() and ledger.is_open(fields)]
@@ -320,6 +338,23 @@ class Sweep:
                 self.set(key, {"comment_error": (failed.stderr or str(failed)).strip()[:200]})
                 continue
             self.set(key, {"comment": "posted", "comment_error": ""})
+
+    def post_statuses(self) -> None:
+        for pr, head, _ in self.open_heads():
+            key = ledger.review_key(pr, head)
+            review = self.rows.get(key)
+            if review is None:
+                continue
+            state, description = commit_status(review)
+            if review.get("status") == state and review.get("status_description") == description:
+                continue
+            payload = {"state": state, "context": STATUS_CONTEXT, "description": description}
+            try:
+                self.shell.run(["gh", "api", f"repos/{self.repo}/statuses/{head}", "--method", "POST", "--input", "-"], stdin=json.dumps(payload))
+            except subprocess.CalledProcessError as failed:
+                self.set(key, {"status_error": (failed.stderr or str(failed)).strip()[:200]})
+                continue
+            self.set(key, {"status": state, "status_description": description, "status_error": ""})
 
     def already_posted(self, pr: str, head: str) -> bool:
         pages = json.loads(self.shell.run(["gh", "api", "--paginate", "--slurp", f"repos/{self.repo}/pulls/{pr}/reviews?per_page=100"]))
