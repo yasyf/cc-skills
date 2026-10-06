@@ -1088,7 +1088,10 @@ Question-reply actions currently complete on send without those worker acks.
 Claude, Codex, Orca, terminals, PTY daemons, or their supervisors. A settled
 worker keeps its session open. No launch receipt or missing heartbeat changes this.
 The sweep names each newly settled dispatch once in a `RECLAIM` line with the
-config's `orca.gc` command, and the root runs that command under R195.
+config's `orca.gc` command, and the root runs that command under R195. The root,
+not the runner, ends a lane it has decided is done (stood down, superseded, or its
+deliverable on disk) with `<orca.gc> --run <run> --done <ctx>`. It never messages
+the lane to send `worker_done` first.
 
 *Prevents the 12:35Z kill that ended every session of a drive (release v3, 2026-09-30).*
 
@@ -1485,9 +1488,9 @@ sole inbox consumer. It does not route through desk-runner or common
 Give a canonical remote worker the skill's complete VM brief and source-return
 contract. It returns an uncommitted patch and strict report; the root collects,
 reviews, and ships the source. Do not copy the Mac lane-ship template's paths or
-PR obligations into that brief. Retain every session, including explicit local
-root and extremely sensitive Fable workers; completion or a cleanup recommendation
-never authorizes closing one. Dedicated remote API keys belong only to the
+PR obligations into that brief. A remote worker keeps its runtime and workspace
+after completion. A local lane the root has decided is done ends under R195's
+`--done` route. Dedicated remote API keys belong only to the
 worker process; local Fable keeps existing Mac interactive authentication.
 
 For in-process subagents, use one of this plugin's two lane types with the
