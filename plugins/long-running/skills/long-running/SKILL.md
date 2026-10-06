@@ -729,7 +729,8 @@ which polls each repository at most once every 30 seconds. Its one store is a cc
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
 and the landing are fields on that row. Lane messages are `msg/<seq>` rows and owner
 asks are `ask/<seq>` rows beside the PR rows. Rules reviews are `review/<pr>@<head>`
-rows that hold landing only for unwaived findings on the PR's current head. cc-notes
+rows that hold landing while the PR's current head has a pending review or an
+unwaived finding. cc-notes
 finds the ledger through the working directory's repository, so a lane outside that
 checkout passes `ledger.py -C <checkout> <verb>`.
 

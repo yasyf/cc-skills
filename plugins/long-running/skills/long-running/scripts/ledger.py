@@ -36,7 +36,7 @@ repository's PR list is never read and this script calls no GraphQL itself: ``re
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``msg/<seq>`` rows, owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
-``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review holds an unwaived finding. A landing is proven by a
+``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
@@ -128,7 +128,7 @@ ORCA_IN_PROGRESS = "in_progress"
 PROMPT_MINUTES = 5
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
-UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules")
+UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules", "rules-pending")
 QUEUE_BOT = "graphite-app[bot]"
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -203,6 +203,7 @@ REFUSAL = {
     "moved": "head moved: expected {expected}, the forge has {head}; grade the new head before labelling",
     "held": "#{pr} is held: {reason} until {until}",
     "rules": "#{pr} {head} has rules-review findings; a new head fixes them or a root `rules-override` line waives them",
+    "rules-pending": "#{pr} {head} has a rules review in progress; retry once its verdict lands",
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
     "pulled": "{head} had its label pulled at {at} ({reason}); the same head is never re-queued",
     "mergeable": "mergeable_state {state}: only {allowed} may be labelled",
@@ -537,8 +538,12 @@ def review_key(pr: str, head: str) -> str:
     return f"{REVIEW_PREFIX}{pr}@{head}"
 
 
+def review_pending(review: dict[str, str]) -> bool:
+    return review.get("verdict") == "pending"
+
+
 def review_blocks(review: dict[str, str]) -> bool:
-    return review.get("verdict") == "findings" and not review.get("override")
+    return review_pending(review) or (review.get("verdict") == "findings" and not review.get("override"))
 
 
 def rules_blocked(rows: dict[str, dict[str, str]], pr: str) -> bool:
@@ -1388,7 +1393,10 @@ def guard(
         raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
     if lane_held(fields) and fields["reported_head"] == head:
         raise refusal("held", pr=pr, reason="its lane reported this head held", until="the lane reports it again")
-    if review_blocks(rows.get(review_key(pr, head), {})):
+    rules = rows.get(review_key(pr, head), {})
+    if review_pending(rules):
+        raise refusal("rules-pending", pr=pr, head=head[:9])
+    if review_blocks(rules):
         raise refusal("rules", pr=pr, head=head[:9])
     if fields.get("label_head") == head and fields.get("label_pulled_at"):
         raise refusal("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])

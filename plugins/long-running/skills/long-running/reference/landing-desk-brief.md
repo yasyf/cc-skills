@@ -27,10 +27,14 @@ them itself in the same turn under D3. Approval covers only the named head.
 It never relays a lane's ETA for a green PR. The desk records an outside label
 on its next refresh as `in the queue, labelled outside the desk`.
 
-Hold a PR only for a recorded, unwaived finding on its current head. No review,
-no base, pending and errored reviews all fail open. Clean and overridden heads
-pass. Only the root writes override lines in the root inbox, relaying the owner
-or deciding itself:
+Hold a PR while its current head's review is pending or records an unwaived
+finding. No review, no base, and errored reviews fail open. Clean and overridden
+heads pass. The sweep mirrors each verdict into the head's `rules-review` commit
+status, so stack-enqueue refuses a pending or failing head even when a lane runs
+it directly.
+
+Only the root writes override lines in the root inbox, relaying the owner or
+deciding itself:
 `R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.
 Override only named rulings. Use a cc-notes answer ID prefix of at least seven
 hex characters or the exact `AGENTS.md:<line>` ID for each ruling. Name every
@@ -214,9 +218,11 @@ Do, in this order, forever:
      Repeat --inbox for additional root inbox files. The sweep collects finished
      reviews and dispatches unreviewed heads without waiting. It runs at most six
      reviews at once by default; use --parallel <n> to change the cap.
-     Hold a PR only for a recorded, unwaived finding on its current head. No review,
-     no base, pending and errored reviews all fail open. Clean and overridden heads
-     pass. The landing runner passes rules-blocked PRs to stack-enqueue --hold.
+     Hold a PR while its current head's review is pending or records an unwaived
+     finding. No review, no base, and errored reviews fail open. Clean and
+     overridden heads pass. The landing runner passes rules-blocked PRs to
+     stack-enqueue --hold, and the head's `rules-review` commit status makes
+     stack-enqueue refuse a pending or failing head on any other call.
      The green prefix below a blocked PR can still land.
      Send each RULES line to the root at once as RULING NEEDED. The root has the
      lane fix it on a new head or writes an override. Post the RULES line to the
