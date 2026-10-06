@@ -1896,12 +1896,14 @@ itself:
 - A ledger PR row closes on a squash on `origin/HEAD` whose subject ends `(#N)`, the ledger's own landing proof.
 
 The `dashboard-curator` desk closes the rest, the items whose closing record exists
-only in words or under another name. It writes one cci record per item and nothing
-else. For an item born in cci it posts `--kind done --resolves <seq>`; for any other cite,
-`--kind done --topic resolved:<cite>`. Each record names its closing record. The
-dashboard drops every cite a `resolved:` topic names, from the owner list, incidents
-and PRs. `lr-dashboard.py open` prints the open items one per line, so the desk never
-reads the full state. `reference/dashboard-curator-brief.md` is its brief.
+only in words or under another name. It posts one cci record per sweep,
+`--kind done --topic resolved:<cite>,<cite>,...` naming every cite it closed, with each
+item's closing record in the record's `--path` body. The dashboard drops every cite a
+`resolved:` topic names from the owner list, incidents, PRs, and the cci digest's open
+items (`cci:<seq>` cites). That close is the dashboard's alone: cci's own digest still
+lists a `cci:<seq>` item open. `lr-dashboard.py open` prints the open items one per
+line, so the desk never reads the full state. `reference/dashboard-curator-brief.md`
+is its brief.
 
 #### Platy deployability
 

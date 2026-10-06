@@ -32,6 +32,8 @@ NAMING = frozenset({"fix-live", "recovered", "not-ours", "duplicate"})
 STATUS = {"incident": "open", "evidence": "investigating", "mechanism": "mechanism found", "fix-live": "fix live", "recovered": "recovered", "not-ours": "not ours", "duplicate": "duplicate", "done": "done"}
 SETTLED = frozenset({"fix live", "recovered", "not ours", "duplicate", "done"})
 CURATED = "resolved:"
+CITE_SEPARATOR = ","
+DIGEST_OPEN = ("open_asks", "open_holds", "open_incidents", "open_blockers", "open_defects", "untracked_holds")
 LIFTING = frozenset({"lift", "go", "decision", "owner", "answer"})
 LIFT_LEAD = re.compile(r"^(?:ROOT(?: [\dx:]+ [AP]M)?:\s*)?LIFT(?:ED|S)?\b")
 SLUG = re.compile(r"(?<![\w-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d{4}(?![\w-])")
@@ -202,7 +204,11 @@ def keyed(records: list[dict], known: set[str]) -> dict[int, str]:
 
 
 def curated(records: list[dict]) -> set[str]:
-    return {record["topic"].removeprefix(CURATED) for record in records if (record.get("topic") or "").startswith(CURATED)}
+    return {cite for record in records if (record.get("topic") or "").startswith(CURATED) for cite in record["topic"].removeprefix(CURATED).split(CITE_SEPARATOR) if cite}
+
+
+def uncurated(digest: dict, closed: set[str]) -> dict:
+    return {key: [record for record in value or [] if f"cci:{record['seq']}" not in closed] if key in DIGEST_OPEN else value for key, value in digest.items()}
 
 
 def names(slug: str, text: str) -> bool:

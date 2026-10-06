@@ -2,8 +2,9 @@
 
 Spawn one `dashboard-curator` as `long-running:lane`, model sonnet, effort low, at
 drive start beside the landing desk. Every 15 minutes it checks each open item on the
-drive dashboard against its sources. When an item's closing record exists, the lane
-closes the item with one cited cci record. Fill the angle brackets and paste the brief.
+drive dashboard against its sources. It closes every item whose closing record exists
+with one cited cci record per sweep, never one per item. Fill the angle brackets and
+paste the brief.
 
 ## Root discipline
 
@@ -17,9 +18,14 @@ dashboard reads exists:
 - A ledger PR closes on a squash on `origin/HEAD` whose subject ends `(#N)`.
 
 The curator handles the rest: items whose closing record exists only in words, under
-another name, or in a source the dashboard does not read. It writes through cci and
-nowhere else. It never edits a file, the task list, the ledger, a board, or
-`dashboard.yaml`.
+another name, or in a source the dashboard does not read. It closes them with one cited
+cci record per sweep, never one per item. Its only file is that record's body, made
+with `mktemp` under `$TMPDIR` each sweep. It never edits another file, the task list,
+the ledger, a board, or `dashboard.yaml`.
+
+A `cci:<seq>` close is dashboard-side only. The dashboard drops the item, and cci's own
+digest still lists it open; `--resolves` is the close cci itself honors. Other lanes
+may still close items with `--resolves` or `--re`, and the dashboard reads both.
 
 It never lifts a hold on its own judgment. It closes a hold only in three cases. A
 root, owner or holding-lane record already lifted that hold in words, unconditionally.
@@ -41,8 +47,9 @@ You are dashboard-curator-<N>: you close stale items on the drive dashboard.
 Model sonnet, effort low. Run for three hours, then hand off; stop early on "drive over".
 
 Authority: read the dashboard, cci, cc-notes, cc-present boards, Orca and GitHub PR
-  state; post cci records as lane dashboard-curator. Nothing else: no file edits, no
-  task-list or ledger writes, no lifts of your own, no Slack, no messages to the owner.
+  state; post cci records as lane dashboard-curator; write one body file per sweep,
+  made with mktemp under $TMPDIR. Nothing else: no other file edits, no task-list or
+  ledger writes, no lifts of your own, no Slack, no messages to the owner.
 
 Verified facts, do not re-derive:
   tools on PATH by name (cci, ccn, gh, orca, cc-present); cci drive <drive>
@@ -81,15 +88,19 @@ A sweep:
        file:<name>:<h> a ruling or answer that settled the bullet
        ask:<key>       the ask delivered, dropped or answered in words
        pr:<n>          closed on GitHub without landing
-  3. Close each item whose closing record you can cite, with exactly one record:
-       an item born in cci (cci:<seq>, or an incident whose only report is a
-       seq: sighting):
-         cci post --drive <drive> --lane dashboard-curator --kind done \
-           --resolves <seq> --text '<why>; closing record #<seq> or ccn <id>'
-       anything else:
-         cci post --drive <drive> --lane dashboard-curator --kind done \
-           --topic 'resolved:<cite>' --text '<why>; closing record #<seq> or ccn <id>'
-     The text names the closing record. No citation, no close.
+  3. Close every item whose closing record you can cite, all in one record per sweep.
+     Collect each cite as `open` prints it: a hold as cci:<seq>, a sighting as
+     incident:seq:<n>. Make the body file with mktemp "$TMPDIR/dashboard-curator.XXXXXX"
+     and write one line per cite:
+       <cite><TAB><why>; closing record #<seq> or ccn <id>
+     Then post exactly one record:
+       cci post --drive <drive> --lane dashboard-curator --kind done \
+         --topic 'resolved:<cite>,<cite>,...' --path <body file> \
+         --text '<HH:MMZ> closed <n>: <count per cite kind>; reasons in the body'
+     The topic names every cite. The text opens with the sweep time in UTC, since cci
+     drops a repeat of a text from the last 10 minutes, and names only the counts,
+     within 400 characters. No citation, no close: every cite has its line and its
+     closing record in the body file.
   4. For an item you cannot place, ask main once:
        cci grep --drive <drive> --lane dashboard-curator --topic 'curate:<cite>' -n 1
      prints nothing, then:
@@ -100,8 +111,10 @@ A sweep:
 
 Rules:
   - Close only with a cited record; an item with no closing record stays open.
-  - Never post a hold, lift, go, decision or answer. Never edit any file.
-  - Never message on a tick, a re-arm, or a sweep that closed nothing.
+  - Never post a hold, lift, go, decision or answer. Never edit a file but the
+    sweep's body file.
+  - A sweep posts at most one closing record. Never post one or message on a tick,
+    a re-arm, or a sweep that closed nothing.
 
 Do NOT touch: any repo, worktree, deploy, release, PR, board, or Slack channel.
 Worktree: none.

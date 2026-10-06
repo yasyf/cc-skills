@@ -814,7 +814,7 @@ class Collector:
             **guarded("notes", self.notes, {kind: [] for kind in NOTE_SOURCES}),
             **guarded("orca", self.orca, {"orca": [], "orca_attention": []}),
         }
-        digest = guarded("cci", self.digest, None)
+        digest = guarded("cci", lambda: overview.uncurated(self.digest(), closed), None)
         actions = guarded("owner actions", self.actions, [])
         owner_rows = guarded("owner", lambda: self.owner(tasks, ledger_rows["asks"], lines, boards, config, moment), [])
         replies = guarded("owner replies", lambda: self.replies(actions), [])

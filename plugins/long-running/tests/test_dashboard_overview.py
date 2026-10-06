@@ -218,6 +218,24 @@ def test_curated_reads_resolved_topics():
     assert overview.curated([record(1, "done", "dashboard-curator", "x", topic="resolved:task:657"), record(2, "done", "a", "x", topic="x")]) == {"task:657"}
 
 
+def test_curated_reads_every_cite_of_one_sweep_record():
+    sweep = record(1, "done", "dashboard-curator", "closed 4", topic="resolved:pr:28357,incident:gha-runner-pickup,file:audits/owner-asks.md:aceb04d5,cci:27760")
+    assert overview.curated([sweep, record(2, "done", "dashboard-curator", "x", topic="resolved:task:657")]) == {"pr:28357", "incident:gha-runner-pickup", "file:audits/owner-asks.md:aceb04d5", "cci:27760", "task:657"}
+
+
+def test_a_sweep_record_resolves_every_incident_group_it_names():
+    groups = groups_of(
+        [record(1, "mechanism", "gha-runner-pickup", "MECHANISM: not ours", topic="gha-runner-pickup"), record(2, "mechanism", "bake-gate-false-red", "MECHANISM: fix live", topic="bake-gate-false-red")],
+        closed=overview.curated([record(3, "done", "dashboard-curator", "closed 2", topic="resolved:incident:gha-runner-pickup,incident:bake-gate-false-red")]),
+    )
+    assert {key: group["status"] for key, group in groups.items()} == {"gha-runner-pickup": "resolved", "bake-gate-false-red": "resolved"}
+
+
+def test_uncurated_drops_the_cci_items_a_sweep_closed_and_keeps_the_rest():
+    digest = {"total": 3, "open_holds": [{"seq": 10}, {"seq": 11}], "open_incidents": [{"seq": 12}], "open_asks": None, "latest": [{"seq": 10}]}
+    assert overview.uncurated(digest, {"cci:10", "cci:12", "pr:5"}) == {"total": 3, "open_holds": [{"seq": 11}], "open_incidents": [], "open_asks": [], "latest": [{"seq": 10}]}
+
+
 def test_a_hold_closes_when_a_lift_names_it_or_root_lifts_its_incident():
     hold = record(10, "hold", "root", "FENCE api (incident wf-not-found-2322): exclude api applies")
     by_seq = record(11, "lift", "landing-desk", "LIFT #10: the plan read 0 deletes")
@@ -262,6 +280,24 @@ def test_a_ledger_pr_closes_on_a_trunk_squash_or_a_curator_record(tmp_path, monk
     collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path), "ledger": "L", "repo": "o/r"})
     assert collector.squashed() == {30001, 29999}
     assert [row["pr"] for row in collector.ledger(MOMENT, collector.squashed(), {"pr:30002"})["prs"]] == [30003]
+
+
+def test_one_sweep_record_closes_a_hold_an_incident_and_a_pr_together(tmp_path, monkeypatch):
+    sweep = record(30, "done", "dashboard-curator", "closed 3", at="2026-10-06T07:00:00Z", topic="resolved:cci:10,incident:gha-runner-pickup,pr:30002")
+    digest = {"open_holds": [{"seq": 10, "lane": "root", "at": "2026-10-06T06:00:00Z", "text": "FENCE api", "refs": {}}, {"seq": 11, "lane": "root", "at": "2026-10-06T06:01:00Z", "text": "FENCE sanddb", "refs": {}}]}
+    incident = record(2, "mechanism", "gha-runner-pickup", "MECHANISM: not ours", topic="gha-runner-pickup")
+
+    def cci(self, path, timeout=None, **query):
+        return {"digest": digest, "records": [sweep] if query.get("kind") == dashboard.CLOSING_KINDS else [incident] if "mechanism" in query.get("kind", []) else []}.get(path, [])
+
+    rows = [{"key": str(pr), "fields": {"state": "open", "title": f"pr {pr}", "head": "abc"}} for pr in (30001, 30002)]
+    monkeypatch.setattr(dashboard.Collector, "cci", cci)
+    monkeypatch.setattr(dashboard, "run", lambda argv, cwd=None: json.dumps({"rows": rows}) if "ledger" in argv else "")
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path), "ledger": "L", "repo": "o/r", "started_at": "2026-10-06T00:00:00Z", "sessions": []})
+    _, sources = collector.snapshot()
+    assert [hold["seq"] for hold in sources["holds"]] == [11]
+    assert [group["status"] for group in sources["incident_groups"]] == ["resolved"]
+    assert [row["pr"] for row in sources["prs"]] == [30001]
 
 
 def test_a_rate_limited_builds_fetch_keeps_the_last_rows_and_backs_off(tmp_path, monkeypatch):
