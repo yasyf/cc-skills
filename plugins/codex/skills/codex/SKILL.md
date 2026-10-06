@@ -24,7 +24,8 @@ script owns every mechanic: it pins `-c model=gpt-6.1-sol
 any cwd, repo or not), feeds the plugin's `AGENTS.md` via
 `-c developer_instructions` (browser rules, the § Replies reply contract, no
 ccx inside lanes — so every run arrives knowing the house reply shape),
-mounts no MCP server unless `--mcp` names one, runs `--disable plugins`
+mounts the Datadog and Sentry MCP servers when `config.toml` enables them, plus
+any `--mcp` names, runs `--disable plugins`
 (invalid plugin MCP config fails before `-c` overrides apply), unsets `OPENAI_API_KEY` so codex always
 authenticates via the ChatGPT-plan OAuth login (the ambient key is
 billing-capped and never mounts the hosted `image_gen` tool), and keeps every
@@ -217,7 +218,7 @@ park; a plain subagent without the channel foreground-blocks as ever.
 
 Codex answers only as well as the question scopes it, and it pulls its own
 context inside the repo with standard shell tools (rg, sed, git — ccx is
-disabled in lanes; MCP mounts only with `--mcp`) — so precision beats volume.
+disabled in lanes; Datadog and Sentry mount by default, other MCP only with `--mcp`) — so precision beats volume.
 Every question
 carries:
 
@@ -265,8 +266,10 @@ top of the § Replies shape every run already carries; it shapes prose.
 `--output-schema`, which constrains the final assistant message itself: the
 reply becomes that JSON in place of prose, never a JSON block decorating it.
 
-`--mcp <names>` mounts MCP servers for this run, comma-separated, from
-`~/.codex/config.toml`; absent the flag, nothing mounts. Every other configured
+Every run mounts `datadog` and `sentry` when `~/.codex/config.toml` configures
+and enables them, so any lane can read logs, metrics, monitors, spans, and
+Sentry issues. `--mcp <names>` mounts further servers for this run,
+comma-separated, from `~/.codex/config.toml`. Every other configured
 server disables for the run via `-c mcp_servers.<name>.enabled=false`, and
 `--disable apps` drops codex's app-connector tools on every run. `-c
 mcp_servers={}` cannot do this: `-c` merges tables, so an empty one subtracts
@@ -280,7 +283,7 @@ answer an observability question in one dispatch instead of round-tripping
 every query through the caller:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --lane recon --mcp datadog,sentry,slack - <<'QUESTION'
+"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --lane recon --mcp slack - <<'QUESTION'
 Why did checkout-service error rate spike at 14:32 UTC? Check Datadog for the
 error surge, Sentry for the matching issue, and #eng-checkout in Slack for
 context.
