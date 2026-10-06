@@ -1655,7 +1655,10 @@ def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lo
     assert sorted(shell.pr_keys()) == ["24071", "24072"]
     assert shell.fields("24071")["registered"] == LANE
     assert shell.fields("24071")["head"] == "a" * 40
-    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"]]
+    assert shell.state_calls() == [
+        ["ccx", "vcs", "pr", "state", "--lane-prefix", "lightning/"],
+        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
+    ]
 
 
 def test_an_unreported_registered_head_is_labelled_once_its_gates_pass(capsys, lock):
@@ -1836,9 +1839,101 @@ def test_summary_outside_orca_reads_no_orca_state(capsys):
 
 
 def test_register_refuses_a_prefix_that_is_not_a_whole_branch_namespace():
-    for prefix in ("lightning", "", "/"):
+    for prefix in ("lightning", "", "/", "-"):
         with pytest.raises(SystemExit):
             run(FakeShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", prefix)
+
+
+@pytest.mark.parametrize(("login", "prefix"), [("yasyf", "yasyf/"), ("ya-syf", "ya-")])
+def test_register_refuses_the_owners_whole_namespace_and_names_a_lane_specific_prefix(login, prefix):
+    shell = FakeShell()
+    shell.login = login
+
+    with pytest.raises(SystemExit) as refused:
+        run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07 Normalize", "--branch-prefix", prefix)
+
+    assert str(refused.value) == (
+        f"{prefix} covers {login}'s whole branch namespace, not lane mem-07 Normalize's; "
+        f"register a lane-specific prefix such as {login}/mem-07-normalize-"
+    )
+    assert shell.keys() == []
+    assert shell.state_calls() == []
+
+
+def test_register_refuses_a_prefix_matching_another_lanes_prs_or_prs_older_than_the_drive():
+    shell = FakeShell(rows=[{"key": "24072", "fields": {"lane": "mem-04-sessions", "state": "open"}}])
+    shell.store["created_at"] = "2026-09-24T09:00:00Z"
+    lane_pull(shell, "24071", "a" * 40, "yasyf/mem-old")
+    lane_pull(shell, "24072", "b" * 40, "yasyf/mem-04-sessions-one")
+    lane_pull(shell, "24073", "c" * 40, "yasyf/mem-07-normalize-one")
+    for pr in ("24072", "24073"):
+        shell.pulls[pr]["created_at"] = "2026-09-24T10:00:00Z"
+
+    with pytest.raises(SystemExit) as refused:
+        run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07-normalize", "--branch-prefix", "yasyf/mem-")
+
+    assert str(refused.value) == (
+        "yasyf/mem- already matches PRs that are not lane mem-07-normalize's: "
+        "#24071 (opened 2026-09-24T08:00:00Z, before the drive) #24072 (lane mem-04-sessions); "
+        "register a lane-specific prefix such as yasyf/mem-07-normalize-"
+    )
+    assert shell.keys() == ["24072"]
+
+
+def test_register_accepts_a_lane_specific_prefix_over_the_lanes_own_new_prs(capsys):
+    shell = FakeShell(rows=[{"key": "24073", "fields": {"lane": "mem-07-normalize", "state": "open"}}])
+    shell.store["created_at"] = "2026-09-24T09:00:00Z"
+    for pr, branch in (("24073", "yasyf/mem-07-normalize-one"), ("24074", "yasyf/mem-07-normalize-two")):
+        lane_pull(shell, pr, pr[-1] * 40, branch)
+        shell.pulls[pr]["created_at"] = "2026-09-24T10:00:00Z"
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07-normalize", "--branch-prefix", "yasyf/mem-07-normalize-", "--repo", REPO)
+
+    assert shell.fields("lane/mem-07-normalize")["branch_prefix"] == "yasyf/mem-07-normalize-"
+    assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "yasyf/mem-07-normalize-"]]
+    assert capsys.readouterr().out.strip() == "registered mem-07-normalize on yasyf/mem-07-normalize-*"
+
+
+def test_register_of_a_lone_pr_reads_no_forge_state():
+    shell = FakeShell()
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--pr", "24070", "--head", HEAD)
+
+    assert shell.endpoints() == []
+    assert shell.state_calls() == []
+
+
+def test_unregister_drops_the_prefix_and_only_the_untouched_rows_it_alone_pulled_in(capsys, lock):
+    lane = "mem-07-normalize"
+    shell = FakeShell()
+    for pr, letter in (("24081", "a"), ("24082", "b"), ("24083", "c"), ("24084", "d"), ("24085", "e")):
+        lane_pull(shell, pr, letter * 40, f"yasyf/mem-07-normalize-{pr}")
+    lane_pull(shell, "24086", "f" * 40, "lightning/other")
+    run(shell, "register", "--ledger", LEDGER, "--lane", lane, "--branch-prefix", "yasyf/mem-07-normalize-")
+    run(shell, "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "lightning/")
+    refresh(shell, lock)
+    run(shell, "report", "--ledger", LEDGER, "--pr", "24082", "--head", "b" * 40, "--lane", lane, "--verdict", "clean")
+    run(shell, "register", "--ledger", LEDGER, "--lane", lane, "--pr", "24083", "--head", "c" * 40)
+    run(shell, "hold", "--ledger", LEDGER, "--pr", "24084", "--reason", "owner hold", "--hours", "2")
+    shell.store["rows"] = [row for row in shell.store["rows"] if not row["key"].startswith("msg/")]
+    ledger_row = next(row for row in shell.store["rows"] if row["key"] == "24085")
+    ledger_row["fields"] |= {"labelled_at": "2026-09-24T09:00:00Z", "label_head": "e" * 40}
+    capsys.readouterr()
+
+    assert run(shell, "unregister", "--ledger", LEDGER, "--lane", lane, "--branch-prefix", "yasyf/mem-07-normalize-") == 0
+
+    assert capsys.readouterr().out.strip() == "unregistered mem-07-normalize from yasyf/mem-07-normalize-*; dropped #24081"
+    assert sorted(shell.keys()) == ["24082", "24083", "24084", "24085", "24086", f"lane/{LANE}"]
+
+
+def test_unregister_refuses_an_unknown_lane_or_a_mismatched_prefix():
+    shell = FakeShell(rows=[{"key": f"lane/{LANE}", "fields": {"lane": LANE, "branch_prefix": "lightning/"}}])
+
+    with pytest.raises(SystemExit, match="has no branch prefix registered"):
+        run(shell, "unregister", "--ledger", LEDGER, "--lane", "nobody")
+    with pytest.raises(SystemExit, match="is registered on lightning/, not thunder/"):
+        run(shell, "unregister", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", "thunder/")
+    assert shell.keys() == [f"lane/{LANE}"]
 
 
 def test_a_registered_row_before_its_first_refresh_is_neither_routed_nor_crashes(capsys):
