@@ -45,6 +45,7 @@ TASK_LABEL_CHARS = 50
 FLUSHED = re.compile(r"flushed\b", re.IGNORECASE)
 FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
 NUMBERED = re.compile(r"(.+)-(\d+)")
+HANDOFF = "-handoff"
 
 
 @workflow_state("long_running_rotation")
@@ -168,10 +169,10 @@ def successors(name: str) -> set[str]:
     return names
 
 
-def stood_down(evt: BaseHookEvent, lane: Lane, live: set[str]) -> bool:
+def stood_down(evt: BaseHookEvent, lane: Lane, live: set[str], handed_off: set[str]) -> bool:
     return (
         lane.told_to_stand_down
-        or not successors(lane.name).isdisjoint(live)
+        or (lane.name in handed_off and not successors(lane.name).isdisjoint(live))
         or (lane.team is not None and session_tree.stood_down(session_tree.inbox_path(evt, lane.team, lane.name)))
     )
 
@@ -181,10 +182,17 @@ def awake(evt: BaseHookEvent, lanes: list[Lane], state: RotationState) -> list[L
         if lane.agent_id in state.frozen and lane.events != state.frozen[lane.agent_id]:
             del state.frozen[lane.agent_id]
     live = {lane.name for lane in lanes}
+    handed_off = {
+        agent.name.removesuffix(HANDOFF)
+        for agent in session_tree.subagents(evt)
+        if agent.name and agent.name.endswith(HANDOFF)
+    }
     return [
         lane
         for lane in lanes
-        if lane.agent_id not in state.frozen and lane.name not in state.flushed and not stood_down(evt, lane, live)
+        if lane.agent_id not in state.frozen
+        and lane.name not in state.flushed
+        and not stood_down(evt, lane, live, handed_off)
     ]
 
 

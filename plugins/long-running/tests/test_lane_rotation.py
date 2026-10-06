@@ -934,7 +934,8 @@ def test_lane_that_already_read_its_stand_down_is_never_asked(tree: Tree, clock:
 
 
 @pytest.mark.parametrize(("old", "successor"), [("mem-08-go-client", "mem-08-go-client-2"), ("desk-3", "desk-4")])
-def test_lane_with_a_live_successor_is_never_asked(tree: Tree, clock: list[float], old: str, successor: str) -> None:
+def test_handed_off_lane_with_a_live_successor_is_never_asked(tree: Tree, clock: list[float], old: str, successor: str) -> None:
+    tree.lane(f"{old}-handoff", 80_000, team=None, status=None)
     evt = stop(tree, [tree.lane(old, 550_000), tree.lane(successor, 450_000)])
 
     for _ in range(4):
@@ -942,3 +943,11 @@ def test_lane_with_a_live_successor_is_never_asked(tree: Tree, clock: list[float
         clock[0] += lane_rotation.ASK_GAP_SECONDS
 
     assert (tree.inbox(old), {m["from"] for m in tree.inbox(successor)}) == ([], {"long-running"})
+
+
+def test_numbered_sibling_without_a_handoff_is_still_asked(tree: Tree, clock: list[float]) -> None:
+    evt = stop(tree, [tree.lane("memdoc-disposition-1", 550_000), tree.lane("memdoc-disposition-2", 450_000)])
+
+    rotate_lanes(evt)
+
+    assert [len(tree.inbox(name)) for name in ("memdoc-disposition-1", "memdoc-disposition-2")] == [1, 1]

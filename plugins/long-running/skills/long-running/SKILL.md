@@ -2615,8 +2615,9 @@ A lane that drops below its line through its own compaction or leaves
 `background_tasks` because it stopped or rotated also ends the cycle. A lane that
 received a `STAND-DOWN` message from `team-lead`, still queued in its teammate inbox
 or already delivered into its transcript, is never asked or escalated, since its
-successor already owns the work. Neither is a lane whose numbered successor is live:
-`alerts-watch` once `alerts-watch-2` runs, `desk-3` once `desk-4` runs.
+successor already owns the work. Neither is a lane that has a `<lane>-handoff`
+subagent and a live numbered successor: `alerts-watch` once `alerts-watch-2` runs,
+`desk-3` once `desk-4` runs. Numbered siblings with no handoff are still asked.
 
 A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
 without a reply starting `flushed` to its first ask, subject to the cap below. A later
