@@ -238,6 +238,32 @@ class Finalize(unittest.TestCase):
         self.assertEqual(R["windows"][0]["end"], "2026-09-02T17:30:00-07:00")
 
 
+class ResolvedBeforeMitigation(unittest.TestCase):
+    """A person resolves the page in Datadog before anything records a mitigation: the alert clearing is the mitigation."""
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        state = json.loads((self.incident / "state.json").read_text())
+        state.update(prs=[], deploys=[])
+        (self.incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        run(retro_live.sync, args(self.incident, self.docs))
+        state["all_clear_at"] = "2026-09-02T17:30:00-07:00"
+        for entry in state["inventory"]:
+            entry["disposition"] = "fixed"
+        (self.incident / "state.json").write_text(json.dumps(state))
+        self.synced = run(retro_live.sync, args(self.incident, self.docs))
+        self.code = run(retro_live.finalize, args(self.incident, self.docs))
+
+    def test_the_resolve_stamps_mitigated_and_finalize_passes(self):
+        self.assertEqual((self.synced, self.code), (0, 0))
+        R = json.loads((self.root / "retro.json").read_text())
+        self.assertEqual(R["meta"]["status"], "draft")
+        for key in ("engaged", "mitigated", "resolved", "allClear"):
+            self.assertEqual(R["timestamps"][key], "2026-09-02T17:30:00-07:00", key)
+
+
 class AfterAllClear(unittest.TestCase):
     def setUp(self):
         self.incident, self.docs = incident_dir(), docs_checkout()
