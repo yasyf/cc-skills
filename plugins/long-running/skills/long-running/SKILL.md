@@ -1816,8 +1816,9 @@ A newer plugin replaces the server through `/shutdown` on next start; the
 `server.json` token prevents another origin's page from stopping it.
 
 When Tailscale runs, TCP forwarding shares the port on the tailnet.
-`lr-dashboard.py url` prints `http://<MagicDNS name>:<port>/`; anyone on the
-tailnet can open the dashboard and chat. Hosts other than loopback or that name
+`lr-dashboard.py url`, `start`, and `serve` print `http://<MagicDNS name>:<port>/`; anyone on the
+tailnet can open the dashboard and chat. Every row link to `127.0.0.1` or `localhost`,
+cc-present boards included, renders with the MagicDNS name, so it opens from any tailnet device. Hosts other than loopback or that name
 receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
 stays local. Graceful shutdown removes the forward.
 

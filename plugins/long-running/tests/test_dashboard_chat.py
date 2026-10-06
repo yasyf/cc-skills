@@ -151,6 +151,22 @@ def test_a_tailscale_failure_leaves_the_dashboard_local(monkeypatch):
     assert dashboard.share(8993) is None
 
 
+def test_loopback_links_move_to_the_tailnet_host_and_every_other_link_stays():
+    row = {"url": "http://127.0.0.1:61118/p/platy-round-4", "platy_url": "http://localhost:7377/v1", "doing_url": "/inbox/root.md?line=3", "pr_url": "https://github.com/o/r/pull/1", "reason_url": None, "text": "http://127.0.0.1:1/"}
+    assert dashboard.on_tailnet(row, "studio.tail71af5d.ts.net") == row | {"url": "http://studio.tail71af5d.ts.net:61118/p/platy-round-4", "platy_url": "http://studio.tail71af5d.ts.net:7377/v1"}
+
+
+def test_the_owner_row_for_a_board_links_to_the_tailnet_url(tmp_path, monkeypatch):
+    board = {"title": "Platy round 4: five picks", "slug": "platy-round-4", "status": "open", "at": "2026-10-06T09:00:00Z", "url": "http://127.0.0.1:61118/p/platy-round-4", "cite": "board:platy-round-4", "submitted": "not submitted", "answered": 0, "asks": 5, "closed": False}
+    monkeypatch.setattr(dashboard.Collector, "boards", lambda self: [board])
+    monkeypatch.setattr(dashboard.Collector, "cci", lambda self, path, timeout=None, **query: {})
+    monkeypatch.setattr(dashboard, "run", lambda argv, cwd=None: json.dumps(RUNNING) if argv[0] == "tailscale" else json.dumps({"rows": []}) if "ledger" in argv else "")
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path), "ledger": "L", "repo": "o/r", "started_at": "2026-10-06T00:00:00Z", "sessions": []})
+    _, sources = collector.snapshot()
+    assert [row["url"] for row in sources["owner"]] == ["http://studio.tail71af5d.ts.net:61118/p/platy-round-4"]
+    assert sources["boards"][0]["url"] == "http://studio.tail71af5d.ts.net:61118/p/platy-round-4"
+
+
 @pytest.mark.parametrize(("host", "status"), [("127.0.0.1:{port}", 200), ("localhost:{port}", 200), ("studio.tail71af5d.ts.net:{port}", 200), ("rebound.example:{port}", 421)])
 def test_the_server_answers_only_its_own_authorities(tmp_path, host, status):
     server = dashboard.bind("127.0.0.1", 0, dashboard.Collector({"drive": "d", "state_dir": str(tmp_path)}), 60)
