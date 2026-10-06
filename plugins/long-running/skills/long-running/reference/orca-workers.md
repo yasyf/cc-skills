@@ -214,9 +214,13 @@ coordinator identity; workers consume their own terminal inboxes.
 
 **R195. Sessions are protected.** Claude and Codex sessions, Orca, terminal hosts,
 PTY daemons, and their supervisors are never stopped, signalled, suspended,
-restarted, released, or closed, singly or in bulk, for cleanup or load. The one
-exception is a settled dispatch's idle terminal, which the root's gc closes
-after the lane's `worker_done`. Idle means an empty prompt, nothing running, no
+restarted, released, or closed, singly or in bulk, for cleanup or load. There
+are two exceptions. The root's gc closes a settled dispatch's idle terminal
+after the lane's `worker_done`. The root also ends a lane of its own Run once
+it decides the lane is done (stood down, superseded, or its deliverable on
+disk) with `orca-gc --run <run> --done <ctx>`. That call runs `worker-stop`,
+closes the terminal without the idle read, and reclaims the worktree by the
+rules below. The root does not message the lane to send `worker_done` first. Idle means an empty prompt, nothing running, no
 unanswered question, and no output in 10 minutes, read again right before the
 close. gc never touches a live or unsettled worker or a terminal outside the
 Run. It closes a terminal with `orca terminal close --terminal <handle> --tab`
@@ -228,13 +232,17 @@ command, and the root runs it. A launch that fails before `worker-start` is
 not a session, and neither is one that `worker-start` refuses before it
 dispatches, such as `consumer_fenced`: `orca-launch.sh` closes the tab it
 opened and removes a worktree it created. Forge-AI/monorepo's gc is
-`.agents/skills/orca/scripts/orca-gc --run <run> [--dispatch <ctx>]`.
+`.agents/skills/orca/scripts/orca-gc --run <run> [--dispatch <ctx>] [--done <ctx>]`.
+The captain-hook sessions guard allows a bare
+`orca orchestration worker-stop --dispatch <ctx>` only from the root
+coordinating that dispatch's Run.
 
 The owner ruled this on 2026-10-02: "1 and improve our orca skill and scripts to
 avoid this in the future" (answer bef3366, option 1 releasing every completed or
 failed dispatch and closing its idle terminal), and answer 827a3f2, which named
 76 such handles for the finished- and failed-dispatch class verified idle by a
-screen read.
+screen read. On 2026-10-06 it added the `--done` route: "if a lane is done you
+can just terminate it no need to do this dumb signal thing" (answer edfa70e).
 
 *Prevents the 12:35Z kill that ended every session of a drive (release v3,
 2026-09-30), and the 476 retained terminals and 361 worktrees of settled
