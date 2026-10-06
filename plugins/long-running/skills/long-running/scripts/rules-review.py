@@ -7,7 +7,8 @@ Each sweep collects finished reviews, dispatches one detached gpt-6.1-sol xhigh 
 without one, applies the root inbox's ``rules-override`` lines, and posts each head's findings once as a PR review.
 Verdicts live on ``review/<pr>@<head>`` ledger rows; ``ledger.py list`` marks a PR ``rules_blocked`` only while
 its current head's review holds a finding no override waives, and the landing runner holds blocked PRs. A head with
-no review, a pending review, or an errored one, a diff over the review bound included, lands.
+no review, a pending review, or an errored one, a diff over the review bound included, lands. Paths the checkout's
+``.gitattributes`` marks ``linguist-generated`` leave the reviewed diff and its bound, and a ``GENERATED`` line names them.
 
 An override is one root inbox line, ``R<n> rules-override #<pr> <ruling>[ <ruling>...] :: <reason>``, naming each
 ruling id it waives for that PR on every head.
@@ -35,6 +36,10 @@ TERMINAL = frozenset({"completed", "failed", "died", "no-run"})
 OVERRIDE = re.compile(r"^(?:-\s+)?(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?rules-override #(?P<pr>\d+) (?P<rulings>\S.*?) :: (?P<reason>\S.*)$")
 HEX = re.compile(r"^[0-9a-f]+$")
 DIFF_MEDIA = "Accept: application/vnd.github.v3.diff"
+FILE_SECTION = re.compile(r"^(?=diff --git )", re.M)
+FILE_HEADER = re.compile(r"^diff --git a/.+ b/(?P<path>.+)$")
+GENERATED_ATTR = "linguist-generated"
+GENERATED_VALUES = frozenset({"set", "true"})
 
 PROMPT = """You are the pre-merge rules reviewer for pull request #{pr} at head {head} in {repo}. The landing desk enqueues this PR only after your verdict.
 
@@ -125,6 +130,24 @@ def overridden_by(review: dict[str, str], lines: list[tuple[str, frozenset[str]]
 
 def pr_diff(shell: Shell, repo: str, base: str, head: str) -> str:
     return shell.run(["gh", "api", f"repos/{repo}/compare/{base}...{head}", "-H", DIFF_MEDIA])
+
+
+def section_path(section: str) -> str | None:
+    match = FILE_HEADER.match(section.split("\n", 1)[0])
+    return match["path"] if match else None
+
+
+def generated_paths(shell: Shell, paths: list[str]) -> frozenset[str]:
+    if not paths:
+        return frozenset()
+    fields = shell.run(["git", "check-attr", "-z", GENERATED_ATTR, "--", *paths]).split("\0")
+    return frozenset(fields[index] for index in range(0, len(fields) - 2, 3) if fields[index + 2] in GENERATED_VALUES)
+
+
+def without_generated(shell: Shell, diff: str) -> tuple[str, list[str]]:
+    sections = [(section_path(section), section) for section in FILE_SECTION.split(diff)]
+    generated = generated_paths(shell, [path for path, _ in sections if path])
+    return "".join(section for path, section in sections if path not in generated), sorted(generated)
 
 
 def question(repo: str, pr: str, head: str, rulings: str, ethos: str, diff: str) -> str:
@@ -246,7 +269,9 @@ class Sweep:
             run_dir = self.state / f"{pr}-{head[:12]}-{attempt}"
             run_dir.mkdir(parents=True, exist_ok=True)
             try:
-                diff = pr_diff(self.shell, self.repo, fields["base"], head)
+                diff, generated = without_generated(self.shell, pr_diff(self.shell, self.repo, fields["base"], head))
+                if generated:
+                    print(f"GENERATED #{pr} {short(head)} {len(generated)} paths left out of the review: {' '.join(generated)}")
                 if len(diff) > DIFF_CHARS:
                     self.fail(pr, head, attempt, f"the diff is {len(diff)} characters, over the {DIFF_CHARS}-character review bound")
                     continue

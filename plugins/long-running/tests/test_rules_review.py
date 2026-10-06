@@ -82,6 +82,8 @@ class FakeShell(rules_review.Shell):
             self.reviews.append((argv[2], payload))
             self.on_pr.setdefault(argv[2].split("/")[4], []).append(payload)
             return "{}"
+        if argv[:2] == ["git", "check-attr"]:
+            return ledger.Shell.once(argv, stdin)
         if argv[:2] == ["codex-ask", "--collect"]:
             state = self.states[argv[2]]
             return json.dumps({"lane": ".", "state": state, "reply_file": f"{argv[2]}/codex-r-1"}) + "\n"
@@ -98,6 +100,8 @@ def checkout(tmp_path) -> Path:
     path = tmp_path / "checkout"
     path.mkdir()
     (path / "AGENTS.md").write_text("# AGENTS.md\nWrite new CLI logic in Go under go/ci.\n")
+    (path / ".gitattributes").write_text("api/testdata/llm-cassettes/*.json linguist-generated=true\nschema.gql linguist-generated\ngo/ci/*.go -linguist-generated\n")
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
     return path
 
 
@@ -311,3 +315,27 @@ def test_a_row_without_a_base_waits_for_its_first_refresh(shell):
     shell.rows["30313"].pop("base")
     sweep(shell)
     assert list(shell.questions) == [f"30312-{HEAD[:12]}-1"]
+
+
+def file_diff(path: str, body: str) -> str:
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1 @@\n+{body}\n"
+
+
+def test_paths_gitattributes_marks_generated_leave_the_reviewed_diff_and_its_bound(shell, capsys):
+    cassette = "x" * rules_review.DIFF_CHARS
+    shell.diffs[HEAD] = "".join([
+        file_diff("api/testdata/llm-cassettes/b.json", cassette),
+        file_diff("go/ci/resolve.go", "ledger.Base()"),
+        file_diff("api/testdata/llm-cassettes/a.json", cassette),
+        file_diff("schema.gql", "type Query"),
+    ])
+    sweep(shell)
+
+    question = shell.questions[f"30312-{HEAD[:12]}-1"]
+    assert "+ledger.Base()" in question
+    assert "llm-cassettes" not in question and "schema.gql" not in question
+    assert shell.rows[ledger.review_key("30312", HEAD)]["verdict"] == "pending"
+    assert capsys.readouterr().out.splitlines()[:2] == [
+        f"GENERATED #30312 {HEAD[:9]} 3 paths left out of the review: api/testdata/llm-cassettes/a.json api/testdata/llm-cassettes/b.json schema.gql",
+        f"REVIEWING #30312 {HEAD[:9]}",
+    ]
