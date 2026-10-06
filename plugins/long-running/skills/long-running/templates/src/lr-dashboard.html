@@ -493,7 +493,7 @@ function notifyOwner(rows){
  });
 }
 function renderBanner(){
- const rows=state.data.owner||[];
+ const rows=(state.data.owner||[]).filter(row=>row.banner);
  $("#owner-banner").hidden=!rows.length;
  $("#owner-notify").hidden=!("Notification" in window)||Notification.permission!=="default";
  $("#owner-count").textContent=`Waiting on you · ${rows.length}`;

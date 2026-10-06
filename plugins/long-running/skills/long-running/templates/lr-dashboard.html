@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:bb847f52c4cf — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:3976d6239923 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -511,7 +511,7 @@ function notifyOwner(rows){
  });
 }
 function renderBanner(){
- const rows=state.data.owner||[];
+ const rows=(state.data.owner||[]).filter(row=>row.banner);
  $("#owner-banner").hidden=!rows.length;
  $("#owner-notify").hidden=!("Notification" in window)||Notification.permission!=="default";
  $("#owner-count").textContent=`Waiting on you · ${rows.length}`;

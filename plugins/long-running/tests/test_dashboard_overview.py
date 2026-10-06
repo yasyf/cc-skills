@@ -269,6 +269,16 @@ def test_only_boards_from_this_drive_that_ask_something_wait_on_the_owner(tmp_pa
     assert [row["cite"] for row in collector.owner([], [], [], boards, {}, MOMENT)] == ["board:pick-a-fix"]
 
 
+def test_only_boards_and_blocking_questions_reach_the_banner(tmp_path):
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "started_at": "2026-10-01T05:05:38Z"})
+    tasks = [{"cite": "task:7", "subject": "Owner item: rotate keys", "status": "pending"}]
+    asks = [{"cite": "ask:12", "state": "new", "text": "ship it?"}]
+    lines = [{"at": "2026-10-05T06:59:00Z", "verb": "DECIDE", "lane": "", "text": "DECIDE api: needs the owner pick", "url": None, "cite": "line:1"}]
+    config = {"owner": [{"text": "renew the domain"}]}
+    rows = collector.owner(tasks, asks, lines, [board("pick-a-fix", "2026-10-05T22:00:00-07:00")], config, MOMENT)
+    assert {row["kind"]: row["banner"] for row in rows} == {"task": False, "ask": True, "decide": True, "board": True, "manual": False}
+
+
 def test_an_owner_item_closes_on_a_curator_record_or_the_owners_mark_complete():
     rows = [{"cite": "task:657", "actions": []}, {"cite": "task:161", "actions": [{"action": "complete"}]}, {"cite": "task:656", "actions": [{"action": "question"}]}]
     assert [row["cite"] for row in dashboard.still_open(rows, {"task:657"})] == ["task:656"]
