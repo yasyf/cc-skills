@@ -22,12 +22,19 @@ LIVE_ITEMS = 8
 QUIET_INCIDENT = timedelta(hours=24)
 SUBJECT_PR = re.compile(r"\s*\(#(?P<pr>\d+)\)\s*$")
 SLACK_URL = re.compile(r"https://[\w-]+\.slack\.com/archives/\w+/p\d+")
-LANE_ROLE = re.compile(r"-(?:fix|evidence|diag|diagnosis|mechanism)(?:-(?:opus|sol|r?\d+))?$")
+ROLE = r"-(?:fix|evidence|diag|diagnosis|mechanism)(?:-(?:opus|sol|r?\d+))?"
+LANE_ROLE = re.compile(f"{ROLE}$")
 CLOCK_TAIL = re.compile(r"-\d{4}$")
-SIGHTED = re.compile(r"\b(?P<h>1[0-2]|0?[1-9]):(?P<m>[0-5]\d)\s*(?P<ampm>[AP]M)\b")
-INCIDENT_KINDS = ("incident", "evidence", "mechanism", "fix-live", "recovered")
-STATUS = {"incident": "open", "evidence": "investigating", "mechanism": "mechanism found", "fix-live": "fix live", "recovered": "recovered"}
-SETTLED = frozenset({"fix live", "recovered"})
+SIGHTED = re.compile(r"\b(?P<h>1[0-2]|0?[1-9]):(?P<m>[0-5]\d)(?:\s*-\s*(?:1[0-2]|0?[1-9]):[0-5]\d)?\s*(?P<ampm>[AP]M)\b")
+INCIDENT_KINDS = ("incident", "evidence", "mechanism", "fix-live", "recovered", "not-ours", "duplicate", "done")
+OPENING = frozenset({"incident", "evidence", "mechanism", "fix-live", "recovered"})
+NAMING = frozenset({"fix-live", "recovered", "not-ours", "duplicate"})
+STATUS = {"incident": "open", "evidence": "investigating", "mechanism": "mechanism found", "fix-live": "fix live", "recovered": "recovered", "not-ours": "not ours", "duplicate": "duplicate", "done": "done"}
+SETTLED = frozenset({"fix live", "recovered", "not ours", "duplicate", "done"})
+CURATED = "resolved:"
+LIFTING = frozenset({"lift", "go", "decision", "owner", "answer"})
+LIFT_LEAD = re.compile(r"^(?:ROOT(?: [\dx:]+ [AP]M)?:\s*)?LIFT(?:ED|S)?\b")
+SLUG = re.compile(r"(?<![\w-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*-\d{4}(?![\w-])")
 MONITOR = re.compile(r"(?<!\d)\d{9}(?!\d)")
 HEADLINE_LEAD = re.compile(r"^(?:(?:(?:INCIDENT|RECOVERED|NEW Alert \d+|NEW|ROOT)\b|R\?)\s*|[\d:x-]+\s*[AP]M(?:\s*PT)?\b\s*|#[\w-]+\s*|[,:—-]\s*)+")
 HEADLINE_CHARS = 90
@@ -167,7 +174,7 @@ def incident_key(record: dict, known: set[str]) -> str:
     base = LANE_ROLE.sub("", lane)
     if lane in known or base in known:
         return lane if lane in known else base
-    if mentioned := [slug for slug in known if slug in record["text"]]:
+    if mentioned := [slug for slug in known if names(slug, record["text"])]:
         return max(mentioned, key=len)
     if (clock := CLOCK_TAIL.search(lane)) and len(matches := [slug for slug in known if slug.endswith(clock[0])]) == 1:
         return matches[0]
@@ -194,13 +201,37 @@ def keyed(records: list[dict], known: set[str]) -> dict[int, str]:
     return keys
 
 
-def incident_groups(records: list[dict], open_seqs: set[int], folders: list[dict], moment: datetime) -> list[dict]:
+def curated(records: list[dict]) -> set[str]:
+    return {record["topic"].removeprefix(CURATED) for record in records if (record.get("topic") or "").startswith(CURATED)}
+
+
+def names(slug: str, text: str) -> bool:
+    return bool(re.search(rf"(?<![\w-]){re.escape(slug)}(?:{ROLE})?(?![\w-])", text))
+
+
+def named_groups(record: dict, keys: set[str]) -> list[str]:
+    return [key for key in sorted(keys) if not key.startswith("seq:") and names(key, record["text"])]
+
+
+def incident_groups(records: list[dict], open_seqs: set[int], folders: list[dict], moment: datetime, closed: set[str], resolved: set[int]) -> list[dict]:
     files = {folder["slug"]: folder for folder in folders}
-    known = set(files) | {record["topic"] for record in records if record.get("topic")} | {base for record in records if (base := LANE_ROLE.sub("", record["lane"])) != record["lane"] and record["lane"].endswith(("-fix", "-fix-opus", "-fix-sol"))}
-    keys = keyed(records, known)
+    keyed_records = [record for record in records if record["kind"] != "done"]
+    known = set(files) | {record["topic"] for record in keyed_records if record.get("topic")} | {base for record in keyed_records if (base := LANE_ROLE.sub("", record["lane"])) != record["lane"] and record["lane"].endswith(("-fix", "-fix-opus", "-fix-sol"))}
+    keys = keyed(keyed_records, known)
     groups: dict[str, list[dict]] = {}
+    for record in keyed_records:
+        if record["kind"] in OPENING:
+            groups.setdefault(keys[record["seq"]], []).append(record)
+    opened = set(groups)
+    for record in keyed_records:
+        if record["kind"] in NAMING:
+            for key in {keys[record["seq"]], *named_groups(record, opened)} & opened:
+                if record not in groups[key]:
+                    groups[key].append(record)
+    home = {record["seq"]: key for key, found in groups.items() for record in found}
     for record in records:
-        groups.setdefault(keys[record["seq"]], []).append(record)
+        if record["kind"] == "done" and (key := home.get(record.get("re")) or home.get(record.get("resolves"))):
+            groups[key].append(record)
     out = []
     for key, found in groups.items():
         found.sort(key=lambda record: record["seq"])
@@ -208,7 +239,7 @@ def incident_groups(records: list[dict], open_seqs: set[int], folders: list[dict
         status = STATUS[latest["kind"]]
         reported = [record for record in found if record["kind"] == "incident"]
         still_open = any(record["seq"] in open_seqs for record in reported)
-        if reported and status not in SETTLED and not still_open:
+        if status not in SETTLED and ((reported and not still_open) or f"incident:{key}" in closed or any(record["seq"] in resolved for record in found)):
             status = "resolved"
         quiet = moment - views.stamp(latest["at"]) > QUIET_INCIDENT
         opener = reported[0] if reported else found[0]
@@ -233,6 +264,19 @@ def incident_groups(records: list[dict], open_seqs: set[int], folders: list[dict
             }
         )
     return sorted(out, key=lambda group: (group["active"], group["at"]), reverse=True)
+
+
+def lifts(lift: dict, hold: dict) -> bool:
+    if lift["seq"] <= hold["seq"]:
+        return False
+    if re.search(rf"#{hold['seq']}(?!\d)", lift["text"]):
+        return True
+    return lift["lane"] in (hold["lane"], "root", "owner") and bool(set(SLUG.findall(hold["text"])) & set(SLUG.findall(lift["text"])))
+
+
+def standing_holds(holds: list[dict], records: list[dict]) -> list[dict]:
+    lifting = [record for record in records if record["kind"] in LIFTING and LIFT_LEAD.match(record["text"])]
+    return [hold for hold in holds if not any(lifts(lift, hold) for lift in lifting)]
 
 
 def landings(records: list[dict], titles: dict[int, str], repo: str) -> list[dict]:

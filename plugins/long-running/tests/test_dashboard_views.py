@@ -4,7 +4,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -199,19 +199,25 @@ def test_build_row_reads_plans_rollbacks_skips_and_the_running_step():
     assert platy.build_row(build(905, "release infra, started by ym@poetic.com", branch="releases/x", thread=True))["thread"] == {"channel": "C0B75AL4XEW", "ts": "1759.1"}
 
 
-def test_builds_backfill_once_then_read_a_few_pages(tmp_path):
-    pages = []
+def test_builds_backfill_once_then_ask_for_live_builds_and_sweep_finished_ones(tmp_path):
+    queries = []
 
-    def fetch(page):
-        pages.append(page)
-        return [build(page * 1000 + n, "x") for n in range(platy.PER_PAGE)] if page < 3 else []
+    def fetch(query):
+        queries.append(query)
+        return [build(query["page"] * 1000 + n, "x") for n in range(platy.PER_PAGE)] if set(query) == {"page"} and query["page"] < 3 else []
 
     cache = tmp_path / "builds.json"
-    assert len(platy.Builds(cache, fetch).refresh()) == 2 * platy.PER_PAGE
-    assert pages == [1, 2, 3]
-    pages.clear()
-    platy.Builds(cache, fetch).refresh()
-    assert pages == [1]
+    assert len(platy.Builds(cache, fetch).refresh(MOMENT)) == 2 * platy.PER_PAGE
+    assert queries == [{"page": 1}, {"page": 2}, {"page": 3}]
+    queries.clear()
+    builds = platy.Builds(cache, fetch)
+    assert (builds.fetched_at, builds.swept_at) == (MOMENT, MOMENT - platy.RESWEEP)
+    builds.swept_at = MOMENT
+    builds.refresh(MOMENT + timedelta(minutes=1))
+    assert queries == [{"state[]": list(platy.LIVE), "page": 1}]
+    queries.clear()
+    builds.refresh(MOMENT + platy.RESWEEP)
+    assert queries == [{"state[]": list(platy.LIVE), "page": 1}, {"finished_from": "2026-10-05T06:58:00Z", "page": 1}]
 
 
 def test_mentions_matches_whole_names_only():
@@ -287,14 +293,14 @@ def test_an_unplanned_stack_is_not_called_drift():
 
 def test_a_failed_refresh_keeps_the_known_builds(tmp_path):
     cache = tmp_path / "builds.json"
-    platy.Builds(cache, lambda page: [build(7, "release infra, started by ym@poetic.com")] if page == 1 else []).refresh()
+    platy.Builds(cache, lambda query: [build(7, "release infra, started by ym@poetic.com")] if query["page"] == 1 else []).refresh(MOMENT)
 
-    def down(page):
+    def down(query):
         raise OSError("bk is down")
 
     builds = platy.Builds(cache, down)
     with pytest.raises(OSError):
-        builds.refresh()
+        builds.refresh(MOMENT)
     assert [row["number"] for row in builds.known()] == [7]
 
 
@@ -329,21 +335,40 @@ def test_yamlish_respects_escaped_quotes_and_keeps_literal_headings():
     assert yamlish.loads(text) == {"a": 'x, "y" # z', "b": ["p, q", "r"], "note": "# Heading\nbody\n# Closing\n", "c": 1}
 
 
-def test_a_refresh_pages_back_to_an_unsettled_build(tmp_path):
+def test_a_build_leaving_the_live_set_is_swept_at_once_and_a_retry_rejoins_it(tmp_path):
     cache = tmp_path / "builds.json"
-    pages = {page: [build((10 - page) * 1000 - n, "x") for n in range(platy.PER_PAGE)] for page in range(1, 6)}
-    pages[4][0]["state"] = "running"
-    platy.Builds(cache, lambda page: pages.get(page, [])).refresh()
-    pages[4][0]["state"] = "passed"
-    fetched = []
+    running = build(41, "x", state="running")
+    platy.Builds(cache, lambda query: [running, build(40, "x", state="failed")]).refresh(MOMENT)
+    answers = {"state[]": [build(40, "x", state="running")], "finished_from": [running | {"state": "passed"}]}
+    queries = []
 
-    def fetch(page):
-        fetched.append(page)
-        return pages.get(page, [])
+    def fetch(query):
+        queries.append(query)
+        return next(answer for key, answer in answers.items() if key in query)
 
-    rows = {row["number"]: row for row in platy.Builds(cache, fetch).refresh()}
-    assert fetched == [1, 2, 3, 4]
-    assert rows[pages[4][0]["number"]]["state"] == "passed"
+    builds = platy.Builds(cache, fetch)
+    builds.swept_at = MOMENT
+    rows = {row["number"]: row for row in builds.refresh(MOMENT + timedelta(minutes=1))}
+    assert [next(iter(query)) for query in queries] == ["state[]", "finished_from"]
+    assert (rows[41]["state"], rows[40]["state"], builds.swept_at) == ("passed", "running", MOMENT + timedelta(minutes=1))
+
+
+def test_a_backfill_cut_short_resumes_at_its_next_page(tmp_path):
+    full = [build(n, "x") for n in range(platy.PER_PAGE)]
+    answers = iter([full, OSError("429"), [build(500, "x")]])
+
+    def fetch(query):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    builds = platy.Builds(tmp_path / "builds.json", fetch)
+    with pytest.raises(OSError):
+        builds.refresh(MOMENT)
+    assert (builds.fetched_at, builds.backfill_page) == (None, 2)
+    assert len(builds.refresh(MOMENT + timedelta(minutes=5))) == platy.PER_PAGE + 1
+    assert builds.fetched_at == MOMENT
 
 
 def test_a_stat_reads_every_field_from_the_row_with_a_value():

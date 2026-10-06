@@ -21,7 +21,8 @@ notifications it answered, and status it restated per event.
 
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
-The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
+The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefed
+from `reference/dashboard-curator-brief.md`; `alerts-desk` when the drive touches
 production; and one priority desk per owner-named #1-priority outcome while that
 outcome is open. Once the drive has posted to Slack, the Slack watch lane is standing
 too, briefed from `reference/slack-watch-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
@@ -1804,7 +1805,7 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 `drive.py start` and root `SessionStart` automatically start the dashboard for an
 active, registered drive. Hooks detach without blocking or printing a URL.
 `lr-dashboard.py` commands: `url`, `start --drive <id>`, `snapshot` (JSON),
-`serve` (foreground).
+`open` (one line per open item, read from the running server), `serve` (foreground).
 
 The server binds `127.0.0.1`, prefers a drive-derived port, and records its address
 in `<state dir>/dashboard/server.json`. `dashboard/start.lock` serializes starts.
@@ -1878,8 +1879,29 @@ This automatic top section lists open tasks starting "Owner item" or carrying
 an `owner-item`/`owner-ask` kind/label, and ledger asks outside `LIVE`/`dropped`/`answered`.
 Owner-addressed `DECIDE`/`ASK`/`RULING` inbox lines from the last 48 hours remain
 until a later line comes from or names the asking lane.
-It also lists open, unsubmitted cc-present boards with URLs, manual `owner:`
-items, and `owner_files:` bullets `- **title**: detail`. Title-only bullets remain separate.
+It also lists cc-present boards updated since the drive started that are open,
+unsubmitted, and hold a block that asks something (any type outside `display.*`,
+`markdown`, `code`, `diagram`, `table` and `section`). It lists manual `owner:` items
+and `owner_files:` bullets `- **title**: detail`, cited by a hash of the title so a
+cite survives edits above it. Title-only bullets remain separate. An item leaves the
+list when the owner clicks Mark complete, or when a curator record closes its cite.
+
+#### Closing records and the curator
+
+An item closes when its closing record exists. The dashboard reads these closers
+itself:
+
+- An incident closes on `fix-live`, `recovered`, `not-ours` or `duplicate`; a closer that names several incident slugs, each as a whole name, closes each of them. A `done` closes it when its `--re` or `--resolves` points into the incident, and so does a `--resolves` on any record the dashboard reads. A sighting stamped with a clock range such as `4:09-4:19 PM` joins the incident named for its start.
+- A hold closes on a later `lift`, `go`, `decision`, `owner` or `answer` whose text opens with LIFT, optionally after `ROOT <time>:`. That record must name the hold's `#seq`, or come from root, the owner or the holding lane and name an incident slug (`<words>-HHMM`) the hold names. A conditional or negated LIFT never closes a hold.
+- A ledger PR row closes on a squash on `origin/HEAD` whose subject ends `(#N)`, the ledger's own landing proof.
+
+The `dashboard-curator` desk closes the rest, the items whose closing record exists
+only in words or under another name. It writes one cci record per item and nothing
+else. For an item born in cci it posts `--kind done --resolves <seq>`; for any other cite,
+`--kind done --topic resolved:<cite>`. Each record names its closing record. The
+dashboard drops every cite a `resolved:` topic names, from the owner list, incidents
+and PRs. `lr-dashboard.py open` prints the open items one per line, so the desk never
+reads the full state. `reference/dashboard-curator-brief.md` is its brief.
 
 #### Platy deployability
 
@@ -1887,9 +1909,15 @@ Set `platy.census` to the census glob. `platy.trunk` and `platy.release_code`
 are required: the trunk ref and release pipeline path in the drive checkout.
 The view reads the newest census report, `release/targets.yaml`, release builds
 through `bk api`, and the newest commit touching `platy.release_code` on `platy.trunk`.
-`dashboard/release-builds.json` initially backfills the whole pipeline history until a short
-page. Polls start at page 1, stopping at a known finished build or three pages;
-older unfinished cached builds extend paging to ten. Failed reads retain cached
+`dashboard/builds.json` initially backfills the whole pipeline history until a short
+page, resuming at the next page when a read fails. After that one server-side
+refresh a minute serves every view and client. It asks Buildkite for the builds in a
+live state (creating, scheduled, running, blocked, canceling, failing), which also
+picks up retried and unblocked builds. When a cached live build drops out of that
+set, and at least every five minutes, it also asks for builds finished since the last
+such sweep. The cache file's mtime records the last fetch, so a restart resumes from
+it. A 429 keeps the cached builds, shows their age beside
+Releases, and pauses Buildkite reads for five minutes. Other failed reads keep the cached
 builds and show the source error, exit status, or timeout.
 
 Platy release/hotfix/rollback starts carry a Slack thread in `RELEASE_START`;

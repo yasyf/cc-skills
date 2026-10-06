@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from lrdash import overview, platy
@@ -17,8 +18,8 @@ def row(number: int, message: str, state: str = "passed", branch: str = "dev", a
     return platy.build_row({"number": number, "state": state, "branch": branch, "commit": f"{number:012d}", "created_at": at, "started_at": at, "finished_at": finished, "message": message, "web_url": f"https://bk/{number}", "env": env or {}})
 
 
-def record(seq: int, kind: str, lane: str, text: str, at: str = "2026-10-06T06:00:00Z", topic: str | None = None) -> dict:
-    return {"seq": seq, "kind": kind, "lane": lane, "text": text, "at": at, "topic": topic, "refs": {}}
+def record(seq: int, kind: str, lane: str, text: str, at: str = "2026-10-06T06:00:00Z", topic: str | None = None, **links: int) -> dict:
+    return {"seq": seq, "kind": kind, "lane": lane, "text": text, "at": at, "topic": topic, "refs": {}, **links}
 
 
 @pytest.mark.parametrize(
@@ -73,7 +74,7 @@ def test_incidents_group_fix_lanes_sightings_and_recoveries():
         record(7, "incident", "incident-slack-watch-37", "11:22 PM #alerts-api Sentry [api] Error: Workflow not found"),
         record(8, "mechanism", "wf-not-found-2322-fix", "MECHANISM pinned"),
     ]
-    groups = {group["key"]: group for group in overview.incident_groups(records, {1, 2, 7}, [{"slug": "wf-not-found-2322", "path": "/x", "text": "brief.md"}], MOMENT)}
+    groups = {group["key"]: group for group in overview.incident_groups(records, {1, 2, 7}, [{"slug": "wf-not-found-2322", "path": "/x", "text": "brief.md"}], MOMENT, set(), set())}
     assert sorted(groups) == ["eh-delos-2242", "seq:2", "wf-not-found-2322"]
     assert ([r["seq"] for r in groups["eh-delos-2242"]["records"]], groups["eh-delos-2242"]["status"], groups["eh-delos-2242"]["active"]) == ([5, 4, 3, 1], "fix live", False)
     assert (groups["seq:2"]["status"], groups["seq:2"]["title"], groups["seq:2"]["active"]) == ("recovered", "Escape-hatch site unavailable (apollo-demo), 10:44 PM PT", False)
@@ -81,7 +82,7 @@ def test_incidents_group_fix_lanes_sightings_and_recoveries():
 
 
 def test_an_unanswered_report_older_than_a_day_is_quiet_not_open():
-    group = overview.incident_groups([record(1, "incident", "root", "INCIDENT 1:36 PM cert cap", at="2026-10-04T20:00:00Z")], {1}, [], MOMENT)[0]
+    group = overview.incident_groups([record(1, "incident", "root", "INCIDENT 1:36 PM cert cap", at="2026-10-04T20:00:00Z")], {1}, [], MOMENT, set(), set())[0]
     assert (group["status"], group["quiet"], group["active"]) == ("open", True, False)
 
 
@@ -166,5 +167,147 @@ def test_a_deploy_to_several_environments_names_each_stack():
 
 def test_an_alert_stays_open_while_any_report_in_it_is_open():
     records = [record(1, "incident", "alerts-watch-12", "NEW Alert 324971203 site down"), record(2, "evidence", "alerts-watch-12", "still down 324971203")]
-    group = overview.incident_groups(records, {1}, [], MOMENT)[0]
+    group = overview.incident_groups(records, {1}, [], MOMENT, set(), set())[0]
     assert (group["status"], group["active"]) == ("investigating", True)
+
+
+def groups_of(records: list[dict], open_seqs: set[int] = frozenset(), closed: set[str] = frozenset(), resolved: set[int] = frozenset()) -> dict[str, dict]:
+    return {group["key"]: group for group in overview.incident_groups(records, set(open_seqs), [], MOMENT, set(closed), set(resolved))}
+
+
+def test_one_fix_live_naming_two_incidents_settles_both():
+    records = [
+        record(1, "mechanism", "node-id-prefix-2036-fix", "MECHANISM raw UUID", topic="node-id-prefix-2036"),
+        record(2, "mechanism", "env-name-len-2125-fix", "MECHANISM >20 chars", topic="env-name-len-2125"),
+        record(3, "fix-live", "root", "FIX-LIVE node-id-prefix-2036 + env-name-len-2125: #30822 + #30823 live"),
+    ]
+    groups = groups_of(records)
+    assert {key: (group["status"], group["active"]) for key, group in groups.items()} == {"node-id-prefix-2036": ("fix live", False), "env-name-len-2125": ("fix live", False)}
+
+
+def test_not_ours_and_duplicate_settle_the_incident_they_name():
+    groups = groups_of([record(1, "mechanism", "chime-disputes-1415-fix", "MECHANISM", topic="chime-disputes-1415"), record(2, "not-ours", "chime-disputes-1415-fix", "NOT-OURS customer side", topic="chime-disputes-1415")])
+    assert (groups["chime-disputes-1415"]["status"], groups["chime-disputes-1415"]["active"]) == ("not ours", False)
+
+
+def test_a_sighting_with_a_clock_range_joins_the_incident_named_for_its_start():
+    groups = groups_of([record(1, "incident", "incident-slack-watch-35", "INCIDENT 4:09-4:19 PM #alerts-api GraphQLError functionType"), record(2, "mechanism", "function-type-1609-fix", "MECHANISM caller errors")], {1})
+    assert sorted(groups) == ["function-type-1609"]
+
+
+def test_done_settles_only_the_incident_it_points_at():
+    opener = record(1, "mechanism", "cf-cert-limit-1336-fix", "MECHANISM 1445", topic="cf-cert-limit-1336")
+    evidence_done = record(2, "done", "cf-cert-limit-1336-evidence", "Read-only evidence complete", topic="cf-cert-limit-1336")
+    assert groups_of([opener, evidence_done])["cf-cert-limit-1336"]["status"] == "mechanism found"
+    assert groups_of([opener, record(3, "done", "root", "closed", re=1)])["cf-cert-limit-1336"]["status"] == "done"
+
+
+def test_a_closer_naming_a_longer_slug_leaves_the_shorter_incident_open():
+    groups = groups_of([record(1, "mechanism", "api-down-1609-fix", "MECHANISM", topic="api-down-1609"), record(2, "not-ours", "root", "NOT-OURS api-down-1609-extra is customer-side")])
+    assert groups["api-down-1609"]["status"] == "mechanism found"
+
+
+def test_a_resolves_record_or_a_curator_record_resolves_the_group():
+    opener = record(1, "mechanism", "gha-runner-pickup", "MECHANISM: GitHub incident, not ours", topic="gha-runner-pickup")
+    assert groups_of([opener], resolved={1})["gha-runner-pickup"]["status"] == "resolved"
+    group = groups_of([opener], closed={"incident:gha-runner-pickup"})["gha-runner-pickup"]
+    assert (group["status"], group["active"]) == ("resolved", False)
+
+
+def test_curated_reads_resolved_topics():
+    assert overview.curated([record(1, "done", "dashboard-curator", "x", topic="resolved:task:657"), record(2, "done", "a", "x", topic="x")]) == {"task:657"}
+
+
+def test_a_hold_closes_when_a_lift_names_it_or_root_lifts_its_incident():
+    hold = record(10, "hold", "root", "FENCE api (incident wf-not-found-2322): exclude api applies")
+    by_seq = record(11, "lift", "landing-desk", "LIFT #10: the plan read 0 deletes")
+    by_slug = record(12, "go", "root", "ROOT 11:34 PM: LIFT api fence (wf-not-found-2322): resume api applies")
+    assert overview.standing_holds([hold], [by_seq]) == []
+    assert overview.standing_holds([hold], [by_slug]) == []
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        record(13, "lift", "some-lane", "LIFT unrelated hold, see wf-not-found-2322"),
+        record(14, "go", "root", "wf-not-found-2322 still fenced; LIFT #10 after the fix lands"),
+        record(15, "decision", "root", "Do not LIFT #10 until health checks pass"),
+        record(16, "lift", "root", "walker: HOLD (#10) lifts with that apply"),
+        record(9, "lift", "root", "LIFT #10 before it existed"),
+    ],
+)
+def test_a_hold_stays_on_a_conditional_negated_or_unrelated_lift(later):
+    hold = record(10, "hold", "root", "FENCE api (incident wf-not-found-2322): exclude api applies")
+    assert overview.standing_holds([hold], [later]) == [hold]
+
+
+def board(slug: str, at: str, asks: int = 1, submitted: str = "not submitted") -> dict:
+    return {"title": slug, "slug": slug, "status": "open", "at": at, "url": f"/p/{slug}", "cite": f"board:{slug}", "submitted": submitted, "answered": 0, "asks": asks, "closed": False}
+
+
+def test_only_boards_from_this_drive_that_ask_something_wait_on_the_owner(tmp_path):
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "started_at": "2026-10-01T05:05:38Z"})
+    boards = [board("design-round-1", "2026-09-01T00:32:38-07:00"), board("explainer", "2026-10-03T22:44:15-07:00", asks=0), board("pick-a-fix", "2026-10-05T22:00:00-07:00"), board("done", "2026-10-05T22:00:00-07:00", submitted="submitted")]
+    assert [row["cite"] for row in collector.owner([], [], [], boards, {}, MOMENT)] == ["board:pick-a-fix"]
+
+
+def test_an_owner_item_closes_on_a_curator_record_or_the_owners_mark_complete():
+    rows = [{"cite": "task:657", "actions": []}, {"cite": "task:161", "actions": [{"action": "complete"}]}, {"cite": "task:656", "actions": [{"action": "question"}]}]
+    assert [row["cite"] for row in dashboard.still_open(rows, {"task:657"})] == ["task:656"]
+
+
+def test_a_ledger_pr_closes_on_a_trunk_squash_or_a_curator_record(tmp_path, monkeypatch):
+    rows = [{"key": str(pr), "fields": {"state": "open", "title": f"pr {pr}", "head": "abc"}} for pr in (30001, 30002, 30003)]
+    monkeypatch.setattr(dashboard, "run", lambda argv, cwd=None: json.dumps({"rows": rows}) if "ledger" in argv else "api: fix (#30001)\ninfra: other (#29999)\n")
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path), "ledger": "L", "repo": "o/r"})
+    assert collector.squashed() == {30001, 29999}
+    assert [row["pr"] for row in collector.ledger(MOMENT, collector.squashed(), {"pr:30002"})["prs"]] == [30003]
+
+
+def test_a_rate_limited_builds_fetch_keeps_the_last_rows_and_backs_off(tmp_path, monkeypatch):
+    calls = []
+
+    def run(argv, cwd=None):
+        calls.append(argv)
+        if len(calls) > 1:
+            raise subprocess.CalledProcessError(1, argv, "", "Error: error making request: HTTP request failed: 429 429 Too Many Requests (https://api.buildkite.com/...)")
+        return json.dumps([{"number": 7, "state": "passed", "created_at": "2026-10-06T06:00:00Z", "message": "release infra, started by ym@poetic.com"}])
+
+    monkeypatch.setattr(dashboard, "run", run)
+    collector = dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path)})
+    assert [row["number"] for row in collector.release_builds({}, MOMENT)] == [7]
+    assert calls[0][:2] == ["bk", "api"] and calls[0][2] == "/pipelines/release/builds?per_page=100&page=1"
+    assert [row["number"] for row in collector.release_builds({}, MOMENT + timedelta(seconds=15))] == [7]
+    assert len(calls) == 1
+    assert [row["number"] for row in collector.release_builds({}, MOMENT + timedelta(minutes=1))] == [7]
+    assert (len(calls), collector.builds_due) == (2, MOMENT + timedelta(minutes=1) + dashboard.RATE_LIMIT_BACKOFF)
+    assert collector.builds.fetched_at == MOMENT
+
+
+def test_any_other_builds_failure_still_surfaces(tmp_path, monkeypatch):
+    def run(argv, cwd=None):
+        raise subprocess.CalledProcessError(1, argv, "", "Error: 401 Unauthorized")
+
+    monkeypatch.setattr(dashboard, "run", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        dashboard.Collector({"drive": "d", "state_dir": str(tmp_path), "checkout": str(tmp_path)}).release_builds({}, MOMENT)
+
+
+def test_open_items_print_one_line_per_open_item_with_its_cite():
+    sources = {
+        "owner": [{"cite": "task:657", "kind": "task", "at": "2026-10-05T05:29:42Z", "title": "Owner item: grant\nactions:write"}],
+        "incident_groups": [{"cite": "incident:gha-runner-pickup", "status": "mechanism found", "at": "2026-10-05T20:49:34Z", "title": "gha-runner-pickup", "active": True, "records": [{"seq": 26837}]}, {"cite": "incident:old", "active": False}],
+        "holds": [{"seq": 27893, "lane": "root", "at": "2026-10-06T06:25:39Z", "text": "FENCE api"}],
+        "prs": [{"cite": "pr:30871", "lane": "eh-unbake-app", "at": None, "title": "release: unbake"}],
+    }
+    assert dashboard.open_items(sources) == [
+        "task:657\ttask\t2026-10-05T05:29:42Z\tOwner item: grant actions:write",
+        "incident:gha-runner-pickup\tincident mechanism found\t2026-10-05T20:49:34Z\tgha-runner-pickup (cci 26837)",
+        "cci:27893\thold by root\t2026-10-06T06:25:39Z\tFENCE api",
+        "pr:30871\tpr of eh-unbake-app\t-\trelease: unbake",
+    ]
+
+
+def test_a_lane_named_for_an_incident_still_names_it():
+    groups = groups_of([record(1, "incident", "root", "INCIDENT 7:07 PM api/plat apply failed. Fix lane api-plan-constraint-1907-fix (R1144 sol)"), record(2, "mechanism", "api-plan-constraint-1907-fix", "MECHANISM stale saved plan")], {1})
+    assert sorted(groups) == ["api-plan-constraint-1907"]
