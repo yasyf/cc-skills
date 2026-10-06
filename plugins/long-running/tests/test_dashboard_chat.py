@@ -167,10 +167,11 @@ def test_the_server_answers_only_its_own_authorities(tmp_path, host, status):
         server.shutdown()
 
 
-def test_the_dashboard_page_carries_the_chat_window():
-    page = dashboard.page().decode()
+def test_the_dashboard_page_carries_the_chat_window_and_the_action_token():
+    page = dashboard.page("tok3n").decode()
     assert page.count('id="lrchat"') == 1
     assert page.index('id="lrchat"') < page.index("</body>")
+    assert '<meta name="dashboard-action" content="tok3n">' in page
 
 
 def test_the_relay_carries_the_server_key_and_a_named_agent(monkeypatch):
