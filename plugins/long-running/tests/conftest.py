@@ -24,6 +24,7 @@ LISTED_HEAD = "e8ad88696bf85732fc0bec48b8486977b94b6f1b"
 DIRTY_HEAD = "ab0de038c1100e5c66e9ad3b21b1b8bb1b1ad0bb"
 GREEN_HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
 LEDGER = "1a2b3c4d"
+LEDGER_CREATED = "2026-01-01T00:00:00Z"
 
 
 def fixture(name: str) -> str:
@@ -32,7 +33,8 @@ def fixture(name: str) -> str:
 
 class FakeShell(ledger.Shell):
     def __init__(self, rows=None, routes=None, pages=None):
-        self.stores = {LEDGER: {"id": LEDGER, "title": "open PRs", "columns": [], "rows": deepcopy(list(rows or []))}}
+        self.stores = {LEDGER: {"id": LEDGER, "title": "open PRs", "columns": [], "created_at": LEDGER_CREATED, "rows": deepcopy(list(rows or []))}}
+        self.login = "yasyf"
         self.pulls: dict[str, dict] = {}
         self.pull_heads: dict[str, str] = {}
         self.pr_files: dict[str, list[str]] = {}
@@ -98,6 +100,8 @@ class FakeShell(ledger.Shell):
 
     def _gh(self, argv, stdin):
         endpoint = argv[2]
+        if endpoint == "user":
+            return json.dumps({"login": self.login})
         if endpoint == "graphql":
             headers = f"HTTP/2.0 200 OK\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: {self.quota_resets_at}\n\n"
             raise subprocess.CalledProcessError(1, argv, output=headers + '{"errors":[{"type":"RATE_LIMIT"}]}', stderr="gh: API rate limit already exceeded")
@@ -163,7 +167,7 @@ class FakeShell(ledger.Shell):
             raise subprocess.CalledProcessError(1, argv, stderr="graphql: API rate limit already exceeded for user ID 709645\n")
         if self.pr_state_error:
             raise subprocess.CalledProcessError(1, argv, stderr=self.pr_state_error)
-        repo = argv[argv.index("--repo") + 1]
+        repo = argv[argv.index("--repo") + 1] if "--repo" in argv else "Forge-AI/monorepo"
         prefixes = [argv[index + 1] for index, value in enumerate(argv) if value == "--lane-prefix"]
         lanes = {
             prefix: [pull["number"] for pull in self.pulls.values() if pull["head"]["ref"].startswith(prefix) and pull["state"] == "open"]
@@ -238,6 +242,12 @@ class FakeShell(ledger.Shell):
                 argv[index + 1].split("=", 1) for index, value in enumerate(argv) if value == "--field"
             )
             self._upsert(self.stores[argv[4]], key, updates)
+            return ""
+        if argv[1:4] == ["ledger", "row", "rm"]:
+            key = argv[argv.index("--key") + 1]
+            store = self.stores[argv[4]]
+            assert any(row["key"] == key for row in store["rows"]), f"no row {key}"
+            store["rows"] = [row for row in store["rows"] if row["key"] != key]
             return ""
         raise AssertionError(f"unexpected ccn call: {argv}")
 

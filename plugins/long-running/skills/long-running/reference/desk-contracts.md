@@ -50,7 +50,7 @@ Rules the report carries:
   can detach a shared worktree mid-session, and a push from a detached HEAD
   updates nothing while `git push` still prints `Everything up-to-date`.
 
-A lane registers its unique branch prefix, ending in `/`, with the desk when spawned using
+A lane registers its branch, or a namespace ending in `/` or `-`, with the desk when spawned using
 `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix> [--pr N]...`.
 Every open PR on that prefix is tracked from then on. The hook records opened PRs
 automatically; if it misses one, send the desk its number for hand registration.

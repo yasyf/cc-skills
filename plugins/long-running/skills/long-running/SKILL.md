@@ -925,11 +925,11 @@ growing with the board until its pass takes 20 minutes.*
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.** The root registers the drive with `drive.py start --ledger <id>`. The pack's PR hook then registers every PR a drive session or Orca worker opens under the lane's name. It records the head when the command prints one. This covers in-process subagents and teammates at any depth; `orca-launch.sh` passes the drive to Orca workers, resolving it from the Orca run when the desk runner, which holds no session, launches them. A session no drive claims prints one stderr line from `drive.py record`.
 
-Lanes still register a unique branch prefix ending in `/` at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <prefix>` and still `report` verdicts. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
+Lanes still register their branch at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`, and still `report` verdicts; a value ending in `/` or `-` is a namespace covering a stack, any other value one exact branch. `register` refuses a prefix that covers the owner's whole `<user>/` namespace or already matches open PRs another lane tracks or that predate the ledger, naming those PRs and suggesting the exact branch, `<user>/<lane-slug>-`, or `--pr`; `ledger.py unregister --ledger <id> --lane <name>` removes a prefix and drops the untouched rows only it pulled in. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
 
 Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
-*Prevents three PRs a lane never reported sitting unmerged for hours.*
+*Prevents three PRs a lane never reported sitting unmerged for hours, and the 2026-10-06 `yasyf/` registration in ledger `b29c27a` that pulled six unrelated open PRs into the drive for the landing runner to enqueue.*
 
 **D14. Grade a moved or unreported head like any other.** Every tracked current
 head takes D3's gates without a report. Where `stack-enqueue` exists, the landing

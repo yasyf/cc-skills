@@ -8,7 +8,8 @@
     ledger.py answer  --ledger ID --ask ID --text ...
     ledger.py live    --ledger ID --at ISO [--text ...]
     ledger.py report  --ledger ID --pr N --head SHA --lane NAME --verdict clean|red|conflicting|held [--ask ID] [--text ...]
-    ledger.py register --ledger ID --lane NAME [--branch-prefix PREFIX] [--pr N]... [--head SHA]
+    ledger.py register --ledger ID --lane NAME [--branch-prefix PREFIX [--repo owner/name]] [--pr N]... [--head SHA]
+    ledger.py unregister --ledger ID --lane NAME [--branch-prefix PREFIX]
     ledger.py enqueue --ledger ID --kind p0|ruling|report|idle --pr N --head SHA --lane NAME --text ...
     ledger.py ruling  --ledger ID --lane NAME --text ... --options "A|B|C" [--pr N]
     ledger.py inbox   --ledger ID [--take] [--all] [--json] [--shard LANES]
@@ -86,6 +87,7 @@ APPROVED = "APPROVED"
 REVIEW_DECISIONS = (APPROVED, "CHANGES_REQUESTED", "DISMISSED")
 PAGE_SIZE = 100
 ROUTE_STATES = ("dirty", "blocked")
+TOUCHED_FIELDS = ("reported_head", "registered_head", "labelled_at", "label_head", "hold_until")
 KINDS = ("p0", "ruling", "report", "idle")
 VERDICTS = ("clean", "red", "conflicting", "held")
 MERGE_LABEL = "merge"
@@ -312,8 +314,11 @@ class Notes:
     ledger: str
     warned: bool = False
 
+    def show(self) -> dict:
+        return json.loads(self.shell.run(["ccn", "ledger", "show", self.ledger, "--json"]))
+
     def rows(self) -> dict[str, dict[str, str]]:
-        payload = json.loads(self.shell.run(["ccn", "ledger", "show", self.ledger, "--json"]))
+        payload = self.show()
         malformed = [row["key"] for row in payload["rows"] if is_malformed(row["key"])]
         if malformed and not self.warned:
             self.warned = True
@@ -343,6 +348,9 @@ class Notes:
         for name, value in fields.items():
             argv += ["--field", f"{name}={value}"]
         self.shell.run(argv)
+
+    def remove(self, key: str) -> None:
+        self.shell.run(["ccn", "ledger", "row", "rm", self.ledger, "--key", key])
 
 
 def now() -> datetime:
@@ -454,7 +462,7 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
     """One read of ccx's machine-wide pull request cache, which every desk and watcher on the machine shares."""
     if not prs and not prefixes:
         return {"lanes": {}, "prs": {}}
-    argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
+    argv = [ccx, "vcs", "pr", "state", *(["--repo", repo] if repo else []), *prs]
     for prefix in prefixes:
         argv += ["--lane-prefix", prefix]
     try:
@@ -910,7 +918,7 @@ def orca_workers(shell: Shell) -> list[dict]:
 
 def lane_of(branch: str, lanes: dict[str, dict[str, str]]) -> str:
     name = branch.removeprefix("refs/heads/")
-    return next((fields["lane"] for fields in lanes.values() if name.startswith(fields["branch_prefix"])), name)
+    return next((fields["lane"] for fields in lanes.values() if on_prefix(name, fields["branch_prefix"])), name)
 
 
 def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozenset[str] | None, moment: datetime) -> list[str]:
@@ -1088,10 +1096,58 @@ def cmd_ack(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def branch_prefix(value: str) -> str:
-    """A whole branch namespace: without the trailing slash, `lightning` would also claim `lightning-other/`."""
-    if not value.endswith("/") or value == "/":
-        raise argparse.ArgumentTypeError(f"{value!r} is not a branch namespace; end it in '/', as in 'lightning/'")
+    if value.strip("/-") == "":
+        raise argparse.ArgumentTypeError(f"{value!r} names no branch; pass a branch name, or a namespace ending in '/' or '-', as in 'lightning/'")
     return value
+
+
+def on_prefix(branch: str, prefix: str) -> bool:
+    """A prefix ending in '/' or '-' is a namespace; any other names exactly one branch, so `lightning` never claims `lightningbolt`."""
+    return branch.startswith(prefix) if prefix.endswith(("/", "-")) else branch == prefix
+
+
+def lane_slug(lane: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", lane.lower()).strip("-")
+
+
+def prefix_prs(state: dict, prefix: str) -> list[str]:
+    return [pr for pr in map(str, state["lanes"][prefix]) if on_prefix(state["prs"][pr]["headRefName"], prefix)]
+
+
+def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
+    """Open PRs on the prefix that another lane already owns or that predate the drive's ledger."""
+    try:
+        state = pr_state(shell, args.ccx, args.repo, [], [args.branch_prefix])
+    except subprocess.CalledProcessError as failure:
+        raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
+    started = parse_iso(notes.show()["created_at"])
+    rows = notes.pr_rows()
+    reasons = {}
+    for pr in prefix_prs(state, args.branch_prefix):
+        if (owner := rows.get(pr, {}).get("lane", args.lane)) != args.lane:
+            reasons[pr] = f"lane {owner}"
+        elif parse_iso(state["prs"][pr]["createdAt"]) < started:
+            reasons[pr] = f"opened {state['prs'][pr]['createdAt']}, before the drive"
+    return [f"#{pr} ({reasons[pr]})" for pr in sorted(reasons, key=int)]
+
+
+def guard_prefix(shell: Shell, args: argparse.Namespace, notes: Notes) -> None:
+    login = json.loads(shell.run(["gh", "api", "user"]))["login"]
+    suggestion = f"register the lane's exact branch name, a lane-specific namespace such as {login}/{lane_slug(args.lane)}-, or each of its PRs with --pr N"
+    if args.branch_prefix.endswith(("/", "-")) and f"{login}/".startswith(args.branch_prefix):
+        raise SystemExit(f"{args.branch_prefix} covers {login}'s whole branch namespace, not lane {args.lane}'s; {suggestion}")
+    if foreign := foreign_prs(shell, args, notes):
+        raise SystemExit(f"{args.branch_prefix} already matches PRs that are not lane {args.lane}'s: {' '.join(foreign)}; {suggestion}")
+
+
+def discovered_only(fields: dict[str, str], lane: str, prefix: str) -> bool:
+    """A row the lane's prefix alone pulled in, which no report, explicit registration, label, or hold has touched since."""
+    return (
+        fields.get("registered") == lane
+        and fields.get("lane") == lane
+        and on_prefix(fields.get("branch", ""), prefix)
+        and not any(fields.get(name) for name in TOUCHED_FIELDS)
+    )
 
 
 def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
@@ -1102,6 +1158,7 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
         raise SystemExit("--head names one PR's head; pass exactly one --pr with it")
     notes = Notes(shell, args.ledger)
     if args.branch_prefix:
+        guard_prefix(shell, args, notes)
         notes.set_fields(f"{LANE_PREFIX}{args.lane}", {"lane": args.lane, "branch_prefix": args.branch_prefix, "registered_at": utc_stamp()})
     with locked(default_lock(args.ledger)):
         rows = notes.pr_rows() if args.pr else {}
@@ -1113,6 +1170,24 @@ def cmd_register(args: argparse.Namespace, shell: Shell) -> int:
     namespace = f" on {args.branch_prefix}*" if args.branch_prefix else ""
     claimed = "".join(f" #{pr}" if owner == args.lane else f" #{pr} (lane {owner})" for pr, owner in owners.items())
     print(f"registered {args.lane}{namespace}{claimed}")
+    return 0
+
+
+def cmd_unregister(args: argparse.Namespace, shell: Shell) -> int:
+    notes = Notes(shell, args.ledger)
+    key = f"{LANE_PREFIX}{args.lane}"
+    with locked(default_lock(args.ledger)):
+        rows = notes.rows()
+        if key not in rows:
+            raise SystemExit(f"lane {args.lane} has no branch prefix registered in {args.ledger}")
+        prefix = rows[key]["branch_prefix"]
+        if args.branch_prefix and args.branch_prefix != prefix:
+            raise SystemExit(f"lane {args.lane} is registered on {prefix}, not {args.branch_prefix}")
+        dropped = sorted((pr for pr, fields in rows.items() if pr.isdigit() and discovered_only(fields, args.lane, prefix)), key=int)
+        for pr in dropped:
+            notes.remove(pr)
+        notes.remove(key)
+    print(f"unregistered {args.lane} from {prefix}*; dropped " + (" ".join(f"#{pr}" for pr in dropped) or "no rows"))
     return 0
 
 
@@ -1129,7 +1204,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
             state = pr_state(shell, args.ccx, args.repo, wanted, prefixes)
         except subprocess.CalledProcessError as failure:
             raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
-        registered = {str(pr): lane["lane"] for lane in registrations for pr in state["lanes"][lane["branch_prefix"]]}
+        registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
         rows = []
         for key in sorted(set(wanted) | set(registered), key=int):
             fields = grade(state["prs"][key])
@@ -1928,10 +2003,18 @@ def build_parser() -> argparse.ArgumentParser:
     register = subparsers.add_parser("register", help="track a lane's PRs, or every open PR on its branch prefix, with no per-head report")
     add_ledger(register)
     register.add_argument("--lane", required=True)
-    register.add_argument("--branch-prefix", type=branch_prefix)
+    register.add_argument("--branch-prefix", type=branch_prefix, help="the lane's branch name, or a namespace ending in '/' or '-' covering its stack")
+    register.add_argument("--repo", help="the owner/name repository the prefix's PRs live in; default: the current checkout's")
+    register.add_argument("--ccx", default="ccx", help="the ccx binary")
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
     register.set_defaults(handler=cmd_register)
+
+    unregister = subparsers.add_parser("unregister", help="remove a lane's branch prefix and drop the untouched rows only that prefix pulled in")
+    add_ledger(unregister)
+    unregister.add_argument("--lane", required=True)
+    unregister.add_argument("--branch-prefix", type=branch_prefix, help="refuse unless the lane is registered on exactly this prefix")
+    unregister.set_defaults(handler=cmd_unregister)
 
     enqueue_cmd = subparsers.add_parser("enqueue", help="record any lane message; duplicates by kind+PR+head are dropped")
     add_ledger(enqueue_cmd)
