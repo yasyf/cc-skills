@@ -132,7 +132,7 @@ loop:
 	if scratch != "" && laneName != "" {
 		die("codex-ask: -l and -s are mutually exclusive", 2)
 	}
-	mcpMounts := mcpMountFlags(mcpServers)
+	mcpMounts, mcpServers := mcpMountFlags(mcpServers)
 	// Resolved before the question is read, so a bad name mints nothing.
 	named := ""
 	if laneName != "" {
@@ -246,7 +246,7 @@ loop:
 	if lane != "" {
 		dev += "\n\n" + strings.TrimRight(string(readShipped(embeddedLanes, "lanes/"+lane+".md")), "\n")
 	}
-	if mcpServers != nil {
+	if len(mcpServers) > 0 {
 		dev += "\n\n" + mcpContract(mcpServers)
 	}
 
@@ -365,7 +365,9 @@ type mcpServer struct {
 
 const mcpListTimeout = 15 * time.Second
 
-func mcpMountFlags(requested []string) []string {
+var telemetryMCP = []string{"datadog", "sentry"}
+
+func mcpMountFlags(requested []string) ([]string, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), mcpListTimeout)
 	defer cancel()
 	// Config load parses each enabled plugin's .mcp.json before any -c override, so
@@ -399,14 +401,20 @@ func mcpMountFlags(requested []string) []string {
 			die("codex-ask: --mcp server "+want+" is disabled; enable it in ~/.codex/config.toml", 2)
 		}
 	}
+	mounted := append([]string(nil), requested...)
+	for _, name := range telemetryMCP {
+		if enabled[name] && !contains(mounted, name) {
+			mounted = append(mounted, name)
+		}
+	}
 	var flags []string
 	// codex -c merges tables, so mcp_servers={} subtracts nothing; only a per-server enabled=false unmounts one.
 	for _, s := range configured {
-		if !contains(requested, s.Name) {
+		if !contains(mounted, s.Name) {
 			flags = append(flags, "-c", "mcp_servers."+s.Name+".enabled=false")
 		}
 	}
-	return append(flags, "--disable", "apps", "--disable", "plugins")
+	return append(flags, "--disable", "apps", "--disable", "plugins"), mounted
 }
 
 func mcpContract(servers []string) string {

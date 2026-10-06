@@ -64,8 +64,9 @@ fast tier never depends on Orca's runtime config. No other alias runs the fast
 tier. It also passes
 -c check_for_update_on_startup=false to disable the startup update prompt,
 -c mcp_servers=<ORCA_LAUNCH_CODEX_MCP, default {}>, and then
--c mcp_servers.<name>.enabled=false for every server config.toml names that
-ORCA_LAUNCH_CODEX_MCP does not. An -c table merges into config.toml rather than
+-c mcp_servers.<name>.enabled=false for every server config.toml names other than
+datadog, sentry, and the servers ORCA_LAUNCH_CODEX_MCP names, so every incident
+lane can query Datadog and Sentry. An -c table merges into config.toml rather than
 replacing it, so -c mcp_servers={} alone left node_repl, computer-use, and the
 Slack MCP running beside every incident lane. Servers a codex plugin bundles still
 start. A codex lane on Orca's agent keeps Orca's own command line.
@@ -113,7 +114,7 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_STATE          receipt directory, default ~/.claude/scratch/orca-launch/<run>
   ORCA_LAUNCH_CLAUDE_ARGS    further claude args from Orca's agent default args, default none
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
-  ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers, default {}
+  ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
   ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
@@ -196,7 +197,7 @@ CODEX_OFF=
 import pathlib, sys, tomllib
 config = pathlib.Path(sys.argv[1])
 servers = tomllib.loads(config.read_text()).get("mcp_servers", {}) if config.exists() else {}
-named = tomllib.loads(f"named = {sys.argv[2]}")["named"]
+named = {"datadog", "sentry", *tomllib.loads(f"named = {sys.argv[2]}")["named"]}
 print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if name not in named))
 PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"

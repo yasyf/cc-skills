@@ -145,6 +145,8 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
   --worktree "path:<wt>" --terminal "<handle>" --timeout-ms 90000 --json
 ```
 
+Codex lanes have Sentry and Datadog: `--agent codex` workers load `~/.codex/config.toml`, incident lanes keep `datadog` and `sentry` mounted, and `codex-ask` mounts both by default, all on the OAuth login from `codex mcp login <server>`.
+
 Only `incident` lanes run fast. Orca's codex runtime config,
 `~/Library/Application Support/orca/codex-runtime-home/home/config.toml`, stays
 `service_tier = "default"`, so `sol` and `codex` lanes on `--agent codex` run on

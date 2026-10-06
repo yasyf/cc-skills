@@ -39,6 +39,45 @@ func TestDefaultDispatchBansMCP(t *testing.T) {
 	}
 }
 
+var stubCodexListsTelemetryServers = stubCodex(`[{"name":"slack","enabled":true},`+
+	`{"name":"datadog","enabled":true},`+
+	`{"name":"sentry","enabled":false}]`, stubCodexReplyBody)
+
+func TestDefaultDispatchMountsEnabledTelemetryServers(t *testing.T) {
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexListsTelemetryServers, "ping")
+	if code != 0 {
+		t.Fatalf("default dispatch exit %d\nstderr: %s", code, stderr)
+	}
+	sdir := laneDir(t, stdout)
+	argv := cmdArgv(t, sdir)
+	for _, want := range []string{"mcp_servers.slack.enabled=false", "mcp_servers.sentry.enabled=false"} {
+		if !contains(argv, want) {
+			t.Fatalf("default argv missing %q:\n%v", want, argv)
+		}
+	}
+	if contains(argv, "mcp_servers.datadog.enabled=false") {
+		t.Fatalf("default argv unmounted the enabled datadog server:\n%v", argv)
+	}
+	if dev := developerInstructions(t, sdir); !strings.HasSuffix(dev, mcpContract([]string{"datadog"})) {
+		t.Fatalf("default developer_instructions does not end with the datadog contract:\n%s", dev)
+	}
+}
+
+func TestMCPAddsNamedServersToTelemetry(t *testing.T) {
+	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexListsTelemetryServers, "--mcp", "slack", "ping")
+	if code != 0 {
+		t.Fatalf("--mcp slack exit %d\nstderr: %s", code, stderr)
+	}
+	sdir := laneDir(t, stdout)
+	argv := cmdArgv(t, sdir)
+	if contains(argv, "mcp_servers.slack.enabled=false") || contains(argv, "mcp_servers.datadog.enabled=false") {
+		t.Fatalf("--mcp slack argv unmounted slack or datadog:\n%v", argv)
+	}
+	if dev := developerInstructions(t, sdir); !strings.HasSuffix(dev, mcpContract([]string{"slack", "datadog"})) {
+		t.Fatalf("--mcp slack developer_instructions does not end with the slack and datadog contract:\n%s", dev)
+	}
+}
+
 func TestMCPMountsOnlyTheNamedServers(t *testing.T) {
 	stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexListsMCPServers, "--mcp", "slack", "ping")
 	if code != 0 {
