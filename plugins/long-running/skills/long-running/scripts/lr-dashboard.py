@@ -4,6 +4,7 @@
     lr-dashboard.py start    [--drive ID] [--session ID] [--host HOST]
     lr-dashboard.py url      [--drive ID] [--session ID]
     lr-dashboard.py snapshot [--drive ID] [--session ID]
+    lr-dashboard.py open     [--drive ID] [--session ID]
 """
 
 from __future__ import annotations
@@ -52,6 +53,10 @@ MANUAL_FILE = "dashboard.yaml"
 PORT_BASE = 8700
 PORT_SPAN = 300
 INTERVAL_SECONDS = 15.0
+BUILDS_INTERVAL = timedelta(minutes=1)
+RATE_LIMIT_BACKOFF = timedelta(minutes=5)
+RATE_LIMITED = "429 Too Many Requests"
+NEVER = datetime.min.replace(tzinfo=timezone.utc)
 COMMAND_TIMEOUT_SECONDS = 30
 START_WAIT_SECONDS = 10.0
 HEALTH_TIMEOUT_SECONDS = 2.0
@@ -80,6 +85,8 @@ OWNER_BULLET = re.compile(r"^- \*\*(?P<title>[^*]+)\*\*:?[ \t]*(?P<detail>.*)$",
 PRESENT_PORT = re.compile(r"port (?P<port>\d+)")
 COMPACT_BOUNDARY = b'"subtype":"compact_boundary"'
 CCN_ID = re.compile(r"^[0-9a-f]{7,40}$")
+CLOSING_KINDS = ["done", "lift", "go", "decision", "owner", "answer"]
+PASSIVE_BLOCKS = frozenset({"markdown", "code", "diagram", "table", "section"})
 
 VERB = r"[A-Z][A-Z-]*[A-Z]"
 LANE = r"[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*"
@@ -381,6 +388,18 @@ def with_actions(rows: list[dict], actions: list[dict], replies: list[dict]) -> 
     return out
 
 
+def still_open(rows: list[dict], closed: set[str]) -> list[dict]:
+    return [row for row in rows if row["cite"] not in closed and not any(action["action"] == "complete" for action in row["actions"])]
+
+
+def open_items(sources: dict[str, list[dict]]) -> list[str]:
+    rows = [(row["cite"], row["kind"], row["at"], row["title"]) for row in sources["owner"]]
+    rows += [(group["cite"], f"incident {group['status']}", group["at"], f"{group['title']} (cci {', '.join(str(record['seq']) for record in group['records'])})") for group in sources["incident_groups"] if group["active"]]
+    rows += [(f"cci:{hold['seq']}", f"hold by {hold['lane']}", hold["at"], hold["text"]) for hold in sources["holds"]]
+    rows += [(row["cite"], f"pr of {row['lane']}", row["at"], row["title"]) for row in sources["prs"]]
+    return ["\t".join(str(field or "-").replace("\n", " ") for field in row) for row in rows]
+
+
 def ccn_row(kind: str, item: dict) -> dict:
     return item | {"at": item.get("updated_at"), "url": f"/ccn/{item['id']}", "cite": f"ccn:{item['id'][:8]}", "kind": kind, "text": item.get("title", "")}
 
@@ -393,6 +412,7 @@ class Collector:
     compaction_cache: dict[str, tuple[int, list[dict]]] = field(default_factory=dict)
     board_cache: dict[str, tuple[str, dict]] = field(default_factory=dict)
     builds: platy.Builds | None = None
+    builds_due: datetime = NEVER
     ancestry: dict[tuple[str, str], bool] = field(default_factory=dict)
     subject_cache: dict[str, str] = field(default_factory=dict)
 
@@ -468,7 +488,7 @@ class Collector:
                     folders.append({"slug": path.name, "path": str(path), "at": iso(epoch(modified)), "text": ", ".join(child.name for child in files[:8]), "cite": f"incident:{path.name}"})
         return folders
 
-    def ledger(self, moment: datetime) -> dict[str, list[dict]]:
+    def ledger(self, moment: datetime, squashed: set[int], closed: set[str]) -> dict[str, list[dict]]:
         rows = {row["key"]: row["fields"] for row in json.loads(run(["ccn", "-R", self.entry["checkout"], "ledger", "show", self.entry["ledger"], "--json"]))["rows"]}
         prs = {key: fields for key, fields in rows.items() if key.isdigit()}
         live = ledger.live_since(rows)
@@ -502,11 +522,15 @@ class Collector:
                 "at": fields.get("landed_at") or fields.get("reported_at") or fields.get("registered_at") or fields.get("created_at"),
                 "state": fields.get("state", "open"),
             }
-            if ledger.is_open(fields):
+            if ledger.is_open(fields) and int(pr) not in squashed and summary["cite"] not in closed:
                 open_rows.append(summary)
             elif fields.get("state") == ledger.LANDED and fields.get("landed_at"):
                 landed.append(summary)
         return {"asks": asks, "prs": open_rows, "landed": landed}
+
+    def squashed(self) -> set[int]:
+        log = run(["git", "log", "origin/HEAD", f"-{ledger.SQUASH_DEPTH}", "--format=%s"], cwd=self.entry["checkout"])
+        return {int(match[1]) for subject in log.splitlines() if (match := ledger.SQUASH_SUBJECT.search(subject))}
 
     def tasks(self, sessions: list[str]) -> tuple[list[dict], str | None]:
         for session in reversed(sessions):
@@ -558,9 +582,11 @@ class Collector:
         cached = self.board_cache.get(board["subject"])
         if cached and cached[0] == marker:
             return cached[1]
-        outcome = json.loads(run(["cc-present", "outcomes", "--session", board["sessionId"], "--no-doc"]))["interactions"]
+        outcomes = json.loads(run(["cc-present", "outcomes", "--session", board["sessionId"]]))
+        outcome = outcomes["interactions"]
         answered = sum(len(outcome.get(kind) or {}) for kind in ("decisions", "choices", "inputs"))
-        facts = {"submitted": "submitted" if (outcome.get("submitted") or {}).get("value") else "not submitted", "answered": answered}
+        asks = sum(not (block["type"].startswith("display.") or block["type"] in PASSIVE_BLOCKS) for block in outcomes["doc"]["blocks"])
+        facts = {"submitted": "submitted" if (outcome.get("submitted") or {}).get("value") else "not submitted", "answered": answered, "asks": asks, "closed": bool((outcome.get("closed") or {}).get("value"))}
         self.board_cache[board["subject"]] = (marker, facts)
         return facts
 
@@ -629,11 +655,19 @@ class Collector:
             rows.append(row)
         return rows
 
-    def release_builds(self, config: dict) -> list[dict]:
+    def release_builds(self, config: dict, moment: datetime) -> list[dict]:
         pipeline = config.get("pipeline", "release")
         if self.builds is None:
-            self.builds = platy.Builds(self.state_dir / BUILDS_FILE, lambda page: json.loads(run(["bk", "api", f"/pipelines/{pipeline}/builds?per_page={platy.PER_PAGE}&page={page}"], cwd=self.entry["checkout"])))
-        return build_rows(self.builds.refresh())
+            self.builds = platy.Builds(self.state_dir / BUILDS_FILE, lambda query: json.loads(run(["bk", "api", f"/pipelines/{pipeline}/builds?{urlencode({'per_page': platy.PER_PAGE} | query, doseq=True)}"], cwd=self.entry["checkout"])))
+        if moment >= self.builds_due:
+            self.builds_due = moment + BUILDS_INTERVAL
+            try:
+                self.builds.refresh(moment)
+            except subprocess.CalledProcessError as failure:
+                if RATE_LIMITED not in (failure.stderr or ""):
+                    raise
+                self.builds_due = moment + RATE_LIMIT_BACKOFF
+        return build_rows(self.builds.known())
 
     def known_builds(self) -> list[dict]:
         return build_rows(self.builds.known()) if self.builds else []
@@ -727,13 +761,14 @@ class Collector:
                 rows.append({"kind": "ask", "title": ask.get("text"), "state": ask["state"], "at": ask.get("at"), "url": None, "cite": ask["cite"]})
         for line in open_decisions(lines, iso(moment - LANE_WINDOW)):
             rows.append({"kind": "decide", "title": line["text"], "state": line["lane"], "at": line["at"], "url": line["url"], "cite": line["cite"]})
+        started = views.stamp(self.entry["started_at"])
         for board in boards:
-            if board["status"] == "open" and board.get("submitted") != "submitted":
+            if board["status"] == "open" and board.get("submitted") != "submitted" and board.get("asks") and not board.get("closed") and views.stamp(board["at"]) >= started:
                 rows.append({"kind": "board", "title": board["title"], "state": f"{board.get('submitted', '')}, {board.get('answered', 0)} answered", "at": board["at"], "url": board["url"], "cite": board["cite"]})
         for name in config.get("owner_files") or []:
             path = self.state_dir / name
             if path.exists():
-                rows += [{"kind": "pending", "title": f"{item['title']}: {item['detail']}", "state": name, "at": iso(epoch(path.stat().st_mtime)), "url": None, "cite": f"file:{name}:{item['line']}"} for item in owner_bullets(path)]
+                rows += [{"kind": "pending", "title": f"{item['title']}: {item['detail']}", "state": name, "at": iso(epoch(path.stat().st_mtime)), "url": None, "cite": f"file:{name}:{hashlib.sha1(item['title'].encode()).hexdigest()[:8]}"} for item in owner_bullets(path)]
         for number, item in enumerate(manual_items(config.get("owner")), 1):
             rows.append({"kind": "manual", "title": item.get("text"), "state": "manual", "at": None, "url": item.get("url"), "cite": f"manual:owner:{number}"})
         return [row | {"text": row["title"] or ""} for row in rows]
@@ -757,11 +792,14 @@ class Collector:
             for line in guarded("inbox", self.inbox, [])
         ]
         tasks, task_dir = guarded("tasks", lambda: self.tasks(sessions), ([], None))
-        ledger_rows = guarded("ledger", lambda: self.ledger(moment), {"asks": [], "prs": [], "landed": []})
+        closers = guarded("cci closers", lambda: self.records(views.stamp(self.entry["started_at"]), kind=CLOSING_KINDS), [])
+        closed = overview.curated(closers)
+        squashed = guarded("trunk squashes", self.squashed, set())
+        ledger_rows = guarded("ledger", lambda: self.ledger(moment, squashed, closed), {"asks": [], "prs": [], "landed": []})
         boards = guarded("boards", self.boards, [])
         compactions = guarded("compactions", lambda: self.compactions(sessions), [])
         platy_config = config.get("platy")
-        builds = (guarded("builds", lambda: self.release_builds(platy_config), None) or self.known_builds()) if platy_config else []
+        builds = (guarded("builds", lambda: self.release_builds(platy_config, moment), None) or self.known_builds()) if platy_config else []
         sources: dict[str, list[dict]] = {
             "inbox": lines,
             "lanes": self.lanes(lines, tasks, moment),
@@ -780,7 +818,7 @@ class Collector:
         actions = guarded("owner actions", self.actions, [])
         owner_rows = guarded("owner", lambda: self.owner(tasks, ledger_rows["asks"], lines, boards, config, moment), [])
         replies = guarded("owner replies", lambda: self.replies(actions), [])
-        sources["owner"] = with_actions(owner_rows, actions, replies)
+        sources["owner"] = still_open(with_actions(owner_rows, actions, replies), closed)
         if platy_config and digest is None:
             errors["platy"] = "the cci digest is unreadable, so blockers are unknown"
         sources["platy"] = guarded("platy", lambda: self.platy(platy_config, builds, lines, cci_blockers(digest)), []) if platy_config and digest is not None else []
@@ -790,8 +828,9 @@ class Collector:
         sources["cci_lanes"] = guarded("cci lanes", lambda: self.cci("lanes"), [])
         incident_records = guarded("cci incidents", lambda: self.records(moment - INCIDENT_WINDOW, kind=list(overview.INCIDENT_KINDS)), [])
         open_incidents = {record["seq"] for record in (digest or {}).get("open_incidents") or []}
-        sources["incident_groups"] = overview.incident_groups(incident_records, open_incidents, sources["incidents"], moment)
-        sources["holds"] = [*((digest or {}).get("open_holds") or []), *((digest or {}).get("untracked_holds") or [])]
+        resolved = {record["resolves"] for record in [*closers, *incident_records] if record.get("resolves")}
+        sources["incident_groups"] = overview.incident_groups(incident_records, open_incidents, sources["incidents"], moment, closed, resolved)
+        sources["holds"] = overview.standing_holds([*((digest or {}).get("open_holds") or []), *((digest or {}).get("untracked_holds") or [])], closers)
         census = guarded("cci census", lambda: self.records(moment - CENSUS_WINDOW, kind="state"), [])
         titles = {row["pr"]: row["title"] for row in [*ledger_rows["prs"], *ledger_rows["landed"]] if row.get("title")}
         sources["landings"] = overview.landings(guarded("cci landings", lambda: self.records(moment - LANDED_WINDOW, kind="landed"), []), titles, self.entry["repo"])
@@ -820,6 +859,7 @@ class Collector:
                 rendered.append({key: spec.get(key) for key in VIEW_KEYS} | {"error": failure_text(failure)})
         state = {
             "generated_at": iso(moment),
+            "builds_at": iso(self.builds.fetched_at) if self.builds else None,
             "drive": sources["drive"][0],
             "errors": errors,
             "overview": overview.overview(
@@ -1196,10 +1236,21 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open(args: argparse.Namespace) -> int:
+    if not (record := running(resolve(args.drive, args.session))):
+        raise SystemExit("no dashboard is serving this drive; start it with lr-dashboard.py start")
+    sources = {}
+    for name in ("owner", "incident_groups", "holds", "prs"):
+        with urllib.request.urlopen(f"{record['url']}sources/{name}.json", timeout=COMMAND_TIMEOUT_SECONDS) as response:
+            sources[name] = json.load(response)
+    print("\n".join(open_items(sources)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lr-dashboard.py")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name, handler in (("serve", cmd_serve), ("start", cmd_start), ("url", cmd_url), ("snapshot", cmd_snapshot)):
+    for name, handler in (("serve", cmd_serve), ("start", cmd_start), ("url", cmd_url), ("snapshot", cmd_snapshot), ("open", cmd_open)):
         sub = subparsers.add_parser(name)
         sub.add_argument("--drive")
         sub.add_argument("--session")

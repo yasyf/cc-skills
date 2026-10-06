@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import views, yamlish
@@ -14,7 +16,9 @@ WITHOUT = re.compile(r"\bwithout (?P<envs>[\w-]+(?:, [\w-]+)*)")
 EMOJI = re.compile(r"^(?::[\w+-]+:\s*)+")
 LIVE_JOB_STATES = frozenset({"running", "canceling", "failing"})
 TERMINAL = frozenset({"passed", "failed", "canceled", "skipped", "not_run"})
-REFRESH_PAGES = 3
+LIVE = ("creating", "scheduled", "running", "blocked", "canceling", "failing")
+OVERLAP = timedelta(minutes=2)
+RESWEEP = timedelta(minutes=5)
 WORK_VERBS = frozenset({"GO", "OPENED", "UPDATED", "CLAIM", "READY", "LANDED", "RELEASED", "FIX-LIVE"})
 PER_PAGE = 100
 UNTARGETED = "untargeted"
@@ -23,7 +27,6 @@ UNPROVEN = "unproven"
 BLOCKED = "blocked"
 VERDICTS = (PROVEN, UNPROVEN, BLOCKED)
 UNPLANNED_CAUSE = "not planned"
-UNSETTLED_PAGES = 10
 
 
 def build_row(build: dict) -> dict:
@@ -78,31 +81,47 @@ def build_row(build: dict) -> dict:
 
 
 class Builds:
-    def __init__(self, cache: Path, fetch: Callable[[int], list[dict]]):
+    def __init__(self, cache: Path, fetch: Callable[[dict], list[dict]]):
         self.cache = cache
         self.fetch = fetch
         self.rows: dict[int, dict] = {int(key): value for key, value in json.loads(cache.read_text()).items()} if cache.exists() else {}
+        self.fetched_at: datetime | None = datetime.fromtimestamp(cache.stat().st_mtime, timezone.utc) if cache.exists() else None
+        self.swept_at = self.fetched_at - RESWEEP if self.fetched_at else None
+        self.backfill_page = 1
+        self.backfill_from: datetime | None = None
 
-    def refresh(self) -> list[dict]:
-        backfilling = not self.rows
-        page = 0
-        while True:
-            page += 1
-            batch = self.fetch(page)
-            known = any(build["number"] in self.rows and self.rows[build["number"]]["state"] in TERMINAL for build in batch)
-            for build in batch:
-                self.rows[build["number"]] = build_row(build)
-            if len(batch) < PER_PAGE:
-                break
-            if backfilling:
-                continue
-            oldest = min(build["number"] for build in batch)
-            unsettled = any(number < oldest and row["state"] not in TERMINAL for number, row in self.rows.items())
-            if page >= UNSETTLED_PAGES or (not unsettled and (known or page >= REFRESH_PAGES)):
-                break
+    def refresh(self, moment: datetime) -> list[dict]:
+        if self.fetched_at is None:
+            self.backfill_from = self.backfill_from or moment
+            while self.backfill_page:
+                batch = self.fetch({"page": self.backfill_page})
+                self.store(batch)
+                self.backfill_page = self.backfill_page + 1 if len(batch) == PER_PAGE else 0
+            self.fetched_at = self.swept_at = self.backfill_from
+        else:
+            unfinished = {number for number, row in self.rows.items() if row["state"] not in TERMINAL}
+            live = {build["number"] for build in self.pull({"state[]": list(LIVE)})}
+            if unfinished - live or moment - self.swept_at >= RESWEEP:
+                self.pull({"finished_from": views.iso_epoch(int((self.swept_at - OVERLAP).timestamp()))})
+                self.swept_at = moment
+            self.fetched_at = moment
         self.cache.parent.mkdir(parents=True, exist_ok=True)
         self.cache.write_text(json.dumps(self.rows))
+        os.utime(self.cache, (self.fetched_at.timestamp(), self.fetched_at.timestamp()))
         return self.known()
+
+    def pull(self, query: dict) -> list[dict]:
+        found: list[dict] = []
+        while True:
+            batch = self.fetch(query | {"page": len(found) // PER_PAGE + 1})
+            self.store(batch)
+            found += batch
+            if len(batch) < PER_PAGE:
+                return found
+
+    def store(self, batch: list[dict]) -> None:
+        for build in batch:
+            self.rows[build["number"]] = build_row(build)
 
     def known(self) -> list[dict]:
         return sorted(self.rows.values(), key=lambda row: row["number"], reverse=True)

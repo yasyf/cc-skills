@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:80bc17d18107 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/lr-dashboard.html + 1 partials sha256:e758abf98548 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -291,6 +291,7 @@ details.raw p { white-space:pre-wrap; overflow-wrap:anywhere; }
 <div class="tip" id="tip" role="tooltip"></div>
 <script>
 const REFRESH_MS=10000;
+const BUILDS_STALE_MS=180000;
 const PACIFIC="America/Los_Angeles";
 const ACTION_TOKEN=document.querySelector('meta[name="dashboard-action"]').content;
 const BAD=/\b(fail|failed|failing|failure|red|lost|blocked|error|broken|conflicting|drift|not submitted)\b/i;
@@ -583,7 +584,7 @@ function lanesHtml(){
  const card=l=>{const working=Date.now()-Date.parse(l.at)<WORKING_MS;return `<button class="lane" type="button" data-lane="${esc(l.lane)}"><span class="lane-head"><b>${esc(l.lane)}</b>${pill(l.kind,working?"info":"plain")}</span>${clip(l.text)}<span class="row-note">${working?"Working · ":""}${esc(ago(l.at))}</span></button>`};
  return rows.length?`<div class="lane-grid">${rows.slice(0,limit).map(card).join("")}</div>${rows.length>limit?`<div class="more"><button class="action" type="button" data-more="Lanes">Show all ${rows.length}</button></div>`:""}`:`<p class="empty">No lanes match</p>`;
 }
-const INCIDENT_TONE={open:"bad",investigating:"warn","mechanism found":"warn","fix live":"ok",recovered:"ok",resolved:"ok"};
+const INCIDENT_TONE={open:"bad",investigating:"warn","mechanism found":"warn","fix live":"ok",recovered:"ok",resolved:"ok","not ours":"ok",duplicate:"ok",done:"ok"};
 function incidentRow(g){return `<button class="inc" type="button" data-incident="${esc(g.key)}"><span>${pill(g.status[0].toUpperCase()+g.status.slice(1),INCIDENT_TONE[g.status])}</span><span class="title" title="${esc(g.title)}">${esc(g.sighting?g.title:g.title)}</span><span class="latest" title="${esc(g.latest)}">${esc(g.latest)}</span><span class="when">${esc(ago(g.at))}</span></button>`}
 function incidentsHtml(){
  const groups=(state.data.incidents||[]).filter(g=>matches(`${g.key} ${g.title} ${g.status} ${g.latest} ${g.lanes.join(" ")}`));
@@ -593,7 +594,7 @@ function incidentsHtml(){
 }
 function groupSummary(name){
  const d=state.data,o=d.overview;
- if(name==="Releases"){const last=o.last_release;return `${plural((d.releases||[]).length,"build")}${last?` · last ${pill(`#${last.number} ${(STATE_LABEL[last.state]||last.state).toLowerCase()}`,tone(last.state))}`:""}`}
+ if(name==="Releases"){const last=o.last_release;const stale=d.builds_at&&Date.now()-Date.parse(d.builds_at)>BUILDS_STALE_MS;return `${plural((d.releases||[]).length,"build")}${last?` · last ${pill(`#${last.number} ${(STATE_LABEL[last.state]||last.state).toLowerCase()}`,tone(last.state))}`:""}${d.builds_at?` · ${stale?pill(`Buildkite ${ago(d.builds_at)}`,"warn"):`Buildkite ${ago(d.builds_at)}`}`:""}`}
  if(name==="Stacks"){const rows=rowsOf("platy-stacks");const n=k=>rows.filter(r=>r.deployable===k).length;return rows.length?`${plural(rows.length,"stack")} · ${pill(`${n("proven")} proven`,"ok")} ${pill(`${n("unproven")} need proof`,"warn")} ${pill(`${n("blocked")} blocked`,"bad")}`:"No census"}
  if(name==="Lanes")return `${plural((d.lanes||[]).length,"lane")} in 48h · ${pill(`${o.tiles.lanes} working`,"info")}`;
  if(name==="Incidents"){const g=d.incidents||[];return `${pill(`${o.tiles.incidents} open`,o.tiles.incidents?"bad":"ok")} · ${g.filter(x=>x.status==="fix live").length} fixes live · ${plural(g.length,"thread")} in 72h`}
@@ -741,7 +742,7 @@ function openIncident(key){
  const g=(state.data.incidents||[]).find(x=>x.key===key);if(!g)return;
  const status=`<div class="detail-status">${pill(g.status[0].toUpperCase()+g.status.slice(1),INCIDENT_TONE[g.status])}<span>opened ${esc(pt(g.opened_at))}</span><span>updated ${esc(ago(g.at))}</span></div>`;
  const grid=dl([["Lanes",esc(g.lanes.join(", "))],["First report",linkify(g.summary)],["Folder",g.folder?esc(g.folder):null],["Files",g.files?esc(g.files):null]]);
- const timeline=`<ol class="timeline">${g.records.map(r=>`<li><span class="muted">${esc(pt(r.at))}<br>${pill(r.kind,INCIDENT_TONE[{incident:"open",evidence:"investigating",mechanism:"mechanism found","fix-live":"fix live",recovered:"recovered"}[r.kind]])}</span><span><b>${esc(r.lane)}</b> ${linkify(r.text)}</span></li>`).join("")}</ol>`;
+ const timeline=`<ol class="timeline">${g.records.map(r=>`<li><span class="muted">${esc(pt(r.at))}<br>${pill(r.kind,INCIDENT_TONE[{incident:"open",evidence:"investigating",mechanism:"mechanism found","fix-live":"fix live",recovered:"recovered","not-ours":"not ours",duplicate:"duplicate",done:"done"}[r.kind]])}</span><span><b>${esc(r.lane)}</b> ${linkify(r.text)}</span></li>`).join("")}</ol>`;
  history.replaceState(null,"",`#incident-${encodeURIComponent(key)}`);
  openDialog(g.sighting?g.title:g.title,status+grid+timeline);
 }
