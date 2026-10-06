@@ -244,32 +244,35 @@ release-fast lane's brief, invisible to every summary, while the root tracked PR
 state in plan tables and 148 of the drive's 405 PRs had no ledger row.*
 
 **R9. Orca worker traffic runs through `desk-runner.py`.** The root issues `relay`
-and `launch` commands and watches cci records through one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
-at timeout 1800000, re-armed on every exit and after compaction. Each pass runs
-`cci tail` with cursor `root-watch`, reader `root`, and kinds `incident`, `decide`,
-`ask`, `defect`, and `blocker`, plus each `--kind`. Records addressed to root arrive
-regardless of kind. The default poll interval is five seconds. Keep the same cci
-cursor and state file when re-arming; positional files are team mailboxes only.
+and `launch` commands. It receives cci records over the cc-inbox plugin's `cci`
+channel, with no Monitor. Launch the root with
+`--channels plugin:cc-inbox@cc-inbox` alongside every other channel plugin the drive
+uses, and at drive start run once:
 
-Records print as `#<seq> <KIND> <lane>: <text> [path]`, clipped to `--width`.
-The five default kinds and text containing `ESCALATION`, `INCIDENT`, `URGENT`,
-`DECIDE`, `ALERT`, or `ASK root` are urgent and never folded by `--burst`.
-After `--push-after` seconds without a root turn since an urgent record arrived
-(default 300), the watch pushes it to the owner's DM and names any open question
-holding delivery. A failed cci read prints one `CCI-FAIL` line per streak.
-Overflow directs the root to `cci grep --drive <drive> --since 1h`.
+```bash
+cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker
+```
 
-After compaction or a re-arm gap, catch up with
+Records addressed to `root` or `main` arrive regardless of kind, along with other
+lanes' broadcasts of each `--kind`. Each record arrives as a
+`<channel source="plugin:cc-inbox:cci">` tag whose body is
+`#<seq> <time> <KIND> <lane> -> <to>: <text> [path]`. Skip a seq you have already
+handled. The subscription belongs to the Claude Code window. Compaction and `/clear`
+keep it, and the cc-inbox `SessionStart` hook moves it into a resumed session.
+Re-run `cci subscribe` to change kinds. Never arm a Monitor on `cci watch` or
+`inbox-watch.py` for the root; a root switching over stops its Monitor after
+subscribing, and records in the overlap arrive twice. A root launched without the flag receives no tags,
+and managed settings must list every plugin the flag names in
+`allowedChannelPlugins`.
+
+After compaction, a resume, or a relaunch, catch up with
 `cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`.
 The tail resumes from the root's cursor and ends with a resume trailer when capped.
 Never tail, sed, or grep whole inbox files. A new lane orients with
 `cci digest --drive <drive>`.
 
-Add `--kind <k>` to watch another record kind. Team mailbox files produce `MAILBOX`
-lines; `--heartbeat` checks watch-lane liveness. The root never runs the check/ack
-loop, relaunch sweeps, or helper scripts inline. No model desk sits between the root
-and Orca.
+The root never runs the check/ack loop, relaunch sweeps, or helper scripts inline.
+No model desk sits between the root and Orca.
 
 Start the orca runner before the first worker; set `drive` in its config for cci
 escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`.
@@ -305,8 +308,8 @@ DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with 
 
 The root resolves it with that lane before or instead of an open
 `AskUserQuestion` on another subject. The unrelated owner question goes to a
-non-blocking board or waits. With no root turn for five minutes after the line
-arrives, `inbox-watch.py` pushes it to the owner's DM under R9.
+non-blocking board or waits. The line reaches the root over the `cci` channel as
+soon as the runner writes it.
 
 *Prevents the 2026-10-03 api/runtime-v2/restate-worker catch-up staying held while
 executor shipped alone at 3:51 PM Pacific and the starvation mechanism arrived.
@@ -1033,11 +1036,7 @@ keys. A repeated key in the same lane is one action. A relay can also be one
 `R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>` line in
 the same file; the runner runs `launch` for it once, `NOW` meaning `--owner-directed`,
 and logs `LAUNCHED` or `LAUNCH-FAILED`. The root never `SendMessage`s a desk. It
-watches cci records in one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
-at timeout 1800000, re-armed on every exit and after compaction.
-Add `--heartbeat <lane>=<file>:<seconds>` for each watch lane.
-R9 defines cursor, urgent-line, and owner-DM behavior.
+receives cci records over the `cci` channel subscription R9 defines.
 `show` and the config's `view` file render state; these inbox files are views,
 never authority.
 
