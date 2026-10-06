@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 from urllib.parse import unquote as unquote_url
 from zoneinfo import ZoneInfo
 
@@ -65,6 +65,7 @@ SLACK = timedelta(hours=2)
 FOLLOW = timedelta(hours=16)
 HEADER_CHARS = 80
 CCI_URL = "http://127.0.0.1:7377/v1"
+LOOPBACK = {"127.0.0.1", "localhost"}
 CCI_OPEN = ("open_defects", "open_blockers", "open_holds")
 CCI_PAGE = 500
 INCIDENT_WINDOW = timedelta(hours=72)
@@ -849,6 +850,8 @@ class Collector:
                 "at": iso(moment),
             }
         ]
+        if host := guarded("tailnet", tailnet_host, None):
+            sources = {name: [on_tailnet(row, host) for row in rows] for name, rows in sources.items()}
         loaders = Loaders(self.state_dir, self.entry["checkout"])
         rendered = []
         for spec in views.merge(default_views(), config.get("views") or []):
@@ -917,6 +920,17 @@ def tailnet_host() -> str | None:
     except FileNotFoundError:
         return None
     return status["Self"]["DNSName"].rstrip(".") if status.get("BackendState") == "Running" else None
+
+
+def reachable(url: str, host: str) -> str:
+    parts = urlsplit(url)
+    if parts.hostname not in LOOPBACK:
+        return url
+    return parts._replace(netloc=f"{host}:{parts.port}" if parts.port else host).geturl()
+
+
+def on_tailnet(row: dict, host: str) -> dict:
+    return {key: reachable(value, host) if (key == "url" or key.endswith("_url")) and isinstance(value, str) else value for key, value in row.items()}
 
 
 def share(port: int) -> str | None:
@@ -1155,11 +1169,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
     staged.write_text(json.dumps(record, indent=2) + "\n")
     staged.replace(path)
     threading.Thread(target=server.poll, daemon=True).start()
-    print(record["url"], flush=True)
+    print(public_url(record), flush=True)
     server.serve_forever()
     if tailnet_url:
         unshare(port)
     return 0
+
+
+def public_url(record: dict) -> str:
+    return record.get("tailnet_url", record["url"])
 
 
 def health(record: dict) -> dict | None:
@@ -1201,7 +1219,7 @@ def start(entry: dict, host: str) -> int:
     script = str(Path(__file__).resolve())
     if record := running(entry):
         if record["alive"]["script"] == script:
-            print(record["url"])
+            print(public_url(record))
             return 0
         retire(record)
     log = Path(entry["state_dir"]) / SERVER_LOG
@@ -1218,7 +1236,7 @@ def start(entry: dict, host: str) -> int:
     deadline = time.monotonic() + START_WAIT_SECONDS
     while time.monotonic() < deadline:
         if server_file(entry).exists() and server_file(entry).read_text() != previous and (record := running(entry)):
-            print(record["url"])
+            print(public_url(record))
             return 0
         time.sleep(0.2)
     raise SystemExit(f"the dashboard did not come up within {START_WAIT_SECONDS:.0f}s; see {log}")
@@ -1227,7 +1245,7 @@ def start(entry: dict, host: str) -> int:
 def cmd_url(args: argparse.Namespace) -> int:
     if not (record := running(resolve(args.drive, args.session))):
         return 1
-    print(record.get("tailnet_url", record["url"]))
+    print(public_url(record))
     return 0
 
 
