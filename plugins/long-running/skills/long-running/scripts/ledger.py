@@ -918,7 +918,7 @@ def orca_workers(shell: Shell) -> list[dict]:
 
 def lane_of(branch: str, lanes: dict[str, dict[str, str]]) -> str:
     name = branch.removeprefix("refs/heads/")
-    return next((fields["lane"] for fields in lanes.values() if name.startswith(fields["branch_prefix"])), name)
+    return next((fields["lane"] for fields in lanes.values() if on_prefix(name, fields["branch_prefix"])), name)
 
 
 def prompt_lines(shell: Shell, lanes: dict[str, dict[str, str]], shard: frozenset[str] | None, moment: datetime) -> list[str]:
@@ -1096,14 +1096,22 @@ def cmd_ack(args: argparse.Namespace, shell: Shell) -> int:
 
 
 def branch_prefix(value: str) -> str:
-    """A whole branch namespace: without a trailing separator, `lightning` would also claim `lightningbolt/`."""
-    if not value.endswith(("/", "-")) or value in ("/", "-"):
-        raise argparse.ArgumentTypeError(f"{value!r} is not a branch namespace; end it in '/' or '-', as in 'lightning/'")
+    if value.strip("/-") == "":
+        raise argparse.ArgumentTypeError(f"{value!r} names no branch; pass a branch name, or a namespace ending in '/' or '-', as in 'lightning/'")
     return value
+
+
+def on_prefix(branch: str, prefix: str) -> bool:
+    """A prefix ending in '/' or '-' is a namespace; any other names exactly one branch, so `lightning` never claims `lightningbolt`."""
+    return branch.startswith(prefix) if prefix.endswith(("/", "-")) else branch == prefix
 
 
 def lane_slug(lane: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", lane.lower()).strip("-")
+
+
+def prefix_prs(state: dict, prefix: str) -> list[str]:
+    return [pr for pr in map(str, state["lanes"][prefix]) if on_prefix(state["prs"][pr]["headRefName"], prefix)]
 
 
 def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
@@ -1115,7 +1123,7 @@ def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[st
     started = parse_iso(notes.show()["created_at"])
     rows = notes.pr_rows()
     reasons = {}
-    for pr in map(str, state["lanes"][args.branch_prefix]):
+    for pr in prefix_prs(state, args.branch_prefix):
         if (owner := rows.get(pr, {}).get("lane", args.lane)) != args.lane:
             reasons[pr] = f"lane {owner}"
         elif parse_iso(state["prs"][pr]["createdAt"]) < started:
@@ -1125,8 +1133,8 @@ def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[st
 
 def guard_prefix(shell: Shell, args: argparse.Namespace, notes: Notes) -> None:
     login = json.loads(shell.run(["gh", "api", "user"]))["login"]
-    suggestion = f"register a lane-specific prefix such as {login}/{lane_slug(args.lane)}-"
-    if f"{login}/".startswith(args.branch_prefix):
+    suggestion = f"register the lane's exact branch name, a lane-specific namespace such as {login}/{lane_slug(args.lane)}-, or each of its PRs with --pr N"
+    if args.branch_prefix.endswith(("/", "-")) and f"{login}/".startswith(args.branch_prefix):
         raise SystemExit(f"{args.branch_prefix} covers {login}'s whole branch namespace, not lane {args.lane}'s; {suggestion}")
     if foreign := foreign_prs(shell, args, notes):
         raise SystemExit(f"{args.branch_prefix} already matches PRs that are not lane {args.lane}'s: {' '.join(foreign)}; {suggestion}")
@@ -1137,7 +1145,7 @@ def discovered_only(fields: dict[str, str], lane: str, prefix: str) -> bool:
     return (
         fields.get("registered") == lane
         and fields.get("lane") == lane
-        and fields.get("branch", "").startswith(prefix)
+        and on_prefix(fields.get("branch", ""), prefix)
         and not any(fields.get(name) for name in TOUCHED_FIELDS)
     )
 
@@ -1196,7 +1204,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
             state = pr_state(shell, args.ccx, args.repo, wanted, prefixes)
         except subprocess.CalledProcessError as failure:
             raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
-        registered = {str(pr): lane["lane"] for lane in registrations for pr in state["lanes"][lane["branch_prefix"]]}
+        registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}
         rows = []
         for key in sorted(set(wanted) | set(registered), key=int):
             fields = grade(state["prs"][key])
@@ -1995,7 +2003,7 @@ def build_parser() -> argparse.ArgumentParser:
     register = subparsers.add_parser("register", help="track a lane's PRs, or every open PR on its branch prefix, with no per-head report")
     add_ledger(register)
     register.add_argument("--lane", required=True)
-    register.add_argument("--branch-prefix", type=branch_prefix)
+    register.add_argument("--branch-prefix", type=branch_prefix, help="the lane's branch name, or a namespace ending in '/' or '-' covering its stack")
     register.add_argument("--repo", help="the owner/name repository the prefix's PRs live in; default: the current checkout's")
     register.add_argument("--ccx", default="ccx", help="the ccx binary")
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)

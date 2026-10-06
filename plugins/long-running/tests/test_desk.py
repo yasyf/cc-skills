@@ -1838,8 +1838,8 @@ def test_summary_outside_orca_reads_no_orca_state(capsys):
     assert not [call for call in shell.calls if call[0] == "orca"]
 
 
-def test_register_refuses_a_prefix_that_is_not_a_whole_branch_namespace():
-    for prefix in ("lightning", "", "/", "-"):
+def test_register_refuses_a_prefix_that_names_no_branch():
+    for prefix in ("", "/", "-", "/-"):
         with pytest.raises(SystemExit):
             run(FakeShell(), "register", "--ledger", LEDGER, "--lane", LANE, "--branch-prefix", prefix)
 
@@ -1854,7 +1854,7 @@ def test_register_refuses_the_owners_whole_namespace_and_names_a_lane_specific_p
 
     assert str(refused.value) == (
         f"{prefix} covers {login}'s whole branch namespace, not lane mem-07 Normalize's; "
-        f"register a lane-specific prefix such as {login}/mem-07-normalize-"
+        f"register the lane's exact branch name, a lane-specific namespace such as {login}/mem-07-normalize-, or each of its PRs with --pr N"
     )
     assert shell.keys() == []
     assert shell.state_calls() == []
@@ -1875,7 +1875,7 @@ def test_register_refuses_a_prefix_matching_another_lanes_prs_or_prs_older_than_
     assert str(refused.value) == (
         "yasyf/mem- already matches PRs that are not lane mem-07-normalize's: "
         "#24071 (opened 2026-09-24T08:00:00Z, before the drive) #24072 (lane mem-04-sessions); "
-        "register a lane-specific prefix such as yasyf/mem-07-normalize-"
+        "register the lane's exact branch name, a lane-specific namespace such as yasyf/mem-07-normalize-, or each of its PRs with --pr N"
     )
     assert shell.keys() == ["24072"]
 
@@ -1892,6 +1892,19 @@ def test_register_accepts_a_lane_specific_prefix_over_the_lanes_own_new_prs(caps
     assert shell.fields("lane/mem-07-normalize")["branch_prefix"] == "yasyf/mem-07-normalize-"
     assert shell.state_calls() == [["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "yasyf/mem-07-normalize-"]]
     assert capsys.readouterr().out.strip() == "registered mem-07-normalize on yasyf/mem-07-normalize-*"
+
+
+def test_a_prefix_with_no_trailing_separator_claims_exactly_that_branch(capsys, lock):
+    shell = FakeShell()
+    lane_pull(shell, "24091", "a" * 40, "yasyf/iris-memory-07")
+    lane_pull(shell, "24092", "b" * 40, "yasyf/iris-memory-070")
+    lane_pull(shell, "24093", "c" * 40, "yasyf/iris-memory-07/child")
+
+    run(shell, "register", "--ledger", LEDGER, "--lane", "mem-07-normalize", "--branch-prefix", "yasyf/iris-memory-07")
+    refresh(shell, lock)
+
+    assert shell.pr_keys() == ["24091"]
+    assert shell.fields("24091")["registered"] == "mem-07-normalize"
 
 
 def test_register_of_a_lone_pr_reads_no_forge_state():
