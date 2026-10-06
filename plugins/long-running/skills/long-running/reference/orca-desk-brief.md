@@ -138,10 +138,7 @@ text limit and attachment rule.
 The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
 `dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
 
-The root watches cci through one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
-at timeout 1800000. Re-arm on every exit and after compaction. R9 defines cursor,
-urgent-line, and owner-DM behavior.
+The root receives cci records over the `cci` channel subscription R9 defines.
 
 `show` and the config's `view` file render action state. Runner-owned `inbox/`
 files are views, never command authority. Keep existing history; do not mirror
@@ -222,27 +219,22 @@ target facts, and the drive's deploy inbox for `MECHANISM`, `FIX-LIVE`, and
 
 Start each process detached so it survives the root's compaction, in a dedicated
 Orca terminal with coordinator identity or with `nohup`. After filling the config,
-start both and arm the root's Monitor on the last command at timeout 1800000.
-Add `--kind <k>` for other record kinds or team mailbox `.json` paths as positional
-arguments. Re-arm it on every exit and after compaction:
+start both:
 
 ```sh
 DRIVE='/absolute/drive'
 CONFIG="$DRIVE/runner.json"
-ROOT_SESSION='<root session id>'
 mkdir -p "$DRIVE/inbox"
 nohup desk-runner.py run --config "$CONFIG" --desk orca > "$DRIVE/orca-runner.log" 2>&1 < /dev/null &
 nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-runner.log" 2>&1 < /dev/null &
-inbox-watch.py --state "$DRIVE/inbox/.inbox-watch.json" --drive "$DRIVE" \
-  --heartbeat "slack=$DRIVE/slack/watch.beat:600" --session "$ROOT_SESSION"
 ```
 
 Restarting either process uses the same records and is idempotent. Keep one process
 per desk. Restarting a runner never means relaunching its workers.
 
 For the cci cutover, the root adds `drive` to the runner config, confirms
-`orca.desk_inbox`, and restarts both runners before re-arming its Monitor with the
-new command. The root owns that cutover.
+`orca.desk_inbox`, and restarts both runners. Its records keep arriving over the
+`cci` channel. The root owns that cutover.
 
 The orca desk calls Orca as the terminal it was started from, named by the
 `ORCA_TERMINAL_HANDLE` it inherits, and only the terminal bound to the Run may call

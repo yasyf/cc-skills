@@ -22,7 +22,6 @@ Cursor: <cursor file>; it holds each channel's last ts and each open thread's la
   relayed reply ts, keyed <channel>/<thread_ts>.
 Relay to: <root agent name>; cci drive <drive> holds lane fences.
 Incident inbox: <drive>/inbox/orca-desk.md.
-Heartbeat: <state dir>/slack/watch.beat.
 Tools: ToolSearch-load mcp__slack__slack_conversations_history,
   mcp__slack__slack_get_thread, and SendMessage once at start.
 
@@ -47,8 +46,6 @@ Do, every poll (foreground `desk-wait.sh 265 <team mailbox>=<cursor file>`;
   5. Advance the Slack cursor only after the relay and cci lift are written.
   6. Append a close row only when the owner or the fence owner says the thread is
      done; quote their words in reason.
-  7. Touch <state dir>/slack/watch.beat every poll. The root's inbox-watch.py
-     --heartbeat slack=<state dir>/slack/watch.beat:600 reports a silent watch.
 
 Incidents:
   A new Datadog or Sentry alert, an on-call page, or a customer report of broken

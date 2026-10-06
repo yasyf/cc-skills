@@ -15,7 +15,7 @@ the newest within --budget bytes, plus a line counting omissions. --state advanc
 each inbox's cursor and starts an unseen inbox at the live file's beginning. It
 never reads archives and reports unread archived bytes. --all reads archives and
 the live file with the same caps, touching no state, for a new lane's orientation.
-The root uses <drive>/inbox/.inbox-digest.json beside .inbox-watch.json.
+The root uses <drive>/inbox/.inbox-digest.json.
 
 rotate records a time and stream-end mark each run. It archives complete lines
 through the newest mark at least --hours old, writes the rest to a temporary file,

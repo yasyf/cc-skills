@@ -418,9 +418,6 @@ desk-runner.py relay --config "$CONFIG" --key R2 --lane ci-fix --text '<ruling>'
 desk-runner.py show --config "$CONFIG"
 ```
 
-The root issues runner commands and never `SendMessage`s a desk. It watches cci
-records in one Monitor on
-`inbox-watch.py --state <drive>/inbox/.inbox-watch.json --drive <drive> [--kind <k>]... [--heartbeat <lane>=<file>:<seconds>] --session <root session id> [<team mailbox .json>...]`
-at timeout 1800000, re-armed on every exit and after compaction. R9 defines cursor,
-urgent-line, and owner-DM behavior. The orca runner alone reads the Run inbox and
+The root issues runner commands and never `SendMessage`s a desk. It receives cci
+records over the `cci` channel subscription R9 defines. The orca runner alone reads the Run inbox and
 persists its sequence cursor.
