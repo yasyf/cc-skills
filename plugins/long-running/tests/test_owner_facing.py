@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from cc_transcript.query import Session
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
+from captain_hook import CONFIRMED, UNCONFIRMED
 from captain_hook.testing.helpers import StubbedContext, build_context
 
 from fire import fire
@@ -60,9 +61,11 @@ class Root:
         transcript = Session.from_path(self.transcript)
         return cls(_raw=payload | raw, ctx=build_context(transcript=transcript, session_dir=self.session_dir))
 
-    def spawn(self, name: str, prompt: str, **verdict: bool) -> str | None:
+    def spawn(self, name: str, prompt: str, *, block: bool = True) -> str | None:
         raw = {"session_id": "0123456789abcdef", "cwd": str(self.transcript.parent)}
-        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir), llm=verdict)
+        ctx = StubbedContext.wrapping(
+            build_context(session_dir=self.session_dir), decisions=CONFIRMED if block else UNCONFIRMED
+        )
         tool_input = {"name": name, "prompt": prompt, "subagent_type": "long-running:lane-ship"}
         evt = PreToolUseEvent(_raw=raw | {"tool_name": "Agent", "tool_input": tool_input}, ctx=ctx)
         results = fire(owner_facing, evt)

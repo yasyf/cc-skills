@@ -10,6 +10,7 @@ from captain_hook.app import _state
 from captain_hook.conditions import matches_conditions
 from captain_hook.dispatch import execute_hook
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent, UserPromptSubmitEvent
+from captain_hook import CONFIRMED, UNCONFIRMED
 from captain_hook.testing.helpers import StubbedContext, build_context
 
 from hooks import nudges, root_context
@@ -38,11 +39,14 @@ class Root:
         self.plan.write_text(LONG)
         (home / "src" / ".git").mkdir(parents=True)
         self.verdict: dict = {}
+        self.decisions: dict = CONFIRMED
         CompactionState(active=True, plan_path=str(self.plan), slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.home)}
-        ctx = StubbedContext.wrapping(build_context(session_dir=self.session_dir), llm=self.verdict)
+        ctx = StubbedContext.wrapping(
+            build_context(session_dir=self.session_dir), llm=self.verdict, decisions=self.decisions
+        )
         return cls(_raw=payload | raw, ctx=ctx)
 
     def file(self, relative: str, content: str = LONG) -> Path:
@@ -202,7 +206,7 @@ def test_logged_control_plane_reads_go_to_the_model(
     root: Root, message: str, tool: str, tool_input: dict, block: bool
 ) -> None:
     root.file("scratch/release-v3/orca-waiter/batches.jsonl", '{"from": "orca"}\n')
-    root.verdict["block"] = block
+    root.decisions = CONFIRMED if block else UNCONFIRMED
 
     result = root.pre(tool, tool_input) or ""
 
