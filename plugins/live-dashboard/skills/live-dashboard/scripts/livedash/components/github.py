@@ -13,7 +13,7 @@ reviewThreads(first: 100) { nodes { isResolved } }
 reviews(last: 50) { nodes { author { login } state body submittedAt commit { oid } } }
 commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state } } } } } } }"""
 PASSING = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
-AGENT_REVIEW_MARKS = ("<!-- rules-review", "@forge-pr-reviewer accept")
+OWNER_VERDICTS = frozenset({"APPROVED", "CHANGES_REQUESTED"})
 REVIEW_COLUMNS = [
     Col("pr", "PR", "link"),
     Col("title", "Title"),
@@ -63,14 +63,10 @@ def bot_state(contexts: list[dict], bots: list[str]) -> str:
     return "red" if "red" in states else "pending" if "pending" in states else "green" if states else "none"
 
 
-def human_reviews(pr: dict) -> list[dict]:
-    return [review for review in pr["reviews"]["nodes"] if review["author"] and not any(mark in (review["body"] or "") for mark in AGENT_REVIEW_MARKS)]
-
-
 def owner_state(fields: dict, pr: dict, owner_login: str) -> str:
     if fields.get("owner_reviewed_at"):
         return "reviewed"
-    if owner_login and any(review["author"]["login"] == owner_login for review in human_reviews(pr)):
+    if owner_login and any(review["author"] and review["author"]["login"] == owner_login and review["state"] in OWNER_VERDICTS for review in pr["reviews"]["nodes"]):
         return "reviewed"
     return "waiting"
 
@@ -89,7 +85,7 @@ def record_review(ctx: Context, row: dict, text: str) -> str:
     return f"cci #{record['seq']}: main records owner_reviewed_at on #{row['key']}"
 
 
-@component("pr-review-queue", "PRs waiting for review", every="2m", timeout="60s", actions={"reviewed": record_review})
+@component("pr-review-queue", "PRs waiting for review", question="Which PRs wait on review, and what exactly gates each one?", reads=["ccn ledger row list", "gh api graphql", "ccx vcs pr status"], every="2m", timeout="60s", actions={"reviewed": record_review})
 def review_queue(
     ctx: Context,
     *,
@@ -104,7 +100,8 @@ def review_queue(
 ) -> Table:
     """Open PRs from `prs`, else the ledger's open rows: size, CI without the ignored checks, the review bot's check, the
     ledger's rules-review verdict at the current head, unresolved threads, the queue verdict from `ccx vcs pr status`, hold
-    age, and whether the owner reviewed (`owner_reviewed_at`, or a review by `owner_login`). Agent-posted reviews never count.
+    age, and whether the owner reviewed (`owner_reviewed_at`, or an approval or change request by `owner_login`). Comments
+    never count, since agents comment under the owner's login.
     `order: stack` walks each stack from its trunk; `age` puts the oldest first. Action `reviewed` posts an owner record to main.
     """
     rows = ledgers.rows(ctx, ledger) if ledger and not prs else {}
@@ -154,7 +151,7 @@ def review_queue(
     return Table(REVIEW_COLUMNS, out, footer=footer, note=None if out else "No open PRs.")
 
 
-@component("gh-quota", "GitHub API quota", every="2m")
+@component("gh-quota", "GitHub API quota", question="How much GitHub API quota is left before cards stop refreshing?", reads=["gh api rate_limit"], every="2m")
 def quota(ctx: Context, *, floor: int = 500) -> Tiles:
     """REST core and GraphQL remaining quota from `gh api rate_limit`, which spends none; under `floor` reads bad."""
     resources = ctx.json(["gh", "api", "rate_limit"])["resources"]

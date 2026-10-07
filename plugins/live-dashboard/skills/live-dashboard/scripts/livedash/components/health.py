@@ -5,7 +5,7 @@ from livedash import Col, Context, Table, component
 TONE = {"ok": "ok", "pending": "muted", "stale": "warn", "error": "bad", "hung": "bad"}
 
 
-@component("dashboard-health", "Dashboard health", every="30s")
+@component("dashboard-health", "Dashboard health", question="Is every card on this page fresh and running?", reads=["the dashboard scheduler"], every="30s")
 def dashboard_health(ctx: Context) -> Table:
     """Every card on this dashboard with its status, the age of its last good payload, its last run time, and its error."""
     rows = [

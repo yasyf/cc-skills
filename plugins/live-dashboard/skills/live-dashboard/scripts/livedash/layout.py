@@ -9,7 +9,7 @@ from livedash import registry, yamlish
 LAYOUT_FILE = "layout.yaml"
 TOP_KEYS = {"title", "banner", "sections"}
 SECTION_KEYS = {"title", "collapsed", "components"}
-CARD_KEYS = {"use", "id", "title", "every", "width", "pinned", "with"}
+CARD_KEYS = {"use", "id", "title", "question", "every", "width", "pinned", "with"}
 USE_KEY = re.compile(r"(?:^|[{,\s-])use:\s")
 LINE = re.compile(r"\bline (\d+)")
 CARD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -29,6 +29,7 @@ class Card:
     id: str
     use: str
     title: str
+    question: str | None
     every: str
     width: int
     pinned: bool
@@ -111,13 +112,13 @@ def card_of(raw: dict, line: int, section: str, facts: dict, base: Path) -> Card
     spec = registry.REGISTRY.get(use)
     if spec is None:
         if use.startswith("local.") and any(name.startswith(registry.LOCAL_PACKAGE) for name in registry.LOAD_ERRORS):
-            return Card(ident, use, raw.get("title") or use, every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use))
+            return Card(ident, use, raw.get("title") or use, raw.get("question"), every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use))
         raise LayoutError(line, registry.missing(use))
     try:
         bound = registry.bind(spec, given, facts, base)
     except registry.BindError as failure:
         raise LayoutError(line, str(failure)) from failure
-    return Card(ident, use, raw.get("title") or spec.title, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound)
+    return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound)
 
 
 def build(text: str, facts: dict, base: Path) -> Layout:

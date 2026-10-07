@@ -52,6 +52,10 @@ def test_init_seeds_a_layout_and_new_adds_a_local_card_that_checks_clean(tmp_pat
     assert made.returncode == 0, made.stderr
     assert (board / "components" / "rulings.py").exists()
     assert (board / "layout.yaml").read_text().endswith("  - title: Rulings\n    components:\n      - {use: local.rulings}\n")
+    scaffolded = cli("check", "--dir", str(board), "--only", "local.rulings")
+    assert scaffolded.returncode == 1 and "question is still the scaffold's" in scaffolded.stdout
+    module = board / "components" / "rulings.py"
+    module.write_text(module.read_text().replace('question="TODO: which question does this card answer for the owner?"', 'question="Which PRs meet each ruling?"'))
     checked = cli("check", "--dir", str(board), "--only", "local.rulings")
     assert (checked.returncode, checked.stdout.strip()) == (0, f"{board / 'layout.yaml'}: every card checks clean")
     assert cli("check", "--dir", str(board), "--static").returncode == 0
@@ -72,7 +76,7 @@ def test_check_reports_a_card_that_outlives_its_timeout(tmp_path):
     (board / "components").mkdir(exist_ok=True)
     (board / "components" / "slow.py").write_text(
         "import time\nfrom livedash import Context, Markdown, component\n\n\n"
-        '@component("slow", "Slow", timeout="1s")\n'
+        '@component("slow", "Slow", question="Does a slow card time out?", reads=["nothing"], timeout="1s")\n'
         "def slow(ctx: Context) -> Markdown:\n    print('working')\n    time.sleep(30)\n    return Markdown('done')\n"
     )
     (board / "layout.yaml").write_text((board / "layout.yaml").read_text() + "  - title: Slow\n    components:\n      - {use: local.slow}\n")

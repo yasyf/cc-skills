@@ -51,7 +51,7 @@ def waiting(row: dict) -> bool:
     return row["status"] == "open" and row.get("submitted") != "submitted" and bool(row.get("asks")) and not row.get("closed")
 
 
-@component("boards", "cc-present boards", every="2m", timeout="60s")
+@component("boards", "cc-present boards", question="Which cc-present boards are open and still asking the owner something?", reads=["cc-present sessions", "cc-present outcomes"], every="2m", timeout="60s")
 def boards(ctx: Context, *, started_at: str | None = None) -> Table:
     """cc-present boards updated since the drive started; an open, unsubmitted board that asks something reads warn."""
     rows = [row | {"tone": "warn" if waiting(row) else None} for row in board_rows(ctx, started_at)]

@@ -12,6 +12,9 @@ from livedash.context import Context, failure_text, now
 from livedash.server import read_facts
 
 
+SCAFFOLD_QUESTION = "TODO"
+
+
 def selected(cards: list[layout.Card], only: str | None) -> list[layout.Card]:
     return [card for card in cards if only in (None, card.id, card.use)]
 
@@ -64,6 +67,9 @@ def defects(directory: Path, only: str | None, run: bool, env: dict) -> list[str
     for card in cards:
         if card.spec is None:
             found.append(f"{card.id} (layout.yaml:{card.line}): {card.error}")
-        elif run:
+            continue
+        if card.question.startswith(SCAFFOLD_QUESTION):
+            found.append(f"{card.id} (layout.yaml:{card.line}): question is still the scaffold's; name the one question this card answers")
+        if run:
             found += run_card(card, directory, facts, env)
     return found

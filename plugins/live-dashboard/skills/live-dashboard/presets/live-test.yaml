@@ -6,12 +6,21 @@ sections:
         id: test-channels
         width: 2
         with: {threads: []}
+      - use: view
+        id: live-pages
+        title: Open test pages
+        width: 2
+        with: {file: 'pages.tsv', where: {state: '!resolved'}, columns: ['page:link', holder:badge, deadline:due, channel:link, last_activity:age]}
+  - title: Results
+    components:
+      - use: matrix-file
+        id: test-matrix
+        width: 3
+        with: {file: 'results.jsonl', row: stage, col: cell, value: status, link: link, detail: [defect, task, priority]}
       - use: latency-percentiles
         id: bot-latency
-        width: 1
-        with: {files: 'timelines/*.timeline.json', deltas_from: origin, deltas_to: [thread, triage], budget_ms: 60000}
-  - title: Outcomes
-    components:
+        width: 2
+        with: {files: 'timelines/*.timeline.json', deltas_from: origin, deltas_to: [thread, triage], budgets: {thread: '120000'}}
       - use: datadog-monitors
         id: monitors
         with: {query: 'tag:"service:example"'}

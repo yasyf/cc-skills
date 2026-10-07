@@ -109,6 +109,16 @@ def test_context_rewrites_the_dashboard_context_with_the_state_dir_as_the_cci_dr
     assert json.loads(path.read_text())["cci_drive"] == "release-v3"
 
 
+def test_context_keeps_the_task_facts_a_layout_added_and_rewrites_the_registry_ones(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    path = tmp_path / "release-v3" / "dashboard" / "context.json"
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"owner_login": "yasyf", "cci_drive": "stale"}))
+
+    assert drive.main(["context", "--drive", "900424b6"]) == 0
+    context = json.loads(path.read_text())
+    assert (context["owner_login"], context["cci_drive"]) == ("yasyf", "release-v3")
+
+
 def test_a_session_runs_one_drive_at_a_time(repo):
     started(repo)
 

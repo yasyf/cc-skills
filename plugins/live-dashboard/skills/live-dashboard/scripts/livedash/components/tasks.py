@@ -49,7 +49,7 @@ def session_tasks(checkout: str, sessions: list[str]) -> tuple[list[dict], Path 
     return [], None
 
 
-@component("tasks", "Root tasks", every="1m")
+@component("tasks", "Root tasks", question="What is the root session working on right now?", reads=["the root session's task list"], every="1m")
 def tasks(ctx: Context, *, checkout: str, sessions: list[str], statuses: list[str] = ["in_progress", "pending"]) -> Table:
     """The root session's task list (the newest of `sessions` that has one), narrowed to `statuses`."""
     found, directory = session_tasks(checkout, sessions)

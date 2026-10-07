@@ -59,7 +59,7 @@ def hold_lines(path: Path) -> list[dict]:
     return out
 
 
-@component("held-prs", "Held PRs", every="1m")
+@component("held-prs", "Held PRs", question="Which PRs are held, why, and what lifts each hold?", reads=["ccn ledger row list", "holds file"], every="1m")
 def held_prs(ctx: Context, *, ledger: str, holds: Path | None = None) -> Table:
     """Open ledger PRs carrying a hold (reason, since, until), joined with the lines of a holds file that name the PR by
     `#N` or its lane by `lane:<name>`; a line containing LIFT, LIFTED or LIFTS counts as lifted and is skipped."""
@@ -93,7 +93,7 @@ def held_prs(ctx: Context, *, ledger: str, holds: Path | None = None) -> Table:
     )
 
 
-@component("asks", "Open asks", every="2m")
+@component("asks", "Open asks", question="Which owner asks are still open, and what finishes each one?", reads=["ccn ledger row list", "cci digest"], every="2m")
 def asks(ctx: Context, *, ledger: str | None = None, keys: list[str] = [], cci_to: list[str] = ["owner", "main", "root"]) -> Table:
     """The ledger's `ask/*` rows that are not dropped, answered or delivered (every linked PR landed), with their accept
     criteria; `keys` narrows to named rows. Open cci asks addressed to any `cci_to` reader join them."""

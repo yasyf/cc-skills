@@ -10,9 +10,9 @@ sections:
         id: thread
         width: 2
         with: {threads: []}
-      - use: log-tail
+      - use: log-matches
         id: log
-        with: {path: incident.log, highlight: 'error|panic|5\d\d'}
+        with: {path: incident.log, patterns: {errors: 'error|panic', 5xx: ' 5\d\d '}}
   - title: Lanes
     components:
       - {use: cci-lanes, id: lanes, width: 2}

@@ -7,10 +7,12 @@ import re
 from collections import deque
 from pathlib import Path
 
-from livedash import Col, Context, Entry, Feed, Table, Tile, Tiles, component, view
+from livedash import Cell, Col, Context, Matrix, Table, Tile, Tiles, component, view
 
 LEADING_TIME = re.compile(r"^\[?(?P<at>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)")
 COLUMN = re.compile(r"^(?P<key>[\w.-]+)(?::(?P<kind>\w+))?$")
+CELL_TONES = {"pass": "ok", "passed": "ok", "fail": "bad", "failed": "bad", "rerun-pending": "warn", "pending": "warn", "running": "warn", "untested": "muted", "skipped": "muted"}
+MATCH_COLUMNS = [Col("pattern", "Pattern"), Col("count", "Matches", "num"), Col("last", "Last match", "age")]
 
 
 def read_rows(path: Path, rows_key: str | None = None) -> list[dict]:
@@ -32,23 +34,24 @@ def number(value) -> float | None:
     return float(parsed) if parsed is not None else None
 
 
-@component("log-tail", "Log tail", every="15s")
-def log_tail(ctx: Context, *, path: Path, lines: int = 40, highlight: str | None = None) -> Feed:
-    """The last `lines` lines of a log file, newest first; a leading ISO time dates a line, and `highlight` marks matches bad."""
+@component("log-matches", "Log matches", question="How often do the watched patterns show up in the log, and when last?", reads=["log file"], every="15s")
+def log_matches(ctx: Context, *, path: Path, patterns: dict[str, str], lines: int = 2000) -> Table:
+    """For each named regex in `patterns`, how many of the last `lines` lines of a log file match and when the newest match
+    was logged, read from a leading ISO time. The line text never reaches the board."""
     if not path.exists():
-        return Feed([], note=f"{path} does not exist yet.")
+        return Table(MATCH_COLUMNS, [], note=f"{path} does not exist yet.")
     with path.open(errors="replace") as handle:
-        tail = deque(handle, maxlen=lines)
-    pattern = re.compile(highlight) if highlight else None
-    entries = []
-    for number_, line in enumerate(reversed(tail)):
-        text = line.rstrip("\n")
-        stamp = LEADING_TIME.match(text)
-        entries.append(Entry(stamp["at"] if stamp else "", path.name, text[:400], tone="bad" if pattern and pattern.search(text) else None, key=f"{path.name}:{number_}"))
-    return Feed(entries)
+        tail = list(deque(handle, maxlen=lines))
+    rows = []
+    for name, regex in patterns.items():
+        pattern = re.compile(regex)
+        hits = [line for line in tail if pattern.search(line)]
+        stamp = LEADING_TIME.match(hits[-1]) if hits else None
+        rows.append({"key": name, "cite": f"log:{path.name}:{name}", "pattern": name, "count": len(hits), "last": stamp["at"] if stamp else None, "tone": "bad" if hits else "ok"})
+    return Table(MATCH_COLUMNS, rows, note=f"last {len(tail)} lines of {path.name}")
 
 
-@component("kv-file", "Numbers from a file", every="1m")
+@component("kv-file", "Numbers from a file", question="What are the latest numbers in this file?", reads=["JSON or key: value file"], every="1m")
 def kv_file(ctx: Context, *, path: Path, keys: list[str] = [], units: dict[str, str] = {}) -> Tiles:
     """One tile per top-level key of a JSON object file, or per `key: value` line; `keys` picks and orders them."""
     if not path.exists():
@@ -70,7 +73,7 @@ def columns_of(specs: list[str], rows: list[dict]) -> list[Col]:
     return out
 
 
-@component("view", "View", every="15s")
+@component("view", "View", question="Which rows of this table, file or record match the filter?", reads=["another card", "files", "ccn"], every="15s")
 def table_view(
     ctx: Context,
     *,
@@ -112,3 +115,44 @@ def table_view(
         spec["sort"] = sort
     kept = view.pipeline([{key.replace(" ", "_").replace("/", "_"): value for key, value in row.items()} for row in rows], spec, ctx.now)
     return Table(columns_of(columns, kept), kept[:limit], note=f"showing {limit} of {len(kept)}" if len(kept) > limit else None)
+
+
+@component("matrix-file", "Matrix from a file", question="Which cells pass, fail, or have not run yet?", reads=["result file"], every="1m")
+def matrix_file(
+    ctx: Context,
+    *,
+    file: str,
+    table: str | None = None,
+    rows_key: str | None = None,
+    row: str = "row",
+    col: str = "col",
+    value: str = "status",
+    link: str = "link",
+    detail: list[str] = ["detail"],
+    rows: list[str] = [],
+    cols: list[str] = [],
+    tones: dict[str, str] = {},
+    missing: str = "untested",
+) -> Matrix:
+    """The newest file matching `file` (JSON, JSONL, CSV, TSV, or a markdown table picked by `table`) as a grid: each result
+    row lands in the cell its `row` and `col` fields name, showing its `value`, opening its `link` field, and hovering its
+    `detail` fields; a later row for the same cell wins. `rows` and `cols` fix the order and show cells with no result as
+    `missing`. A value tones by `tones`, else pass is ok, fail bad, pending or rerun-pending warn, untested muted."""
+    found = ctx.glob(file)
+    results = (view.select_table(found[0].read_text(errors="replace"), table) if found[0].suffix == ".md" else read_rows(found[0], rows_key)) if found else []
+    if not results and not (rows and cols):
+        raise LookupError(f"nothing matches {file} yet; name rows and cols to show every cell as {missing}")
+    cells = {(str(result[row]), str(result[col])): result for result in results}
+    row_labels = rows or list(dict.fromkeys(name for name, _ in cells))
+    col_labels = cols or list(dict.fromkeys(name for _, name in cells))
+    toning = CELL_TONES | {key.lower(): tone for key, tone in tones.items()}
+
+    def cell(name: str, column: str) -> Cell:
+        result = cells.get((name, column))
+        if result is None:
+            return Cell(missing, toning.get(missing.lower()))
+        shown = str(result.get(value) or missing)
+        hover = "; ".join(str(result[field]) for field in detail if result.get(field))
+        return Cell(shown, toning.get(shown.lower()), hover or None, result.get(link) or None)
+
+    return Matrix(row_labels, col_labels, [[cell(name, column) for column in col_labels] for name in row_labels])

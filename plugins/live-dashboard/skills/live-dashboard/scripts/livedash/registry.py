@@ -21,6 +21,7 @@ LOCAL_PACKAGE = "livedash_local"
 CADENCES = {"15s": 15, "30s": 30, "1m": 60, "2m": 120, "5m": 300, "15m": 900, "manual": None}
 TIMEOUT = re.compile(r"^(\d+)(s|m)$")
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9-]*$")
+QUESTION = re.compile(r"^[^\n]{8,120}\?$")
 SCALARS = (int, float, str, bool, Path)
 MISSING = inspect.Parameter.empty
 
@@ -48,6 +49,8 @@ class Spec:
     fn: Callable
     payload: type
     params: dict[str, Param]
+    question: str
+    reads: tuple[str, ...]
     actions: dict[str, Callable] = field(default_factory=dict)
     doc: str = ""
     source: str = ""
@@ -85,10 +88,15 @@ def allowed(annotation) -> bool:
     return False
 
 
-def component(id: str, title: str, every: str = "2m", timeout: str = "30s", actions: dict[str, Callable] | None = None):
-    """Register `fn(ctx, *, param=default) -> Payload` as a dashboard component under its pack's namespace."""
+def component(id: str, title: str, *, question: str, reads: list[str], every: str = "2m", timeout: str = "30s", actions: dict[str, Callable] | None = None):
+    """Register `fn(ctx, *, param=default) -> Payload` as a dashboard component under its pack's namespace; `question` is
+    the one owner question its card answers, and `reads` names each source it reads."""
     if not COMPONENT_ID.match(id):
         raise BindError(f"component id {id!r} must be lowercase words joined by hyphens")
+    if not QUESTION.match(question):
+        raise BindError(f"component {id} question {question!r} must be one line of 8 to 120 characters ending in ?")
+    if not reads or not all(isinstance(source, str) and source for source in reads):
+        raise BindError(f"component {id} must name each source it reads in reads=[...]")
     if every not in CADENCES:
         raise BindError(f"component {id} has every={every!r}; use one of {', '.join(CADENCES)}")
 
@@ -111,7 +119,7 @@ def component(id: str, title: str, every: str = "2m", timeout: str = "30s", acti
         qualified = namespace(fn.__module__) + id
         if qualified in REGISTRY and REGISTRY[qualified].fn.__module__ != fn.__module__:
             raise BindError(f"component {qualified} is registered twice: {REGISTRY[qualified].fn.__module__} and {fn.__module__}")
-        spec = Spec(qualified, title, every, seconds(timeout), fn, payload, params, dict(actions or {}), inspect.getdoc(fn) or "", fn.__module__)
+        spec = Spec(qualified, title, every, seconds(timeout), fn, payload, params, question, tuple(reads), dict(actions or {}), inspect.getdoc(fn) or "", fn.__module__)
         REGISTRY[qualified] = spec
         fn.__livedash__ = spec
         return fn

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from conftest import FIXTURES, LEDGER, fake, fixture
-from livedash.components import cci, ledger
+from livedash.components import cci, ledger, notes
 
 
 def records(params):
@@ -47,3 +47,17 @@ def test_lanes_group_by_activity_and_flag_a_stood_down_lane_holding_a_worktree(t
     table = cci.lanes(ctx)
     assert [(row["lane"], row["group"], row["tone"]) for row in table.rows] == [("lane-one", "active", "ok"), ("lane-quiet", "idle over 1h", "muted"), ("lane-old", "holds a worktree", "bad")]
     assert table.group_by == "group"
+
+
+def test_rulings_merge_owner_answers_with_root_decisions_and_their_lanes(tmp_path):
+    answers = [{"id": "646bc30" + "0" * 33, "title": "Where do the routes live?", "body": "Go runtime-v2\nOptions: Go | TS", "updated_at": "2026-10-06T17:21:09Z"}]
+    decided = [
+        {"seq": 5, "kind": "decision", "lane": "root", "to": ["mem-12-bench"], "at": "2026-10-06T18:46:08Z", "text": "V7 must set the floor"},
+        {"seq": 6, "kind": "decision", "lane": "mem-08", "to": ["design-links"], "at": "2026-10-06T19:10:09Z", "text": "PR implements DQ6"},
+    ]
+    ctx = fake(tmp_path, replies={("ccn", "-R", "/checkout", "answer", "list"): answers}, cci_replies={"records": lambda params: decided if "since" not in params else []})
+    feed = notes.rulings(ctx, program="iris-chat-memory")
+    assert [(entry.actor, entry.text, entry.cite) for entry in feed.entries] == [
+        ("root → mem-12-bench", "V7 must set the floor", "cci:5"),
+        ("owner", "Where do the routes live? → Go runtime-v2", "ccn:646bc30"),
+    ]

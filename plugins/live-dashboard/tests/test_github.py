@@ -38,11 +38,17 @@ def test_the_rules_verdict_reads_the_head_github_reports(tmp_path):
     assert rows["101"]["rules"] == "none"
 
 
-def test_an_agent_posted_review_never_counts_as_the_owner(tmp_path):
-    _, table = queue(tmp_path, owner_login="yasyf")
-    assert {row["key"]: row["owner"] for row in table.rows} == {"101": "waiting", "102": "waiting", "103": "reviewed"}
-    _, table = queue(tmp_path, owner_login="owner-person")
-    assert {row["key"]: row["owner"] for row in table.rows}["103"] == "reviewed"
+def owner_review(state: str, body: str) -> dict:
+    return {"author": {"login": "yasyf"}, "state": state, "body": body, "submittedAt": "2026-10-06T19:00:00Z", "commit": {"oid": "a" * 40}}
+
+
+def test_only_an_owner_approval_or_change_request_counts_as_review(tmp_path):
+    prs = fixture("graphql-prs.json")
+    prs["repository"]["pr101"]["reviews"]["nodes"] += [owner_review("COMMENTED", "Rules review of `aaaaaaaaa`. Rulings violated: 1."), owner_review("COMMENTED", "")]
+    prs["repository"]["pr102"]["reviews"]["nodes"].append(owner_review("CHANGES_REQUESTED", "split the config change out"))
+    ctx = fake(tmp_path, replies={LEDGER: fixture("ledger-rows.json"), PR_STATUS: fixture("pr-status.json")}, graphql=prs)
+    table = github.review_queue(ctx, repo="o/r", ledger="L1", owner_login="yasyf")
+    assert {row["key"]: row["owner"] for row in table.rows} == {"101": "waiting", "102": "reviewed", "103": "reviewed"}
 
 
 def test_named_prs_skip_the_ledger(tmp_path):

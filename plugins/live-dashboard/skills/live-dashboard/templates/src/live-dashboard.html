@@ -62,6 +62,7 @@ main { max-width:1440px; margin:auto; padding:var(--s5) var(--s8) 96px; display:
 .card-head { display:flex; align-items:center; gap:var(--s2); padding:10px var(--s4); border-bottom:1px solid var(--line); }
 .card-head h3 { margin:0; font-size:var(--t-md); font-weight:620; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card-meta { font-size:var(--t-xs); color:var(--muted); white-space:nowrap; }
+.card-q { margin:6px var(--s4) 0; font-size:var(--t-xs); color:var(--muted); }
 .card-tools { display:flex; gap:2px; }
 .card-tools button { background:none; border:0; color:var(--muted); font-size:var(--t-sm); padding:2px 5px; border-radius:6px; }
 .card-tools button:hover { background:var(--raised); color:var(--fg); }
@@ -82,7 +83,8 @@ table.grid { border-collapse:collapse; width:100%; font-size:var(--t-sm); }
 table.grid td,table.grid th { text-align:left; vertical-align:top; padding:7px 10px 7px 0; border-bottom:1px solid var(--line); }
 table.grid th { color:var(--muted); font-weight:500; white-space:nowrap; position:sticky; top:-12px; background:var(--card); }
 table.grid td.num,table.grid th.num { text-align:right; }
-table.grid td.age { white-space:nowrap; color:var(--muted); }
+table.grid td.age,table.grid td.due { white-space:nowrap; color:var(--muted); }
+table.grid td.due.warn { color:var(--warn); } table.grid td.due.bad { color:var(--bad); font-weight:600; }
 table.grid tr.group td { font-weight:620; color:var(--muted); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.6px; padding-top:12px; }
 table.grid tr.foot td { font-weight:620; border-bottom:0; }
 table.grid tr[data-tone] td:first-child { box-shadow:inset 3px 0 0 var(--tone-color); padding-left:8px; }
@@ -139,6 +141,12 @@ svg.chart { width:100%; height:170px; display:block; overflow:visible; }
 @media (max-width:760px) {
  .top-inner,main,.strip-inner { padding-left:var(--s4); padding-right:var(--s4); }
  .cards { grid-template-columns:1fr; } .card[data-width] { grid-column:auto; } .search { display:none; }
+ .card-head h3 { white-space:normal; } .card-body { max-height:none; }
+ table.grid thead { display:none; } table.grid,table.grid tbody,table.grid tr,table.grid td { display:block; width:auto; }
+ table.grid tr { padding:8px 0 8px 10px; border-bottom:1px solid var(--line); } table.grid tr[data-tone] { box-shadow:inset 3px 0 0 var(--tone-color); }
+ table.grid td { border:0; padding:1px 0; text-align:left !important; } table.grid tr[data-tone] td:first-child { box-shadow:none; padding-left:0; }
+ table.grid td:first-child { font-weight:620; } table.grid td:empty { display:none; }
+ table.grid td[data-label]:not(:first-child)::before { content:attr(data-label) " "; color:var(--muted); font-size:var(--t-xs); margin-right:4px; }
 }
 /* @include html/components.css */
 /* @include html/viz.css */
@@ -240,8 +248,14 @@ function actionsHtml(card,row){
  if(!card.actions.length||row.key==null)return "";
  return card.actions.map(name=>`<button class="act" type="button" data-act="${esc(name)}" data-card="${esc(card.id)}" data-key="${esc(row.key)}">${esc(name)}</button>`).join("");
 }
+function due(stamp){
+ const t=new Date(stamp).getTime();if(isNaN(t))return [String(stamp),""];
+ const minutes=Math.round((t-Date.now())/60000),span=Math.abs(minutes)<60?Math.abs(minutes)+"m":(Math.abs(minutes)/60).toFixed(1)+"h";
+ return minutes<0?["overdue "+span,"bad"]:[span+" left",minutes<15?"warn":""];
+}
 function cellHtml(col,row){
  const value=row[col.key];
+ if(col.kind==="due"){if(value==null)return "<td class=\"due\"></td>";const [text,cls]=due(value);return `<td class="due ${cls}" title="${esc(pt(value))}">${esc(text)}</td>`}
  if(col.kind==="num")return `<td class="num">${esc(value??"")}</td>`;
  if(col.kind==="age")return `<td class="age" title="${esc(pt(value))}">${esc(ago(value))}</td>`;
  if(col.kind==="link")return `<td>${value==null?"":ext(row[col.key+"_url"],esc(value))}</td>`;
@@ -255,7 +269,7 @@ function renderTable(card,p){
  const rows=p.rows.filter(row=>matches(rowText(row)));
  const acting=card.actions.length>0;
  const head=`<tr>${p.cols.map(c=>`<th class="${c.kind==="num"?"num":""}">${esc(c.label||c.key)}</th>`).join("")}${acting?"<th></th>":""}</tr>`;
- const line=row=>`<tr class="${rowClass(card,row)}"${row.tone?` data-tone="${esc(row.tone)}"`:""}>${p.cols.map(c=>cellHtml(c,row)).join("")}${acting?`<td>${actionsHtml(card,row)}</td>`:""}</tr>`;
+ const line=row=>`<tr class="${rowClass(card,row)}"${row.tone?` data-tone="${esc(row.tone)}"`:""}>${p.cols.map(c=>cellHtml(c,row).replace("<td",`<td data-label="${esc(c.label||c.key)}"`)).join("")}${acting?`<td>${actionsHtml(card,row)}</td>`:""}</tr>`;
  let body="";
  if(p.group_by){
   const groups=new Map();rows.forEach(row=>{const g=String(row[p.group_by]??"");if(!groups.has(g))groups.set(g,[]);groups.get(g).push(row)});
@@ -266,7 +280,7 @@ function renderTable(card,p){
 }
 function renderMatrix(card,p){
  const box=cmptMatrix(p);
- box.querySelectorAll("tbody tr").forEach((tr,ri)=>tr.querySelectorAll("td").forEach((td,ci)=>{const cell=(p.cells[ri]||[])[ci];if(cell&&cell.title)td.title=cell.title}));
+ box.querySelectorAll("tbody tr").forEach((tr,ri)=>tr.querySelectorAll("td").forEach((td,ci)=>{const cell=(p.cells[ri]||[])[ci];if(!cell)return;if(cell.title)td.title=cell.title;if(cell.link)td.innerHTML=ext(cell.link,td.innerHTML)}));
  return box;
 }
 const GATE_TONE={pass:"ok",waived:"muted",open:"warn",blocked:"warn","not-run":"muted","not-created":"muted",fail:"bad"};
@@ -328,24 +342,27 @@ function renderFeed(card,p){
 function renderKv(card,p){return `<dl class="kv">${p.pairs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${linkify(v??"")}</dd>`).join("")}</dl>`}
 function renderSvg(card,p){const wrap=el("div","svgwrap"),svg=safeSvg(p.svg);if(svg)wrap.append(svg);else wrap.textContent="The SVG did not parse.";return wrap}
 const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg};
+const CADENCE_SECONDS={"15s":15,"30s":30,"1m":60,"2m":120,"5m":300,"15m":900};
+const staleSince=card=>new Date(new Date(card.as_of).getTime()+2000*(CADENCE_SECONDS[card.every]||0)).toISOString();
 const STATUS_TONE={ok:"ok",pending:"muted",stale:"warn",error:"bad",hung:"bad"};
 function cardNode(card){
  let node=document.getElementById("card-"+card.id);
  if(!node){
   node=el("article","card");node.id="card-"+card.id;
-  node.innerHTML=`<div class="card-head"><h3></h3><span class="card-meta"></span><span class="card-tools"><button type="button" data-refresh title="Refresh now" aria-label="Refresh now">↻</button><button type="button" data-copy title="Copy as Markdown" aria-label="Copy as Markdown">⧉</button></span></div><div class="card-error" hidden></div><div class="toast" hidden></div><div class="card-body"></div>`;
+  node.innerHTML=`<div class="card-head"><h3></h3><span class="card-meta"></span><span class="card-tools"><button type="button" data-refresh title="Refresh now" aria-label="Refresh now">↻</button><button type="button" data-copy title="Copy as Markdown" aria-label="Copy as Markdown">⧉</button></span></div><p class="card-q" hidden></p><div class="card-error" hidden></div><div class="toast" hidden></div><div class="card-body"></div>`;
   node.dataset.card=card.id;
  }
  node.dataset.width=card.width;
  node.classList.toggle("pinned",!!card.pinned);
  node.querySelector("h3").textContent=card.title;
  node.querySelector("h3").title=`${card.use} · every ${card.every}`;
+ const question=node.querySelector(".card-q");question.hidden=!card.question;question.textContent=card.question||"";
  const meta=`${card.status==="ok"?"":pill(card.status,STATUS_TONE[card.status])} <span data-tip="${esc(card.as_of?`data from ${pt(card.as_of)}${card.ms!=null?`, ran in ${seconds(card.ms)}`:""}`:"no data yet")}">${esc(card.as_of?ago(card.as_of):"")}</span>`;
  if(node.dataset.meta!==meta){node.querySelector(".card-meta").innerHTML=meta;node.dataset.meta=meta}
  const error=node.querySelector(".card-error");
  error.hidden=!(card.error||card.status==="hung"||card.status==="stale");
  error.classList.toggle("stale",card.status==="stale"&&!card.error);
- error.textContent=card.status==="hung"?`Still running past its timeout${card.error?"; last error: "+card.error:""}`:card.error||(card.status==="stale"?`Stale: the last good data is from ${pt(card.as_of)}.`:"");
+ error.textContent=card.status==="hung"?`Still running past its timeout${card.error?"; last error: "+card.error:""}`:card.error||(card.status==="stale"?`Stale since ${pt(staleSince(card))}, two missed runs; the last good data is from ${pt(card.as_of)}.`:"");
  const toast=node.querySelector(".toast"),told=state.toasts[card.id];
  toast.hidden=!told;if(told){toast.textContent=told.text;toast.classList.toggle("bad",!!told.bad)}
  const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,state.query,state.baseline&&state.baseline[card.id]]);
