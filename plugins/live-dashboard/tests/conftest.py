@@ -44,7 +44,7 @@ class Fake(Context):
 
     def gh_graphql(self, query, **variables) -> dict:
         self.calls.append(["graphql", query])
-        return self.graphql
+        return self.graphql(query) if callable(self.graphql) else self.graphql
 
 
 def fake(directory: Path, facts: dict | None = None, **kwargs) -> Fake:
