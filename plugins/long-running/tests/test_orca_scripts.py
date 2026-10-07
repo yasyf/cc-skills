@@ -507,6 +507,40 @@ def test_launch_fails_when_the_receipt_is_not_ready(orca):
     assert result.stdout.startswith("lane-a failed worker-start state=failed")
 
 
+UNOBSERVED = {"rc": 1, "out": {"ok": True, "result": {"state": "outcome_unknown", "stage": "turn_start_unobserved", "taskId": "task_a", "dispatchId": "ctx_a"}}}
+
+
+def shown(activity: str, state: str = "start_unknown") -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"worker": {"state": state}, "projection": {"stage": {"activity": activity}}}}}
+
+
+@pytest.mark.parametrize("started", [shown("working"), shown("done", state="succeeded")])
+def test_an_unobserved_turn_start_launches_once_worker_show_proves_the_worker_started(orca, started):
+    orca.healthy()
+    orca.reply("orchestration worker-start", UNOBSERVED)
+    orca.reply("orchestration worker-show", shown("unknown"), started)
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout
+    assert result.stdout.startswith("lane-a ready task=task_a dispatch=ctx_a terminal=term_a ")
+    assert [flag(call, "--dispatch") for call in orca.calls("orchestration worker-show")] == ["ctx_a", "ctx_a"]
+    assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_a"
+
+
+def test_an_unobserved_turn_start_that_never_starts_fails_naming_the_dispatch_and_keeps_it(orca):
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "8"
+    orca.reply("orchestration worker-start", UNOBSERVED)
+    orca.reply("orchestration worker-show", shown("unknown"))
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.startswith("lane-a failed worker-start outcome_unknown dispatch=ctx_a terminal=term_a ")
+    assert "worker-abandon --dispatch ctx_a" in result.stdout
+    assert "rolled back" not in result.stdout
+    assert len(orca.calls("orchestration worker-show")) == 3
+    assert orca.calls("terminal close") == []
+    assert json.loads((orca.receipts / "lane-a.json").read_text())["result"]["dispatchId"] == "ctx_a"
+
+
 def test_launch_fails_when_the_terminal_is_not_in_bypass_mode(orca):
     orca.healthy(screen="⏸ plan mode on (shift+tab to cycle)")
     result = orca.launch()
