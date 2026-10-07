@@ -256,10 +256,19 @@ def test_mentions_matches_whole_names_only():
 
 
 def test_components_count_only_in_stack_form():
-    named = platy.naming("infra", ["data", "network"])
-    assert any(pattern.search("plan data/tnt-usw2-26qmqm1 is clean") for pattern in named)
-    assert any(pattern.search("release infra, ci-infra") for pattern in named)
-    assert not any(pattern.search("the data shows network churn") for pattern in named)
+    target, stacks = platy.naming("infra", ["data", "network"])
+    assert any(pattern.search("plan data/tnt-usw2-26qmqm1 is clean") for pattern in stacks)
+    assert target.search("release infra, ci-infra")
+    assert not any(pattern.search("the data shows network churn") for pattern in stacks)
+
+
+def test_only_a_release_shaped_record_naming_the_target_counts_as_work_on_it():
+    named = platy.naming("infra", ["data"])
+    since = {"at": "2026-10-04T00:00:00Z"}
+    opened = {"at": "2026-10-04T13:00:00Z", "lane": "ci-cost", "verb": "OPENED", "text": "Opened #31619: dev publishes linux-arm64 infra dep seeds"}
+    go = {"at": "2026-10-04T12:00:00Z", "lane": "sweep-7", "verb": "GO", "text": "GO root: sweep-7 re-runs the infra release"}
+    assert platy.work_for(since, named, [opened]) is None
+    assert platy.work_for(since, named, [opened, go]) == go
 
 
 def test_census_rows_reads_both_tables():
@@ -308,7 +317,7 @@ def test_a_release_that_predates_a_pipeline_change_is_unproven_since_that_change
     lines = [{"at": "2026-10-04T13:00:00Z", "lane": "sweep-7", "verb": "GO", "text": "GO root: sweep-7 re-runs the dashboard release", "url": "/i?3", "to": None}]
     [row] = [row for row in rows_of(census, {"dashboard": "dashboard"}, builds, lines, lambda ancestor, commit: False) if row["stack"] == "dashboard/plat"]
     assert (row["deployable"], row["unproven_since"], row["last_pass_commit"], row["doing_lane"]) == ("unproven", "c0ffee012345", "abcdef123456", "sweep-7")
-    assert row["reason"].endswith("before the release pipeline changed at c0ffee0123: release: move checks into builds")
+    assert row["reason"] == "since c0ffee0123, when the release pipeline changed: release: move checks into builds"
 
 
 def test_a_deselected_stack_is_not_released_by_the_start():
@@ -475,3 +484,16 @@ def test_the_stacks_card_carries_only_what_it_renders_and_fits_the_payload_cap(t
     table = cards.stacks(fake(tmp_path), checkout="/checkout", state_dir=tmp_path, census="census-*.md")
     assert set(table.rows[0]) == {*cards.STACK_FIELDS, "key", "platy_link", "platy_link_url", "tone"}
     assert payloads.problems(table) == []
+
+
+def test_a_targets_stacks_sharing_a_verdict_fold_into_one_row_naming_those_off_zero():
+    base = {"target": "infra", "deployable": platy.UNPROVEN, "reason": "since c0ffee", "zero": "0/0", "platy_at": None, "platy_build": 1859, "platy_url": "https://bk/1859", "reason_url": None, "doing_lane": None, "doing_url": None}
+    rows = [base | {"stack": f"infra/env-{n}", "cite": f"stack:infra/env-{n}"} for n in range(3)]
+    rows += [base | {"stack": f"infra/drifted-{n}", "cite": f"stack:infra/drifted-{n}", "zero": "drift"} for n in range(2)]
+    rows += [base | {"stack": "api/plat", "cite": "stack:api/plat", "target": "api"}]
+    assert [row["stack"] for row in cards.summarized(rows)] == ["3 stacks at 0/0", "2 stacks with drift: infra/drifted-0, infra/drifted-1", "api/plat"]
+
+
+def test_evidence_without_a_known_incident_opens_no_thread():
+    records = [cci_record(1, "evidence", "merge-walker-r2", "For owner #31982: live Platy receiver is 370f65a878"), cci_record(2, "incident", "alerts-watch", "NEW Alert 1 api 5xx")]
+    assert [group["key"] for group in overview.incident_groups(records, {2}, [], OVERVIEW_MOMENT, set(), set())] == ["seq:2"]

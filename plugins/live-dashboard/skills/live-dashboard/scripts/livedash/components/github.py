@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from livedash import Col, Context, Table, Tile, Tiles, component
+from livedash import Col, Context, Table, Tile, Tiles, component, view
 from livedash.components import ledger as ledgers
 from livedash.components import stack
 
@@ -116,8 +116,8 @@ def review_queue(
 ) -> Table:
     """Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check, the
     ledger's rules-review verdict at the current head, unresolved threads, the queue verdict from `ccx vcs pr status`, hold
-    age, and whether the owner reviewed (`owner_reviewed_at`, or an approval or change request by `owner_login`). Comments
-    never count, since agents comment under the owner's login.
+    age, and, when `owner_login` is set, whether the owner reviewed (`owner_reviewed_at`, or an approval or change request
+    by that login). Comments never count, since agents comment under the owner's login.
     `order: stack` walks each stack from its trunk; `age` puts the oldest first. Action `reviewed` posts an owner record to main.
     """
     rows = ledgers.rows(ctx, ledger) if ledger and not prs else {}
@@ -145,7 +145,7 @@ def review_queue(
                 "pr": f"#{number}",
                 "pr_url": pr["url"],
                 "title": pr["title"],
-                "lane": fields.get("lane") or pr["author"]["login"],
+                "lane": view.lane_name(fields.get("lane"), ctx.facts) or pr["author"]["login"],
                 "size": f"+{pr['additions']:,}/-{pr['deletions']:,}",
                 "additions": pr["additions"],
                 "deletions": pr["deletions"],
@@ -164,7 +164,8 @@ def review_queue(
             }
         )
     footer = {"pr": f"{len(out)} PRs", "size": f"+{sum(row['additions'] for row in out):,}/-{sum(row['deletions'] for row in out):,}", "threads": sum(row["threads"] for row in out)}
-    return Table(REVIEW_COLUMNS, out, footer=footer, note=None if out else "No open PRs.")
+    columns = REVIEW_COLUMNS if owner_login else [col for col in REVIEW_COLUMNS if col.key != "owner"]
+    return Table(columns, out, footer=footer, note=None if out else "No open PRs.")
 
 
 @component("gh-quota", "GitHub API quota", question="How much GitHub API quota is left before cards stop refreshing?", reads=["gh api rate_limit"], every="2m")

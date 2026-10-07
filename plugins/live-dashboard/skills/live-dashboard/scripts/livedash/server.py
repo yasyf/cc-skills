@@ -174,10 +174,11 @@ class Dashboard(ThreadingHTTPServer):
             self.stopping.wait(TICK_SECONDS)
 
     def state(self) -> dict:
-        cards = self.scheduler.envelopes(self.layout.cards) if self.layout else []
+        cards = payloads.unique(self.scheduler.envelopes(self.layout.cards)) if self.layout else []
         if self.tailnet:
             cards = on_tailnet(cards, self.tailnet)
-        sections = [{"title": section.title, "collapsed": section.collapsed, "cards": [card.id for card in section.cards]} for section in self.layout.sections] if self.layout else []
+        stamps = {card["id"]: card["as_of"] for card in cards}
+        sections = [{"title": section.title, "collapsed": section.collapsed, "cards": [card.id for card in section.cards], "as_of": min((stamps[card.id] for card in section.cards if stamps.get(card.id) and not card.pinned), default=None)} for section in self.layout.sections] if self.layout else []
         return {
             "generated_at": iso(datetime.now(timezone.utc)),
             "dashboard": {"id": self.facts["id"], "title": self.layout.title if self.layout else self.facts.get("title"), "repo": self.facts.get("repo"), "program": self.facts.get("program")},

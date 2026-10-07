@@ -4,12 +4,14 @@ import re
 from pathlib import Path
 
 from livedash import Col, Context, Table, component
+from livedash.components import bus
 
 ASK_PREFIX = "ask/"
 REVIEW_PREFIX = "review/"
 HOLD_SUBJECT = re.compile(r"(?<![\w/])#(?P<pr>\d{2,6})\b|\blane:(?P<lane>[\w.-]+)")
 LIFTED = re.compile(r"\bLIFT(?:ED|S)?\b")
-DONE_ASKS = frozenset({"dropped", "answered", "delivered"})
+SETTLED_STATES = frozenset({"live", "landed", "done", "backlog"})
+DONE_ASKS = frozenset({"dropped", "answered", "delivered"}) | SETTLED_STATES
 
 
 def rows(ctx: Context, ledger: str) -> dict[str, dict]:
@@ -40,6 +42,8 @@ def ask_state(fields: dict, prs: dict[str, dict]) -> str:
         return "dropped"
     if fields.get("answered_at"):
         return "answered"
+    if (state := fields.get("state")) in SETTLED_STATES:
+        return state
     numbers = linked(fields)
     if numbers and all(prs.get(number, {}).get("state") == "landed" for number in numbers):
         return "delivered"
@@ -93,10 +97,11 @@ def held_prs(ctx: Context, *, ledger: str, holds: Path | None = None) -> Table:
     )
 
 
-@component("asks", "Open asks", question="Which owner asks are still open, and what finishes each one?", reads=["ccn ledger row list", "cci digest"], every="2m")
-def asks(ctx: Context, *, ledger: str | None = None, keys: list[str] = [], cci_to: list[str] = ["owner", "main", "root"]) -> Table:
-    """The ledger's `ask/*` rows that are not dropped, answered or delivered (every linked PR landed), with their accept
-    criteria; `keys` narrows to named rows. Open cci asks addressed to any `cci_to` reader join them."""
+@component("asks", "Open asks", question="Which owner asks are still open, and what finishes each one?", reads=["ccn ledger row list", "cci digest", "cci records"], every="2m")
+def asks(ctx: Context, *, ledger: str | None = None, keys: list[str] = [], cci_to: list[str] = ["owner"]) -> Table:
+    """The ledger's `ask/*` rows still open: not dropped, answered, delivered (every linked PR landed), or settled by a
+    `state` of live, landed, done or backlog; `keys` narrows to named rows. Open cci asks and decides addressed to any
+    `cci_to` reader join them until a later record answers them by `re` or `resolves`."""
     all_rows = rows(ctx, ledger) if ledger else {}
     prs = {key: fields for key, fields in all_rows.items() if key.isdigit()}
     out = []
@@ -107,7 +112,9 @@ def asks(ctx: Context, *, ledger: str | None = None, keys: list[str] = [], cci_t
             continue
         out.append({"key": key, "cite": f"ask:{key}", "ask": fields.get("text"), "accept": fields.get("accept"), "lane": fields.get("lane"), "state": state, "asked": fields.get("asked_at"), "prs": fields.get("prs"), "tone": "warn" if state == "open" else None})
     if ctx.facts.get("cci_drive"):
-        for record in ctx.cci("digest", since_time=ctx.facts.get("started_at")).get("open_asks") or []:
-            if set(record.get("to") or []) & set(cci_to):
+        addressed = [record for record in ctx.cci("digest", since_time=ctx.facts.get("started_at")).get("open_asks") or [] if set(record.get("to") or []) & set(cci_to)]
+        replied = bus.answered(ctx, addressed)
+        for record in addressed:
+            if record["seq"] not in replied:
                 out.append({"key": f"cci:{record['seq']}", "cite": f"cci:{record['seq']}", "ask": record["text"], "accept": (record.get("fields") or {}).get("accept"), "lane": record["lane"], "state": "open", "asked": record["at"], "tone": "warn"})
     return Table([Col("ask", "Ask"), Col("accept", "Done when"), Col("lane", "Lane"), Col("state", "State", "badge"), Col("asked", "Asked", "age")], out, note=None if out else "No open asks.")

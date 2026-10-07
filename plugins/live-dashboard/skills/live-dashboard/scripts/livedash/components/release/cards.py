@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
 from livedash import Col, Context, Entry, Feed, Line, RateLimited, Series, Table, Tile, Tiles, component, view
 from livedash.context import RATE_LIMIT_BACKOFF
-from livedash.components import cci
+from livedash.components import bus, cci
 from livedash.components import ledger as ledgers
 from livedash.components.release import overview, platy
 
@@ -133,20 +134,39 @@ def incident_groups(ctx: Context, state_dir: Path) -> list[dict]:
 
 
 @component("builds", "Release builds", question="Which release builds ran, and what did each one ship?", reads=["bk api", "git log"], every="1m", timeout="2m")
-def builds_card(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None) -> Table:
-    """Release, hotfix, rollback, deploy, plan and check builds from the release pipeline, newest first, with the PR each ships."""
-    rows = release_rows(ctx, known_builds(ctx, pipeline, checkout), checkout, repo, slack, pipeline)
-    out = [row | {"key": str(row["number"]), "build": f"#{row['number']}", "build_url": row["url"], "pr_link": f"#{row['pr']}" if row["pr"] else None, "pr_link_url": row["pr_url"], "tone": STATE_TONE.get(row["state"], "warn" if row["live"] else None)} for row in rows]
-    return Table([Col("build", "Build", "link"), Col("state", "State", "badge"), Col("title", "What"), Col("pr_link", "Ships", "link"), Col("at", "Started", "age"), Col("minutes", "Minutes", "num")], out)
+def builds_card(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, limit: int = 20) -> Table:
+    """The newest `limit` release, hotfix, rollback, deploy, plan and check builds from the release pipeline, live ones
+    first, with the PR each ships."""
+    rows = release_rows(ctx, known_builds(ctx, pipeline, checkout), checkout, repo, slack, pipeline)[:limit]
+    out = [
+        {"key": str(row["number"]), "cite": row["cite"], "build": f"#{row['number']}", "build_url": row["url"], "state": row["state"], "title": row["title"], "by": row["by"], "pr_link": f"#{row['pr']}" if row["pr"] else None, "pr_link_url": row["pr_url"], "at": row["at"], "minutes": row["minutes"], "tone": STATE_TONE.get(row["state"], "warn" if row["live"] else None)}
+        for row in sorted(rows, key=lambda row: not row["live"])
+    ]
+    return Table([Col("build", "Build", "link"), Col("state", "State", "badge"), Col("title", "What"), Col("by", "By", phone=False), Col("pr_link", "Ships", "link"), Col("at", "Started", "age"), Col("minutes", "Minutes", "num", phone=False)], out)
+
+
+def summarized(rows: list[dict]) -> list[dict]:
+    buckets: dict[tuple, list[dict]] = {}
+    for row in rows:
+        buckets.setdefault((row["target"], row["deployable"], row["reason"], row["zero"]), []).append(row)
+    out = []
+    for (target, _, _, zero), found in buckets.items():
+        if len(found) == 1:
+            out += found
+            continue
+        named = "" if zero == "0/0" else ": " + ", ".join(row["stack"] for row in found)
+        out.append(found[0] | {"stack": f"{len(found)} stacks at {zero}{named}" if zero == "0/0" else f"{len(found)} stacks with {zero}{named}", "cite": f"target:{target}:{zero}:{found[0]['stack']}"})
+    return out
 
 
 @component("stacks", "Platy deployability", question="Which stacks can Platy deploy, and why not the rest?", reads=["bk api", "git", "cci digest"], every="2m", timeout="2m")
 def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release") -> Table:
     """Each census stack, grouped by release target: proven, unproven or blocked through Platy, its drift against trunk,
-    why it is not proven, and the lane working on it."""
-    rows = stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, known_builds(ctx, pipeline, checkout))
-    out = [{field: row[field] for field in STACK_FIELDS} | {"key": row["stack"], "platy_link": f"#{row['platy_build']}" if row["platy_build"] else None, "platy_link_url": row["platy_url"], "tone": DEPLOYABLE_TONE[row["deployable"]]} for row in rows]
-    return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", "vs trunk", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target", note="Backfilling the release pipeline's Buildkite history; a stack's last Platy release may be older than the builds read so far." if backfilling(ctx, pipeline) else None)
+    why it is not proven, and the lane working on it. A target's stacks that share a verdict, a reason and a drift state
+    fold into one row; stacks off 0/0 stay named in it."""
+    rows = summarized(stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, known_builds(ctx, pipeline, checkout)))
+    out = [{field: row[field] for field in STACK_FIELDS} | {"key": row["cite"], "platy_link": f"#{row['platy_build']}" if row["platy_build"] else None, "platy_link_url": row["platy_url"], "tone": DEPLOYABLE_TONE[row["deployable"]]} for row in rows]
+    return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", f"vs {trunk.removeprefix('origin/')}", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target", note="Backfilling the release pipeline's Buildkite history; a stack's last Platy release may be older than the builds read so far." if backfilling(ctx, pipeline) else None)
 
 
 @component("tiles", "Release overview", question="How is the release pipeline doing today?", reads=["bk api", "git", "cci digest", "cci lanes"], every="1m", timeout="2m")
@@ -195,8 +215,10 @@ def landed_per_hour(ctx: Context, *, repo: str) -> Series:
 
 
 @component("incidents", "Incidents", question="Which incidents are open, and which lanes work on them?", reads=["cci records", "cci digest"], every="1m", timeout="60s")
-def incidents(ctx: Context, *, state_dir: Path) -> Table:
-    """Incident threads from 72 hours of cci records, open first: their status, latest record and lanes."""
-    groups = incident_groups(ctx, state_dir)
+def incidents(ctx: Context, *, state_dir: Path, recent: str = "6h") -> Table:
+    """Incident threads from 72 hours of cci records: every active one, and those settled or gone quiet within `recent`,
+    open first, with their status, latest record and lanes. Only an incident record, or a record keyed to a known incident
+    slug, opens a thread."""
+    groups = [group for group in incident_groups(ctx, state_dir) if group["active"] or not bus.expired(group, ctx.now, recent)]
     rows = [{"key": group["key"], "cite": group["cite"], "title": group["title"], "status": group["status"], "latest": group["latest"], "lanes": ", ".join(group["lanes"]), "at": group["at"], "tone": "bad" if group["active"] else "muted"} for group in groups]
-    return Table([Col("title", "Incident"), Col("status", "Status", "badge"), Col("latest", "Latest"), Col("lanes", "Lanes"), Col("at", "Updated", "age")], rows, note=None if rows else "No incident in 72h.")
+    return Table([Col("title", "Incident"), Col("status", "Status", "badge"), Col("latest", "Latest"), Col("lanes", "Lanes"), Col("at", "Updated", "age")], rows, note=None if rows else f"No open incident, and none settled in {recent}.")

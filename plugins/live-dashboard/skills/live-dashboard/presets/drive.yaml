@@ -1,25 +1,22 @@
 title: Drive
-banner: Seeded from the drive preset; tailor it per /live-dashboard reference/picking.md before the first milestone report.
 sections:
-  - title: Needs you
+  - title: Broken
     components:
       - {use: lr.needs-owner, id: needs-owner, pinned: true, width: 3}
-      - {use: asks, width: 3}
+      - {use: release.incidents, id: incidents, width: 3}
+      - {use: open-records, id: hygiene, title: 'Blockers, defects and holds', width: 3}
+  - title: In flight
+    components:
+      - {use: cci-lanes, id: lanes, title: Lanes working now, width: 2}
+      - {use: orca, id: orca}
+      - {use: tasks, title: Root tasks in progress, width: 2}
+      - {use: asks, title: Your asks in flight}
   - title: Review
     components:
       - {use: pr-review-queue, id: review, width: 3}
-      - {use: stack-graph, id: stack, width: 2}
-      - {use: landing-preview, id: land-now}
-  - title: Lanes and records
-    components:
-      - {use: cci-lanes, id: lanes, width: 2}
-      - {use: tasks}
-      - {use: open-records, id: hygiene, width: 3}
-  - title: Drive
+  - title: Plumbing
     collapsed: true
     components:
-      - {use: lr.drive, id: drive}
+      - {use: lr.drive, id: drive, title: Drive registry}
       - {use: gh-quota}
       - {use: dashboard-health, id: health}
-      - {use: notes, width: 2}
-      - {use: boards}

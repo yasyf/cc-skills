@@ -103,6 +103,10 @@ These never reach a payload, a card title, a banner, or a note:
 - Slack message text. `slack-feed` shows who posted, when and how fast, and links the
   message, and the words stay in Slack.
 - Customer data and anything copied out of a production database.
+- Internal identifiers: session UUIDs, Orca dispatch ids, task-list paths. Cards name the
+  lane, the task, or `root`.
+- Status in the banner. A banner states a standing fact; a status line a source can
+  compute goes stale the minute it is written.
 
 A card that needs one of these links to where it lives.
 
@@ -125,6 +129,16 @@ A card that needs one of these links to where it lives.
   names the variable, never the value.
 - A broken `layout.yaml` keeps the last good layout up and shows the defect with its
   line in a strip above the cards.
+- Each cited row shows once on the page. Pinned cards claim their cites first, then
+  cards in layout order; a later card drops the row and its note says how many moved and
+  under which card.
+- Every section heading reads "data as of" its oldest card's last good run, so a quiet
+  section never passes for a fresh one.
+- `check` refuses a section that holds only pinned cards, a section titled like a pinned
+  card, and a section or card titled like the page, since each prints one heading twice.
+- Source cards drop settled items themselves, so an item leaves the page when its work
+  closes, not when someone sweeps it. `reference/keeping-live.md` lists what settles
+  each kind.
 
 ## Read next
 

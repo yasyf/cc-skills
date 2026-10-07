@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/live-dashboard.html + 5 partials sha256:f2b6658b3db2 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/live-dashboard.html + 5 partials sha256:b92199589ce8 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1127,7 +1127,7 @@ function render(){
   node.querySelector("h2").textContent=section.title;
   const cards=section.cards.map(id=>byId.get(id)).filter(card=>card&&!card.pinned);
   const issues=cards.filter(card=>card.status!=="ok"&&card.status!=="pending").length;
-  node.querySelector(".section-note").textContent=`${cards.length} cards${issues?` · ${issues} need attention`:""}`;
+  node.querySelector(".section-note").textContent=[section.as_of?`data as of ${pt(section.as_of)}, ${ago(section.as_of)}`:"no data yet",issues?`${issues} ${issues===1?"card":"cards"} failing or stale`:""].filter(Boolean).join(" · ");
   const grid=node.querySelector(".cards");
   cards.forEach((card,i)=>place(grid,cardNode(card),i));
   [...grid.children].forEach(child=>{if(!cards.some(card=>"card-"+card.id===child.id))child.remove()});

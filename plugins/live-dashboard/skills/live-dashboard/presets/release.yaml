@@ -7,7 +7,7 @@ sections:
         width: 3
         with: {census: 'done-board/iac-drift-*.md'}
       - {use: release.builds, id: builds, width: 3}
-  - title: Platy deployability
+  - title: Deployability
     components:
       - use: release.stacks
         id: stacks
@@ -15,7 +15,7 @@ sections:
         with: {census: 'done-board/iac-drift-*.md'}
       - {use: release.census, id: census, width: 2}
       - {use: release.landed-per-hour, id: landed}
-  - title: Incidents
+  - title: Broken
     components:
       - {use: release.incidents, id: incidents, width: 2}
       - {use: incident-feed, width: 1}

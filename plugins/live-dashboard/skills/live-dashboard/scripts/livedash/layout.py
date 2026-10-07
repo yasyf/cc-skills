@@ -125,6 +125,19 @@ def card_of(raw: dict, line: int, section: str, facts: dict, base: Path) -> Card
     return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound, phone=phone)
 
 
+def distinct(title: str, sections: list[Section]) -> None:
+    pinned = {card.title.casefold(): card for section in sections for card in section.cards if card.pinned}
+    for section in sections:
+        line = section.cards[0].line if section.cards else None
+        if section.cards and all(card.pinned for card in section.cards):
+            raise LayoutError(line, f"section {section.title!r} holds only pinned cards, which render above every section; move them into the first section")
+        if card := pinned.get(section.title.casefold()):
+            raise LayoutError(line, f"section {section.title!r} repeats the title of pinned card {card.id}, which renders above every section; retitle the section")
+        for label, at in [(section.title, line), *((card.title, card.line) for card in section.cards)]:
+            if label.casefold() == title.casefold():
+                raise LayoutError(at, f"{label!r} repeats the page title; give the section or card a title of its own")
+
+
 def build(text: str, facts: dict, base: Path) -> Layout:
     title, banner, raw_sections = parse(text)
     seen: dict[str, int] = {}
@@ -138,6 +151,7 @@ def build(text: str, facts: dict, base: Path) -> Layout:
             seen[card.id] = line
             cards.append(card)
         sections.append(Section(name, collapsed, cards))
+    distinct(title, sections)
     return Layout(title, banner, sections)
 
 

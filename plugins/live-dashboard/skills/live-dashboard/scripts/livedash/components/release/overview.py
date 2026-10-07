@@ -226,7 +226,7 @@ def incident_groups(records: list[dict], open_seqs: set[int], folders: list[dict
     keys = keyed(keyed_records, known)
     groups: dict[str, list[dict]] = {}
     for record in keyed_records:
-        if record["kind"] in OPENING:
+        if record["kind"] in OPENING and (record["kind"] == "incident" or not keys[record["seq"]].startswith("seq:")):
             groups.setdefault(keys[record["seq"]], []).append(record)
     opened = set(groups)
     for record in keyed_records:

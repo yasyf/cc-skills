@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from livedash import Context, Graph, Kv, Node, component
+from livedash import Context, Graph, Kv, Node, component, view
 from livedash.components import ledger as ledgers
 
 LANDABLE = "landable"
+OPEN = "OPEN"
 
 
 def queue_status(ctx: Context, repo: str, numbers: list[int]) -> dict[int, dict]:
     if not numbers:
         return {}
     return {row["number"]: row for row in ctx.json(["ccx", "vcs", "pr", "status", *map(str, numbers), "--json", "-R", repo])}
+
+
+def still_open(rows: dict[int, dict], statuses: dict[int, dict]) -> dict[int, dict]:
+    return {number: fields | {"base": fields.get("base") or statuses[number].get("base")} for number, fields in rows.items() if statuses[number]["state"] == OPEN}
 
 
 def parents_of(prs: dict[int, dict], overrides: dict[str, str]) -> dict[int, int | str]:
@@ -64,16 +69,17 @@ def node_tone(status: dict, fields: dict) -> str:
 
 @component("stack-graph", "Stack", question="How do the open PRs stack, and which bottom prefix can land?", reads=["ccn ledger row list", "ccx vcs pr status"], every="2m", timeout="60s")
 def stack_graph(ctx: Context, *, ledger: str, repo: str, parents: dict[str, str] | None = None) -> Graph:
-    """The ledger's open PRs as stacks rooted at their trunk branches, drawn from base and branch fields; a Graphite
-    `graphite-base/<n>` base names no PR, so `parents` maps a PR number to its parent PR or trunk. Nodes are toned by the
+    """The ledger's open PRs that `ccx vcs pr status` still reports open, as stacks rooted at their trunk branches, drawn
+    from base and branch fields, or the status's base where the ledger has none; a Graphite `graphite-base/<n>` base names no PR, so `parents` maps a PR number to its parent PR or trunk. Nodes are toned by the
     `ccx vcs pr status` verdict and ledger holds; the largest landable bottom prefix of each stack is highlighted."""
-    rows = {int(key): fields for key, fields in ledgers.rows(ctx, ledger).items() if key.isdigit() and fields.get("state", "open") == "open"}
-    statuses = queue_status(ctx, repo, sorted(rows))
+    listed = {int(key): fields for key, fields in ledgers.rows(ctx, ledger).items() if key.isdigit() and fields.get("state", "open") == "open"}
+    statuses = queue_status(ctx, repo, sorted(listed))
+    rows = still_open(listed, statuses)
     tree = parents_of(rows, parents or {})
     nodes = [Node(trunk, trunk, "warn" if trunk.startswith("graphite-base/") else "muted") for trunk in sorted({parent for parent in tree.values() if isinstance(parent, str)})]
     for number in ordered(tree):
         status = statuses.get(number, {})
-        lane = rows[number].get("lane") or ""
+        lane = view.lane_name(rows[number].get("lane"), ctx.facts) or ""
         nodes.append(Node(str(number), f"#{number} {lane}".strip(), node_tone(status, rows[number]), f"https://github.com/{repo}/pull/{number}"))
     prefix = bottom_prefix(tree, {number: status.get("verdict", "") for number, status in statuses.items()})
     return Graph(nodes, [[str(parent), str(number)] for number, parent in tree.items()], [str(number) for number in prefix])

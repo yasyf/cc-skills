@@ -3,6 +3,11 @@ from __future__ import annotations
 from livedash import Col, Context, Table, component
 
 SETTLED = frozenset({"completed", "failed"})
+LIVE = "live"
+
+
+def utc(stamp: str) -> str:
+    return stamp.replace(" ", "T") + "Z"
 
 
 def workers(ctx: Context, run: str) -> list[dict]:
@@ -16,19 +21,26 @@ def workers(ctx: Context, run: str) -> list[dict]:
         cursor = ["--cursor", page["page"]["nextCursor"]]
 
 
-@component("orca", "Orca tasks", question="Which Orca tasks are running, and which workers need attention?", reads=["orca orchestration task-list", "orca orchestration worker-list"], every="2m", timeout="60s")
-def orca(ctx: Context, *, orca_run: str | None = None, settled: bool = False) -> Table:
-    """The drive's Orca run: each task with its status, and the workers whose projection asks for attention."""
+@component("orca", "Orca workers", question="Which Orca workers are running now, and which need attention?", reads=["orca orchestration task-list", "orca orchestration worker-list"], every="2m", timeout="60s")
+def orca(ctx: Context, *, orca_run: str | None = None) -> Table:
+    """The drive's Orca run: each task whose current worker reports itself live, named by the task, with what it asks for.
+    A dispatched worker with no live status and a task never dispatched are counted in the note, not listed."""
     if not orca_run:
-        return Table([Col("name", "Task")], [], note="This drive has no Orca run.")
+        return Table([Col("name", "Worker")], [], note="This drive has no Orca run.")
     tasks = ctx.json(["orca", "orchestration", "task-list", "--run", orca_run, "--json"])["result"]["tasks"]
-    attention = {worker["taskId"]: worker for worker in workers(ctx, orca_run) if ((worker.get("projection") or {}).get("attention") or {}).get("requiresAction")}
+    current = {worker["taskId"]: worker for worker in workers(ctx, orca_run) if worker["dispatchStatus"] not in SETTLED}
     rows = []
+    silent = 0
     for task in tasks:
-        if task["status"] in SETTLED and not settled:
+        if task["status"] in SETTLED:
             continue
-        worker = attention.get(task["id"])
-        categories = ", ".join(((worker or {}).get("projection") or {}).get("attention", {}).get("categories", []))
-        rows.append({"key": task["id"], "cite": f"orca:{task['id']}", "name": task.get("display_name") or task.get("task_title"), "status": task["status"], "attention": categories or None, "at": task.get("completed_at") or task.get("created_at"), "tone": "bad" if worker else None})
+        projection = (current.get(task["id"]) or {}).get("projection") or {}
+        if (projection.get("liveness") or {}).get("verdict") != LIVE:
+            silent += 1
+            continue
+        attention = projection.get("attention") or {}
+        categories = ", ".join(attention.get("categories") or []) if attention.get("requiresAction") else None
+        rows.append({"key": task["id"], "cite": f"orca:{task['id']}", "name": task.get("display_name") or task.get("task_title"), "status": task["status"], "attention": categories, "at": utc(task["created_at"]), "tone": "warn" if categories else "ok"})
     rows.sort(key=lambda row: row["attention"] is None)
-    return Table([Col("name", "Task"), Col("status", "Status", "badge"), Col("attention", "Needs", "badge"), Col("at", "Since", "age")], rows, note=None if rows else "No open Orca tasks.")
+    note = f"Not listed: {silent} open tasks without a live worker." if silent else None
+    return Table([Col("name", "Worker"), Col("status", "Status", "badge"), Col("attention", "Needs", "badge"), Col("at", "Started", "age")], rows, note=note or (None if rows else "No Orca worker is running."))

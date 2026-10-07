@@ -9,6 +9,8 @@ DURATION = re.compile(r"^(\d+)([mhd])$")
 UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 TABLE_ROW = re.compile(r"^\|(.*)\|\s*$")
 TABLE_RULE = re.compile(r"^\|[\s:|-]+\|\s*$")
+SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+ROOT = "root"
 
 
 class SpecError(ValueError):
@@ -25,6 +27,12 @@ def stamp(value) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def lane_name(lane: str | None, facts: dict) -> str | None:
+    if lane and (SESSION_ID.match(lane) or lane in (facts.get("sessions") or [])):
+        return ROOT
+    return lane
 
 
 def iso(moment: datetime | None) -> str | None:
