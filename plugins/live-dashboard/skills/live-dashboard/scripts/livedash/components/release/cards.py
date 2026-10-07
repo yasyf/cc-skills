@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import statistics
 import subprocess
 import threading
 from collections import Counter
@@ -7,7 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-from livedash import Col, Context, Entry, Feed, Line, RateLimited, Series, Table, Tile, Tiles, component, view
+from livedash import Col, Context, Entry, Feed, Heat, Heatmap, Line, RateLimited, Series, Span, Table, Tile, Tiles, Timeline, Track, component, view
 from livedash.context import RATE_LIMIT_BACKOFF
 from livedash.components import bus, cci
 from livedash.components import ledger as ledgers
@@ -204,14 +205,14 @@ def lines(ctx: Context, *, limit: int = 150) -> Feed:
 def census(ctx: Context) -> Series:
     """The census count of stacks at 0/0 and its denominator, from cci state records carrying census fields over 48 hours."""
     points = overview.census_trend(cci.records(ctx, view.iso(ctx.now - CENSUS_WINDOW), kind="state"), None, ctx.now)
-    return Series([Line("at 0/0", [[point["at"], point["n"]] for point in points]), Line("stacks", [[point["at"], point["total"]] for point in points])], note=None if points else "No census record in 48h.")
+    return Series([Line("at 0/0", [[point["at"], point["n"]] for point in points], "area"), Line("stacks", [[point["at"], point["total"]] for point in points])], note=None if points else "No census record in 48h.")
 
 
 @component("landed-per-hour", "PRs landed per hour", question="How many PRs landed in each of the last 24 hours?", reads=["cci records"], every="5m")
 def landed_per_hour(ctx: Context, *, repo: str) -> Series:
     """PRs whose landed record arrived in each of the last 24 hours."""
     hours = overview.landed_hours(overview.landings(cci.records(ctx, view.iso(ctx.now - LANDED_WINDOW), kind="landed"), {}, repo), ctx.now)
-    return Series([Line("landed", [[hour["hour"], hour["count"]] for hour in hours])])
+    return Series([Line("landed", [[hour["hour"], hour["count"], {"label": f"{hour['count']} landed: " + ", ".join(f"#{row['pr']}" for row in hour["prs"]) if hour["prs"] else "none landed"}] for hour in hours], "bar")])
 
 
 @component("incidents", "Incidents", question="Which incidents are open, and which lanes work on them?", reads=["cci records", "cci digest"], every="1m", timeout="60s")
@@ -222,3 +223,151 @@ def incidents(ctx: Context, *, state_dir: Path, recent: str = "6h") -> Table:
     groups = [group for group in incident_groups(ctx, state_dir) if group["active"] or not bus.expired(group, ctx.now, recent)]
     rows = [{"key": group["key"], "cite": group["cite"], "title": group["title"], "status": group["status"], "latest": None if group["latest"] == group["title"] else group["latest"], "lanes": ", ".join(group["lanes"]), "at": group["at"], "tone": "bad" if group["active"] else "muted"} for group in groups]
     return Table([Col("title", "Incident"), Col("status", "Status", "badge"), Col("latest", "Latest"), Col("lanes", "Lanes"), Col("at", "Updated", "age")], rows, note=None if rows else f"No open incident, and none settled in {recent}.")
+
+
+APPLYING_KINDS = frozenset({"release", "hotfix", "rollback", "deploy"})
+PHASE_TONE = {"passed": "ok", "running": "warn", "failed": "bad"}
+GOAL_MINUTES = 5.0
+DURATION_BARS = 40
+TIMELINE_TRACKS = 12
+CELL_RANK = ("bad", "warn", "muted", "ok")
+CENSUS_TONE = {"0/0": "ok", "drift": "warn", "unplanned": "muted"}
+
+
+def census_tone(row: dict) -> str:
+    return "bad" if row["deployable"] == platy.BLOCKED else CENSUS_TONE[row["zero"]]
+
+
+def without_watch(row: dict) -> float:
+    return round(max(row["minutes"] - row["watch_minutes"], 0.0), 1)
+
+
+def finished_applies(rows: list[dict]) -> list[dict]:
+    return [row for row in rows if row["kind"] in APPLYING_KINDS and row["applies"] and row["state"] in overview.FINISHED and row["minutes"] is not None]
+
+
+def percentile(values: list[float], share: float) -> float | None:
+    ordered = sorted(values)
+    return ordered[max(round(share * len(ordered) + 0.5) - 1, 0)] if ordered else None
+
+
+@component("durations", "Release time without Watch", question="How long did each release take, Watch excluded, against the goal?", reads=["bk api", "git log"], every="2m", timeout="2m")
+def durations(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, goal_minutes: float = GOAL_MINUTES) -> Series:
+    """The last 40 finished release, hotfix, rollback and deploy builds that applied, oldest first: minutes from start to
+    finish minus the Watch steps, as bars toned by the build's state and linked to Buildkite, under a `goal_minutes` rule."""
+    rows = finished_applies(release_rows(ctx, known_builds(ctx, pipeline, checkout), checkout, repo, slack, pipeline))[:DURATION_BARS]
+    points = [[row["finished_at"] or row["at"], without_watch(row), {"tone": STATE_TONE.get(row["state"], "muted"), "link": row["url"], "label": f"#{row['number']} {row['title']}: {without_watch(row)} min without Watch ({row['minutes']} min in all)"}] for row in reversed(rows)]
+    return Series([Line("minutes without Watch", points, "bar")], unit="min", thresholds={"goal": goal_minutes}, note=None if points else "No finished release yet.")
+
+
+def track_of(row: dict) -> Track:
+    spans = [Span(phase["phase"], phase["start"], phase["end"], PHASE_TONE.get(phase["state"], "muted")) for phase in row["phases"]]
+    if not spans:
+        spans = [Span(row["state"], row["started_at"] or row["at"], row["finished_at"], STATE_TONE.get(row["state"], "warn" if row["live"] else "muted"))]
+    passed, total = row["steps"] or [0, 0]
+    doing = f" · {row['now'][0]}" if row["live"] and row["now"] else ""
+    return Track(f"#{row['number']} {row['title']}", spans, row["url"], STATE_TONE.get(row["state"], "warn" if row["live"] else None), f"{passed} of {total} steps{doing}", str(row["number"]), row["cite"])
+
+
+@component("timeline", "Releases now", question="Which releases are running, and which phase is each one in?", reads=["bk api", "git log"], every="1m", timeout="2m")
+def timeline(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None, hours: int = 3) -> Timeline:
+    """Every live release, hotfix, rollback, deploy or plan build, then those finished in the last `hours`, as a Gantt of
+    their Build, Plan, Wait, Deploy, Watch and Finish phases read from the Buildkite job times."""
+    floor = view.iso(ctx.now - timedelta(hours=hours))
+    rows = [row for row in release_rows(ctx, known_builds(ctx, pipeline, checkout), checkout, repo, slack, pipeline) if row["kind"] != "check" and (row["live"] or (row["finished_at"] or "") >= floor)]
+    rows.sort(key=lambda row: (not row["live"], row["started_at"] or row["at"]), reverse=False)
+    tracks = [track_of(row) for row in rows[:TIMELINE_TRACKS]]
+    return Timeline(tracks, note=None if tracks else f"No release ran in the last {hours} hours.")
+
+
+@component("census-grid", "Census by target", question="Which targets are at 0/0 in which environments, and where is the drift?", reads=["census report", "bk api", "git", "cci digest"], every="2m", timeout="2m")
+def census_grid(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release") -> Heatmap:
+    """One square per release target and environment, toned by its worst stack: green when every stack is at 0/0, amber
+    drifting, red blocked through Platy, grey not planned. A square counts the stacks still off 0/0, names each by
+    component and verdict, and links the Platy release of the first one off 0/0."""
+    rows = stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, known_builds(ctx, pipeline, checkout))
+    by_target = Counter(row["target"] for row in rows)
+    names = [target for target, _ in by_target.most_common()]
+    envs = sorted({row["env"] for row in rows})
+    at: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        at.setdefault((row["target"], row["env"]), []).append(row)
+    cells = []
+    for target in names:
+        line = []
+        for env in envs:
+            stacks = at.get((target, env))
+            if not stacks:
+                line.append(None)
+                continue
+            off = [row for row in stacks if census_tone(row) != "ok"]
+            worst = min((census_tone(row) for row in stacks), key=CELL_RANK.index)
+            said = ", ".join(f"{row['component']} {'blocked' if census_tone(row) == 'bad' else row['zero']}" for row in off)
+            title = f"{target} in {env}: {len(stacks) - len(off)} of {len(stacks)} at 0/0" + (f"; {said}" if said else "")
+            line.append(Heat(worst, title, (off or stacks)[0]["platy_url"], str(len(off)) if off else None))
+        cells.append(line)
+    tones = Counter(census_tone(row) for row in rows)
+    legend = {tone: f"{label} {tones[tone]}" for tone, label in (("ok", "at 0/0"), ("warn", "drift"), ("bad", "blocked"), ("muted", "not planned"))}
+    return Heatmap([f"{target} ({by_target[target]})" for target in names], envs, cells, None, legend, f"{len(rows)} stacks; a number counts the stacks off 0/0 in that square.")
+
+
+def trend_of(delta: float, unit: str, window: str, better_up: bool, lead: str = "") -> tuple[str | None, str | None]:
+    if not delta:
+        return f"no change {window}", "muted"
+    arrow = "▲" if delta > 0 else "▼"
+    return f"{arrow} {lead}{abs(delta):,g}{unit} {window}", "ok" if (delta > 0) == better_up else "bad"
+
+
+def census_then(records: list[dict], moment) -> dict | None:
+    floor = moment - timedelta(hours=24)
+    older = [record for record in records if (record.get("fields") or {}).get("census") and view.stamp(record["at"]) <= floor]
+    return older[-1]["fields"]["census"] if older else None
+
+
+@component("kpis", "Release program", question="Where do the numbers that matter stand right now, and which way are they moving?", reads=["bk api", "git", "cci records", "census report", "the spend, review, needs-owner and incidents cards"], every="1m", timeout="2m")
+def kpis(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release", slack: str | None = None, goal_minutes: float = GOAL_MINUTES, spend: str = "spend", review: str = "review", owner: str = "needs-owner", incidents: str = "incidents") -> Tiles:
+    """The program's headline numbers as tiles: stacks at 0/0 with a ring and its change over 24 hours, releases today
+    and their pass rate, median and p90 release time without Watch against `goal_minutes`, yesterday's cloud spend
+    against target from the `spend` card, open PRs from the `review` card, open incidents from the `incidents` card, and
+    items waiting on the owner from the `owner` card. Each tile jumps to the card behind it."""
+    builds = known_builds(ctx, pipeline, checkout)
+    stacks = stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, builds)
+    at_zero, total = sum(row["zero"] == "0/0" for row in stacks), len(stacks)
+    then = census_then(cci.records(ctx, view.iso(ctx.now - CENSUS_WINDOW), kind="state"), ctx.now)
+    trend, trend_tone = trend_of(at_zero - then["n"], "", "in 24h", True) if then else (None, None)
+    drift = Counter(row["zero"] for row in stacks)
+    tiles = [Tile("Stacks at 0/0", at_zero, f"/{total}", "ok" if at_zero == total else "warn", f"{total - at_zero} to go", "#card-stacks", trend, trend_tone, at_zero / total if total else None, f"{drift['drift']} drift · {drift['unplanned']} not planned")]
+    rows = release_rows(ctx, builds, checkout, repo, slack, pipeline)
+    today = ctx.now.astimezone(overview.PACIFIC).date().isoformat()
+    yesterday = (ctx.now.astimezone(overview.PACIFIC) - timedelta(days=1)).date().isoformat()
+    applying = [row for row in rows if row["kind"] in APPLYING_KINDS and row["applies"]]
+    todays = [row for row in applying if overview.pacific_day(row["at"]) == today]
+    finished = [row for row in todays if row["state"] in overview.FINISHED]
+    passed = sum(row["state"] == "passed" for row in finished)
+    rate = round(100 * passed / len(finished)) if finished else None
+    before = [row for row in applying if overview.pacific_day(row["at"]) == yesterday and row["state"] in overview.FINISHED]
+    before_rate = round(100 * sum(row["state"] == "passed" for row in before) / len(before)) if before else None
+    trend, trend_tone = trend_of(rate - before_rate, " pts", "vs yesterday", True, "pass rate ") if rate is not None and before_rate is not None else (None, None)
+    tiles.append(Tile("Releases today", len(todays), None, "bad" if rate is not None and rate < 50 else "ok", f"{rate}% passed ({passed} of {len(finished)} finished)" if rate is not None else "none finished yet", "#card-timeline", trend, trend_tone, None, f"{sum(row['live'] for row in todays)} running now"))
+    recent = [without_watch(row) for row in finished_applies(rows) if row["state"] == "passed"][:20]
+    prior = [without_watch(row) for row in finished_applies(rows) if row["state"] == "passed"][20:40]
+    median, p90 = (round(statistics.median(recent), 1), percentile(recent, 0.9)) if recent else (None, None)
+    trend, trend_tone = trend_of(round(median - statistics.median(prior), 1), " min", "vs the 20 before", False) if recent and prior else (None, None)
+    tiles.append(Tile("Median release", median, "min", None if median is None else "ok" if median <= goal_minutes else "warn" if median <= 2 * goal_minutes else "bad", f"p90 {p90} min · goal {goal_minutes:g} min, Watch excluded" if recent else "no passed release yet", "#card-durations", trend, trend_tone, None, f"last {len(recent)} passed releases"))
+    if (bars := ctx.latest(spend)) is not None and bars.lines and bars.lines[0].points:
+        points = bars.lines[0].points
+        last = points[-1][1]
+        week = [point[1] for point in points[-8:-1]]
+        target = next(iter(bars.thresholds.values()), None)
+        trend, trend_tone = trend_of(round(last - statistics.mean(week)), "", "vs 7-day mean", False, "$") if week else (None, None)
+        tiles.append(Tile("Cloud spend", f"${last:,}", "/day", None if target is None else "ok" if last <= target else "warn", f"{points[-1][0]}" + (f" · target ${target:,.0f}/day" if target is not None else ""), "#card-spend", trend, trend_tone, None, None))
+    if (table := ctx.latest(review)) is not None:
+        landable = sum(row.get("verdict") == "landable" for row in table.rows)
+        red = sum(row.get("ci") == "red" for row in table.rows)
+        tiles.append(Tile("Open PRs", len(table.rows), None, "bad" if red else None, f"{landable} landable · {red} red", "#card-review"))
+    if (table := ctx.latest(incidents)) is not None:
+        active = sum(row.get("tone") == "bad" for row in table.rows)
+        tiles.append(Tile("Open incidents", active, None, "bad" if active else "ok", f"{len(table.rows) - active} settled recently", "#card-incidents"))
+    if (table := ctx.latest(owner)) is not None:
+        tiles.append(Tile("Waiting on you", len(table.rows), None, "warn" if table.rows else "ok", "owner tasks, asks and boards", "#card-needs-owner"))
+    return Tiles(tiles)

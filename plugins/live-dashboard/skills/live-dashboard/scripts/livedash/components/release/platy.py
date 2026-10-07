@@ -23,12 +23,53 @@ TARGET_VERBS = frozenset({"GO", "RELEASE", "FIX-LIVE"})
 CHANGE_PR = re.compile(r"\(#(?P<pr>\d+)\)\s*$")
 PER_PAGE = 100
 BACKFILL_PAGES = 5
+SCHEMA = 2
 UNTARGETED = "untargeted"
 PROVEN = "proven"
 UNPROVEN = "unproven"
 BLOCKED = "blocked"
 VERDICTS = (PROVEN, UNPROVEN, BLOCKED)
 UNPLANNED_CAUSE = "not planned"
+WATCH = "Watch"
+PHASES = (
+    (WATCH, (":eyes:",)),
+    ("Deploy", (":pulumi: Deploy", ":pulumi: deploy", ":vertical_traffic_light:")),
+    ("Plan", (":pulumi: plan", ":mag:", ":memo:", ":art:", ":writing_hand:")),
+    ("Build", (":docker:", ":package:", ":apple:", ":linux:", ":rust:", "Build ")),
+    ("Wait", (":hourglass:", ":lock:", ":fire:", ":pager:")),
+    ("Finish", (":checkered_flag:", ":stopwatch:", ":unlock:", ":broom:")),
+)
+FAILED_JOB = frozenset({"failed", "timed_out", "broken"})
+
+
+def phase_of(name: str) -> str | None:
+    return next((phase for phase, prefixes in PHASES if name.startswith(prefixes)), None)
+
+
+def phases(jobs: list[dict]) -> list[dict]:
+    spans: dict[str, dict] = {}
+    for job in jobs:
+        if not job.get("started_at") or (phase := phase_of(job.get("name") or "")) is None:
+            continue
+        span = spans.setdefault(phase, {"phase": phase, "start": job["started_at"], "end": job.get("finished_at"), "state": "passed"})
+        span["start"] = min(span["start"], job["started_at"])
+        span["end"] = None if span["end"] is None or not job.get("finished_at") else max(span["end"], job["finished_at"])
+        if job.get("state") in LIVE_JOB_STATES:
+            span["state"] = "running"
+        elif job.get("state") in FAILED_JOB and span["state"] != "running":
+            span["state"] = "failed"
+    return sorted(spans.values(), key=lambda span: span["start"])
+
+
+def watch_minutes(jobs: list[dict]) -> float:
+    windows = sorted((view.stamp(job["started_at"]), view.stamp(job["finished_at"])) for job in jobs if phase_of(job.get("name") or "") == WATCH and job.get("started_at") and job.get("finished_at"))
+    total, reach = 0.0, None
+    for start, end in windows:
+        start = max(start, reach) if reach else start
+        if end > start:
+            total += (end - start).total_seconds()
+            reach = max(reach, end) if reach else end
+    return round(total / 60, 1)
 
 
 def build_row(build: dict) -> dict:
@@ -53,6 +94,8 @@ def build_row(build: dict) -> dict:
         "steps": [sum(job.get("state") == "passed" for job in jobs), len(jobs)],
         "now": [EMOJI.sub("", job.get("name") or "") for job in jobs if job.get("state") in LIVE_JOB_STATES],
         "failed_steps": [EMOJI.sub("", job.get("name") or "") for job in jobs if job.get("state") in ("failed", "timed_out")],
+        "phases": phases(jobs),
+        "watch_minutes": watch_minutes(jobs),
     }
     if started := STARTED.match(message):
         recorded = json.loads(start) if start.startswith("{") else {}
@@ -86,9 +129,9 @@ class Builds:
     def __init__(self, cache: Path, fetch: Callable[[dict], list[dict]]):
         self.cache = cache
         self.fetch = fetch
-        saved = json.loads(cache.read_text()) if cache.exists() else {"rows": {}, "backfill_page": 1, "fetched_at": None}
+        saved = json.loads(cache.read_text()) if cache.exists() else {"rows": {}, "backfill_page": 1, "fetched_at": None, "schema": SCHEMA}
         self.rows: dict[int, dict] = {int(key): value for key, value in saved["rows"].items()}
-        self.backfill_page: int = saved["backfill_page"]
+        self.backfill_page: int = saved["backfill_page"] if saved.get("schema") == SCHEMA else 1
         self.fetched_at = view.stamp(saved["fetched_at"])
         self.swept_at = self.fetched_at - RESWEEP if self.fetched_at else None
 
@@ -109,7 +152,7 @@ class Builds:
             self.backfill_page = self.backfill_page + 1 if len(batch) == PER_PAGE else 0
         self.fetched_at = moment
         self.cache.parent.mkdir(parents=True, exist_ok=True)
-        self.cache.write_text(json.dumps({"rows": self.rows, "backfill_page": self.backfill_page, "fetched_at": view.iso(moment)}))
+        self.cache.write_text(json.dumps({"rows": self.rows, "backfill_page": self.backfill_page, "fetched_at": view.iso(moment), "schema": SCHEMA}))
         return self.known()
 
     def pull(self, query: dict) -> list[dict]:

@@ -10,6 +10,7 @@ import ddshared
 
 TONES = ("ok", "warn", "bad", "muted")
 COL_KINDS = ("text", "num", "age", "due", "link", "badge", "delta", "bar")
+LINE_STYLES = ("line", "area", "bar")
 GATE_STATUSES = ("open", "pass", "fail", "blocked", "waived", "not-created", "not-run")
 MAX_BYTES = 256 * 1024
 SCHEMAS = Path(__file__).resolve().parents[2] / "reference" / "components"
@@ -161,15 +162,25 @@ class Checklist:
 
 @dataclass(frozen=True)
 class Tile:
+    """One number: `gauge` (0 to 1) draws a ring, `trend` is a short delta such as "▲ 4 in 24h" toned by `trend_tone`,
+    `foot` is a line under the tile, and `link` opens a page or, as `#card-<id>`, jumps to a card."""
+
     label: str
     value: str | int | float | None
     unit: str | None = None
     tone: str | None = None
     hint: str | None = None
     link: str | None = None
+    trend: str | None = None
+    trend_tone: str | None = None
+    gauge: float | None = None
+    foot: str | None = None
 
     def __post_init__(self) -> None:
         tone_of(self.tone)
+        tone_of(self.trend_tone)
+        if self.gauge is not None and not 0 <= self.gauge <= 1:
+            raise PayloadError(f"tile {self.label} gauge must be between 0 and 1, not {self.gauge}")
 
 
 @dataclass(frozen=True)
@@ -184,13 +195,24 @@ class Tiles:
 
     @classmethod
     def example(cls) -> Tiles:
-        return cls(tiles=[Tile("Open PRs", 13, tone="warn", hint="all held for review"), Tile("p95 lookup", 182, "ms", "ok")])
+        return cls(tiles=[Tile("Stacks at 0/0", 230, "/296", "warn", gauge=230 / 296, trend="▲ 4 in 24h", trend_tone="ok", foot="66 drift"), Tile("p95 lookup", 182, "ms", "ok")])
 
 
 @dataclass(frozen=True)
 class Line:
+    """`[at, value]` points, or `[at, value, {"tone", "link", "label"}]` to tone, link or name one point; `style` draws a
+    line, a filled area, or bars."""
+
     label: str
     points: list[list]
+    style: str = "line"
+
+    def __post_init__(self) -> None:
+        if self.style not in LINE_STYLES:
+            raise PayloadError(f"line {self.label} has style {self.style!r}; use one of {', '.join(LINE_STYLES)}")
+        for point in self.points:
+            if len(point) == 3:
+                tone_of(point[2].get("tone"))
 
 
 @dataclass(frozen=True)
@@ -321,6 +343,90 @@ class Feed:
 
 
 @dataclass(frozen=True)
+class Span:
+    label: str
+    start: str
+    end: str | None = None
+    tone: str | None = None
+
+    def __post_init__(self) -> None:
+        tone_of(self.tone)
+
+
+@dataclass(frozen=True)
+class Track:
+    label: str
+    spans: list[Span]
+    link: str | None = None
+    tone: str | None = None
+    note: str | None = None
+    key: str | None = None
+    cite: str | None = None
+
+    def __post_init__(self) -> None:
+        tone_of(self.tone)
+
+
+@dataclass(frozen=True)
+class Timeline:
+    """A Gantt: one track per item, each a row of labelled spans from `start` to `end`; a span with no `end` is still
+    running and reaches now."""
+
+    tracks: list[Track]
+    note: str | None = None
+
+    kind = "timeline"
+
+    def json(self) -> dict:
+        return dropped({"kind": self.kind, "note": self.note}) | {"tracks": [dropped(asdict(track) | {"spans": [dropped(asdict(span)) for span in track.spans]}) for track in self.tracks]}
+
+    @classmethod
+    def example(cls) -> Timeline:
+        return cls([Track("#2960 Release infra", [Span("Plan", "2026-10-07T08:36:49Z", "2026-10-07T08:39:28Z", "ok"), Span("Deploy", "2026-10-07T08:43:33Z", None, "warn")], "https://buildkite.com/o/release/builds/2960", note="12 of 31 steps")])
+
+
+@dataclass(frozen=True)
+class Heat:
+    tone: str | None = None
+    title: str | None = None
+    link: str | None = None
+    text: str | None = None
+
+    def __post_init__(self) -> None:
+        tone_of(self.tone)
+
+
+@dataclass(frozen=True)
+class Heatmap:
+    """A dense grid of toned squares: row labels against column labels, `None` where a row has no such column; `groups`
+    names each row's group, `legend` labels each tone, and a square's `text` is drawn inside it."""
+
+    rows: list[str]
+    cols: list[str]
+    cells: list[list[Heat | None]]
+    groups: list[str] | None = None
+    legend: dict[str, str] = field(default_factory=dict)
+    note: str | None = None
+
+    kind = "heatmap"
+
+    def __post_init__(self) -> None:
+        if len(self.cells) != len(self.rows) or any(len(row) != len(self.cols) for row in self.cells):
+            raise PayloadError(f"a heatmap needs one row of {len(self.cols)} cells per row label, {len(self.rows)} rows")
+        if self.groups is not None and len(self.groups) != len(self.rows):
+            raise PayloadError("a heatmap's groups must name one group per row")
+        for tone in self.legend:
+            tone_of(tone)
+
+    def json(self) -> dict:
+        return dropped({"kind": self.kind, "groups": self.groups, "legend": self.legend, "note": self.note}) | {"rows": self.rows, "cols": self.cols, "cells": [[dropped(asdict(cell)) if cell else None for cell in row] for row in self.cells]}
+
+    @classmethod
+    def example(cls) -> Heatmap:
+        return cls(["api", "network"], ["plat", "tnt-a"], [[Heat("ok", "api/plat: 0/0"), Heat("warn", "api/tnt-a: drift")], [Heat("ok"), None]], ["platform", "infra"], {"ok": "0/0", "warn": "drift"})
+
+
+@dataclass(frozen=True)
 class Kv:
     pairs: dict[str, str | int | float | None]
 
@@ -370,7 +476,7 @@ def unique(cards: list[dict]) -> list[dict]:
     for card in sorted(cards, key=lambda card: not card["pinned"]):
         payload = card["payload"] or {}
         name = next((name for name in ROW_LISTS if name in payload), None)
-        if name is None:
+        if name is None or not all(isinstance(row, dict) for row in payload[name]):
             continue
         kept, moved = [], {}
         for row in payload[name]:
@@ -422,7 +528,7 @@ def body(kind: str, payload: dict) -> str:
     if kind == "checklist":
         return "\n".join(f"- [{'x' if item['status'] in ('pass', 'waived') else ' '}] {item['id']} {item['title']}: {item['status']}" + "".join(f"; {name} {item[name]}" for name in ("blocker", "owner", "closes") if item.get(name)) for item in payload["items"])
     if kind == "tiles":
-        return "\n".join(f"- {tile['label']}: {tile['value']}{' ' + tile['unit'] if tile.get('unit') else ''}{' (' + tile['hint'] + ')' if tile.get('hint') else ''}" for tile in payload["tiles"])
+        return "\n".join(f"- {tile['label']}: {tile['value']}{' ' + tile['unit'] if tile.get('unit') else ''}" + "".join(f" ({tile[name]})" for name in ("hint", "trend", "foot") if tile.get(name)) for tile in payload["tiles"])
     if kind == "series":
         return "\n".join(f"- {line['label']}: " + ", ".join(f"{at} {value}" for at, value in line["points"][-12:]) for line in payload["lines"])
     if kind == "percentiles":
@@ -436,6 +542,11 @@ def body(kind: str, payload: dict) -> str:
         return "\n".join(f"- {entry['at']} {entry['actor']}: {entry['text']}" + (f" ({entry['latency_ms'] / 1000:.1f}s)" if entry.get("latency_ms") is not None else "") + (f" [{entry['cite']}]" if entry.get("cite") else "") for entry in payload["entries"])
     if kind == "kv":
         return "\n".join(f"- {label}: {value}" for label, value in payload["pairs"])
+    if kind == "timeline":
+        return "\n".join(f"- {track['label']}: " + ", ".join(f"{span['label']} {span['start']}–{span.get('end') or 'now'}" for span in track["spans"]) + (f" ({track['note']})" if track.get("note") else "") for track in payload["tracks"])
+    if kind == "heatmap":
+        legend = [f"- {label}" for label in payload.get("legend", {}).values()]
+        return "\n".join(legend + [f"- {label}: " + ", ".join(cell.get("title") or f"{col} {cell.get('tone')}" for col, cell in zip(payload["cols"], row, strict=True) if cell) for label, row in zip(payload["rows"], payload["cells"], strict=True)])
     if kind == "markdown":
         return payload["text"]
     return "(an SVG drawing)"

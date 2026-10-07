@@ -318,3 +318,15 @@ def test_phone_must_list_column_keys(board):
     (board / "layout.yaml").write_text(READER_LAYOUT.replace("phone: [calls]", "phone: calls"))
     with pytest.raises(layout.LayoutError, match="phone must list the column keys"):
         layout.load(board, FACTS)
+
+
+def test_a_reader_of_a_restored_card_runs_that_card_now(board):
+    (board / "layout.yaml").write_text(READER_LAYOUT)
+    clock = [0.0]
+    found, _ = scheduler(board, clock)
+    run(found)
+    clock[0] = 10.0
+    again, _ = scheduler(board, clock)
+    assert again.instance_of("a").due == 60.0
+    assert again.read(again.instance_of("reader"), "a") is None
+    assert again.instance_of("a").due == 0.0

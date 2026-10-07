@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from livedash import Cell, Col, Dist, Graph, Matrix, Node, Table, payloads, registry, secrets
+from livedash import Cell, Col, Dist, Graph, Heat, Heatmap, Line, Matrix, Node, Span, Table, Tile, Timeline, Track, payloads, registry, secrets
 from livedash.server import PAGE
 
 
@@ -75,3 +75,27 @@ def test_unique_shows_each_cited_row_once_pinned_cards_first():
     assert [row.get("cite") for row in shown[0]["payload"]["rows"]] == ["ask:2", None]
     assert shown[0]["payload"]["note"] == "1 more under Needs you"
     assert shown[1] is cards[1] and cards[0]["payload"]["rows"][0] == {"cite": "ask:1"}
+
+
+def test_tiles_lines_and_heatmaps_reject_shapes_the_page_cannot_draw():
+    with pytest.raises(payloads.PayloadError, match="gauge must be between 0 and 1"):
+        Tile("Stacks", 230, gauge=1.2)
+    with pytest.raises(payloads.PayloadError, match="has style 'pie'"):
+        Line("spend", [], "pie")
+    with pytest.raises(payloads.PayloadError, match="one group per row"):
+        Heatmap(["api"], ["plat"], [[Heat("ok")]], ["a", "b"])
+    with pytest.raises(payloads.PayloadError):
+        Heat("red")
+
+
+def test_a_timeline_and_a_heatmap_read_as_markdown():
+    timeline = Timeline([Track("#7 Release infra", [Span("Build", "2026-10-07T01:00:00Z", "2026-10-07T01:03:00Z", "ok"), Span("Deploy", "2026-10-07T01:03:00Z")], note="5 of 9 steps")])
+    assert payloads.markdown("timeline", timeline.json()) == "- #7 Release infra: Build 2026-10-07T01:00:00Z–2026-10-07T01:03:00Z, Deploy 2026-10-07T01:03:00Z–now (5 of 9 steps)"
+    heatmap = Heatmap(["infra (3)"], ["plat", "tnt"], [[Heat("warn", "infra in plat: 1 of 2 at 0/0", text="1"), None]], legend={"ok": "at 0/0 2", "warn": "drift 1"})
+    assert payloads.markdown("heatmap", heatmap.json()) == "- at 0/0 2\n- drift 1\n- infra (3): infra in plat: 1 of 2 at 0/0"
+    assert heatmap.json()["cells"] == [[{"tone": "warn", "title": "infra in plat: 1 of 2 at 0/0", "text": "1"}, None]]
+
+
+def test_unique_leaves_lists_of_plain_values_alone():
+    heatmap = Heatmap(["infra"], ["plat"], [[Heat("ok")]]).json()
+    assert payloads.unique([{"id": "grid", "pinned": False, "payload": heatmap}])[0]["payload"] == heatmap

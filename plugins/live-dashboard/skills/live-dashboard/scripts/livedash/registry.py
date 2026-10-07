@@ -13,7 +13,7 @@ from pathlib import Path
 
 from livedash import payloads
 
-PAYLOADS = {cls.__name__: cls for cls in (payloads.Table, payloads.Matrix, payloads.Checklist, payloads.Tiles, payloads.Series, payloads.Percentiles, payloads.Graph, payloads.Feed, payloads.Kv, payloads.Markdown, payloads.Svg)}
+PAYLOADS = {cls.__name__: cls for cls in (payloads.Table, payloads.Matrix, payloads.Checklist, payloads.Tiles, payloads.Series, payloads.Percentiles, payloads.Graph, payloads.Feed, payloads.Kv, payloads.Markdown, payloads.Svg, payloads.Timeline, payloads.Heatmap)}
 BUILTIN_PACKAGE = "livedash.components"
 RELEASE_PACKAGE = "livedash.components.release"
 PACK_PREFIX = "livedash_pack_"

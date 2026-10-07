@@ -1,24 +1,18 @@
 title: Release
 sections:
-  - title: Now
+  - title: At a glance
     components:
-      - use: release.tiles
-        id: overview
-        width: 3
-        with: {census: 'done-board/iac-drift-*.md'}
-      - {use: release.builds, id: builds, width: 3}
-  - title: Deployability
-    components:
-      - use: release.stacks
-        id: stacks
-        width: 3
-        with: {census: 'done-board/iac-drift-*.md'}
-      - {use: release.census, id: census, width: 2}
+      - {use: release.kpis, id: kpis, width: 3, with: {census: 'done-board/iac-drift-*.md'}}
+      - {use: release.durations, id: durations}
+      - {use: release.census, id: census}
       - {use: release.landed-per-hour, id: landed}
-  - title: Broken
+      - {use: release.timeline, id: timeline, width: 3}
+      - {use: release.census-grid, id: grid, width: 3, with: {census: 'done-board/iac-drift-*.md'}}
+  - title: Needs a look
     components:
-      - {use: release.incidents, id: incidents, width: 2}
-      - {use: incident-feed, width: 1}
+      - {use: release.incidents, id: incidents, width: 1, fold: true}
+      - {use: release.builds, id: builds, width: 1, fold: true}
+      - {use: release.stacks, id: stacks, width: 1, fold: true, with: {census: 'done-board/iac-drift-*.md'}}
   - title: Activity
     collapsed: true
     components:

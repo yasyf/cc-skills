@@ -127,6 +127,59 @@ dl.kv dt { color:var(--muted); } dl.kv dd { margin:0; overflow-wrap:anywhere; }
 .dist .nums { font-family:var(--mono); font-size:var(--t-xs); color:var(--muted); white-space:nowrap; }
 .dist.over .nums b { color:var(--bad); }
 svg.chart { width:100%; height:170px; display:block; overflow:visible; }
+svg.chart rect:hover, svg.chart circle:hover { opacity:.75; }
+.viz-rule { display:inline-block; width:14px; height:0; border-top:2px dashed var(--bad); vertical-align:3px; margin-right:6px; }
+.viz-ends { display:flex; justify-content:space-between; font-size:var(--t-xs); color:var(--muted); margin:2px 0 0 44px; }
+.tile-main { display:flex; align-items:center; gap:10px; }
+.ring { width:44px; height:44px; flex:none; }
+.ring-track { fill:none; stroke:var(--line); stroke-width:5; }
+.ring-fill { fill:none; stroke:var(--ok); stroke-width:5; stroke-linecap:round; }
+.ring-fill[data-tone=warn] { stroke:var(--warn); } .ring-fill[data-tone=bad] { stroke:var(--bad); }
+.tile-trend { font-size:var(--t-xs); font-weight:600; }
+.tile-trend[data-tone=ok] { color:var(--ok); } .tile-trend[data-tone=bad] { color:var(--bad); } .tile-trend[data-tone=warn] { color:var(--warn); } .tile-trend[data-tone=muted] { color:var(--muted); }
+.tile-foot { font-size:var(--t-xs); color:var(--muted); border-top:1px solid var(--line); padding-top:6px; margin-top:2px; }
+a.tile:hover { border-color:var(--muted); }
+.gantt { display:grid; gap:6px; font-size:var(--t-sm); }
+.track { display:grid; grid-template-columns:minmax(150px,30%) 1fr; gap:var(--s3); align-items:center; }
+.track-label { display:flex; flex-direction:column; min-width:0; } .track-label a, .track-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.track-label small { color:var(--muted); font-size:var(--t-xs); overflow:hidden; text-overflow:ellipsis; }
+.track-bar { position:relative; height:22px; background:var(--raised); border-radius:5px; }
+.track.axis .track-bar { background:none; height:16px; }
+.ticks span { position:absolute; transform:translateX(-50%); font-size:var(--t-xs); color:var(--muted); white-space:nowrap; }
+.ticks span:first-child { transform:none; } .ticks span:nth-last-child(2) { transform:translateX(-100%); }
+.ticks .now { position:absolute; top:0; height:calc(100% + 2000px); width:0; border-left:1px dashed var(--info); pointer-events:none; }
+.gantt { overflow:hidden; }
+.span { position:absolute; top:2px; bottom:2px; border-radius:4px; background:var(--idle-soft); overflow:hidden; display:flex; align-items:center; }
+.span[data-tone=ok] { background:var(--ok-soft); border:1px solid var(--ok); } .span[data-tone=warn] { background:var(--warn-soft); border:1px solid var(--warn); } .span[data-tone=bad] { background:var(--bad-soft); border:1px solid var(--bad); }
+.span[data-live] { background-image:repeating-linear-gradient(45deg,transparent 0 6px,rgba(255,255,255,.07) 6px 12px); }
+.span b { font-weight:550; font-size:10.5px; padding:0 4px; white-space:nowrap; overflow:hidden; }
+.heat-legend { display:flex; gap:var(--s3); flex-wrap:wrap; font-size:var(--t-sm); color:var(--muted); margin-bottom:var(--s2); }
+.heat-legend b { color:var(--fg); }
+.heatmap { display:grid; gap:2px; font-size:var(--t-xs); }
+.heat-row { display:grid; grid-template-columns:150px 1fr; gap:var(--s2); align-items:center; }
+.heat-label { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
+.heat-cells { display:grid; grid-template-columns:repeat(var(--heat-cols),minmax(14px,1fr)); gap:2px; }
+.heat { display:flex; align-items:center; justify-content:center; height:20px; border-radius:3px; background:var(--idle-soft); color:#111; font-style:normal; font-weight:650; font-size:10px; }
+.heat[data-tone=ok] { background:var(--ok); } .heat[data-tone=warn] { background:var(--warn); } .heat[data-tone=bad] { background:var(--bad); } .heat[data-tone=muted] { background:var(--idle); }
+.heat.empty { background:transparent; outline:1px dashed var(--line); outline-offset:-1px; }
+.heat-legend .heat { display:inline-block; height:12px; width:12px; height:12px; vertical-align:-2px; margin-right:5px; }
+.heat-group { margin-top:6px; font-weight:600; color:var(--fg); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.4px; }
+.heat-head .heat-col { display:block; height:124px; position:relative; }
+.heat-head .heat-col span { position:absolute; bottom:2px; left:50%; transform-origin:left bottom; transform:rotate(-60deg); white-space:nowrap; color:var(--muted); }
+a > .heat:hover { outline:2px solid var(--fg); outline-offset:-2px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:var(--s2); }
+.chip { border:1px solid var(--line); background:none; color:var(--muted); border-radius:999px; padding:2px 10px; font-size:var(--t-xs); cursor:pointer; }
+.chip.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+.fold-top { display:flex; align-items:center; gap:var(--s3); }
+.tone-bar { display:flex; gap:2px; height:6px; border-radius:3px; overflow:hidden; margin:var(--s2) 0; }
+.tone-bar i[data-tone=ok] { background:var(--ok); } .tone-bar i[data-tone=warn] { background:var(--warn); } .tone-bar i[data-tone=bad] { background:var(--bad); } .tone-bar i[data-tone=muted] { background:var(--idle); }
+.fold-note { margin:0; font-size:var(--t-xs); color:var(--muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.card.unfolded { grid-column:1 / -1; }
+.fold-count { font-size:var(--t-xl); font-weight:650; }
+.fold-pills { flex:1; display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:var(--t-sm); }
+.fold-toggle { border:1px solid var(--line); background:var(--raised); color:var(--fg); border-radius:7px; padding:3px 10px; font-size:var(--t-sm); cursor:pointer; white-space:nowrap; }
+.card-body > .fold-toggle { margin-bottom:var(--s2); }
+.card.folded .card-q { display:none; }
 .tree { list-style:none; margin:0; padding:0; font-size:var(--t-sm); }
 .tree li { display:flex; align-items:center; gap:8px; padding:3px 0; }
 .tree .dot { width:9px; height:9px; border-radius:50%; background:var(--idle); flex:none; }
@@ -203,7 +256,7 @@ const wireFullSize=()=>{};
 <!-- @include html/dom.js -->
 <!-- @include html/md.js -->
 <!-- @include html/components.js -->
-const state={data:null,query:"",painted:{},baseline:null,current:{},toasts:{},notified:null,openRows:new Set()};
+const state={data:null,query:"",painted:{},baseline:null,current:{},toasts:{},notified:null,openRows:new Set(),openCards:new Set(),chips:{}};
 const seenKey=()=>`live-dashboard-seen:${state.data.dashboard.id}`;
 const notifiedKey=()=>`live-dashboard-notified:${state.data.dashboard.id}`;
 const sameDay=(a,b)=>a.toLocaleDateString("en-US",{timeZone:PACIFIC})===b.toLocaleDateString("en-US",{timeZone:PACIFIC});
@@ -234,7 +287,8 @@ function linkify(text){
  });
 }
 const seconds=ms=>ms==null?"":ms<1000?Math.round(ms)+"ms":ms<60000?(ms/1000).toFixed(ms<10000?1:0)+"s":(ms/60000).toFixed(1)+"m";
-const number=(value,unit)=>value==null?"—":(Math.abs(value)>=100?Math.round(value):Math.round(value*10)/10).toLocaleString()+(unit?" "+unit:"");
+const CURRENCY=new Set(["$","€","£"]);
+const number=(value,unit)=>{if(value==null)return "—";const n=(Math.abs(value)>=100?Math.round(value):Math.round(value*10)/10).toLocaleString();return CURRENCY.has(unit)?unit+n:n+(unit?" "+unit:"")};
 const matches=text=>state.query.toLowerCase().split(/\s+/).filter(Boolean).every(term=>String(text).toLowerCase().includes(term));
 const rowText=row=>Object.values(row).filter(v=>v!=null&&typeof v!=="object").join(" ");
 const signature=row=>JSON.stringify(row);
@@ -268,7 +322,10 @@ function cellHtml(col,row){
  return `<td>${linkify(shown??"")}</td>`;
 }
 function renderTable(card,p){
- const rows=p.rows.filter(row=>matches(rowText(row)));
+ const chip=state.chips[card.id];
+ const groups=p.group_by?[...p.rows.reduce((m,row)=>m.set(String(row[p.group_by]??""),(m.get(String(row[p.group_by]??""))||0)+1),new Map())]:[];
+ const chips=groups.length>1?`<div class="chips"><button type="button" class="chip${chip?"":" on"}" data-chip="" data-card="${esc(card.id)}">All ${p.rows.length}</button>${groups.map(([g,n])=>`<button type="button" class="chip${chip===g?" on":""}" data-chip="${esc(g)}" data-card="${esc(card.id)}">${esc(g||"none")} ${n}</button>`).join("")}</div>`:"";
+ const rows=p.rows.filter(row=>matches(rowText(row))&&(!chip||String(row[p.group_by]??"")===chip));
  const acting=card.actions.length>0;
  const head=`<tr>${p.cols.map(c=>`<th class="${c.kind==="num"?"num":""}">${esc(c.label||c.key)}</th>`).join("")}${acting?"<th></th>":""}</tr>`;
  const keep=new Set(card.phone||p.cols.filter(c=>c.phone!==false).map(c=>c.key));
@@ -283,7 +340,7 @@ function renderTable(card,p){
   groups.forEach((members,name)=>{body+=`<tr class="group"><td colspan="${p.cols.length+(acting?1:0)}">${esc(name)} · ${members.length}</td></tr>`+members.map(line).join("")});
  }else body=rows.map(line).join("");
  const foot=p.footer?`<tr class="foot">${p.cols.map(c=>`<td class="${c.kind==="num"?"num":""}">${esc(p.footer[c.key]??"")}</td>`).join("")}${acting?"<td></td>":""}</tr>`:"";
- return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(rows.length?`<table class="grid"><thead>${head}</thead><tbody>${body}${foot}</tbody></table>`:(p.note?"":`<p class="empty">${state.query?"No matching rows":"No rows"}</p>`));
+ return chips+(p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(rows.length?`<table class="grid"><thead>${head}</thead><tbody>${body}${foot}</tbody></table>`:(p.note?"":`<p class="empty">${state.query?"No matching rows":"No rows"}</p>`));
 }
 function renderMatrix(card,p){
  const box=cmptMatrix(p);
@@ -296,25 +353,68 @@ function renderChecklist(card,p){
  const sub=item=>[item.blocker&&esc(item.blocker),item.owner&&"owner "+esc(item.owner),item.closes&&"closes "+linkify(item.closes)].filter(Boolean).join(" · ");
  return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<ul class="gates">${items.map(item=>`<li class="gate ${rowClass(card,item)}"><span>${pill(item.status,GATE_TONE[item.status])}</span><span><b>${esc(item.id)}</b> ${ext(item.link,esc(item.title))}</span>${sub(item)?`<span class="sub">${sub(item)}</span>`:""}</li>`).join("")}</ul>`+(items.length?"":`<p class="empty">No gates</p>`);
 }
+const isJump=href=>href&&href.startsWith("#card-");
+const linkAttrs=href=>isJump(href)?`href="${esc(href)}" data-jump-card="${esc(href.slice(6))}"`:`href="${esc(href)}" target="_blank" rel="noopener"`;
+function ring(share,tone){const r=17,c=2*Math.PI*r;return `<svg class="ring" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="${r}" class="ring-track"/><circle cx="20" cy="20" r="${r}" class="ring-fill" data-tone="${esc(tone||"ok")}" stroke-dasharray="${(share*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 20 20)"/></svg>`}
 function renderTiles(card,p){
- return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<div class="tiles">${p.tiles.map(t=>{const inner=`<span class="tile-label">${esc(t.label)}</span><span class="tile-value">${esc(t.value??"—")}${t.unit?`<small>${esc(t.unit)}</small>`:""}</span>${t.hint?`<span class="tile-hint">${esc(t.hint)}</span>`:""}`;return t.link&&safeUrl(t.link)?`<a class="tile ${rowClass(card,t)}" href="${esc(t.link)}" target="_blank" rel="noopener"${t.tone?` data-tone="${esc(t.tone)}"`:""}>${inner}</a>`:`<div class="tile ${rowClass(card,t)}"${t.tone?` data-tone="${esc(t.tone)}"`:""}>${inner}</div>`}).join("")}</div>`;
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<div class="tiles">${p.tiles.map(t=>{
+  const inner=`<span class="tile-label">${esc(t.label)}</span><span class="tile-main">${t.gauge!=null?ring(t.gauge,t.tone):""}<span class="tile-value">${esc(t.value??"—")}${t.unit?`<small>${esc(t.unit)}</small>`:""}</span></span>${t.trend?`<span class="tile-trend" data-tone="${esc(t.trend_tone||"muted")}">${esc(t.trend)}</span>`:""}${t.hint?`<span class="tile-hint">${esc(t.hint)}</span>`:""}${t.foot?`<span class="tile-foot">${esc(t.foot)}</span>`:""}`;
+  const tone=t.tone?` data-tone="${esc(t.tone)}"`:"";
+  return t.link&&safeUrl(t.link)?`<a class="tile ${rowClass(card,t)}" ${linkAttrs(t.link)}${tone}>${inner}</a>`:`<div class="tile ${rowClass(card,t)}"${tone}>${inner}</div>`;
+ }).join("")}</div>`;
 }
 const VIZ=n=>`var(--viz-${n%8+1})`;
+const TONE_FILL={ok:"var(--ok)",warn:"var(--warn)",bad:"var(--bad)",muted:"var(--idle)"};
 function chart(series){
  const lines=series.lines.filter(l=>l.points.length),all=lines.flatMap(l=>l.points);
  if(!all.length)return `<p class="viz-empty">${esc(series.note||"No points yet")}</p>`;
  const timed=all.every(p=>typeof p[0]==="string"&&!isNaN(Date.parse(p[0])));
- const xs=all.map((p,i)=>timed?Date.parse(p[0]):Number(p[0]));
- const levels=Object.values(series.thresholds||{});
+ const xOf=p=>timed?Date.parse(p[0]):Number(p[0]);
+ const xs=all.map(xOf);
+ const levels=Object.values(series.thresholds||{}).filter(v=>v!=null);
  const ys=[...all.map(p=>p[1]),...levels];
- const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(0,...ys),y1=Math.max(...ys,1);
- const W=600,H=150,L=44;
- const sx=x=>L+((x-x0)/((x1-x0)||1))*(W-L-8),sy=y=>H-(y-y0)/((y1-y0)||1)*(H-12);
- const paths=lines.map((l,k)=>`<polyline fill="none" stroke="${VIZ(k)}" stroke-width="1.8" vector-effect="non-scaling-stroke" points="${l.points.map(p=>`${sx(timed?Date.parse(p[0]):Number(p[0])).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ")}"/>`+l.points.map(p=>`<circle cx="${sx(timed?Date.parse(p[0]):Number(p[0])).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="2.4" fill="${VIZ(k)}" data-tip="${esc(`${l.label}: ${number(p[1],series.unit)} · ${timed?pt(p[0]):p[0]}`)}"/>`).join("")).join("");
- const rules=Object.entries(series.thresholds||{}).map(([label,v])=>`<line x1="${L}" x2="${W-8}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--bad)" stroke-dasharray="4 3"/><text x="${W-8}" y="${sy(v)-4}" text-anchor="end" font-size="10" fill="var(--bad)">${esc(label)} ${esc(number(v,series.unit))}</text>`).join("");
- const axis=`<text x="0" y="12" font-size="10" fill="var(--muted)">${esc(number(y1,series.unit))}</text><text x="0" y="${H}" font-size="10" fill="var(--muted)">${esc(number(y0,series.unit))}</text><line x1="${L}" x2="${W-8}" y1="${H}" y2="${H}" stroke="var(--line)"/>`;
- const legend=`<div class="viz-legend">${lines.map((l,k)=>`<span class="lg"><span class="viz-sw" style="background:${VIZ(k)}"></span>${esc(l.label)} ${esc(number(l.points[l.points.length-1][1],series.unit))}</span>`).join("")}</div>`;
- return `<svg class="chart" viewBox="0 0 ${W} ${H+4}" preserveAspectRatio="none" role="img">${axis}${rules}${paths}</svg>${legend}`;
+ const bars=lines.filter(l=>l.style==="bar"),most=Math.max(1,...bars.map(l=>l.points.length));
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(0,...ys),y1=Math.max(...ys,1)*1.08;
+ const W=600,H=150,L=44,R=8,slot=(W-L-R)/most;
+ const sx=x=>bars.length?L+slot/2+((x-x0)/((x1-x0)||1))*(W-L-R-slot):L+((x-x0)/((x1-x0)||1))*(W-L-R),sy=y=>H-(y-y0)/((y1-y0)||1)*(H-12);
+ const tip=(l,p)=>esc(p[2]&&p[2].label||`${l.label}: ${number(p[1],series.unit)} · ${timed?pt(p[0]):p[0]}`);
+ const marks=lines.map((l,k)=>{
+  const color=VIZ(k);
+  if(l.style==="bar"){const w=Math.max(2,slot*.72);return l.points.map(p=>{const x=sx(xOf(p))-w/2,y=sy(Math.max(p[1],0)),h=Math.max(1,sy(0)-y),fill=p[2]&&p[2].tone?TONE_FILL[p[2].tone]:color;const bar=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${fill}" data-tip="${tip(l,p)}"/>`;return p[2]&&p[2].link&&safeUrl(p[2].link)?`<a href="${esc(p[2].link)}" target="_blank" rel="noopener">${bar}</a>`:bar}).join("")}
+  const pts=l.points.map(p=>`${sx(xOf(p)).toFixed(1)},${sy(p[1]).toFixed(1)}`);
+  const area=l.style==="area"?`<polygon points="${sx(xOf(l.points[0])).toFixed(1)},${sy(y0)} ${pts.join(" ")} ${sx(xOf(l.points[l.points.length-1])).toFixed(1)},${sy(y0)}" fill="${color}" opacity=".18"/>`:"";
+  return area+`<polyline fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke" points="${pts.join(" ")}"/>`+l.points.map(p=>`<circle cx="${sx(xOf(p)).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="${l.points.length>60?1.4:2.4}" fill="${p[2]&&p[2].tone?TONE_FILL[p[2].tone]:color}" data-tip="${tip(l,p)}"/>`).join("");
+ }).join("");
+ const limits=Object.entries(series.thresholds||{}).filter(([,v])=>v!=null);
+ const rules=limits.map(([,v])=>`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--bad)" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`).join("");
+ const axis=`<text x="0" y="12" font-size="10" fill="var(--muted)">${esc(number(Math.round(y1),series.unit))}</text><text x="0" y="${H}" font-size="10" fill="var(--muted)">${esc(number(y0,series.unit))}</text><line x1="${L}" x2="${W-R}" y1="${H}" y2="${H}" stroke="var(--line)"/>`;
+ const ends=timed?`<div class="viz-ends"><span>${esc(pt(new Date(x0).toISOString()))}</span><span>${esc(pt(new Date(x1).toISOString()))}</span></div>`:"";
+ const legend=`<div class="viz-legend">${lines.map((l,k)=>`<span class="lg"><span class="viz-sw" style="background:${l.style==="bar"&&l.points.some(p=>p[2]&&p[2].tone)?"var(--ok)":VIZ(k)}"></span>${esc(l.label)} · latest ${esc(number(l.points[l.points.length-1][1],series.unit))}</span>`).join("")}${limits.map(([label,v])=>`<span class="lg"><span class="viz-rule"></span>${esc(label)} ${esc(number(v,series.unit))}</span>`).join("")}</div>`;
+ return `<svg class="chart" viewBox="0 0 ${W} ${H+4}" preserveAspectRatio="none" role="img">${axis}${rules}${marks}</svg>${ends}${legend}`;
+}
+function renderTimeline(card,p){
+ const tracks=p.tracks.filter(t=>matches(rowText(t)));
+ if(!tracks.length)return `<p class="empty">${esc(p.note||"Nothing running")}</p>`;
+ const now=Date.now(),spans=tracks.flatMap(t=>t.spans);
+ const t0=Math.min(...spans.map(s=>Date.parse(s.start))),t1=Math.max(now,...spans.map(s=>s.end?Date.parse(s.end):now));
+ const at=v=>((v-t0)/((t1-t0)||1)*100).toFixed(2);
+ const ticks=[0,.25,.5,.75,1].map(f=>`<span style="left:${f*100}%">${esc(pt(new Date(t0+f*(t1-t0)).toISOString()))}</span>`).join("");
+ const row=t=>{const name=t.link&&safeUrl(t.link)?`<a ${linkAttrs(t.link)}>${esc(t.label)}</a>`:esc(t.label);
+  const bars=t.spans.map(s=>{const a=Date.parse(s.start),b=s.end?Date.parse(s.end):now;return `<i class="span" data-tone="${esc(s.tone||"muted")}"${s.end?"":" data-live"} style="left:${at(a)}%;width:${Math.max(.6,at(b)-at(a))}%" data-tip="${esc(`${s.label}: ${pt(s.start)} to ${s.end?pt(s.end):"now"} (${seconds(b-a)})`)}">${at(b)-at(a)>=5?`<b>${esc(s.label)}</b>`:""}</i>`}).join("");
+  return `<div class="track ${rowClass(card,t)}"${t.tone?` data-tone="${esc(t.tone)}"`:""}><span class="track-label">${name}${t.note?`<small>${esc(t.note)}</small>`:""}</span><span class="track-bar">${bars}</span></div>`};
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<div class="gantt"><div class="track axis"><span class="track-label"></span><span class="track-bar ticks">${ticks}<i class="now" style="left:${at(now)}%"></i></span></div>${tracks.map(row).join("")}</div>`;
+}
+function renderHeatmap(card,p){
+ const legend=`<div class="heat-legend">${Object.entries(p.legend||{}).map(([tone,label])=>`<span class="lg"><i class="heat" data-tone="${esc(tone)}"></i>${esc(label)}</span>`).join("")}</div>`;
+ let last=null,body="";
+ p.rows.forEach((label,ri)=>{
+  const group=p.groups?p.groups[ri]:null,cells=p.cells[ri];
+  if(!matches(label+" "+(group||"")+" "+cells.map(c=>c&&c.title||"").join(" ")))return;
+  if(group!==null&&group!==last){body+=`<div class="heat-group">${esc(group)}</div>`;last=group}
+  body+=`<div class="heat-row"><span class="heat-label">${esc(label)}</span><span class="heat-cells">${cells.map(c=>{if(!c)return `<i class="heat empty"></i>`;const sq=`<i class="heat" data-tone="${esc(c.tone||"muted")}" data-tip="${esc(c.title||"")}">${c.text?esc(c.text):""}</i>`;return c.link&&safeUrl(c.link)?`<a href="${esc(c.link)}" target="_blank" rel="noopener">${sq}</a>`:sq}).join("")}</span></div>`;
+ });
+ const head=`<div class="heat-row heat-head"><span class="heat-label"></span><span class="heat-cells">${p.cols.map(c=>`<i class="heat-col" title="${esc(c)}"><span>${esc(c)}</span></i>`).join("")}</span></div>`;
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+legend+`<div class="heatmap" style="--heat-cols:${p.cols.length}">${head}${body}</div>`;
 }
 function renderSeries(card,p){return (p.note&&p.lines.some(l=>l.points.length)?`<p class="note">${linkify(p.note)}</p>`:"")+chart(p)}
 function renderPercentiles(card,p){
@@ -348,10 +448,19 @@ function renderFeed(card,p){
 }
 function renderKv(card,p){return `<dl class="kv">${p.pairs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${linkify(v??"")}</dd>`).join("")}</dl>`}
 function renderSvg(card,p){const wrap=el("div","svgwrap"),svg=safeSvg(p.svg);if(svg)wrap.append(svg);else wrap.textContent="The SVG did not parse.";return wrap}
-const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg};
+const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg,timeline:renderTimeline,heatmap:renderHeatmap};
 const CADENCE_SECONDS={"15s":15,"30s":30,"1m":60,"2m":120,"5m":300,"15m":900};
 const staleSince=card=>new Date(new Date(card.as_of).getTime()+2000*(CADENCE_SECONDS[card.every]||0)).toISOString();
 const STATUS_TONE={ok:"ok",pending:"muted",stale:"warn",error:"bad",hung:"bad"};
+const ITEM_LISTS=["rows","entries","items","tracks","tiles"];
+function foldSummary(card){
+ const p=card.payload,items=ITEM_LISTS.map(k=>p[k]).find(Array.isArray)||[];
+ const tones={};items.forEach(i=>{if(i.tone)tones[i.tone]=(tones[i.tone]||0)+1});
+ const words={bad:"need action",warn:"waiting",ok:"fine",muted:"quiet"};
+ const pills=["bad","warn","ok","muted"].filter(k=>tones[k]).map(k=>pill(`${tones[k]} ${words[k]}`,k==="muted"?"":k)).join(" ");
+ const bar=pills?`<div class="tone-bar">${["bad","warn","ok","muted"].filter(k=>tones[k]).map(k=>`<i data-tone="${k}" style="flex:${tones[k]}"></i>`).join("")}</div>`:"";
+ return `<div class="fold-top"><span class="fold-count">${items.length}</span><span class="fold-pills">${pills}</span><button type="button" class="fold-toggle" data-fold="${esc(card.id)}">${items.length?`Show ${items.length}`:"Show"}</button></div>${bar}${p.note?`<p class="fold-note">${linkify(p.note)}</p>`:""}`;
+}
 function cardNode(card){
  let node=document.getElementById("card-"+card.id);
  if(!node){
@@ -372,11 +481,15 @@ function cardNode(card){
  error.textContent=card.status==="hung"?`Still running past its timeout${card.error?"; last error: "+card.error:""}`:card.error||(card.status==="stale"?`Stale since ${pt(staleSince(card))}, two missed runs; the last good data is from ${pt(card.as_of)}.`:"");
  const toast=node.querySelector(".toast"),told=state.toasts[card.id];
  toast.hidden=!told;if(told){toast.textContent=told.text;toast.classList.toggle("bad",!!told.bad)}
- const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,card.phone,state.query,state.baseline&&state.baseline[card.id],[...state.openRows].filter(k=>k.startsWith(card.id+":"))]);
+ const folded=card.fold&&!state.openCards.has(card.id)&&!state.query;
+ node.classList.toggle("folded",folded);
+ node.classList.toggle("unfolded",card.fold&&!folded);
+ const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,card.phone,state.query,state.baseline&&state.baseline[card.id],[...state.openRows].filter(k=>k.startsWith(card.id+":")),folded,state.chips[card.id]]);
  if(state.painted[card.id]!==key){
   state.painted[card.id]=key;
   if(!card.payload){body.innerHTML=`<p class="empty">${card.status==="pending"?"Waiting for the first run…":"No data"}</p>`}
-  else{const out=RENDER[card.kind](card,card.payload);if(typeof out==="string")body.innerHTML=out;else body.replaceChildren(out)}
+  else if(folded)body.innerHTML=foldSummary(card);
+  else{const out=RENDER[card.kind](card,card.payload);if(typeof out==="string")body.innerHTML=(card.fold?`<button type="button" class="fold-toggle" data-fold="${esc(card.id)}">Hide detail</button>`:"")+out;else body.replaceChildren(out)}
  }
  return node;
 }
@@ -437,6 +550,12 @@ document.addEventListener("click",async e=>{
  const node=t.closest(".card");
  if(t.closest("[data-refresh]")&&node){try{await post(`/refresh/${encodeURIComponent(node.dataset.card)}`);toast(node.dataset.card,"Refresh queued")}catch(err){toast(node.dataset.card,err.message,true)}return}
  if(t.closest("[data-copy]")&&node){try{const r=await fetch(`/cards/${encodeURIComponent(node.dataset.card)}.md`);await navigator.clipboard.writeText(await r.text());toast(node.dataset.card,"Copied as Markdown")}catch(err){toast(node.dataset.card,err.message,true)}return}
+ const foldCard=t.closest("[data-fold]");
+ if(foldCard){const id=foldCard.dataset.fold;state.openCards.has(id)?state.openCards.delete(id):state.openCards.add(id);render();return}
+ const chip=t.closest("[data-chip]");
+ if(chip){state.chips[chip.dataset.card]=chip.dataset.chip||undefined;render();return}
+ const goto=t.closest("[data-jump-card]");
+ if(goto){e.preventDefault();const id=goto.dataset.jumpCard;state.openCards.add(id);render();const n=document.getElementById("card-"+id);if(n){n.closest("details")?.setAttribute("open","");n.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"})}return}
  const fold=t.closest("[data-more-toggle]");
  if(fold&&node){const k=`${node.dataset.card}:${fold.closest("tr").dataset.row}`;state.openRows.has(k)?state.openRows.delete(k):state.openRows.add(k);render();return}
  const act=t.closest("[data-act]");

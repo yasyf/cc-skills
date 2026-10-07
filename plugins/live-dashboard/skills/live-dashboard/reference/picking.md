@@ -10,7 +10,11 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 |---|---|
 | What waits on me? | `lr.needs-owner` pinned: owner tasks and boards still asking |
 | What is broken? | `release.incidents`, `open-records` |
-| What is live? | `release.tiles`, `release.builds`, `release.stacks` |
+| What is live? | `release.kpis`, `release.timeline`, `release.builds` folded |
+| Where do the program's numbers stand, and which way are they moving? | `release.kpis` |
+| How long do releases take against the goal? | `release.durations` |
+| Which targets are at 0/0 in which environments? | `release.census-grid`, `release.census` |
+| What does the cloud account spend per day? | `aws-spend` with the account's `profile` and `target_per_day` |
 | What is in flight? | `cci-lanes`, `orca`, `tasks`, `asks` titled for the owner's own asks |
 | Which PRs need my review, and what lands if I approve? | `pr-review-queue`, `stack-graph`, `landing-preview`, `held-prs` |
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
@@ -22,13 +26,20 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 | Is the design decided? | `design-gates` on the doc's register ids, `gates` for the PRs and files that close them |
 | Is production healthy right now? | `datadog-monitors`, `timeseries`, `incident-feed`, `log-matches` |
 | How far along is the sweep? | `kv-file` on the progress file, `view` over the result table, `cci-lanes` |
-| Which stacks can Platy deploy? | `release.tiles`, `release.stacks`, `release.builds` |
+| Which stacks can Platy deploy? | `release.census-grid`, `release.stacks` folded |
 | Is anything stuck or stale? | `open-records`, `cci-lanes`, `dashboard-health` |
 
 `reference/catalog.md` lists every parameter. Read a card's section there before
 setting `with:`; most bind from `context.json` and need nothing.
 
 ## Lay it out
+
+A dashboard is visuals first. The first screen holds only tiles, charts, timelines and
+heatmaps, and every section leads with one. Tables, feeds and checklists carry
+`fold: true` at `width: 1`, so each reads as a count with a tone bar until the owner
+opens it. Pick the visual that answers the question: tiles for headline numbers with a
+trend, a `bar` or `area` series for a number over time, a timeline for work with
+phases, a heatmap for a state across two axes.
 
 - Order sections by the owner's questions: what waits on them, what is broken, what is
   live, what is in flight, then review. Pin at most one card, the one whose new rows
@@ -37,8 +48,8 @@ setting `with:`; most bind from `context.json` and need nothing.
 - Title every section and card for what it answers, never for the page or for another
   card. `check` refuses the repeats it can see.
 - Leave `banner` out unless a standing fact needs it. Never write status there.
-- Give tables with many columns `width: 3`, graphs and feeds `width: 2`, and tiles,
-  key-value cards, and checklists `width: 1`.
+- Give tiles and heatmaps `width: 3`, timelines `width: 2`, charts and folded cards
+  `width: 1`.
 - Collapse the drive's plumbing: lanes, quota, notes, health. The owner opens it when
   something looks wrong.
 - Keep a dashboard under about twelve cards. A card nobody reads costs quota and

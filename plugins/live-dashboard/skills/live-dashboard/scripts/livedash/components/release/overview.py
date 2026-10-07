@@ -156,6 +156,8 @@ def release_rows(builds: list[dict], subjects: dict[str, str], repo: str, worksp
                 "steps": build.get("steps"),
                 "now": build.get("now") or [],
                 "failed_steps": build.get("failed_steps") or [],
+                "phases": build.get("phases") or [],
+                "watch_minutes": build.get("watch_minutes") or 0.0,
                 "message": build["message"],
                 "cite": f"build:{build['number']}",
             }
