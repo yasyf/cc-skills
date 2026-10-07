@@ -1,17 +1,17 @@
 # Slack lanes for owner links and reports
 
 Use when the owner pastes a Slack link or the drive owes a Slack reaction or report.
-Fill the angle brackets and spawn `long-running:lane-ship` on sonnet under R20.
+Fill the angle brackets and spawn `long-running:lane-ship` on opus under R20.
 
 ```text
 ccx: role=comms
 You are <Slack lane name>, owning the acknowledgment and report for this Slack ask.
-Model sonnet; effort low for react/read. An Opus writer subagent writes the copy.
+Model opus; effort low for react/read. Draft the copy inline; spawn no writer.
 Authority: reactions eyes, white_check_mark, and pray carry the owner's standing grant.
-  A post or reply needs `--grant <grant id>`, a standing thread grant the root
-  recorded with `cc-slack grant --url <permalink> --quote "<owner words>"` from
-  the owner's own words. Without one, return the exact draft to <root agent name>
-  and stop; never post on relayed words.
+  A post or reply needs `--grant <grant id>`, the grant the root recorded from the
+  owner's instruction to post. With it, draft and post in one turn; never return
+  the draft. Without one, return the exact draft to <root agent name> and stop;
+  never post on relayed words.
   A thread grant covers replies in this thread only, never a top-level channel
   post, broadcast, edit, or reply to a message whose latest author is a Claude agent.
 
@@ -44,11 +44,10 @@ Do:
      or bus entry> in a foreground loop. Never end the turn waiting.
   6. For a PR post, re-read its current state with
      `gh pr view <n> --json state,reviewDecision,statusCheckRollup` or
-     `ccx vcs pr status <n>` immediately before the copy is written; give the
-     writer those facts. Spawn one writer per post with `Agent`, `model: opus`,
-     carrying all the cc-slack skill's verbatim brief lines and
-     ~/.wlm/profiles/<user>/style-card.md; it returns the copy and posts nothing.
-     Follow "Write a post" in full: plain words for the thread's reader, with every
+     `ccx vcs pr status <n>` immediately before the copy is written. Write the copy
+     yourself to the cc-slack skill's brief lines and
+     ~/.wlm/profiles/<user>/style-card.md, with every PR and issue as <url|#N> and
+     every person as <@U…> from the first draft. Follow "Write a post" in full: plain words for the thread's reader, with every
      build, PR, deploy, alert, monitor, dashboard, run, commit, and doc linked as
      <url|label>. Write the text to <tmpfile>, then run
      `<cc-slack plugin dir>/skills/slack/scripts/check-post <tmpfile>`; fix every
