@@ -51,6 +51,7 @@ class FakeShell(ledger.Shell):
         self.trunk_log: list[str] = []
         self.children: dict[str, list[dict]] = {}
         self.trunk = "dev"
+        self.origin = "git@github.com:Forge-AI/monorepo.git"
         self.ejected: dict[str, tuple[str, str]] = {}
         self.pr_labels: dict[str, list[str]] = {}
         self.conflicts: dict[str, list[str]] = {}
@@ -259,6 +260,8 @@ class FakeShell(ledger.Shell):
 
     def _git(self, argv, stdin=None):
         verb = argv[3]
+        if argv[3:] == ["remote", "get-url", "origin"]:
+            return self.origin + "\n"
         if verb == "fetch":
             if self.fetch_fails:
                 raise subprocess.CalledProcessError(1, argv, stderr=self.fetch_fails)

@@ -609,11 +609,27 @@ def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
     assert out.index(f"landed #{PR},") < out.index("desk 2"), "reconcile must run before the report prints"
 
 
-def test_summary_refuses_to_print_without_settling_landings_first():
-    with pytest.raises(SystemExit):
-        run(FakeShell(), "summary", "--ledger", LEDGER)
-    with pytest.raises(SystemExit):
-        run(FakeShell(), "summary", "--ledger", LEDGER, "--repo", REPO)
+def test_summary_settles_landings_from_the_working_directory_and_its_origin(capsys, tmp_path, monkeypatch):
+    shell = desk_shell(state="closed")
+    shell.origin = "https://github.com/Forge-AI/monorepo.git"
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+    shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
+    monkeypatch.chdir(tmp_path)
+
+    assert run(shell, "summary", "--ledger", LEDGER) == 0
+
+    assert shell.fields(PR)["state"] == "landed"
+    assert ["git", "-C", ".", "remote", "get-url", "origin"] in shell.calls
+    assert all(call[call.index("--repo") + 1] == REPO for call in shell.calls if "--repo" in call)
+
+
+def test_a_repo_verb_refuses_an_origin_that_names_no_repository():
+    shell = desk_shell()
+    shell.origin = "/srv/git/bare"
+
+    with pytest.raises(SystemExit, match="names no owner/name"):
+        run(shell, "summary", "--ledger", LEDGER)
 
 
 def test_label_refuses_a_neutral_ai_review_because_it_is_a_held_blocking_finding(capsys):

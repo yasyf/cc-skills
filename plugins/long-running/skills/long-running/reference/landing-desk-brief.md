@@ -325,8 +325,8 @@ Do, in this order, forever:
      land it through the next train or close it as superseded, gone by 72 hours.
   6. Every 30 minutes:
      `ledger.py summary --repo <owner/name> --ledger <id> --checkout <path>` to the
-     root, unchanged. Both `--repo` and `--checkout` are required; summary settles
-     landings first so it never reports a landed row as pending. This sweep
+     root, unchanged. `--checkout` defaults to the working directory and `--repo` to
+     its origin; summary settles landings first so it never reports a landed row as pending. This sweep
      reclassifies every ask from the forge and the release/deploy record.
      `LOST`, `LANDED-NOT-LIVE`, and `IN-PR` past 60 minutes
      follow the counts, outside the ten-line cap; forward every one unchanged. The

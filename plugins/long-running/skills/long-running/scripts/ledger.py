@@ -26,7 +26,7 @@
     ledger.py watch   --repo owner/name --ledger ID --checkout DIR [--priority N]... [--interval S] [--once] [--shard LANES]
     ledger.py stale   --ledger ID [--minutes N] [--hours H] [--shard LANES]
     ledger.py train   --repo owner/name --ledger ID --paths GLOB... [--cars N] [--shard LANES]
-    ledger.py summary --repo owner/name --ledger ID --checkout DIR [--window-seconds N] [--stale-minutes N] [--shard LANES]
+    ledger.py summary --repo owner/name --ledger ID [--checkout DIR] [--window-seconds N] [--stale-minutes N] [--shard LANES]
     ledger.py show    --ledger ID [--red | --asks] [--json]
     ledger.py list    --ledger ID [--lane NAME] [--open] [--json]
 
@@ -38,9 +38,12 @@ repository at most every 30 seconds however many desks and lanes ask. Holds, rou
 lane messages are ``msg/<seq>`` rows, owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
 ``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
-the PR's own files, never by the PR's merged field. Buildkite
+the PR's own files, never by the PR's merged field. A verb's ``--repo`` defaults to the origin of its
+``--checkout``, else of the working directory, the same checkout ``ccn`` reads the ledger from. Buildkite
 logs come from the repo-pinned ``bk``; storage is ``ccn ledger``. Every subprocess goes
 through :class:`Shell`, the one seam tests replace.
+
+Every ``--ask ID`` takes the key ``ask`` printed, ``ask/000104``, or its bare number, ``000104``.
 
 An owner ask's status is exactly one of LIVE, LANDED-NOT-LIVE, IN-PR, or LOST, plus the
 terminal ``dropped`` and ``answered``. LIVE needs every linked PR landed and a
@@ -105,6 +108,8 @@ CCN_READ_ATTEMPTS = 4
 CCN_READ_BACKOFF_SECONDS = 0.5
 LANE_PREFIX = "lane/"
 ASK_PREFIX = "ask/"
+ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
+REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 GONE_PREFIX = "gone/"
 REVIEW_PREFIX = "review/"
 DEV_RED_PREFIX = "dev-red:"
@@ -302,6 +307,13 @@ class Github:
         return json.loads(self.shell.run(["gh", "api", f"repos/{self.repo}"]))["default_branch"]
 
 
+def origin_repo(shell: Shell, checkout: Path) -> str:
+    url = shell.run(["git", "-C", str(checkout), "remote", "get-url", "origin"]).strip()
+    if not (match := REMOTE.search(url)):
+        raise SystemExit(f"origin {url!r} names no owner/name")
+    return match["repo"]
+
+
 def is_malformed(key: str) -> bool:
     """A PR key that is not a bare number, or a message or ask key whose sequence is not one."""
     if key[:1].isdigit():
@@ -463,7 +475,7 @@ def pr_state(shell: Shell, ccx: str, repo: str, prs: list[str], prefixes: list[s
     """One read of ccx's machine-wide pull request cache, which every desk and watcher on the machine shares."""
     if not prs and not prefixes:
         return {"lanes": {}, "prs": {}}
-    argv = [ccx, "vcs", "pr", "state", *(["--repo", repo] if repo else []), *prs]
+    argv = [ccx, "vcs", "pr", "state", "--repo", repo, *prs]
     for prefix in prefixes:
         argv += ["--lane-prefix", prefix]
     try:
@@ -1941,8 +1953,14 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
 
 def add_ledger(parser: argparse.ArgumentParser, repo: bool = False) -> None:
     if repo:
-        parser.add_argument("--repo", required=True)
+        parser.add_argument("--repo", metavar="OWNER/NAME", help="default: the origin of --checkout, else of the working directory")
     parser.add_argument("--ledger", required=True)
+
+
+def ask_key(value: str) -> str:
+    if not (match := ASK_KEY.fullmatch(value)):
+        raise argparse.ArgumentTypeError("an ask id as ledger.py ask printed it, like ask/000104, or its number, like 000104")
+    return f"{ASK_PREFIX}{int(match['seq']):06d}"
 
 
 def pr_number(value: str) -> str:
@@ -1977,7 +1995,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--lane", required=True)
     report.add_argument("--verdict", required=True, choices=VERDICTS)
     report.add_argument("--text", default="")
-    report.add_argument("--ask", metavar="ID", help="link this PR to the owner ask it delivers")
+    report.add_argument("--ask", type=ask_key, metavar="ID", help="link this PR to the owner ask it delivers")
     report.set_defaults(handler=cmd_report)
 
     ask = subparsers.add_parser("ask", help="record an owner ask verbatim with its lane and acceptance check, or mark an ask's state with --state")
@@ -1986,19 +2004,19 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--lane")
     ask.add_argument("--accept", metavar="CHECK")
     ask.add_argument("--state", choices=ASK_STATES, help="override the computed state of --ask; open restores it")
-    ask.add_argument("--ask", metavar="ID")
+    ask.add_argument("--ask", type=ask_key, metavar="ID")
     ask.add_argument("--note", default="")
     ask.set_defaults(handler=cmd_ask)
 
     drop = subparsers.add_parser("drop", help="terminal: the owner withdrew this ask")
     add_ledger(drop)
-    drop.add_argument("--ask", required=True, metavar="ID")
+    drop.add_argument("--ask", required=True, type=ask_key, metavar="ID")
     drop.add_argument("--reason", required=True)
     drop.set_defaults(handler=cmd_drop)
 
     answer = subparsers.add_parser("answer", help="terminal: this ask was a question, now answered")
     add_ledger(answer)
-    answer.add_argument("--ask", required=True, metavar="ID")
+    answer.add_argument("--ask", required=True, type=ask_key, metavar="ID")
     answer.add_argument("--text", required=True)
     answer.set_defaults(handler=cmd_answer)
 
@@ -2012,7 +2030,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_ledger(register)
     register.add_argument("--lane", required=True)
     register.add_argument("--branch-prefix", type=branch_prefix, help="the lane's branch name, or a namespace ending in '/' or '-' covering its stack")
-    register.add_argument("--repo", help="the owner/name repository the prefix's PRs live in; default: the current checkout's")
+    register.add_argument("--repo", metavar="OWNER/NAME", help="the repository the prefix's PRs live in; default: the working directory's origin")
     register.add_argument("--ccx", default="ccx", help="the ccx binary")
     register.add_argument("--pr", action="append", default=[], metavar="N", type=pr_number)
     register.add_argument("--head", type=head_prefix, help="the head the one --pr was opened or pushed at")
@@ -2150,9 +2168,8 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile.set_defaults(handler=cmd_reconcile)
 
     summary = subparsers.add_parser("summary", help="the desk-to-root report every 30 minutes, at most ten lines")
-    add_ledger(summary)
-    summary.add_argument("--repo", required=True)
-    summary.add_argument("--checkout", type=Path, required=True)
+    add_ledger(summary, repo=True)
+    summary.add_argument("--checkout", type=Path, default=Path("."), help="a full clone of the repo (default: the working directory)")
     summary.add_argument("--window-seconds", type=int, default=WINDOW_SECONDS)
     summary.add_argument("--stale-minutes", type=int, default=STALE_MINUTES)
     summary.add_argument("--ccx", default="ccx", help="the ccx binary")
@@ -2188,8 +2205,11 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.directory:
         os.chdir(args.directory)
+    shell = shell or Shell()
+    if "repo" in vars(args) and args.repo is None:
+        args.repo = origin_repo(shell, vars(args).get("checkout") or Path("."))
     try:
-        return args.handler(args, shell or Shell())
+        return args.handler(args, shell)
     except ForgeUnreachable as unreachable:
         print(f"forge unreachable, wrote nothing: {unreachable}", file=sys.stderr)
         return 1

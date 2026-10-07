@@ -147,6 +147,32 @@ def test_summary_never_truncates_an_ask_line_under_the_ten_line_cap(capsys):
     assert lines[-1].endswith("more lines in ledger show")
 
 
+@pytest.mark.parametrize("ask_id", ["ask/000001", "000001", "1"])
+def test_every_ask_verb_finds_the_ask_by_its_printed_key_or_its_bare_number(capsys, ask_id):
+    shell = desk_shell()
+    ask(shell)
+    ask(shell, text="a question")
+    ask(shell, text="withdrawn")
+
+    report(shell, ask_id=ask_id)
+    run(shell, "answer", "--ledger", LEDGER, "--ask", ask_id.replace("1", "2"), "--text", "done")
+    run(shell, "drop", "--ledger", LEDGER, "--ask", ask_id.replace("1", "3"), "--reason", "owner withdrew it")
+    mark(shell, "backlog", ask_id=ask_id, note="parked")
+
+    assert shell.fields("ask/000001")["prs"] == PR
+    assert shell.fields("ask/000001")["state"] == "backlog"
+    assert shell.fields("ask/000002")["answer"] == "done"
+    assert shell.fields("ask/000003")["dropped_reason"] == "owner withdrew it"
+    assert not [key for key in shell.keys() if key.startswith("ask/") and key not in ("ask/000001", "ask/000002", "ask/000003")]
+
+
+@pytest.mark.parametrize("ask_id", ["ask/", "ask/x1", "msg/000001", "000001a", ""])
+def test_an_ask_id_that_is_neither_a_key_nor_a_number_is_a_usage_error(ask_id):
+    with pytest.raises(SystemExit) as refused:
+        run(desk_shell(), "answer", "--ledger", LEDGER, "--ask", ask_id, "--text", "x")
+    assert refused.value.code == 2
+
+
 def test_drop_refuses_an_ask_the_ledger_does_not_hold():
     with pytest.raises(SystemExit):
         run(desk_shell(), "drop", "--ledger", LEDGER, "--ask", "ask/000001", "--reason", "x")
