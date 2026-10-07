@@ -1,7 +1,7 @@
 {
   "name": "live-dashboard",
   "description": "A live, per-task dashboard assembled from typed components: PR review queues, stack graphs, gate checklists, Slack test-channel feeds, latency percentiles, Datadog monitors, and custom components written for the task at hand, served from one directory with a cadence scheduler, a cache, a secret scan, and an Ask-the-page chat.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
