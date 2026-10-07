@@ -10,8 +10,10 @@ from livedash.components import stack
 PR_FIELDS = """number title url isDraft additions deletions createdAt baseRefName headRefName headRefOid
 author { login }
 reviewThreads(first: 100) { nodes { isResolved } }
-reviews(last: 50) { nodes { author { login } state body submittedAt commit { oid } } }
+reviews(last: 20, states: [APPROVED, CHANGES_REQUESTED]) { nodes { author { login } state } }
 commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state } } } } } } }"""
+DETAIL_BATCH = 25
+OPEN_PAGE = 100
 PASSING = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
 OWNER_VERDICTS = frozenset({"APPROVED", "CHANGES_REQUESTED"})
 REVIEW_COLUMNS = [
@@ -30,13 +32,27 @@ REVIEW_COLUMNS = [
 ]
 
 
-def pull_requests(ctx: Context, repo: str, numbers: list[int]) -> dict[int, dict]:
-    if not numbers:
-        return {}
+def open_numbers(ctx: Context, repo: str) -> set[int]:
     owner, name = repo.split("/", 1)
-    aliases = " ".join(f"pr{number}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for number in numbers)
-    data = ctx.gh_graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {aliases} }} }}")
-    return {node["number"]: node for node in data["repository"].values() if node}
+    found: set[int] = set()
+    after = ""
+    while True:
+        data = ctx.gh_graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequests(states: OPEN, first: {OPEN_PAGE}{after}) {{ nodes {{ number }} pageInfo {{ hasNextPage endCursor }} }} }} }}")
+        page = data["repository"]["pullRequests"]
+        found |= {node["number"] for node in page["nodes"]}
+        if not page["pageInfo"]["hasNextPage"]:
+            return found
+        after = f", after: {json.dumps(page['pageInfo']['endCursor'])}"
+
+
+def pull_requests(ctx: Context, repo: str, numbers: list[int]) -> dict[int, dict]:
+    owner, name = repo.split("/", 1)
+    found: dict[int, dict] = {}
+    for start in range(0, len(numbers), DETAIL_BATCH):
+        aliases = " ".join(f"pr{number}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for number in numbers[start : start + DETAIL_BATCH])
+        data = ctx.gh_graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {aliases} }} }}")
+        found |= {node["number"]: node for node in data["repository"].values() if node}
+    return found
 
 
 def contexts_of(pr: dict) -> list[dict]:
@@ -98,7 +114,7 @@ def review_queue(
     owner_login: str = "",
     parents: dict[str, str] | None = None,
 ) -> Table:
-    """Open PRs from `prs`, else the ledger's open rows: size, CI without the ignored checks, the review bot's check, the
+    """Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check, the
     ledger's rules-review verdict at the current head, unresolved threads, the queue verdict from `ccx vcs pr status`, hold
     age, and whether the owner reviewed (`owner_reviewed_at`, or an approval or change request by `owner_login`). Comments
     never count, since agents comment under the owner's login.
@@ -106,7 +122,7 @@ def review_queue(
     """
     rows = ledgers.rows(ctx, ledger) if ledger and not prs else {}
     opened = {int(key): fields for key, fields in rows.items() if key.isdigit() and fields.get("state", "open") == "open"}
-    numbers = sorted(prs or opened)
+    numbers = sorted(set(prs or opened) & open_numbers(ctx, repo))
     details = pull_requests(ctx, repo, numbers)
     statuses = stack.queue_status(ctx, repo, numbers)
     if order == "stack":
