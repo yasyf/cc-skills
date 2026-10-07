@@ -1,0 +1,20 @@
+{
+ "monitors": [
+  {
+   "id": 101,
+   "name": "memory lookup failures",
+   "status": "OK",
+   "tags": [
+    "step:13"
+   ]
+  },
+  {
+   "id": 102,
+   "name": "memory lookup p95",
+   "status": "Alert",
+   "tags": [
+    "step:13"
+   ]
+  }
+ ]
+}

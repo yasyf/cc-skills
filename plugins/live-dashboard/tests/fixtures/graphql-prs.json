@@ -1,0 +1,227 @@
+{
+ "repository": {
+  "pr101": {
+   "number": 101,
+   "title": "api: retire the old server",
+   "url": "https://github.com/o/r/pull/101",
+   "isDraft": false,
+   "additions": 4,
+   "deletions": 7486,
+   "createdAt": "2026-10-06T18:17:38Z",
+   "baseRefName": "main",
+   "headRefName": "lane/one",
+   "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": {
+    "login": "yasyf"
+   },
+   "reviewThreads": {
+    "nodes": [
+     {
+      "isResolved": true
+     }
+    ]
+   },
+   "reviews": {
+    "nodes": [
+     {
+      "author": {
+       "login": "forge-pr-reviewer"
+      },
+      "state": "APPROVED",
+      "body": "",
+      "submittedAt": "2026-10-06T18:24:20Z",
+      "commit": {
+       "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    ]
+   },
+   "commits": {
+    "nodes": [
+     {
+      "commit": {
+       "statusCheckRollup": {
+        "contexts": {
+         "nodes": [
+          {
+           "__typename": "CheckRun",
+           "name": "ai-review",
+           "conclusion": "SUCCESS",
+           "status": "COMPLETED"
+          },
+          {
+           "__typename": "CheckRun",
+           "name": "Graphite / mergeability_check",
+           "conclusion": null,
+           "status": "IN_PROGRESS"
+          },
+          {
+           "__typename": "StatusContext",
+           "context": "buildkite/test",
+           "state": "SUCCESS"
+          }
+         ]
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  "pr102": {
+   "number": 102,
+   "title": "infra: give the sidecars the keys",
+   "url": "https://github.com/o/r/pull/102",
+   "isDraft": false,
+   "additions": 39,
+   "deletions": 29,
+   "createdAt": "2026-10-06T18:21:44Z",
+   "baseRefName": "lane/one",
+   "headRefName": "lane/two",
+   "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "author": {
+    "login": "yasyf"
+   },
+   "reviewThreads": {
+    "nodes": [
+     {
+      "isResolved": false
+     },
+     {
+      "isResolved": true
+     }
+    ]
+   },
+   "reviews": {
+    "nodes": [
+     {
+      "author": {
+       "login": "forge-pr-reviewer"
+      },
+      "state": "APPROVED",
+      "body": "",
+      "submittedAt": "2026-10-06T18:24:20Z",
+      "commit": {
+       "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     },
+     {
+      "author": {
+       "login": "yasyf"
+      },
+      "state": "COMMENTED",
+      "body": "findings\n<!-- rules-review bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->",
+      "submittedAt": "2026-10-06T18:30:00Z",
+      "commit": {
+       "oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+     }
+    ]
+   },
+   "commits": {
+    "nodes": [
+     {
+      "commit": {
+       "statusCheckRollup": {
+        "contexts": {
+         "nodes": [
+          {
+           "__typename": "CheckRun",
+           "name": "ai-review",
+           "conclusion": "SUCCESS",
+           "status": "COMPLETED"
+          },
+          {
+           "__typename": "CheckRun",
+           "name": "Graphite / mergeability_check",
+           "conclusion": null,
+           "status": "IN_PROGRESS"
+          },
+          {
+           "__typename": "StatusContext",
+           "context": "buildkite/test",
+           "state": "SUCCESS"
+          }
+         ]
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  "pr103": {
+   "number": 103,
+   "title": "sand: add the client",
+   "url": "https://github.com/o/r/pull/103",
+   "isDraft": false,
+   "additions": 2472,
+   "deletions": 0,
+   "createdAt": "2026-10-06T17:10:26Z",
+   "baseRefName": "graphite-base/103",
+   "headRefName": "lane/three",
+   "headRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+   "author": {
+    "login": "yasyf"
+   },
+   "reviewThreads": {
+    "nodes": [
+     {
+      "isResolved": false
+     }
+    ]
+   },
+   "reviews": {
+    "nodes": [
+     {
+      "author": {
+       "login": "forge-pr-reviewer"
+      },
+      "state": "APPROVED",
+      "body": "",
+      "submittedAt": "2026-10-06T18:24:20Z",
+      "commit": {
+       "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     },
+     {
+      "author": {
+       "login": "owner-person"
+      },
+      "state": "COMMENTED",
+      "body": "looks right",
+      "submittedAt": "2026-10-06T19:00:00Z",
+      "commit": {
+       "oid": "cccccccccccccccccccccccccccccccccccccccc"
+      }
+     }
+    ]
+   },
+   "commits": {
+    "nodes": [
+     {
+      "commit": {
+       "statusCheckRollup": {
+        "contexts": {
+         "nodes": [
+          {
+           "__typename": "CheckRun",
+           "name": "ai-review",
+           "conclusion": "SUCCESS",
+           "status": "COMPLETED"
+          },
+          {
+           "__typename": "StatusContext",
+           "context": "buildkite/test",
+           "state": "FAILURE"
+          }
+         ]
+        }
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}

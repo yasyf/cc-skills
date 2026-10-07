@@ -53,6 +53,7 @@ def test_start_registers_the_drive_by_its_root_session(repo, capsys):
         "sessions": [ROOT_SESSION],
         "orca_run": "run_7715a23a5657",
         "state_dir": str(Path.home() / ".claude" / "scratch" / "900424b6"),
+        "cci_drive": None,
         "started_at": "",
         "updated_at": "",
     }
@@ -77,6 +78,37 @@ def test_a_handoff_keeps_the_state_dir_the_drive_started_with(repo, monkeypatch,
     assert started(repo, "--drive", "900424b6")["state_dir"] == str(tmp_path / "release-v3")
 
 
+def test_start_writes_the_dashboard_context_from_the_registry(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"), "--cci-drive", "release-v3-cci", "--orca-run", "run_1")
+
+    context = json.loads((tmp_path / "release-v3" / "dashboard" / "context.json").read_text())
+
+    assert context | {"started_at": ""} == {
+        "id": "900424b6",
+        "title": "release-v3",
+        "program": "release-v3",
+        "repo": "Forge-AI/monorepo",
+        "checkout": str(Path.cwd()),
+        "ledger": LEDGER,
+        "sessions": [ROOT_SESSION],
+        "cci_drive": "release-v3-cci",
+        "orca_run": "run_1",
+        "state_dir": str(tmp_path / "release-v3"),
+        "started_at": "",
+        "packs": {"lr": str(drive.PACK)},
+    }
+    assert (drive.PACK / "components.py").exists()
+
+
+def test_context_rewrites_the_dashboard_context_with_the_state_dir_as_the_cci_drive(repo, tmp_path):
+    started(repo, "--state-dir", str(tmp_path / "release-v3"))
+    path = tmp_path / "release-v3" / "dashboard" / "context.json"
+    path.unlink()
+
+    assert drive.main(["context", "--drive", "900424b6"]) == 0
+    assert json.loads(path.read_text())["cci_drive"] == "release-v3"
+
+
 def test_a_session_runs_one_drive_at_a_time(repo):
     started(repo)
 
@@ -93,6 +125,12 @@ def test_current_and_end_resolve_the_session_drive(repo, monkeypatch, capsys):
     assert drive.main(["end"]) == 0
     assert drive.main(["current"]) == 1
     assert not list(drive.drives_dir().glob("*.json"))
+
+
+def test_registrations_live_under_the_claude_config_dir(repo, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    started(repo)
+    assert (tmp_path / "config" / "long-running" / "drives" / "900424b6.json").exists()
 
 
 def test_a_sessionless_process_resolves_the_drive_of_its_orca_run(repo, monkeypatch, capsys):

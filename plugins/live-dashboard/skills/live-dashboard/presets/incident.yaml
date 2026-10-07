@@ -1,0 +1,19 @@
+title: Incident
+sections:
+  - title: Now
+    components:
+      - {use: incident-feed, id: incidents, width: 2}
+      - use: datadog-monitors
+        id: monitors
+        with: {query: 'tag:"service:example"'}
+      - use: slack-feed
+        id: thread
+        width: 2
+        with: {threads: []}
+      - use: log-tail
+        id: log
+        with: {path: incident.log, highlight: 'error|panic|5\d\d'}
+  - title: Lanes
+    components:
+      - {use: cci-lanes, id: lanes, width: 2}
+      - {use: dashboard-health, id: health}

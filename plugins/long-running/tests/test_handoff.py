@@ -169,7 +169,7 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
         "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n"
-        "- Dashboard: not running; `lr-dashboard.py start --drive d1` starts it and prints the link for the owner\n",
+        f"- Dashboard: not running; `live-dashboard start --dir {drive_home / 'state' / 'dashboard'}` starts it and prints the link for the owner\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body

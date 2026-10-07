@@ -77,6 +77,11 @@
       "description": "Context discipline for orchestrating multi-lane work past one context window — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, and state lives in cc-notes and the task list; ships the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan as templates, plus an open-PR ledger CLI that grades, routes, and holds every open PR over cc-notes."
     },
     {
+      "name": "live-dashboard",
+      "source": "./plugins/live-dashboard",
+      "description": "A live dashboard assembled per task from typed components: PRs waiting for review, stack landing previews, Slack test-thread feeds, latency percentiles, design gates, Datadog monitors, cci lanes, and local components written for the job at hand, served on a stable port with a scheduler that caches, backs off, and drops secret-shaped payloads."
+    },
+    {
       "name": "open-pr",
       "source": "./plugins/open-pr",
       "description": "Open a PR in the repo's own voice — guidelines and template from ccx, house style scouted from recent human-authored merged PRs, an OSS politeness and standards pass, shipped via ccx vcs ship, and a background watcher that clears mechanical CI and bot failures."

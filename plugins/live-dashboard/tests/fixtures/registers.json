@@ -1,0 +1,61 @@
+{
+ "meta": {
+  "title": "Chat memory",
+  "slug": "chat-memory"
+ },
+ "open": [
+  {
+   "g": "spikes",
+   "id": "V6",
+   "h": "end-to-end lookup latency",
+   "t": "Measure the whole lookup path under load."
+  },
+  {
+   "g": "iris",
+   "id": "Q6",
+   "h": "completion cap",
+   "t": "Pick 150 or 300 tokens.",
+   "s": "closed",
+   "by": "DQ23"
+  },
+  {
+   "g": "iris",
+   "id": "Q11",
+   "h": "cross-namespace merge",
+   "t": "Specify search merging.",
+   "blocks": [
+    "DQ6"
+   ]
+  }
+ ],
+ "decisions": [
+  {
+   "id": "DQ1",
+   "h": "one store",
+   "t": "One store.",
+   "s": "resolved"
+  }
+ ],
+ "assumptions": [
+  {
+   "id": "A4",
+   "h": "hosted now, BYOC later",
+   "t": "Text sits on the hosted service.",
+   "s": "validate"
+  },
+  {
+   "id": "A9",
+   "h": "bodies stay small",
+   "t": "Bodies stay small.",
+   "s": "invalidated"
+  }
+ ],
+ "findings": [
+  [
+   1,
+   "low",
+   "a finding",
+   "V1"
+  ]
+ ]
+}

@@ -1,0 +1,38 @@
+[
+ {
+  "seq": 40,
+  "lane": "lane-one",
+  "kind": "head",
+  "at": "2026-10-07T00:30:00Z",
+  "text": "#101 head aaaa",
+  "refs": {},
+  "fields": {}
+ },
+ {
+  "seq": 41,
+  "lane": "lane-old",
+  "kind": "handoff",
+  "at": "2026-10-06T10:00:00Z",
+  "text": "STAND-DOWN, root",
+  "refs": {},
+  "fields": {}
+ },
+ {
+  "seq": 42,
+  "lane": "lane-quiet",
+  "kind": "note",
+  "at": "2026-10-06T12:00:00Z",
+  "text": "waiting",
+  "refs": {},
+  "fields": {}
+ },
+ {
+  "seq": 43,
+  "lane": "owner",
+  "kind": "owner",
+  "at": "2026-10-06T12:00:00Z",
+  "text": "ok",
+  "refs": {},
+  "fields": {}
+ }
+]

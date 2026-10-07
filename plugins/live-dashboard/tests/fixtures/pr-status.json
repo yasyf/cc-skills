@@ -1,0 +1,51 @@
+[
+ {
+  "number": 101,
+  "queue": "not queued",
+  "state": "OPEN",
+  "base": "main",
+  "ci": {
+   "state": "green"
+  },
+  "approval": {
+   "state": "approved",
+   "approvers": [
+    "forge-pr-reviewer"
+   ]
+  },
+  "verdict": "landable"
+ },
+ {
+  "number": 102,
+  "queue": "not queued",
+  "state": "OPEN",
+  "base": "lane/one",
+  "ci": {
+   "state": "pending",
+   "running": 1
+  },
+  "approval": {
+   "state": "approved",
+   "approvers": [
+    "forge-pr-reviewer"
+   ]
+  },
+  "verdict": "blocked:ci-pending"
+ },
+ {
+  "number": 103,
+  "queue": "not queued",
+  "state": "OPEN",
+  "base": "graphite-base/103",
+  "ci": {
+   "state": "red"
+  },
+  "approval": {
+   "state": "approved",
+   "approvers": [
+    "forge-pr-reviewer"
+   ]
+  },
+  "verdict": "blocked:ci-red"
+ }
+]

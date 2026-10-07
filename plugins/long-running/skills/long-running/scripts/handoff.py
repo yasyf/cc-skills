@@ -249,7 +249,7 @@ def dashboard_line(registry: dict) -> str:
     server = Path(registry["state_dir"]) / drive.DASHBOARD_SERVER
     if server.exists():
         return f"- Dashboard: {drive.dashboard_url(json.loads(server.read_text()))}; give the owner this link in your next reply"
-    return f"- Dashboard: not running; `lr-dashboard.py start --drive {registry['drive']}` starts it and prints the link for the owner"
+    return f"- Dashboard: not running; `live-dashboard start --dir {Path(registry['state_dir']) / drive.DASHBOARD_SERVER.parent}` starts it and prints the link for the owner"
 
 
 def render(handoff: Handoff) -> str:

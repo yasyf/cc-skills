@@ -22,7 +22,7 @@ notifications it answered, and status it restated per event.
 A single-lane investigation is not this. One question goes to one subagent in direct mode.
 
 The standing subagents are `landing-desk`; `dashboard-curator` beside it, briefed
-from `reference/dashboard-curator-brief.md`; `alerts-desk` when the drive touches
+from `/live-dashboard` `reference/keeping-live.md`; `alerts-desk` when the drive touches
 production; and one priority desk per owner-named #1-priority outcome while that
 outcome is open. Once the drive has posted to Slack, the Slack watch lane is standing
 too, briefed from `reference/slack-watch-brief.md`. The orca desk is the `desk-runner.py run --desk orca` process,
@@ -1806,225 +1806,20 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-`drive.py start` and root `SessionStart` automatically start the dashboard for an
-active, registered drive. The start detaches without blocking. The same hooks tell
-the root to run `lr-dashboard.py url --drive <id>` and give the owner the link it
-prints. The root shares that link in its first reply of every drive, after every
-resume and compaction, and in the header of each milestone report. When `url`
-prints nothing, `start` brings the server up and prints the link.
-`lr-dashboard.py` commands: `url`, `start --drive <id>`, `snapshot` (JSON),
-`open` (one line per open item, read from the running server), `serve` (foreground).
+The drive dashboard is a `/live-dashboard` dir at `<state dir>/dashboard`. `drive.py`
+writes its `context.json` on every registry write, and `drive.py start` and root
+`SessionStart` seed `layout.yaml` from the `drive` preset when none exists, then start
+the server detached. The same hooks print the `live-dashboard url --dir` command; the
+root gives the owner that link in its first reply of every drive, after every resume
+and compaction, and in the header of each milestone report.
 
-The server binds `127.0.0.1`, prefers a drive-derived port, and records its address
-in `<state dir>/dashboard/server.json`. `dashboard/start.lock` serializes starts.
-A newer plugin replaces the server through `/shutdown` on next start; the
-`server.json` token prevents another origin's page from stopping it.
-
-When Tailscale runs, TCP forwarding shares the port on the tailnet.
-`lr-dashboard.py url`, `start`, and `serve` print `http://<MagicDNS name>:<port>/`; anyone on the
-tailnet can open the dashboard and chat. Every row link to `127.0.0.1` or `localhost`,
-cc-present boards included, renders with the MagicDNS name, so it opens from any tailnet device. Hosts other than loopback or that name
-receive 421, blocking DNS rebinding. Sharing failures are logged; the dashboard
-stays local. Graceful shutdown removes the forward.
-
-A sticky banner above every section is one line: "Your pick is waiting:" and a
-link to the newest cc-present board from this drive that is open, unsubmitted, and
-asks something, plus "and N more" when other such boards are open. With no such
-board, the banner is hidden. Owner asks, DECIDE and ASK lines, tasks, pending-file
-bullets, and manual items stay in the "Waiting on the owner" table. After the owner
-allows notifications from the banner's button, the page raises one browser
-notification per board that browser has not seen before; seen ids live in
-`localStorage`, and a first visit notifies nothing.
-
-Read page errors. Polling survives collector failures, registry reads
-racing `drive.py end`, owner-file read failures, and cc-notes view timeouts.
-Sources include inbox files and `<inbox>/<file>.md.archive/*.md`, ledger, root
-tasks/archive, cc-notes plans/progress/handoffs/program docs/logs/investigations/answers,
-cc-present boards, root transcript compactions, Orca tasks, inbox watches, and beats.
-Orca spans every page; `CLAUDE_CODE_TASK_LIST_ID` takes precedence. Transcripts
-span project directories, retaining compactions after checkout moves.
-
-The page refreshes every 10 seconds, repainting changed views, removing departed
-cards/sections, and preserving sort, filter focus, and expanded rows.
-
-#### Views and primitives
-
-Extend `reference/dashboard-views.yaml` through `<state dir>/dashboard.yaml`.
-`views:` merge by `id`: `hide: true` removes, `extend: true` overlays, an existing
-id otherwise replaces, and a new id appends. `sections:` orders sections.
-
-`owner:` and `pinned:` accept manual `- text` or `- text:` mappings with `url:`.
-`owner_files:` lists markdown files; `platy:` configures Platy. The standard-library
-YAML subset honors escaped double quotes and preserves `#` lines in literal blocks.
-
-Limit the default lane table:
-
-```yaml
-views:
-  - id: lanes
-    extend: true
-    limit: 50
-```
-
-Views require `id`, `section`, `title`, `type`; `note` is optional.
-Choose `source`, `file` (newest glob match under the state directory), or `ccn`
-(cc-notes id). `table` selects a markdown-table heading.
-
-Filter: `where: {field: regex}` (leading `!` negates), `since` (`30m`/`48h`/`7d`).
-Extract named groups: `match` on `match_field` (default `text`).
-Order/deduplicate/cap: `sort`/`latest_by`/`limit`; timestamped rows default to `sort: -at`.
-
-| Type | Keys and behavior |
-| --- | --- |
-| `stat` | `value`, `of`, time, `detail` from one row; `unit`; delta/sparkline from preceding values |
-| `series` | `y` fields, or `bucket: hour`/`day` with optional `group` |
-| `table` | Sortable `columns`: field names or `{field: name}` with `badge`, `time`, `wide`, `cite`, `link` |
-| `timeline` | Filter by lane, verb, text |
-| `matrix` | `rows`, `cols`, `value`, `title_field`, `col_order` |
-| `progress` | `done`, `exclude` field-to-regex mappings |
-| `kv` | `fields` |
-| `links` | `label`, `url`, `note` field names |
-| `markdown` | `text`, or `file`/`ccn` |
-
-`source`: `inbox`, `lanes`, `tasks`, `owner`, `asks`, `prs`, `landed`,
-`boards`, `plans`, `progress`, `handoffs`, `docs`, `logs`, `investigations`,
-`answers`, `compactions`, `orca`, `orca_attention`, `watches`, `incidents`, `builds`,
-`platy`, `platy_targets`, `manual`, `drive`.
-
-#### Needs the owner
-
-This automatic top section lists open tasks starting "Owner item" or carrying
-an `owner-item`/`owner-ask` kind/label, and ledger asks outside `LIVE`/`dropped`/`answered`.
-Owner-addressed `DECIDE`/`ASK`/`RULING` inbox lines from the last 48 hours remain
-until a later line comes from or names the asking lane.
-It also lists cc-present boards updated since the drive started that are open,
-unsubmitted, and hold a block that asks something (any type outside `display.*`,
-`markdown`, `code`, `diagram`, `table` and `section`). It lists manual `owner:` items
-and `owner_files:` bullets `- **title**: detail`, cited by a hash of the title so a
-cite survives edits above it. Title-only bullets remain separate. An item leaves the
-list when the owner clicks Mark complete, or when a curator record closes its cite.
-
-#### Closing records and the curator
-
-An item closes when its closing record exists. The dashboard reads these closers
-itself:
-
-- An incident closes on `fix-live`, `recovered`, `not-ours` or `duplicate`; a closer that names several incident slugs, each as a whole name, closes each of them. A `done` closes it when its `--re` or `--resolves` points into the incident, and so does a `--resolves` on any record the dashboard reads. A sighting stamped with a clock range such as `4:09-4:19 PM` joins the incident named for its start.
-- A hold closes on a later `lift`, `go`, `decision`, `owner` or `answer` whose text opens with LIFT, optionally after `ROOT <time>:`. That record must name the hold's `#seq`, or come from root, the owner or the holding lane and name an incident slug (`<words>-HHMM`) the hold names. A conditional or negated LIFT never closes a hold.
-- A ledger PR row closes on a squash on `origin/HEAD` whose subject ends `(#N)`, the ledger's own landing proof.
-
-The `dashboard-curator` desk closes the rest, the items whose closing record exists
-only in words or under another name. It posts one cci record per sweep,
-`--kind done --topic resolved:<cite>,<cite>,...` naming every cite it closed, with each
-item's closing record in the record's `--path` body. The dashboard drops every cite a
-`resolved:` topic names from the owner list, incidents, PRs, and the cci digest's open
-items (`cci:<seq>` cites). That close is the dashboard's alone: cci's own digest still
-lists a `cci:<seq>` item open. `lr-dashboard.py open` prints the open items one per
-line, so the desk never reads the full state. `reference/dashboard-curator-brief.md`
-is its brief.
-
-#### Platy deployability
-
-Set `platy.census` to the census glob. `platy.trunk` and `platy.release_code`
-are required: the trunk ref and release pipeline path in the drive checkout.
-The view reads the newest census report, `release/targets.yaml`, release builds
-through `bk api`, and the newest commit touching `platy.release_code` on `platy.trunk`.
-`dashboard/builds.json` initially backfills the whole pipeline history until a short
-page, resuming at the next page when a read fails. After that one server-side
-refresh a minute serves every view and client. It asks Buildkite for the builds in a
-live state (creating, scheduled, running, blocked, canceling, failing), which also
-picks up retried and unblocked builds. When a cached live build drops out of that
-set, and at least every five minutes, it also asks for builds finished since the last
-such sweep. The cache file's mtime records the last fetch, so a restart resumes from
-it. A 429 keeps the cached builds, shows their age beside
-Releases, and pauses Buildkite reads for five minutes. Other failed reads keep the cached
-builds and show the source error, exit status, or timeout.
-
-Platy release/hotfix/rollback starts carry a Slack thread in `RELEASE_START`;
-CLI starts do not. CLI deploys credit every named component/stack/environment.
-
-Read each stack's last included Platy release, last Platy pass, last successful
-CLI deploy, and `0/0`/`drift`/`unplanned` against `dev`. Deselection never counts
-as release.
-
-`deployable` is `proven`, `unproven`, or `blocked`. The view reads cci's
-digest for the drive's program since the drive started: `open_defects`,
-`open_blockers` (`blocker` and `blocked`), and `open_holds`. A record makes a
-stack `blocked` when `refs.targets` names its target or `refs.stacks` names
-that stack. A stack-only record blocks only that stack. The newest matching
-record supplies `blocked_by` and `reason`; `blocked_seq` carries its seq,
-and `reason_url` comes from `refs.url`.
-
-Without a blocker, a stack is `unproven` if the target's last Platy release
-did not pass, no Platy release has converged the stack, or its last converged
-release lacks the newest pipeline change. `reason` names the failed attempt,
-missing convergence, or pipeline change SHA and subject; `unproven_since`
-records that change's SHA when a prior pass exists.
-
-`proven` requires the target's last Platy release to pass, the stack's last
-converged Platy release to contain that pipeline change, and no blocker.
-The view caches `git merge-base --is-ancestor` checks in the drive checkout.
-`proven_at` is the converged release commit.
-Rows also carry `last_pass_commit`, `pipeline_change`, `pipeline_change_at`,
-`pipeline_change_subject`, and `cli_url`.
-
-`doing`/`doing_url`/`doing_lane` use the newest
-`GO`/`OPENED`/`UPDATED`/`CLAIM`/`READY`/`LANDED`/`RELEASED`/`FIX-LIVE` line
-after the blocker, from or naming its lanes, or naming the target or stack.
-For an unblocked, unproven stack, work names the target or stack after the last
-attempt. Matches use whole target names and components only as stacks
-(`data/plat`), never bare `data` or `network`.
-
-`platy_targets` counts `proven`/`unproven`/`blocked` stacks. A target is `blocked`
-if any stack is, `proven` only if all are, and otherwise `unproven`.
-cci decides which records remain open. Records close through typed closers
-such as `fix-live`, `done`, `lift`, `unblock`, and `withdraw`, or any record's
-`--resolves`. These open items exclude markdown imports, with no markdown
-fallback. If cci is unavailable, the Platy source reports an error.
-
-`GET /sources/<name>.json` returns any collected source as JSON, including
-`/sources/platy.json` and `/sources/platy_targets.json`. A 404 names the available sources.
-
-Stack/target overrides accept `deployable: proven|unproven|blocked`, `reason`/`doing` with optional
-`reason_url`/`doing_url`, or inbox cites displaying the line verbatim with its link.
-A missing line fails the platy source. Example:
-
-```yaml
-platy:
-  trunk: origin/dev
-  release_code: go/ci/internal/release/
-  overrides:
-    infra: {reason_cite: 'inbox:deploy-go.md:4601', doing_cite: 'inbox:deploy-go.md:4641'}
-```
-
-#### Ask the drive
-
-Click **Ask** in the dashboard's bottom-right corner. The floating window keeps
-its open state and history across refreshes in the same tab. It suggests
-"Which stacks can Platy deploy right now, and what blocks infra?"
-
-Chat uses design-doc's core and Cerebras `gpt-oss-120b`. The browser calls
-`POST /ai/chat/completions` on its own origin. The relay adds `CEREBRAS_API_KEY`
-server-side, requires `/ai.json`'s per-server token, and rejects foreign Origins
-with 403. Without the key, `/ai.json` returns 404; restart with it set.
-
-`/ask/digest` summarizes every view by id with up to six cited rows.
-`/ask/search` searches every source record once per cite, plus `ccn search`.
-`/ask/read` takes any record cite, including `view:<id>`.
-The `view` tool replaces `state`: `/ask/view` reads one view by id or lists all.
-
-Facts require exact parenthesized refs, rendered as links. Cite chips open
-`/ask/read` for records without pages. Check cited rows: chat can misread tables.
-
-#### Inbox dates
-
-`<state dir>/dashboard/seen.json` records line counts/mtimes on growth. Backward,
-marks bound their lines; older history uses clocks. Shrinkage resets marks.
-
-Backward clock steps cap at 16 hours; larger undated steps and clockless lines
-are estimates. Without a parenthesized stamp, search the first 80 characters.
-Leading clocks retain AM/PM and zone; ISO zones survive. Month-day stamps after
-the cursor belong to the previous year.
+Before the first milestone report, the root tailors `layout.yaml` to what the owner
+checks this drive for, per `/live-dashboard` `reference/picking.md`, and revisits it at
+each milestone. The drive's pack adds `lr.needs-owner`, `lr.inbox-feed`, `lr.drive`,
+`lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and
+`pr-review-queue` arrive at main as `owner` records; on a `Reviewed #N` record, main
+sets `owner_reviewed_at` on that PR's ledger row. The `dashboard-curator` desk closes stale
+items, briefed from `/live-dashboard` `reference/keeping-live.md`.
 
 ### Lane bus
 
@@ -2393,7 +2188,7 @@ root's open tasks, lanes and monitors from the background tasks at the root's la
 `Stop`, and the drive registry line with the drive, ledger, Orca run, checkout, and
 root sessions. Under the registry line, `Read first` carries the dashboard link from
 `<state dir>/dashboard/server.json`, the tailnet form when Tailscale shares it. With
-no server record, the line names the `lr-dashboard.py start` command instead.
+no server record, the line names the `live-dashboard start --dir` command instead.
 
 The open task list shows only `in_progress` tasks, one line each as
 `- #<id> <subject>`, with subjects clipped to 120 characters. With none in progress,

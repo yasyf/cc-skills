@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """The drive registry: which long-running drive, and so which ledger, a session's pull requests belong to.
 
-    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR]
+    drive.py start   --ledger ID [--drive ID] [--orca-run ID] [--state-dir DIR] [--cci-drive NAME]
     drive.py end     [--drive ID]
+    drive.py context [--drive ID]
     drive.py current
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
 
-STDLIB ONLY. One file per drive at ``~/.claude/long-running/drives/<drive>.json`` names the
+STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
 the checkout the drive started in, every root session that has run it, its Orca run, and its state
 directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another.
 ``start`` is an upsert: the resumed root of a handoff runs it again and joins ``sessions``.
+Every registry write also writes ``<state dir>/dashboard/context.json``, the facts the drive's
+live dashboard binds its cards from; ``context`` rewrites it from the registry alone.
 
 ``record`` is the capt-hook pack's entry point after a command opened or pushed pull requests.
 A session belongs to a drive when its id is one of the drive's root sessions, which covers every
@@ -45,12 +48,14 @@ ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 DRIVE_ID_LENGTH = 8
 WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"
 DASHBOARD_SERVER = Path("dashboard") / "server.json"
+DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
+PACK = Path(__file__).resolve().parents[3] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
 
 def drives_dir() -> Path:
-    return Path.home() / ".claude" / "long-running" / "drives"
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
 
 
 def stamp() -> str:
@@ -91,13 +96,35 @@ def dashboard_url(server: dict) -> str:
     return server.get("tailnet_url", server["url"])
 
 
-def save(entry: dict) -> Path:
-    path = drives_dir() / f"{entry['drive']}.json"
+def write_atomic(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
-    staged.write_text(json.dumps(entry, indent=2) + "\n")
+    staged.write_text(json.dumps(payload, indent=2) + "\n")
     staged.replace(path)
     return path
+
+
+def context_of(entry: dict) -> dict:
+    program = Path(entry["state_dir"]).name
+    return {
+        "id": entry["drive"],
+        "title": program,
+        "program": program,
+        "repo": entry["repo"],
+        "checkout": entry["checkout"],
+        "ledger": entry["ledger"],
+        "sessions": entry["sessions"],
+        "cci_drive": entry.get("cci_drive") or program,
+        "orca_run": entry["orca_run"],
+        "state_dir": entry["state_dir"],
+        "started_at": entry["started_at"],
+        "packs": {"lr": str(PACK)},
+    }
+
+
+def save(entry: dict) -> Path:
+    write_atomic(Path(entry["state_dir"]) / DASHBOARD_CONTEXT, context_of(entry))
+    return write_atomic(drives_dir() / f"{entry['drive']}.json", entry)
 
 
 def session_id() -> str:
@@ -133,6 +160,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
         "sessions": [*entry["sessions"], session] if session not in entry["sessions"] else entry["sessions"],
         "orca_run": args.orca_run or entry["orca_run"],
         "state_dir": str(args.state_dir or entry.get("state_dir") or Path.home() / ".claude" / "scratch" / drive),
+        "cci_drive": args.cci_drive or entry.get("cci_drive"),
         "updated_at": stamp(),
     }
     print(f"drive {drive} on ledger {args.ledger} at {save(entry)}")
@@ -147,6 +175,15 @@ def cmd_end(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"no drive {drive} in {drives_dir()}")
     path.unlink()
     print(f"ended drive {drive}")
+    return 0
+
+
+def cmd_context(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not (drive := args.drive or current_drive()):
+        raise SystemExit("this session runs no drive; pass --drive")
+    if not (entry := find(drive, None)):
+        raise SystemExit(f"no drive {drive} in {drives_dir()}")
+    print(write_atomic(Path(entry["state_dir"]) / DASHBOARD_CONTEXT, context_of(entry)))
     return 0
 
 
@@ -236,11 +273,16 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--drive", help="the drive id; defaults to the drive this session already runs, else its id's first 8 characters")
     start.add_argument("--orca-run", metavar="ID")
     start.add_argument("--state-dir", type=Path, metavar="DIR", help="the drive's scratch directory; defaults to ~/.claude/scratch/<drive>")
+    start.add_argument("--cci-drive", metavar="NAME", help="the cci drive the lanes post to; defaults to the state dir's name")
     start.set_defaults(handler=cmd_start)
 
     end = subparsers.add_parser("end", help="the drive is over; its PRs stop being recorded")
     end.add_argument("--drive")
     end.set_defaults(handler=cmd_end)
+
+    context = subparsers.add_parser("context", help="rewrite the drive dashboard's context.json from the registry")
+    context.add_argument("--drive")
+    context.set_defaults(handler=cmd_context)
 
     current = subparsers.add_parser("current", help="print the drive this session belongs to; exit 1 when none")
     current.set_defaults(handler=cmd_current)

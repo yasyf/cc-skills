@@ -1,0 +1,31 @@
+{
+ "channel_id": "C0TEST",
+ "thread_ts": "1791305688.632409",
+ "messages": [
+  {
+   "ts": "1791305691.629469",
+   "thread_ts": "1791305688.632409",
+   "user": "",
+   "user_name": "Iris (claude)",
+   "from_claude": true,
+   "text": "Triaged the page as urgent."
+  },
+  {
+   "ts": "1791305703.183789",
+   "thread_ts": "1791305688.632409",
+   "user": "U1",
+   "user_name": "Pat",
+   "from_claude": false,
+   "text": "thanks"
+  },
+  {
+   "ts": "1791305708.428659",
+   "thread_ts": "1791305688.632409",
+   "user": "",
+   "user_name": "Iris (claude)",
+   "from_claude": true,
+   "text": "Opened the incident channel."
+  }
+ ],
+ "truncated": false
+}

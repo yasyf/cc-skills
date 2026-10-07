@@ -1,0 +1,15 @@
+[project]
+name = "live-dashboard-dev"
+version = "0.0.0"
+description = "Test harness for the live-dashboard plugin"
+requires-python = ">=3.13"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["skills/live-dashboard/scripts", "tests"]

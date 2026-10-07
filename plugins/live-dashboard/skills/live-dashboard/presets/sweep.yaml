@@ -1,0 +1,13 @@
+title: Sweep
+sections:
+  - title: Progress
+    components:
+      - use: kv-file
+        id: progress
+        width: 3
+        with: {path: progress.json}
+  - title: Lanes
+    components:
+      - {use: cci-lanes, id: lanes, width: 2}
+      - {use: pr-review-queue, id: review, width: 3}
+      - {use: dashboard-health, id: health}
