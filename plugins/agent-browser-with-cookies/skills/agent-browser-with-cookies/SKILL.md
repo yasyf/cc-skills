@@ -139,10 +139,12 @@ a separate cookiesync-side plugin) is the equivalent one-shot bridge for direct
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Re-run `abwc-seed` with that
   host added.
-- **Every `ab` call takes about a minute** — without `--local` or `--bridge`, `ab`
-  resolves the Browserbase key through `op read`, which stalls about 60s while
-  1Password is locked. Pass `--local` (or `--bridge`) on every call; don't wrap `ab`
-  in a `timeout` shorter than that stall, or every call reads as a hang.
+- **Every `ab` call takes about 10s and warns `is 1Password locked?`** — without
+  `--local` or `--bridge`, `ab` resolves the Browserbase key through `op read`, which
+  stalls while 1Password is locked. `ab` gives up after 10s and falls back to the
+  local browser. Unlock 1Password, or pass `--local` (or `--bridge`) on every call.
+  Read each call's own exit status: `"$ab" … | tail` reports `tail`'s status, so a
+  timed-out call reads as a success.
 - **Daemon wedged — commands on one session hang or fail `Resource temporarily
   unavailable (os error 35)`** — the agent-browser daemon for that session is stuck.
   `abwc-seed` releases its own FIFO on exit, so a seed no longer leaves a reader

@@ -81,10 +81,12 @@ session="${session:-${AB_SESSION:-}}"
 # The sanitizer is non-injective (`a/b` and `a?b` both fold to `a-b`), so append a short stable hash of the FULL raw TAG to keep distinct requestors on distinct sessions.
 SLUG="ab-$(printf '%s' "$TAG" | tr -C 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')-$(printf '%s' "$TAG" | shasum -a 256 | cut -c1-8)"
 # Only a call that can reach Browserbase resolves its key: `op read` stalls about 60s
-# while 1Password is locked, which would tax every --local and --bridge call.
+# while 1Password is locked, so it never runs for --local or --bridge and is cut off
+# after OP_TIMEOUT seconds otherwise.
+OP_TIMEOUT=10
 API_KEY=""
 [[ "$force_local" == 1 || "$use_bridge" == 1 ]] ||
-  API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
+  API_KEY="${BROWSERBASE_API_KEY:-$(timeout "$OP_TIMEOUT" op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null || true)}"
 
 # `mode` — report which backend a call would use (the key resolution + --local logic
 # above, nothing else) so helpers like abwc-seed never duplicate it.
@@ -170,7 +172,7 @@ if [[ "$use_bridge" == 1 ]]; then
 fi
 
 if [[ "$force_local" == 1 || -z "$API_KEY" ]]; then
-  [[ "$force_local" == 1 ]] || echo "ab: Browserbase key unavailable; using local browser." >&2
+  [[ "$force_local" == 1 ]] || echo "ab: Browserbase key unavailable (\`op read\` failed or passed ${OP_TIMEOUT}s; is 1Password locked?); using local browser." >&2
   run
 fi
 
