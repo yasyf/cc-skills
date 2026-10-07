@@ -956,7 +956,7 @@ a route; red CI and conflicts go through `route` without a duplicate batch messa
 
 **D15. Name what the desk is waiting on and ping the lane in the same pass.** The summary's `waiting:` line groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. An `ungraded` row lacks a label and a grade at its current head; a `refused` row has a label refusal at that head, with the reason in `stale` or `show`. A `red` row has a CI failure or a `dirty` or `blocked` mergeable state; `held` covers desk holds and lane `held` verdicts on the current head.
 
-In the same pass, run `route` and send its messages. D3's executor handles enqueues; the landing desk runs that step only without `stack-enqueue`. `summary` requires `--repo` and `--checkout` and settles landings first, so a landed row never appears as pending.
+In the same pass, run `route` and send its messages. D3's executor handles enqueues; the landing desk runs that step only without `stack-enqueue`. `summary` settles landings first, so a landed row never appears as pending; its `--checkout` defaults to the working directory and its `--repo` to that checkout's origin, the rule every `--repo` verb follows.
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 

@@ -17,7 +17,8 @@ PR #<n> <head sha, full> <clean|red|conflicting|held>
 ```
 
 For an owner ask, append an optional fourth line, `ask <id>`. The desk records it
-with `--ask <id>` on `ledger.py report`.
+with `--ask <id>` on `ledger.py report`. Every `--ask` takes the key `ledger.py ask`
+printed, `ask/000104`, or its bare number, `000104`.
 
 A lane with the ledger id records it itself, and a running desk reads nothing else:
 `ledger.py report --ledger <id> --pr <n> --head <sha> --lane <name> --verdict <v>
@@ -154,8 +155,8 @@ task that later handoffs could close.
 trunk and the forge in one batch: one trunk fetch, one `git log` read that lands every row a
 squash subject ending `(#n)` names, and one `ccx vcs pr state` read over the rest, with
 per-PR forge calls only for a closed row no squash names. `--dry-run` prints the changes
-and writes nothing. `ledger.py summary` requires `--repo` and `--checkout` and
-runs it first. A row nobody has touched for an hour is exactly the one that has gone stale, so the
+and writes nothing. `ledger.py summary` runs it first, from `--checkout` (default:
+the working directory) and `--repo` (default: that checkout's origin). A row nobody has touched for an hour is exactly the one that has gone stale, so the
 sweep's input is the whole board rather than the rows the desk just changed.
 
 A pass that walks only what the desk changed cannot find what the desk failed to do: it reports
@@ -205,8 +206,8 @@ unchanged; the runner emits `PROMPT` in the sweep that sees it. Submit any
 worker-directed ruling with `desk-runner.py relay --config C --key R<n> --lane L
 --text T`; never send it to an orca-desk lane.
 
-`ledger.py summary --repo <repo> --ledger <id> --checkout <path>` requires both
-`--repo` and `--checkout` and settles landings before printing. The `waiting:` line
+`ledger.py summary --ledger <id>` settles landings before printing. `--checkout`
+defaults to the working directory and `--repo` to that checkout's origin. The `waiting:` line
 groups tracked open PRs as `ungraded`, `refused`, `red`, and `held`. Empty groups
 are omitted, and the line disappears when nothing waits.
 

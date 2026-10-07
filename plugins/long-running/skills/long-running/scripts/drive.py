@@ -56,7 +56,6 @@ DASHBOARD_SERVER = Path("dashboard") / "server.json"
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
 PR_SPEC = re.compile(r"^(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)(?:=(?P<head>[0-9a-f]{7,40}))?$")
-REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
 
 def drives_dir() -> Path:
@@ -73,13 +72,6 @@ def git(cwd: Path, *args: str) -> str:
 
 def common_dir(cwd: Path) -> str:
     return git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
-
-
-def origin_repo(cwd: Path) -> str:
-    url = git(cwd, "remote", "get-url", "origin")
-    if not (match := REMOTE.search(url)):
-        raise SystemExit(f"origin {url!r} names no owner/name")
-    return match["repo"]
 
 
 def load(path: Path) -> dict:
@@ -165,7 +157,7 @@ def cmd_start(args: argparse.Namespace, shell: ledger.Shell) -> int:
     entry = find(drive, None) or {"drive": drive, "sessions": [], "orca_run": None, "started_at": stamp()}
     entry |= {
         "ledger": args.ledger,
-        "repo": origin_repo(cwd),
+        "repo": ledger.origin_repo(ledger.Shell(), cwd),
         "git_common_dir": common_dir(cwd),
         "checkout": str(cwd),
         "sessions": [*entry["sessions"], session] if session not in entry["sessions"] else entry["sessions"],
