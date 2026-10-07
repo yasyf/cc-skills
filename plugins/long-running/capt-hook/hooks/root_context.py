@@ -50,6 +50,7 @@ ARTIFACT_DIRS = "audits,briefs,handoffs,tool-results,subagents,transcripts"
 ARTIFACT_FILES = frozenset({"matrix.md"})
 ARTIFACT_EXTENSIONS = frozenset({"jsonl"})
 READ_DEFAULT_LIMIT = 2000
+VISUAL_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "webp", "pdf"})
 SOURCE = Path(__file__)
 FILE_WRITES = frozenset({">", ">>", ">|"})
 NOTE_CLIS = frozenset({"ccn", "cc-notes"})
@@ -297,6 +298,8 @@ class ReadsOversizeWindow:
         path = read_target(evt)
         if path is None or (is_artifact(path) and "inbox" not in path.parts):
             return False
+        if path.suffix.removeprefix(".").lower() in VISUAL_EXTENSIONS:
+            return False
         read = evt.as_input(ReadCall)
         window = min(read.limit or READ_DEFAULT_LIMIT, line_count(path) - max((read.offset or 1) - 1, 0))
         return window > setting("READ_LINES", READ_LINES)
@@ -475,6 +478,8 @@ root_block(
         Input(tool="Read", file=FileFixture(name="notes.md", content=LONG), offset=300, state=ACTIVE): Allow(),
         Input(tool="Read", file=FileFixture(name="small.md", content="a\nb\n"), state=ACTIVE): Allow(),
         Input(tool="Read", file=FileFixture(name="notes.md", content=LONG)): Allow(),
+        Input(tool="Read", file=FileFixture(name="final-top.png", content=LONG), state=ACTIVE): Allow(),
+        Input(tool="Read", file=FileFixture(name="scan.PDF", content=LONG), state=ACTIVE): Allow(),
     },
 )
 
