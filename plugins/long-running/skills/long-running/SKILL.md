@@ -788,7 +788,7 @@ Lanes record each report themselves with `ledger.py report`: PR, full head sha, 
 
 *Prevents green approved stacks waiting on one serial desk, which prompted the owner's 2026-09-30 ruling to enqueue more than one thing at once. Also prevents a tip enqueueing held parents. Tip #28102 sat above held #28081 and #28082 on 2026-09-30, kept out of the queue only by red CI.*
 
-**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts.
+**D2. Track and grade our lanes' PRs.** The pack's PR hook, `ledger.py report`, `ledger.py register`, and an explicit `refresh --pr` are the only paths that open a PR row. Owner ask rows open only through `ledger.py ask`. The desk grades every tracked PR without waiting for a lane report at its current head. The desk never lists the repository's pull requests; a PR it cannot trace to one of our lanes stays outside the ledger and its counts. The desk never enqueues, labels, or lands a PR no drive lane opened, however green and approved: the landing runner and `ledger.py label` refuse any stack holding a PR that no lane registered in the ledger or posted `opened` on cci, and the author login never makes a PR ours.
 
 *Prevents routing comments and rebase orders landing on other engineers' PRs, which one repo-wide sweep did twenty times in an hour.*
 
