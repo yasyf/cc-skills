@@ -115,6 +115,10 @@ def listing(agent: str | None, *handles: str) -> dict:
     return {"rc": 0, "out": {"ok": True, "result": {"terminals": terminals}}}
 
 
+def tasks(*ids: str) -> dict:
+    return {"rc": 0, "out": {"ok": True, "result": {"tasks": [{"id": task} for task in ids]}}}
+
+
 def bare() -> dict:
     return {"rc": 0, "out": {"ok": True, "result": {"terminals": [{"handle": "term_other", "agentIdentity": "claude"}]}}}
 
@@ -416,13 +420,31 @@ def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     orca.worktree.mkdir()
     orca.receipts.mkdir()
     (orca.receipts / "lane-a.json").write_text(json.dumps({"result": {"taskId": "task_old", "dispatchId": "ctx_old"}}))
+    orca.reply("orchestration task-list", tasks("task_other"), tasks("task_old"))
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
     assert orca.calls("worktree create") == []
+    assert [flag(call, "--status") for call in orca.calls("orchestration task-list")] == ["failed", "blocked"]
     [start] = orca.calls("orchestration worker-start")
     assert flag(start, "--task") == "task_old"
     assert flag(start, "--retry-of") == "ctx_old"
     assert "--spec" not in start
+
+
+def test_relaunch_after_the_recorded_task_completed_starts_a_fresh_task(orca):
+    orca.healthy()
+    orca.worktree.mkdir()
+    orca.receipts.mkdir()
+    (orca.receipts / "lane-a.json").write_text(json.dumps({"result": {"taskId": "task_old", "dispatchId": "ctx_old"}}))
+    orca.reply("orchestration task-list", tasks("task_other"))
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
+    [start] = orca.calls("orchestration worker-start")
+    assert "--task" not in start
+    assert "--retry-of" not in start
+    assert flag(start, "--task-title") == "v3-lane-a"
+    assert json.loads((orca.receipts / "lane-a.json").read_text())["result"]["taskId"] == "task_a"
 
 
 def test_a_dropped_worktree_create_that_never_registers_is_created_again_after_the_wait(orca):
@@ -702,6 +724,7 @@ def test_a_failed_start_keeps_its_dispatch_for_the_relaunch(orca):
     orca.healthy(state="failed")
     assert orca.launch().returncode == 1
     orca.healthy()
+    orca.reply("orchestration task-list", tasks("task_a"))
     assert orca.launch().returncode == 0
     first, second = orca.calls("orchestration worker-start")
     assert "--spec" in first

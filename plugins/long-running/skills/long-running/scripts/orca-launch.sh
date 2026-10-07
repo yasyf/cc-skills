@@ -5,8 +5,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: orca-launch.sh <lane> <model> <effort> <brief-file>
 
-Launches one Orca worker for <lane>, or relaunches it when a receipt from an
-earlier launch exists, and prints one line:
+Launches one Orca worker for <lane> and prints one line:
 
   <lane> ready task=<id> dispatch=<id> terminal=<handle> worktree=<path>
 
@@ -92,6 +91,12 @@ high, xhigh, or max. Terminal creation retries after ORCA_LAUNCH_RETRY_SECONDS,
 because the runtime drops connections under load. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
 up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
+
+A receipt from an earlier launch names the lane's last task and dispatch. When
+orca orchestration task-list shows that task failed or blocked, worker-start
+retries it with --task and --retry-of; any other task, such as one whose
+dispatch completed, gets a fresh task from --spec, so a lane name can launch
+again after its earlier worker finished.
 
 Only the terminal bound to the Run may call worker-start, and Orca reads the
 caller from ORCA_TERMINAL_HANDLE. Before it creates anything, the script asks
@@ -313,8 +318,16 @@ until [ "$AGENT" = codex ] || [ "$DETECTED" = "$IDENTITY" ]; do
   fi
 done
 
-if [ -s "$RECEIPT" ]; then
-  set -- --task "$(jq -r '.result.taskId' "$RECEIPT")" --retry-of "$(jq -r '.result.dispatchId' "$RECEIPT")"
+retryable() {
+  for status in failed blocked; do
+    orca orchestration task-list --run "$RUN" --status "$status" --brief --json |
+      jq -e --arg task "$1" 'any(.result.tasks[]; .id == $task)' >/dev/null && return 0
+  done
+  return 1
+}
+TASK=$(jq -r '.result.taskId // empty' "$RECEIPT" 2>/dev/null) || TASK=
+if [ -n "$TASK" ] && retryable "$TASK"; then
+  set -- --task "$TASK" --retry-of "$(jq -r '.result.dispatchId' "$RECEIPT")"
 else
   set -- --spec "$SPEC" --task-title "$NAME"
 fi
