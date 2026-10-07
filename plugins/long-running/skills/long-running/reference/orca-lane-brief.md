@@ -164,7 +164,8 @@ Landing desk (records over cc-notes refs, shared by every checkout):
   `grep -o '#[0-9]\+' <holds file> | tr -d '#' > <held file>` and append every open
   PR of a held lane from `ledger.py show --ledger <id> --json` under D3.
   Never cache the held set or self-enqueue above a held PR or any PR of a held
-  lane. Report `held` on your tip with the held PR named and leave release to
+  lane. Under a `hold:all` line, never self-enqueue; the landing runner lands
+  what the root releases. Report `held` on your tip with the held PR named and leave release to
   the root. Where the checkout carries an enqueue script, call it directly as
   `stack-enqueue <prefix top> --hold $(cat <held file>)`. Drop `--hold` when the
   numeric file is empty; it requires at least one number, never a filename.

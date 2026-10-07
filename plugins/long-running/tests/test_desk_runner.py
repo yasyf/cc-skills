@@ -617,6 +617,36 @@ def test_a_rules_blocked_pr_reaches_stack_enqueue_as_a_hold(shell, config, tmp_p
     assert shell.enqueues() and all(call[call.index("--hold") + 1 :] == ["29020"] for call in calls)
 
 
+def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\nrelease #29020 owner reviewed\nrelease lane:d5\n")
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "28400", "lane": "d5", "branch": "e/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+        {"pr": "28300", "lane": "d6", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"},
+    ]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
+    shell.gates["28400"] = [gate("#28400 GREEN eeee555555 graphite READY", would="#28400")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
+    shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert calls and all(call[call.index("--hold") + 1 :] == ["28349"] for call in calls)
+    assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
+    assert shell.sends() == [] and escalations(shell) == []
+
+
+def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
+    (tmp_path / "holds.md").write_text("release #29020 owner reviewed\n")
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
+    landing_pass(shell, config)
+    assert all("--hold" not in call for call in shell.calls if Path(call[0]).name == "stack-enqueue")
+    assert len(shell.enqueues()) == 1
+
+
 def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
