@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 CCI_URL = "http://127.0.0.1:7377/v1"
 GRAPHQL_FLOOR = 500
+RATE_LIMIT_BACKOFF = 300.0
 RATE_LIMITED = re.compile(r"\b429\b|rate.?limit", re.IGNORECASE)
 RATE_LIMIT_QUERY = "rateLimit { remaining resetAt }"
 QUOTA: dict = {"remaining": None, "reset_at": None}
