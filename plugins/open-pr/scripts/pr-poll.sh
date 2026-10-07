@@ -66,6 +66,7 @@ WINDOW="${PR_POLL_WINDOW:-1500}"
 STARTED=$(date +%s)
 
 CHECK_RUNS='.check_runs[] | {
+  id,
   name,
   bucket: (
     if .status != "completed" then "pending"
@@ -77,6 +78,8 @@ CHECK_RUNS='.check_runs[] | {
   link: (.details_url // .html_url // ""),
   detail: ([.output.title, .output.summary] | map(select(. != null)) | join("\n"))
 }'
+
+LATEST_RUNS='. as $runs | .[] | . as $r | select(.id == ([$runs[] | select(.name == $r.name) | .id] | max))'
 
 STATUSES='.statuses[] | {
   name: .context,
@@ -323,7 +326,7 @@ poll() {
 
   checks=$(
     {
-      gh api --paginate "repos/$REPO/commits/$head/check-runs?per_page=100" --jq "$CHECK_RUNS" &&
+      gh api --paginate "repos/$REPO/commits/$head/check-runs?per_page=100" --jq "$CHECK_RUNS" | jq -cs "$LATEST_RUNS" &&
         gh api --paginate "repos/$REPO/commits/$head/status?per_page=100" --jq "$STATUSES"
     } 2>/dev/null | jq -cs .
   ) || checks_ok=0

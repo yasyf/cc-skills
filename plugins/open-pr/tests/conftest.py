@@ -47,8 +47,10 @@ def check_run(
     conclusion: str | None = "success",
     title: str | None = None,
     summary: str | None = None,
+    run_id: int = 1,
 ) -> dict:
     return {
+        "id": run_id,
         "name": name,
         "status": status,
         "conclusion": conclusion,
