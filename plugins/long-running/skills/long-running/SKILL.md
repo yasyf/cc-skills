@@ -35,7 +35,7 @@ from §Parallelize Independent Work, lane behavior from §Delegation, per-lane m
 effort from §Model Routing, and depth of checking from §Verification Budget. None of
 that is repeated here.
 
-## The twenty-two hard rules
+## The twenty-three hard rules
 
 **R1. Take ground truth from the owning lane.** Once a lane can answer a question, never grep a log, list cloud resources, curl an API, open a build page, or parse JSON in the root context. Ask the owning lane with a scoped resume and take back at most five lines. The root checks priority PRs itself under D3.
 
@@ -714,6 +714,17 @@ plain-language check covered only the posting lane's copy.*
 `releaseDAG`; R699 deferred footers and baseline; R704 sent READY-FOR-SHIP straight
 to a ship lane. #29109 added a second closure without footers, and the owner caught
 the mismatch in the diff.*
+
+**R23. Stop every finished agent the turn its completion arrives.** On each subagent
+completion notification, the root calls `TaskStop` on that agent in the same turn, after
+taking its report. Before any spawn, the root stops every agent of its own that has
+finished. The concurrent-subagent limit is never a blocker to report: a full limit means
+finished agents still hold slots, so stop them and spawn. Live lanes, flushed lanes,
+and Orca terminals are not finished agents; R4 and Lane rotation still govern them.
+
+*Prevents the release-v3 root of 2026-10-07 reporting the subagent limit as a blocker
+while many finished agents sat idle; the owner had to kill them by hand and ruled "fix
+your skill and never use this as an excuse".*
 
 ## The landing desk and its ledger
 
@@ -2597,6 +2608,9 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
     rulings verbatim with the entry point as a symbol at `file:line`. Confirm the
     lane's design check against those rulings before launching any ship lane.
     Ship the whole design or hold.
+23. Did a subagent's completion notification just arrive, or am I about to spawn? →
+    `TaskStop` every finished agent of mine this turn; never report the subagent
+    limit as a blocker.
 
-Apply D3 to priority PRs before delegating. A call that survives all twenty-two decides
+Apply D3 to priority PRs before delegating. A call that survives all twenty-three decides
 something no lane can decide for you; everything else is a lane.
