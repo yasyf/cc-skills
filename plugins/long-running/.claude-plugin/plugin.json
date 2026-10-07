@@ -15,7 +15,8 @@
     },
     {
       "name": "live-dashboard",
-      "marketplace": "skills"
+      "marketplace": "skills",
+      "version": ">=0.2.0"
     }
   ]
 }

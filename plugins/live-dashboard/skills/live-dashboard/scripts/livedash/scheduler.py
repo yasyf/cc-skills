@@ -197,7 +197,7 @@ class Scheduler:
         with self.lock:
             out = []
             for card in layout_cards:
-                base = {"id": card.id, "use": card.use, "title": card.title, "section": card.section, "width": card.width, "pinned": card.pinned, "every": card.every}
+                base = {"id": card.id, "use": card.use, "title": card.title, "question": card.question, "section": card.section, "width": card.width, "pinned": card.pinned, "every": card.every}
                 instance = self.instance_of(card.id)
                 if instance is None:
                     out.append(base | {"kind": None, "payload": None, "as_of": None, "status": "error", "error": card.error, "ms": None, "actions": []})

@@ -122,7 +122,7 @@ def owner_rows(ctx: Context, checkout: str, sessions: list[str], state_dir: Path
     return rows
 
 
-@component("needs-owner", "Needs you", every="1m", timeout="90s", actions={name: acting(name) for name in OWNER_ACTIONS})
+@component("needs-owner", "Needs you", question="What waits on the owner right now?", reads=["root session task list", "ccn ledger row list", "drive inboxes", "cc-present boards", "owner files", "cci records"], every="1m", timeout="90s", actions={name: acting(name) for name in OWNER_ACTIONS})
 def needs_owner(ctx: Context, *, checkout: str, sessions: list[str], state_dir: Path, ledger: str | None = None, owner_files: list[str] = [], started_at: str | None = None) -> Table:
     """What waits on the owner: open tasks titled "Owner item" or carrying an owner-item or owner-ask kind, ledger asks not
     yet answered, dropped or delivered, owner-addressed DECIDE, ASK and RULING inbox lines no later line answered, open
@@ -147,7 +147,7 @@ def needs_owner(ctx: Context, *, checkout: str, sessions: list[str], state_dir: 
     return Table([Col("kind", "Kind", "badge"), Col("title", "Item", "link"), Col("state", "State", "badge"), Col("at", "Raised", "age"), Col("said", "Conversation")], out, note=None if out else "Nothing is waiting on you.")
 
 
-@component("inbox-feed", "Inbox", every="30s")
+@component("inbox-feed", "Inbox", question="What arrived in the drive's inboxes lately?", reads=["drive inbox files"], every="30s")
 def inbox_feed(ctx: Context, *, state_dir: Path, limit: int = 200) -> Feed:
     """The drive's markdown inbox lines and archives, newest first; a line without a clock inherits the next one's, marked ≈."""
     lines = inbox(ctx, state_dir)[:limit]
@@ -185,7 +185,7 @@ def compactions_of(checkout: str, sessions: list[str]) -> list[dict]:
     return found
 
 
-@component("compactions", "Compactions", every="2m")
+@component("compactions", "Compactions", question="When did the root session last compact its context?", reads=["root session transcripts"], every="2m")
 def compactions(ctx: Context, *, checkout: str, sessions: list[str]) -> Table:
     """Every compaction in the root sessions' transcripts, newest first, with tokens before and after."""
     found = sorted(compactions_of(checkout, sessions), key=lambda item: item["at"] or "", reverse=True)
@@ -193,7 +193,7 @@ def compactions(ctx: Context, *, checkout: str, sessions: list[str]) -> Table:
     return Table([Col("at", "When", "age"), Col("trigger", "Trigger", "badge"), Col("pre_tokens", "Before", "num"), Col("post_tokens", "After", "num")], rows, note=None if rows else "No compactions yet.")
 
 
-@component("watches", "Watch files", every="1m")
+@component("watches", "Watch files", question="Which watch files are live, and which went quiet?", reads=["drive watch files"], every="1m")
 def watches(ctx: Context, *, state_dir: Path) -> Table:
     """Beat and watch-state files under the drive's state dir and inbox: their age and pending count."""
     inbox_dir = state_dir / "inbox"
@@ -205,7 +205,7 @@ def watches(ctx: Context, *, state_dir: Path) -> Table:
     return Table([Col("name", "File"), Col("at", "Touched", "age"), Col("pending", "Pending", "num")], rows, note=None if rows else "No watch files.")
 
 
-@component("drive", "Drive", every="2m")
+@component("drive", "Drive", question="Where does the drive stand overall?", reads=["context.json", "ccn ledger row list", "root session task list", "root session transcripts", "drive inboxes"], every="2m")
 def drive(ctx: Context, *, checkout: str, sessions: list[str], state_dir: Path, ledger: str | None = None) -> Kv:
     """The drive's registry facts with counts: open ledger PRs, open root tasks, compactions and inbox lines."""
     found, directory = tasks.session_tasks(checkout, sessions)

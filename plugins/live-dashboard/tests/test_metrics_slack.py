@@ -15,7 +15,7 @@ def test_file_percentiles_group_samples_and_count_failures_apart(tmp_path):
     assert (dists["warm"].n, dists["warm"].failures, dists["warm"].budget) == (20, None, 150)
     assert dists["hybrid"].n == 0 and dists["hybrid"].p95 is None
     assert dists["cold"].p50 <= dists["cold"].p95 <= dists["cold"].p99 <= dists["cold"].max
-    assert result.history.thresholds == {"budget": 150}
+    assert result.history.thresholds == {"budget": 150, "cold budget": 250.0}
 
 
 def test_a_negated_failure_flag_counts_rows_that_did_not_succeed(tmp_path):
@@ -57,6 +57,8 @@ def test_the_slack_feed_times_each_reply_from_the_thread_opener(tmp_path):
     feed = slack.slack_feed(ctx, threads=[THREAD], bot="iris")
     assert [(entry.actor, entry.latency_ms) for entry in feed.entries] == [("Iris (claude)", 19796), ("Iris (claude)", 2997)]
     assert feed.entries[0].link == "https://example.slack.com/archives/C0TEST/p1791305708428659?thread_ts=1791305688.632409&cid=C0TEST"
+    texts = {message["text"] for message in fixture("slack-thread.json")["messages"]}
+    assert {entry.text for entry in feed.entries} == {"replied"} and not texts & {entry.text for entry in feed.entries}
     assert ctx.calls[-1] == ["cc-slack", "thread", "--url", THREAD, "--limit", "50"]
 
 

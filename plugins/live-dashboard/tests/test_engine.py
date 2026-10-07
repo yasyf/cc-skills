@@ -16,44 +16,44 @@ from livedash import Context, Kv, RateLimited, Tile, Tiles, component
 CALLS = []
 
 
-@component("counter", "Counter", every="1m")
+@component("counter", "Counter", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def counter(ctx: Context, *, start: int = 0) -> Tiles:
     CALLS.append(start)
     return Tiles([Tile("calls", start + len(CALLS))])
 
 
-@component("broken", "Broken", every="1m")
+@component("broken", "Broken", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def broken(ctx: Context) -> Kv:
     raise RuntimeError("boom")
 
 
-@component("limited", "Limited", every="1m")
+@component("limited", "Limited", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def limited(ctx: Context) -> Kv:
     raise RateLimited("exit 1: API rate limit exceeded")
 
 
-@component("leaky", "Leaky", every="1m")
+@component("leaky", "Leaky", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def leaky(ctx: Context) -> Kv:
     return Kv({"token": "hunter2hunter2"})
 
 
-@component("wrong", "Wrong", every="1m")
+@component("wrong", "Wrong", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def wrong(ctx: Context) -> Kv:
     return Tiles([])
 
 
-@component("spills", "Spills", every="1m")
+@component("spills", "Spills", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def spills(ctx: Context) -> Kv:
     raise ValueError("auth failed for hunter2hunter2 and sk-abcdefghijklmnopqrstuv")
 
 
-@component("chatty", "Chatty", every="1m")
+@component("chatty", "Chatty", question="Does the test card answer its one question?", reads=["a test fixture"], every="1m")
 def chatty(ctx: Context) -> Kv:
     print("debugging")
     return Kv({"ok": 1})
 
 
-@component("needs", "Needs", every="manual")
+@component("needs", "Needs", question="Does the test card answer its one question?", reads=["a test fixture"], every="manual")
 def needs(ctx: Context, *, ledger: str, files: Path, prs: list[int] = []) -> Kv:
     return Kv({"ledger": ledger, "files": str(files), "prs": len(prs)})
 '''
@@ -244,12 +244,14 @@ def test_check_reports_every_defect_one_line_each(board):
 @pytest.mark.parametrize(
     ("define", "message"),
     [
-        (lambda: registry.component("Bad_Id", "x"), "lowercase words"),
-        (lambda: registry.component("ok", "x", every="10s"), "every='10s'"),
-        (lambda: registry.component("ok", "x")(lambda ctx: Kv({})), "must annotate its return"),
-        (lambda: registry.component("ok", "x")(positional), "must be keyword-only"),
-        (lambda: registry.component("ok", "x")(typed), "parameter rows has type"),
-        (lambda: registry.component("ok", "x")(mixed), "parameter limit has type"),
+        (lambda: registry.component("Bad_Id", "x", question="Does the test card answer its one question?", reads=["a test fixture"]), "lowercase words"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=["a test fixture"], every="10s"), "every='10s'"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=["a test fixture"])(lambda ctx: Kv({})), "must annotate its return"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=["a test fixture"])(positional), "must be keyword-only"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=["a test fixture"])(typed), "parameter rows has type"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=["a test fixture"])(mixed), "parameter limit has type"),
+        (lambda: registry.component("ok", "x", question="A statement, not a question", reads=["a test fixture"]), "ending in \\?"),
+        (lambda: registry.component("ok", "x", question="Does the test card answer its one question?", reads=[]), "each source it reads"),
     ],
 )
 def test_the_decorator_refuses_components_the_engine_cannot_bind(define, message):

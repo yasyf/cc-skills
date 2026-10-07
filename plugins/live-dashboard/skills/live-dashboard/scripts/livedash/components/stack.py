@@ -62,7 +62,7 @@ def node_tone(status: dict, fields: dict) -> str:
     return "warn"
 
 
-@component("stack-graph", "Stack", every="2m", timeout="60s")
+@component("stack-graph", "Stack", question="How do the open PRs stack, and which bottom prefix can land?", reads=["ccn ledger row list", "ccx vcs pr status"], every="2m", timeout="60s")
 def stack_graph(ctx: Context, *, ledger: str, repo: str, parents: dict[str, str] | None = None) -> Graph:
     """The ledger's open PRs as stacks rooted at their trunk branches, drawn from base and branch fields; a Graphite
     `graphite-base/<n>` base names no PR, so `parents` maps a PR number to its parent PR or trunk. Nodes are toned by the
@@ -79,7 +79,7 @@ def stack_graph(ctx: Context, *, ledger: str, repo: str, parents: dict[str, str]
     return Graph(nodes, [[str(parent), str(number)] for number, parent in tree.items()], [str(number) for number in prefix])
 
 
-@component("landing-preview", "What an approval lands", every="30s")
+@component("landing-preview", "What an approval lands", question="If the owner approves each stack's bottom now, what lands?", reads=["the stack-graph card", "the pr-review-queue card"], every="30s")
 def landing_preview(ctx: Context, *, graph: str = "stack", queue: str = "review") -> Kv:
     """Reads the `graph` card's stacks and the `queue` card's verdicts: per stack, which PRs approving its bottom lands now,
     the first PR the prefix stops at and why, and how many PRs wait behind it."""

@@ -16,7 +16,7 @@ def workers(ctx: Context, run: str) -> list[dict]:
         cursor = ["--cursor", page["page"]["nextCursor"]]
 
 
-@component("orca", "Orca tasks", every="2m", timeout="60s")
+@component("orca", "Orca tasks", question="Which Orca tasks are running, and which workers need attention?", reads=["orca orchestration task-list", "orca orchestration worker-list"], every="2m", timeout="60s")
 def orca(ctx: Context, *, orca_run: str | None = None, settled: bool = False) -> Table:
     """The drive's Orca run: each task with its status, and the workers whose projection asks for attention."""
     if not orca_run:

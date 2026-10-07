@@ -9,7 +9,7 @@ from pathlib import Path
 import ddshared
 
 TONES = ("ok", "warn", "bad", "muted")
-COL_KINDS = ("text", "num", "age", "link", "badge", "delta", "bar")
+COL_KINDS = ("text", "num", "age", "due", "link", "badge", "delta", "bar")
 GATE_STATUSES = ("open", "pass", "fail", "blocked", "waived", "not-created", "not-run")
 MAX_BYTES = 256 * 1024
 SCHEMAS = Path(__file__).resolve().parents[2] / "reference" / "components"
@@ -72,6 +72,7 @@ class Cell:
     text: str
     tone: str | None = None
     title: str | None = None
+    link: str | None = None
 
     def __post_init__(self) -> None:
         tone_of(self.tone)
@@ -83,13 +84,15 @@ def matrix_schema() -> dict:
         schema["properties"][axis].pop("maxItems")
     cell = schema["properties"]["cells"]["items"]["items"]
     cell["properties"]["title"] = {"type": "string", "minLength": 1}
+    cell["properties"]["link"] = {"type": "string", "minLength": 1}
     cell["properties"]["tone"]["enum"] = list(TONES)
     return schema
 
 
 @dataclass(frozen=True)
 class Matrix:
-    """A dd.matrix grid: row labels against column labels, one Cell each; a cell's `title` is its hover detail."""
+    """A dd.matrix grid: row labels against column labels, one Cell each; a cell's `title` is its hover detail and its
+    `link` the page it opens."""
 
     rows: list[str]
     cols: list[str]
@@ -389,7 +392,7 @@ def body(kind: str, payload: dict) -> str:
     if kind == "matrix":
         lines = ["| | " + " | ".join(col["label"] for col in payload["cols"]) + " |", "|---|" + "---|" * len(payload["cols"])]
         for row, cells in zip(payload["rows"], payload["cells"], strict=True):
-            lines.append(f"| {cell_text(row['label'])} | " + " | ".join(cell_text(cell["text"] + (f" ({cell['title']})" if cell.get("title") else "")) for cell in cells) + " |")
+            lines.append(f"| {cell_text(row['label'])} | " + " | ".join(cell_text((f"[{cell['text']}]({cell['link']})" if cell.get("link") else cell["text"]) + (f" ({cell['title']})" if cell.get("title") else "")) for cell in cells) + " |")
         return "\n".join(lines)
     if kind == "checklist":
         return "\n".join(f"- [{'x' if item['status'] in ('pass', 'waived') else ' '}] {item['id']} {item['title']}: {item['status']}" + "".join(f"; {name} {item[name]}" for name in ("blocker", "owner", "closes") if item.get(name)) for item in payload["items"])

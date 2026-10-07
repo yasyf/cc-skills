@@ -50,7 +50,7 @@ def close_record(ctx: Context, row: dict, text: str) -> str:
     return f"cci #{record['seq']} closes {row['cite']}"
 
 
-@component("open-records", "Open cci records", every="5m", timeout="60s", actions={"close": close_record})
+@component("open-records", "Open cci records", question="Which cci blockers, defects and holds are still open, and which went stale?", reads=["cci digest", "cci records", "ccn ledger row list"], every="5m", timeout="60s", actions={"close": close_record})
 def open_records(ctx: Context, *, ledger: str | None = None, stale_only: bool = False) -> Table:
     """The cci digest's open blockers, defects and holds since the drive started, minus cites a `resolved:` done record
     closed. A record is stale when it names a PR whose ledger head no longer matches the SHA it cites, or when a later
@@ -80,7 +80,7 @@ def worktrees(ctx: Context) -> set[str]:
     return {Path(line.removeprefix("worktree ")).name for line in listing.splitlines() if line.startswith("worktree ")}
 
 
-@component("cci-lanes", "Lanes", every="1m", timeout="60s")
+@component("cci-lanes", "Lanes", question="Which lanes are working, idle, stood down, or still holding a worktree?", reads=["cci lanes", "git worktree list", "orca orchestration worker-list"], every="1m", timeout="60s")
 def lanes(ctx: Context, *, idle_hours: float = 1.0) -> Table:
     """Each lane's latest cci record, grouped active, idle past `idle_hours`, stood down, and stood down while still holding
     a worktree of the drive's checkout; Orca workers needing attention join when the drive has an Orca run."""
@@ -105,7 +105,7 @@ def lanes(ctx: Context, *, idle_hours: float = 1.0) -> Table:
     return Table([Col("lane", "Lane"), Col("kind", "Last", "badge"), Col("text", "Latest record"), Col("at", "When", "age")], out, group_by="group", note=None if out else "No lane has posted.")
 
 
-@component("incident-feed", "Incidents", every="1m")
+@component("incident-feed", "Incidents", question="Which incidents opened or moved in the last few days?", reads=["cci records"], every="1m")
 def incident_feed(ctx: Context, *, hours: int = 72) -> Feed:
     """Incident, evidence, mechanism, fix-live, recovered, not-ours, duplicate and done records from the last `hours`."""
     found = records(ctx, view.iso(ctx.now - timedelta(hours=hours)), kind=list(overview.INCIDENT_KINDS))

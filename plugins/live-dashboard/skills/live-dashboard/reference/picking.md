@@ -11,8 +11,12 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 | What waits on me? | `lr.needs-owner` pinned, `asks` |
 | Which PRs need my review, and what lands if I approve? | `pr-review-queue`, `stack-graph`, `landing-preview`, `held-prs` |
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
+| Which test cells pass, and where is each one's evidence? | `matrix-file` over the test lane's results file |
+| Which test pages are open, who holds each, and how long is left? | `view` over the pages file with a `due` column |
+| What must be true before we switch it on? | `gates`: `pr:`, `file:`, `ledger:` and `monitor:` sources, `status:open` for hand steps |
+| What did the owner rule, and who acts on it? | `rulings` |
 | Is the design decided? | `design-gates` on the doc's register ids, `gates` for the PRs and files that close them |
-| Is production healthy right now? | `datadog-monitors`, `timeseries`, `incident-feed`, `log-tail` |
+| Is production healthy right now? | `datadog-monitors`, `timeseries`, `incident-feed`, `log-matches` |
 | How far along is the sweep? | `kv-file` on the progress file, `view` over the result table, `cci-lanes` |
 | Which stacks can Platy deploy? | `release.tiles`, `release.stacks`, `release.builds` |
 | Is anything stuck or stale? | `open-records`, `cci-lanes`, `dashboard-health` |
@@ -39,7 +43,8 @@ Put a fact every card shares in `context.json`, not in each `with:`. A long-runn
 drive's `context.json` already carries `id`, `title`, `program`, `repo`, `checkout`,
 `ledger`, `sessions`, `cci_drive`, `orca_run`, `state_dir`, `started_at`, and `packs`.
 Add a key for the task, such as `owner_login`, and every card with that parameter
-binds it.
+binds it. `drive.py` rewrites only the keys it owns, so a task key survives the next
+registry write.
 
 Two cards with the same `use` and the same bound parameters share one run. `landing-preview`
 reads the `stack-graph` and `pr-review-queue` cards by id, `stack` and `review` by
@@ -80,6 +85,39 @@ shows as not run instead of vanishing.
     groups: [thread, triage, incident-channel]
     budgets: {thread: '60000'}
 ```
+
+Name the test matrix's results file. `matrix-file` puts each result row in the cell its
+`row` and `col` fields name, links the cell to the row's `link`, such as the Slack
+permalink or the test plan section, and hovers its `detail` fields, such as the defect's task id and
+priority. Fix `rows` and `cols` so an untested cell still shows.
+
+```yaml
+- use: matrix-file
+  id: test-matrix
+  width: 3
+  with: {file: 'results.jsonl', row: stage, col: cell, link: permalink, detail: [defect, task, priority], cols: [page, ack, triage, mute]}
+```
+
+Open test pages and channels read from a file the test lane keeps, one row per page
+or channel. A `due` column counts down to its deadline and reads overdue past it; an
+`age` column shows the last activity.
+
+```yaml
+- use: view
+  id: live-pages
+  with: {file: 'pages.tsv', where: {state: '!resolved'}, columns: ['page:link', holder:badge, deadline:due, last_activity:age]}
+```
+
+`latency-percentiles` in `deltas_from` mode plots one history point per timeline file,
+so each run reads as one point, and every entry in `budgets` draws as a rule, such as a
+120-second ack bar.
+
+## Not live yet
+
+A card whose source starts only after a deploy, such as a Datadog query for a metric
+the release adds, can sit in a collapsed section titled for it, with a `title` that
+names what makes it live. It reads "no points" until then; drop the words from the
+title once it fills.
 
 ## When no built-in fits
 

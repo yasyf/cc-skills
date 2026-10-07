@@ -121,7 +121,7 @@ def incident_groups(ctx: Context, state_dir: Path) -> list[dict]:
     return overview.incident_groups(incidents, {record["seq"] for record in digest.get("open_incidents") or []}, folders, ctx.now, overview.curated(closers), resolved)
 
 
-@component("builds", "Release builds", every="1m", timeout="2m")
+@component("builds", "Release builds", question="Which release builds ran, and what did each one ship?", reads=["bk api", "git log"], every="1m", timeout="2m")
 def builds_card(ctx: Context, *, checkout: str, repo: str, pipeline: str = "release", slack: str | None = None) -> Table:
     """Release, hotfix, rollback, deploy, plan and check builds from the release pipeline, newest first, with the PR each ships."""
     rows = release_rows(ctx, known_builds(ctx, pipeline, checkout), checkout, repo, slack, pipeline)
@@ -129,7 +129,7 @@ def builds_card(ctx: Context, *, checkout: str, repo: str, pipeline: str = "rele
     return Table([Col("build", "Build", "link"), Col("state", "State", "badge"), Col("title", "What"), Col("pr_link", "Ships", "link"), Col("at", "Started", "age"), Col("minutes", "Minutes", "num")], out)
 
 
-@component("stacks", "Platy deployability", every="2m", timeout="2m")
+@component("stacks", "Platy deployability", question="Which stacks can Platy deploy, and why not the rest?", reads=["bk api", "git", "cci digest"], every="2m", timeout="2m")
 def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release") -> Table:
     """Each census stack, grouped by release target: proven, unproven or blocked through Platy, its drift against trunk,
     why it is not proven, and the lane working on it."""
@@ -138,7 +138,7 @@ def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: 
     return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", "vs trunk", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target")
 
 
-@component("tiles", "Release overview", every="1m", timeout="2m")
+@component("tiles", "Release overview", question="How is the release pipeline doing today?", reads=["bk api", "git", "cci digest", "cci lanes"], every="1m", timeout="2m")
 def tiles(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: str, ledger: str, trunk: str = "origin/dev", release_code: str = "go/ci/internal/release/", targets: str = "release/targets.yaml", pipeline: str = "release", slack: str | None = None) -> Tiles:
     """Stacks at 0/0, releases today, the median passed release, PRs landed today against open, open incidents and lanes working."""
     builds = known_builds(ctx, pipeline, checkout)
@@ -162,28 +162,28 @@ def tiles(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: st
     )
 
 
-@component("lines", "PR and release records", every="1m")
+@component("lines", "PR and release records", question="Which PR and release records arrived since the drive started?", reads=["cci records"], every="1m")
 def lines(ctx: Context, *, limit: int = 150) -> Feed:
     """GO, OPENED, UPDATED, CLAIM, READY, LANDED, RELEASED and FIX-LIVE records since the drive started, newest first."""
     found = work_lines(ctx, ctx.facts.get("started_at"))[:limit]
     return Feed([Entry(line["at"], line["lane"], f"{line['verb']} {line['text']}", line["url"], "ok" if line["verb"] in ("LANDED", "RELEASED", "FIX-LIVE") else None, key=line["cite"], cite=line["cite"]) for line in found])
 
 
-@component("census", "Stacks at 0/0 over time", every="5m")
+@component("census", "Stacks at 0/0 over time", question="Are more stacks reaching 0/0 over time?", reads=["cci records"], every="5m")
 def census(ctx: Context) -> Series:
     """The census count of stacks at 0/0 and its denominator, from cci state records carrying census fields over 48 hours."""
     points = overview.census_trend(cci.records(ctx, view.iso(ctx.now - CENSUS_WINDOW), kind="state"), None, ctx.now)
     return Series([Line("at 0/0", [[point["at"], point["n"]] for point in points]), Line("stacks", [[point["at"], point["total"]] for point in points])], note=None if points else "No census record in 48h.")
 
 
-@component("landed-per-hour", "PRs landed per hour", every="5m")
+@component("landed-per-hour", "PRs landed per hour", question="How many PRs landed in each of the last 24 hours?", reads=["cci records"], every="5m")
 def landed_per_hour(ctx: Context, *, repo: str) -> Series:
     """PRs whose landed record arrived in each of the last 24 hours."""
     hours = overview.landed_hours(overview.landings(cci.records(ctx, view.iso(ctx.now - LANDED_WINDOW), kind="landed"), {}, repo), ctx.now)
     return Series([Line("landed", [[hour["hour"], hour["count"]] for hour in hours])])
 
 
-@component("incidents", "Incidents", every="1m", timeout="60s")
+@component("incidents", "Incidents", question="Which incidents are open, and which lanes work on them?", reads=["cci records", "cci digest"], every="1m", timeout="60s")
 def incidents(ctx: Context, *, state_dir: Path) -> Table:
     """Incident threads from 72 hours of cci records, open first: their status, latest record and lanes."""
     groups = incident_groups(ctx, state_dir)

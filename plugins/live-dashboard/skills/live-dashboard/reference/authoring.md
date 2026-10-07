@@ -25,7 +25,7 @@ from pathlib import Path
 from livedash import Context, Gate, Checklist, component
 
 
-@component("plan-steps", "Plan steps", every="5m", timeout="30s")
+@component("plan-steps", "Plan steps", question="Which steps of the plan are done?", reads=["ccn plan show"], every="5m", timeout="30s")
 def plan_steps(ctx: Context, *, plan: str, done: list[str] = []) -> Checklist:
     """Each step of a cc-notes plan as a gate; a step whose id is in `done` passes."""
     text = ctx.ccn("plan", "show", plan)
@@ -33,6 +33,11 @@ def plan_steps(ctx: Context, *, plan: str, done: list[str] = []) -> Checklist:
     return Checklist([Gate(ident, title, "pass" if ident in done else "open") for ident, title in steps])
 ```
 
+- `question` is the one owner question the card answers, one line ending in `?`. The
+  page shows it under the card's title, and a layout card's `question:` key replaces it.
+  `check` refuses the scaffold's `TODO` question.
+- `reads` names each source the function reads, such as `ccn ledger row list` or
+  `pup metrics query`. The catalog lists them.
 - The first parameter is the `Context`, positional. Every other parameter is
   keyword-only, after `*`, typed `int`, `float`, `str`, `bool`, `Path`, `list[int]`,
   `list[str]`, `list[int | str]`, `dict[str, str]`, or one of those `| None`. A relative
@@ -73,9 +78,9 @@ Import every payload from `livedash`. Tones are `ok`, `warn`, `bad`, and `muted`
 | Payload | Fields | Renders |
 |---|---|---|
 | `Table` | `cols: list[Col]`, `rows: list[dict]`, `group_by`, `footer: dict`, `note` | Sortable table; a row's `key`, `cite`, and `tone` mark it |
-| `Col` | `key`, `label`, `kind`: `text`, `num`, `age`, `link`, `badge`, `delta`, or `bar` | A `link` cell reads its URL from `<key>_url`, a `badge` its tone from `<key>_tone` |
+| `Col` | `key`, `label`, `kind`: `text`, `num`, `age`, `due`, `link`, `badge`, `delta`, or `bar` | A `link` cell reads its URL from `<key>_url`, a `badge` its tone from `<key>_tone`; `due` counts down to an ISO time and reads overdue past it |
 | `Matrix` | `rows: list[str]`, `cols: list[str]`, `cells: list[list[Cell]]`, `title`, `pick` | Grid of toned cells, at least two columns |
-| `Cell` | `text`, `tone`, `title` | `title` is the hover detail |
+| `Cell` | `text`, `tone`, `title`, `link` | `title` is the hover detail, `link` the page the cell opens |
 | `Checklist` | `items: list[Gate]`, `note` | Gate list |
 | `Gate` | `id`, `title`, `status`, `blocker`, `owner`, `closes`, `link` | `status` is `open`, `pass`, `fail`, `blocked`, `waived`, `not-created`, or `not-run` |
 | `Tiles` | `tiles: list[Tile]`, `note` | Big numbers |
@@ -109,7 +114,7 @@ def rerun(ctx: Context, row: dict, text: str) -> str:
     return f"re-ran the failed jobs of run {row['key']}"
 
 
-@component("red-runs", "Red runs", every="2m", actions={"rerun": rerun})
+@component("red-runs", "Red runs", question="Which runs on the branch failed?", reads=["gh run list"], every="2m", actions={"rerun": rerun})
 def red_runs(ctx: Context, *, branch: str = "main") -> Table:
     runs = ctx.json(["gh", "run", "list", "--repo", ctx.facts["repo"], "--branch", branch, "--status", "failure", "--json", "databaseId,displayTitle,url"])
     rows = [{"key": str(run["databaseId"]), "title": run["displayTitle"], "title_url": run["url"]} for run in runs]

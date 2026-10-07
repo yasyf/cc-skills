@@ -5,6 +5,7 @@ from pathlib import Path
 
 from conftest import FIXTURES, LEDGER, PR_STATUS, fake, fixture
 from livedash import Col, Table
+import pytest
 from livedash.components import design, files, health
 
 REGISTERS = (FIXTURES / "registers.json").read_text()
@@ -50,11 +51,12 @@ def test_the_view_engine_reads_the_newest_matching_file(tmp_path):
     assert files.table_view(fake(tmp_path), file="none-*.md").note == "Nothing matches none-*.md yet."
 
 
-def test_log_tail_dates_lines_and_highlights_matches(tmp_path):
+def test_log_matches_counts_each_pattern_and_dates_the_newest_without_the_line_text(tmp_path):
     log = tmp_path / "run.log"
-    log.write_text("2026-10-06T10:00:00Z start\nplain line\n2026-10-06T10:01:00Z ERROR lost the lease\n")
-    feed = files.log_tail(fake(tmp_path), path=log, lines=2, highlight="ERROR")
-    assert [(entry.at, entry.tone) for entry in feed.entries] == [("2026-10-06T10:01:00Z", "bad"), ("", None)]
+    log.write_text("2026-10-06T10:00:00Z ERROR token=abc\nplain line\n2026-10-06T10:01:00Z ERROR lost the lease\n")
+    table = files.log_matches(fake(tmp_path), path=log, patterns={"errors": "ERROR", "panics": "panic"}, lines=2)
+    assert [(row["pattern"], row["count"], row["last"], row["tone"]) for row in table.rows] == [("errors", 1, "2026-10-06T10:01:00Z", "bad"), ("panics", 0, None, "ok")]
+    assert "lease" not in json.dumps(table.json())
 
 
 def test_kv_file_makes_one_tile_per_key(tmp_path):
@@ -68,3 +70,30 @@ def test_dashboard_health_puts_broken_cards_first(tmp_path):
     ctx = fake(tmp_path)
     ctx.summary = lambda: [{"id": "a", "title": "A", "use": "tasks", "status": "ok", "as_of": None, "ms": 3, "error": None}, {"id": "b", "title": "B", "use": "asks", "status": "error", "as_of": None, "ms": None, "error": "exit 1: boom"}]
     assert [row["key"] for row in health.dashboard_health(ctx).rows] == ["b", "a"]
+
+
+def test_matrix_file_places_each_result_in_its_cell_with_link_detail_and_tone(tmp_path):
+    (tmp_path / "results.jsonl").write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {"stage": "3b", "cell": "page", "status": "FAIL", "link": "https://example.slack.com/archives/C1/p1", "defect": "no ack", "task": "t-9"},
+                {"stage": "3b", "cell": "page", "status": "PASS", "link": "https://example.slack.com/archives/C1/p2"},
+                {"stage": "4", "cell": "mute", "status": "rerun-pending"},
+            ]
+        )
+    )
+    grid = files.matrix_file(fake(tmp_path), file="results.jsonl", row="stage", col="cell", detail=["defect", "task"], cols=["page", "mute"])
+    assert (grid.rows, grid.cols) == (["3b", "4"], ["page", "mute"])
+    assert [[(cell.text, cell.tone, cell.link) for cell in row] for row in grid.cells] == [
+        [("PASS", "ok", "https://example.slack.com/archives/C1/p2"), ("untested", "muted", None)],
+        [("untested", "muted", None), ("rerun-pending", "warn", None)],
+    ]
+    assert grid.schema_errors() == []
+
+
+def test_matrix_file_without_results_needs_rows_and_cols(tmp_path):
+    with pytest.raises(LookupError, match="nothing matches results.jsonl"):
+        files.matrix_file(fake(tmp_path), file="results.jsonl")
+    grid = files.matrix_file(fake(tmp_path), file="results.jsonl", rows=["3b"], cols=["page", "mute"])
+    assert [cell.text for cell in grid.cells[0]] == ["untested", "untested"]

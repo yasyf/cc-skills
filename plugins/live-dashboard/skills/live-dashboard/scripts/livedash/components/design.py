@@ -16,7 +16,7 @@ def entries(registers: dict) -> dict[str, dict]:
     return {entry["id"]: entry for value in registers.values() if isinstance(value, list) for entry in value if isinstance(entry, dict) and "id" in entry}
 
 
-@component("design-gates", "Design gates", every="5m", timeout="60s")
+@component("design-gates", "Design gates", question="Which design register entries are still open, and what blocks each one?", reads=["git show <ref>:<doc>/registers.json"], every="5m", timeout="60s")
 def design_gates(
     ctx: Context,
     *,
@@ -88,7 +88,7 @@ def monitor_gate(ctx: Context, query: str) -> tuple[str, str | None]:
     return ("pass", None) if all(status == "OK" for status in statuses) else ("open", ", ".join(sorted(set(map(str, statuses)))))
 
 
-@component("gates", "Gates", every="2m", timeout="60s")
+@component("gates", "Gates", question="Which gates still stand between this work and done?", reads=["ccx vcs pr status", "files", "ccn ledger row list", "pup monitors search"], every="2m", timeout="60s")
 def gates(
     ctx: Context,
     *,

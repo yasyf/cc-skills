@@ -122,8 +122,14 @@ def context_of(entry: dict) -> dict:
     }
 
 
+def write_context(entry: dict) -> Path:
+    path = Path(entry["state_dir"]) / DASHBOARD_CONTEXT
+    task_facts = json.loads(path.read_text()) if path.exists() else {}
+    return write_atomic(path, task_facts | context_of(entry))
+
+
 def save(entry: dict) -> Path:
-    write_atomic(Path(entry["state_dir"]) / DASHBOARD_CONTEXT, context_of(entry))
+    write_context(entry)
     return write_atomic(drives_dir() / f"{entry['drive']}.json", entry)
 
 
@@ -183,7 +189,7 @@ def cmd_context(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit("this session runs no drive; pass --drive")
     if not (entry := find(drive, None)):
         raise SystemExit(f"no drive {drive} in {drives_dir()}")
-    print(write_atomic(Path(entry["state_dir"]) / DASHBOARD_CONTEXT, context_of(entry)))
+    print(write_context(entry))
     return 0
 
 

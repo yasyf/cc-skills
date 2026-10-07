@@ -73,7 +73,7 @@ def samples_from_query(ctx: Context, query: str, window: str):
     return samples, {}, history
 
 
-@component("latency-percentiles", "Latency percentiles", every="5m", timeout="60s")
+@component("latency-percentiles", "Latency percentiles", question="How fast is it at p50, p95 and p99, against its budget?", reads=["result files", "timeline files", "pup metrics query"], every="5m", timeout="60s")
 def latency_percentiles(
     ctx: Context,
     *,
@@ -94,7 +94,8 @@ def latency_percentiles(
     """p50, p95, p99 and max per group, with a p95 history. Three sources: `files` rows (json, jsonl, csv, tsv) with a
     `value` sample, a `group` field and a `failure` flag counted apart (`!success` counts a false `success`); `deltas_from` plus `deltas_to`, the time from one
     timeline entry to each later stage across every file matching `files`; or a Datadog `query` through pup. Every named
-    `groups` entry shows as not run until it has samples, and `budgets` overrides `budget_ms` per group."""
+    `groups` entry shows as not run until it has samples, and `budgets` overrides `budget_ms` per group. Every budget is a
+    rule on the history, which plots one point per file, so a timeline per run reads as one point per run."""
     if query:
         samples, failures, history = samples_from_query(ctx, query, window)
     elif files and deltas_from:
@@ -106,13 +107,13 @@ def latency_percentiles(
     names = [*groups, *sorted((set(samples) | set(failures)) - set(groups))]
     dists = [Dist.of(name, samples.get(name, []), unit, float(budgets[name]) if name in budgets else budget_ms, failures.get(name)) for name in names]
     lines = [Line(name, points) for name, points in history.items() if points]
-    thresholds = {"budget": budget_ms} if budget_ms is not None else {}
+    thresholds = ({"budget": budget_ms} if budget_ms is not None else {}) | {f"{name} budget": float(budget) for name, budget in budgets.items()}
     empty = not any(dist.n for dist in dists)
     note = ("Not run yet: nothing matches " + (files or query or "")) if empty else None
     return Percentiles(dists, Series(lines, unit, thresholds) if lines else None, note=note)
 
 
-@component("timeseries", "Time series", every="1m", timeout="60s")
+@component("timeseries", "Time series", question="How has this number moved over the window, against its thresholds?", reads=["pup metrics query", "result files"], every="1m", timeout="60s")
 def timeseries(ctx: Context, *, query: str | None = None, window: str = "1h", files: str | None = None, x: str = "at", y: list[str] = [], rows_key: str | None = None, unit: str | None = None, thresholds: dict[str, str] = {}) -> Series:
     """Lines from a Datadog `query` through pup, one per series, or from the `y` fields of every row in the files matching
     `files`, plotted against `x`; `thresholds` draws labeled rules."""
@@ -131,7 +132,7 @@ def timeseries(ctx: Context, *, query: str | None = None, window: str = "1h", fi
     return Series([Line(field, sorted(points, key=lambda point: str(point[0]))) for field, points in lines.items()], unit, rules, note=None if any(lines.values()) else f"Nothing matches {files} yet.")
 
 
-@component("datadog-monitors", "Datadog monitors", every="1m", timeout="60s")
+@component("datadog-monitors", "Datadog monitors", question="Are this work's Datadog monitors OK, alerting, or not created yet?", reads=["pup monitors search"], every="1m", timeout="60s")
 def datadog_monitors(ctx: Context, *, query: str, expect: list[str] = []) -> Checklist:
     """Monitors matching a Datadog monitor search `query` through pup, as gates: OK passes, Alert fails, Warn blocks, No Data
     has not run. Each name in `expect` that matches no monitor shows as not created."""

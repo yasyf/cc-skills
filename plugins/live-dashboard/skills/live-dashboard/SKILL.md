@@ -75,8 +75,9 @@ Every card is one `use:` plus these optional keys:
 |---|---|
 | `id` | A unique card id; defaults to the `use` |
 | `title` | The card's heading; defaults to the component's title |
+| `question` | The one question the card answers, shown under its title; defaults to the component's |
 | `every` | `15s`, `30s`, `1m`, `2m`, `5m`, `15m`, or `manual`; defaults to the component's cadence |
-| `width` | 1, 2, or 3 columns |
+| `width` | 1, 2, or 3 columns on a wide screen; a phone shows one column |
 | `pinned` | `true` lifts the card above every section and notifies on new rows |
 | `with` | The component's parameters |
 
@@ -89,12 +90,31 @@ Built-ins are bare names. `release.*` reads a Platy release pipeline. A pack nam
 `context.json` under `packs` registers as `<name>.*`, so long-running's pack is `lr.*`.
 This dir's own components register as `local.*`.
 
+## Never on the board
+
+The owner reads the page on a phone, through a tailnet link, often beside other people.
+These never reach a payload, a card title, a banner, or a note:
+
+- Secrets: keys, tokens, passwords, cookies, signed URLs. The secret scan below drops
+  most, but a component must never read one into a row in the first place.
+- PR bodies and review comment text. Link the PR and show its state instead.
+- Raw log lines. `log-matches` counts named patterns and dates the newest match.
+- Slack message text. `slack-feed` shows who posted, when and how fast, and links the
+  message, and the words stay in Slack.
+- Customer data and anything copied out of a production database.
+
+A card that needs one of these links to where it lives.
+
 ## What the engine guarantees
 
 - A failing card keeps its last good payload, shows its error, and backs off from twice
   its cadence up to four times it. A rate-limit error waits five minutes.
-- A card past twice its cadence without a good run reads stale; one running past its
-  timeout reads hung. The `dashboard-health` card lists every card's state.
+- A card past twice its cadence without a good run reads "stale since" the second missed
+  run; one running past its timeout reads hung. The `dashboard-health` card lists every
+  card's state.
+- Every card shows the one question it answers under its title.
+- On a phone the page is one column of cards, and every table row becomes a stacked
+  card with labeled fields, so no table scrolls sideways.
 - Payloads cache in `cache/<id>.json`, so a restart serves the last good data at once.
 - Every payload is scanned before it is served. A value of any env var named like a
   key, token, secret, or password, or a token-shaped string, drops the payload and
