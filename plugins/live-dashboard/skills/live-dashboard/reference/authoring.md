@@ -78,7 +78,7 @@ Import every payload from `livedash`. Tones are `ok`, `warn`, `bad`, and `muted`
 | Payload | Fields | Renders |
 |---|---|---|
 | `Table` | `cols: list[Col]`, `rows: list[dict]`, `group_by`, `footer: dict`, `note` | Sortable table; a row's `key`, `cite`, and `tone` mark it |
-| `Col` | `key`, `label`, `kind`: `text`, `num`, `age`, `due`, `link`, `badge`, `delta`, or `bar` | A `link` cell reads its URL from `<key>_url`, a `badge` its tone from `<key>_tone`; `due` counts down to an ISO time and reads overdue past it |
+| `Col` | `key`, `label`, `kind`: `text`, `num`, `age`, `due`, `link`, `badge`, `delta`, or `bar`; `phone` | A `link` cell reads its URL from `<key>_url`, a `badge` its tone from `<key>_tone`; `due` counts down to an ISO time and reads overdue past it; `phone=False` folds the column behind a tap on a phone |
 | `Matrix` | `rows: list[str]`, `cols: list[str]`, `cells: list[list[Cell]]`, `title`, `pick` | Grid of toned cells, at least two columns |
 | `Cell` | `text`, `tone`, `title`, `link` | `title` is the hover detail, `link` the page the cell opens |
 | `Checklist` | `items: list[Gate]`, `note` | Gate list |

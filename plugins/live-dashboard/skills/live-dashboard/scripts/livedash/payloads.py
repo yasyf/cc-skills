@@ -34,6 +34,7 @@ class Col:
     key: str
     label: str = ""
     kind: str = "text"
+    phone: bool = True
 
     def __post_init__(self) -> None:
         if self.kind not in COL_KINDS:

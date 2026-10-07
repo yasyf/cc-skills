@@ -56,6 +56,7 @@ class Instance:
     started: float | None = None
     future: Future | None = None
     hung: bool = False
+    rerun: bool = False
 
 
 @dataclass
@@ -67,6 +68,7 @@ class Scheduler:
     env: dict = field(default_factory=lambda: dict(os.environ))
     instances: dict[str, Instance] = field(default_factory=dict)
     cards: dict[str, Card] = field(default_factory=dict)
+    waiting: dict[str, set[str]] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
 
     def apply(self, cards: list[Card]) -> None:
@@ -107,6 +109,23 @@ class Scheduler:
         instance = self.instance_of(card)
         return instance.payload if instance else None
 
+    def read(self, reader: Instance, card: str):
+        payload = self.payload_of(card)
+        if payload is None:
+            with self.lock:
+                self.waiting.setdefault(card, set()).add(reader.key)
+        return payload
+
+    def wake_readers(self, instance: Instance) -> None:
+        for card in instance.cards:
+            for key in self.waiting.pop(card, set()):
+                if (reader := self.instances.get(key)) is None:
+                    continue
+                if reader.future is None:
+                    reader.due = 0.0
+                else:
+                    reader.rerun = True
+
     def refresh(self, card: str) -> bool:
         with self.lock:
             if (instance := self.instance_of(card)) is None:
@@ -127,7 +146,7 @@ class Scheduler:
                     self.launch(instance, now)
 
     def launch(self, instance: Instance, now: float) -> None:
-        context = Context(self.dir, self.facts, datetime.fromtimestamp(now, timezone.utc), instance.spec.timeout, instance.payload, self.payload_of, self.summary)
+        context = Context(self.dir, self.facts, datetime.fromtimestamp(now, timezone.utc), instance.spec.timeout, instance.payload, lambda card: self.read(instance, card), self.summary)
         instance.started = now
         instance.hung = False
         instance.due = float("inf")
@@ -145,14 +164,16 @@ class Scheduler:
             data = self.vetted(instance.spec, result)
         except RateLimited as failure:
             self.failed(instance, now, str(failure), RATE_LIMIT_BACKOFF)
-            return
         except Exception as failure:
             text = failure_text(failure) if isinstance(failure, (subprocess.SubprocessError, OSError)) else f"{type(failure).__name__}: {failure}"[:300]
             self.failed(instance, now, text, None)
-            return
-        instance.payload, instance.data, instance.as_of, instance.error, instance.failures = result, data, now, None, 0
-        instance.due = now + instance.every if instance.every else float("inf")
-        self.store(instance)
+        else:
+            instance.payload, instance.data, instance.as_of, instance.error, instance.failures = result, data, now, None, 0
+            instance.due = now + instance.every if instance.every else float("inf")
+            self.store(instance)
+            self.wake_readers(instance)
+        if instance.rerun:
+            instance.rerun, instance.due = False, now
 
     def vetted(self, spec: registry.Spec, result) -> dict:
         if not isinstance(result, spec.payload):
@@ -196,7 +217,7 @@ class Scheduler:
         with self.lock:
             out = []
             for card in layout_cards:
-                base = {"id": card.id, "use": card.use, "title": card.title, "question": card.question, "section": card.section, "width": card.width, "pinned": card.pinned, "every": card.every}
+                base = {"id": card.id, "use": card.use, "title": card.title, "question": card.question, "section": card.section, "width": card.width, "pinned": card.pinned, "phone": card.phone, "every": card.every}
                 instance = self.instance_of(card.id)
                 if instance is None:
                     out.append(base | {"kind": None, "payload": None, "as_of": None, "status": "error", "error": card.error, "ms": None, "actions": []})

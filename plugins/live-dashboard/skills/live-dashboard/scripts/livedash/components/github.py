@@ -17,16 +17,16 @@ OWNER_VERDICTS = frozenset({"APPROVED", "CHANGES_REQUESTED"})
 REVIEW_COLUMNS = [
     Col("pr", "PR", "link"),
     Col("title", "Title"),
-    Col("lane", "Lane"),
-    Col("size", "Size", "num"),
+    Col("lane", "Lane", phone=False),
+    Col("size", "Size", "num", phone=False),
     Col("ci", "CI", "badge"),
     Col("bot", "Bot", "badge"),
-    Col("rules", "Rules review", "badge"),
-    Col("threads", "Open threads", "num"),
+    Col("rules", "Rules review", "badge", phone=False),
+    Col("threads", "Open threads", "num", phone=False),
     Col("verdict", "Queue", "badge"),
-    Col("held", "Held since", "age"),
+    Col("held", "Held since", "age", phone=False),
     Col("owner", "Owner", "badge"),
-    Col("opened", "Opened", "age"),
+    Col("opened", "Opened", "age", phone=False),
 ]
 
 

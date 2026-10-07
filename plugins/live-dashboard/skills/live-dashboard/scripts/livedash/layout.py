@@ -9,7 +9,7 @@ from livedash import registry, yamlish
 LAYOUT_FILE = "layout.yaml"
 TOP_KEYS = {"title", "banner", "sections"}
 SECTION_KEYS = {"title", "collapsed", "components"}
-CARD_KEYS = {"use", "id", "title", "question", "every", "width", "pinned", "with"}
+CARD_KEYS = {"use", "id", "title", "question", "every", "width", "pinned", "phone", "with"}
 USE_KEY = re.compile(r"(?:^|[{,\s-])use:\s")
 LINE = re.compile(r"\bline (\d+)")
 CARD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -39,6 +39,7 @@ class Card:
     spec: registry.Spec | None = None
     error: str | None = None
     bound: dict = field(default_factory=dict)
+    phone: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -106,19 +107,22 @@ def card_of(raw: dict, line: int, section: str, facts: dict, base: Path) -> Card
     if not 1 <= width <= 3:
         raise LayoutError(line, f"width must be 1, 2 or 3, not {width}")
     given = expect(raw.get("with") or {}, dict, "with", line)
+    phone = raw.get("phone")
+    if phone is not None and (not isinstance(phone, list) or not all(isinstance(key, str) for key in phone)):
+        raise LayoutError(line, f"phone must list the column keys a phone shows, not {phone!r}")
     ident = expect(raw.get("id", use), str, "id", line)
     if not CARD_ID.match(ident):
         raise LayoutError(line, f"card id {ident!r} must be letters, digits, dots, dashes or underscores, starting with a letter or digit")
     spec = registry.REGISTRY.get(use)
     if spec is None:
         if use.startswith("local.") and any(name.startswith(registry.LOCAL_PACKAGE) for name in registry.LOAD_ERRORS):
-            return Card(ident, use, raw.get("title") or use, raw.get("question"), every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use))
+            return Card(ident, use, raw.get("title") or use, raw.get("question"), every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use), phone=phone)
         raise LayoutError(line, registry.missing(use))
     try:
         bound = registry.bind(spec, given, facts, base)
     except registry.BindError as failure:
         raise LayoutError(line, str(failure)) from failure
-    return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound)
+    return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound, phone=phone)
 
 
 def build(text: str, facts: dict, base: Path) -> Layout:
