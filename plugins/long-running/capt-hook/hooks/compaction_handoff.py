@@ -168,13 +168,24 @@ def resume_steps(state: CompactionState) -> str:
     return f"then the progress doc: `ccn doc list --label progress:{state.slug}`, then `ccn doc show <id>`"
 
 
+def newest_doc(state: CompactionState, cwd: str) -> dict | None:
+    return max(progress_docs(state, cwd) or [], key=lambda doc: doc["updated_at"], default=None)
+
+
+def handed_off(state: CompactionState, cwd: str) -> bool:
+    if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
+        return False
+    newest = newest_doc(state, cwd) if state.store == "ccn" else None
+    return newest is None or newest["id"] == state.active_doc
+
+
 def newest_record(state: CompactionState, cwd: str) -> tuple[str, str] | None:
     if state.store == "folder":
         files = progress_folder(Path(state.plan_path or "")).glob("*.md")
         if not (path := max(files, key=lambda path: path.stat().st_mtime, default=None)):
             return None
         return f"`{path}`", path.read_text()
-    if not (doc := max(progress_docs(state, cwd) or [], key=lambda doc: doc["updated_at"], default=None)):
+    if not (doc := newest_doc(state, cwd)):
         return None
     shown = ccn(cwd, "doc", "show", doc["id"], "--json")
     return f"`ccn doc show {doc['id'][:SHORT]}`", json.loads(shown.stdout)["body"] if shown.returncode == 0 else ""
@@ -623,6 +634,6 @@ def compaction_instructions(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-        if not (state.generated_at and time.time() - state.generated_at < FRESH_SECONDS):
+        if not handed_off(state, evt.cwd):
             adopt(state, generate(evt, state))
     return evt.context(compact_instructions(state))

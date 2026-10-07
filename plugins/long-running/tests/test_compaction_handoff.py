@@ -695,6 +695,34 @@ def test_a_stop_generated_handoff_is_not_regenerated_at_compaction(home: Path, p
     assert state(session).digest == "kept"
 
 
+def test_a_doc_written_after_the_stop_adoption_is_the_one_compaction_names(home: Path, plan: Path, docs: Path) -> None:
+    session = home / "session"
+    (docs / "docs.json").write_text(json.dumps([doc("a" * 40, "2026-10-07T16:03:15Z"), doc("b" * 40, "2026-10-07T16:06:13Z")]))
+    (docs / ("b" * 40 + ".md")).write_text("## Root's next actions\n1. dump 30\n")
+    minutes_ago = datetime.fromtimestamp(handoff.time.time() - 60, timezone.utc).isoformat()
+    (docs / "created.json").write_text(json.dumps({"b" * 40: {"session": SESSION, "time": minutes_ago}}))
+    handoff.CompactionState(
+        active=True,
+        plan_path=str(plan),
+        slug="brook",
+        phase="compacting",
+        active_doc="a" * 40,
+        generated_doc="a" * 40,
+        generated_at=handoff.time.time() - 180,
+    ).save(bash(session))
+
+    instructions = handoff.compaction_instructions(precompact(session)).message
+
+    assert instructions.startswith(f"Resume from `{plan}`, then `ccn doc show bbbbbbbb`; ")
+    assert ["doc", "supersede", "a" * 40, "--by", "b" * 40] in ccn_calls(docs)
+    assert [entry["id"] for entry in json.loads((docs / "docs.json").read_text()) if "progress:brook" in entry["tags"]] == ["b" * 40]
+    [pointer] = [line for line in plan.read_text().splitlines() if line.startswith(handoff.POINTER_PREFIX)]
+    assert "now `bbbbbbbb`" in pointer
+    assert handoff.reground(session_start(session, "resume")).message.startswith(
+        "Resumed long-running drive `brook`. Before acting, read the progress record `ccn doc show bbbbbbb`"
+    )
+
+
 def test_a_subagent_compaction_generates_nothing(tmp_path: Path) -> None:
     entry = next(h for h in _state.hooks if h.handler is handoff.compaction_instructions)
     assert not matches_conditions(entry.spec, precompact(tmp_path, agent_id="a1b2c3"))
