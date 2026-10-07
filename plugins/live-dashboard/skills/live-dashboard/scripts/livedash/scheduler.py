@@ -110,10 +110,13 @@ class Scheduler:
         return instance.payload if instance else None
 
     def read(self, reader: Instance, card: str):
-        payload = self.payload_of(card)
+        instance = self.instance_of(card)
+        payload = instance.payload if instance else None
         if payload is None:
             with self.lock:
                 self.waiting.setdefault(card, set()).add(reader.key)
+                if instance is not None and instance.future is None:
+                    instance.due = 0.0
         return payload
 
     def wake_readers(self, instance: Instance) -> None:
@@ -217,7 +220,7 @@ class Scheduler:
         with self.lock:
             out = []
             for card in layout_cards:
-                base = {"id": card.id, "use": card.use, "title": card.title, "question": card.question, "section": card.section, "width": card.width, "pinned": card.pinned, "phone": card.phone, "every": card.every}
+                base = {"id": card.id, "use": card.use, "title": card.title, "question": card.question, "section": card.section, "width": card.width, "pinned": card.pinned, "fold": card.fold, "phone": card.phone, "every": card.every}
                 instance = self.instance_of(card.id)
                 if instance is None:
                     out.append(base | {"kind": None, "payload": None, "as_of": None, "status": "error", "error": card.error, "ms": None, "actions": []})

@@ -3,17 +3,17 @@ sections:
   - title: Broken
     components:
       - {use: lr.needs-owner, id: needs-owner, pinned: true, width: 3}
-      - {use: release.incidents, id: incidents, width: 3}
-      - {use: open-records, id: hygiene, title: 'Blockers, defects and holds', width: 3}
+      - {use: release.incidents, id: incidents, width: 1, fold: true}
+      - {use: open-records, id: hygiene, title: 'Blockers, defects and holds', width: 1, fold: true}
   - title: In flight
     components:
-      - {use: cci-lanes, id: lanes, title: Lanes working now, width: 2}
-      - {use: orca, id: orca}
-      - {use: tasks, title: Root tasks in progress, width: 2}
-      - {use: asks, title: Your asks in flight}
+      - {use: cci-lanes, id: lanes, title: Lanes working now, width: 1, fold: true}
+      - {use: orca, id: orca, width: 1, fold: true}
+      - {use: tasks, title: Root tasks in progress, width: 1, fold: true}
+      - {use: asks, title: Your asks in flight, width: 1, fold: true}
   - title: Review
     components:
-      - {use: pr-review-queue, id: review, width: 3}
+      - {use: pr-review-queue, id: review, width: 1, fold: true}
   - title: Plumbing
     collapsed: true
     components:

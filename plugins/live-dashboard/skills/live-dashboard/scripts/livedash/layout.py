@@ -9,7 +9,7 @@ from livedash import registry, yamlish
 LAYOUT_FILE = "layout.yaml"
 TOP_KEYS = {"title", "banner", "sections"}
 SECTION_KEYS = {"title", "collapsed", "components"}
-CARD_KEYS = {"use", "id", "title", "question", "every", "width", "pinned", "phone", "with"}
+CARD_KEYS = {"use", "id", "title", "question", "every", "width", "pinned", "fold", "phone", "with"}
 USE_KEY = re.compile(r"(?:^|[{,\s-])use:\s")
 LINE = re.compile(r"\bline (\d+)")
 CARD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -40,6 +40,7 @@ class Card:
     error: str | None = None
     bound: dict = field(default_factory=dict)
     phone: list[str] | None = None
+    fold: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,13 +117,13 @@ def card_of(raw: dict, line: int, section: str, facts: dict, base: Path) -> Card
     spec = registry.REGISTRY.get(use)
     if spec is None:
         if use.startswith("local.") and any(name.startswith(registry.LOCAL_PACKAGE) for name in registry.LOAD_ERRORS):
-            return Card(ident, use, raw.get("title") or use, raw.get("question"), every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use), phone=phone)
+            return Card(ident, use, raw.get("title") or use, raw.get("question"), every or "manual", width, bool(raw.get("pinned")), given, section, line, error=registry.missing(use), phone=phone, fold=bool(raw.get("fold")))
         raise LayoutError(line, registry.missing(use))
     try:
         bound = registry.bind(spec, given, facts, base)
     except registry.BindError as failure:
         raise LayoutError(line, str(failure)) from failure
-    return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound, phone=phone)
+    return Card(ident, use, raw.get("title") or spec.title, raw.get("question") or spec.question, every or spec.every, width, bool(raw.get("pinned")), given, section, line, spec, bound=bound, phone=phone, fold=bool(raw.get("fold")))
 
 
 def distinct(title: str, sections: list[Section]) -> None:

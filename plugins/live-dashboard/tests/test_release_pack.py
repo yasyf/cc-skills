@@ -497,3 +497,80 @@ def test_a_targets_stacks_sharing_a_verdict_fold_into_one_row_naming_those_off_z
 def test_evidence_without_a_known_incident_opens_no_thread():
     records = [cci_record(1, "evidence", "merge-walker-r2", "For owner #31982: live Platy receiver is 370f65a878"), cci_record(2, "incident", "alerts-watch", "NEW Alert 1 api 5xx")]
     assert [group["key"] for group in overview.incident_groups(records, {2}, [], OVERVIEW_MOMENT, set(), set())] == ["seq:2"]
+
+
+def job(name: str, start: str, end: str | None, state: str = "passed") -> dict:
+    return {"type": "script", "name": name, "state": state, "started_at": f"2026-10-06T{start}:00Z", "finished_at": f"2026-10-06T{end}:00Z" if end else None}
+
+
+WATCHED = [
+    job(":docker: Build api", "06:00", "06:02"),
+    job(":pulumi: Deploy api on plat", "06:02", "06:05"),
+    job(":eyes: Watch api", "06:05", "06:09"),
+    job(":eyes: Watch router", "06:07", "06:10"),
+    job("unlabelled step", "06:00", "06:10"),
+]
+
+
+def test_phases_span_their_jobs_and_watch_counts_overlap_once():
+    assert platy.phases(WATCHED) == [
+        {"phase": "Build", "start": "2026-10-06T06:00:00Z", "end": "2026-10-06T06:02:00Z", "state": "passed"},
+        {"phase": "Deploy", "start": "2026-10-06T06:02:00Z", "end": "2026-10-06T06:05:00Z", "state": "passed"},
+        {"phase": "Watch", "start": "2026-10-06T06:05:00Z", "end": "2026-10-06T06:10:00Z", "state": "passed"},
+    ]
+    assert platy.watch_minutes(WATCHED) == 5.0
+    live = platy.phases([job(":pulumi: Deploy a", "06:00", "06:01"), job(":pulumi: Deploy b", "06:01", None, "running")])
+    assert live == [{"phase": "Deploy", "start": "2026-10-06T06:00:00Z", "end": None, "state": "running"}]
+
+
+def watched_rows() -> list[dict]:
+    raw = {"number": 7, "state": "passed", "branch": "releases/deploy-api", "commit": "0" * 12, "created_at": "2026-10-06T06:00:00Z", "started_at": "2026-10-06T06:00:00Z", "finished_at": "2026-10-06T06:10:00Z", "message": "deploy api to plat at 9f8e7d1", "web_url": "https://bk/7", "env": {}, "jobs": WATCHED}
+    return overview.release_rows([platy.build_row(raw)], {}, "o/r", None, {}, OVERVIEW_MOMENT)
+
+
+def test_durations_drop_watch_and_link_each_bar(tmp_path, monkeypatch):
+    monkeypatch.setattr(cards, "known_builds", lambda ctx, pipeline, checkout: [])
+    monkeypatch.setattr(cards, "release_rows", lambda *args: watched_rows())
+    series = cards.durations(fake(tmp_path), checkout="/checkout", repo="o/r")
+    [point] = series.lines[0].points
+    assert (point[1], point[2]["tone"], point[2]["link"]) == (5.0, "ok", "https://bk/7")
+    assert series.thresholds == {"goal": cards.GOAL_MINUTES}
+    [track] = cards.timeline(fake(tmp_path), checkout="/checkout", repo="o/r", hours=24).tracks
+    assert [span.label for span in track.spans] == ["Build", "Deploy", "Watch"]
+
+
+def test_the_census_grid_puts_one_square_per_target_and_env_toned_by_its_worst_stack(tmp_path, monkeypatch):
+    base = {"deployable": platy.UNPROVEN, "zero": "0/0", "platy_url": "https://bk/1"}
+    rows = [
+        base | {"stack": "api/plat", "component": "api", "env": "plat", "target": "platform"},
+        base | {"stack": "web/plat", "component": "web", "env": "plat", "target": "platform", "zero": "drift", "platy_url": "https://bk/2"},
+        base | {"stack": "api/tnt", "component": "api", "env": "tnt", "target": "platform"},
+        base | {"stack": "net/plat", "component": "net", "env": "plat", "target": "infra", "deployable": platy.BLOCKED, "zero": "drift"},
+    ]
+    monkeypatch.setattr(cards, "known_builds", lambda ctx, pipeline, checkout: [])
+    monkeypatch.setattr(cards, "stack_rows", lambda *args: rows)
+    grid = cards.census_grid(fake(tmp_path), checkout="/checkout", state_dir=tmp_path, census="census-*.md")
+    assert (grid.rows, grid.cols) == (["platform (3)", "infra (1)"], ["plat", "tnt"])
+    assert grid.cells[0][0] == payloads.Heat("warn", "platform in plat: 1 of 2 at 0/0; web drift", "https://bk/2", "1")
+    assert grid.cells[0][1] == payloads.Heat("ok", "platform in tnt: 1 of 1 at 0/0", "https://bk/1", None)
+    assert grid.cells[1] == [payloads.Heat("bad", "infra in plat: 0 of 1 at 0/0; net blocked", "https://bk/1", "1"), None]
+    assert grid.legend == {"ok": "at 0/0 2", "warn": "drift 1", "bad": "blocked 1", "muted": "not planned 0"}
+
+
+@pytest.mark.parametrize(
+    ("delta", "better_up", "expected"),
+    [(4, True, ("▲ 4 in 24h", "ok")), (-0.9, False, ("▼ 0.9 in 24h", "ok")), (12, False, ("▲ 12 in 24h", "bad")), (0, True, ("no change in 24h", "muted"))],
+)
+def test_a_trend_points_its_arrow_and_tone_by_which_way_is_better(delta, better_up, expected):
+    assert cards.trend_of(delta, "", "in 24h", better_up) == expected
+
+
+def test_spend_bars_each_full_day_and_warns_over_target(tmp_path):
+    days = {"ResultsByTime": [{"TimePeriod": {"Start": "2026-10-05"}, "Total": {"UnblendedCost": {"Amount": "980.4"}}}, {"TimePeriod": {"Start": "2026-10-06"}, "Total": {"UnblendedCost": {"Amount": "1954.2"}}}]}
+    ctx = fake(tmp_path, replies={("aws", "--profile", "core-auto", "ce"): days})
+    from livedash.components import spend
+
+    series = spend.aws_spend(ctx, profile="core-auto", days=2, target_per_day=1043)
+    assert [(point[0], point[1], point[2]["tone"]) for point in series.lines[0].points] == [("2026-10-05", 980, "ok"), ("2026-10-06", 1954, "warn")]
+    assert "Start=2026-10-05,End=2026-10-07" in ctx.calls[0]
+    assert series.thresholds == {"target": 1043}

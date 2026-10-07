@@ -69,8 +69,12 @@ A target is `blocked` when any of its stacks is, `proven` only when all are, and
 
 | Card | Shows |
 |---|---|
+| `release.kpis` | Headline tiles with trend arrows: stacks at 0/0 as a ring, releases today and their pass rate, median and p90 release time without Watch against the goal, yesterday's spend from the `spend` card, open PRs from `review`, open incidents, and items waiting on the owner; each tile jumps to its card |
+| `release.durations` | One bar per finished applying build, minutes without Watch, toned by state, linked to Buildkite, under the goal rule |
+| `release.timeline` | A Gantt of live builds and those finished in the last `hours`, split into Build, Plan, Wait, Deploy, Watch and Finish from the job names |
+| `release.census-grid` | A heatmap of release targets against environments, each square toned by its worst stack and counting the stacks off 0/0 |
 | `release.tiles` | Stacks at 0/0, releases today, the median passed release, PRs landed today against open, open incidents, lanes working |
-| `release.census` | Stacks at 0/0 and the total over 48 hours, from cci state records carrying census fields |
+| `release.census` | Stacks at 0/0 and the total over 48 hours as an area chart, from cci state records carrying census fields |
 | `release.landed-per-hour` | PRs whose landed record arrived in each of the last 24 Pacific hours |
 | `release.incidents` | Incident threads from 72 hours of records, open first, grouped by slug and fix lane |
 | `release.lines` | Go, opened, updated, claim, ready, landed, released, and fix-live records since the drive started |

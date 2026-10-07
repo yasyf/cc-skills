@@ -84,15 +84,20 @@ Import every payload from `livedash`. Tones are `ok`, `warn`, `bad`, and `muted`
 | `Checklist` | `items: list[Gate]`, `note` | Gate list |
 | `Gate` | `id`, `title`, `status`, `blocker`, `owner`, `closes`, `link` | `status` is `open`, `pass`, `fail`, `blocked`, `waived`, `not-created`, or `not-run` |
 | `Tiles` | `tiles: list[Tile]`, `note` | Big numbers |
-| `Tile` | `label`, `value`, `unit`, `tone`, `hint`, `link` | |
-| `Series` | `lines: list[Line]`, `unit`, `thresholds: dict[str, float]`, `note` | Line chart with labeled rules |
-| `Line` | `label`, `points: list[[at, value]]` | |
+| `Tile` | `label`, `value`, `unit`, `tone`, `hint`, `link`, `trend`, `trend_tone`, `gauge`, `foot` | `trend` is a short arrowed change such as `▲ 4 in 24h`; `gauge` from 0 to 1 draws a ring; a `#card-<id>` link jumps to that card and opens it |
+| `Series` | `lines: list[Line]`, `unit`, `thresholds: dict[str, float]`, `note` | Chart with dashed rules named in its legend; a `$` unit leads the number |
+| `Line` | `label`, `points: list[[at, value]]`, `style`: `line`, `area`, or `bar` | A point's optional third item `{tone, link, label}` colors, links, and labels that bar or dot |
 | `Percentiles` | `dists: list[Dist]`, `history: Series`, `note` | p50, p95, p99, and max tracks against a budget |
 | `Dist` | `label`, `n`, `p50`, `p95`, `p99`, `max`, `unit`, `budget`, `failures` | `Dist.of(label, samples, unit, budget, failures)` computes nearest-rank percentiles |
 | `Graph` | `nodes: list[Node]`, `edges: list[[parent, child]]`, `highlight: list[str]` | Tree from each root, highlighted nodes marked |
 | `Node` | `id`, `label`, `tone`, `link` | |
 | `Feed` | `entries: list[Entry]`, `note` | Newest-first stream |
 | `Entry` | `at`, `actor`, `text`, `link`, `tone`, `latency_ms`, `key`, `cite` | `latency_ms` shows as a pill |
+| `Timeline` | `tracks: list[Track]`, `note` | Gantt with a time axis and a now line |
+| `Track` | `label`, `spans: list[Span]`, `link`, `tone`, `note`, `key`, `cite` | One row of the Gantt |
+| `Span` | `label`, `start`, `end`, `tone` | No `end` means still running |
+| `Heatmap` | `rows: list[str]`, `cols: list[str]`, `cells: list[list[Heat \| None]]`, `groups`, `legend: dict[tone, label]`, `note` | Dense grid of toned squares; `None` leaves a gap |
+| `Heat` | `tone`, `title`, `link`, `text` | `title` is the hover detail, `text` a short count drawn inside |
 | `Kv` | `pairs: dict` | Definition list |
 | `Markdown` | `text` | Rendered markdown |
 | `Svg` | `svg` | A sanitized inline drawing |

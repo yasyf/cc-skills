@@ -80,6 +80,7 @@ Every card is one `use:` plus these optional keys:
 | `width` | 1, 2, or 3 columns on a wide screen; a phone shows one column |
 | `phone` | The table column keys a phone shows on each row; the rest fold behind a "more" tap. Defaults to the columns the component marks for phones |
 | `pinned` | `true` lifts the card above every section and notifies on new rows |
+| `fold` | `true` shows the card as its item count, tone pills and a tone bar; a click opens the rows across the full width |
 | `with` | The component's parameters |
 
 Each parameter binds from `with`, else the `context.json` key of the same name,
@@ -122,7 +123,8 @@ A card that needs one of these links to where it lives.
   card with labeled fields, so no table scrolls sideways. Columns a phone does not need
   fold behind a "more" tap on each row.
 - A card that reads another card with `ctx.latest` reruns as soon as that card lands its
-  first payload, on the server and in `check`, so it never waits a full cadence.
+  first payload, on the server and in `check`, so it never waits a full cadence. After a
+  restart, a read of a card served from cache runs that card at once.
 - Payloads cache in `cache/<id>.json`, so a restart serves the last good data at once.
 - Every payload is scanned before it is served. A value of any env var named like a
   key, token, secret, or password, or a token-shaped string, drops the payload and
