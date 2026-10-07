@@ -15,7 +15,7 @@ from livedash.components.release import overview, platy
 
 from . import inboxlines
 
-DRIVES = Path(".claude") / "long-running" / "drives"
+DRIVES = Path("long-running") / "drives"
 ACTIONS_FILE = "owner-actions.json"
 OWNER_ACTIONS = {"question": "Question", "complete": "Mark complete", "reply": "Reply"}
 CCI_TEXT = 400
@@ -65,7 +65,7 @@ def owner_bullets(path: Path) -> list[dict]:
 
 
 def other_drive_sessions(ident: str) -> set[str]:
-    return {session for path in (Path.home() / DRIVES).glob("*.json") if (entry := json.loads(path.read_text()))["drive"] != ident for session in entry["sessions"]}
+    return {session for path in (Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / DRIVES).glob("*.json") if (entry := json.loads(path.read_text()))["drive"] != ident for session in entry["sessions"]}
 
 
 def actions(directory: Path) -> list[dict]:

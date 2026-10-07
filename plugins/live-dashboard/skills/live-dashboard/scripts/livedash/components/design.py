@@ -34,8 +34,10 @@ def design_gates(
     name who owns each gate and the PR that closes it."""
     if fetch and "/" in ref:
         remote, branch = ref.split("/", 1)
-        ctx.run(["git", "-C", str(repo_path), "fetch", "--quiet", remote, branch])
-    registers = entries(json.loads(ctx.run(["git", "-C", str(repo_path), "show", f"{ref}:{doc}/registers.json"])))
+        if remote.startswith("-"):
+            raise ValueError(f"ref {ref!r} must start with a remote name, not an option")
+        ctx.run(["git", "-C", str(repo_path), "fetch", "--quiet", "--", remote, branch])
+    registers = entries(json.loads(ctx.run(["git", "-C", str(repo_path), "show", "--end-of-options", f"{ref}:{doc}/registers.json"])))
     gates = []
     for ident in ids:
         entry = registers.get(ident)

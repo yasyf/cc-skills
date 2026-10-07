@@ -166,7 +166,7 @@ class Scheduler:
         return data
 
     def failed(self, instance: Instance, now: float, error: str, wait: float | None) -> None:
-        instance.error = error
+        instance.error = secrets.redacted(error, self.env)
         instance.failures += 1
         if wait is None and instance.every:
             wait = min(instance.every * 2**instance.failures, BACKOFF_CAP * instance.every)

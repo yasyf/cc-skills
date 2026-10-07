@@ -57,7 +57,7 @@ class Table:
             tone_of(row.get("tone"))
 
     def json(self) -> dict:
-        return dropped({"kind": self.kind, "cols": [asdict(col) for col in self.cols], "group_by": self.group_by, "footer": self.footer, "note": self.note}) | {"rows": self.rows}
+        return dropped({"kind": self.kind, "group_by": self.group_by, "footer": self.footer, "note": self.note}) | {"cols": [asdict(col) for col in self.cols], "rows": self.rows}
 
     @classmethod
     def example(cls) -> Table:
@@ -104,16 +104,11 @@ class Matrix:
             raise PayloadError(f"a matrix needs one row of {len(self.cols)} cells per row label, {len(self.rows)} rows")
 
     def json(self) -> dict:
-        return dropped(
-            {
-                "kind": "dd.matrix",
-                "title": self.title,
-                "pick": self.pick,
-                "rows": [{"label": label} for label in self.rows],
-                "cols": [{"label": label} for label in self.cols],
-                "cells": [[dropped(asdict(cell)) for cell in row] for row in self.cells],
-            }
-        )
+        return dropped({"kind": "dd.matrix", "title": self.title, "pick": self.pick}) | {
+            "rows": [{"label": label} for label in self.rows],
+            "cols": [{"label": label} for label in self.cols],
+            "cells": [[dropped(asdict(cell)) for cell in row] for row in self.cells],
+        }
 
     def schema_errors(self) -> list[str]:
         return ddshared.schema_errors(self.json(), matrix_schema(), "matrix")
@@ -281,7 +276,7 @@ class Graph:
                 raise PayloadError(f"edge {edge} must join two of the graph's node ids")
 
     def json(self) -> dict:
-        return dropped({"kind": self.kind, "nodes": [dropped(asdict(node)) | {"key": node.id} for node in self.nodes], "edges": [list(edge) for edge in self.edges], "highlight": self.highlight})
+        return dropped({"kind": self.kind, "highlight": self.highlight}) | {"nodes": [dropped(asdict(node)) | {"key": node.id} for node in self.nodes], "edges": [list(edge) for edge in self.edges]}
 
     @classmethod
     def example(cls) -> Graph:

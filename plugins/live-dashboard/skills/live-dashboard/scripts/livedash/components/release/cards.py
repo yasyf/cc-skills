@@ -49,7 +49,7 @@ def blockers(digest: dict, closed: set[str]) -> list[dict]:
 
 
 def pipeline_change(checkout: str, trunk: str, release_code: str) -> dict:
-    out = subprocess.run(["git", "log", "-1", "--format=%H%x09%cI%x09%s", trunk, "--", release_code], cwd=checkout, capture_output=True, text=True, check=True, timeout=30).stdout
+    out = subprocess.run(["git", "log", "-1", "--format=%H%x09%cI%x09%s", "--end-of-options", trunk, "--", release_code], cwd=checkout, capture_output=True, text=True, check=True, timeout=30).stdout
     sha, at, subject = out.strip().split("\t", 2)
     return {"sha": sha, "at": view.iso(view.stamp(at)), "subject": subject}
 
@@ -59,7 +59,7 @@ def contains(checkout: str):
 
     def check(ancestor: str, commit: str) -> bool:
         if (ancestor, commit) not in cache:
-            verdict = subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, commit], cwd=checkout, capture_output=True, text=True, timeout=30)
+            verdict = subprocess.run(["git", "merge-base", "--is-ancestor", "--end-of-options", ancestor, commit], cwd=checkout, capture_output=True, text=True, timeout=30)
             if verdict.returncode not in (0, 1):
                 raise subprocess.CalledProcessError(verdict.returncode, verdict.args, verdict.stdout, verdict.stderr)
             cache[(ancestor, commit)] = verdict.returncode == 0

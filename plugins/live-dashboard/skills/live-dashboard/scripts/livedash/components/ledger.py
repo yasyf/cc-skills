@@ -24,8 +24,8 @@ def current_head(fields: dict) -> str:
     return fields.get("head") or fields.get("reported_head", "")
 
 
-def rules_verdict(all_rows: dict[str, dict], pr: str, fields: dict) -> str:
-    review = all_rows.get(f"{REVIEW_PREFIX}{pr}@{current_head(fields)}")
+def rules_verdict(all_rows: dict[str, dict], pr: str, head: str) -> str:
+    review = all_rows.get(f"{REVIEW_PREFIX}{pr}@{head}")
     if review is None:
         return "none"
     return f"{review['verdict']} (overridden)" if review.get("override") else review["verdict"]

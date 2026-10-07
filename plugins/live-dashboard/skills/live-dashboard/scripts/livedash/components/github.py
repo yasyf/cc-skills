@@ -138,7 +138,7 @@ def review_queue(
                 "deletions": pr["deletions"],
                 "ci": ci,
                 "bot": bot_state(contexts, bot_checks),
-                "rules": ledgers.rules_verdict(rows, str(number), fields) if fields else "",
+                "rules": ledgers.rules_verdict(rows, str(number), pr["headRefOid"]) if fields else "",
                 "threads": sum(not thread["isResolved"] for thread in pr["reviewThreads"]["nodes"]),
                 "verdict": verdict,
                 "held": fields.get("hold_since") if held else None,

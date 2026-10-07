@@ -8,8 +8,9 @@ A host is plugins/<plugin>/skills/<skill>/templates/src/<name>.html. Its
 `<!-- @include html/x.js -->` and `/* @include html/x.css */` markers are
 replaced by the partial's text and the result is written to
 templates/<name>.html, stamped on line 2. Only hosts that include
-html/components.js also receive scripts/ddshared.py and scripts/build-pdf.py
-from py/, and a copy of every components/dd.*.json under reference/components/.
+html/components.js also receive scripts/ddshared.py from py/ and a copy of
+every components/dd.*.json under reference/components/; hosts that also
+include html/site.js, the published document pages, receive scripts/build-pdf.py.
 Each JS partial opens with
 `// @requires a,b` and `// @defines x,y`; check verifies that every required
 name is declared by the host source or by a partial the host includes before
@@ -40,8 +41,9 @@ JS_TOKEN = re.compile(
     r"|[{}]|[A-Za-z_$][\w$]*",
     re.S,
 )
-PY_OUTPUTS = {"ddshared.py": "ddshared.py", "build_pdf.py": "build-pdf.py"}
 COMPONENTS_KIT = "html/components.js"
+SITE_KIT = "html/site.js"
+PY_OUTPUTS = {COMPONENTS_KIT: {"ddshared.py": "ddshared.py"}, SITE_KIT: {"build_pdf.py": "build-pdf.py"}}
 
 
 def digest(*parts: bytes) -> str:
@@ -135,14 +137,16 @@ def contract_problems(src: Path) -> list[str]:
 
 def outputs() -> dict[Path, str]:
     out = {}
-    plugins = set()
+    kits: dict[Path, set[str]] = {}
     for src in sorted(ROOT.glob(HOST_GLOB)):
         out[src.parents[1] / src.name] = render_host(src)
-        if COMPONENTS_KIT in partial_names(src.read_text()):
-            plugins.add(src.parents[2])
-    for skill in sorted(plugins):
-        for source, target in PY_OUTPUTS.items():
-            out[skill / "scripts" / target] = render_py(source)
+        names = set(partial_names(src.read_text()))
+        if COMPONENTS_KIT in names:
+            kits.setdefault(src.parents[2], set()).update(names & set(PY_OUTPUTS))
+    for skill, included in sorted(kits.items()):
+        for kit in sorted(included):
+            for source, target in PY_OUTPUTS[kit].items():
+                out[skill / "scripts" / target] = render_py(source)
         for schema in sorted((SHARED / "components").glob("dd.*.json")):
             out[skill / "reference" / "components" / schema.name] = render_component(schema)
     return out

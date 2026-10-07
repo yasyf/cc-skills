@@ -9,7 +9,7 @@
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] --pr [OWNER/NAME#]N[=SHA]...
     drive.py thread  --session ID --lane NAME [--drive ID] --channel ID --thread-ts TS --posted-ts TS
 
-STDLIB ONLY. One file per drive at ``~/.claude/long-running/drives/<drive>.json`` names the
+STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
 the checkout the drive started in, every root session that has run it, its Orca run, and its state
 directory, ``~/.claude/scratch/<drive>`` unless ``start --state-dir`` names another.
@@ -55,7 +55,7 @@ REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 
 
 def drives_dir() -> Path:
-    return Path.home() / ".claude" / "long-running" / "drives"
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
 
 
 def stamp() -> str:

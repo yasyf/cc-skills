@@ -77,7 +77,7 @@ def allowed(annotation) -> bool:
     origin, args = typing.get_origin(annotation), typing.get_args(annotation)
     if origin in (types.UnionType, typing.Union):
         rest = [arg for arg in args if arg is not type(None)]
-        return len(rest) < len(args) and all(allowed(arg) for arg in rest) or set(rest) == {int, str}
+        return set(rest) == {int, str} or (len(rest) == 1 < len(args) and allowed(rest[0]))
     if origin is list:
         return len(args) == 1 and (args[0] in (int, str) or set(typing.get_args(args[0])) == {int, str})
     if origin is dict:
@@ -129,7 +129,8 @@ def coerce(name: str, value, annotation, base: Path):
             if isinstance(value, (int, str)) and not isinstance(value, bool):
                 return value
             raise BindError(f"{name} must be an int or a string, not {value!r}")
-        return coerce(name, value, options[0], base) if len(options) == 1 else value
+        (option,) = options
+        return coerce(name, value, option, base)
     if annotation is Path:
         if not isinstance(value, str):
             raise BindError(f"{name} must be a path string, not {value!r}")
@@ -145,7 +146,7 @@ def coerce(name: str, value, annotation, base: Path):
         if not isinstance(value, list):
             raise BindError(f"{name} must be a list, not {value!r}")
         return [coerce(f"{name}[{index}]", item, args[0], base) for index, item in enumerate(value)]
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+    if not isinstance(value, dict) or not all(isinstance(key, str) and isinstance(item, (str, int, float)) and not isinstance(item, bool) for key, item in value.items()):
         raise BindError(f"{name} must be a mapping of strings, not {value!r}")
     return {key: str(item) for key, item in value.items()}
 

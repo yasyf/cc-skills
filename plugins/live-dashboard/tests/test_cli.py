@@ -66,6 +66,21 @@ def test_check_prints_each_defect_and_exits_one(tmp_path):
     assert checked.stdout.startswith("layout.yaml:5: unknown component 'slack-fed'")
 
 
+def test_check_reports_a_card_that_outlives_its_timeout(tmp_path):
+    board = tmp_path / "board"
+    cli("init", "--dir", str(board), "--preset", "live-test")
+    (board / "components").mkdir(exist_ok=True)
+    (board / "components" / "slow.py").write_text(
+        "import time\nfrom livedash import Context, Markdown, component\n\n\n"
+        '@component("slow", "Slow", timeout="1s")\n'
+        "def slow(ctx: Context) -> Markdown:\n    print('working')\n    time.sleep(30)\n    return Markdown('done')\n"
+    )
+    (board / "layout.yaml").write_text((board / "layout.yaml").read_text() + "  - title: Slow\n    components:\n      - {use: local.slow}\n")
+    checked = cli("check", "--dir", str(board), "--only", "local.slow")
+    assert checked.returncode == 1, checked.stderr
+    assert checked.stdout.strip().endswith("did not finish within its 1s timeout")
+
+
 def test_snapshot_renders_cards_as_markdown(tmp_path):
     board = tmp_path / "board"
     cli("init", "--dir", str(board), "--preset", "live-test")

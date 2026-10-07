@@ -348,3 +348,8 @@ def lock(tmp_path) -> Path:
 @pytest.fixture
 def red_routes() -> dict[str, str]:
     return {f"status:{MOVED_HEAD}": "status-failure.json"}
+
+
+@pytest.fixture(autouse=True)
+def default_config_dir(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)

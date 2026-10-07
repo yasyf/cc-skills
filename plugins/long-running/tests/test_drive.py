@@ -127,6 +127,12 @@ def test_current_and_end_resolve_the_session_drive(repo, monkeypatch, capsys):
     assert not list(drive.drives_dir().glob("*.json"))
 
 
+def test_registrations_live_under_the_claude_config_dir(repo, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    started(repo)
+    assert (tmp_path / "config" / "long-running" / "drives" / "900424b6.json").exists()
+
+
 def test_a_sessionless_process_resolves_the_drive_of_its_orca_run(repo, monkeypatch, capsys):
     started(repo, "--orca-run", "run_7715a23a5657")
     capsys.readouterr()

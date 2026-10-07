@@ -12,6 +12,7 @@ SECTION_KEYS = {"title", "collapsed", "components"}
 CARD_KEYS = {"use", "id", "title", "every", "width", "pinned", "with"}
 USE_KEY = re.compile(r"(?:^|[{,\s-])use:\s")
 LINE = re.compile(r"\bline (\d+)")
+CARD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class LayoutError(ValueError):
@@ -98,13 +99,15 @@ def card_of(raw: dict, line: int, section: str, facts: dict, base: Path) -> Card
         raise LayoutError(line, f"card has unknown key {', '.join(sorted(unknown))}; use {', '.join(sorted(CARD_KEYS))}")
     use = expect(raw.get("use"), str, "use", line)
     every = raw.get("every")
-    if every is not None and every not in registry.CADENCES:
+    if every is not None and (not isinstance(every, str) or every not in registry.CADENCES):
         raise LayoutError(line, f"every must be one of {', '.join(registry.CADENCES)}, not {every!r}")
     width = expect(raw.get("width", 1), int, "width", line)
     if not 1 <= width <= 3:
         raise LayoutError(line, f"width must be 1, 2 or 3, not {width}")
     given = expect(raw.get("with") or {}, dict, "with", line)
     ident = expect(raw.get("id", use), str, "id", line)
+    if not CARD_ID.match(ident):
+        raise LayoutError(line, f"card id {ident!r} must be letters, digits, dots, dashes or underscores, starting with a letter or digit")
     spec = registry.REGISTRY.get(use)
     if spec is None:
         if use.startswith("local.") and any(name.startswith(registry.LOCAL_PACKAGE) for name in registry.LOAD_ERRORS):

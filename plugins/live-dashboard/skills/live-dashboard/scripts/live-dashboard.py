@@ -149,7 +149,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_check_child(args: argparse.Namespace) -> int:
     found = check.defects(directory_of(args), args.only, not args.static, dict(os.environ))
-    print(json.dumps(found))
+    print(json.dumps(found), file=sys.__stdout__, flush=True)
     return 1 if found else 0
 
 

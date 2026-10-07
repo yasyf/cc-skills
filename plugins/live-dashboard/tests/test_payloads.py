@@ -17,6 +17,12 @@ def test_every_payload_kind_has_a_page_renderer_and_a_markdown_form():
         assert payloads.markdown(cls.kind, example.json())
 
 
+def test_empty_payloads_keep_the_arrays_the_page_reads():
+    assert Graph([], []).json() == {"kind": "graph", "nodes": [], "edges": []}
+    assert Table([], []).json() == {"kind": "table", "cols": [], "rows": []}
+    assert payloads.markdown("graph", Graph([], []).json()) == ""
+
+
 def test_percentiles_use_the_nearest_rank():
     dist = Dist.of("x", [float(n) for n in range(1, 101)])
     assert (dist.n, dist.p50, dist.p95, dist.p99, dist.max) == (100, 50.0, 95.0, 99.0, 100.0)

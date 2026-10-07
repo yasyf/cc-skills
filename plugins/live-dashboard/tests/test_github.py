@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from conftest import LEDGER, PR_STATUS, fake, fixture
 from livedash.components import github
@@ -26,6 +28,14 @@ def test_each_row_carries_size_checks_reviews_and_holds(tmp_path):
     assert rows["102"]["rules"] == "clean" and rows["102"]["threads"] == 1 and rows["102"]["verdict"] == "blocked:ci-pending"
     assert rows["103"].items() >= {"ci": "red", "rules": "none", "owner": "reviewed", "tone": "bad", "held": None, "size": "+2,472/-0"}.items()
     assert table.footer == {"pr": "3 PRs", "size": "+2,515/-7,515", "threads": 2}
+
+
+def test_the_rules_verdict_reads_the_head_github_reports(tmp_path):
+    prs = fixture("graphql-prs.json")
+    text = json.dumps(prs).replace("a" * 40, "f" * 40)
+    ctx = fake(tmp_path, replies={LEDGER: fixture("ledger-rows.json"), PR_STATUS: fixture("pr-status.json")}, graphql=json.loads(text))
+    rows = {row["key"]: row for row in github.review_queue(ctx, repo="o/r", ledger="L1").rows}
+    assert rows["101"]["rules"] == "none"
 
 
 def test_an_agent_posted_review_never_counts_as_the_owner(tmp_path):

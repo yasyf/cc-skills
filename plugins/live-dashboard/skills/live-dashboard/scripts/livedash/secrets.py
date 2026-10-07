@@ -21,3 +21,9 @@ def hits(text: str, env: Mapping[str, str] | None = None) -> list[str]:
     if PREFIXED.search(text):
         found.append("token-shaped")
     return found
+
+
+def redacted(text: str, env: Mapping[str, str] | None = None) -> str:
+    for name, value in env_values(os.environ if env is None else env).items():
+        text = text.replace(value, f"<{name}>")
+    return PREFIXED.sub("<redacted>", text)

@@ -42,6 +42,11 @@ def wrong(ctx: Context) -> Kv:
     return Tiles([])
 
 
+@component("spills", "Spills", every="1m")
+def spills(ctx: Context) -> Kv:
+    raise ValueError("auth failed for hunter2hunter2 and sk-abcdefghijklmnopqrstuv")
+
+
 @component("chatty", "Chatty", every="1m")
 def chatty(ctx: Context) -> Kv:
     print("debugging")
@@ -66,6 +71,7 @@ sections:
       - {use: local.limited}
       - {use: local.leaky}
       - {use: local.wrong}
+      - {use: local.spills}
       - use: local.needs
         with:
           files: runs/latest.json
@@ -147,6 +153,7 @@ def test_a_payload_carrying_a_secret_or_the_wrong_type_is_dropped(board):
     assert cards["local.leaky"]["payload"] is None
     assert cards["local.wrong"]["error"] == "TypeError: local.wrong returned Tiles, not the Kv its signature names"
     assert not (board / "cache" / "local.leaky.json").exists()
+    assert cards["local.spills"]["error"] == "ValueError: auth failed for <MY_TOKEN> and <redacted>"
 
 
 def test_params_bind_from_with_then_facts_then_defaults(board):
@@ -199,9 +206,12 @@ def test_a_manual_card_runs_once_and_again_only_on_refresh(board):
         (lambda text: text.replace("id: a}", "id: a, colour: red}"), "layout.yaml:5: card has unknown key colour"),
         (lambda text: text.replace("id: b,", "id: a,"), "layout.yaml:6: card id 'a' repeats line 5"),
         (lambda text: text.replace("local.broken", "local.nothing"), "layout.yaml:11: unknown component 'local.nothing'"),
-        (lambda text: text.replace("      with:\n          files: runs/latest.json\n", ""), "layout.yaml:15: local.needs needs files"),
+        (lambda text: text.replace("      with:\n          files: runs/latest.json\n", ""), "layout.yaml:16: local.needs needs files"),
         (lambda text: text.replace("{start: 10}", "{start: ten}"), "layout.yaml:7: start must be int, not 'ten'"),
         (lambda text: text.replace("every: 15s", "every: 10s"), "layout.yaml:6: every must be one of"),
+        (lambda text: text.replace("every: 15s", "every: [1m]"), "layout.yaml:6: every must be one of"),
+        (lambda text: text.replace("id: a}", "id: feature/api}"), "layout.yaml:5: card id 'feature/api' must be"),
+        (lambda text: text.replace("id: a}", "id: ../outside}"), "layout.yaml:5: card id '../outside' must be"),
         (lambda text: text + "colour: red\n", "layout.yaml:1: unknown top-level key colour"),
     ],
 )
@@ -239,6 +249,7 @@ def test_check_reports_every_defect_one_line_each(board):
         (lambda: registry.component("ok", "x")(lambda ctx: Kv({})), "must annotate its return"),
         (lambda: registry.component("ok", "x")(positional), "must be keyword-only"),
         (lambda: registry.component("ok", "x")(typed), "parameter rows has type"),
+        (lambda: registry.component("ok", "x")(mixed), "parameter limit has type"),
     ],
 )
 def test_the_decorator_refuses_components_the_engine_cannot_bind(define, message):
@@ -252,3 +263,15 @@ def positional(ctx, ledger: str) -> Kv:
 
 def typed(ctx, *, rows: list[dict]) -> Kv:
     return Kv({})
+
+
+def mixed(ctx, *, limit: int | float | None = None) -> Kv:
+    return Kv({})
+
+
+def test_a_mapping_parameter_takes_only_scalar_values(tmp_path):
+    names = dict[str, str] | None
+    assert registry.coerce("names", {"103": 101}, names, tmp_path) == {"103": "101"}
+    for bad in ({"103": None}, {"103": [1]}, {"103": True}):
+        with pytest.raises(registry.BindError, match="mapping of strings"):
+            registry.coerce("names", bad, names, tmp_path)

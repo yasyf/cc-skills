@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import sys
 import threading
 from pathlib import Path
 
@@ -32,11 +33,12 @@ def run_card(card: layout.Card, directory: Path, facts: dict, env: dict) -> list
     worker.join(spec.timeout)
     where = f"{card.id} ({card.use}, layout.yaml:{card.line})"
     if worker.is_alive():
+        sys.stdout = sys.__stdout__
         return [f"{where}: did not finish within its {spec.timeout:g}s timeout"]
     found = [f"{where}: printed {len(printed.getvalue())} characters to stdout; a component prints nothing"] if printed.getvalue() else []
     if "error" in outcome:
         failure = outcome["error"]
-        return [*found, f"{where}: {failure_text(failure) if isinstance(failure, OSError) else f'{type(failure).__name__}: {failure}'}"]
+        return [*found, f"{where}: {secrets.redacted(failure_text(failure) if isinstance(failure, OSError) else f'{type(failure).__name__}: {failure}', env)}"]
     result = outcome["result"]
     if not isinstance(result, spec.payload):
         return [*found, f"{where}: returned {type(result).__name__}, not the {spec.payload.__name__} its signature names"]
