@@ -4,6 +4,8 @@ import re
 
 from cc_transcript.models import AssistantEvent
 from captain_hook import (
+    CONFIRMED,
+    UNCONFIRMED,
     Allow,
     Annotated,
     BaseHookEvent,
@@ -74,15 +76,15 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     only_if=[Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests={
-        spawn("pr-review-pipeline-fix", "CI incident, effort high."): Block(pattern=r"orca-desk: launch <name> NOW incident xhigh brief=<absolute path>"),
-        spawn("incident-api-1n80-fix", "Fix it."): Block(),
-        spawn("lane-failing-fix", INCIDENT_TURN, llm={"block": False}): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api."): Block(),
-        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", llm={"block": False}): Allow(),
+        spawn("pr-review-pipeline-fix", "CI incident, effort high.", decide=CONFIRMED): Block(pattern=r"orca-desk: launch <name> NOW incident xhigh brief=<absolute path>"),
+        spawn("incident-api-1n80-fix", "Fix it.", decide=CONFIRMED): Block(),
+        spawn("lane-failing-fix", INCIDENT_TURN, decide=UNCONFIRMED): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=CONFIRMED): Block(),
+        spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api.", decide=UNCONFIRMED): Allow(),
         spawn("lane-failing-fix", f"ccx: incident=none\n{INCIDENT_TURN}"): Allow(),
         spawn("flappy-monitors-2", NOT_AN_INCIDENT): Allow(),
         spawn("ignore-protect-preview", INCIDENT_ADJACENT): Allow(),
-        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", llm={"block": False}): Allow(),
+        spawn("incident-runner", "Lane incident-runner: a durable incident executor.", decide=UNCONFIRMED): Allow(),
         spawn("incident-runner", "ccx: role=tooling tooling-lane=incident-runner\nLane incident-runner."): Allow(),
         spawn("incident-api-1n80-evidence", "ccx: role=evidence\nEvidence lane for the incident."): Allow(),
         spawn("ledger-fix", "ccx: role=fix\nFix the ledger."): Allow(),
@@ -140,13 +142,9 @@ def question_text(evt: BaseHookEvent) -> str:
     )
 
 
-def ask(question: str, llm: dict[str, bool] | None = None, **option: str) -> Input:
+def ask(question: str, decide: dict[str, object] | None = None, **option: str) -> Input:
     questions = [{"question": question, "header": "Ask", "options": [{"label": "Go", **option}, {"label": "Hold"}], "multiSelect": False}]
-    return Input(tool="AskUserQuestion", tool_input={"questions": questions}, state=ACTIVE, llm=llm)
-
-
-JUDGE_ALLOWS = {"block": False}
-JUDGE_UNSURE = {"block": True, "confident": False}
+    return Input(tool="AskUserQuestion", tool_input={"questions": questions}, state=ACTIVE, decide=decide or CONFIRMED)
 
 
 @on(
@@ -159,8 +157,8 @@ JUDGE_UNSURE = {"block": True, "confident": False}
         ask("Extend the alert grant?", description="same terms as answer 543e865"): Block(pattern=r"never a codename"),
         ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?'): Block(pattern=r"never composes Slack copy"),
         ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
-        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", JUDGE_ALLOWS, description="Options A and B"): Allow(),
-        ask("Land the release-pipeline cutover stack now?", JUDGE_UNSURE, description="B lands after D"): Allow(),
+        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", UNCONFIRMED, description="Options A and B"): Allow(),
+        ask("Land the release-pipeline cutover stack now?", UNCONFIRMED, description="B lands after D"): Allow(),
         ask("Apply G327 per R1053?"): Block(pattern=r"never a codename"),
         ask("Retry the dispatch?", description="ctx_8f2a1 stalled; log c093750 has the trace"): Block(pattern=r"never a codename"),
         ask("Resend the relay?", description="msg_01HXQ never arrived"): Block(pattern=r"never a codename"),
