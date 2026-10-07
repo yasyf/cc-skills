@@ -120,8 +120,9 @@ $TOOL live init <incident-dir> --docs <design-docs-checkout>
 `init` creates `incident-retros/<slug>/` with `meta.status: "ongoing"`,
 records the slug in state, and runs the checkout's
 `.claude/skills/update-design-docs/scripts/sync-index.sh`, which regenerates
-both index pages' cards from every `retro.json`. It makes no
-commit or pull request. Open and merge the shell PR once, with the retro
+both index pages' cards from every `retro.json`. It deletes the starter
+`summary.html`, so the page opens on the live summary rather than a
+placeholder deck. It makes no commit or pull request. Open and merge the shell PR once, with the retro
 and both cards in its first commit. Share the resulting page URL as the
 incident's status link. Pages deploys only from `main`, about 10 minutes
 after merge; that delay applies to the shell, not to each live update.
@@ -133,7 +134,8 @@ $TOOL live sync <incident-dir> --docs <design-docs-checkout>
 ```
 
 `sync` derives the timeline, windows, causes, actions, and Slack snapshots,
-updates `live.updatedAt`, and force-pushes `retro.json` and `evidence/slack/`
+writes `summary` from the title, monitors, `severity`, `commander`, and
+`status`, updates `live.updatedAt`, and force-pushes `retro.json` and `evidence/slack/`
 to `live/<slug>`. The checkout's HEAD and index stay in place. Use
 `--no-push` to write and check locally. No live command calls a model;
 do not run `prose` or draft narrative while the incident is ongoing.
