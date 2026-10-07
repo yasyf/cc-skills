@@ -38,6 +38,17 @@ def test_failed_check_is_checks_failed(poll):
     assert run.done == "DONE checks-failed"
 
 
+def test_check_cancelled_in_favor_of_a_rerun_counts_by_the_rerun(poll):
+    runs = [check_run("build", conclusion="success", run_id=2), check_run("build", conclusion="cancelled", run_id=1)]
+    run = poll(surface(pull(), runs=runs))
+    assert run.lines == ["CHECK build pass https://ci.example/build", "DONE ready-to-merge"]
+
+
+def test_check_cancelled_on_its_only_run_is_checks_failed(poll):
+    run = poll(surface(pull(), runs=[check_run("build", conclusion="cancelled")]))
+    assert run.done == "DONE checks-failed"
+
+
 def test_dirty_is_conflicted_on_the_first_read(poll):
     run = poll(surface(pull(mergeable=False, mergeable_state="dirty")))
     assert run.done == "DONE conflicted"
