@@ -1,0 +1,21 @@
+title: Live test
+sections:
+  - title: Test channels
+    components:
+      - use: slack-feed
+        id: test-channels
+        width: 2
+        with: {threads: []}
+      - use: latency-percentiles
+        id: bot-latency
+        width: 1
+        with: {files: 'timelines/*.timeline.json', deltas_from: origin, deltas_to: [thread, triage], budget_ms: 60000}
+  - title: Outcomes
+    components:
+      - use: datadog-monitors
+        id: monitors
+        with: {query: 'tag:"service:example"'}
+  - title: Health
+    collapsed: true
+    components:
+      - {use: dashboard-health, id: health}

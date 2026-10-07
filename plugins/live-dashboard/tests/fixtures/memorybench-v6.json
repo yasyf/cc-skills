@@ -1,0 +1,365 @@
+{
+ "mode": "latency",
+ "samples": [
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 185.34,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 161.12,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 231.13,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 150.14,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 215.02,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 191.2,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 148.12,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 211.04,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 145.25,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 200.71,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 149.78,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 152.7,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 199.43,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 255.76,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 157.33,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 171.25,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 227.84,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 272.68,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "describe",
+   "wall_ms": 220.79,
+   "failed": false
+  },
+  {
+   "scenario": "cold",
+   "stage": "search",
+   "wall_ms": 195.54,
+   "failed": true
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 118.58,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 62.79,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 111.51,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 77.38,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 68.66,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 67.07,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 78.51,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 108.97,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 70.84,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 94.9,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 98.33,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 82.34,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 92.86,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 63.77,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 63.58,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 72.36,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 100.82,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 85.66,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "describe",
+   "wall_ms": 78.85,
+   "failed": false
+  },
+  {
+   "scenario": "warm",
+   "stage": "search",
+   "wall_ms": 95.13,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 13.08,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 11.7,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 16.15,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 15.29,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 11.2,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 14.17,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 13.73,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 16.88,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 15.57,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 11.59,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 17.82,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 10.06,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 12.76,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 15.81,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 10.37,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 13.4,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 9.35,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 15.01,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "describe",
+   "wall_ms": 15.88,
+   "failed": false
+  },
+  {
+   "scenario": "cached",
+   "stage": "search",
+   "wall_ms": 14.16,
+   "failed": false
+  }
+ ]
+}

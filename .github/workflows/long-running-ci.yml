@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "plugins/long-running/**"
+      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/workflows/long-running-ci.yml"
   pull_request:
     paths:
       - "plugins/long-running/**"
+      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/workflows/long-running-ci.yml"
   workflow_dispatch:
 

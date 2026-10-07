@@ -1,0 +1,27 @@
+title: Release
+sections:
+  - title: Now
+    components:
+      - use: release.tiles
+        id: overview
+        width: 3
+        with: {census: 'done-board/iac-drift-*.md'}
+      - {use: release.builds, id: builds, width: 3}
+  - title: Platy deployability
+    components:
+      - use: release.stacks
+        id: stacks
+        width: 3
+        with: {census: 'done-board/iac-drift-*.md'}
+      - {use: release.census, id: census, width: 2}
+      - {use: release.landed-per-hour, id: landed}
+  - title: Incidents
+    components:
+      - {use: release.incidents, id: incidents, width: 2}
+      - {use: incident-feed, width: 1}
+  - title: Activity
+    collapsed: true
+    components:
+      - {use: release.lines, id: lines, width: 2}
+      - {use: cci-lanes, id: lanes}
+      - {use: dashboard-health, id: health}

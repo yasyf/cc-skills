@@ -1,0 +1,90 @@
+{
+ "drive": "test",
+ "open_asks": [
+  {
+   "seq": 30,
+   "lane": "lane-two",
+   "kind": "ask",
+   "at": "2026-10-06T20:00:47Z",
+   "text": "restack #102",
+   "to": [
+    "lane-one"
+   ],
+   "refs": {},
+   "fields": {}
+  },
+  {
+   "seq": 31,
+   "lane": "lane-three",
+   "kind": "ask",
+   "at": "2026-10-06T21:00:00Z",
+   "text": "pick the cap",
+   "to": [
+    "owner"
+   ],
+   "refs": {},
+   "fields": {
+    "accept": "a cap is chosen"
+   }
+  }
+ ],
+ "open_holds": null,
+ "untracked_holds": null,
+ "open_incidents": null,
+ "open_blockers": [
+  {
+   "seq": 10,
+   "lane": "desk",
+   "kind": "blocker",
+   "at": "2026-10-06T16:25:52Z",
+   "text": "#101 1111111111: graphite NEEDS_CODEOWNER_APPROVALS",
+   "topic": "101",
+   "to": [
+    "lane-one"
+   ],
+   "refs": {},
+   "fields": {}
+  },
+  {
+   "seq": 11,
+   "lane": "desk",
+   "kind": "blocker",
+   "at": "2026-10-06T17:25:52Z",
+   "text": "#102 bbbbbbbbbb: CI running",
+   "topic": "102",
+   "to": [
+    "lane-two"
+   ],
+   "refs": {},
+   "fields": {}
+  },
+  {
+   "seq": 12,
+   "lane": "desk",
+   "kind": "blocker",
+   "at": "2026-10-06T17:30:00Z",
+   "text": "#103 cccccccccc: CI red",
+   "topic": "103",
+   "to": [
+    "lane-three"
+   ],
+   "refs": {},
+   "fields": {}
+  }
+ ],
+ "open_defects": [
+  {
+   "seq": 13,
+   "lane": "lane-two",
+   "kind": "defect",
+   "at": "2026-10-06T18:00:00Z",
+   "text": "the test expects the old name",
+   "topic": "lane-two",
+   "to": [
+    "lane-one"
+   ],
+   "refs": {},
+   "fields": {}
+  }
+ ]
+}

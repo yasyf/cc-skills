@@ -1,0 +1,28 @@
+name: live-dashboard CI
+
+on:
+  push:
+    paths:
+      - "plugins/live-dashboard/**"
+      - "plugins/long-running/dashboard/**"
+      - ".github/workflows/live-dashboard-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/live-dashboard/**"
+      - "plugins/long-running/dashboard/**"
+      - ".github/workflows/live-dashboard-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: pytest
+        run: uv run --project plugins/live-dashboard pytest plugins/live-dashboard/tests -q
+      - name: catalog is current
+        run: python3 plugins/live-dashboard/skills/live-dashboard/scripts/live-dashboard.py catalog --check

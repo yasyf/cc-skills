@@ -1,0 +1,25 @@
+title: Drive
+banner: Seeded from the drive preset; tailor it per /live-dashboard reference/picking.md before the first milestone report.
+sections:
+  - title: Needs you
+    components:
+      - {use: lr.needs-owner, id: needs-owner, pinned: true, width: 3}
+      - {use: asks, width: 3}
+  - title: Review
+    components:
+      - {use: pr-review-queue, id: review, width: 3}
+      - {use: stack-graph, id: stack, width: 2}
+      - {use: landing-preview, id: land-now}
+  - title: Lanes and records
+    components:
+      - {use: cci-lanes, id: lanes, width: 2}
+      - {use: tasks}
+      - {use: open-records, id: hygiene, width: 3}
+  - title: Drive
+    collapsed: true
+    components:
+      - {use: lr.drive, id: drive}
+      - {use: gh-quota}
+      - {use: dashboard-health, id: health}
+      - {use: notes, width: 2}
+      - {use: boards}

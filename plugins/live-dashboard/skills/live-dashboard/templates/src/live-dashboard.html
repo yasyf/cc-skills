@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dashboard-action" content="{{action_token}}">
+<title>live dashboard</title>
+<style>
+:root {
+ color-scheme: light dark;
+ --fg:#1d2024; --muted:#6b7079; --faint:#9aa0a8; --line:#e3e5e8; --bg:#f4f5f7; --card:#fff; --raised:#f8f9fa; --accent:#2f343b;
+ --ok:#1f7a4c; --bad:#c22f2f; --warn:#a86500; --info:#2563c9; --idle:#8a9099;
+ --ok-soft:#e3f2ea; --bad-soft:#fbe7e6; --warn-soft:#fdf0d8; --info-soft:#e4ecfb; --idle-soft:#eceef1;
+ --ink:var(--fg); --ink2:var(--muted); --crit:var(--bad); --accent-soft:var(--info-soft); --accent-ink:#fff; --display:inherit; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; --r-node:8px; --r-ctl:7px; --measure:72ch; --lift:none;
+ --t-xs:11px; --t-sm:12px; --t-md:13px; --t-base:14px; --t-lg:16px; --t-xl:20px; --t-2xl:28px;
+ --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px;
+ --radius:12px;
+}
+@media (prefers-color-scheme:dark) { :root {
+ --fg:#eceef1; --muted:#9ba1aa; --faint:#6b717a; --line:#2c3036; --bg:#131518; --card:#1b1e22; --raised:#22262b; --accent:#3a4049;
+ --ok:#5fbf8c; --bad:#f07a73; --warn:#e5ad4a; --info:#6ea2f5; --idle:#7d848e;
+ --ok-soft:#1f3529; --bad-soft:#3d2523; --warn-soft:#3a301c; --info-soft:#1e2c44; --idle-soft:#262a30;
+} }
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+body { margin:0; font:var(--t-base)/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; color:var(--fg); background:var(--bg); font-variant-numeric:tabular-nums; }
+button,input { font:inherit; color:inherit; }
+button { cursor:pointer; }
+a { color:inherit; }
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible { outline:2px solid var(--info); outline-offset:2px; }
+.top { position:sticky; top:0; z-index:20; background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
+.top-inner { max-width:1440px; margin:auto; padding:var(--s3) calc(var(--s8) + 64px) var(--s3) var(--s8); display:flex; align-items:center; gap:var(--s4); }
+.brand { display:flex; align-items:baseline; gap:var(--s3); min-width:0; }
+h1 { margin:0; font-size:var(--t-xl); font-weight:650; letter-spacing:-.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.eyebrow { font-size:var(--t-xs); color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+.search { flex:1; max-width:380px; margin-left:auto; display:flex; align-items:center; gap:var(--s2); border:1px solid var(--line); background:var(--card); border-radius:999px; padding:6px 14px; color:var(--muted); }
+.search svg { width:15px; height:15px; flex:none; }
+.search input { width:100%; min-width:0; border:0; outline:0; background:none; font-size:var(--t-md); }
+.health { display:flex; gap:var(--s2); font-size:var(--t-sm); white-space:nowrap; }
+.health button { background:none; border:0; padding:0; }
+.status { display:flex; align-items:center; gap:var(--s2); font-size:var(--t-sm); color:var(--muted); white-space:nowrap; }
+.status .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px var(--ok-soft); }
+.status.delayed .dot { background:var(--warn); box-shadow:0 0 0 3px var(--warn-soft); }
+.status.disconnected .dot { background:var(--bad); box-shadow:0 0 0 3px var(--bad-soft); }
+.link-button { background:none; border:0; padding:0; color:var(--muted); font-size:var(--t-sm); }
+.link-button:hover { color:var(--fg); text-decoration:underline; }
+.strip { border-top:1px solid var(--line); }
+.strip-inner { max-width:1440px; margin:auto; padding:6px calc(var(--s8) + 64px) 6px var(--s8); font-size:var(--t-sm); }
+.strip.banner { background:var(--info-soft); }
+.strip.error { background:var(--bad-soft); color:var(--bad); font-weight:550; }
+main { max-width:1440px; margin:auto; padding:var(--s5) var(--s8) 96px; display:grid; gap:var(--s5); }
+.cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--s3); align-items:start; }
+.section > summary { display:flex; align-items:baseline; gap:var(--s3); cursor:pointer; list-style:none; padding:0 0 var(--s3); }
+.section > summary::-webkit-details-marker { display:none; }
+.section > summary h2 { margin:0; font-size:var(--t-lg); font-weight:620; letter-spacing:-.2px; }
+.section > summary::after { content:"−"; color:var(--muted); }
+.section:not([open]) > summary::after { content:"+"; }
+.section-note { font-size:var(--t-sm); color:var(--muted); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); min-width:0; display:flex; flex-direction:column; }
+.card[data-width="2"] { grid-column:span 2; } .card[data-width="3"] { grid-column:span 3; }
+.card.pinned { border-color:var(--warn); box-shadow:0 0 0 1px var(--warn-soft); }
+.card-head { display:flex; align-items:center; gap:var(--s2); padding:10px var(--s4); border-bottom:1px solid var(--line); }
+.card-head h3 { margin:0; font-size:var(--t-md); font-weight:620; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.card-meta { font-size:var(--t-xs); color:var(--muted); white-space:nowrap; }
+.card-tools { display:flex; gap:2px; }
+.card-tools button { background:none; border:0; color:var(--muted); font-size:var(--t-sm); padding:2px 5px; border-radius:6px; }
+.card-tools button:hover { background:var(--raised); color:var(--fg); }
+.card-body { padding:var(--s3) var(--s4) var(--s4); overflow:auto; max-height:560px; }
+.card-error { margin:var(--s3) var(--s4) 0; padding:6px 10px; border-radius:8px; background:var(--bad-soft); color:var(--bad); font-size:var(--t-sm); overflow-wrap:anywhere; }
+.card-error.stale { background:var(--warn-soft); color:var(--warn); }
+.note { color:var(--muted); font-size:var(--t-sm); margin:0 0 var(--s2); }
+.empty { color:var(--muted); font-size:var(--t-sm); padding:var(--s2) 0; }
+.toast { font-size:var(--t-xs); color:var(--muted); padding:0 var(--s4) var(--s2); }
+.toast.bad { color:var(--bad); }
+.pill { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:var(--t-xs); font-weight:550; white-space:nowrap; background:var(--idle-soft); color:var(--muted); line-height:18px; }
+.pill::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+.pill.ok { background:var(--ok-soft); color:var(--ok); } .pill.bad { background:var(--bad-soft); color:var(--bad); }
+.pill.warn { background:var(--warn-soft); color:var(--warn); } .pill.info { background:var(--info-soft); color:var(--info); }
+.pill.muted { background:var(--idle-soft); color:var(--muted); }
+.ok-text { color:var(--ok); } .bad-text { color:var(--bad); } .warn-text { color:var(--warn); } .muted-text { color:var(--muted); }
+table.grid { border-collapse:collapse; width:100%; font-size:var(--t-sm); }
+table.grid td,table.grid th { text-align:left; vertical-align:top; padding:7px 10px 7px 0; border-bottom:1px solid var(--line); }
+table.grid th { color:var(--muted); font-weight:500; white-space:nowrap; position:sticky; top:-12px; background:var(--card); }
+table.grid td.num,table.grid th.num { text-align:right; }
+table.grid td.age { white-space:nowrap; color:var(--muted); }
+table.grid tr.group td { font-weight:620; color:var(--muted); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.6px; padding-top:12px; }
+table.grid tr.foot td { font-weight:620; border-bottom:0; }
+table.grid tr[data-tone] td:first-child { box-shadow:inset 3px 0 0 var(--tone-color); padding-left:8px; }
+tr[data-tone=ok] { --tone-color:var(--ok); } tr[data-tone=warn] { --tone-color:var(--warn); } tr[data-tone=bad] { --tone-color:var(--bad); } tr[data-tone=muted] { --tone-color:var(--line); }
+tr[data-tone=muted] td { color:var(--muted); }
+.changed { background:color-mix(in srgb,var(--info-soft) 70%,transparent); }
+.bar { display:inline-block; width:64px; height:6px; border-radius:3px; background:var(--idle-soft); overflow:hidden; vertical-align:middle; }
+.bar i { display:block; height:100%; background:var(--info); }
+.act { border:1px solid var(--line); background:var(--card); border-radius:6px; padding:1px 8px; font-size:var(--t-xs); margin-right:4px; }
+.act:hover { border-color:var(--muted); }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--s2); }
+.tile { border:1px solid var(--line); border-radius:10px; padding:var(--s3); display:grid; gap:4px; text-decoration:none; }
+.tile-label { font-size:var(--t-sm); color:var(--muted); }
+.tile-value { font-size:var(--t-2xl); font-weight:650; letter-spacing:-1px; line-height:1.05; }
+.tile-value small { font-size:var(--t-md); color:var(--muted); font-weight:500; letter-spacing:0; margin-left:4px; }
+.tile-hint { font-size:var(--t-xs); color:var(--muted); }
+.tile[data-tone=ok] .tile-value { color:var(--ok); } .tile[data-tone=warn] .tile-value { color:var(--warn); } .tile[data-tone=bad] .tile-value { color:var(--bad); } .tile[data-tone=muted] .tile-value { color:var(--muted); }
+.gates { list-style:none; margin:0; padding:0; display:grid; }
+.gate { display:grid; grid-template-columns:96px minmax(0,1fr); gap:2px var(--s3); padding:8px 0; border-top:1px solid var(--line); font-size:var(--t-sm); }
+.gate:first-child { border-top:0; }
+.gate b { font-weight:620; }
+.gate .sub { grid-column:2; color:var(--muted); font-size:var(--t-xs); }
+.feed { list-style:none; margin:0; padding:0; display:grid; }
+.entry { display:grid; grid-template-columns:86px minmax(0,1fr); gap:2px var(--s3); padding:7px 0; border-top:1px solid var(--line); font-size:var(--t-sm); }
+.entry:first-child { border-top:0; }
+.entry .when { color:var(--muted); font-size:var(--t-xs); }
+.entry .who { font-weight:600; margin-right:6px; }
+.entry[data-tone=bad] .who { color:var(--bad); } .entry[data-tone=ok] .who { color:var(--ok); } .entry[data-tone=muted] { color:var(--muted); }
+.entry .text { overflow-wrap:anywhere; }
+dl.kv { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0; font-size:var(--t-sm); }
+dl.kv dt { color:var(--muted); } dl.kv dd { margin:0; overflow-wrap:anywhere; }
+.dist { display:grid; grid-template-columns:minmax(80px,140px) minmax(0,1fr) auto; gap:var(--s3); align-items:center; padding:6px 0; border-top:1px solid var(--line); font-size:var(--t-sm); }
+.dist:first-child { border-top:0; }
+.dist .track { position:relative; height:12px; background:var(--idle-soft); border-radius:6px; }
+.dist .track i { position:absolute; top:0; bottom:0; border-radius:6px; }
+.dist .track .p50 { background:color-mix(in srgb,var(--info) 55%,transparent); left:0; }
+.dist .track .p95 { background:color-mix(in srgb,var(--info) 30%,transparent); left:0; }
+.dist .track .budget { width:2px; background:var(--bad); border-radius:0; }
+.dist .nums { font-family:var(--mono); font-size:var(--t-xs); color:var(--muted); white-space:nowrap; }
+.dist.over .nums b { color:var(--bad); }
+svg.chart { width:100%; height:170px; display:block; overflow:visible; }
+.tree { list-style:none; margin:0; padding:0; font-size:var(--t-sm); }
+.tree li { display:flex; align-items:center; gap:8px; padding:3px 0; }
+.tree .dot { width:9px; height:9px; border-radius:50%; background:var(--idle); flex:none; }
+.tree .node[data-tone=ok] .dot { background:var(--ok); } .tree .node[data-tone=warn] .dot { background:var(--warn); } .tree .node[data-tone=bad] .dot { background:var(--bad); } .tree .node[data-tone=muted] .dot { background:var(--line); }
+.tree .node.hl .label { font-weight:650; } .tree .node.hl .dot { box-shadow:0 0 0 3px var(--ok-soft); }
+.tree .rail { color:var(--faint); font-family:var(--mono); white-space:pre; }
+.svgwrap svg { width:100%; height:auto; }
+.md p { margin:0 0 8px; } .md :last-child { margin-bottom:0; }
+.tip { position:fixed; z-index:60; pointer-events:none; background:var(--fg); color:var(--bg); font-size:var(--t-xs); padding:5px 8px; border-radius:6px; max-width:360px; opacity:0; transition:opacity .08s; }
+.tip.show { opacity:1; }
+#ldchat-launch { top:12px; bottom:auto !important; padding:6px 14px !important; }
+@media (max-width:1100px) { .cards { grid-template-columns:repeat(2,minmax(0,1fr)); } .card[data-width="3"] { grid-column:span 2; } }
+@media (max-width:760px) {
+ .top-inner,main,.strip-inner { padding-left:var(--s4); padding-right:var(--s4); }
+ .cards { grid-template-columns:1fr; } .card[data-width] { grid-column:auto; } .search { display:none; }
+}
+/* @include html/components.css */
+/* @include html/viz.css */
+.ddc { margin:0; font-size:var(--t-sm); }
+.ddc-head { font-size:var(--t-md); }
+table.ddc-mx { font-size:var(--t-sm); }
+table.ddc-mx td[data-tone=muted] { color:var(--muted); }
+table.ddc-mx td[title] { text-decoration:underline dotted var(--faint); cursor:help; }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+ <div class="brand"><h1 id="title">live dashboard</h1><span class="eyebrow">live</span></div>
+ <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" aria-label="Filter every card" placeholder="Filter every card…"></label>
+ <div class="health" id="health"></div>
+ <button class="link-button" id="seen" type="button" title="Treat everything on the page as seen">Mark seen</button>
+ <button class="link-button" id="notify" type="button" hidden>Notify me</button>
+ <div class="status" id="status"><span class="dot"></span><span id="meta">Connecting…</span></div>
+</div>
+<div class="strip error" id="layout-error" role="alert" hidden><div class="strip-inner" id="layout-error-text"></div></div>
+<div class="strip banner" id="banner" hidden><div class="strip-inner" id="banner-text"></div></div>
+</header>
+<main>
+ <section class="cards" id="pinned" aria-label="Pinned"></section>
+ <div id="sections"></div>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+<script>
+const REFRESH_MS=10000;
+const PACIFIC="America/Los_Angeles";
+const ACTION_TOKEN=document.querySelector('meta[name="dashboard-action"]').content;
+const NOTIFY_CHARS=140;
+const BAD=/\b(fail|failed|failing|failure|red|error|blocked|broken|conflicting|drift|hung|bad)\b/i;
+const WARN=/\b(pending|held|hold|waiting|stale|running|in_progress|queued|unproven|open|not run|not-run|not-created|idle)\b/i;
+const OK=/\b(ok|green|pass|passed|success|landed|landable|merged|reviewed|approved|proven|clean|done|resolved|0\/0)\b/i;
+const linkIds=s=>s;
+const linkSrc=s=>s;
+const COMPONENTS={};
+const REF=Object.create(null);
+const SVGNS="http://www.w3.org/2000/svg";
+const heroInit=null;
+const sysdSvg=()=>null;
+const hlTarget=()=>false;
+const clearHl=()=>{};
+const handleOf=id=>id;
+const mdRef=id=>id;
+const plain=s=>String(s??"");
+const refChip=id=>esc(id);
+const mermaidJob=()=>null;
+const setAspect=()=>{};
+const wireFullSize=()=>{};
+<!-- @include html/dom.js -->
+<!-- @include html/md.js -->
+<!-- @include html/components.js -->
+const state={data:null,query:"",painted:{},baseline:null,current:{},toasts:{},notified:null};
+const seenKey=()=>`live-dashboard-seen:${state.data.dashboard.id}`;
+const notifiedKey=()=>`live-dashboard-notified:${state.data.dashboard.id}`;
+const sameDay=(a,b)=>a.toLocaleDateString("en-US",{timeZone:PACIFIC})===b.toLocaleDateString("en-US",{timeZone:PACIFIC});
+function pt(stamp){
+ if(!stamp)return "";
+ const d=new Date(stamp);if(isNaN(d))return String(stamp);
+ const time=d.toLocaleTimeString("en-US",{timeZone:PACIFIC,hour:"numeric",minute:"2-digit"});
+ return sameDay(d,new Date())?time:d.toLocaleDateString("en-US",{timeZone:PACIFIC,month:"short",day:"numeric"})+", "+time;
+}
+function ago(stamp){
+ if(!stamp)return "";
+ const t=new Date(stamp).getTime();if(isNaN(t))return String(stamp);
+ const minutes=Math.round((Date.now()-t)/60000);
+ if(minutes<1)return "just now";
+ if(minutes<60)return minutes+"m ago";
+ if(minutes<2880)return Math.round(minutes/60)+"h ago";
+ return Math.round(minutes/1440)+"d ago";
+}
+const toneOf=value=>{const text=String(value??"");return BAD.test(text)?"bad":WARN.test(text)?"warn":OK.test(text)?"ok":""};
+const pill=(value,cls)=>value==null||value===""?"":`<span class="pill ${cls??toneOf(value)}">${esc(value)}</span>`;
+const ext=(href,label)=>href&&safeUrl(href)?`<a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>`:label;
+const LINK_NAMES=[[/slack\.com/,"Slack"],[/datadoghq/,"Datadog"],[/buildkite\.com/,"Buildkite"],[/github\.com/,"GitHub"]];
+function linkify(text){
+ return esc(text).replace(/https?:\/\/[^\s<>"]+/g,match=>{
+  const [,u,tail]=/^(.*?)((?:&quot;|&#39;|[.,;:)\]])*)$/.exec(match);
+  const name=(LINK_NAMES.find(([re])=>re.test(u))||[,"link"])[1];
+  return safeUrl(u.replace(/&amp;/g,"&"))?`<a href="${u}" target="_blank" rel="noopener">${name} ↗</a>${tail}`:match;
+ });
+}
+const seconds=ms=>ms==null?"":ms<1000?Math.round(ms)+"ms":ms<60000?(ms/1000).toFixed(ms<10000?1:0)+"s":(ms/60000).toFixed(1)+"m";
+const number=(value,unit)=>value==null?"—":(Math.abs(value)>=100?Math.round(value):Math.round(value*10)/10).toLocaleString()+(unit?" "+unit:"");
+const matches=text=>state.query.toLowerCase().split(/\s+/).filter(Boolean).every(term=>String(text).toLowerCase().includes(term));
+const rowText=row=>Object.values(row).filter(v=>v!=null&&typeof v!=="object").join(" ");
+const signature=row=>JSON.stringify(row);
+function isChanged(card,row){
+ if(row.key==null)return false;
+ const sig=signature(row);
+ (state.current[card.id]||(state.current[card.id]={}))[row.key]=sig;
+ const before=state.baseline&&state.baseline[card.id];
+ return !!before&&before[row.key]!==sig;
+}
+function rowClass(card,row){return isChanged(card,row)?"changed":""}
+function actionsHtml(card,row){
+ if(!card.actions.length||row.key==null)return "";
+ return card.actions.map(name=>`<button class="act" type="button" data-act="${esc(name)}" data-card="${esc(card.id)}" data-key="${esc(row.key)}">${esc(name)}</button>`).join("");
+}
+function cellHtml(col,row){
+ const value=row[col.key];
+ if(col.kind==="num")return `<td class="num">${esc(value??"")}</td>`;
+ if(col.kind==="age")return `<td class="age" title="${esc(pt(value))}">${esc(ago(value))}</td>`;
+ if(col.kind==="link")return `<td>${value==null?"":ext(row[col.key+"_url"],esc(value))}</td>`;
+ if(col.kind==="badge")return `<td>${pill(value,row[col.key+"_tone"])}</td>`;
+ if(col.kind==="delta"){const n=Number(value);return `<td class="num ${n>0?"ok-text":n<0?"bad-text":""}">${value==null?"":(n>0?"+":"")+esc(value)}</td>`}
+ if(col.kind==="bar"){const n=Math.max(0,Math.min(1,Number(value)||0));return `<td><span class="bar" title="${Math.round(n*100)}%"><i style="width:${n*100}%"></i></span></td>`}
+ const shown=Array.isArray(value)?value.join(", "):value;
+ return `<td>${linkify(shown??"")}</td>`;
+}
+function renderTable(card,p){
+ const rows=p.rows.filter(row=>matches(rowText(row)));
+ const acting=card.actions.length>0;
+ const head=`<tr>${p.cols.map(c=>`<th class="${c.kind==="num"?"num":""}">${esc(c.label||c.key)}</th>`).join("")}${acting?"<th></th>":""}</tr>`;
+ const line=row=>`<tr class="${rowClass(card,row)}"${row.tone?` data-tone="${esc(row.tone)}"`:""}>${p.cols.map(c=>cellHtml(c,row)).join("")}${acting?`<td>${actionsHtml(card,row)}</td>`:""}</tr>`;
+ let body="";
+ if(p.group_by){
+  const groups=new Map();rows.forEach(row=>{const g=String(row[p.group_by]??"");if(!groups.has(g))groups.set(g,[]);groups.get(g).push(row)});
+  groups.forEach((members,name)=>{body+=`<tr class="group"><td colspan="${p.cols.length+(acting?1:0)}">${esc(name)} · ${members.length}</td></tr>`+members.map(line).join("")});
+ }else body=rows.map(line).join("");
+ const foot=p.footer?`<tr class="foot">${p.cols.map(c=>`<td class="${c.kind==="num"?"num":""}">${esc(p.footer[c.key]??"")}</td>`).join("")}${acting?"<td></td>":""}</tr>`:"";
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(rows.length?`<table class="grid"><thead>${head}</thead><tbody>${body}${foot}</tbody></table>`:(p.note?"":`<p class="empty">${state.query?"No matching rows":"No rows"}</p>`));
+}
+function renderMatrix(card,p){
+ const box=cmptMatrix(p);
+ box.querySelectorAll("tbody tr").forEach((tr,ri)=>tr.querySelectorAll("td").forEach((td,ci)=>{const cell=(p.cells[ri]||[])[ci];if(cell&&cell.title)td.title=cell.title}));
+ return box;
+}
+const GATE_TONE={pass:"ok",waived:"muted",open:"warn",blocked:"warn","not-run":"muted","not-created":"muted",fail:"bad"};
+function renderChecklist(card,p){
+ const items=p.items.filter(item=>matches(rowText(item)));
+ const sub=item=>[item.blocker&&esc(item.blocker),item.owner&&"owner "+esc(item.owner),item.closes&&"closes "+linkify(item.closes)].filter(Boolean).join(" · ");
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<ul class="gates">${items.map(item=>`<li class="gate ${rowClass(card,item)}"><span>${pill(item.status,GATE_TONE[item.status])}</span><span><b>${esc(item.id)}</b> ${ext(item.link,esc(item.title))}</span>${sub(item)?`<span class="sub">${sub(item)}</span>`:""}</li>`).join("")}</ul>`+(items.length?"":`<p class="empty">No gates</p>`);
+}
+function renderTiles(card,p){
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+`<div class="tiles">${p.tiles.map(t=>{const inner=`<span class="tile-label">${esc(t.label)}</span><span class="tile-value">${esc(t.value??"—")}${t.unit?`<small>${esc(t.unit)}</small>`:""}</span>${t.hint?`<span class="tile-hint">${esc(t.hint)}</span>`:""}`;return t.link&&safeUrl(t.link)?`<a class="tile ${rowClass(card,t)}" href="${esc(t.link)}" target="_blank" rel="noopener"${t.tone?` data-tone="${esc(t.tone)}"`:""}>${inner}</a>`:`<div class="tile ${rowClass(card,t)}"${t.tone?` data-tone="${esc(t.tone)}"`:""}>${inner}</div>`}).join("")}</div>`;
+}
+const VIZ=n=>`var(--viz-${n%8+1})`;
+function chart(series){
+ const lines=series.lines.filter(l=>l.points.length),all=lines.flatMap(l=>l.points);
+ if(!all.length)return `<p class="viz-empty">${esc(series.note||"No points yet")}</p>`;
+ const timed=all.every(p=>typeof p[0]==="string"&&!isNaN(Date.parse(p[0])));
+ const xs=all.map((p,i)=>timed?Date.parse(p[0]):Number(p[0]));
+ const levels=Object.values(series.thresholds||{});
+ const ys=[...all.map(p=>p[1]),...levels];
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(0,...ys),y1=Math.max(...ys,1);
+ const W=600,H=150,L=44;
+ const sx=x=>L+((x-x0)/((x1-x0)||1))*(W-L-8),sy=y=>H-(y-y0)/((y1-y0)||1)*(H-12);
+ const paths=lines.map((l,k)=>`<polyline fill="none" stroke="${VIZ(k)}" stroke-width="1.8" vector-effect="non-scaling-stroke" points="${l.points.map(p=>`${sx(timed?Date.parse(p[0]):Number(p[0])).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ")}"/>`+l.points.map(p=>`<circle cx="${sx(timed?Date.parse(p[0]):Number(p[0])).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="2.4" fill="${VIZ(k)}" data-tip="${esc(`${l.label}: ${number(p[1],series.unit)} · ${timed?pt(p[0]):p[0]}`)}"/>`).join("")).join("");
+ const rules=Object.entries(series.thresholds||{}).map(([label,v])=>`<line x1="${L}" x2="${W-8}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--bad)" stroke-dasharray="4 3"/><text x="${W-8}" y="${sy(v)-4}" text-anchor="end" font-size="10" fill="var(--bad)">${esc(label)} ${esc(number(v,series.unit))}</text>`).join("");
+ const axis=`<text x="0" y="12" font-size="10" fill="var(--muted)">${esc(number(y1,series.unit))}</text><text x="0" y="${H}" font-size="10" fill="var(--muted)">${esc(number(y0,series.unit))}</text><line x1="${L}" x2="${W-8}" y1="${H}" y2="${H}" stroke="var(--line)"/>`;
+ const legend=`<div class="viz-legend">${lines.map((l,k)=>`<span class="lg"><span class="viz-sw" style="background:${VIZ(k)}"></span>${esc(l.label)} ${esc(number(l.points[l.points.length-1][1],series.unit))}</span>`).join("")}</div>`;
+ return `<svg class="chart" viewBox="0 0 ${W} ${H+4}" preserveAspectRatio="none" role="img">${axis}${rules}${paths}</svg>${legend}`;
+}
+function renderSeries(card,p){return (p.note&&p.lines.some(l=>l.points.length)?`<p class="note">${linkify(p.note)}</p>`:"")+chart(p)}
+function renderPercentiles(card,p){
+ const top=Math.max(1,...p.dists.flatMap(d=>[d.p99,d.max,d.budget].filter(v=>v!=null)));
+ const pct=v=>Math.min(100,v/top*100);
+ const rows=p.dists.filter(d=>matches(d.label)).map(d=>{
+  if(!d.n)return `<div class="dist ${rowClass(card,d)}"><span>${esc(d.label)}</span><span class="muted-text">not run${d.failures?` · ${d.failures} failed`:""}</span><span></span></div>`;
+  const over=d.budget!=null&&d.p95>d.budget;
+  return `<div class="dist ${over?"over":""} ${rowClass(card,d)}" data-tip="${esc(`${d.label}: n ${d.n}, p50 ${number(d.p50,d.unit)}, p95 ${number(d.p95,d.unit)}, p99 ${number(d.p99,d.unit)}, max ${number(d.max,d.unit)}${d.budget!=null?`, budget ${number(d.budget,d.unit)}`:""}${d.failures?`, ${d.failures} failed`:""}`)}"><span>${esc(d.label)}</span><span class="track"><i class="p95" style="width:${pct(d.p95)}%"></i><i class="p50" style="width:${pct(d.p50)}%"></i>${d.budget!=null?`<i class="budget" style="left:${pct(d.budget)}%"></i>`:""}</span><span class="nums">p50 ${esc(number(d.p50,d.unit))} · <b>p95 ${esc(number(d.p95,d.unit))}</b> · p99 ${esc(number(d.p99,d.unit))} · n ${d.n}${d.failures?` · <span class="bad-text">${d.failures} failed</span>`:""}</span></div>`;
+ }).join("");
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(rows||(p.note?"":`<p class="empty">No samples yet</p>`))+(p.history?`<h4 class="note">p95 per run</h4>`+chart(p.history):"");
+}
+function renderGraph(card,p){
+ const children=new Map(),parent=new Map();
+ p.edges.forEach(([a,b])=>{if(!children.has(a))children.set(a,[]);children.get(a).push(b);if(!parent.has(b))parent.set(b,a)});
+ const byId=new Map(p.nodes.map(n=>[n.id,n])),hl=new Set(p.highlight||[]),out=[],done=new Set();
+ const walk=(id,depth)=>{
+  if(done.has(id))return;done.add(id);
+  const n=byId.get(id),kids=children.get(id)||[];
+  out.push(`<li class="node ${hl.has(id)?"hl":""} ${rowClass(card,n)}"${n.tone?` data-tone="${esc(n.tone)}"`:""}><span class="rail">${"│ ".repeat(depth)}</span><span class="dot"></span><span class="label">${ext(n.link,esc(n.label))}</span>${hl.has(id)?pill("lands now","ok"):""}</li>`);
+  kids.slice(1).forEach(k=>walk(k,depth+1));
+  if(kids.length)walk(kids[0],depth);
+ };
+ p.nodes.filter(n=>!parent.has(n.id)).forEach(n=>walk(n.id,0));
+ p.nodes.forEach(n=>walk(n.id,0));
+ return `<ul class="tree">${out.join("")}</ul>`;
+}
+function renderFeed(card,p){
+ const entries=p.entries.filter(e=>matches(rowText(e)));
+ return (p.note?`<p class="note">${linkify(p.note)}</p>`:"")+(entries.length?`<ul class="feed">${entries.map(e=>`<li class="entry ${rowClass(card,e)}"${e.tone?` data-tone="${esc(e.tone)}"`:""}><span class="when" title="${esc(pt(e.at))}">${esc(e.at?ago(e.at):"")}${e.latency_ms!=null?`<br>${pill("+"+seconds(e.latency_ms),"info")}`:""}</span><span class="text"><span class="who">${esc(e.actor)}</span>${linkify(e.text)} ${e.link?ext(e.link,"↗"):""}</span></li>`).join("")}</ul>`:(p.note?"":`<p class="empty">No entries yet</p>`));
+}
+function renderKv(card,p){return `<dl class="kv">${p.pairs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${linkify(v??"")}</dd>`).join("")}</dl>`}
+function renderSvg(card,p){const wrap=el("div","svgwrap"),svg=safeSvg(p.svg);if(svg)wrap.append(svg);else wrap.textContent="The SVG did not parse.";return wrap}
+const RENDER={table:renderTable,matrix:renderMatrix,checklist:renderChecklist,tiles:renderTiles,series:renderSeries,percentiles:renderPercentiles,graph:renderGraph,feed:renderFeed,kv:renderKv,markdown:(card,p)=>`<div class="md">${mdToHtml(p.text)}</div>`,svg:renderSvg};
+const STATUS_TONE={ok:"ok",pending:"muted",stale:"warn",error:"bad",hung:"bad"};
+function cardNode(card){
+ let node=document.getElementById("card-"+card.id);
+ if(!node){
+  node=el("article","card");node.id="card-"+card.id;
+  node.innerHTML=`<div class="card-head"><h3></h3><span class="card-meta"></span><span class="card-tools"><button type="button" data-refresh title="Refresh now" aria-label="Refresh now">↻</button><button type="button" data-copy title="Copy as Markdown" aria-label="Copy as Markdown">⧉</button></span></div><div class="card-error" hidden></div><div class="toast" hidden></div><div class="card-body"></div>`;
+  node.dataset.card=card.id;
+ }
+ node.dataset.width=card.width;
+ node.classList.toggle("pinned",!!card.pinned);
+ node.querySelector("h3").textContent=card.title;
+ node.querySelector("h3").title=`${card.use} · every ${card.every}`;
+ const meta=`${card.status==="ok"?"":pill(card.status,STATUS_TONE[card.status])} <span data-tip="${esc(card.as_of?`data from ${pt(card.as_of)}${card.ms!=null?`, ran in ${seconds(card.ms)}`:""}`:"no data yet")}">${esc(card.as_of?ago(card.as_of):"")}</span>`;
+ if(node.dataset.meta!==meta){node.querySelector(".card-meta").innerHTML=meta;node.dataset.meta=meta}
+ const error=node.querySelector(".card-error");
+ error.hidden=!(card.error||card.status==="hung"||card.status==="stale");
+ error.classList.toggle("stale",card.status==="stale"&&!card.error);
+ error.textContent=card.status==="hung"?`Still running past its timeout${card.error?"; last error: "+card.error:""}`:card.error||(card.status==="stale"?`Stale: the last good data is from ${pt(card.as_of)}.`:"");
+ const toast=node.querySelector(".toast"),told=state.toasts[card.id];
+ toast.hidden=!told;if(told){toast.textContent=told.text;toast.classList.toggle("bad",!!told.bad)}
+ const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,state.query,state.baseline&&state.baseline[card.id]]);
+ if(state.painted[card.id]!==key){
+  state.painted[card.id]=key;
+  if(!card.payload){body.innerHTML=`<p class="empty">${card.status==="pending"?"Waiting for the first run…":"No data"}</p>`}
+  else{const out=RENDER[card.kind](card,card.payload);if(typeof out==="string")body.innerHTML=out;else body.replaceChildren(out)}
+ }
+ return node;
+}
+function place(parent,node,index){if(parent.children[index]!==node)parent.insertBefore(node,parent.children[index]||null)}
+function notify(cards){
+ if(state.notified===null){state.notified=new Set(JSON.parse(localStorage.getItem(notifiedKey())||"null")||[]);if(!localStorage.getItem(notifiedKey()))state.notified.first=true}
+ const fresh=[];
+ cards.filter(c=>c.pinned&&c.payload).forEach(card=>{(card.payload.rows||card.payload.items||card.payload.entries||[]).forEach(row=>{const id=`${card.id}:${row.key}`;if(row.key!=null&&!state.notified.has(id)){state.notified.add(id);fresh.push([card,row])}})});
+ localStorage.setItem(notifiedKey(),JSON.stringify([...state.notified].slice(-500)));
+ if(state.notified.first){delete state.notified.first;return}
+ if(!("Notification" in window)||Notification.permission!=="granted")return;
+ fresh.forEach(([card,row])=>{const n=new Notification(`${card.title}: ${row.title||row.text||row.ask||row.key}`.slice(0,NOTIFY_CHARS),{tag:`${card.id}:${row.key}`});n.onclick=()=>{focus();document.getElementById("card-"+card.id)?.scrollIntoView()}});
+}
+function render(){
+ const d=state.data;if(!d)return;
+ if(state.baseline===null)state.baseline=JSON.parse(localStorage.getItem(seenKey())||"null");
+ document.title=`${d.dashboard.title||d.dashboard.id} · live`;
+ $("#title").textContent=d.dashboard.title||d.dashboard.id;
+ const delayed=Date.now()-Date.parse(d.generated_at)>REFRESH_MS*6;
+ $("#status").className="status"+(delayed?" delayed":"");
+ $("#meta").textContent=delayed?`Data from ${pt(d.generated_at)}`:`Live · ${pt(d.generated_at)}`;
+ $("#layout-error").hidden=!d.layout_error;$("#layout-error-text").textContent=d.layout_error?`The layout did not load, so the last good one is serving: ${d.layout_error}`:"";
+ $("#banner").hidden=!d.banner;$("#banner-text").innerHTML=d.banner?linkify(d.banner):"";
+ const c=d.counts;
+ $("#health").innerHTML=[["error","bad"],["hung","bad"],["stale","warn"]].filter(([k])=>c[k]).map(([k,t])=>`<button type="button" data-jump="${k}">${pill(`${c[k]} ${k}`,t)}</button>`).join("");
+ $("#notify").hidden=!("Notification" in window)||Notification.permission!=="default";
+ const byId=new Map(d.cards.map(card=>[card.id,card]));
+ const pinned=d.cards.filter(card=>card.pinned);
+ pinned.forEach((card,i)=>place($("#pinned"),cardNode(card),i));
+ const keep=new Set();
+ d.sections.forEach((section,si)=>{
+  const sid="section-"+si+"-"+section.title.replace(/\W+/g,"-");keep.add(sid);
+  let node=document.getElementById(sid);
+  if(!node){node=el("details","section",`<summary><h2></h2><span class="section-note"></span></summary><div class="cards"></div>`);node.id=sid;node.open=!section.collapsed}
+  place($("#sections"),node,si);
+  node.querySelector("h2").textContent=section.title;
+  const cards=section.cards.map(id=>byId.get(id)).filter(card=>card&&!card.pinned);
+  const issues=cards.filter(card=>card.status!=="ok"&&card.status!=="pending").length;
+  node.querySelector(".section-note").textContent=`${cards.length} cards${issues?` · ${issues} need attention`:""}`;
+  const grid=node.querySelector(".cards");
+  cards.forEach((card,i)=>place(grid,cardNode(card),i));
+  [...grid.children].forEach(child=>{if(!cards.some(card=>"card-"+card.id===child.id))child.remove()});
+ });
+ [...$("#sections").children].forEach(child=>{if(!keep.has(child.id))child.remove()});
+ [...$("#pinned").children].forEach(child=>{if(!pinned.some(card=>"card-"+card.id===child.id))child.remove()});
+ notify(d.cards);
+}
+function saveSeen(){if(state.data){localStorage.setItem(seenKey(),JSON.stringify(state.current))}}
+function toast(card,text,bad){state.toasts[card]={text,bad};render();setTimeout(()=>{delete state.toasts[card];render()},8000)}
+async function post(path,body){
+ const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Dashboard-Action":ACTION_TOKEN},body:JSON.stringify(body||{})});
+ const text=await r.text();
+ if(!r.ok)throw new Error(text.trim()||`HTTP ${r.status}`);
+ return text;
+}
+document.addEventListener("click",async e=>{
+ const t=e.target;
+ const node=t.closest(".card");
+ if(t.closest("[data-refresh]")&&node){try{await post(`/refresh/${encodeURIComponent(node.dataset.card)}`);toast(node.dataset.card,"Refresh queued")}catch(err){toast(node.dataset.card,err.message,true)}return}
+ if(t.closest("[data-copy]")&&node){try{const r=await fetch(`/cards/${encodeURIComponent(node.dataset.card)}.md`);await navigator.clipboard.writeText(await r.text());toast(node.dataset.card,"Copied as Markdown")}catch(err){toast(node.dataset.card,err.message,true)}return}
+ const act=t.closest("[data-act]");
+ if(act){const text=prompt(`${act.dataset.act}: add a note (optional)`);if(text===null)return;act.disabled=true;try{const out=JSON.parse(await post(`/act/${encodeURIComponent(act.dataset.card)}/${encodeURIComponent(act.dataset.act)}`,{key:act.dataset.key,text}));toast(act.dataset.card,out.message)}catch(err){toast(act.dataset.card,err.message,true)}finally{act.disabled=false}return}
+ const jump=t.closest("[data-jump]");
+ if(jump){const card=state.data.cards.find(c=>c.status===jump.dataset.jump);const n=card&&document.getElementById("card-"+card.id);if(n){n.closest("details")?.setAttribute("open","");n.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"center"})}}
+});
+$("#seen").addEventListener("click",()=>{saveSeen();state.baseline=JSON.parse(JSON.stringify(state.current));render()});
+$("#notify").addEventListener("click",async()=>{await Notification.requestPermission();render()});
+$("#search").addEventListener("input",e=>{state.query=e.target.value;render()});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")saveSeen()});
+addEventListener("pagehide",saveSeen);
+const tip=$("#tip");
+document.addEventListener("mouseover",e=>{const n=e.target.closest("[data-tip]");if(n){tip.textContent=n.dataset.tip;tip.classList.add("show")}});
+document.addEventListener("mousemove",e=>{if(tip.classList.contains("show")){const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8);tip.style.left=x+"px";tip.style.top=(e.clientY+16)+"px"}});
+document.addEventListener("mouseout",e=>{if(e.target.closest("[data-tip]"))tip.classList.remove("show")});
+let etag="";
+async function refresh(){
+ try{
+  const r=await fetch("/state.json",{cache:"no-store",headers:etag?{"If-None-Match":etag}:{}});
+  if(r.status===304){render();return}
+  if(!r.ok)throw new Error(`HTTP ${r.status}`);
+  etag=r.headers.get("ETag")||"";
+  state.data=await r.json();render();
+ }catch(err){$("#status").className="status disconnected";$("#meta").textContent="Disconnected: "+err.message}
+}
+refresh();
+setInterval(refresh,REFRESH_MS);
+</script>
+</body>
+</html>

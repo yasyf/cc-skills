@@ -1,0 +1,18 @@
+title: Design doc
+sections:
+  - title: Gates
+    components:
+      - use: design-gates
+        id: gates
+        width: 2
+        with: {repo_path: '~/Code/design-docs', doc: 'design-docs/example', ids: [Q1]}
+  - title: Review
+    components:
+      - use: pr-review-queue
+        id: docs-prs
+        width: 3
+        with: {repo: example/design-docs, prs: [1], order: age}
+  - title: Health
+    collapsed: true
+    components:
+      - {use: dashboard-health, id: health}

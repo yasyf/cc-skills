@@ -1,0 +1,23 @@
+title: PR review
+sections:
+  - title: Needs you
+    components:
+      - {use: asks, width: 3}
+  - title: Review
+    components:
+      - {use: pr-review-queue, id: review, width: 3}
+      - {use: stack-graph, id: stack, width: 2}
+      - {use: landing-preview, id: land-now}
+      - {use: held-prs, id: held, width: 3}
+  - title: Gates
+    components:
+      - use: gates
+        width: 2
+        with: {gates: {example: 'status:open'}, titles: {example: Replace with the gates this review waits on}}
+      - {use: open-records, id: hygiene, width: 3}
+  - title: Drive
+    collapsed: true
+    components:
+      - {use: cci-lanes, id: lanes, width: 2}
+      - {use: gh-quota}
+      - {use: dashboard-health, id: health}

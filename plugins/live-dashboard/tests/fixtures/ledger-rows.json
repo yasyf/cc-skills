@@ -1,0 +1,110 @@
+[
+ {
+  "key": "101",
+  "fields": {
+   "state": "open",
+   "lane": "lane-one",
+   "base": "main",
+   "branch": "lane/one",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "test_state": "success",
+   "hold_reason": "owner standing: no PR lands until owner reviews",
+   "hold_since": "2026-10-06T20:21:59Z",
+   "hold_until": "2027-10-06T20:21:59Z"
+  }
+ },
+ {
+  "key": "102",
+  "fields": {
+   "state": "open",
+   "lane": "lane-two",
+   "base": "lane/one",
+   "branch": "lane/two",
+   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "test_state": "success",
+   "hold_reason": "owner standing: no PR lands until owner reviews",
+   "hold_since": "2026-10-06T20:21:59Z",
+   "hold_until": "2027-10-06T20:21:59Z"
+  }
+ },
+ {
+  "key": "103",
+  "fields": {
+   "state": "open",
+   "lane": "lane-three",
+   "base": "graphite-base/103",
+   "branch": "lane/three",
+   "head": "cccccccccccccccccccccccccccccccccccccccc",
+   "test_state": "failure",
+   "owner_reviewed_at": "2026-10-06T21:00:00Z"
+  }
+ },
+ {
+  "key": "99",
+  "fields": {
+   "state": "landed",
+   "lane": "lane-zero",
+   "base": "main",
+   "branch": "lane/zero",
+   "head": "dddddddddddddddddddddddddddddddddddddddd",
+   "landed_at": "2026-10-06T10:00:00Z"
+  }
+ },
+ {
+  "key": "review/101@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "fields": {
+   "pr": "101",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "verdict": "error",
+   "error": "the diff is over the review bound",
+   "override": ""
+  }
+ },
+ {
+  "key": "review/102@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "fields": {
+   "pr": "102",
+   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "verdict": "clean",
+   "override": ""
+  }
+ },
+ {
+  "key": "ask/000001",
+  "fields": {
+   "text": "land the old work",
+   "accept": "#99 merged",
+   "lane": "lane-zero",
+   "asked_at": "2026-10-06T09:00:00Z",
+   "prs": "99"
+  }
+ },
+ {
+  "key": "ask/000002",
+  "fields": {
+   "text": "build the dashboard",
+   "accept": "the dashboard serves the custom cards",
+   "lane": "dash",
+   "asked_at": "2026-10-07T00:59:12Z"
+  }
+ },
+ {
+  "key": "ask/000003",
+  "fields": {
+   "text": "an answered question",
+   "lane": "dash",
+   "asked_at": "2026-10-06T09:00:00Z",
+   "answered_at": "2026-10-06T10:00:00Z"
+  }
+ },
+ {
+  "key": "ask/000004",
+  "fields": {
+   "text": "ship the client",
+   "accept": "#103 merged",
+   "lane": "lane-three",
+   "asked_at": "2026-10-06T12:00:00Z",
+   "prs": "103"
+  }
+ }
+]

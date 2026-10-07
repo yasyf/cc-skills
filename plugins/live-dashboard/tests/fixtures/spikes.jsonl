@@ -1,0 +1,5 @@
+{"sequence": 1, "stage": "main", "mode": "low", "status": 200, "wall_ms": 305.8, "success": false}
+{"sequence": 2, "stage": "main", "mode": "low", "status": 200, "wall_ms": 260.6, "success": true}
+{"sequence": 3, "stage": "main", "mode": "medium", "status": 200, "wall_ms": 216.5, "success": true}
+{"sequence": 4, "stage": "main", "mode": "medium", "status": 200, "wall_ms": 254.9, "success": true}
+{"sequence": 5, "stage": "main", "mode": "low", "status": 200, "wall_ms": 290.1, "success": true}

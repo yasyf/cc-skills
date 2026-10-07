@@ -1,0 +1,26 @@
+[
+ {
+  "seq": 20,
+  "lane": "lane-two",
+  "kind": "ready",
+  "at": "2026-10-06T19:00:00Z",
+  "text": "#102 READY",
+  "topic": "lane-two",
+  "refs": {
+   "prs": [
+    102
+   ]
+  },
+  "fields": {}
+ },
+ {
+  "seq": 21,
+  "lane": "curator",
+  "kind": "done",
+  "at": "2026-10-06T19:30:00Z",
+  "text": "closed 1",
+  "topic": "resolved:cci:13",
+  "refs": {},
+  "fields": {}
+ }
+]

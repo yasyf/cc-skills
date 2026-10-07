@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
-import sys
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
@@ -11,36 +11,53 @@ from captain_hook.util import reqenv
 from .compaction_handoff import CompactionState
 from .lane_rotation import DriveActive
 
-DASHBOARD = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "lr-dashboard.py"
-DRIVES = Path(".claude") / "long-running" / "drives"
-DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}
+DRIVE_SCRIPT = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "drive.py"
+FIXTURES = Path(__file__).parent / "tests" / "fixtures"
+LIVE_DASHBOARD = "live-dashboard@skills"
+DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
+SHARED = (
+    r"^Give the owner the dashboard link now: `/plugins/cache/skills/live-dashboard/0\.1\.0/bin/live-dashboard url --dir /state/release-v3/dashboard` "
+    r"prints it \(`start` if it prints nothing\)\. Then tailor layout\.yaml in that dir per /live-dashboard picking\.md before the first milestone report\.$"
+)
 
 
-def drive_of(evt: BaseHookEvent) -> str | None:
-    if drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE"):
-        return drive
-    for path in (Path.home() / DRIVES).glob("*.json"):
-        entry = json.loads(path.read_text())
-        if evt.session_id in entry["sessions"]:
-            return entry["drive"]
-    return None
+def config_dir() -> Path:
+    return Path(reqenv.getenv("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 
 
-def serve(drive: str) -> None:
-    subprocess.Popen(
-        [sys.executable, str(DASHBOARD), "start", "--drive", drive],
-        env=dict(reqenv.env_map()),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
+def entries() -> list[dict]:
+    return [json.loads(path.read_text()) for path in sorted((config_dir() / "long-running" / "drives").glob("*.json"))]
+
+
+def entry_of(evt: BaseHookEvent) -> dict | None:
+    named = reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")
+    return next((entry for entry in entries() if entry["drive"] == named or (not named and evt.session_id in entry["sessions"])), None)
+
+
+def dashboard_bin() -> Path:
+    installed = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())
+    return Path(installed["plugins"][LIVE_DASHBOARD][0]["installPath"]) / "bin" / "live-dashboard"
+
+
+def dashboard_dir(entry: dict) -> Path:
+    return Path(entry["state_dir"]) / "dashboard"
+
+
+def serve(entry: dict) -> None:
+    cli, directory = shlex.quote(str(dashboard_bin())), dashboard_dir(entry)
+    quoted = shlex.quote(str(directory))
+    script = (
+        f"python3 {shlex.quote(str(DRIVE_SCRIPT))} context --drive {shlex.quote(entry['drive'])}"
+        f" && {{ [ -e {shlex.quote(str(directory / 'layout.yaml'))} ] || {cli} init --dir {quoted} --preset drive; }}"
+        f" && exec {cli} start --dir {quoted}"
     )
+    subprocess.Popen(["sh", "-c", script], env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
-def share_link(evt: BaseHookEvent, drive: str) -> HookResult:
+def share_link(evt: BaseHookEvent, entry: dict) -> HookResult:
     return evt.context(
-        f"Give the owner the drive dashboard link in your next reply: run `python3 {DASHBOARD} url --drive {drive}` "
-        "and paste the URL it prints; if it prints nothing, run `start` in place of `url`."
+        f"Give the owner the dashboard link now: `{dashboard_bin()} url --dir {dashboard_dir(entry)}` prints it (`start` if it prints nothing). "
+        "Then tailor layout.yaml in that dir per /live-dashboard picking.md before the first milestone report."
     )
 
 
@@ -68,8 +85,8 @@ def starts_drive(evt: BaseHookEvent) -> bool:
     },
 )
 def serve_on_session_start(evt: BaseHookEvent) -> HookResult | None:
-    if drive := drive_of(evt):
-        serve(drive)
+    if entry := entry_of(evt):
+        serve(entry)
     return None
 
 
@@ -87,8 +104,8 @@ def serve_on_session_start(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def serve_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
-    if starts_drive(evt) and (drive := drive_of(evt)):
-        serve(drive)
+    if starts_drive(evt) and (entry := entry_of(evt)):
+        serve(entry)
     return None
 
 
@@ -97,17 +114,14 @@ def serve_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
     tests={
-        Input(source="compact", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(
-            pattern=r"^Give the owner the drive dashboard link in your next reply: run `python3 \S+/lr-dashboard\.py url --drive 900424b6` "
-            r"and paste the URL it prints; if it prints nothing, run `start` in place of `url`\.$"
-        ),
-        Input(source="resume", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"--drive 900424b6`"),
+        Input(source="compact", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=SHARED),
+        Input(source="resume", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"--dir /state/release-v3/dashboard`"),
         Input(source="compact", env=DRIVE_ENV): Allow(),
         Input(source="compact", env=DRIVE_ENV, agent_id="a1b2c3", state=[CompactionState(active=True)]): Allow(),
     },
 )
 def share_on_session_start(evt: BaseHookEvent) -> HookResult | None:
-    return share_link(evt, drive) if (drive := drive_of(evt)) else None
+    return share_link(evt, entry) if (entry := entry_of(evt)) else None
 
 
 @on(
@@ -116,10 +130,10 @@ def share_on_session_start(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     tests={
         Input(command="drive.py start --ledger 1a2b3c4d", output="drive 900424b6 on ledger 1a2b3c4d", env=DRIVE_ENV): Warn(
-            pattern=r"^Give the owner the drive dashboard link in your next reply: .*--drive 900424b6`"
+            pattern=r"^Give the owner the dashboard link now: .*live-dashboard url --dir /state/release-v3/dashboard`"
         ),
         Input(command="drive.py list", output="900424b6 ledger=1a2b3c4d", env=DRIVE_ENV): Allow(),
     },
 )
 def share_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
-    return share_link(evt, drive) if starts_drive(evt) and (drive := drive_of(evt)) else None
+    return share_link(evt, entry) if starts_drive(evt) and (entry := entry_of(evt)) else None
