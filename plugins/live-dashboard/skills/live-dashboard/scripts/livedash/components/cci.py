@@ -52,8 +52,9 @@ def settled_pr(record: dict, states: dict[str, str]) -> bool:
 @component("open-records", "Open cci records", question="Which cci blockers, defects and holds are still open, and which went stale?", reads=["cci digest", "cci records", "ccn ledger row list"], every="5m", timeout="60s", actions={"close": close_record})
 def open_records(ctx: Context, *, ledger: str | None = None, stale_only: bool = False, within: str = "24h") -> Table:
     """The cci digest's open blockers, defects and holds since the drive started, minus what settled: a cite a `resolved:`
-    done record closed, a record a later one answers by `re` or `resolves`, a record about one PR the ledger shows landed
-    or closed, and a blocker or defect older than `within`; holds never expire. A record is stale when it names a PR whose
+    done record closed, a record a later one names in `resolves` or closes by `re` with a closing kind (lift for a hold;
+    withdraw, answer, done or unblock for a blocker; fix-live or done for a defect), a record about one PR the ledger
+    shows landed or closed, and a blocker or defect older than `within`; holds never expire. A record is stale when it names a PR whose
     ledger head no longer matches the SHA it cites, or when a later READY or HEAD record exists for that PR. Action
     `close` posts `done --topic resolved:<cite>`."""
     since = ctx.facts.get("started_at")

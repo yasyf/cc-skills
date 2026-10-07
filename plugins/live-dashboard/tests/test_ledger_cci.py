@@ -46,8 +46,9 @@ def test_open_records_drop_answered_landed_and_expired_records_but_keep_old_hold
     digest = fixture("cci-digest.json") | {"open_holds": [{"seq": 5, "lane": "root", "kind": "hold", "at": "2026-10-04T00:00:00Z", "text": "HOLD escape-hatch", "refs": {}, "fields": {}}]}
     digest["open_blockers"] = [*digest["open_blockers"], {"seq": 6, "lane": "desk", "kind": "blocker", "at": "2026-10-05T00:00:00Z", "text": "an old blocker", "refs": {}, "fields": {}}]
     rows = [row | {"fields": row["fields"] | {"state": "landed"}} if row["key"] == "103" else row for row in fixture("ledger-rows.json")]
-    answer = {"seq": 22, "lane": "lane-one", "kind": "note", "at": "2026-10-06T20:00:00Z", "text": "restacked", "re": 11, "refs": {}, "fields": {}}
-    ctx = fake(tmp_path, replies={LEDGER: rows}, cci_replies={"digest": digest, "records": lambda params: records(params, [answer])})
+    answer = {"seq": 22, "lane": "lane-one", "kind": "answer", "at": "2026-10-06T20:00:00Z", "text": "restacked", "re": 11, "refs": {}, "fields": {}}
+    acknowledged = {"seq": 23, "lane": "walker", "kind": "answer", "at": "2026-10-06T20:00:00Z", "text": "ACK, excluded", "re": 5, "refs": {}, "fields": {}}
+    ctx = fake(tmp_path, replies={LEDGER: rows}, cci_replies={"digest": digest, "records": lambda params: records(params, [answer, acknowledged])})
     table = cci.open_records(ctx, ledger="L1")
     assert [row["cite"] for row in table.rows] == ["cci:10", "cci:5"]
     assert table.note == "Not listed: 1 blockers and defects older than 24h with no answer."

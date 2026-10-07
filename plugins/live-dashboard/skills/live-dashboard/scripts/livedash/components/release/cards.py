@@ -220,5 +220,5 @@ def incidents(ctx: Context, *, state_dir: Path, recent: str = "6h") -> Table:
     open first, with their status, latest record and lanes. Only an incident record, or a record keyed to a known incident
     slug, opens a thread."""
     groups = [group for group in incident_groups(ctx, state_dir) if group["active"] or not bus.expired(group, ctx.now, recent)]
-    rows = [{"key": group["key"], "cite": group["cite"], "title": group["title"], "status": group["status"], "latest": group["latest"], "lanes": ", ".join(group["lanes"]), "at": group["at"], "tone": "bad" if group["active"] else "muted"} for group in groups]
+    rows = [{"key": group["key"], "cite": group["cite"], "title": group["title"], "status": group["status"], "latest": None if group["latest"] == group["title"] else group["latest"], "lanes": ", ".join(group["lanes"]), "at": group["at"], "tone": "bad" if group["active"] else "muted"} for group in groups]
     return Table([Col("title", "Incident"), Col("status", "Status", "badge"), Col("latest", "Latest"), Col("lanes", "Lanes"), Col("at", "Updated", "age")], rows, note=None if rows else f"No open incident, and none settled in {recent}.")
