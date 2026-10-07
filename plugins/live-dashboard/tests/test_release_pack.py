@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import fake
-from livedash import view, yamlish
+from livedash import payloads, view, yamlish
 from livedash.components.release import cards, overview, platy
 from livedash.context import RATE_LIMIT_BACKOFF, RateLimited
 
@@ -463,3 +463,15 @@ def test_a_rate_limited_build_read_holds_the_shared_cache_for_every_card(tmp_pat
 def test_work_lines_ask_cci_only_for_kinds_it_knows(tmp_path):
     ctx = fake(tmp_path, cci_replies={"records": [{"seq": 9, "at": "2026-10-06T01:00:00Z", "lane": "walker", "kind": "release", "text": "receiver live", "refs": {}}]})
     assert [(entry.text, entry.tone) for entry in cards.lines(ctx).entries] == [("RELEASE receiver live", "ok")]
+
+
+def test_the_stacks_card_carries_only_what_it_renders_and_fits_the_payload_cap(tmp_path, monkeypatch):
+    blocker = "HOLD " + "x" * 380
+    wide = {"component": "api", "env": "plat", "census_build": "1251", "blocked_by": blocker, "doing": blocker, "text": blocker, "pipeline_change_subject": blocker, "platy_url": "https://bk/7", "platy_build": 7}
+    rows = [wide | {"stack": f"api/env-{n}", "cite": f"stack:api/env-{n}", "target": "api", "deployable": platy.BLOCKED, "zero": "drift", "platy_at": "2026-10-05T05:00:00Z", "reason": blocker, "reason_url": None, "doing_lane": "walker", "doing_url": None} for n in range(300)]
+    monkeypatch.setattr(cards, "known_builds", lambda ctx, pipeline, checkout: [])
+    monkeypatch.setattr(cards, "backfilling", lambda ctx, pipeline: False)
+    monkeypatch.setattr(cards, "stack_rows", lambda *args: rows)
+    table = cards.stacks(fake(tmp_path), checkout="/checkout", state_dir=tmp_path, census="census-*.md")
+    assert set(table.rows[0]) == {*cards.STACK_FIELDS, "key", "platy_link", "platy_link_url", "tone"}
+    assert payloads.problems(table) == []

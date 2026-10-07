@@ -22,6 +22,7 @@ CLOSING_KINDS = ["done", "lift", "go", "decision", "owner", "answer"]
 WORK_KINDS = ["go", "opened", "claim", "ready", "landed", "release", "fix-live"]
 CCI_OPEN = ("open_defects", "open_blockers", "open_holds")
 DEPLOYABLE_TONE = {platy.PROVEN: "ok", platy.UNPROVEN: "warn", platy.BLOCKED: "bad"}
+STACK_FIELDS = ("stack", "cite", "target", "deployable", "zero", "platy_at", "reason", "reason_url", "doing_lane", "doing_url")
 STATE_TONE = {"passed": "ok", "failed": "bad", "failing": "bad", "canceled": "muted", "cancelled": "muted"}
 BUILDS: dict[tuple[str, str], dict] = {}
 BUILDS_LOCK = threading.Lock()
@@ -144,7 +145,7 @@ def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: 
     """Each census stack, grouped by release target: proven, unproven or blocked through Platy, its drift against trunk,
     why it is not proven, and the lane working on it."""
     rows = stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, known_builds(ctx, pipeline, checkout))
-    out = [row | {"key": row["stack"], "platy_link": f"#{row['platy_build']}" if row["platy_build"] else None, "platy_link_url": row["platy_url"], "tone": DEPLOYABLE_TONE[row["deployable"]]} for row in rows]
+    out = [{field: row[field] for field in STACK_FIELDS} | {"key": row["stack"], "platy_link": f"#{row['platy_build']}" if row["platy_build"] else None, "platy_link_url": row["platy_url"], "tone": DEPLOYABLE_TONE[row["deployable"]]} for row in rows]
     return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", "vs trunk", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target", note="Backfilling the release pipeline's Buildkite history; a stack's last Platy release may be older than the builds read so far." if backfilling(ctx, pipeline) else None)
 
 
