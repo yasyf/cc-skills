@@ -27,6 +27,8 @@ SUBMITTED = (
     re.compile(rf"^\S+: {URL} \((?:created|updated)\)$", re.MULTILINE),
     re.compile(rf"^{URL}$", re.MULTILINE),
 )
+SETTLERS = (("cci", "post"), ("gh", "pr", "close"))
+PULL_URL = re.compile(r"/pull/(?P<pr>\d+)")
 STACK_HEAD = re.compile(r"^\S+ · #(?P<pr>\d+) · head (?P<head>[0-9a-f]{7,40}) · ", re.MULTILINE)
 PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
 RECORD_TIMEOUT_SECONDS = 30
@@ -74,6 +76,8 @@ def lane_name(evt: BaseHookEvent) -> str:
 
 
 UNRECORDED = "The opened PRs were not recorded in the drive ledger. Run `ledger.py register` for each by hand."
+UNSETTLED = "The landed or closed PRs {prs} were not settled in the drive ledger. Run `ledger.py landed --pr N` for each by hand."
+LANDED = f"{sys.executable} {DRIVE} landed"
 
 
 @on(
@@ -117,3 +121,68 @@ def record_opened_prs(evt: BaseHookEvent) -> HookResult | None:
     if done.stdout.strip():
         return None
     return evt.context(done.stderr.strip()) if done.stderr.strip() and reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") else None
+
+
+def flag_values(args: tuple[str, ...], name: str) -> list[str]:
+    values = []
+    for at, arg in enumerate(args):
+        if arg == name and at + 1 < len(args):
+            values.append(args[at + 1])
+        elif arg.startswith(f"{name}="):
+            values.append(arg.removeprefix(f"{name}="))
+    return values
+
+
+def closed_pr(argv: tuple[str, ...]) -> list[str]:
+    target = argv[3] if len(argv) > 3 else ""
+    match = PULL_URL.search(target)
+    return [match["pr"] if match else target]
+
+
+def settled_prs(evt: BaseHookEvent) -> list[str]:
+    prs = []
+    for call in evt.cmd.calls():
+        argv = call.verb_argv
+        if argv[:2] == SETTLERS[0] and "landed" in flag_values(call.args, "--kind"):
+            prs += [pr for value in flag_values(call.args, "--pr") for pr in value.split(",")]
+        elif argv[:3] == SETTLERS[1]:
+            prs += closed_pr(argv)
+    return list(dict.fromkeys(pr for pr in prs if pr.isdigit()))
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[
+        Tool("Bash"),
+        Or(*(Runs(*argv) for argv in SETTLERS)),
+    ],
+    tests={
+        Input(
+            command="cci post --drive release-v3 --lane landing-sweep-30 --kind landed --pr 31390 --to main --text 'LANDED #31390'",
+            output="#31386",
+            session_id="900424b6-0000",
+            commands={LANDED: "landed #31390 as f2f8393f0 on dev at 2026-10-07T03:53:00Z"},
+        ): Allow(),
+        Input(
+            command="gh pr close https://github.com/Forge-AI/monorepo/pull/31159 --comment superseded",
+            output="✓ Closed pull request Forge-AI/monorepo#31159",
+            session_id="900424b6-0000",
+            commands={LANDED: "#31159 is closed-without-squash on dev"},
+        ): Allow(),
+        Input(command="cci post --lane x --kind opened --pr 31390 --text 'OPENED #31390'", output="#31361", session_id="900424b6-0000"): Allow(),
+    },
+)
+def settle_landed_prs(evt: BaseHookEvent) -> HookResult | None:
+    if not (prs := settled_prs(evt)):
+        return None
+    argv = [sys.executable, str(DRIVE), "landed", "--session", evt.session_id]
+    argv += ["--drive", drive] if (drive := reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) else []
+    for pr in prs:
+        argv += ["--pr", pr]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=RECORD_TIMEOUT_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
+        done = None
+    if done is None or done.returncode:
+        return evt.context(UNSETTLED.format(prs=", ".join(f"#{pr}" for pr in prs)))
+    return None

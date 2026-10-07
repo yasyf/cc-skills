@@ -9,7 +9,7 @@ from captain_hook.events import PostToolUseEvent
 from captain_hook.testing.helpers import build_context
 
 from hooks.tests.ledger_fixtures import FIXTURES
-from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text
+from hooks.pr_ledger import OpenedPr, lane_name, opened_prs, opener_cwd, response_text, settled_prs
 
 SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
 
@@ -109,3 +109,30 @@ def test_a_lane_in_no_drive_is_told_its_pr_was_not_recorded(tmp_path, monkeypatc
     result = pr_ledger.record_opened_prs(evt)
 
     assert (result.message if result else None) == (expected and "no drive claims session x (lane y)")
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("cd /x && ~/.local/bin/cci post --drive release-v3 --lane l --kind landed --pr 31390 --to main --text 'LANDED #31390'", ["31390"]),
+        ("cci post --lane l --kind=landed --pr 31375,31392 --pr=31376 --text x", ["31375", "31392", "31376"]),
+        ("cci post --lane l --kind opened --pr 31390 --text x", []),
+        ("gh pr close 31159 --comment superseded", ["31159"]),
+        ("gh pr close https://github.com/Forge-AI/monorepo/pull/31054", ["31054"]),
+        ("gh pr close yasyf/some-branch", []),
+    ],
+    ids=["cci-landed", "cci-landed-lists", "cci-opened", "gh-close-number", "gh-close-url", "gh-close-branch"],
+)
+def test_settled_prs_reads_the_prs_a_landing_record_or_a_close_names(tmp_path, command, expected):
+    assert settled_prs(event(tmp_path, command=command)) == expected
+
+
+def test_a_landing_the_drive_cannot_settle_names_the_prs(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 1, "", "forge unreachable"))
+
+    result = pr_ledger.settle_landed_prs(event(tmp_path, command="cci post --lane l --kind landed --pr 31390 --text x"))
+
+    assert result is not None
+    assert result.message == pr_ledger.UNSETTLED.format(prs="#31390")
