@@ -317,8 +317,11 @@ brief path is made absolute before it goes into the pointer.
 Retry a failed dispatch only after confirming its session has ended, with the
 root's ruling; run the same command with the same lane and receipt directory.
 The script reads
-`result.taskId` and `result.dispatchId` from the recorded receipt and passes
-`--task <taskId> --retry-of <dispatchId>` instead of creating a new task from `--spec`.
+`result.taskId` and `result.dispatchId` from the recorded receipt and, when
+`orca orchestration task-list --status failed` or `--status blocked` lists that task,
+passes `--task <taskId> --retry-of <dispatchId>` instead of creating a new task from `--spec`.
+Orca retries only a failed or blocked task, so a lane whose recorded task completed,
+such as an incident lane relaunched for a recurring alert, gets a fresh task from `--spec`.
 It creates a new terminal and keeps the worktree. Never stop the old session or
 duplicate its active work. A follow-up alone is not a relaunch: edit the brief file,
 then send its pointer with `send --type dispatch` to the current dispatch.
