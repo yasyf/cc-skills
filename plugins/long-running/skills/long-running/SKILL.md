@@ -2343,9 +2343,12 @@ The plugin ships a `bin/rulings.py` launcher.
 
 `rulings.py register --program <slug>` prints the newest register as `{id, body}` or
 `null`. `rulings.py match --program <slug>` reads a lane brief from stdin.
-It mirrors every `scope:durable` answer into `<state dir>/rulings/<id7>.md` with atomic
+It mirrors the drive's `scope:durable` answers into `<state dir>/rulings/<id7>.md` with atomic
 per-file replacements so concurrent spawns never read partial files. It queries
 `ccx code search --semantic` with the brief's first 2,000 characters.
+The drive's answers are those labelled `program:<slug>` plus those anchored to the repo's
+current branch. Another drive's answers never enter the corpus.
+`capture_standing_rule` labels each owner ruling it records with `program:<slug>`.
 Each matched answer absent from the register's citations appears as `- <id7> <title>`
 over its quoted body. `--budget` defaults to 8,000 bytes.
 

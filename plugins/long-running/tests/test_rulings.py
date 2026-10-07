@@ -16,13 +16,20 @@ TRUTH = {"id": "ec2881e" + "0" * 33, "title": "Is any ledger a source of truth?"
 SEED = {"id": "8075b46" + "0" * 33, "title": "How does a seed converge?", "body": "On every apply.\n" + "x" * 400}
 
 
+DURABLE = ["answer", "list", "--label", "scope:durable", "--limit", "0"]
+
+
 class FakeShell(ledger.Shell):
-    def __init__(self, hits: list[str], registers: list[dict]) -> None:
+    def __init__(self, hits: list[str], registers: list[dict], branch: str = "yasyf/brook") -> None:
         self.hits = hits
         self.registers = registers
+        self.branch = branch
         self.queries: list[tuple[str, str]] = []
 
     def run(self, argv: list[str], stdin: str | None = None) -> str:
+        if argv[0] == "git":
+            assert argv[1:] == ["-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]
+            return f"{self.branch}\n"
         if argv[0] == "ccx":
             assert argv[1:7] == ["code", "search", "--semantic", "--content", "docs", "-k"]
             self.queries.append((argv[-2], argv[-1]))
@@ -30,7 +37,11 @@ class FakeShell(ledger.Shell):
         assert argv[:3] == ["ccn", "-R", REPO], argv
         match argv[3:5]:
             case ["answer", "list"]:
-                return json.dumps([FLAGS, TRUTH, SEED])
+                match argv[3:-1]:
+                    case [*durable, "--label", "program:brook"] if durable == DURABLE:
+                        return json.dumps([FLAGS, TRUTH])
+                    case [*durable, "--branch", "yasyf/brook"] if durable == DURABLE:
+                        return json.dumps([TRUTH, SEED])
             case ["doc", "list"]:
                 assert argv[5:7] == ["--label", "standing-rules:brook"]
                 return json.dumps(self.registers)
@@ -99,3 +110,16 @@ def test_a_drive_worker_resolves_its_program_from_the_registry(
 
     assert capsys.readouterr().out.startswith("- 1984bf6 ")
     assert shell.queries == [("brief", str(state / "rulings"))]
+
+
+def test_match_reads_only_the_drives_program_and_branch_answers(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    corpus = home / ".claude" / "scratch" / "brook" / "rulings"
+
+    match(FakeShell(["1984bf6"], []), "brief", monkeypatch, capsys)
+    assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "8075b46.md", "ec2881e.md"]
+
+    out = match(FakeShell(["8075b46", "1984bf6"], [], branch="HEAD"), "brief", monkeypatch, capsys)
+    assert out == "- 1984bf6 May a migration ship behind a flag?\n  > No.\n  > Delete or replace.\n"
+    assert sorted(path.name for path in corpus.iterdir()) == ["1984bf6.md", "ec2881e.md"]

@@ -9,8 +9,9 @@ A consolidation lane proposes at most 30 rules for the owner to approve.
 The full answers stay in cc-notes, linked by id. ``register`` reads the doc and
 prints JSON with fields ``{id, body}``, or ``null`` when no register exists.
 
-``match`` mirrors every ``scope:durable`` answer into ``<state dir>/rulings/<id7>.md``.
-This is the retrieval corpus only. Nothing injects it in bulk.
+``match`` mirrors the drive's ``scope:durable`` answers into ``<state dir>/rulings/<id7>.md``:
+answers labelled ``program:<program>`` plus answers anchored to the repo's current branch.
+Another drive's answers never enter the corpus. Nothing injects it in bulk.
 The command reads an action from stdin. Its first 2,000 characters become the query
 for ``ccx code search --semantic``. Answers the register already cites are excluded.
 Each match is printed as ``- <id7> <title>`` followed by its body quoted with ``  >``.
@@ -71,6 +72,19 @@ def register(shell: ledger.Shell, repo: str, program: str) -> dict | None:
     return {"id": newest, "body": ccn(shell, repo, "doc", "show", newest)["body"]}
 
 
+def branch_of(shell: ledger.Shell, repo: str) -> str:
+    branch = shell.run(["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    return "" if branch == "HEAD" else branch
+
+
+def drive_answers(shell: ledger.Shell, repo: str, program: str) -> list[dict]:
+    durable = ("answer", "list", "--label", "scope:durable", "--limit", "0")
+    scoped = ccn(shell, repo, *durable, "--label", f"program:{program}") or []
+    if branch := branch_of(shell, repo):
+        scoped += ccn(shell, repo, *durable, "--branch", branch) or []
+    return list({answer["id"]: answer for answer in scoped}.values())
+
+
 def mirror(answers: list[dict], directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     wanted = {f"{answer['id'][:SHORT]}.md": f"# {answer['title']}\n\n{answer.get('body') or ''}\n" for answer in answers}
@@ -113,7 +127,7 @@ def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     program = program_of(args)
-    durable = ccn(shell, args.repo, "answer", "list", "--label", "scope:durable", "--limit", "0") or []
+    durable = drive_answers(shell, args.repo, program)
     answers = {answer["id"][:SHORT]: answer for answer in durable}
     directory = state_dir(args) / "rulings"
     mirror(durable, directory)

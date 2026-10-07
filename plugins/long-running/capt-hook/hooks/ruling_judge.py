@@ -24,7 +24,8 @@ PROMPT = """An agent in a long-running drive is about to take this action ({kind
 These durable owner answers are the nearest by semantic search:
 
 {candidates}
-Return the id of the one answer that this action clearly bears on or would violate, or "none" when no answer clearly applies."""
+Return the id of the one answer that this action clearly bears on or would violate, or "none" when no answer clearly applies.
+Sharing a word, a system, or a topic is not enough: the action must make the very decision that answer settled, or contradict it."""
 CANDIDATE = "- 1984bf6 May a migration ship behind a flag?\n  > No. Delete or replace.\n"
 MATCH = {f"{sys.executable} {RULINGS} match": CANDIDATE}
 ACTIVE = CompactionState(active=True, slug="brook")

@@ -18,7 +18,8 @@ Above that limit, the hook names it with `ccn doc show <id7>`.
 Read it in full before acting. Codex workers have no hooks, so their briefs paste
 the register body verbatim. A brief carries the register, never full-answer quotes.
 
-At key moments, `ruling_judge.py` searches the five nearest durable answers.
+At key moments, `ruling_judge.py` searches the five nearest durable answers among this
+drive's: those labelled `program:<slug>` and those anchored to the current branch.
 It excludes answers the register already cites.
 A small model selects the one answer the action clearly bears on or would violate,
 or none. The hook injects only that answer, verbatim, once per lane per answer.
