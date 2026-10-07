@@ -250,3 +250,19 @@ def test_a_question_or_reply_needs_a_note(tmp_path):
 def test_the_lr_pack_registers_under_its_prefix():
     assert {"lr.needs-owner", "lr.inbox-feed", "lr.compactions", "lr.watches", "lr.drive"} <= set(registry.REGISTRY)
     assert sorted(registry.REGISTRY["lr.needs-owner"].actions) == ["complete", "question", "reply"]
+
+
+class Bus(Context):
+    def cci(self, path, **params):
+        if path == "digest":
+            return {"open_asks": [
+                {"seq": 50, "kind": "decide", "lane": "merge-walker", "at": "2026-10-06T05:00:00Z", "text": "pick A or B", "to": ["owner"]},
+                {"seq": 51, "kind": "ask", "lane": "sweep", "at": "2026-10-06T05:10:00Z", "text": "grant write", "to": ["owner"]},
+                {"seq": 52, "kind": "decide", "lane": "desk", "at": "2026-10-06T05:20:00Z", "text": "root's call", "to": ["main"]},
+            ]}
+        return [{"seq": 53, "kind": "answer", "lane": "owner", "at": "2026-10-06T06:00:00Z", "text": "A", "re": 50}] if params.get("since") is None else []
+
+
+def test_owner_asks_are_only_those_addressed_to_the_owner_and_still_unanswered(tmp_path):
+    rows = pack.owner_asks(Bus(tmp_path, {"id": "d", "cci_drive": "release-v3"}, MODIFIED, 30.0), "2026-10-06T00:00:00Z")
+    assert [(row["cite"], row["kind"], row["state"]) for row in rows] == [("cci:51", "ask", "sweep")]
