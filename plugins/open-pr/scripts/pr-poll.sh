@@ -145,7 +145,9 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
 
   A round ends with DONE window-elapsed after PR_POLL_WINDOW seconds (1500,
   under the harness's 30-minute Monitor cap); re-run on the same state file
-  to continue. DONE deadline-still-open ends the whole watch PR_POLL_DEADLINE
+  to continue; the rerun waits out the interval before its first pass. Set
+  PR_POLL_WINDOW=40 for a foreground Bash call capped at 60 seconds.
+  DONE deadline-still-open ends the whole watch PR_POLL_DEADLINE
   seconds (14400) after the state file's started_at.
 EOF
   exit 2
@@ -518,15 +520,28 @@ poll() {
   esac
 }
 
+rest_until() {
+  local due=$1 now window_end=$((STARTED + WINDOW))
+  now=$(date +%s)
+  if [ "$WINDOW" -gt 0 ] && [ "$due" -ge "$window_end" ]; then
+    [ "$window_end" -le "$now" ] || sleep $((window_end - now)) 9>&-
+    load_state
+    STATE=$(jq -c --argjson d "$due" '.next_poll_at = $d' <<<"$STATE")
+    write_state
+    finish window-elapsed
+  fi
+  [ "$due" -le "$now" ] || sleep $((due - now)) 9>&-
+}
+
+load_state
+rest_until "$(state '.next_poll_at // 0')"
 while :; do
+  polled_at=$(date +%s)
   poll
   now=$(date +%s)
   watch_started=$(jq -r --argjson s "$STARTED" '.started_at // $s' <<<"$STATE")
   if [ "$DEADLINE" -gt 0 ] && [ $((now - watch_started)) -ge "$DEADLINE" ]; then
     finish deadline-still-open
   fi
-  if [ "$WINDOW" -gt 0 ] && [ $((now - STARTED)) -ge "$WINDOW" ]; then
-    finish window-elapsed
-  fi
-  sleep "$INTERVAL" 9>&-
+  rest_until $((polled_at + INTERVAL))
 done
