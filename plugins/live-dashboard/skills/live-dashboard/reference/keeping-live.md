@@ -48,21 +48,22 @@ sonnet, effort low, at drive start beside the landing desk. Every 15 minutes it 
 each open item on the drive dashboard against its sources and closes every item whose
 closing record exists, with one cited cci record per sweep.
 
-The dashboard closes most items itself. An item closes when a record of a shape the
-cards read exists:
+The cards drop settled items themselves:
 
-- An incident closes on fix-live, recovered, not-ours, or duplicate. A record that
-  names several incident slugs, each as a whole name, closes each of them. A done
-  record whose `--re` or `--resolves` points into the incident closes it, and so does
-  any record whose `--resolves` does.
-- A hold closes on a later lift, go, decision, owner, or answer record whose text opens
-  with LIFT, optionally after a `ROOT <time>:` prefix. That record names the hold's
-  `#seq`, or comes from root, the owner, or the holding lane and names an incident slug
-  the hold names. A conditional or negated lift never counts.
-- An owner item closes when the owner clicks Mark complete on the `needs-owner` card.
-- A board shows only while it is open, unsubmitted, updated after the drive started,
-  and holds a block that asks something.
-- A ledger PR leaves the review queue when the ledger records it landed.
+- An ask leaves when the ledger row is dropped, answered, or delivered, or its `state` is
+  live, landed, done or backlog; a cci ask or decide leaves once a later record names
+  its seq in `re` or `resolves`.
+- A blocker, defect or hold leaves on a `resolved:` cite, a later record answering it by
+  `re` or `resolves`, or the landing or closing of the one PR it is about. A blocker or
+  defect with no answer for 24 hours leaves too; a hold stays until lifted.
+- An incident thread opens only from an incident record or a record keyed to a known
+  incident slug. It closes on fix-live, recovered, not-ours or duplicate, and drops off
+  six hours after it settles or goes quiet.
+- A lane shows while it posted within the hour or holds a worktree after standing down.
+  An Orca worker shows only while it reports itself live; settled dispatches never do.
+- A PR leaves the stack graph once `ccx vcs pr status` reports it merged or closed.
+- An owner item closes when the owner clicks Mark complete on the `needs-owner` card,
+  and a board shows only while it is open, unsubmitted, and asks something.
 
 The curator handles the rest: items whose closing record exists only in words, under
 another name, or in a source no card reads. Its only file is the record body it makes

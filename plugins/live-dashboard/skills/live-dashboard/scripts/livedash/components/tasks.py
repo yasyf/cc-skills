@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,13 +51,20 @@ def session_tasks(checkout: str, sessions: list[str]) -> tuple[list[dict], Path 
 
 
 @component("tasks", "Root tasks", question="What is the root session working on right now?", reads=["the root session's task list"], every="1m")
-def tasks(ctx: Context, *, checkout: str, sessions: list[str], statuses: list[str] = ["in_progress", "pending"]) -> Table:
-    """The root session's task list (the newest of `sessions` that has one), narrowed to `statuses`."""
+def tasks(ctx: Context, *, checkout: str, sessions: list[str], statuses: list[str] = ["in_progress"], within: str = "24h") -> Table:
+    """The root session's task list (the newest of `sessions` that has one), narrowed to `statuses` and to tasks updated
+    within `within`; every other open task is counted in the note by status."""
     found, directory = session_tasks(checkout, sessions)
+    floor = ctx.now - view.window(within)
+    live = [task for task in found if not task.get("archived") and task.get("status") not in ("completed", "deleted")]
+    current = [task for task in live if task.get("status") in statuses and (view.stamp(task.get("updated_at")) or floor) > floor]
     rows = [
         {"key": task["id"], "cite": f"task:{task['id']}", "id": task["id"], "subject": task.get("subject", ""), "status": task.get("status"), "owner": task.get("owner"), "updated": task.get("updated_at"), "tone": "warn" if task.get("status") == "in_progress" else None}
-        for task in sorted(found, key=lambda task: task.get("updated_at") or "", reverse=True)
-        if task.get("status") in statuses and not task.get("archived")
+        for task in sorted(current, key=lambda task: task.get("updated_at") or "", reverse=True)
     ]
-    note = None if directory else f"No task list for sessions {', '.join(sessions)}."
+    others = Counter(task.get("status") if task.get("status") not in statuses else f"{task.get('status')} untouched for {within}" for task in live if task not in current)
+    if directory is None:
+        note = f"No task list for sessions {', '.join(sessions)}."
+    else:
+        note = "Not listed: " + ", ".join(f"{count} {status.replace('_', ' ')}" for status, count in sorted(others.items())) + "." if others else None
     return Table([Col("id", "#"), Col("subject", "Task"), Col("status", "Status", "badge"), Col("owner", "Owner"), Col("updated", "Updated", "age")], rows, note=note)

@@ -27,9 +27,10 @@ def pings(ctx: Context) -> Table:
 LAYOUT = """title: Served
 banner: Tailor this layout.
 sections:
-  - title: Pings
+  - title: Activity
     components:
       - {use: local.pings, id: pings, pinned: true}
+      - {use: local.pings, id: echo, title: Echo}
 """
 RUNNING = {"BackendState": "Running", "Self": {"DNSName": "studio.tail0000.ts.net."}}
 
@@ -69,9 +70,10 @@ def test_state_carries_sections_cards_counts_and_the_banner(served):
     assert status == 200
     assert state["dashboard"] == {"id": "served", "title": "Served", "repo": "o/r", "program": None}
     assert state["banner"] == "Tailor this layout." and state["layout_error"] is None
-    assert state["sections"] == [{"title": "Pings", "collapsed": False, "cards": ["pings"]}]
-    assert state["cards"][0] | {"as_of": None, "ms": None} == {"id": "pings", "use": "local.pings", "title": "Pings", "question": "Does the test card answer its one question?", "section": "Pings", "width": 1, "pinned": True, "phone": None, "every": "manual", "kind": "table", "payload": state["cards"][0]["payload"], "as_of": None, "status": "ok", "error": None, "ms": None, "actions": ["ping"]}
+    assert state["sections"] == [{"title": "Activity", "collapsed": False, "cards": ["pings", "echo"], "as_of": state["cards"][1]["as_of"]}]
+    assert state["cards"][0] | {"as_of": None, "ms": None} == {"id": "pings", "use": "local.pings", "title": "Pings", "question": "Does the test card answer its one question?", "section": "Activity", "width": 1, "pinned": True, "phone": None, "every": "manual", "kind": "table", "payload": state["cards"][0]["payload"], "as_of": None, "status": "ok", "error": None, "ms": None, "actions": ["ping"]}
     assert state["counts"] == {"error": 0, "stale": 0, "hung": 0, "pending": 0}
+    assert (state["cards"][0]["payload"]["rows"][0]["cite"], state["cards"][1]["payload"]["rows"], state["cards"][1]["payload"]["note"]) == ("ping:r1", [], "1 more under Pings")
     assert call(served, "/state.json", headers={"If-None-Match": headers["ETag"]})[0] == 304
 
 
@@ -86,7 +88,7 @@ def test_a_broken_layout_keeps_the_last_good_one_and_names_the_line(served):
     served.reload()
     state = served.state()
     assert state["layout_error"].startswith("layout.yaml:6: card has unknown key colour")
-    assert [card["id"] for card in state["cards"]] == ["pings"]
+    assert [card["id"] for card in state["cards"]] == ["pings", "echo"]
 
 
 @pytest.mark.parametrize(("host", "status"), [("127.0.0.1:{port}", 200), ("localhost:{port}", 200), ("studio.tail0000.ts.net:{port}", 200), ("rebound.example:{port}", 421)])
@@ -199,9 +201,9 @@ def test_chat_searches_reads_and_digests_the_cards(served, tmp_path):
     assert chat.read(sources, "file:notes.md") == "line one\nline two\n"
     assert chat.read(sources, "ccn:4cb82750") == "shown 4cb82750"
     assert json.loads(chat.read(sources, "card:pings"))["kind"] == "table"
-    assert [item["id"] for item in json.loads(chat.card(sources.state, None))] == ["pings"]
+    assert [item["id"] for item in json.loads(chat.card(sources.state, None))] == ["pings", "echo"]
     digest = chat.digest(sources.state)
-    assert "card:pings (Pings / Pings, table, ok, as of" in digest and "| first row |" in digest
+    assert "card:pings (Activity / Pings, table, ok, as of" in digest and "| first row |" in digest
     for ref in ("file:../outside.md", "inbox:../notes.md:1", "ping:r9", "nonsense"):
         with pytest.raises(LookupError):
             chat.read(sources, ref)

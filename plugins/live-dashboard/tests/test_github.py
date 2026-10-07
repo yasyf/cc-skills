@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import timedelta
 
 import pytest
-from conftest import LEDGER, PR_STATUS, fake, fixture
+from conftest import LEDGER, NOW, PR_STATUS, fake, fixture
+from livedash import context
 from livedash.components import github
 
 ALIAS = re.compile(r"(pr\d+): pullRequest")
@@ -109,3 +111,15 @@ def test_open_prs_page_through_github_and_details_come_in_bounded_batches(tmp_pa
     assert [OPEN_LIST in query for query in queries] == [True, True, False, False, False]
     assert [len(ALIAS.findall(query)) for query in queries[2:]] == [25, 25, 10]
     assert len(table.rows) == 60
+
+
+def test_a_refused_quota_rereads_the_free_rate_limit_before_refusing(tmp_path, monkeypatch):
+    monkeypatch.setitem(context.QUOTA, "remaining", 10)
+    monkeypatch.setitem(context.QUOTA, "reset_at", NOW + timedelta(hours=1))
+    monkeypatch.setitem(context.QUOTA, "probed_at", None)
+    limits = {"resources": {"graphql": {"limit": 5000, "remaining": 4900, "reset": int((NOW + timedelta(hours=1)).timestamp())}}}
+    replies = {("gh", "api", "rate_limit"): limits, ("gh", "api", "graphql"): {"data": {"viewer": {"login": "me"}, "rateLimit": {"remaining": 4899, "resetAt": "2026-10-07T02:00:00Z"}}}}
+    ctx = context.Context(tmp_path, {}, NOW, 30.0)
+    monkeypatch.setattr(ctx, "run", lambda argv, timeout=None, cwd=None, input=None: json.dumps(next(reply for prefix, reply in replies.items() if tuple(argv[: len(prefix)]) == prefix)))
+    assert ctx.gh_graphql("query { viewer { login } }") == {"viewer": {"login": "me"}}
+    assert context.QUOTA["remaining"] == 4899

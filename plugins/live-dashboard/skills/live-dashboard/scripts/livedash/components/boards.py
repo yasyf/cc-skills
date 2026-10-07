@@ -51,10 +51,12 @@ def waiting(row: dict) -> bool:
     return row["status"] == "open" and row.get("submitted") != "submitted" and bool(row.get("asks")) and not row.get("closed")
 
 
-@component("boards", "cc-present boards", question="Which cc-present boards are open and still asking the owner something?", reads=["cc-present sessions", "cc-present outcomes"], every="2m", timeout="60s")
+@component("boards", "Boards waiting on you", question="Which cc-present boards are still asking the owner something?", reads=["cc-present sessions", "cc-present outcomes"], every="2m", timeout="60s")
 def boards(ctx: Context, *, started_at: str | None = None) -> Table:
-    """cc-present boards updated since the drive started; an open, unsubmitted board that asks something reads warn."""
-    rows = [row | {"tone": "warn" if waiting(row) else None} for row in board_rows(ctx, started_at)]
-    rows.sort(key=lambda row: row["updated"] or "", reverse=True)
-    rows.sort(key=lambda row: not waiting(row))
-    return Table([Col("title", "Board", "link"), Col("status", "Status", "badge"), Col("submitted", "Submitted", "badge"), Col("answered", "Answered", "num"), Col("updated", "Updated", "age")], rows, note=None if rows else "No boards since the drive started.")
+    """cc-present boards updated since the drive started that are open, unsubmitted, and hold a block that asks something;
+    the rest are counted in the note."""
+    found = board_rows(ctx, started_at)
+    rows = sorted((row | {"tone": "warn"} for row in found if waiting(row)), key=lambda row: row["updated"] or "", reverse=True)
+    settled = len(found) - len(rows)
+    note = f"Not listed: {settled} submitted, closed, or asking nothing." if settled else None
+    return Table([Col("title", "Board", "link"), Col("answered", "Answered", "num"), Col("updated", "Updated", "age")], rows, note=note or (None if rows else "No board is waiting on you."))

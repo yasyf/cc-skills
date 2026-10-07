@@ -16,7 +16,8 @@ GRAPHQL_FLOOR = 500
 RATE_LIMIT_BACKOFF = 300.0
 RATE_LIMITED = re.compile(r"\b429\b|rate.?limit", re.IGNORECASE)
 RATE_LIMIT_QUERY = "rateLimit { remaining resetAt }"
-QUOTA: dict = {"remaining": None, "reset_at": None}
+QUOTA_PROBE_SECONDS = 60.0
+QUOTA: dict = {"remaining": None, "reset_at": None, "probed_at": None}
 QUOTA_LOCK = threading.Lock()
 
 
@@ -30,6 +31,15 @@ def quota_refusal(moment: datetime) -> str | None:
     if remaining is not None and remaining < GRAPHQL_FLOOR and reset_at and moment < reset_at:
         return f"GitHub GraphQL quota is {remaining}, under {GRAPHQL_FLOOR}, until {reset_at:%H:%MZ}"
     return None
+
+
+def probe_due(moment: datetime) -> bool:
+    with QUOTA_LOCK:
+        probed = QUOTA["probed_at"]
+        if probed and (moment - probed).total_seconds() < QUOTA_PROBE_SECONDS:
+            return False
+        QUOTA["probed_at"] = moment
+        return True
 
 
 def record_quota(limit: dict) -> None:
@@ -73,7 +83,11 @@ class Context:
         return json.loads(self.run(argv, timeout, cwd) or "null")
 
     def gh_graphql(self, query: str, **variables) -> dict:
-        """Run one GraphQL query through `gh api graphql`; it refuses while the last known quota is under 500."""
+        """Run one GraphQL query through `gh api graphql`; under 500 known quota it rereads the free `gh api rate_limit`
+        at most once a minute, and refuses while the quota is still under 500."""
+        if quota_refusal(self.now) and probe_due(self.now):
+            graphql = self.json(["gh", "api", "rate_limit"])["resources"]["graphql"]
+            record_quota({"remaining": graphql["remaining"], "resetAt": datetime.fromtimestamp(graphql["reset"], timezone.utc).isoformat()})
         if refusal := quota_refusal(self.now):
             raise RateLimited(refusal)
         argv = ["gh", "api", "graphql", "-f", f"query={query.rstrip().removesuffix('}')} {RATE_LIMIT_QUERY} }}"]

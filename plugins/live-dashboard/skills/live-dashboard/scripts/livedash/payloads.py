@@ -13,6 +13,7 @@ COL_KINDS = ("text", "num", "age", "due", "link", "badge", "delta", "bar")
 GATE_STATUSES = ("open", "pass", "fail", "blocked", "waived", "not-created", "not-run")
 MAX_BYTES = 256 * 1024
 SCHEMAS = Path(__file__).resolve().parents[2] / "reference" / "components"
+ROW_LISTS = ("rows", "entries")
 
 
 class PayloadError(ValueError):
@@ -361,6 +362,29 @@ class Svg:
     @classmethod
     def example(cls) -> Svg:
         return cls('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 20"><rect width="80" height="20" fill="#1baf7a"/></svg>')
+
+
+def unique(cards: list[dict]) -> list[dict]:
+    seen: dict[str, str] = {}
+    trimmed: dict[str, dict] = {}
+    for card in sorted(cards, key=lambda card: not card["pinned"]):
+        payload = card["payload"] or {}
+        name = next((name for name in ROW_LISTS if name in payload), None)
+        if name is None:
+            continue
+        kept, moved = [], {}
+        for row in payload[name]:
+            cite = row.get("cite")
+            if cite in seen:
+                moved[seen[cite]] = moved.get(seen[cite], 0) + 1
+                continue
+            kept.append(row)
+            if cite:
+                seen[cite] = card["title"]
+        if moved:
+            said = "; ".join(f"{count} more under {title}" for title, count in moved.items())
+            trimmed[card["id"]] = payload | {name: kept, "note": f"{payload['note']} {said}" if payload.get("note") else said}
+    return [card | {"payload": trimmed[card["id"]]} if card["id"] in trimmed else card for card in cards]
 
 
 def problems(payload) -> list[str]:

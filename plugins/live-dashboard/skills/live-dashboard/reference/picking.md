@@ -8,7 +8,10 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 
 | The owner asks | Cards |
 |---|---|
-| What waits on me? | `lr.needs-owner` pinned, `asks` |
+| What waits on me? | `lr.needs-owner` pinned: owner tasks and boards still asking |
+| What is broken? | `release.incidents`, `open-records` |
+| What is live? | `release.tiles`, `release.builds`, `release.stacks` |
+| What is in flight? | `cci-lanes`, `orca`, `tasks`, `asks` titled for the owner's own asks |
 | Which PRs need my review, and what lands if I approve? | `pr-review-queue`, `stack-graph`, `landing-preview`, `held-prs` |
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
 | Which test cells pass, and where is each one's evidence? | `matrix-file` over the test lane's results file |
@@ -27,8 +30,13 @@ setting `with:`; most bind from `context.json` and need nothing.
 
 ## Lay it out
 
-- The first section answers the owner's first question. Pin at most one card, the one
-  whose new rows deserve a browser notification.
+- Order sections by the owner's questions: what waits on them, what is broken, what is
+  live, what is in flight, then review. Pin at most one card, the one whose new rows
+  deserve a browser notification, and list it in the first section; it renders above
+  every section, so a section of its own would leave an empty heading behind.
+- Title every section and card for what it answers, never for the page or for another
+  card. `check` refuses the repeats it can see.
+- Leave `banner` out unless a standing fact needs it. Never write status there.
 - Give tables with many columns `width: 3`, graphs and feeds `width: 2`, and tiles,
   key-value cards, and checklists `width: 1`.
 - Collapse the drive's plumbing: lanes, quota, notes, health. The owner opens it when

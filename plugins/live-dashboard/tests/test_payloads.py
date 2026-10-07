@@ -63,3 +63,15 @@ def test_an_oversized_payload_is_a_problem():
 )
 def test_secret_scan_names_what_it_found_and_never_the_value(text, found):
     assert secrets.hits(text, {"MY_TOKEN": "hunter2hunter2", "SHORT_PASSWORD": "pw", "HOME": "/Users/x"}) == found
+
+
+def test_unique_shows_each_cited_row_once_pinned_cards_first():
+    def card(ident, title, rows, pinned=False):
+        return {"id": ident, "title": title, "pinned": pinned, "payload": {"kind": "table", "cols": [], "rows": rows}}
+
+    cards = [card("asks", "Open asks", [{"cite": "ask:1"}, {"cite": "ask:2"}, {"key": "x"}]), card("owner", "Needs you", [{"cite": "ask:1"}], pinned=True), card("tiles", "Tiles", None)]
+    cards[2]["payload"] = None
+    shown = payloads.unique(cards)
+    assert [row.get("cite") for row in shown[0]["payload"]["rows"]] == ["ask:2", None]
+    assert shown[0]["payload"]["note"] == "1 more under Needs you"
+    assert shown[1] is cards[1] and cards[0]["payload"]["rows"][0] == {"cite": "ask:1"}

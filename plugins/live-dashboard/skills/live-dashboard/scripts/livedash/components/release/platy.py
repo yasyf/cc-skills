@@ -19,6 +19,8 @@ LIVE = ("creating", "scheduled", "running", "blocked", "canceling", "failing")
 OVERLAP = timedelta(minutes=2)
 RESWEEP = timedelta(minutes=5)
 WORK_VERBS = frozenset({"GO", "OPENED", "CLAIM", "READY", "LANDED", "RELEASE", "FIX-LIVE"})
+TARGET_VERBS = frozenset({"GO", "RELEASE", "FIX-LIVE"})
+CHANGE_PR = re.compile(r"\(#(?P<pr>\d+)\)\s*$")
 PER_PAGE = 100
 BACKFILL_PAGES = 5
 UNTARGETED = "untargeted"
@@ -150,25 +152,27 @@ def stack_of(component: str) -> re.Pattern:
     return re.compile(rf"(?<![\w-]){re.escape(component)}/[\w-]", re.IGNORECASE)
 
 
-def naming(target: str, components: list[str]) -> list[re.Pattern]:
-    return [mentions(target), *(stack_of(component) for component in components)]
+def naming(target: str, components: list[str]) -> tuple[re.Pattern, list[re.Pattern]]:
+    return mentions(target), [stack_of(component) for component in components]
 
 
 def blocker_for(stack: str, target: str, records: list[dict]) -> dict | None:
     return next((record for record in records if target in (record["refs"].get("targets") or []) or stack in (record["refs"].get("stacks") or [])), None)
 
 
-def work_for(blocker: dict, named: list[re.Pattern], lines: list[dict]) -> dict | None:
+def work_for(blocker: dict, named: tuple[re.Pattern, list[re.Pattern]], lines: list[dict]) -> dict | None:
     lanes = [lane for lane in (*(blocker.get("to") or []), blocker.get("lane")) if lane]
-    patterns = [*named, *(mentions(lane) for lane in lanes)]
+    target, stacks = named
+    patterns = [*stacks, *(mentions(lane) for lane in lanes)]
     since = view.stamp(blocker["at"])
     for line in lines:
         moment = view.stamp(line.get("at"))
         if moment is None or moment < since:
             return None
-        if (line.get("verb") or "") not in WORK_VERBS:
+        verb = line.get("verb") or ""
+        if verb not in WORK_VERBS:
             continue
-        if line.get("lane") in lanes or any(pattern.search(line["text"]) for pattern in patterns):
+        if line.get("lane") in lanes or any(pattern.search(line["text"]) for pattern in patterns) or (verb in TARGET_VERBS and target.search(line["text"])):
             return line
     return None
 
@@ -203,7 +207,8 @@ def stack_rows(census: list[dict], targets: dict[str, str], builds: list[dict], 
         elif proven:
             deployable, reason = PROVEN, None
         elif passed:
-            deployable, reason = UNPROVEN, f"Platy last converged it at {passed['commit']} (#{passed['number']}), before the release pipeline changed at {pipeline['sha'][:10]}: {pipeline['subject']}"
+            changed = f"#{found['pr']} changed the release pipeline" if (found := CHANGE_PR.search(pipeline["subject"])) else f"the release pipeline changed: {pipeline['subject']}"
+            deployable, reason = UNPROVEN, f"since {pipeline['sha'][:10]}, when {changed}"
         else:
             deployable, reason = UNPROVEN, f"no Platy release has converged {row['stack'] if target != UNTARGETED else component}"
         said = {"reason": reason, "reason_url": blocker["refs"].get("url") if blocker else None, "doing": work["text"] if work else None, "doing_url": work.get("url") if work else None, "doing_lane": work.get("lane") if work else None}

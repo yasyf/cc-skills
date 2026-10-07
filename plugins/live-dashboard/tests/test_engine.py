@@ -219,6 +219,9 @@ def test_a_manual_card_runs_once_and_again_only_on_refresh(board):
         (lambda text: text.replace("id: a}", "id: feature/api}"), "layout.yaml:5: card id 'feature/api' must be"),
         (lambda text: text.replace("id: a}", "id: ../outside}"), "layout.yaml:5: card id '../outside' must be"),
         (lambda text: text + "colour: red\n", "layout.yaml:1: unknown top-level key colour"),
+        (lambda text: text.replace("id: a}", "id: a, pinned: true}").replace("id: b, every", "id: b, pinned: true, every").replace("start: 10}}", "start: 10}, pinned: true}"), "layout.yaml:5: section 'Counters' holds only pinned cards"),
+        (lambda text: text.replace("id: a}", "id: a, pinned: true}").replace("title: Failing", "title: Counter"), "layout.yaml:11: section 'Counter' repeats the title of pinned card a"),
+        (lambda text: text.replace("title: Counters", "title: Engine"), "layout.yaml:5: 'Engine' repeats the page title"),
     ],
 )
 def test_layout_defects_name_their_line(board, edit, message):
