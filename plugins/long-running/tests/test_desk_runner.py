@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import itertools
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,13 @@ FORBIDDEN = {"worker-release", "kill", "pkill", "close", "stop", "terminate", "w
 class Process:
     def poll(self):
         return 0
+
+
+class Running:
+    code = None
+
+    def poll(self):
+        return self.code
 
 
 class FakeShell(runner_module.Shell):
@@ -59,6 +67,7 @@ class FakeShell(runner_module.Shell):
         self.generation = 3
         self.run_use_error: dict | None = None
         self.posts: list[dict] = []
+        self.judge_process: Running | None = None
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -75,11 +84,17 @@ class FakeShell(runner_module.Shell):
     def cores(self):
         return 8
 
-    def spawn(self, argv, out, env):
+    def spawn(self, argv, out, env, stdin=None, err=None):
         self.calls.append(list(argv))
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(self.launch_line)
+        if argv[0] == "claude" and self.judge_process:
+            out.write_text("")
+            return self.judge_process
+        out.write_text(json.dumps([{"type": "system"}, {"type": "result", "structured_output": self.verdict}]) if argv[0] == "claude" else self.launch_line)
         return Process()
+
+    def stat(self, path):
+        return path.read_text() if path.is_file() else None
 
     def next_id(self, prefix: str) -> str:
         self.sequence += 1
@@ -100,8 +115,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, self.stale_out, "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
-        if name == "claude":
-            return runner_module.Done(0, json.dumps([{"type": "system"}, {"type": "result", "structured_output": self.verdict}]), "")
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
             return runner_module.Done(0, json.dumps(self.rows) if verb == "list" else f"{verb} ok\n", "")
@@ -634,6 +647,26 @@ def test_an_undeliverable_reply_reaches_its_deadline(shell, config, tmp_path):
     assert len(lines) == 1 and "DEADLINE" in lines[0] and "never delivered" in lines[0]
 
 
+def test_a_judge_runs_beside_the_pass_and_answers_once_it_exits(shell, config, tmp_path):
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_a")
+    shell.judge_process = Running()
+    shell.receive({"id": "msg_q5", "type": "question", "subject": "rebase?", "body": "may I rebase onto dev", "thread_id": None, "payload": json.dumps({"dispatchId": "ctx_a"}), "from_handle": "term_ctx_a", "lane": LANE})
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.check()
+    runner.resume_judges()
+
+    def replies():
+        return [call for call in shell.calls if call[:3] == ["orca", "orchestration", "reply"]]
+
+    assert replies() == [] and incident(tmp_path, "desk-runner").actions["judge:msg_q5"].status == "started"
+    runner.judge_file("msg_q5", "out").write_text(json.dumps([{"type": "result", "structured_output": shell.verdict}]))
+    shell.judge_process.code = 0
+    runner.resume_judges()
+    runner.resume_judges()
+    assert len(replies()) == 1 and incident(tmp_path, "desk-runner").actions["judge:msg_q5"].status == "verified"
+
+
 def test_a_judged_answer_survives_a_restart_before_its_reply(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     store = actions.Store(tmp_path / "store")
@@ -869,18 +902,59 @@ def test_inbox_errors_escalate_once_per_bucket_without_advancing_the_cursor(shel
     assert f"OUTCOME {fresh['id']}" in escalations(shell)[-1]
 
 
-def test_the_orca_loop_sleeps_ten_seconds_between_passes(shell, config, tmp_path, monkeypatch):
+def test_the_orca_loop_waits_ten_seconds_between_quiet_passes(shell, config, tmp_path, monkeypatch):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    sleeps = []
+    passes = []
+
+    def write_view():
+        passes.append(shell.now())
+        if len(passes) == 3:
+            raise RuntimeError("end loop")
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        shell.clock += timedelta(seconds=seconds)
+
+    monkeypatch.setattr(runner, "write_view", write_view)
+    monkeypatch.setattr(shell, "sleep", sleep)
+    with pytest.raises(RuntimeError, match="end loop"):
+        runner_module.run_orca(runner, False)
+    assert set(sleeps) == {runner_module.WAKE_SECONDS}
+    assert [later - earlier for earlier, later in itertools.pairwise(passes)] == [timedelta(seconds=runner_module.PASS_SECONDS)] * 2
+
+
+def test_a_desk_inbox_append_ends_the_wait_at_once(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    inbox = runner.config.desk_inbox
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    inbox.write_text("")
     sleeps = []
 
     def sleep(seconds):
         sleeps.append(seconds)
-        raise RuntimeError("end loop")
+        if len(sleeps) == 2:
+            inbox.write_text("R1 (7:13 AM) orca-desk: launch lane-a NOW incident xhigh brief=/tmp/brief.md\n")
 
     monkeypatch.setattr(shell, "sleep", sleep)
-    with pytest.raises(RuntimeError, match="end loop"):
-        runner_module.run_orca(runner, False)
-    assert sleeps == [10]
+    runner.idle(runner_module.PASS_SECONDS)
+    assert sleeps == [runner_module.WAKE_SECONDS] * 2
+
+
+def test_a_finished_launch_ends_the_wait_at_once(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+
+    launch = Running()
+    runner.launching["desk-lane-a/R1"] = launch
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        launch.code = 0
+
+    monkeypatch.setattr(shell, "sleep", sleep)
+    runner.idle(runner_module.PASS_SECONDS)
+    assert sleeps == [runner_module.WAKE_SECONDS]
 
 
 def with_gc(config: Path) -> None:
@@ -897,6 +971,7 @@ def test_a_settled_dispatch_is_named_once_for_the_roots_gc_and_never_closed(shel
     orca_pass(shell, config)
     reclaims = [line for line in escalations(shell) if line.startswith("RECLAIM ")]
     assert len(reclaims) == 1
+    assert len([call for call in shell.calls if call[:5] == ["orca", "orchestration", "worker-show", "--dispatch", "ctx_a"]]) == 1
     assert reclaims[0].endswith(f"1 settled dispatch(es) still hold their terminal: {LANE}=ctx_a:term_ctx_a; run .agents/skills/orca/scripts/orca-gc --run run_1 --dispatch ctx_a")
     assert [call for call in shell.calls if FORBIDDEN & {Path(token).name for token in call}] == []
 

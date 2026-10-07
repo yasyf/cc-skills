@@ -45,7 +45,10 @@ at most `deadlines.load_hold_minutes`, then reports the failure to root through 
 and the Run mailbox. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
-brief, which answers it or escalates it with options. Each escalation runs
+brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
+Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
+inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
+named for reclaim. Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
 UNBOUND and UNOWNED to blocker, any *-FAILED to defect, and all other labels to report.
@@ -97,6 +100,9 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
 RETRYABLE = frozenset({"blocked", "superseded"})
 SWEEP_EVERY = timedelta(minutes=5)
+PASS_SECONDS = 10
+WAKE_SECONDS = 0.25
+SHOW_WORKERS = 8
 ROTATE_EVERY = timedelta(hours=1)
 ORPHANED_SEND = timedelta(minutes=2)
 ORPHANED_JUDGE = timedelta(minutes=5)
@@ -164,10 +170,17 @@ class Shell:
         proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, env={**os.environ, **env} if env else None)
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
-    def spawn(self, argv: list[str], out: Path, env: dict[str, str]) -> subprocess.Popen:
+    def spawn(self, argv: list[str], out: Path, env: dict[str, str], stdin: Path | None = None, err: Path | None = None) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w") as sink:
-            return subprocess.Popen(argv, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+        with out.open("w") as sink, (err or Path(os.devnull)).open("w") as errors, (stdin or Path(os.devnull)).open() as source:
+            return subprocess.Popen(argv, stdin=source, stdout=sink, stderr=errors if err else subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+
+    def stat(self, path: Path) -> tuple[int, int] | None:
+        try:
+            info = path.stat()
+        except FileNotFoundError:
+            return None
+        return info.st_size, info.st_mtime_ns
 
     def now(self) -> datetime:
         return datetime.now(timezone.utc)
@@ -296,6 +309,9 @@ class Book:
         return True
 
     def accept(self, container: str, action_id: str, kind: str, target: str, authority: str, deadline: datetime | None) -> tuple[actions.Action, bool]:
+        if self.store.path(container).is_file() and (known := self.store.load(container).actions.get(action_id)):
+            return known, False
+
         def change(incident: actions.Incident) -> tuple[actions.Action, bool]:
             created = action_id not in incident.actions
             action = incident.accept(action_id, kind, target, authority, self.shell.now())
@@ -391,6 +407,7 @@ class Runner:
         self.book = Book(store, shell)
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
+        self.judging: dict[str, subprocess.Popen] = {}
         self.pass_binding: dict | None = None
         self.book.ensure(RUNNER, RUNNER)
 
@@ -980,27 +997,62 @@ class Runner:
         brief = self.brief_for(lane)
         if not brief:
             self.book.attempt(RUNNER, lambda incident: incident.complete(key, {"verdict": "escalate", "text": f"no brief file for {lane}", "at": self.book.stamp()}))
-            self.resume_judges()
             return
-        prompt = JUDGE_PROMPT.format(lane=lane, brief=brief.read_text(), msg=message["id"], type=message["type"], subject=message.get("subject", ""), body=message.get("body", ""))
+        prompt = self.judge_file(message["id"], "prompt")
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        prompt.write_text(JUDGE_PROMPT.format(lane=lane, brief=brief.read_text(), msg=message["id"], type=message["type"], subject=message.get("subject", ""), body=message.get("body", "")))
         argv = ["claude", "-p", "--model", self.config.judge_model, "--effort", "low", "--no-session-persistence", "--strict-mcp-config", "--tools", "", "--output-format", "json", "--json-schema", JUDGE_SCHEMA]
-        verdict = judge_verdict(self.shell.run(argv, stdin=prompt))
-        self.book.attempt(RUNNER, lambda incident: incident.complete(key, {**verdict, "at": self.book.stamp()}))
-        self.resume_judges()
+        self.judging[key] = self.shell.spawn(argv, self.judge_file(message["id"], "out"), {}, stdin=prompt, err=self.judge_file(message["id"], "err"))
+
+    def judge_file(self, msg: str, suffix: str) -> Path:
+        return (self.config.store or actions.incidents_dir()).parent / "desk-runner-judges" / f"{msg}.{suffix}"
+
+    def judged(self, key: str, msg: str) -> Done | None:
+        """The judge's output once its process exits; a judge a restart orphaned counts as done once it wrote anything."""
+        process = self.judging.get(key)
+        code = process.poll() if process else None
+        if process and code is None:
+            return None
+        out, err = (path.read_text() if path.is_file() else "" for path in (self.judge_file(msg, "out"), self.judge_file(msg, "err")))
+        if process:
+            del self.judging[key]
+            return Done(code, out, err)
+        if out.strip() or err.strip():
+            return Done(0 if out.strip() else 1, out, err)
+        return None
 
     def resume_judges(self) -> None:
-        """Carry every judged question to its reply or escalation, so a restart between the verdict and its follow-up loses nothing."""
-        for judged in self.book.actions(RUNNER, kind="judge"):
+        """Settle each finished judge, then carry it to its reply or escalation and verify it, so a restart between the verdict and its follow-up loses nothing."""
+        for judged in self.book.actions(RUNNER, kind="judge", status="started"):
+            spec = json.loads(judged.target)
+            if done := self.judged(judged.action_id, spec["msg"]):
+                verdict = judge_verdict(done)
+                self.book.attempt(RUNNER, lambda incident, key=judged.action_id, verdict=verdict: incident.complete(key, {**verdict, "at": self.book.stamp()}))
+            elif actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
+                self.escalate(spec["msg"], "DECIDE", judged.authority_ref, f"{spec['question']} (the judge never returned)")
+        followed = self.book.actions(RUNNER, kind="judge", status="completed")
+        for judged in followed:
             spec = json.loads(judged.target)
             lane = judged.authority_ref
-            if judged.status == "started" and actions.parse_stamp(judged.started_at) < self.now() - ORPHANED_JUDGE:
-                self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} (the judge never returned)")
-            elif judged.status == "completed" and judged.response["verdict"] == "answer":
+            if judged.response["verdict"] == "answer":
                 reply, created = self.accept_relay(f"answer:{spec['msg']}", lane, judged.response["text"], spec["msg"], self.config.start_minutes)
                 if created and (dispatch := self.orca.show(lane)) and dispatch.status not in INACTIVE:
                     self.send(lane_container(lane), dispatch, reply)
-            elif judged.status == "completed":
+            else:
                 self.escalate(spec["msg"], "DECIDE", lane, f"{spec['question']} | {judged.response['text']}")
+        if followed:
+            self.book.edit(RUNNER, lambda incident: verify_all(incident, [judged.action_id for judged in followed], {"at": self.book.stamp()}))
+
+    def idle(self, seconds: float) -> None:
+        """Wait out the gap between passes, cut short by a desk inbox append or a launch or judge process exiting."""
+        inbox, running = self.shell.stat(self.config.desk_inbox), self.running()
+        for _ in range(int(seconds / WAKE_SECONDS)):
+            if self.shell.stat(self.config.desk_inbox) != inbox or self.running() < running:
+                return
+            self.shell.sleep(WAKE_SECONDS)
+
+    def running(self) -> int:
+        return sum(process.poll() is None for process in [*self.launching.values(), *self.judging.values()])
 
     def rotate_inboxes(self) -> None:
         for path in sorted(self.config.desk_inbox.parent.glob("*.md")):
@@ -1023,13 +1075,14 @@ class Runner:
         hour = actions.stamp(self.now())[:13]
         named = {action.action_id for action in self.book.actions(RUNNER, kind="reclaim")}
         settled: list[Dispatch] = []
-        for lane in self.orca.lanes():
-            dispatch = self.orca.show(lane)
+        lanes = [lane for lane in self.orca.lanes() if f"reclaim:{self.orca.receipt(lane)}" not in named]
+        with ThreadPoolExecutor(SHOW_WORKERS) as pool:
+            shown = list(pool.map(self.orca.show, lanes))
+        for lane, dispatch in zip(lanes, shown):
             if not dispatch:
                 continue
             if dispatch.status in INACTIVE:
-                if f"reclaim:{dispatch.id}" not in named:
-                    settled.append(dispatch)
+                settled.append(dispatch)
                 continue
             if dispatch.wait:
                 self.escalate(f"prompt:{dispatch.id}:{dispatch.wait.get('since', '')}", "PROMPT", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} parked on {dispatch.wait.get('reason', 'a prompt')}")
@@ -1104,6 +1157,11 @@ def finish(incident: actions.Incident, key: str, response: dict, dispatch: str) 
     if incident.action(key).status == "accepted":
         incident.start(key, actions.parse_stamp(response["at"]), dispatch_id=dispatch)
     incident.complete(key, response, dispatch_id=dispatch)
+
+
+def verify_all(incident: actions.Incident, keys: list[str], receipt: dict) -> None:
+    for key in keys:
+        incident.verify(key, receipt)
 
 
 def enqueue_key(prefix: list[str], verdicts: dict) -> str:
@@ -1331,7 +1389,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.write_view()
         if once:
             return 0
-        runner.shell.sleep(10)
+        runner.idle(PASS_SECONDS)
 
 
 def run_landing(runner: Runner, once: bool) -> int:
