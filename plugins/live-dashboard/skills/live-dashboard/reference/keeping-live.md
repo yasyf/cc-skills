@@ -53,8 +53,10 @@ The cards drop settled items themselves:
 - An ask leaves when the ledger row is dropped, answered, or delivered, or its `state` is
   live, landed, done or backlog; a cci ask or decide leaves once a later record names
   its seq in `re` or `resolves`.
-- A blocker, defect or hold leaves on a `resolved:` cite, a later record answering it by
-  `re` or `resolves`, or the landing or closing of the one PR it is about. A blocker or
+- A blocker, defect or hold leaves on a `resolved:` cite, a later record naming it in
+  `resolves`, a `re` reply of a kind that closes it (lift for a hold; withdraw, answer,
+  done or unblock for a blocker; fix-live or done for a defect), or the landing or
+  closing of the one PR it is about. An acknowledgement never lifts a hold. A blocker or
   defect with no answer for 24 hours leaves too; a hold stays until lifted.
 - An incident thread opens only from an incident record or a record keyed to a known
   incident slug. It closes on fix-live, recovered, not-ours or duplicate, and drops off
