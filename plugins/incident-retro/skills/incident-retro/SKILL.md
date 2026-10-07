@@ -118,7 +118,9 @@ $TOOL live init <incident-dir> --docs <design-docs-checkout>
 ```
 
 `init` creates `incident-retros/<slug>/` with `meta.status: "ongoing"`,
-records the slug in state, and adds cards to both index pages. It makes no
+records the slug in state, and runs the checkout's
+`.claude/skills/update-design-docs/scripts/sync-index.sh`, which regenerates
+both index pages' cards from every `retro.json`. It makes no
 commit or pull request. Open and merge the shell PR once, with the retro
 and both cards in its first commit. Share the resulting page URL as the
 incident's status link. Pages deploys only from `main`, about 10 minutes
@@ -462,9 +464,8 @@ the prose pass and publication.
 $TOOL publish <dir>
 ```
 
-After the Phase 4 gates pass, `publish` refreshes both index cards from
-`retro.json`, using `meta.title`, `meta.subtitle`, `meta.date`, and
-`meta.status`. It commits only the retro directory and the two index pages
+After the Phase 4 gates pass, `publish` runs the checkout's `sync-index.sh`,
+which regenerates both index pages' cards from every `retro.json`. It commits only the retro directory and the two index pages
 as `incident retros: 📝 <meta.title>`, then pushes. It opens a ready PR or
 edits the existing PR and marks it ready.
 The PR body contains the summary panels rendered as Markdown with Opus's

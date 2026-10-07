@@ -684,8 +684,8 @@ one. Rerunning a sync against unchanged state therefore leaves both alone.
 `init` chooses the slug as `<local date of started_at>-<slug of title>`,
 writes it back to `state.retro_slug`, scaffolds
 `<checkout>/incident-retros/<slug>/` with `status: "ongoing"` and
-`live.source`, and adds the `data-retro` card to the head of the list on both
-`index.html` pages. As `scaffold` does, it refuses a destination that already
+`live.source`, and runs the checkout's `sync-index.sh`, which regenerates the
+`data-retro` cards on both `index.html` pages from every `retro.json`. As `scaffold` does, it refuses a destination that already
 holds files and writes into an existing empty directory, so a path the
 checkout created in advance is usable. A second `init` over a scaffolded retro
 is refused; `sync` is what brings that one current.

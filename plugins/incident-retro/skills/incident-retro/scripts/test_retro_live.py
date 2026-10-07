@@ -11,38 +11,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retro, retro_live, retro_prose
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "live"
-INDEX_PAGE = """<!doctype html>
-<html><body><main>
-  <h2><a href="incident-retros/">Incident retrospectives</a></h2>
-  <ul>
-    <li><a class="card" href="incident-retros/2026-06-29-older-incident/" data-retro="2026-06-29-older-incident">
-      <div class="t">An older incident</div>
-      <div class="d">It happened first.</div>
-      <div class="m">2026-06-29 · draft</div>
-    </a></li>
-  </ul>
-</main></body></html>
-"""
-RETRO_INDEX_PAGE = """<!doctype html>
-<html><body><main>
-  <ol><li>Prepare the retrospective.</li></ol>
-  <ul>
-    <li><a class="card" href="2026-06-29-older-incident/" data-retro="2026-06-29-older-incident">
-      <div class="t">An older incident</div>
-      <div class="d">It happened first.</div>
-      <div class="m">2026-06-29 · draft</div>
-    </a></li>
-  </ul>
-</main></body></html>
+OLDER = "2026-06-29-older-incident"
+SYNC_INDEX = """#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../../../.."
+for f in $(ls -r incident-retros/*/retro.json); do
+  slug=${f#incident-retros/}
+  slug=${slug%/retro.json}
+  echo "<a href=\\"incident-retros/$slug/\\" data-retro=\\"$slug\\"></a>" >&3
+  echo "<a href=\\"$slug/\\" data-retro=\\"$slug\\"></a>" >&4
+done 3>index.html 4>incident-retros/index.html
 """
 SLUG = "2026-09-02-executors-could-reach-browsers"
 
 
+def seed_docs(docs: Path):
+    (docs / retro_live.RETRO_DIR / OLDER).mkdir(parents=True)
+    (docs / retro_live.RETRO_DIR / OLDER / "retro.json").write_text("{}\n")
+    script = docs / retro_live.INDEX_SCRIPT
+    script.parent.mkdir(parents=True)
+    script.write_text(SYNC_INDEX)
+    retro_live.sync_cards(docs)
+
+
 def docs_checkout() -> Path:
     docs = Path(tempfile.mkdtemp())
-    (docs / retro_live.RETRO_DIR).mkdir()
-    (docs / "index.html").write_text(INDEX_PAGE)
-    (docs / retro_live.RETRO_DIR / "index.html").write_text(RETRO_INDEX_PAGE)
+    seed_docs(docs)
     return docs
 
 
@@ -90,7 +84,7 @@ class Init(unittest.TestCase):
             text = page.read_text()
             self.assertIn(f'data-retro="{SLUG}"', text)
             self.assertIn(f'href="{href}"', text)
-            self.assertLess(text.index(SLUG), text.index("2026-06-29-older-incident"))
+            self.assertLess(text.index(SLUG), text.index(OLDER))
 
     def test_a_second_init_refuses_rather_than_overwriting(self):
         self.assertEqual(run(retro_live.init, args(self.incident, self.docs)), 1)
@@ -328,9 +322,7 @@ def git_docs() -> Path:
     for argv in (["init", "-q"], ["config", "user.email", "live@test"], ["config", "user.name", "live"],
                  ["remote", "add", "origin", str(origin)]):
         subprocess.run(["git", "-C", str(docs), *argv], check=True)
-    (docs / retro_live.RETRO_DIR).mkdir()
-    (docs / "index.html").write_text(INDEX_PAGE)
-    (docs / retro_live.RETRO_DIR / "index.html").write_text(RETRO_INDEX_PAGE)
+    seed_docs(docs)
     subprocess.run(["git", "-C", str(docs), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(docs), "commit", "-qm", "init"], check=True)
     return docs
