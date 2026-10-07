@@ -45,6 +45,13 @@ terminals. A terminal create whose output names no handle is followed by a list
 of the worktree, and a terminal that was not there before the create is adopted;
 the script creates again only when that list shows none. The
 launch counts only once the receipt reads ready and the terminal's screen shows bypass permissions on.
+worker-start exits 1 with state outcome_unknown when it wrote the prompt but saw no
+turn start within its 30-second observation; the dispatch still exists and Orca
+still supervises it. The script then polls orca orchestration worker-show every 4
+seconds, up to ORCA_LAUNCH_BOOT_SECONDS, and counts the launch as ready once the
+dispatch's projected activity reads working or a worker report settles it as ready
+or succeeded. Otherwise it fails naming the dispatch and the worker-abandon command
+a relaunch needs first.
 
 orca worktree create opens a first terminal, a login shell, in every worktree
 it creates without --agent, and returns no handle for it. When this launch
@@ -116,7 +123,7 @@ stays. Every failure line is one line, and an Orca error in it reads
   ORCA_LAUNCH_MCP_CONFIG     space-separated --mcp-config files or JSON strings for a claude worker, default none
   ORCA_LAUNCH_CODEX_MCP      inline TOML table, without spaces or single quotes, for an incident worker's mcp_servers beside datadog and sentry, default {}
   ORCA_LAUNCH_RETRY_SECONDS  wait before a retry, default 30
-  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, default 180
+  ORCA_LAUNCH_BOOT_SECONDS   ceiling on the wait for Orca to detect the terminal's agent, and on the wait for an outcome_unknown worker's first turn, default 180
   ORCA_LAUNCH_WORKTREE_SECONDS  ceiling on the wait for a worktree whose create failed to register, default 180
 EOF
   exit 2
@@ -350,9 +357,28 @@ if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
   echo "$LANE unsupervised task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"
   exit 0
 fi
-[ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL worktree=$WT: $(orca_error "$RECEIPT" "$STATE/$LANE.worker.err")"
+turn_started() {
+  waited=0
+  until orca orchestration worker-show --dispatch "$1" --json |
+    jq -e '.result | .projection.stage.activity == "working" or (.worker.state | IN("ready", "succeeded"))' >/dev/null 2>&1; do
+    [ "$waited" -lt "$BOOT" ] || return 1
+    sleep "$POLL"
+    waited=$((waited + POLL))
+  done
+}
 READY=$(jq -r '.result.state' "$RECEIPT")
-[ "$READY" = ready ] || fail "worker-start state=$READY terminal=$TERMINAL worktree=$WT"
+case $READY in
+  ready) ;;
+  outcome_unknown)
+    DISPATCH=$(jq -r '.result.dispatchId' "$RECEIPT")
+    turn_started "$DISPATCH" ||
+      fail "worker-start outcome_unknown dispatch=$DISPATCH terminal=$TERMINAL worktree=$WT: worker-show shows no turn started ${BOOT}s after worker-start; Orca still supervises the dispatch, so run orca orchestration worker-abandon --dispatch $DISPATCH --json before relaunching"
+    ;;
+  *)
+    [ "$STARTED" = 0 ] || fail "worker-start terminal=$TERMINAL worktree=$WT: $(orca_error "$RECEIPT" "$STATE/$LANE.worker.err")"
+    fail "worker-start state=$READY terminal=$TERMINAL worktree=$WT"
+    ;;
+esac
 
 attempt=0
 until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --screen --json |
