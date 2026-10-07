@@ -13,6 +13,7 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
 | Which test cells pass, and where is each one's evidence? | `matrix-file` over the test lane's results file |
 | Which test pages are open, who holds each, and how long is left? | `view` over the pages file with a `due` column |
+| Which test channels are live, and when did each last move? | `slack-channels` with the channel ids or a name `prefix` |
 | What must be true before we switch it on? | `gates`: `pr:`, `file:`, `ledger:` and `monitor:` sources, `status:open` for hand steps |
 | What did the owner rule, and who acts on it? | `rulings` |
 | Is the design decided? | `design-gates` on the doc's register ids, `gates` for the PRs and files that close them |

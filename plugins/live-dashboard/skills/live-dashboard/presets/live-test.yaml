@@ -6,6 +6,10 @@ sections:
         id: test-channels
         width: 2
         with: {threads: []}
+      - use: slack-channels
+        id: channels
+        width: 1
+        with: {prefix: test-incident-}
       - use: view
         id: live-pages
         title: Open test pages
