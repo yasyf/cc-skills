@@ -711,7 +711,8 @@ def record_ruling(evt: BaseHookEvent) -> str:
         return existing[0]["id"]
     if not (title := ruling_title(evt)):
         return ""
-    flags = [arg for name in (*RULING_LABELS, label) for arg in ("--label", name)]
+    program = f"program:{CompactionState.load(evt).slug}"
+    flags = [arg for name in (*RULING_LABELS, program, label) for arg in ("--label", name)]
     return answers(evt, "add", *flags, f"--body={ruling_body(evt)}", "--", title)["id"]
 
 

@@ -38,7 +38,7 @@ class Root:
         self.plan.write_text(LONG)
         (home / "src" / ".git").mkdir(parents=True)
         self.verdict: dict = {}
-        CompactionState(active=True, plan_path=str(self.plan)).save(self.event(PostToolUseEvent, tool_name="Bash"))
+        CompactionState(active=True, plan_path=str(self.plan), slug="brook").save(self.event(PostToolUseEvent, tool_name="Bash"))
 
     def event(self, cls, **raw):
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.home)}
@@ -260,7 +260,7 @@ def test_a_titled_standing_rule_records_itself(root: Root, notes: Notes) -> None
     [answer] = notes.answers
     assert message == f"Recorded this standing rule as cc-notes answer `{answer['id'][:7]}`; never record it again by hand."
     assert answer["title"] == "When does a merged PR get released?"
-    assert {"scope:durable", "owner-ruling"} <= set(answer["tags"])
+    assert {"scope:durable", "owner-ruling", "program:brook"} <= set(answer["tags"])
     assert re.fullmatch(
         re.escape(prompt) + r"\n\nOwner, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} [AP]M PT, session 0123456789abcdef",
         answer["body"],
