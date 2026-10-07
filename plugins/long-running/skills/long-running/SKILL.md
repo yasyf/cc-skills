@@ -2339,8 +2339,11 @@ rechecks every 30 seconds and gives up silently after 30 minutes. With
 by hand and blocks nothing.
 
 **`PreCompact`.** In the main session only, never a subagent's, `PreCompact` runs
-`generate` again unless the hook generated a handoff in the last five minutes. It
-reads the current register and folds the carried narrative.
+`generate` again unless the hook generated a handoff in the last five minutes and
+that handoff's doc is still the newest progress doc. A progress doc the root writes
+after the Stop's handoff is adopted here, so the instructions, the plan's pointer,
+and the restore all name it. It reads the current register and folds the carried
+narrative.
 This covers Claude Code's auto-compaction before the root writes a narrative.
 
 The instructions point to the plan and active progress doc. They ask the summary to
