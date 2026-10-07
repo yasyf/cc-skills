@@ -115,7 +115,7 @@ def drive_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     drives = tmp_path / ".claude" / "long-running" / "drives"
     drives.mkdir(parents=True)
     (drives / "d1.json").write_text(
-        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1"})
+        json.dumps({"drive": "d1", "ledger": LEDGER, "repo": "o/r", "checkout": REPO, "sessions": ["s-root"], "orca_run": "run_1", "state_dir": str(tmp_path / "state")})
     )
     session = tmp_path / "session.json"
     session.write_text(
@@ -168,7 +168,8 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
         "- orca-desk.md: head R3, cursor R2: - R3 (root) → desk: launch l02",
         "- landing-desk.md: head L1, cursor -: - L1 (root) → desk: hold #1",
         "- plan owner-gate line cites no live answer: brook.md:3: - SoFi release on the owner's word",
-        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root",
+        "- Drive `d1`: ledger `1a2b3c4`, Orca run `run_1`, checkout `/repo`, root sessions s-root\n"
+        "- Dashboard: not running; `lr-dashboard.py start --drive d1` starts it and prints the link for the owner\n",
     ):
         assert line in body
     assert handoff.CATCH_UP.format(drive="brook") in body
@@ -176,6 +177,17 @@ def test_generate_writes_every_source_and_supersedes_the_previous_doc(drive_home
     assert "000002" not in body and "000003" not in body
     assert "never on the owner's word" not in body.split("## Lint findings")[1]
     assert body.split("## Root narrative\n")[1].strip() == "_From doc aaaaaaa, carried forward._\n\n## Root's next actions\n1. watch SoFi"
+
+
+def test_read_first_carries_the_running_dashboards_tailnet_link(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    server = drive_home / "state" / "dashboard" / "server.json"
+    server.parent.mkdir(parents=True)
+    server.write_text(json.dumps({"url": "http://127.0.0.1:8123/", "tailnet_url": "http://mac.tail1.ts.net:8123/"}))
+    shell = shell_with()
+
+    out = generate(drive_home, shell, capsys=capsys)
+
+    assert "- Dashboard: http://mac.tail1.ts.net:8123/; give the owner this link in your next reply\n" in shell.docs[out["id"]]
 
 
 def test_the_roots_doc_gains_the_generated_sections_in_place_and_supersedes_the_rest(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
+from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
@@ -13,6 +13,7 @@ from .lane_rotation import DriveActive
 
 DASHBOARD = Path(__file__).parents[2] / "skills" / "long-running" / "scripts" / "lr-dashboard.py"
 DRIVES = Path(".claude") / "long-running" / "drives"
+DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}
 
 
 def drive_of(evt: BaseHookEvent) -> str | None:
@@ -33,6 +34,13 @@ def serve(drive: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+    )
+
+
+def share_link(evt: BaseHookEvent, drive: str) -> HookResult:
+    return evt.context(
+        f"Give the owner the drive dashboard link in your next reply: run `python3 {DASHBOARD} url --drive {drive}` "
+        "and paste the URL it prints; if it prints nothing, run `start` in place of `url`."
     )
 
 
@@ -82,3 +90,36 @@ def serve_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
     if starts_drive(evt) and (drive := drive_of(evt)):
         serve(drive)
     return None
+
+
+@on(
+    Event.SessionStart,
+    only_if=[DriveActive()],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(source="compact", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(
+            pattern=r"^Give the owner the drive dashboard link in your next reply: run `python3 \S+/lr-dashboard\.py url --drive 900424b6` "
+            r"and paste the URL it prints; if it prints nothing, run `start` in place of `url`\.$"
+        ),
+        Input(source="resume", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"--drive 900424b6`"),
+        Input(source="compact", env=DRIVE_ENV): Allow(),
+        Input(source="compact", env=DRIVE_ENV, agent_id="a1b2c3", state=[CompactionState(active=True)]): Allow(),
+    },
+)
+def share_on_session_start(evt: BaseHookEvent) -> HookResult | None:
+    return share_link(evt, drive) if (drive := drive_of(evt)) else None
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool("Bash")],
+    skip_if=[FromSubagent()],
+    tests={
+        Input(command="drive.py start --ledger 1a2b3c4d", output="drive 900424b6 on ledger 1a2b3c4d", env=DRIVE_ENV): Warn(
+            pattern=r"^Give the owner the drive dashboard link in your next reply: .*--drive 900424b6`"
+        ),
+        Input(command="drive.py list", output="900424b6 ledger=1a2b3c4d", env=DRIVE_ENV): Allow(),
+    },
+)
+def share_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
+    return share_link(evt, drive) if starts_drive(evt) and (drive := drive_of(evt)) else None

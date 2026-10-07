@@ -38,7 +38,6 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 PAGE = Path(__file__).parents[1] / "templates" / "lr-dashboard.html"
 DEFAULT_VIEWS = Path(__file__).parents[1] / "reference" / "dashboard-views.yaml"
 CHAT_WIDGET = Path(__file__).resolve().parents[1] / "templates" / "lr-dashboard-chat.html"
-SERVER_FILE = Path("dashboard") / "server.json"
 SERVER_LOG = Path("dashboard") / "server.log"
 START_LOCK = Path("dashboard") / "start.lock"
 SEEN_FILE = Path("dashboard") / "seen.json"
@@ -958,7 +957,7 @@ def preferred_port(drive_id: str) -> int:
 
 
 def server_file(entry: dict) -> Path:
-    return Path(entry["state_dir"]) / SERVER_FILE
+    return Path(entry["state_dir"]) / drive.DASHBOARD_SERVER
 
 
 class Dashboard(ThreadingHTTPServer):
@@ -1169,15 +1168,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     staged.write_text(json.dumps(record, indent=2) + "\n")
     staged.replace(path)
     threading.Thread(target=server.poll, daemon=True).start()
-    print(public_url(record), flush=True)
+    print(drive.dashboard_url(record), flush=True)
     server.serve_forever()
     if tailnet_url:
         unshare(port)
     return 0
-
-
-def public_url(record: dict) -> str:
-    return record.get("tailnet_url", record["url"])
 
 
 def health(record: dict) -> dict | None:
@@ -1219,7 +1214,7 @@ def start(entry: dict, host: str) -> int:
     script = str(Path(__file__).resolve())
     if record := running(entry):
         if record["alive"]["script"] == script:
-            print(public_url(record))
+            print(drive.dashboard_url(record))
             return 0
         retire(record)
     log = Path(entry["state_dir"]) / SERVER_LOG
@@ -1236,7 +1231,7 @@ def start(entry: dict, host: str) -> int:
     deadline = time.monotonic() + START_WAIT_SECONDS
     while time.monotonic() < deadline:
         if server_file(entry).exists() and server_file(entry).read_text() != previous and (record := running(entry)):
-            print(public_url(record))
+            print(drive.dashboard_url(record))
             return 0
         time.sleep(0.2)
     raise SystemExit(f"the dashboard did not come up within {START_WAIT_SECONDS:.0f}s; see {log}")
@@ -1245,7 +1240,7 @@ def start(entry: dict, host: str) -> int:
 def cmd_url(args: argparse.Namespace) -> int:
     if not (record := running(resolve(args.drive, args.session))):
         return 1
-    print(public_url(record))
+    print(drive.dashboard_url(record))
     return 0
 
 
