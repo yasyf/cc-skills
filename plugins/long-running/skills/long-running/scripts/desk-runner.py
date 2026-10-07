@@ -45,7 +45,8 @@ at most `deadlines.load_hold_minutes`, then reports the failure to root through 
 and the Run mailbox. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
 blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
-holding a PR that no drive lane registered or posted opened on cci. A worker's question goes to a Sonnet-low judge with the lane's
+holding a PR that no drive lane registered or posted opened on cci. A `hold:all <reason>` line in
+the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
@@ -116,6 +117,8 @@ STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
 HELD_PR = re.compile(r"#(\d+)")
 HELD_LANE = re.compile(r"\blane:(\S+)")
+HOLD_ALL = re.compile(r"^hold:all\s+\S", re.MULTILINE)
+RELEASE_LINE = re.compile(r"^release\s+(.*)$", re.MULTILINE)
 LAUNCHED = re.compile(r"^(?P<lane>\S+) (?P<how>ready|unsupervised) task=\S+ dispatch=(?P<dispatch>\S+) terminal=(?P<terminal>\S+) worktree=\S+$", re.MULTILINE)
 LANDING_POLICIES = ("prefix", "whole")
 RELAY_GRAMMAR = "orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>"
@@ -1198,8 +1201,14 @@ class Landing:
 
     def held(self, rows: dict[str, dict]) -> list[str]:
         text = self.holds.read_text() if self.holds.is_file() else ""
-        lanes = set(HELD_LANE.findall(text))
-        numbers = set(HELD_PR.findall(text)) | {pr for pr, row in rows.items() if (row.get("lane") in lanes and row.get("state", "open") == "open") or row.get("rules_blocked")}
+        releases = "\n".join(RELEASE_LINE.findall(text))
+        holding = RELEASE_LINE.sub("", text)
+        lanes = set(HELD_LANE.findall(holding))
+        numbers = set(HELD_PR.findall(holding)) | {pr for pr, row in rows.items() if (row.get("lane") in lanes and row.get("state", "open") == "open") or row.get("rules_blocked")}
+        if HOLD_ALL.search(holding):
+            released_lanes = set(HELD_LANE.findall(releases))
+            released = set(HELD_PR.findall(releases)) | {pr for pr, row in rows.items() if row.get("lane") in released_lanes}
+            numbers |= {pr for pr, row in rows.items() if row.get("state", "open") == "open"} - released
         return sorted(numbers, key=int)
 
     def enqueue_argv(self, tip: str, held: list[str], check: bool) -> list[str]:

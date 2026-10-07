@@ -16,6 +16,13 @@ Only the root edits the holds file. Each line names held PRs as `#<n>` and whole
 held lanes as `lane:<name>`, then the reason. Every `#<n>` in the file is
 held, so a reason names another PR without the `#`.
 
+When the owner reviews every PR before it lands, the root writes one
+`hold:all <reason>` line. The landing runner then holds every open ledger row
+except the PRs named on `release #<n>` lines and the open PRs of lanes named on
+`release lane:<name>` lines; an explicit hold or a rules-review block still
+wins. Lanes never self-enqueue under `hold:all`, and the desk mirrors no hold
+for a `release` line. Deleting the `hold:all` line ends the mode.
+
 Lanes self-enqueue under D1 with a fresh numeric held file at each call. They never enqueue above a held PR or any
 PR of a held lane; they report `held` on the tip, name the held PR, and leave
 release to the root. The desk mirrors the holds file's entries with
