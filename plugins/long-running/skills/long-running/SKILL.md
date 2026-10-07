@@ -556,7 +556,7 @@ handed it to the drive, never "the owner has it". It is never informational.
 
 That turn, before anything except R16's `incident.py open` and `run`:
 
-- (a) Spawn `long-running:lane-ship` on sonnet from `reference/slack-lane-brief.md`.
+- (a) Spawn `long-running:lane-ship` on opus from `reference/slack-lane-brief.md`.
   It adds `eyes` within one minute on the message that asks, through the cc-slack CLI,
   reads the thread, and returns the ask in ≤5 lines.
 - (b) Spawn the doing lane (fix, investigation, or answer) from the link itself,
@@ -579,10 +579,13 @@ Before each post, write the text to a temp file, run
 finding. Then run
 `slop-cop check <tmpfile> --lang=markdown --llm-effort=off` and fix real flags.
 
-Permission follows the cc-slack skill. The owner's own words in the root's transcript
-asking for a report in that thread grant it. Otherwise the lane returns the exact
-draft; the root shows it verbatim in an `AskUserQuestion` `Send` preview and hands the
-approved text back to the lane.
+Permission follows the cc-slack skill. An owner instruction that says what to post or
+who gets it ("explain to X …", "tell them …", "reply there", "manage the comms") is the
+approval: the root records `slack_grant` for the thread under discussion with the
+owner's words verbatim that turn and hands the grant id to the Slack lane, which posts
+directly with no draft round trip. Only a post the owner did not ask for goes back as
+an exact draft for an `AskUserQuestion` `Send` preview. On a hook refusal for a judge
+timeout, the lane retries once, then reports the verdict to the hook lane and keeps going.
 The root hands the Slack lane facts: what happened, when in Pacific time, who asked,
 and every link. It never hands over wording, never writes a "proposed reply" into a
 question, and never tells a lane to post its words "verbatim". An approval freezes
