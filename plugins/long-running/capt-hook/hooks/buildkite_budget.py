@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import ast
+import os
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Cmd, Event, HookResult, Input, Tool, ast_grep, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Cmd, Event, HookResult, Input, Tool, ast_grep, on
 
 FIXTURES = Path(__file__).parent / "tests" / "fixtures" / "buildkite"
 REST_HOST = "api.buildkite.com"
@@ -16,6 +17,7 @@ LOG_LEAVES = frozenset({"log", "log.txt"})
 SHELLS = frozenset({"sh", "bash", "zsh"})
 SCRIPT_LANGS = {".sh": "bash", ".bash": "bash", ".zsh": "bash", ".py": "py"}
 FAN_OUT_WRAPPERS = frozenset({"xargs"})
+MAPPERS = frozenset({"map", "imap", "imap_unordered", "starmap", "map_async", "starmap_async"})
 LOOP_KINDS = frozenset({"for_statement", "c_style_for_statement", "while_statement"})
 POLL_KINDS = frozenset({"c_style_for_statement", "while_statement"})
 SLEEP_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -41,6 +43,18 @@ class Source:
     lang: str
     text: str
     cwd: Path | None
+    repeated: bool = False
+
+
+def url(text: str) -> SplitResult | None:
+    try:
+        return urlsplit(text if "://" in text or text.startswith("/") else f"https://{text}")
+    except ValueError:
+        return None
+
+
+def rest_url(text: str) -> bool:
+    return REST_HOST in text and (parts := url(text)) is not None and parts.hostname == REST_HOST
 
 
 def rest_argv(argv: Sequence[str]) -> bool:
@@ -48,12 +62,14 @@ def rest_argv(argv: Sequence[str]) -> bool:
         case ["bk", subcommand, *_]:
             return subcommand not in LOCAL_BK
         case [client, *args] if client in HTTP_CLIENTS:
-            return any(REST_HOST in arg for arg in args)
+            return any(rest_url(arg) for arg in args)
     return False
 
 
 def job_log_path(text: str) -> bool:
-    path = PurePosixPath(urlsplit(text).path)
+    if (parts := url(text)) is None:
+        return False
+    path = PurePosixPath(parts.path)
     return path.name in LOG_LEAVES and path.parent.parent.name == "jobs"
 
 
@@ -64,7 +80,7 @@ def job_log_argv(argv: Sequence[str]) -> bool:
         case ["bk", "api", *args]:
             return any(job_log_path(arg) for arg in args)
         case [client, *args] if client in HTTP_CLIENTS:
-            return any(REST_HOST in arg and job_log_path(arg) for arg in args)
+            return any(rest_url(arg) and job_log_path(arg) for arg in args)
     return False
 
 
@@ -79,37 +95,63 @@ def sleep_seconds(args: Sequence[str]) -> float | None:
     return sum(parts) if parts and None not in parts else None
 
 
-def short_sleep(argv: Sequence[str]) -> bool:
-    return argv[:1] == ("sleep",) and (wait := sleep_seconds(argv[1:])) is not None and wait < POLL_FLOOR_SECONDS
+def short_wait(waits: Sequence[float | None]) -> bool:
+    return bool(waits) and None not in waits and sum(waits) < POLL_FLOOR_SECONDS
 
 
 def argvs(cmd: Cmd) -> list[tuple[str, ...]]:
     return [(call.name, *call.args) for call in cmd.calls()]
 
 
-def fanned_out(cmd: Cmd) -> bool:
-    by_index = {call.occurrence.index: call for call in cmd.calls()}
-    for call in cmd.calls():
-        if not job_log_argv((call.name, *call.args)):
-            continue
-        hop = call
-        while hop is not None:
-            if FAN_OUT_WRAPPERS & set(hop.wrappers):
-                return True
-            hop = by_index.get(hop.occurrence.host.index) if hop.occurrence.host is not None else None
-    return False
-
-
 def script_path(word: str, cwd: Path | None) -> Path | None:
     path = Path.home() / word[2:] if word.startswith("~/") else Path(word)
     path = path if path.is_absolute() or cwd is None else cwd / path
-    return path if path.suffix in SCRIPT_LANGS and path.is_file() else None
+    return path if path.suffix in SCRIPT_LANGS and os.path.isfile(path) else None
 
 
-def read_script(path: Path, cwd: Path | None) -> Source | None:
+def read_script(path: Path, cwd: Path | None, repeated: bool) -> Source | None:
     if path.stat().st_size > MAX_SCRIPT_BYTES:
         return None
-    return Source(SCRIPT_LANGS[path.suffix], path.read_text(errors="replace"), cwd)
+    return Source(SCRIPT_LANGS[path.suffix], path.read_text(errors="replace"), cwd, repeated)
+
+
+def inline_payload(call: Call) -> str | None:
+    shell = call.name in SHELLS
+    for at, arg in enumerate(call.args):
+        if arg == "-c" or (shell and arg.startswith("-") and not arg.startswith("--") and "c" in arg):
+            return call.args[at + 1] if at + 1 < len(call.args) else None
+        if not arg.startswith("-"):
+            return None
+    return None
+
+
+def executed_words(call: Call) -> list[str]:
+    words = [call.command.executable]
+    if call.name in SHELLS or call.name.startswith("python"):
+        words += [next((arg for arg in call.args if not arg.startswith("-")), "")]
+    if "--" in call.args:
+        words += call.args[call.args.index("--") + 1 : call.args.index("--") + 2]
+    return [word for word in words if word]
+
+
+def repeated_calls(cmd: Cmd, text: str) -> set[tuple[str, ...]]:
+    looped = {
+        (call.name, *call.args)
+        for loop in ast_grep.find_kinds(text, "bash", LOOP_KINDS)
+        if (body := Cmd.parse(loop.text)) is not None
+        for call in body.calls()
+    }
+    return looped | {(call.name, *call.args) for call in cmd.calls() if under_fan_out(cmd, call)}
+
+
+def under_fan_out(cmd: Cmd, call: Call) -> bool:
+    by_index = {each.occurrence.index: each for each in cmd.calls()}
+    hop: Call | None = call
+    while hop is not None:
+        if FAN_OUT_WRAPPERS & set(hop.wrappers):
+            return True
+        hop = by_index.get(hop.occurrence.host.index) if hop.occurrence.host is not None else None
+    return False
 
 
 def heredoc_sources(text: str, cwd: Path | None) -> Iterator[Source]:
@@ -141,21 +183,24 @@ def heredoc_sources(text: str, cwd: Path | None) -> Iterator[Source]:
 
 
 def shell_children(cmd: Cmd, source: Source) -> Iterator[Source]:
+    repeated = repeated_calls(cmd, source.text)
     for call in cmd.calls():
         cwd = call.cwd or source.cwd
-        if call.args[:1] == ("-c",) and len(call.args) > 1:
+        again = source.repeated or (call.name, *call.args) in repeated
+        if (payload := inline_payload(call)) is not None:
             if call.name in SHELLS:
-                yield Source("bash", call.args[1], cwd)
+                yield Source("bash", payload, cwd, again)
             elif call.name.startswith("python"):
-                yield Source("py", call.args[1], cwd)
-        for word in (call.command.executable, *call.args):
-            if (path := script_path(word, cwd)) is not None and (script := read_script(path, cwd)) is not None:
+                yield Source("py", payload, cwd, again)
+        for word in executed_words(call):
+            if (path := script_path(word, cwd)) is not None and (script := read_script(path, cwd, again)) is not None:
                 yield script
     yield from heredoc_sources(source.text, source.cwd)
 
 
 def shell_findings(cmd: Cmd, source: Source) -> set[str]:
-    found = {LOGS} if fanned_out(cmd) else set()
+    logs = [call for call in cmd.calls() if job_log_argv((call.name, *call.args))]
+    found = {LOGS} if logs and (source.repeated or any(under_fan_out(cmd, call) for call in logs)) else set()
     for loop in ast_grep.find_kinds(source.text, "bash", LOOP_KINDS):
         if (body := Cmd.parse(loop.text)) is None:
             continue
@@ -166,7 +211,8 @@ def shell_findings(cmd: Cmd, source: Source) -> set[str]:
         if (body := Cmd.parse(loop.text)) is None:
             continue
         calls = argvs(body)
-        if any(rest_argv(argv) for argv in calls) and any(short_sleep(argv) for argv in calls):
+        waits = [sleep_seconds(argv[1:]) for argv in calls if argv[0] == "sleep"]
+        if any(rest_argv(argv) for argv in calls) and short_wait(waits):
             found.add(POLL)
     return found
 
@@ -190,19 +236,32 @@ def py_argv(node: ast.AST) -> tuple[str, ...] | None:
 
 
 def py_rest(node: ast.AST) -> bool:
-    return ((argv := py_argv(node)) is not None and rest_argv(argv)) or REST_HOST in (literal(node) or "")
+    return ((argv := py_argv(node)) is not None and rest_argv(argv)) or rest_url(literal(node) or "")
 
 
 def py_job_log(node: ast.AST) -> bool:
     if (argv := py_argv(node)) is not None:
         return job_log_argv(argv)
-    return REST_HOST in (text := literal(node) or "") and job_log_path(text)
+    return rest_url(text := literal(node) or "") and job_log_path(text)
 
 
-def py_short_sleep(node: ast.AST) -> bool:
-    match node:
-        case ast.Call(func=ast.Name(id="sleep") | ast.Attribute(attr="sleep"), args=[ast.Constant(value=int() | float() as wait), *_]):
-            return wait < POLL_FLOOR_SECONDS
+def py_waits(nodes: Sequence[ast.AST]) -> list[float | None]:
+    waits: list[float | None] = []
+    for node in nodes:
+        match node:
+            case ast.Call(func=ast.Name(id="sleep") | ast.Attribute(attr="sleep"), args=[ast.Constant(value=int() | float() as wait), *_]):
+                waits.append(float(wait))
+            case ast.Call(func=ast.Name(id="sleep") | ast.Attribute(attr="sleep")):
+                waits.append(None)
+    return waits
+
+
+def mapped(call: ast.AST, wanted: set[str]) -> bool:
+    match call:
+        case ast.Call(func=ast.Name(id="map"), args=[first, *_]) if names(first, wanted):
+            return True
+        case ast.Call(func=ast.Attribute(attr=attr), args=[first, *_]) if names(first, wanted):
+            return attr in MAPPERS
     return False
 
 
@@ -241,11 +300,13 @@ def py_findings(source: Source) -> set[str]:
     for loop in py_loops(tree, polls=False):
         if any(py_job_log(node) or names(node, loggers) for node in ast.walk(loop)):
             found.add(LOGS)
-    if any(isinstance(call, ast.Call) and any(names(arg, loggers) for arg in call.args) for call in ast.walk(tree)):
+    if any(mapped(call, loggers) for call in ast.walk(tree)):
+        found.add(LOGS)
+    if source.repeated and (loggers or any(py_job_log(node) for node in ast.walk(tree))):
         found.add(LOGS)
     for loop in py_loops(tree, polls=True):
         nodes = list(ast.walk(loop))
-        if any(py_rest(node) or names(node, pollers) for node in nodes) and any(py_short_sleep(node) for node in nodes):
+        if any(py_rest(node) or names(node, pollers) for node in nodes) and short_wait(py_waits(nodes)):
             found.add(POLL)
     return found
 
@@ -253,8 +314,9 @@ def py_findings(source: Source) -> set[str]:
 def findings(source: Source, depth: int = 0) -> set[str]:
     if source.lang == "py":
         return py_findings(source)
-    if (cmd := Cmd.parse(source.text)) is None:
+    if (parsed := Cmd.parse(source.text)) is None:
         return set()
+    cmd = replace(parsed, cwd=source.cwd)
     found = shell_findings(cmd, source)
     if depth < MAX_DEPTH:
         for child in shell_children(cmd, source):
@@ -289,6 +351,10 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
             )
         ): Block(),
         Input(command="bash -c 'for id in a b; do bk job log $id; done'"): Block(),
+        Input(command="bash -lc 'for id in a b; do bk job log $id; done'"): Block(),
+        Input(command=f"cd {FIXTURES} && python3 job_logs.py 595"): Block(),
+        Input(command=f"cat ids | xargs -n 1 python3 {FIXTURES}/one_job_log.py 595"): Block(),
+        Input(command=f"for id in a b; do python3 {FIXTURES}/one_job_log.py 595 $id; done"): Block(),
         Input(
             command=(
                 "for id in $(cat ids); do curl -sS -H \"Authorization: Bearer $T\""
@@ -304,6 +370,14 @@ def command_findings(evt: BaseHookEvent) -> set[str]:
         Input(command="echo 'for id in a b; do bk job log $id; done'"): Allow(),
         Input(command="python3 /nonexistent/dump_logs.py"): Allow(),
         Input(command='python3 -c "for job in"'): Allow(),
+        Input(command=f"cat {FIXTURES}/job_logs.py"): Allow(),
+        Input(
+            command=(
+                "python3 -c \"import subprocess\nfrom concurrent.futures import ThreadPoolExecutor\n"
+                "def fetch(j):\n    subprocess.run(['bk', 'job', 'log', j])\n"
+                "ThreadPoolExecutor().submit(fetch, 'one')\""
+            )
+        ): Allow(),
         Input(command="for id in a b; do bk job log $id; done  # ccx:raw"): Allow(),
     },
 )
@@ -335,6 +409,12 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
         ): Block(),
         Input(
             command=(
+                "python3 -u -c \"import subprocess, time\nwhile True:\n"
+                "    subprocess.run(['bk', 'build', 'view', '1', '--json'])\n    time.sleep(5)\""
+            )
+        ): Block(),
+        Input(
+            command=(
                 "while true; do curl -sS https://api.buildkite.com/v2/organizations/forge/pipelines/test/builds/1"
                 " | jq -r .state; sleep 15s; done"
             )
@@ -353,6 +433,9 @@ def no_per_job_buildkite_log_dumps(evt: BaseHookEvent) -> HookResult | None:
         ): Allow(),
         Input(command=f"{FIXTURES}/poll_slow.sh 45159 45164"): Allow(),
         Input(command="while true; do gh pr checks 1; sleep 5; done"): Allow(),
+        Input(command="while true; do bk build view 1; sleep 15; sleep 15; done"): Allow(),
+        Input(command="while true; do curl https://example.com -o api.buildkite.com.json; sleep 5; done"): Allow(),
+        Input(command=f"cat {FIXTURES}/poll_fast.sh"): Allow(),
         Input(command="for b in 1 2; do bk build view $b -p test --json; sleep 1; done"): Allow(),
         Input(command="sleep 5 && bk build view 1 -p test --json"): Allow(),
         Input(command="while true; do bk build view 1; sleep $INTERVAL; done"): Allow(),
