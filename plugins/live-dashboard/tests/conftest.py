@@ -11,6 +11,7 @@ from livedash.context import Context
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = datetime(2026, 10, 7, 1, 0, tzinfo=timezone.utc)
+CCI_KINDS = frozenset({"answer", "applied", "ask", "blocked", "blocker", "claim", "contract", "correction", "decide", "decision", "defect", "delete-list", "design", "digest", "done", "duplicate", "evidence", "fail", "fix-live", "go", "handoff", "head", "hold", "incident", "landed", "lift", "matrix", "mechanism", "not-live", "not-ours", "note", "opened", "owner", "posted", "ready", "recovered", "refuse", "release", "report", "retro", "review", "serving", "skew", "stand-down", "state", "stopped", "unblock", "urgent", "withdraw"})
 FACTS = {"id": "test", "title": "Test drive", "repo": "o/r", "checkout": "/checkout", "ledger": "L1", "cci_drive": "test-drive", "started_at": "2026-10-06T00:00:00Z", "packs": {}}
 
 
@@ -35,6 +36,9 @@ class Fake(Context):
 
     def cci(self, path, **params):
         self.calls.append([path, params])
+        kinds = params.get("kind") or []
+        if unknown := set([kinds] if isinstance(kinds, str) else kinds) - CCI_KINDS:
+            raise AssertionError(f"cci answers 400 for unknown kinds {sorted(unknown)}")
         reply = self.cci_replies[path]
         return reply(params) if callable(reply) else reply
 

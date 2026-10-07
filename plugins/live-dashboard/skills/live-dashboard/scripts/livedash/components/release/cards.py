@@ -6,19 +6,20 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-from livedash import Col, Context, Entry, Feed, Line, Series, Table, Tile, Tiles, component, view
+from livedash import Col, Context, Entry, Feed, Line, RateLimited, Series, Table, Tile, Tiles, component, view
+from livedash.context import RATE_LIMIT_BACKOFF
 from livedash.components import cci
 from livedash.components import ledger as ledgers
 from livedash.components.release import overview, platy
 
-BUILDS_FILE = "builds.json"
+BUILDS_FILE = "buildkite-builds.json"
 BUILDS_INTERVAL = timedelta(minutes=1)
 INCIDENT_WINDOW = timedelta(hours=72)
 CENSUS_WINDOW = timedelta(hours=48)
 LANDED_WINDOW = timedelta(hours=26)
 LANE_WINDOW = timedelta(hours=48)
 CLOSING_KINDS = ["done", "lift", "go", "decision", "owner", "answer"]
-WORK_KINDS = ["go", "opened", "updated", "claim", "ready", "landed", "released", "fix-live"]
+WORK_KINDS = ["go", "opened", "claim", "ready", "landed", "release", "fix-live"]
 CCI_OPEN = ("open_defects", "open_blockers", "open_holds")
 DEPLOYABLE_TONE = {platy.PROVEN: "ok", platy.UNPROVEN: "warn", platy.BLOCKED: "bad"}
 STATE_TONE = {"passed": "ok", "failed": "bad", "failing": "bad", "canceled": "muted", "cancelled": "muted"}
@@ -34,8 +35,17 @@ def known_builds(ctx: Context, pipeline: str, checkout: str) -> list[dict]:
         builds.fetch = lambda query: ctx.json(["bk", "api", f"/pipelines/{pipeline}/builds?{urlencode({'per_page': platy.PER_PAGE} | query, doseq=True)}"], cwd=checkout)
         if entry["due"] is None or ctx.now >= entry["due"]:
             entry["due"] = ctx.now + BUILDS_INTERVAL
-            builds.refresh(ctx.now)
+            try:
+                builds.refresh(ctx.now)
+            except RateLimited:
+                entry["due"] = ctx.now + timedelta(seconds=RATE_LIMIT_BACKOFF)
+                raise
         return builds.known()
+
+
+def backfilling(ctx: Context, pipeline: str) -> bool:
+    with BUILDS_LOCK:
+        return bool(BUILDS[(str(ctx.dir), pipeline)]["builds"].backfill_page)
 
 
 def work_lines(ctx: Context, since: str) -> list[dict]:
@@ -135,7 +145,7 @@ def stacks(ctx: Context, *, checkout: str, state_dir: Path, census: str, trunk: 
     why it is not proven, and the lane working on it."""
     rows = stack_rows(ctx, state_dir, checkout, census, targets, trunk, release_code, known_builds(ctx, pipeline, checkout))
     out = [row | {"key": row["stack"], "platy_link": f"#{row['platy_build']}" if row["platy_build"] else None, "platy_link_url": row["platy_url"], "tone": DEPLOYABLE_TONE[row["deployable"]]} for row in rows]
-    return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", "vs trunk", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target")
+    return Table([Col("stack", "Stack"), Col("deployable", "Platy", "badge"), Col("zero", "vs trunk", "badge"), Col("platy_link", "Last Platy release", "link"), Col("platy_at", "When", "age"), Col("reason", "Why not proven"), Col("doing_lane", "Lane on it")], out, group_by="target", note="Backfilling the release pipeline's Buildkite history; a stack's last Platy release may be older than the builds read so far." if backfilling(ctx, pipeline) else None)
 
 
 @component("tiles", "Release overview", question="How is the release pipeline doing today?", reads=["bk api", "git", "cci digest", "cci lanes"], every="1m", timeout="2m")
@@ -164,9 +174,9 @@ def tiles(ctx: Context, *, checkout: str, repo: str, state_dir: Path, census: st
 
 @component("lines", "PR and release records", question="Which PR and release records arrived since the drive started?", reads=["cci records"], every="1m")
 def lines(ctx: Context, *, limit: int = 150) -> Feed:
-    """GO, OPENED, UPDATED, CLAIM, READY, LANDED, RELEASED and FIX-LIVE records since the drive started, newest first."""
+    """GO, OPENED, CLAIM, READY, LANDED, RELEASE and FIX-LIVE records since the drive started, newest first."""
     found = work_lines(ctx, ctx.facts.get("started_at"))[:limit]
-    return Feed([Entry(line["at"], line["lane"], f"{line['verb']} {line['text']}", line["url"], "ok" if line["verb"] in ("LANDED", "RELEASED", "FIX-LIVE") else None, key=line["cite"], cite=line["cite"]) for line in found])
+    return Feed([Entry(line["at"], line["lane"], f"{line['verb']} {line['text']}", line["url"], "ok" if line["verb"] in ("LANDED", "RELEASE", "FIX-LIVE") else None, key=line["cite"], cite=line["cite"]) for line in found])
 
 
 @component("census", "Stacks at 0/0 over time", question="Are more stacks reaching 0/0 over time?", reads=["cci records"], every="5m")

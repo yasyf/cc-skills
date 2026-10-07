@@ -12,11 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from livedash import payloads, registry, secrets
-from livedash.context import Context, RateLimited, failure_text
+from livedash.context import RATE_LIMIT_BACKOFF, Context, RateLimited, failure_text
 from livedash.layout import Card
 
 WORKERS = 4
-RATE_LIMIT_BACKOFF = 300.0
 STALE_FACTOR = 2
 BACKOFF_CAP = 4
 CACHE_DIR = "cache"

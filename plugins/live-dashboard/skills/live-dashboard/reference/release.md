@@ -15,19 +15,22 @@ state dir.
 ## Builds
 
 `release.builds`, `release.stacks`, and `release.tiles` share one build cache per
-dashboard and pipeline, `builds.json` in the dashboard dir, refreshed from
+dashboard and pipeline, `buildkite-builds.json` in the dashboard dir, refreshed from
 `bk api` at most once a minute across every card.
 
-- The first refresh backfills the pipeline's whole history, 100 builds a page, until a
-  short page. A failed read resumes at the next page.
-- After that, each refresh asks for builds in a live state: creating, scheduled,
-  running, blocked, canceling, or failing. That set picks up retried and unblocked
-  builds too.
+- Each refresh reads at most five pages of the pipeline's history, 100 builds a page,
+  until a short page ends the backfill. The next page is saved with the builds, so a
+  restart or a failed read resumes there. Until the backfill ends, `release.stacks`
+  says so in its note, since a stack's last Platy release may not be read yet.
+- After the first refresh, each one asks for builds in a live state: creating,
+  scheduled, running, blocked, canceling, or failing. That set picks up retried and
+  unblocked builds too.
 - When a cached live build leaves that set, and at least every five minutes, it also
   asks for builds finished since the last such sweep.
-- The file's mtime records the last fetch, so a restart resumes from it. A failed read
-  keeps the cached builds and errors the card that read; a 429 backs that card off
-  for five minutes.
+- The file records the last fetch, so a restart resumes from it. A failed read keeps
+  the cached builds and errors the card that read. `bk` itself waits out a 429 for the
+  `RateLimit-Reset` Buildkite sends; a 429 that still reaches the card holds the
+  shared cache, for every card, five minutes before it asks Buildkite again.
 
 A launcher build folds into the build it started and keeps its Slack link. Platy
 release, hotfix, and rollback starts carry a Slack thread in `RELEASE_START`; CLI

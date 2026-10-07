@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from livedash import view, yamlish
@@ -19,8 +18,9 @@ TERMINAL = frozenset({"passed", "failed", "canceled", "skipped", "not_run"})
 LIVE = ("creating", "scheduled", "running", "blocked", "canceling", "failing")
 OVERLAP = timedelta(minutes=2)
 RESWEEP = timedelta(minutes=5)
-WORK_VERBS = frozenset({"GO", "OPENED", "UPDATED", "CLAIM", "READY", "LANDED", "RELEASED", "FIX-LIVE"})
+WORK_VERBS = frozenset({"GO", "OPENED", "CLAIM", "READY", "LANDED", "RELEASE", "FIX-LIVE"})
 PER_PAGE = 100
+BACKFILL_PAGES = 5
 UNTARGETED = "untargeted"
 PROVEN = "proven"
 UNPROVEN = "unproven"
@@ -84,30 +84,30 @@ class Builds:
     def __init__(self, cache: Path, fetch: Callable[[dict], list[dict]]):
         self.cache = cache
         self.fetch = fetch
-        self.rows: dict[int, dict] = {int(key): value for key, value in json.loads(cache.read_text()).items()} if cache.exists() else {}
-        self.fetched_at: datetime | None = datetime.fromtimestamp(cache.stat().st_mtime, timezone.utc) if cache.exists() else None
+        saved = json.loads(cache.read_text()) if cache.exists() else {"rows": {}, "backfill_page": 1, "fetched_at": None}
+        self.rows: dict[int, dict] = {int(key): value for key, value in saved["rows"].items()}
+        self.backfill_page: int = saved["backfill_page"]
+        self.fetched_at = view.stamp(saved["fetched_at"])
         self.swept_at = self.fetched_at - RESWEEP if self.fetched_at else None
-        self.backfill_page = 1
-        self.backfill_from: datetime | None = None
 
     def refresh(self, moment: datetime) -> list[dict]:
-        if self.fetched_at is None:
-            self.backfill_from = self.backfill_from or moment
-            while self.backfill_page:
-                batch = self.fetch({"page": self.backfill_page})
-                self.store(batch)
-                self.backfill_page = self.backfill_page + 1 if len(batch) == PER_PAGE else 0
-            self.fetched_at = self.swept_at = self.backfill_from
+        if self.swept_at is None:
+            self.swept_at = moment
         else:
             unfinished = {number for number, row in self.rows.items() if row["state"] not in TERMINAL}
             live = {build["number"] for build in self.pull({"state[]": list(LIVE)})}
             if unfinished - live or moment - self.swept_at >= RESWEEP:
                 self.pull({"finished_from": view.iso_epoch(int((self.swept_at - OVERLAP).timestamp()))})
                 self.swept_at = moment
-            self.fetched_at = moment
+        for _ in range(BACKFILL_PAGES):
+            if not self.backfill_page:
+                break
+            batch = self.fetch({"page": self.backfill_page})
+            self.store(batch)
+            self.backfill_page = self.backfill_page + 1 if len(batch) == PER_PAGE else 0
+        self.fetched_at = moment
         self.cache.parent.mkdir(parents=True, exist_ok=True)
-        self.cache.write_text(json.dumps(self.rows))
-        os.utime(self.cache, (self.fetched_at.timestamp(), self.fetched_at.timestamp()))
+        self.cache.write_text(json.dumps({"rows": self.rows, "backfill_page": self.backfill_page, "fetched_at": view.iso(moment)}))
         return self.known()
 
     def pull(self, query: dict) -> list[dict]:

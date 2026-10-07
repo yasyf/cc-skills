@@ -319,7 +319,7 @@ Reads: `cci records`.
 
 _Which PR and release records arrived since the drive started?_
 
-**PR and release records.** GO, OPENED, UPDATED, CLAIM, READY, LANDED, RELEASED and FIX-LIVE records since the drive started, newest first.
+**PR and release records.** GO, OPENED, CLAIM, READY, LANDED, RELEASE and FIX-LIVE records since the drive started, newest first.
 
 Reads: `cci records`.
 

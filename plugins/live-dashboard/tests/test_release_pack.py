@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from conftest import fake
 from livedash import view, yamlish
-from livedash.components.release import overview, platy
+from livedash.components.release import cards, overview, platy
+from livedash.context import RATE_LIMIT_BACKOFF, RateLimited
 
 MOMENT = datetime(2026, 10, 5, 7, 0, tzinfo=UTC)
 OVERVIEW_MOMENT = datetime(2026, 10, 6, 6, 55, tzinfo=UTC)
@@ -224,8 +226,27 @@ def test_a_backfill_cut_short_resumes_at_its_next_page(tmp_path):
     with pytest.raises(OSError):
         builds.refresh(MOMENT)
     assert (builds.fetched_at, builds.backfill_page) == (None, 2)
-    assert len(builds.refresh(MOMENT + timedelta(minutes=5))) == platy.PER_PAGE + 1
-    assert builds.fetched_at == MOMENT
+    builds.swept_at = None
+    assert len(builds.refresh(MOMENT + timedelta(minutes=1))) == platy.PER_PAGE + 1
+    assert (builds.fetched_at, builds.backfill_page) == (MOMENT + timedelta(minutes=1), 0)
+
+
+def test_each_refresh_reads_a_bounded_number_of_backfill_pages_and_a_restart_resumes_there(tmp_path):
+    queries = []
+
+    def fetch(query):
+        queries.append(query)
+        return [build(query["page"] * 1000 + n, "x") for n in range(platy.PER_PAGE)] if set(query) == {"page"} else []
+
+    cache = tmp_path / "builds.json"
+    platy.Builds(cache, fetch).refresh(MOMENT)
+    assert queries == [{"page": page} for page in range(1, platy.BACKFILL_PAGES + 1)]
+    queries.clear()
+    builds = platy.Builds(cache, fetch)
+    assert (len(builds.known()), builds.backfill_page) == (platy.BACKFILL_PAGES * platy.PER_PAGE, platy.BACKFILL_PAGES + 1)
+    builds.refresh(MOMENT + timedelta(minutes=1))
+    assert queries[0] == {"state[]": list(platy.LIVE), "page": 1}
+    assert [query["page"] for query in queries if set(query) == {"page"}] == list(range(platy.BACKFILL_PAGES + 1, 2 * platy.BACKFILL_PAGES + 1))
 
 
 def test_mentions_matches_whole_names_only():
@@ -417,3 +438,28 @@ def test_the_overview_counts_only_builds_that_apply():
     assert summary["tiles"]["releases_today"] == {"passed": 0, "failed": 1, "canceled": 0, "running": 0}
     assert (summary["last_release"]["number"], [d["number"] for d in summary["charts"]["durations"]]) == (3, [3])
     assert summary["charts"]["states"] == [{"state": "0/0", "count": 1}, {"state": "drift", "count": 1}, {"state": "unplanned", "count": 0}]
+
+
+def test_a_rate_limited_build_read_holds_the_shared_cache_for_every_card(tmp_path):
+    reads = []
+
+    def json_reply(argv, cwd=None):
+        reads.append(argv)
+        raise RateLimited("exit 1: HTTP request failed: 429 429 Too Many Requests")
+
+    def ctx(moment):
+        return SimpleNamespace(dir=tmp_path, now=moment, json=json_reply)
+
+    with pytest.raises(RateLimited):
+        cards.known_builds(ctx(MOMENT), "release", "/checkout")
+    assert cards.known_builds(ctx(MOMENT + cards.BUILDS_INTERVAL), "release", "/checkout") == []
+    assert cards.known_builds(ctx(MOMENT + timedelta(seconds=RATE_LIMIT_BACKOFF) - timedelta(seconds=1)), "release", "/checkout") == []
+    assert len(reads) == 1
+    with pytest.raises(RateLimited):
+        cards.known_builds(ctx(MOMENT + timedelta(seconds=RATE_LIMIT_BACKOFF)), "release", "/checkout")
+    assert len(reads) == 2
+
+
+def test_work_lines_ask_cci_only_for_kinds_it_knows(tmp_path):
+    ctx = fake(tmp_path, cci_replies={"records": [{"seq": 9, "at": "2026-10-06T01:00:00Z", "lane": "walker", "kind": "release", "text": "receiver live", "refs": {}}]})
+    assert [(entry.text, entry.tone) for entry in cards.lines(ctx).entries] == [("RELEASE receiver live", "ok")]
