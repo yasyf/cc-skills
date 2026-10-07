@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from conftest import FIXTURES, fake, fixture
 from livedash.components import metrics, slack
@@ -64,3 +66,22 @@ def test_the_slack_feed_times_each_reply_from_the_thread_opener(tmp_path):
 
 def test_the_slack_feed_without_threads_says_so(tmp_path):
     assert slack.slack_feed(fake(tmp_path)).note.startswith("Not run: no test thread is named yet")
+
+
+def test_slack_channels_show_last_activity_and_permalink_never_text(tmp_path):
+    listed = {"channels": [{"id": "C1", "name": "test-incident-a", "created": 1791300000}]}
+    histories = {
+        "C1": {"channel_id": "C1", "messages": [{"ts": "1791305000.000100", "user": "U1", "user_name": "ai-oncall", "from_claude": False, "text": "secret page body", "permalink": "https://example.slack.com/archives/C1/p1791305000000100", "reply_count": 2, "latest_reply": "1791305600.000200"}]},
+        "C2": {"channel_id": "C2", "messages": []},
+    }
+    ctx = fake(tmp_path, replies={("cc-slack", "channels"): listed, ("cc-slack", "history"): lambda argv: histories[argv[argv.index("--channel") + 1]]})
+    table = slack.slack_channels(ctx, channels=["C2"], prefix="test-incident-")
+    assert [(row["channel"], row["channel_url"], row["last"], row["by"]) for row in table.rows] == [
+        ("#test-incident-a", "https://example.slack.com/archives/C1/p1791305000000100", "2026-10-06T16:53:20Z", "ai-oncall"),
+        ("C2", None, None, None),
+    ]
+    assert "secret" not in json.dumps(table.json())
+
+
+def test_slack_channels_without_channels_says_so(tmp_path):
+    assert slack.slack_channels(fake(tmp_path)).note.startswith("Not run")
