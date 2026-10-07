@@ -1,0 +1,12 @@
+{
+  "drive": "900424b6",
+  "sessions": ["900424b6-7393"],
+  "orca_run": null,
+  "started_at": "2026-10-01T05:05:38Z",
+  "ledger": "829f980d0bb4bdc308a2d0cc217dc9bb6ef0cddd",
+  "repo": "o/r",
+  "git_common_dir": "/repo/.git",
+  "checkout": "/repo",
+  "state_dir": "/Users/someone-with-a-long-name/.claude/worktrees/a-repository-with-a-long-name/a-lane-whose-name-runs-on-and-on-past-any-reasonable-length/scratch/release-v3",
+  "updated_at": "2026-10-01T05:05:38Z"
+}

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "plugins": {
+    "live-dashboard@skills": [
+      {
+        "scope": "user",
+        "installPath": "/Users/someone-with-a-long-name/.claude/worktrees/a-repository-with-a-long-name/a-lane-whose-name-runs-on-and-on-past-any-reasonable-length/.claude/plugins/cache/skills/live-dashboard/0.1.0",
+        "version": "0.1.0"
+      }
+    ]
+  }
+}

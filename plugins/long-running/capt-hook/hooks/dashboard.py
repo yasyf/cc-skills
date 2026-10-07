@@ -15,9 +15,11 @@ DRIVE_SCRIPT = Path(__file__).parents[2] / "skills" / "long-running" / "scripts"
 FIXTURES = Path(__file__).parent / "tests" / "fixtures"
 LIVE_DASHBOARD = "live-dashboard@skills"
 DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
+LONG_PATHS_ENV = {**DRIVE_ENV, "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config-long")}
 SHARED = (
-    r"^Give the owner the dashboard link now: `/plugins/cache/skills/live-dashboard/0\.1\.0/bin/live-dashboard url --dir /state/release-v3/dashboard` "
-    r"prints it \(`start` if it prints nothing\)\. Then tailor layout\.yaml in that dir per /live-dashboard picking\.md before the first milestone report\.$"
+    r"^Give the owner the dashboard link now: the command below prints it \(`start` in place of `url` if it prints nothing\)\. "
+    r"Then tailor layout\.yaml in its --dir per /live-dashboard picking\.md before the first milestone report\.\n"
+    r"```sh\n/plugins/cache/skills/live-dashboard/0\.1\.0/bin/live-dashboard url --dir /state/release-v3/dashboard\n```$"
 )
 
 
@@ -55,9 +57,10 @@ def serve(entry: dict) -> None:
 
 
 def share_link(evt: BaseHookEvent, entry: dict) -> HookResult:
+    command = shlex.join([str(dashboard_bin()), "url", "--dir", str(dashboard_dir(entry))])
     return evt.context(
-        f"Give the owner the dashboard link now: `{dashboard_bin()} url --dir {dashboard_dir(entry)}` prints it (`start` if it prints nothing). "
-        "Then tailor layout.yaml in that dir per /live-dashboard picking.md before the first milestone report."
+        "Give the owner the dashboard link now: the command below prints it (`start` in place of `url` if it prints nothing). "
+        f"Then tailor layout.yaml in its --dir per /live-dashboard picking.md before the first milestone report.\n```sh\n{command}\n```"
     )
 
 
@@ -115,7 +118,8 @@ def serve_on_drive_start(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     tests={
         Input(source="compact", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=SHARED),
-        Input(source="resume", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"--dir /state/release-v3/dashboard`"),
+        Input(source="resume", env=DRIVE_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"--dir /state/release-v3/dashboard\n```$"),
+        Input(source="compact", env=LONG_PATHS_ENV, state=[CompactionState(active=True)]): Warn(pattern=r"past-any-reasonable-length/scratch/release-v3/dashboard\n```$"),
         Input(source="compact", env=DRIVE_ENV): Allow(),
         Input(source="compact", env=DRIVE_ENV, agent_id="a1b2c3", state=[CompactionState(active=True)]): Allow(),
     },
@@ -130,7 +134,10 @@ def share_on_session_start(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     tests={
         Input(command="drive.py start --ledger 1a2b3c4d", output="drive 900424b6 on ledger 1a2b3c4d", env=DRIVE_ENV): Warn(
-            pattern=r"^Give the owner the dashboard link now: .*live-dashboard url --dir /state/release-v3/dashboard`"
+            pattern=r"^Give the owner the dashboard link now: (?s:.*)live-dashboard url --dir /state/release-v3/dashboard\n```$"
+        ),
+        Input(command="drive.py start --ledger 1a2b3c4d", output="drive 900424b6 on ledger 1a2b3c4d", env=LONG_PATHS_ENV): Warn(
+            pattern=r"past-any-reasonable-length/scratch/release-v3/dashboard\n```$"
         ),
         Input(command="drive.py list", output="900424b6 ledger=1a2b3c4d", env=DRIVE_ENV): Allow(),
     },
