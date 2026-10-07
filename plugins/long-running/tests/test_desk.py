@@ -626,7 +626,7 @@ def test_summary_settles_landings_from_the_working_directory_and_its_origin(caps
 
 def test_a_repo_verb_refuses_an_origin_that_names_no_repository():
     shell = desk_shell()
-    shell.origin = "/srv/git/bare"
+    shell.origin = "../monorepo"
 
     with pytest.raises(SystemExit, match="names no owner/name"):
         run(shell, "summary", "--ledger", LEDGER)
@@ -1672,7 +1672,7 @@ def test_refresh_admits_every_open_pr_on_a_registered_prefix_and_nothing_else(lo
     assert shell.fields("24071")["registered"] == LANE
     assert shell.fields("24071")["head"] == "a" * 40
     assert shell.state_calls() == [
-        ["ccx", "vcs", "pr", "state", "--lane-prefix", "lightning/"],
+        ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
         ["ccx", "vcs", "pr", "state", "--repo", REPO, "--lane-prefix", "lightning/"],
     ]
 
