@@ -186,6 +186,17 @@ SendMessage(to: "pr-watch-<number>", message: "Queue label <label> added. Resume
 
 Its report arrives as a notification mid-task — keep working until it does. When it reports a judgment call, it brings 2–4 options: route them to the user through `AskUserQuestion`, because the watcher runs with no user attached — that's exactly why it hands the question to you.
 
+## Offer the review in cc-review
+
+Once the watcher is armed and you've reported the PR URL, check whether the user has cc-review:
+
+```bash
+command -v cc-review >/dev/null ||
+  jq -e '.enabledPlugins["cc-review@cc-review"] == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null
+```
+
+On exit 0, ask "Review #<number> in cc-review?" through `AskUserQuestion` in that same turn. On a yes, invoke the `cc-review:start` skill with `--pr <url> --open`: its first step runs `cc-review start --pr <url> --open`, which loads the PR's stack and opens the review in the browser, and the rest of that skill drives the event loop. On a no, or when the check fails, skip it. Ask once per PR, never again on a re-ship. A lane under the `long-running` skill has no user to ask, so it skips the offer.
+
 <success_criteria>
 The PR is open when ship has reported branch, PR number, URL, and head sha, and exactly one watcher holds the watch. It's done well when the title, body, and commit subjects match the style card at its stated confidence; every hard requirement in the guidelines card has a disposition — met, or skipped by the user's explicit pick; the body fills the repo's template and passed a triaged slop-cop run; and on a foreign repo, the diff cleared the conformance pass before the body was written.
 </success_criteria>
