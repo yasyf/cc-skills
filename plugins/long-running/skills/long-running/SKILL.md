@@ -1827,13 +1827,34 @@ the server detached. The same hooks print the `live-dashboard url --dir` command
 root gives the owner that link in its first reply of every drive, after every resume
 and compaction, and in the header of each milestone report.
 
-Before the first milestone report, the root tailors `layout.yaml` to what the owner
-checks this drive for, per `/live-dashboard` `reference/picking.md`, and revisits it at
-each milestone. The drive's pack adds `lr.needs-owner`, `lr.inbox-feed`, `lr.drive`,
-`lr.compactions`, and `lr.watches`. The owner's actions on `lr.needs-owner` and
-`pr-review-queue` arrive at main as `owner` records; on a `Reviewed #N` record, main
-sets `owner_reviewed_at` on that PR's ledger row. The `dashboard-curator` desk closes stale
-items, briefed from `/live-dashboard` `reference/keeping-live.md`.
+The dashboard is the owner's view, and it answers four questions in this order: what
+waits on me, what is broken, what is live, and what is in flight. Review comes after
+them. The `drive` preset already lays the page out that way:
+
+- `lr.needs-owner` is pinned in the first section. It shows owner tasks, cci asks and
+  decides addressed `--to owner`, and boards that are still asking.
+- Broken shows `release.incidents` and `open-records`.
+- In flight shows `cci-lanes`, `orca`, `tasks`, and `asks` for the owner's own asks.
+- Plumbing is collapsed.
+
+Before the first milestone report, the root adds the drive's own sources, such as the
+`release.*` cards for a release drive, per `/live-dashboard` `reference/picking.md`. It
+revisits the layout at each milestone and runs `live-dashboard check` after every edit.
+
+Every source card drops settled items itself; `reference/keeping-live.md` lists the
+rules. When a row stays on the page after its work closed, the cause is a missing
+closing record, so post one with `--resolves` or `--re`. A stale row is a source defect
+for a cc-skills lane, never a hand edit to `layout.yaml`. Three things stay off the page:
+
+- status written into `banner`;
+- a manual card where a source exists;
+- internal ids where a name exists.
+
+The drive's pack adds `lr.needs-owner`, `lr.inbox-feed`, `lr.drive`, `lr.compactions`,
+and `lr.watches`. The owner's actions on `lr.needs-owner` and `pr-review-queue` arrive at
+main as `owner` records; on a `Reviewed #N` record, main sets `owner_reviewed_at` on that
+PR's ledger row. The `dashboard-curator` desk closes only what settles in words, briefed
+from `/live-dashboard` `reference/keeping-live.md`.
 
 ### Lane bus
 

@@ -9,7 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from livedash import Col, Context, Entry, Feed, Kv, Table, component, view
-from livedash.components import boards, cci, tasks
+from livedash.components import boards, bus, cci, tasks
 from livedash.components import ledger as ledgers
 from livedash.components.release import overview, platy
 
@@ -28,6 +28,8 @@ OWNER_WORD = re.compile(r"(?:->|→)\s*owner\b|\b(?:for|to|asks?|needs|awaits?|w
 DECIDER = re.compile(r"\bDECIDE (?:msg_\w+ )?(?P<lane>[\w.:-]+?)(?::| \()")
 OWNER_BULLET = re.compile(r"^- \*\*(?P<title>[^*]+)\*\*:?[ \t]*(?P<detail>.*)$", re.MULTILINE)
 COMPACT_BOUNDARY = b'"subtype":"compact_boundary"'
+OWNER_READER = "owner"
+TO_DO = {"task": "do", "ask": "answer", "decide": "decide", "board": "answer", "pending": "decide"}
 VERB_TONE = {"LANDED": "ok", "RELEASED": "ok", "FIX-LIVE": "ok", "HOLD": "warn", "DECIDE": "warn", "ASK": "warn", "INCIDENT": "bad", "ALERT": "bad"}
 INBOXES: dict[str, inboxlines.Inbox] = {}
 COMPACTIONS: dict[str, tuple[int, list[dict]]] = {}
@@ -96,18 +98,20 @@ def acting(name: str):
     return act
 
 
-def owner_rows(ctx: Context, checkout: str, sessions: list[str], state_dir: Path, ledger: str | None, owner_files: list[str], started_at: str | None) -> list[dict]:
+def owner_asks(ctx: Context, started_at: str | None) -> list[dict]:
+    addressed = [record for record in ctx.cci("digest", since_time=started_at).get("open_asks") or [] if OWNER_READER in (record.get("to") or [])]
+    replied = bus.answered(ctx, addressed)
+    return [{"kind": record["kind"], "title": record["text"], "state": record["lane"], "at": record["at"], "cite": f"cci:{record['seq']}"} for record in addressed if record["seq"] not in replied]
+
+
+def owner_rows(ctx: Context, checkout: str, sessions: list[str], state_dir: Path, owner_files: list[str], started_at: str | None) -> list[dict]:
     rows = []
     found, _ = tasks.session_tasks(checkout, sessions)
     for task in found:
-        if task.get("status") != "completed" and not task.get("archived") and is_owner_task(task):
+        if task.get("status") not in ("completed", "deleted") and not task.get("archived") and is_owner_task(task):
             rows.append({"kind": "task", "title": task.get("subject"), "state": task.get("status"), "at": task.get("updated_at"), "cite": f"task:{task['id']}"})
-    if ledger:
-        all_rows = ledgers.rows(ctx, ledger)
-        prs = {key: fields for key, fields in all_rows.items() if key.isdigit()}
-        for key, fields in all_rows.items():
-            if key.startswith(ledgers.ASK_PREFIX) and (state := ledgers.ask_state(fields, prs)) not in ledgers.DONE_ASKS:
-                rows.append({"kind": "ask", "title": fields.get("text"), "state": state, "at": fields.get("asked_at"), "cite": f"ask:{key}"})
+    if ctx.facts.get("cci_drive"):
+        rows += owner_asks(ctx, started_at)
     for line in open_decisions(inbox(ctx, state_dir), view.iso(ctx.now - DECISION_WINDOW)):
         rows.append({"kind": "decide", "title": line["text"], "state": line["lane"], "at": line["at"], "cite": line["cite"]})
     elsewhere = other_drive_sessions(ctx.facts["id"])
@@ -122,14 +126,15 @@ def owner_rows(ctx: Context, checkout: str, sessions: list[str], state_dir: Path
     return rows
 
 
-@component("needs-owner", "Needs you", question="What waits on the owner right now?", reads=["root session task list", "ccn ledger row list", "drive inboxes", "cc-present boards", "owner files", "cci records"], every="1m", timeout="90s", actions={name: acting(name) for name in OWNER_ACTIONS})
-def needs_owner(ctx: Context, *, checkout: str, sessions: list[str], state_dir: Path, ledger: str | None = None, owner_files: list[str] = [], started_at: str | None = None) -> Table:
-    """What waits on the owner: open tasks titled "Owner item" or carrying an owner-item or owner-ask kind, ledger asks not
-    yet answered, dropped or delivered, owner-addressed DECIDE, ASK and RULING inbox lines no later line answered, open
-    unsubmitted cc-present boards from this drive that ask something, and `- **title**: detail` bullets in `owner_files`. An item
-    leaves when a curator `resolved:` record names its cite or the owner marks it complete. Actions question, complete and
-    reply post an owner record to main; main's replies show beside the item."""
-    rows = owner_rows(ctx, checkout, sessions, state_dir, ledger, owner_files, started_at)
+@component("needs-owner", "Needs you", question="What waits on the owner right now?", reads=["root session task list", "cci digest", "cci records", "drive inboxes", "cc-present boards", "owner files"], every="1m", timeout="90s", actions={name: acting(name) for name in OWNER_ACTIONS})
+def needs_owner(ctx: Context, *, checkout: str, sessions: list[str], state_dir: Path, owner_files: list[str] = [], started_at: str | None = None) -> Table:
+    """What waits on the owner: open tasks titled "Owner item" or carrying an owner-item or owner-ask kind, cci asks and
+    decides addressed to the owner that no later record answers by `re` or `resolves`, owner-addressed DECIDE, ASK and
+    RULING inbox lines no later line answered, open unsubmitted cc-present boards from this drive that ask something, and
+    `- **title**: detail` bullets in `owner_files`. The owner's own asks are the `asks` card's. An item leaves when a curator
+    `resolved:` record names its cite or the owner marks it complete. Actions question, complete and reply post an owner
+    record to main; main's replies show beside the item."""
+    rows = owner_rows(ctx, checkout, sessions, state_dir, owner_files, started_at)
     closed = overview.curated(cci.records(ctx, started_at, kind=CLOSING_KINDS))
     sent = actions(ctx.dir)
     replies = cci.records(ctx, min(action["at"] for action in sent), to="owner") if sent else []
@@ -142,9 +147,9 @@ def needs_owner(ctx: Context, *, checkout: str, sessions: list[str], state_dir: 
         last = mine[-1] if mine else None
         reply = answering.get(last["seq"]) if last else None
         said = f"you: {OWNER_ACTIONS[last['action']].lower()}{' — ' + last['text'] if last['text'] else ''}" if last else None
-        out.append(row | {"key": row["cite"], "title": row["title"] or "", "said": f"{said}; main: {reply['text']}" if reply else said, "tone": "warn" if row["kind"] in ("board", "decide", "ask") else None})
+        out.append(row | {"key": row["cite"], "todo": TO_DO[row["kind"]], "title": row["title"] or "", "said": f"{said}; main: {reply['text']}" if reply else said, "tone": "warn" if row["kind"] != "task" else None})
     out.sort(key=lambda row: row["at"] or "", reverse=True)
-    return Table([Col("kind", "Kind", "badge"), Col("title", "Item", "link"), Col("state", "State", "badge"), Col("at", "Raised", "age"), Col("said", "Conversation")], out, note=None if out else "Nothing is waiting on you.")
+    return Table([Col("todo", "You", "badge"), Col("title", "Item", "link"), Col("state", "State", "badge"), Col("at", "Raised", "age"), Col("said", "Conversation", phone=False)], out, note=None if out else "Nothing is waiting on you.")
 
 
 @component("inbox-feed", "Inbox", question="What arrived in the drive's inboxes lately?", reads=["drive inbox files"], every="30s")
