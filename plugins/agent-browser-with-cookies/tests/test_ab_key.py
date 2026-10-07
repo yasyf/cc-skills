@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ COOKIESYNC = """#!/bin/bash
 
 OP = """#!/bin/bash
 touch "$OP_MARKER"
+[ -z "${OP_STALL:-}" ] || exec sleep 60
 """
 
 AGENT_BROWSER = """#!/bin/bash
@@ -29,7 +31,7 @@ def stub(bin_dir: Path, name: str, body: str) -> None:
     path.chmod(0o755)
 
 
-def run_ab(tmp_path: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+def run_ab(tmp_path: Path, *argv: str, stall: bool = False) -> subprocess.CompletedProcess[str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stub(bin_dir, "cookiesync", COOKIESYNC)
@@ -39,6 +41,7 @@ def run_ab(tmp_path: Path, *argv: str) -> subprocess.CompletedProcess[str]:
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "HOME": str(tmp_path),
         "OP_MARKER": str(tmp_path / "op-called"),
+        **({"OP_STALL": "1"} if stall else {}),
     }
     return subprocess.run([str(AB), *argv], capture_output=True, text=True, env=env)
 
@@ -55,3 +58,11 @@ def test_default_mode_reads_the_key(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "local"
     assert (tmp_path / "op-called").exists()
+
+
+def test_a_locked_1password_falls_back_to_local_within_the_op_timeout(tmp_path: Path):
+    start = time.monotonic()
+    proc = run_ab(tmp_path, "get", "url", stall=True)
+    assert time.monotonic() - start < 20
+    assert proc.returncode == 0, proc.stderr
+    assert "is 1Password locked?" in proc.stderr

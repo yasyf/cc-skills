@@ -87,7 +87,7 @@ if [[ "$mode" == "local" ]]; then
   local_flag=(--local)
 elif [[ "$mode" == "browserbase" ]]; then
   # Same op:// one-liner ab resolves — duplicated here so the key is captured once.
-  BROWSERBASE_API_KEY="${BROWSERBASE_API_KEY:-$(op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null)}"
+  BROWSERBASE_API_KEY="${BROWSERBASE_API_KEY:-$(timeout 10 op read 'op://OpenClaw/BROWSERBASE_API_KEY/notesPlain' 2>/dev/null)}"
   [[ -n "$BROWSERBASE_API_KEY" ]] || die "could not pin the Browserbase API key"
   export BROWSERBASE_API_KEY
 fi
