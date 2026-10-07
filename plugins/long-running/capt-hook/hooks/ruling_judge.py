@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Literal
 
 from captain_hook import Allow, BaseHookEvent, Event, HookResult, Input, Warn, WorkflowState, on, workflow_state
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
 from .compaction_handoff import REGISTER_FENCE, RULINGS, CompactionState, rulings
 from .register_injection import drive_args
@@ -36,8 +37,8 @@ class JudgedAnswers(WorkflowState):
     injected: list[str] = []
 
 
-class Verdict(BaseModel):
-    answer: str
+def verdict_model(ids: list[str]) -> type[BaseModel]:
+    return create_model("Verdict", answer=(Literal[("none", *ids)], ...))
 
 
 def flag(args: tuple[str, ...], *names: str) -> str:
@@ -106,8 +107,8 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     candidates = rulings(str(evt.cwd), "match", *which, "-k", str(CANDIDATES), "--budget", str(CANDIDATE_BYTES), stdin=text[:MOMENT_CHARS])
     if not (ids := BLOCK_ID.findall(candidates)):
         return None
-    verdict = evt.llm(PROMPT.format(kind=kind, moment=text[:MOMENT_CHARS], candidates=candidates), Verdict, size="small")
-    if verdict is None or (answer := verdict.answer.strip()[:7]) not in ids:
+    verdict = evt.llm(PROMPT.format(kind=kind, moment=text[:MOMENT_CHARS], candidates=candidates), verdict_model(ids), size="small")
+    if verdict is None or (answer := verdict.answer) not in ids:
         return None
     key = f"{evt.agent_id or 'main'}:{answer}"
     with JudgedAnswers.mutate(evt) as state:
