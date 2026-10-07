@@ -267,6 +267,26 @@ def test_window_elapsed_ends_the_round_and_the_next_round_keeps_started_at(poll)
     assert second.state["started_at"] == first.state["started_at"]
 
 
+def test_a_short_window_rerun_waits_out_the_interval_before_polling(poll):
+    env = {"PR_POLL_WINDOW": "1", "FAKE_SLEEP": "1.1"}
+    first = poll(PENDING, PENDING, env=env)
+    assert first.done == "DONE window-elapsed"
+    assert first.state["next_poll_at"] > first.state["started_at"]
+    second = poll(PENDING, PENDING, env=env)
+    assert second.done == "DONE window-elapsed"
+    assert second.gh_calls == []
+    assert second.state["next_poll_at"] == first.state["next_poll_at"]
+
+
+def test_a_rerun_polls_at_once_when_the_recorded_pass_is_due(poll, tmp_path):
+    state = tmp_path / "state.json"
+    seeded = json.loads(state.read_text())
+    seeded["next_poll_at"] = 1000
+    state.write_text(json.dumps(seeded))
+    run = poll(surface(pull()))
+    assert run.done == "DONE ready-to-merge"
+
+
 def test_deadline_counts_from_the_state_files_started_at(poll, tmp_path):
     state = tmp_path / "state.json"
     seeded = json.loads(state.read_text())

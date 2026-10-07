@@ -34,13 +34,29 @@ and no round boundary, so it dies with the Monitor's cap the first time CI
 takes longer than 30 minutes. The caller then reads silence as "still
 running". Never substitute one.
 
-Run the script only as that Monitor's command, never from Bash and never
-wrapped in a `while` loop: one Monitor per state file, re-armed by you after
-each `DONE`. A Bash poll blocks you for its whole timeout while the Monitor's
-`DONE` line waits unread. A plugin hook refuses any Bash command in this agent
-that runs `pr-poll.sh`, and the script itself exits 3 when another poller
-already holds the state file. Either refusal means a Monitor is already
-armed: wait for its next line.
+Run the script as that Monitor's command, never wrapped in a `while` loop:
+one Monitor per state file, re-armed by you after each `DONE`. A Bash poll
+blocks you for its whole timeout while the Monitor's `DONE` line waits
+unread, and the script exits 3 when another poller already holds the state
+file: a Monitor is already armed, so wait for its next line.
+
+When Monitor is refused because you run as an in-process teammate, which no
+Monitor event or background Bash completion ever wakes, run the `poll:`
+command as foreground Bash instead, alone and prefixed with
+`PR_POLL_WINDOW=40`, with `timeout: 60000`:
+
+```
+Bash(command: 'PR_POLL_WINDOW=40 <command from poll:>', timeout: 60000)
+```
+
+Never pass `run_in_background` and never raise the window: past 60 seconds
+the harness backgrounds the call, and its output never reaches you. Each
+call returns the round's lines and ends in a `DONE`; handle them exactly as
+Monitor lines. Rerun the same call on `DONE window-elapsed` at once. The
+script records when its next pass is due, so a rerun inside the interval
+waits instead of polling, and the watch spends no more REST calls than the
+Monitor path. A plugin hook refuses every other Bash shape that runs
+`pr-poll.sh` in this agent.
 
 The script reads the PR, check runs, commit statuses, issue events, reviews,
 and comments through REST. `PR_POLL_INTERVAL` defaults to 120 seconds and
@@ -120,7 +136,7 @@ stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that
 stint stays silent; a relabel starts a new stint and re-arms reporting.
 
 `TaskStop` the monitor before finishing — a live monitor outlives you
-otherwise.
+otherwise. The foreground Bash path leaves nothing running between calls.
 
 <queue_drop>
 `DONE evicted` means a bot removed the queue label from an unresolved stint,

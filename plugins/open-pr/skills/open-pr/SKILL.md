@@ -142,7 +142,7 @@ Agent(subagent_type: "open-pr:pr-watcher", run_in_background: true,
       prompt: "pr: <number>\nurl: <url>\nrepo: <owner/name>\nhead: <sha>\n"
               "branch: <branch>\nlane: <gt|jj|git>\ncache: <dir>\nownership: <mine|foreign>\n"
               "poll: bash \"<abs plugin root>/scripts/pr-poll.sh\" <owner/name> <number> <cache>/pr/<number>.json\n"
-              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, never run it from Bash or wrap it in a loop, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing. On DONE ready-to-merge, SendMessage main before anything else.")
+              "Arm Monitor on exactly the poll: command with timeout_ms: 1800000, re-arm it on DONE window-elapsed, never wrap it in a loop, and never substitute a hand-rolled gh pr checks/bk loop, which cannot see a queue landing. If Monitor is refused for an in-process teammate, run PR_POLL_WINDOW=40 <poll: command> alone as foreground Bash with timeout: 60000 and rerun it on DONE window-elapsed. On DONE ready-to-merge, SendMessage main before anything else.")
 ```
 
 After spawning, verify that the poll script wrote its state file:
