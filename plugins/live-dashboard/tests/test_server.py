@@ -70,7 +70,7 @@ def test_state_carries_sections_cards_counts_and_the_banner(served):
     assert state["dashboard"] == {"id": "served", "title": "Served", "repo": "o/r", "program": None}
     assert state["banner"] == "Tailor this layout." and state["layout_error"] is None
     assert state["sections"] == [{"title": "Pings", "collapsed": False, "cards": ["pings"]}]
-    assert state["cards"][0] | {"as_of": None, "ms": None} == {"id": "pings", "use": "local.pings", "title": "Pings", "question": "Does the test card answer its one question?", "section": "Pings", "width": 1, "pinned": True, "every": "manual", "kind": "table", "payload": state["cards"][0]["payload"], "as_of": None, "status": "ok", "error": None, "ms": None, "actions": ["ping"]}
+    assert state["cards"][0] | {"as_of": None, "ms": None} == {"id": "pings", "use": "local.pings", "title": "Pings", "question": "Does the test card answer its one question?", "section": "Pings", "width": 1, "pinned": True, "phone": None, "every": "manual", "kind": "table", "payload": state["cards"][0]["payload"], "as_of": None, "status": "ok", "error": None, "ms": None, "actions": ["ping"]}
     assert state["counts"] == {"error": 0, "stale": 0, "hung": 0, "pending": 0}
     assert call(served, "/state.json", headers={"If-None-Match": headers["ETag"]})[0] == 304
 

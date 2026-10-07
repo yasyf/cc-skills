@@ -19,15 +19,20 @@ def selected(cards: list[layout.Card], only: str | None) -> list[layout.Card]:
     return [card for card in cards if only in (None, card.id, card.use)]
 
 
-def run_card(card: layout.Card, directory: Path, facts: dict, env: dict) -> list[str]:
+def run_card(card: layout.Card, directory: Path, facts: dict, env: dict, results: dict, missed: set) -> list[str]:
     spec = card.spec
     printed = io.StringIO()
     outcome: dict = {}
 
+    def lookup(card_id: str):
+        if card_id not in results:
+            missed.add(card_id)
+        return results.get(card_id)
+
     def call() -> None:
         try:
             with contextlib.redirect_stdout(printed):
-                outcome["result"] = spec.fn(Context(directory, facts, now(), spec.timeout), **card.bound)
+                outcome["result"] = spec.fn(Context(directory, facts, now(), spec.timeout, lookup=lookup), **card.bound)
         except Exception as failure:
             outcome["error"] = failure
 
@@ -45,6 +50,7 @@ def run_card(card: layout.Card, directory: Path, facts: dict, env: dict) -> list
     result = outcome["result"]
     if not isinstance(result, spec.payload):
         return [*found, f"{where}: returned {type(result).__name__}, not the {spec.payload.__name__} its signature names"]
+    results[card.id] = result
     found += [f"{where}: {problem}" for problem in payloads.problems(result)]
     if names := secrets.hits(json.dumps(result.json(), default=str), env):
         found.append(f"{where}: secret-shaped value ({', '.join(names)})")
@@ -64,6 +70,8 @@ def defects(directory: Path, only: str | None, run: bool, env: dict) -> list[str
     cards = selected(built.cards, only)
     if only and not cards:
         return [*found, f"no card or component {only} in {directory / layout.LAYOUT_FILE}"]
+    results: dict = {}
+    readers: list[tuple[layout.Card, set]] = []
     for card in cards:
         if card.spec is None:
             found.append(f"{card.id} (layout.yaml:{card.line}): {card.error}")
@@ -71,5 +79,12 @@ def defects(directory: Path, only: str | None, run: bool, env: dict) -> list[str
         if card.question.startswith(SCAFFOLD_QUESTION):
             found.append(f"{card.id} (layout.yaml:{card.line}): question is still the scaffold's; name the one question this card answers")
         if run:
-            found += run_card(card, directory, facts, env)
+            missed: set = set()
+            ran = run_card(card, directory, facts, env, results, missed)
+            if missed:
+                readers.append((card, missed))
+            else:
+                found += ran
+    for card, missed in readers:
+        found += run_card(card, directory, facts, env, results, set())
     return found

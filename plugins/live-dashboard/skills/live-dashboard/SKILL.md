@@ -78,6 +78,7 @@ Every card is one `use:` plus these optional keys:
 | `question` | The one question the card answers, shown under its title; defaults to the component's |
 | `every` | `15s`, `30s`, `1m`, `2m`, `5m`, `15m`, or `manual`; defaults to the component's cadence |
 | `width` | 1, 2, or 3 columns on a wide screen; a phone shows one column |
+| `phone` | The table column keys a phone shows on each row; the rest fold behind a "more" tap. Defaults to the columns the component marks for phones |
 | `pinned` | `true` lifts the card above every section and notifies on new rows |
 | `with` | The component's parameters |
 
@@ -114,7 +115,10 @@ A card that needs one of these links to where it lives.
   card's state.
 - Every card shows the one question it answers under its title.
 - On a phone the page is one column of cards, and every table row becomes a stacked
-  card with labeled fields, so no table scrolls sideways.
+  card with labeled fields, so no table scrolls sideways. Columns a phone does not need
+  fold behind a "more" tap on each row.
+- A card that reads another card with `ctx.latest` reruns as soon as that card lands its
+  first payload, on the server and in `check`, so it never waits a full cadence.
 - Payloads cache in `cache/<id>.json`, so a restart serves the last good data at once.
 - Every payload is scanned before it is served. A value of any env var named like a
   key, token, secret, or password, or a token-shaped string, drops the payload and

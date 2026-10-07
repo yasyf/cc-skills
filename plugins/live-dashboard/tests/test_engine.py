@@ -53,6 +53,12 @@ def chatty(ctx: Context) -> Kv:
     return Kv({"ok": 1})
 
 
+@component("reader", "Reader", question="Does the test card answer its one question?", reads=["a test fixture"], every="5m")
+def reader(ctx: Context) -> Kv:
+    found = ctx.latest("a")
+    return Kv({"calls": found.tiles[0].value if found else None})
+
+
 @component("needs", "Needs", question="Does the test card answer its one question?", reads=["a test fixture"], every="manual")
 def needs(ctx: Context, *, ledger: str, files: Path, prs: list[int] = []) -> Kv:
     return Kv({"ledger": ledger, "files": str(files), "prs": len(prs)})
@@ -277,3 +283,35 @@ def test_a_mapping_parameter_takes_only_scalar_values(tmp_path):
     for bad in ({"103": None}, {"103": [1]}, {"103": True}):
         with pytest.raises(registry.BindError, match="mapping of strings"):
             registry.coerce("names", bad, names, tmp_path)
+
+
+READER_LAYOUT = """title: Readers
+sections:
+  - title: Cards
+    components:
+      - {use: local.reader, id: reader, phone: [calls]}
+      - {use: local.counter, id: a}
+"""
+
+
+def test_a_reader_reruns_as_soon_as_the_card_it_read_lands(board):
+    (board / "layout.yaml").write_text(READER_LAYOUT)
+    clock = [0.0]
+    found, built = scheduler(board, clock)
+    run(found)
+    assert by_id(found, built)["reader"]["payload"]["pairs"] == [["calls", None]]
+    run(found)
+    cards = by_id(found, built)
+    assert cards["reader"]["payload"]["pairs"] == [["calls", cards["a"]["payload"]["tiles"][0]["value"]]]
+    assert cards["reader"]["phone"] == ["calls"]
+
+
+def test_check_runs_a_reader_after_the_card_it_reads(board):
+    (board / "layout.yaml").write_text(READER_LAYOUT)
+    assert check.defects(board, None, True, ENV) == []
+
+
+def test_phone_must_list_column_keys(board):
+    (board / "layout.yaml").write_text(READER_LAYOUT.replace("phone: [calls]", "phone: calls"))
+    with pytest.raises(layout.LayoutError, match="phone must list the column keys"):
+        layout.load(board, FACTS)

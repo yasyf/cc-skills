@@ -83,6 +83,7 @@ table.grid { border-collapse:collapse; width:100%; font-size:var(--t-sm); }
 table.grid td,table.grid th { text-align:left; vertical-align:top; padding:7px 10px 7px 0; border-bottom:1px solid var(--line); }
 table.grid th { color:var(--muted); font-weight:500; white-space:nowrap; position:sticky; top:-12px; background:var(--card); }
 table.grid td.num,table.grid th.num { text-align:right; }
+table.grid td.more-toggle { display:none; }
 table.grid td.age,table.grid td.due { white-space:nowrap; color:var(--muted); }
 table.grid td.due.warn { color:var(--warn); } table.grid td.due.bad { color:var(--bad); font-weight:600; }
 table.grid tr.group td { font-weight:620; color:var(--muted); font-size:var(--t-xs); text-transform:uppercase; letter-spacing:.6px; padding-top:12px; }
@@ -146,6 +147,7 @@ svg.chart { width:100%; height:170px; display:block; overflow:visible; }
  table.grid tr { padding:8px 0 8px 10px; border-bottom:1px solid var(--line); } table.grid tr[data-tone] { box-shadow:inset 3px 0 0 var(--tone-color); }
  table.grid td { border:0; padding:1px 0; text-align:left !important; } table.grid tr[data-tone] td:first-child { box-shadow:none; padding-left:0; }
  table.grid td:first-child { font-weight:620; } table.grid td:empty { display:none; }
+ table.grid tr:not(.open) td[data-more] { display:none; } table.grid td.more-toggle { display:block; color:var(--info); font-size:var(--t-xs); cursor:pointer; padding-top:4px; }
  table.grid td[data-label]:not(:first-child)::before { content:attr(data-label) " "; color:var(--muted); font-size:var(--t-xs); margin-right:4px; }
 }
 /* @include html/components.css */
@@ -201,7 +203,7 @@ const wireFullSize=()=>{};
 <!-- @include html/dom.js -->
 <!-- @include html/md.js -->
 <!-- @include html/components.js -->
-const state={data:null,query:"",painted:{},baseline:null,current:{},toasts:{},notified:null};
+const state={data:null,query:"",painted:{},baseline:null,current:{},toasts:{},notified:null,openRows:new Set()};
 const seenKey=()=>`live-dashboard-seen:${state.data.dashboard.id}`;
 const notifiedKey=()=>`live-dashboard-notified:${state.data.dashboard.id}`;
 const sameDay=(a,b)=>a.toLocaleDateString("en-US",{timeZone:PACIFIC})===b.toLocaleDateString("en-US",{timeZone:PACIFIC});
@@ -269,7 +271,12 @@ function renderTable(card,p){
  const rows=p.rows.filter(row=>matches(rowText(row)));
  const acting=card.actions.length>0;
  const head=`<tr>${p.cols.map(c=>`<th class="${c.kind==="num"?"num":""}">${esc(c.label||c.key)}</th>`).join("")}${acting?"<th></th>":""}</tr>`;
- const line=row=>`<tr class="${rowClass(card,row)}"${row.tone?` data-tone="${esc(row.tone)}"`:""}>${p.cols.map(c=>cellHtml(c,row).replace("<td",`<td data-label="${esc(c.label||c.key)}"`)).join("")}${acting?`<td>${actionsHtml(card,row)}</td>`:""}</tr>`;
+ const keep=new Set(card.phone||p.cols.filter(c=>c.phone!==false).map(c=>c.key));
+ const line=row=>{
+  const folded=p.cols.filter(c=>!keep.has(c.key)&&row[c.key]!=null&&row[c.key]!=="").length;
+  const open=state.openRows.has(`${card.id}:${row.key}`);
+  return `<tr class="${rowClass(card,row)}${open?" open":""}" data-row="${esc(row.key??"")}"${row.tone?` data-tone="${esc(row.tone)}"`:""}>${p.cols.map(c=>cellHtml(c,row).replace("<td",`<td data-label="${esc(c.label||c.key)}"${keep.has(c.key)?"":" data-more"}`)).join("")}${acting?`<td>${actionsHtml(card,row)}</td>`:""}${folded?`<td class="more-toggle" data-more-toggle>${open?"less":`+${folded} more`}</td>`:""}</tr>`;
+ };
  let body="";
  if(p.group_by){
   const groups=new Map();rows.forEach(row=>{const g=String(row[p.group_by]??"");if(!groups.has(g))groups.set(g,[]);groups.get(g).push(row)});
@@ -365,7 +372,7 @@ function cardNode(card){
  error.textContent=card.status==="hung"?`Still running past its timeout${card.error?"; last error: "+card.error:""}`:card.error||(card.status==="stale"?`Stale since ${pt(staleSince(card))}, two missed runs; the last good data is from ${pt(card.as_of)}.`:"");
  const toast=node.querySelector(".toast"),told=state.toasts[card.id];
  toast.hidden=!told;if(told){toast.textContent=told.text;toast.classList.toggle("bad",!!told.bad)}
- const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,state.query,state.baseline&&state.baseline[card.id]]);
+ const body=node.querySelector(".card-body"),key=JSON.stringify([card.payload,card.actions,card.phone,state.query,state.baseline&&state.baseline[card.id],[...state.openRows].filter(k=>k.startsWith(card.id+":"))]);
  if(state.painted[card.id]!==key){
   state.painted[card.id]=key;
   if(!card.payload){body.innerHTML=`<p class="empty">${card.status==="pending"?"Waiting for the first run…":"No data"}</p>`}
@@ -430,6 +437,8 @@ document.addEventListener("click",async e=>{
  const node=t.closest(".card");
  if(t.closest("[data-refresh]")&&node){try{await post(`/refresh/${encodeURIComponent(node.dataset.card)}`);toast(node.dataset.card,"Refresh queued")}catch(err){toast(node.dataset.card,err.message,true)}return}
  if(t.closest("[data-copy]")&&node){try{const r=await fetch(`/cards/${encodeURIComponent(node.dataset.card)}.md`);await navigator.clipboard.writeText(await r.text());toast(node.dataset.card,"Copied as Markdown")}catch(err){toast(node.dataset.card,err.message,true)}return}
+ const fold=t.closest("[data-more-toggle]");
+ if(fold&&node){const k=`${node.dataset.card}:${fold.closest("tr").dataset.row}`;state.openRows.has(k)?state.openRows.delete(k):state.openRows.add(k);render();return}
  const act=t.closest("[data-act]");
  if(act){const text=prompt(`${act.dataset.act}: add a note (optional)`);if(text===null)return;act.disabled=true;try{const out=JSON.parse(await post(`/act/${encodeURIComponent(act.dataset.card)}/${encodeURIComponent(act.dataset.act)}`,{key:act.dataset.key,text}));toast(act.dataset.card,out.message)}catch(err){toast(act.dataset.card,err.message,true)}finally{act.disabled=false}return}
  const jump=t.closest("[data-jump]");
