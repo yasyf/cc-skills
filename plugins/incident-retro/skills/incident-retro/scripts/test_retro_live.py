@@ -97,6 +97,48 @@ class Init(unittest.TestCase):
         self.assertTrue((docs / retro_live.RETRO_DIR / SLUG / "retro.json").exists())
 
 
+RECORDED = [
+    {"ts": "2026-09-02T14:05:00-07:00", "kind": "alert", "actor": "Datadog", "text": "Monitor 312516332 fired.",
+     "refs": ["https://app.datadoghq.com/monitors/312516332"]},
+    {"ts": "2026-09-02T14:06:00-07:00", "kind": "action", "actor": "ai-oncall", "text": "Took the page.", "refs": []},
+    {"ts": "2026-09-02T14:20:00-07:00", "kind": "report", "actor": "Ada", "text": "Runs are stalled.", "refs": []},
+    {"ts": "2026-09-02T14:31:00-07:00", "kind": "action", "actor": "ai-oncall", "text": "Opened the fix.",
+     "refs": ["https://github.com/Forge-AI/monorepo/pull/1"]},
+    {"ts": "2026-09-02T14:44:00-07:00", "kind": "deploy", "actor": "release", "text": "Released the fix.",
+     "refs": ["https://buildkite.com/forge/release/builds/9"]},
+]
+
+
+class RecordedSync(unittest.TestCase):
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        state = json.loads((self.incident / "state.json").read_text())
+        state.update(timeline=RECORDED, severity="Urgent", commander="Ada", status="Fix in review")
+        (self.incident / "state.json").write_text(json.dumps(state))
+        self.init = run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        self.at_init = json.loads((self.root / "retro.json").read_text())
+        self.code = run(retro_live.sync, args(self.incident, self.docs))
+        self.R = json.loads((self.root / "retro.json").read_text())
+
+    def test_init_and_sync_pass_check(self):
+        self.assertEqual((self.init, self.code), (0, 0))
+
+    def test_no_scaffold_todo_survives_init_or_sync(self):
+        self.assertFalse((self.root / retro.SUMMARY_PAGE).exists())
+        for R in (self.at_init, self.R):
+            self.assertNotIn("TODO", json.dumps(R))
+
+    def test_the_summary_carries_title_monitor_severity_l1_and_status(self):
+        self.assertEqual(self.R["summary"]["p"],
+                         f"{json.loads((self.incident / 'state.json').read_text())['title']}. "
+                         "Monitor 312516332 fired. Severity: Urgent. L1: Ada. Status: Fix in review.")
+
+    def test_the_timeline_is_the_recorded_one_entry_per_event(self):
+        self.assertEqual([(t["ts"], t["kind"], t["text"]) for t in self.R["timeline"]],
+                         [(e["ts"], e["kind"], e["text"]) for e in RECORDED])
+
+
 class Sync(unittest.TestCase):
     def setUp(self):
         self.incident, self.docs = incident_dir(), docs_checkout()

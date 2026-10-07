@@ -685,16 +685,24 @@ one. Rerunning a sync against unchanged state therefore leaves both alone.
 writes it back to `state.retro_slug`, scaffolds
 `<checkout>/incident-retros/<slug>/` with `status: "ongoing"` and
 `live.source`, and runs the checkout's `sync-index.sh`, which regenerates the
-`data-retro` cards on both `index.html` pages from every `retro.json`. As `scaffold` does, it refuses a destination that already
+`data-retro` cards on both `index.html` pages from every `retro.json`. It
+deletes the starter `summary.html`, so the page opens on the live summary
+instead of the scaffold's placeholder deck; the prose pass writes the deck
+after the incident. As `scaffold` does, it refuses a destination that already
 holds files and writes into an existing empty directory, so a path the
 checkout created in advance is usable. A second `init` over a scaffolded retro
 is refused; `sync` is what brings that one current.
 
 `sync` takes the writer claim, then reads `state.json` and the previous
 `retro.json` under it, so a sync that waited for the claim does not publish the
-state it read before waiting. It derives the whole record from there. The
-timeline comes from Slack thread roots, deploys, monitor `fired_at`, and pull
-requests opened and merged. One outage window runs from `started_at` to the
+state it read before waiting. It derives the whole record from there. When
+`state.json` carries `timeline`, a list of `{ts, kind, actor, text, refs}`
+events the caller keeps itself, those events are the timeline, one entry per
+event. Otherwise the timeline comes from Slack thread roots, deploys, monitor
+`fired_at`, and pull requests opened and merged. Init and every sync write
+`summary` from the title, each monitor, `severity`, `commander` (the person
+holding the page), and `status`, falling back to `live.phase` when the state
+names no status. One outage window runs from `started_at` to the
 all-clear or now. `causes` come from `diagnoses`, carrying `identifiedAt`.
 `actions` come from `inventory`, with the disposition as the state, the
 matching `prs` as links, and a `history` entry appended only on a change.

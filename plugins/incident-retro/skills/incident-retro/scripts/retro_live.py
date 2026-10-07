@@ -31,6 +31,7 @@ DISPOSITION_STATE = {"open": "todo", "deferred": "todo", "mitigated": "in-progre
                      "already_fixed": "done", "not_reproducible": "dropped"}
 DISPOSITION_NOTE = {"deferred": "Deferred during the response.", "not_reproducible": "Not reproducible."}
 PR_KIND_ENTRY = {"hotfix": "mitigation", "monitor": "action", "long_term": "action"}
+KEY_KINDS = {"alert", "deploy", "mitigation", "resolution", "allclear"}
 ISSUE_NUMBER = re.compile(r"(\d+)$")
 WORD = re.compile(r"\S+")
 
@@ -223,8 +224,15 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
     return block
 
 
-def timeline_of(state: dict, messages: list, retro, onset) -> list:
-    all_clear = retro.try_ts(state.get("all_clear_at"))
+def recorded_rows(state: dict, retro) -> list:
+    return [{"ts": row["ts"], "kind": row["kind"], "actor": row.get("actor") or "a responder",
+             "h": handle(row.get("text"), "Timeline entry", retro),
+             "text": clip(row.get("text"), retro.ENTRY_WORDS), "refs": list(row.get("refs") or []),
+             "key": row["kind"] in KEY_KINDS}
+            for row in state["timeline"]]
+
+
+def derived_rows(state: dict, messages: list, retro) -> list:
     rows = []
     for m in messages:
         if m.get("thread_ts") or not (m.get("text") or "").strip():
@@ -255,6 +263,12 @@ def timeline_of(state: dict, messages: list, retro, onset) -> list:
     if state.get("all_clear_at"):
         rows.append({"ts": state["all_clear_at"], "kind": "allclear", "actor": "the commander",
                      "h": "all clear called", "text": "The commander called the all-clear.", "refs": [], "key": True})
+    return rows
+
+
+def timeline_of(state: dict, messages: list, retro, onset) -> list:
+    all_clear = retro.try_ts(state.get("all_clear_at"))
+    rows = recorded_rows(state, retro) if "timeline" in state else derived_rows(state, messages, retro)
     rows.sort(key=lambda row: retro.parse_ts(row["ts"]))
     flagged = 0
     for row in rows:
@@ -363,7 +377,20 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     timestamps["detected"] = state.get("detected_at")
     R["live"] = live_block(state, retro, now, source)
     timestamps.update(implied_timestamps(state, retro, R["live"]["phase"], previous, now))
+    R["summary"] = live_summary(state, R["live"]["phase"])
     return R
+
+
+def live_summary(state: dict, phase: str) -> dict:
+    title = (state.get("title") or "").rstrip(".")
+    monitors = [m for m in state.get("monitors") or [] if m.get("id")]
+    facts = [f"Severity: {state['severity']}." if state.get("severity") else "",
+             f"L1: {state['commander']}." if state.get("commander") else "",
+             f"Status: {state.get('status') or phase}."]
+    linked = [f"Monitor [{m['id']}]({m['url']}) fired." for m in monitors]
+    plain = [f"Monitor {m['id']} fired." for m in monitors]
+    return {"text": " ".join(part for part in [f"{title}." if title else "", *linked, *facts] if part),
+            "p": " ".join(part for part in [f"{title}." if title else "", *plain, *facts] if part)}
 
 
 def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime, source) -> dict:
@@ -470,6 +497,7 @@ def init(args) -> int:
                                   tags=args.tags, date=slug[:10], incident=None, slug=slug, example=False)
     if retro.scaffold(scaffold):
         return 1
+    (root / retro.SUMMARY_PAGE).unlink()
     R = retro.load_retro(root, "live init")
     R["meta"]["timezone"] = args.timezone
     branch = LIVE_BRANCH.format(slug=slug)
