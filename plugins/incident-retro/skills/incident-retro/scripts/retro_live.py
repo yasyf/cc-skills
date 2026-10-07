@@ -8,8 +8,8 @@
 The inputs are the incident skill's `state.json` and `slack-log.jsonl`. Every
 field is derived from them, so a sync calls no model and produces the same
 retro.json for the same state. `init` scaffolds `incident-retros/<slug>/` with
-`meta.status: "ongoing"` and the `live.source` branch the page polls, and adds
-the card to both index pages. `sync` rebuilds the timeline, windows, causes,
+`meta.status: "ongoing"` and the `live.source` branch the page polls, and has
+the docs checkout's `sync-index.sh` regenerate both index pages' cards. `sync` rebuilds the timeline, windows, causes,
 actions and the `live` block, appends to `actions[].history` and
 `hypotheses[].history` when a state changed since the last sync, replaces every
 raw customer name with its codename, runs `check`, and force-pushes retro.json
@@ -26,7 +26,7 @@ STATE = "state.json"
 SLACK_LOG = "slack-log.jsonl"
 SLACK_DIR = "evidence/slack"
 INDEX = "index.html"
-CARD_ANCHOR = re.compile(r'^[ \t]*<li><a class="card"', re.M)
+INDEX_SCRIPT = Path(".claude/skills/update-design-docs/scripts/sync-index.sh")
 DISPOSITION_STATE = {"open": "todo", "deferred": "todo", "mitigated": "in-progress", "fixed": "done",
                      "already_fixed": "done", "not_reproducible": "dropped"}
 DISPOSITION_NOTE = {"deferred": "Deferred during the response.", "not_reproducible": "Not reproducible."}
@@ -391,28 +391,9 @@ def incident_title(state: dict, slug: str, retro) -> str:
     return clip(state.get("title") or slug, retro.DOC_TITLE_WORDS, retro.DOC_TITLE_CHARS)
 
 
-def card(slug: str, state: dict, retro, href: str) -> str:
-    title = incident_title(state, slug, retro)
-    started = retro.try_ts(state.get("started_at"))
-    date = started.date().isoformat() if started else ""
-    return (f'    <li><a class="card" href="{href}" data-retro="{slug}">\n'
-            f'      <div class="t">{title}</div>\n'
-            f'      <div class="d">The incident is still running; this page updates itself.</div>\n'
-            f'      <div class="m">{date} · Ongoing</div>\n'
-            f'    </a></li>\n')
-
-
-def add_card(path: Path, slug: str, state: dict, retro, href: str):
-    """The newest retro heads the list, so the ongoing one is the first card a reader sees."""
-    page = path.read_text()
-    if f'data-retro="{slug}"' in page:
-        return False
-    start = 0 if path.parent.name == RETRO_DIR else page.find(f'href="{RETRO_DIR}/')
-    found = CARD_ANCHOR.search(page, max(start, 0))
-    if not found:
-        raise SystemExit(f"live: {path} carries no card list to add to; add the card by hand")
-    path.write_text(page[:found.start()] + card(slug, state, retro, href) + page[found.start():])
-    return True
+def sync_cards(docs: Path) -> list:
+    subprocess.run(["bash", str(docs / INDEX_SCRIPT)], check=True, stdout=subprocess.DEVNULL)
+    return [docs / INDEX, docs / RETRO_DIR / INDEX]
 
 
 def run_check(retro, root: Path, forbidden) -> int:
@@ -496,8 +477,7 @@ def init(args) -> int:
     retro.write_retro(root, R)
     raw["retro_slug"] = slug
     (incident / STATE).write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
-    add_card(docs / RETRO_DIR / INDEX, slug, state, retro, f"{slug}/")
-    add_card(docs / INDEX, slug, state, retro, f"{RETRO_DIR}/{slug}/")
+    sync_cards(docs)
     print(f"live init: {root} is ongoing, polling {args.repo}@{branch}")
     print(f"sync:  retro.py live sync {incident} --docs {docs}")
     return run_check(retro, root, args.forbidden_terms)
@@ -610,7 +590,7 @@ def finalize(args) -> int:
 def add_live_parser(sub, retro):
     live = sub.add_parser("live", help="scaffold, refresh and close a retro while the incident is still running")
     commands = live.add_subparsers(dest="live_cmd", required=True)
-    for name, fn, help_text in (("init", init, "scaffold the ongoing retro and add its card to both index pages"),
+    for name, fn, help_text in (("init", init, "scaffold the ongoing retro and regenerate both index pages' cards"),
                                 ("sync", sync, "rebuild the retro from state.json and slack-log.jsonl and push it"),
                                 ("finalize", finalize, "drop live.source and move the retro to draft")):
         p = commands.add_parser(name, help=help_text)

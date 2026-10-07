@@ -17,7 +17,7 @@ recommendations. Present it to the owner, record picked options, owners, PR link
 and fill Remediation before the prose pass and the first retro PR.
 
 `publish` runs check --strict, render-check, and a whole-page slop-cop count before pushing anything.
-After the gates pass, it refreshes both index cards, commits only the retro directory and the two
+After the gates pass, it has the docs checkout's `sync-index.sh` regenerate both index pages' cards, commits only the retro directory and the two
 index pages, pushes, and opens a ready PR or edits the existing PR and marks it ready. It writes
 the PR body from the summary panels. A retro PR is never draft.
 
@@ -32,18 +32,16 @@ Only the URL from RENDERED: goes to comms. Every retro comms draft passes comms-
 it exits 1 for any GitHub or Graphite PR link or a missing rendered URL. A PR link is never posted.
 The draft comes from a file or stdin (-). Stdlib only.
 """
-import argparse, datetime, html, json, re, shutil, subprocess, sys, tempfile, time, zoneinfo
+import argparse, datetime, json, re, shutil, subprocess, sys, tempfile, time, zoneinfo
 from pathlib import Path
 
 RETRO_DIR = "incident-retros"
 CNAME = "CNAME"
-INDEX = "index.html"
 STATE = "state.json"
 URL = re.compile(r"https?://[^\s)\]>\"'`,;]+")
 CLOCK = re.compile(r"^\s*[-*]\s+\**(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*([AP]M)\b"
                    r"(?:\s*PT)?\**[:,.]?\s*(.+)$", re.I)
 CCN_ID = re.compile(r"[0-9a-f]{7,40}")
-CARD = re.compile(r'^[ \t]*<li><a class="card"[^\n]*data-retro="{slug}">\n(?:.*\n)*?[ \t]*</a></li>\n', re.M)
 KIND_MARKS = (
     ("mitigation", re.compile(r"\bFIX-LIVE\b|\bROLLBACK\b|\bREVERTED\b|\b[Rr]olled back\b|\b[Rr]everted\b|"
                               r"\b[Ss]witched (?:\w+ )?back\b|\b[Uu]nfro(?:ze|zen)\b")),
@@ -243,40 +241,6 @@ def new(args) -> int:
     return 0
 
 
-def card(slug: str, R: dict, href: str) -> str:
-    meta = R.get("meta") or {}
-    esc = lambda key, default="": html.escape(str(meta.get(key, default)))
-    return (f'    <li><a class="card" href="{html.escape(href)}" data-retro="{html.escape(slug)}">\n'
-            f'      <div class="t">{esc("title")}</div>\n'
-            f'      <div class="d">{esc("subtitle")}</div>\n'
-            f'      <div class="m">{esc("date")} &middot; {esc("status", "draft")}</div>\n'
-            f'    </a></li>\n')
-
-
-def refresh_cards(docs: Path, slug: str, R: dict) -> list:
-    touched = []
-    for path, href in ((docs / INDEX, f"{RETRO_DIR}/{slug}/"), (docs / RETRO_DIR / INDEX, f"{slug}/")):
-        if not path.exists():
-            continue
-        page = path.read_text()
-        found = re.compile(CARD.pattern.replace("{slug}", re.escape(slug)), re.M).search(page)
-        if found:
-            path.write_text(page[:found.start()] + card(slug, R, href) + page[found.end():])
-        else:
-            insert_card(path, card(slug, R, href))
-        touched.append(path)
-    return touched
-
-
-def insert_card(path: Path, text: str):
-    page = path.read_text()
-    start = 0 if path.parent.name == RETRO_DIR else page.find(f'href="{RETRO_DIR}/')
-    found = re.compile(r'^[ \t]*<li><a class="card"', re.M).search(page, max(start, 0))
-    if not found:
-        raise SystemExit(f"publish: {path} carries no card list to add to")
-    path.write_text(page[:found.start()] + text + page[found.start():])
-
-
 def rendered_url(root: Path) -> str:
     docs = root.parents[1]
     return f"https://{(docs / CNAME).read_text().strip()}/{RETRO_DIR}/{root.name}/"
@@ -329,7 +293,7 @@ def publish(args) -> int:
     R = json.loads((root / "retro.json").read_text())
     docs = Path(run(["git", "-C", str(root), "rev-parse", "--show-toplevel"]).strip())
     slug = root.name
-    touched = refresh_cards(docs, slug, R)
+    touched = retro.sibling_module("retro_live").sync_cards(docs)
     paths = [str(root), *map(str, touched)]
     run(["git", "-C", str(docs), "add", *paths])
     title = f"incident retros: 📝 {R['meta'].get('title', slug)}"
