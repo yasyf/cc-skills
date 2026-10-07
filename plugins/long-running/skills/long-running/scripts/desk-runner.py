@@ -44,7 +44,8 @@ the load; any other launch waits while the 1-minute load is above the core count
 at most `deadlines.load_hold_minutes`, then reports the failure to root through cci
 and the Run mailbox. `run --desk landing` gates and enqueues ready
 prefixes under the accepted landing policy, verifies landings by squash, and routes
-blockers and restacks. A worker's question goes to a Sonnet-low judge with the lane's
+blockers and restacks. It gates only tips the ledger lists as `ours` and never enqueues a prefix
+holding a PR that no drive lane registered or posted opened on cci. A worker's question goes to a Sonnet-low judge with the lane's
 brief, which answers it or escalates it with options; the judge runs beside the pass, never inside it.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch or judge, and its sweep shows only dispatches it has not
@@ -98,7 +99,7 @@ MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "REBASING", "MERGED"})
-RETRYABLE = frozenset({"blocked", "superseded"})
+RETRYABLE = frozenset({"blocked", "superseded", "foreign"})
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 WAKE_SECONDS = 0.25
@@ -1189,7 +1190,7 @@ class Landing:
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
-        return self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv])
+        return self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv], env={"CLAUDE_LONG_RUNNING_DRIVE": self.runner.config.drive})
 
     def rows(self) -> dict[str, dict]:
         done = self.ledger_py("list", "--ledger", self.ledger, "--json")
@@ -1207,7 +1208,7 @@ class Landing:
         return [str(self.checkout / STACK_ENQUEUE), tip, *(["--check"] if check else []), *whole, *(["--hold", *held] if held else [])]
 
     def tips(self, rows: dict[str, dict]) -> list[str]:
-        tracked = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and (row.get("reported_head") or row.get("registered"))}
+        tracked = {pr: row for pr, row in rows.items() if row.get("ours")}
         bases = {row.get("base") for row in tracked.values()}
         return sorted((pr for pr, row in tracked.items() if row.get("branch") not in bases), key=int)
 
@@ -1218,14 +1219,17 @@ class Landing:
         for tip, done in gated.items():
             verdicts = {match["pr"]: match for match in VERDICT_LINE.finditer(done.out)}
             if would := WOULD_ENQUEUE.search(done.out):
-                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts)
+                self.accept(tip, [number.lstrip("#") for number in would.group(1).split()], verdicts, rows)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr in rows and "held" not in match["detail"].split("; "):
                     self.route_blocker(pr, match["sha"], match["detail"], rows[pr], tip, held)
 
-    def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match]) -> None:
-        """One enqueue per exact set of prefix heads; a fresh attempt only after every earlier one enqueued nothing."""
+    def accept(self, tip: str, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> None:
+        """One enqueue per exact set of prefix heads, every one a PR a drive lane opened; a fresh attempt only after every earlier one enqueued nothing."""
         base = enqueue_key(prefix, verdicts)
+        if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
+            self.runner.escalate(f"foreign:{base}", "FOREIGN", f"#{tip}", f"stack-enqueue would also enqueue {', '.join('#' + pr for pr in foreign)}, which no drive lane registered or posted opened; nothing was enqueued")
+            return
         attempts = [action for action in self.book.actions(LANDING, kind="enqueue") if action.action_id.split("#")[0] == base]
         if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
             return
@@ -1243,7 +1247,11 @@ class Landing:
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         prefix = action.target.split(",")
-        held = self.held(self.rows())
+        rows = self.rows()
+        if any(not rows.get(pr, {}).get("ours") for pr in prefix):
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
+            return
+        held = self.held(rows)
         fresh = self.shell.run(self.enqueue_argv(prefix[-1], held, check=True)).out
         would = WOULD_ENQUEUE.search(fresh)
         current = enqueue_key([number.lstrip("#") for number in would.group(1).split()], {match["pr"]: match for match in VERDICT_LINE.finditer(fresh)}) if would else ""

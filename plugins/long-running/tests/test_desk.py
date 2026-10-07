@@ -1268,6 +1268,40 @@ def test_a_downstack_row_with_no_reported_head_is_untracked(capsys):
     assert shell.labelled == []
 
 
+def test_a_stack_holding_a_pr_no_drive_lane_opened_is_never_enqueued(capsys, tmp_path):
+    shell = stack_shell(tracked=STACK)
+    shell.foreign.add("24001")
+    script = tmp_path / ledger.STACK_ENQUEUE
+    script.parent.mkdir(parents=True)
+    script.write_text("")
+
+    assert label_stack(shell, STACK[-1], "--checkout", str(tmp_path)) == 1
+    assert "#24001 is in #24003's stack, but no drive lane registered it in the ledger or posted it opened on cci" in capsys.readouterr().out
+    assert shell.labelled == [] and shell.stack_enqueues == []
+
+
+def test_a_pr_registered_in_the_ledger_is_ours_without_a_cci_record(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.foreign.update(STACK)
+    for pr in STACK:
+        shell.fields(pr)["registered"] = LANE
+
+    assert label_stack(shell) == 0
+    assert shell.labelled == ["24003:merge"]
+    assert not [call for call in shell.calls if call[0] == "cci"]
+
+
+def test_list_marks_open_rows_ours_only_when_a_drive_lane_registered_or_opened_them(capsys, monkeypatch):
+    monkeypatch.setenv(ledger.DRIVE_ENV, "release-v3")
+    shell = stack_shell(tracked=STACK)
+    shell.foreign.add("24002")
+    shell.fields("24003")["registered"] = LANE
+
+    assert run(shell, "list", "--ledger", LEDGER, "--json") == 0
+    assert {row["pr"]: row["ours"] for row in json.loads(capsys.readouterr().out)} == {"24001": True, "24002": False, "24003": True}
+    assert ["cci", "tail", "--drive", "release-v3", "--kind", "opened", "--pr", "24001", "--since", "0", "--json", "-n", "1"] in shell.calls
+
+
 def test_two_open_prs_on_the_parent_branch_refuse_the_stack(capsys):
     shell = stack_shell()
     shell.pulls["24004"] = dict(shell.pulls["24001"], number=24004, base={"ref": "dev"})

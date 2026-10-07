@@ -117,7 +117,8 @@ class FakeShell(runner_module.Shell):
             return self.stack_enqueue(argv[1:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
             verb = argv[4]
-            return runner_module.Done(0, json.dumps(self.rows) if verb == "list" else f"{verb} ok\n", "")
+            assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
+            return runner_module.Done(0, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]) if verb == "list" else f"{verb} ok\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2]))
             assert flags["--drive"] == "d1" and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
@@ -539,6 +540,22 @@ def test_the_accepted_prefix_policy_beats_a_stale_whole_stack_ruling(shell, conf
     assert "#29020" in restacks[0][restacks[0].index("--body") + 1]
 
 
+def test_a_prefix_holding_a_pr_no_drive_lane_opened_is_never_enqueued(shell, config, tmp_path):
+    shell.rows = [dict(row, ours=row["pr"] != "28997") for row in stack_rows()]
+    shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    lines = escalations(shell)
+    assert len(lines) == 1 and "FOREIGN" in lines[0] and "#28997" in lines[0] and "nothing was enqueued" in lines[0]
+
+
+def test_a_tip_no_drive_lane_opened_never_reaches_stack_enqueue(shell, config, tmp_path):
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": False}]
+    landing_pass(shell, config)
+    assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+
+
 def test_a_superseding_policy_naming_the_accepted_revision_applies(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020")]
@@ -607,7 +624,7 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}})
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
     key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
     with store.owned("desk-landing", 0) as live:
         live.start(key, shell.now())
@@ -704,7 +721,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
     landing = runner_module.Landing(runner, runner.config.landing)
-    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}})
+    landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
     shell.gates["28997"] = [gate("#28997 GREEN abab111111 graphite READY", would="#28997")]
     landing.enqueue()
     assert shell.enqueues() == []
@@ -718,7 +735,7 @@ def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config,
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     runner_module.seed_policy(runner)
-    runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}})
+    runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}})
     key = next(key for key in store.load("desk-landing").actions if key.startswith("enqueue:"))
     with store.owned("desk-landing", 0) as live:
         live.start(key, shell.now())

@@ -48,7 +48,7 @@ from pathlib import Path
 import ledger
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
-DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 DRIVE_ID_LENGTH = 8
 WATCHED_THREADS = Path("slack") / "watched-threads.jsonl"

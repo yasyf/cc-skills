@@ -71,9 +71,13 @@ class FakeShell(ledger.Shell):
         self.pr_state_error = ""
         self.orca: dict[tuple[str, ...], dict] = {}
         self.calls: list[list[str]] = []
+        self.foreign: set[str] = set()
 
     def run(self, argv, stdin=None):
         self.calls.append(list(argv))
+        if argv[:2] == ["cci", "tail"]:
+            pr = argv[argv.index("--pr") + 1]
+            return "" if pr in self.foreign else json.dumps({"kind": "opened", "refs": {"prs": [int(pr)]}}) + "\n"
         if argv[0] == "gh":
             return self._gh(argv, stdin)
         if argv[0] == "bk":
